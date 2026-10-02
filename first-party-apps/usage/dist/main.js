@@ -18,47 +18,63 @@
   __export(exports_main, {
     cycleVariant: () => cycleVariant2,
     refresh: () => refresh,
+    renderPane: () => renderPane,
     renderSection: () => renderSection,
     renderStatus: () => renderStatus,
     show: () => show,
     status: () => status
   });
   var ja = {
-    "window.session.hours": "{hours}時間",
-    "window.session": "セッション",
-    "window.weekly": "週間",
-    "window.weekly.scoped": "{scope} 週間",
-    "window.monthly": "月間",
-    "window.daily": "日次",
-    "window.budget": "予算",
-    "window.credits": "クレジット",
+    "advice.over": "負荷を下げる",
+    "advice.under": "負荷を上げる",
+    "alert.body": "{total} 個のアカウントがすべて使い切り、冷却中、またはエラーです。",
+    "alert.title": "使える {provider} アカウントがありません",
+    "column.account": "アカウント",
+    "column.pace": "ペース",
+    "column.session": "5時間",
+    "column.state": "状態",
+    "column.weekly": "週",
+    "duration.daysHours": "{d}日{h}時間",
+    "duration.hoursMinutes": "{h}時間{m}分",
     "duration.lessThanMinute": "1分未満",
     "duration.minutes": "{m}分",
-    "duration.hoursMinutes": "{h}時間{m}分",
-    "duration.daysHours": "{d}日{h}時間",
-    "reset.in": "{duration}後にリセット",
-    "reset.now": "まもなくリセット",
-    "pace.runsOut": "{duration}後に上限に達する見込み",
-    "pace.over": "想定より{delta}%多い",
-    "stale.ago": "古いデータ · {duration}前に更新",
-    stale: "古いデータ",
-    "spend.ofLimit": "{used} / {limit}",
-    "unavailable.title": "使用量サービスがありません",
-    "unavailable.message": "このビルドには使用量サービス ({op}) がまだありません。",
-    "scope.title": "使用量を読む権限がありません",
-    "scope.message": "設定 > アプリ > 使用量 で {scope} を許可してください。",
+    "empty.message": "ルーターにアカウントを追加すると (sr add)、cmux がここに使用量を表示します。",
+    "empty.title": "アカウントが見つかりません",
     "error.title": "使用量を読み込めません",
-    "empty.title": "プランが見つかりません",
-    "empty.message": "ターミナルで Claude Code か Codex にサインインすると、cmux がその使用量を表示します。",
+    extra: "追加 ${usd}",
     loading: "読み込み中…",
+    "menu.noData": "使用量データがありません",
     "menu.refresh": "今すぐ更新",
     "menu.show": "使用量を表示",
-    "menu.noData": "使用量データがありません",
-    "status.help": "{provider} · {window} · {percent}",
-    "alert.title": "{provider} の{window}上限が {percent} に達しました",
-    "alert.body": "{reset}。{pace}",
-    "alert.bodyNoPace": "{reset}。",
-    pool: "プール"
+    "pace.account": "ペース {ratio}",
+    "scope.message": "設定 > アプリ > 使用量 で {scope} を許可してください。",
+    "scope.title": "使用量を読む権限がありません",
+    "stale.ago": "古いデータ · {duration}前に更新",
+    stale: "古いデータ",
+    "state.active": "使用中",
+    "state.cooked": "使い切り",
+    "state.error": "エラー",
+    "state.protected": "保留",
+    "state.ready": "待機",
+    "state.rec": "次候補",
+    "state.temp": "冷却中",
+    "state.unknown": "不明",
+    "summary.burn": "{actual}%/時 (理想 {ideal}%/時)",
+    "summary.ideal": "理想 {ideal}%/時",
+    "summary.left": "残り {left}",
+    "summary.usable": "{total} 中 {usable} 個が使用可能",
+    "unavailable.message": "このビルドには使用量サーバー ({op}) がまだありません。",
+    "unavailable.title": "使用量サーバーがありません",
+    usableBadge: "{usable}/{total}",
+    "verdict.none": "残りなし",
+    "verdict.onPace": "ペース通り",
+    "verdict.over": "ペース超過",
+    "verdict.pending": "30分後にペース",
+    "verdict.under": "ペース不足",
+    "verdict.unmetered": "週間上限なし",
+    "window.leftReset": "{left} · {reset}",
+    "window.session": "5時間 {text}",
+    "window.weekly": "週 {text}"
   };
   var tables = { ja };
   var locale = detectLocale();
@@ -79,7 +95,7 @@
   var MINUTE = 60000;
   var HOUR = 60 * MINUTE;
   var DAY = 24 * HOUR;
-  var percentText = (p) => p === null ? "—" : `${Math.round(p)}%`;
+  var pctText = (p) => p === null || p === undefined ? "—" : `${Math.round(p)}%`;
   function durationText(ms) {
     if (ms < MINUTE)
       return t("duration.lessThanMinute", "<1m");
@@ -90,48 +106,78 @@
     return t("duration.daysHours", "{d}d {h}h", { d: Math.floor(ms / DAY), h: Math.floor(ms % DAY / HOUR) });
   }
   var unitFor = (ms) => ms < DAY ? MINUTE : HOUR;
-  function windowLabel(w) {
-    switch (w.kind) {
-      case "session":
-        return w.windowSeconds && w.windowSeconds % 3600 === 0 ? t("window.session.hours", "{hours}-hour", { hours: w.windowSeconds / 3600 }) : t("window.session", "Session");
-      case "weekly":
-        return w.scope ? t("window.weekly.scoped", "{scope} weekly", { scope: w.scope }) : t("window.weekly", "Weekly");
-      case "monthly":
-        return t("window.monthly", "Monthly");
-      case "daily":
-        return t("window.daily", "Daily");
-      case "budget":
-        return t("window.budget", "Budget");
-      case "credits":
-        return t("window.credits", "Credits");
+  var TITLES = { claude: "Claude", codex: "Codex" };
+  var providerTitle = (id) => TITLES[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
+  var SHORT = { claude: "Cl", codex: "Cx" };
+  var providerInitial = (id) => SHORT[id] ?? providerTitle(id).slice(0, 2);
+  function stateText(s) {
+    switch (s) {
+      case "active":
+        return t("state.active", "in use");
+      case "rec":
+        return t("state.rec", "next");
+      case "ready":
+        return t("state.ready", "ready");
+      case "protected":
+        return t("state.protected", "held");
+      case "temp":
+        return t("state.temp", "cooling");
+      case "cooked":
+        return t("state.cooked", "used up");
+      case "error":
+        return t("state.error", "error");
       default:
-        return w.label ?? w.id;
+        return t("state.unknown", "unknown");
     }
   }
-  function resetText(w, now) {
-    if (w.resetsAt === null)
+  function windowText(w, now) {
+    if (!w)
       return null;
-    const left = w.resetsAt - now;
-    return left <= 0 ? t("reset.now", "resets soon") : t("reset.in", "resets in {duration}", { duration: durationText(left) });
+    const reset = w.resetAt === null ? null : durationText(Math.max(0, w.resetAt - now));
+    return reset ? t("window.leftReset", "{left} · {reset}", { left: pctText(w.leftPct), reset }) : pctText(w.leftPct);
   }
-  function amountText(w) {
-    if (w.used === null || w.limit === null)
-      return null;
-    const fmt = (n) => w.unit === "usd" ? `$${n >= 100 ? Math.round(n) : n.toFixed(2)}` : `${Math.round(n)}`;
-    return t("spend.ofLimit", "{used} / {limit}", { used: fmt(w.used), limit: fmt(w.limit) });
+  var ratioText = (r) => `×${r < 10 ? r.toFixed(2) : Math.round(r)}`;
+  function verdictText(v, metered = true) {
+    switch (v) {
+      case "under":
+        return t("verdict.under", "under pace");
+      case "over":
+        return t("verdict.over", "over pace");
+      case "onPace":
+        return t("verdict.onPace", "on pace");
+      case "none":
+        return metered ? t("verdict.none", "no headroom") : t("verdict.unmetered", "no weekly limit");
+      default:
+        return t("verdict.pending", "pace in 30m");
+    }
   }
-  function paceText(p, now) {
-    if (!p)
-      return null;
-    if (p.runsOutAt !== null)
-      return t("pace.runsOut", "runs out in {duration}", { duration: durationText(Math.max(0, p.runsOutAt - now)) });
-    if (p.stage === "over")
-      return t("pace.over", "{delta}% ahead of pace", { delta: Math.round(p.deltaPercent) });
+  function adviceText(v) {
+    if (v === "under")
+      return t("advice.under", "raise load");
+    if (v === "over")
+      return t("advice.over", "lower load");
     return null;
   }
-  var isStale = (a, now, staleMs) => a.stale || a.fetchedAt !== null && now - a.fetchedAt > staleMs;
-  function staleText(a, now) {
-    return a.fetchedAt === null ? t("stale", "Stale") : t("stale.ago", "Stale · updated {duration} ago", { duration: durationText(Math.max(0, now - a.fetchedAt)) });
+  var rate = (n) => n < 10 ? n.toFixed(1) : String(Math.round(n));
+  function summaryText(p, withVerdict = true) {
+    if (!p.metered)
+      return t("summary.usable", "{usable} of {total} usable", { usable: p.usable, total: p.total });
+    const head = [withVerdict ? verdictText(p.verdict) : null, p.ratio !== null ? ratioText(p.ratio) : null].filter((x) => x !== null).join(" ");
+    const parts = head ? [head] : [];
+    const advice = adviceText(p.verdict);
+    if (advice)
+      parts.push(advice);
+    if (p.actualPerHour !== null)
+      parts.push(t("summary.burn", "{actual}%/h of {ideal}%/h", { actual: rate(Math.max(0, p.actualPerHour)), ideal: rate(p.idealPerHour) }));
+    else if (p.idealPerHour > 0)
+      parts.push(t("summary.ideal", "ideal {ideal}%/h", { ideal: rate(p.idealPerHour) }));
+    parts.push(t("summary.usable", "{usable} of {total} usable", { usable: p.usable, total: p.total }));
+    return parts.join(" · ");
+  }
+  var accountPaceText = (p) => p ? t("pace.account", "pace {ratio}", { ratio: ratioText(p.ratio) }) : null;
+  var isStale = (u, now, staleMs) => u.stale || u.fetchedAt !== null && now - u.fetchedAt > staleMs;
+  function staleText(u, now) {
+    return u.fetchedAt === null ? t("stale", "Stale") : t("stale.ago", "Stale · updated {duration} ago", { duration: durationText(Math.max(0, now - u.fetchedAt)) });
   }
   function nextTextChange(now, input) {
     let next = Infinity;
@@ -140,8 +186,7 @@
       if (left <= 0)
         continue;
       const unit = unitFor(left);
-      const step = left % unit || unit;
-      next = Math.min(next, now + step);
+      next = Math.min(next, now + (left % unit || unit));
     }
     for (const since of input.agesFrom) {
       const age = Math.max(0, now - since);
@@ -153,269 +198,311 @@
         next = Math.min(next, at);
     return Number.isFinite(next) ? next : null;
   }
-  var KINDS = ["session", "weekly", "monthly", "daily", "budget", "credits", "other"];
-  var UNITS = ["usd", "tokens", "requests", "credits"];
+  var STATES = ["error", "cooked", "temp", "active", "rec", "protected", "ready"];
   var obj = (v) => v && typeof v === "object" && !Array.isArray(v) ? v : {};
   var str = (v) => typeof v === "string" && v.length > 0 ? v : null;
   var num = (v) => {
     const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
     return typeof n === "number" && Number.isFinite(n) ? n : null;
   };
-  function percentOf(w) {
-    if (w.usedPercent !== null)
-      return Math.max(0, w.usedPercent);
-    if (w.used !== null && w.limit !== null && w.limit > 0)
-      return Math.max(0, w.used / w.limit * 100);
-    return null;
+  function time(v) {
+    if (typeof v === "string" && /^\d{4}-\d\d-\d\dT/.test(v)) {
+      const ms = Date.parse(v);
+      return Number.isFinite(ms) ? ms : null;
+    }
+    return num(v);
   }
-  function normalizeWindow(raw, index) {
+  var pct = (v) => {
+    const n = num(v);
+    return n === null ? null : Math.min(100, Math.max(0, n));
+  };
+  var stateOf = (v) => STATES.includes(v) ? v : "unknown";
+  var isUsable = (s) => s !== "cooked" && s !== "temp" && s !== "error";
+  function window(left, reset) {
+    const leftPct = pct(left);
+    return leftPct === null ? null : { leftPct, resetAt: time(reset) };
+  }
+  function normalizeAccount(raw, provider) {
     const r = obj(raw);
-    const kind = KINDS.includes(r.kind) ? r.kind : "other";
-    const unit = UNITS.includes(r.unit) ? r.unit : null;
+    const id = str(r.id);
+    if (!id)
+      return null;
     return {
-      id: str(r.id) ?? `${kind}-${index}`,
-      kind,
-      label: str(r.label),
-      scope: str(r.scope),
-      usedPercent: num(r.used_percent),
-      used: num(r.used),
-      limit: num(r.limit),
-      unit,
-      windowSeconds: num(r.window_seconds),
-      resetsAt: num(r.resets_at_ms)
+      id,
+      label: str(r.label) ?? id,
+      provider: str(r.provider) ?? provider,
+      plan: str(r.plan),
+      state: stateOf(r.state),
+      session: window(r.session_left_pct, r.session_reset_at),
+      weekly: window(r.weekly_left_pct, r.weekly_reset_at),
+      extraUsd: num(r.extra_usage_usd),
+      source: str(r.source)
     };
+  }
+  var DISPLAY_RANK = { active: 0, rec: 1, ready: 2, protected: 3, temp: 4, cooked: 5, error: 6, unknown: 7 };
+  function sortAccounts(accounts) {
+    return [...accounts].sort((a, b) => DISPLAY_RANK[a.state] - DISPLAY_RANK[b.state] || (a.weekly?.resetAt ?? Infinity) - (b.weekly?.resetAt ?? Infinity) || a.label.localeCompare(b.label));
+  }
+  function summarize(accounts) {
+    const usable = accounts.filter((a) => isUsable(a.state));
+    return { usable: usable.length, total: accounts.length, weeklyLeftSumPct: usable.reduce((sum, a) => sum + (a.weekly?.leftPct ?? 0), 0) };
+  }
+  var PROVIDER_ORDER = ["claude", "codex"];
+  var providerRank = (id) => {
+    const i = PROVIDER_ORDER.indexOf(id);
+    return i < 0 ? PROVIDER_ORDER.length : i;
+  };
+  function normalizeProviders(raw) {
+    const out = [];
+    for (const [id, value] of Object.entries(obj(raw))) {
+      const p = obj(value);
+      const accounts = (Array.isArray(p.accounts) ? p.accounts : []).map((a) => normalizeAccount(a, id)).filter((a) => a !== null);
+      const s = obj(p.summary);
+      const usable = num(s.usable);
+      const total = num(s.total);
+      const left = num(s.weekly_left_sum_pct);
+      const summary = usable !== null && total !== null && left !== null ? { usable, total, weeklyLeftSumPct: left } : summarize(accounts);
+      out.push({ id, accounts: sortAccounts(accounts), summary });
+    }
+    return out.sort((a, b) => providerRank(a.id) - providerRank(b.id) || a.id.localeCompare(b.id));
   }
   function normalizeError(raw) {
     if (!raw)
       return null;
     const r = obj(raw);
-    return { code: str(r.code) ?? "usage.failed", message: str(r.message) ?? "", retryable: r.retryable === true };
-  }
-  var KIND_ORDER = { session: 0, daily: 1, weekly: 2, monthly: 3, budget: 4, credits: 5, other: 6 };
-  function sortWindows(windows) {
-    return [...windows].sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || Number(a.scope !== null) - Number(b.scope !== null));
-  }
-  function normalizeAccount(raw, fallbackKind = "plan") {
-    const r = obj(raw);
-    const id = str(r.id);
-    const provider = str(r.provider);
-    if (!id || !provider)
-      return null;
-    const kind = r.kind === "plan" || r.kind === "api" || r.kind === "pool" ? r.kind : fallbackKind;
-    const windows = Array.isArray(r.windows) ? r.windows.map(normalizeWindow) : [];
-    return {
-      id,
-      provider,
-      providerTitle: str(r.provider_title) ?? provider,
-      kind,
-      upstream: str(r.upstream),
-      label: str(r.label),
-      plan: str(r.plan),
-      windows: sortWindows(windows),
-      source: str(r.source),
-      fetchedAt: num(r.fetched_at_ms),
-      stale: r.stale === true,
-      error: normalizeError(r.error)
-    };
+    return { code: str(r.code) ?? "usage.failed", message: str(r.message) ?? "" };
   }
   function normalizeUsage(value) {
-    const list = obj(value).accounts;
-    return Array.isArray(list) ? list.map((a) => normalizeAccount(a)).filter((a) => a !== null) : [];
-  }
-  function normalizePools(value, poolWord) {
-    const pools = obj(value).pools;
-    if (!Array.isArray(pools))
-      return [];
-    const out = [];
-    for (const p of pools) {
-      const pool = obj(p);
-      const name = str(pool.name) ?? str(pool.id) ?? poolWord;
-      for (const raw of Array.isArray(pool.accounts) ? pool.accounts : []) {
-        const r = obj(raw);
-        const a = normalizeAccount({ ...r, provider: "coderouter", upstream: str(r.provider), kind: "pool" }, "pool");
-        if (a)
-          out.push({ ...a, id: `${str(pool.id) ?? name}/${a.id}`, providerTitle: "CodeRouter", label: [name, a.label].filter(Boolean).join(" · ") });
-      }
-    }
-    return out;
-  }
-  function severityOf(percent, thresholds) {
-    if (percent === null || thresholds.length === 0)
-      return "normal";
-    const sorted = [...thresholds].sort((a, b) => a - b);
-    if (percent >= sorted[sorted.length - 1])
-      return "danger";
-    if (percent >= sorted[0])
-      return "warning";
-    return "normal";
-  }
-  function tightest(accounts) {
-    let best = null;
-    for (const account of accounts) {
-      if (account.error)
-        continue;
-      for (const window of account.windows) {
-        const percent = percentOf(window);
-        if (percent === null)
-          continue;
-        const earlier = best && percent === best.percent && (window.resetsAt ?? Infinity) < (best.window.resetsAt ?? Infinity);
-        if (!best || percent > best.percent || earlier)
-          best = { account, window, percent };
-      }
-    }
-    return best;
-  }
-  function sessionAndWeek(account) {
-    const main = account.windows.filter((w) => w.scope === null);
-    return { session: main.find((w) => w.kind === "session") ?? null, week: main.find((w) => w.kind === "weekly") ?? null };
-  }
-  var MIN_ELAPSED_SHARE = 0.05;
-  var ON_TRACK_POINTS = 5;
-  function paceOf(window, now) {
-    const used = percentOf(window);
-    if (used === null || window.windowSeconds === null || window.resetsAt === null)
-      return null;
-    const length = window.windowSeconds * 1000;
-    const left = window.resetsAt - now;
-    if (length <= 0 || left <= 0 || left > length)
-      return null;
-    const elapsed = length - left;
-    const expected = elapsed / length * 100;
-    const delta = used - expected;
-    const stage = Math.abs(delta) <= ON_TRACK_POINTS ? "onTrack" : delta > 0 ? "over" : "under";
-    let runsOutAt = null;
-    let lastsToReset = true;
-    if (used >= 100) {
-      runsOutAt = now;
-      lastsToReset = false;
-    } else if (used > 0 && elapsed >= length * MIN_ELAPSED_SHARE) {
-      const msToLimit = (100 - used) / used * elapsed;
-      if (msToLimit < left) {
-        runsOutAt = now + msToLimit;
-        lastsToReset = false;
-      }
-    }
-    return { expectedPercent: expected, deltaPercent: delta, runsOutAt, lastsToReset, stage };
-  }
-  var round1 = (n) => Math.round(n * 10) / 10;
-  function statusJSON(accounts, options) {
-    const { now } = options;
-    const list = options.provider ? accounts.filter((a) => a.provider === options.provider) : accounts;
-    const top = tightest(list);
+    const r = obj(value);
+    const sources = (Array.isArray(r.sources) ? r.sources : []).map((s) => {
+      const o = obj(s);
+      const error = normalizeError(o.error);
+      return { id: str(o.id) ?? "router", ok: o.ok !== false && error === null, error };
+    });
     return {
-      generated_at_ms: now,
-      state: options.state,
-      problem: options.problem,
-      tightest: top ? { account: top.account.id, provider: top.account.provider, window: top.window.id, used_percent: round1(top.percent), resets_at_ms: top.window.resetsAt } : null,
-      accounts: list.map((a) => ({
-        id: a.id,
-        provider: a.provider,
-        provider_title: a.providerTitle,
-        kind: a.kind,
-        upstream: a.upstream,
-        label: a.label,
-        plan: a.plan,
-        source: a.source,
-        fetched_at_ms: a.fetchedAt,
-        stale: isStale(a, now, options.staleMs),
-        error: a.error,
-        windows: a.windows.map((w) => {
-          const percent = percentOf(w);
-          const pace = paceOf(w, now);
-          return {
-            id: w.id,
-            kind: w.kind,
-            scope: w.scope,
-            used_percent: percent === null ? null : round1(percent),
-            used: w.used,
-            limit: w.limit,
-            unit: w.unit,
-            window_seconds: w.windowSeconds,
-            resets_at_ms: w.resetsAt,
-            resets_in_seconds: w.resetsAt === null ? null : Math.max(0, Math.round((w.resetsAt - now) / 1000)),
-            severity: severityOf(percent, options.thresholds),
-            pace: pace ? { expected_percent: round1(pace.expectedPercent), delta_percent: round1(pace.deltaPercent), runs_out_at_ms: pace.runsOutAt === null ? null : Math.round(pace.runsOutAt), lasts_to_reset: pace.lastsToReset } : null
-          };
-        })
-      }))
+      fetchedAt: time(r.fetched_at_ms) ?? time(r.generated_at),
+      stale: r.stale === true,
+      error: normalizeError(r.error),
+      sources,
+      providers: normalizeProviders(r.providers)
     };
   }
-  var DEFAULT_THRESHOLDS = [80, 95];
-  var alertKey = (account, window) => `${account.id}|${window.id}`;
-  function cleanThresholds(raw) {
-    const list = Array.isArray(raw) ? raw : DEFAULT_THRESHOLDS;
-    const nums = list.map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= 100);
-    return [...new Set(nums)].sort((a, b) => a - b);
-  }
-  function planAlerts(accounts, thresholds, fired, now, staleMs) {
-    const next = {};
-    const alerts = [];
-    const lowest = thresholds[0];
-    const live = new Set;
-    for (const account of accounts) {
-      const unusable = account.error !== null || account.stale || account.fetchedAt !== null && now - account.fetchedAt > staleMs;
-      for (const window of account.windows) {
-        const key = alertKey(account, window);
-        live.add(key);
-        const previous = fired[key];
-        if (unusable) {
-          if (previous)
-            next[key] = previous;
+  function normalizeHistory(value) {
+    const list = obj(value).snapshots;
+    if (!Array.isArray(list))
+      return [];
+    const out = [];
+    for (const raw of list) {
+      const r = obj(raw);
+      const at = time(r.taken_at_ms);
+      if (at === null)
+        continue;
+      const accounts = new Map;
+      for (const a of Array.isArray(r.accounts) ? r.accounts : []) {
+        const o = obj(a);
+        const id = str(o.id);
+        const provider = str(o.provider);
+        if (!id || !provider)
           continue;
-        }
-        const percent = percentOf(window);
-        const rearm = !previous || previous.resetsAt !== null && previous.resetsAt <= now || percent !== null && lowest !== undefined && percent < lowest;
-        const already = rearm ? 0 : previous.level;
-        const crossed = percent === null ? 0 : Math.max(0, ...thresholds.filter((th) => percent >= th));
-        if (crossed > already) {
-          alerts.push({ key, level: crossed, top: crossed === thresholds[thresholds.length - 1], percent, account, window });
-          next[key] = { level: crossed, resetsAt: window.resetsAt };
-        } else if (already > 0) {
-          next[key] = { level: already, resetsAt: window.resetsAt ?? previous.resetsAt };
-        }
+        accounts.set(`${provider}/${id}`, { provider, state: stateOf(o.state), weeklyLeftPct: pct(o.weekly_left_pct), weeklyResetAt: time(o.weekly_reset_at) });
+      }
+      out.push({ at, accounts });
+    }
+    return out.sort((a, b) => a.at - b.at);
+  }
+  function snapshotOf(usage, at) {
+    const accounts = new Map;
+    for (const p of usage.providers) {
+      for (const a of p.accounts) {
+        accounts.set(`${p.id}/${a.id}`, { provider: p.id, state: a.state, weeklyLeftPct: a.weekly?.leftPct ?? null, weeklyResetAt: a.weekly?.resetAt ?? null });
       }
     }
-    for (const [key, entry] of Object.entries(fired)) {
-      if (!live.has(key) && entry.resetsAt !== null && entry.resetsAt > now)
-        next[key] = entry;
+    return { at, accounts };
+  }
+  var HOUR2 = 3600000;
+  var MIN_BASELINE_MS = 30 * 60000;
+  var UNDER_BELOW = 0.8;
+  var OVER_ABOVE = 1.2;
+  var SESSION_MS = 5 * HOUR2;
+  var WEEK_MS = 7 * 24 * HOUR2;
+  var MIN_ELAPSED_SHARE = 0.05;
+  var RESET_MOVED_MS = HOUR2;
+  var verdictOf = (ratio) => ratio < UNDER_BELOW ? "under" : ratio > OVER_ABOVE ? "over" : "onPace";
+  var counted = (accounts) => accounts.filter((a) => a.state !== "error");
+  function idealPerHour(accounts, now) {
+    let ideal = 0;
+    for (const a of counted(accounts)) {
+      const r = a.weekly?.resetAt ?? null;
+      if (a.weekly && r !== null && r > now)
+        ideal += a.weekly.leftPct / ((r - now) / HOUR2);
     }
+    return ideal;
+  }
+  function pickBaseline(history, now) {
+    let best = null;
+    for (const s of history)
+      if (now - s.at >= MIN_BASELINE_MS && (!best || s.at > best.at))
+        best = s;
+    return best;
+  }
+  function actualPerHour(provider, baseline, current) {
+    const hours = (current.at - baseline.at) / HOUR2;
+    if (hours <= 0)
+      return null;
+    let drop = 0;
+    let matched = 0;
+    for (const [key, now] of current.accounts) {
+      if (now.provider !== provider || now.state === "error" || now.weeklyLeftPct === null)
+        continue;
+      const before = baseline.accounts.get(key);
+      if (!before || before.weeklyLeftPct === null)
+        continue;
+      const moved = before.weeklyResetAt !== null && now.weeklyResetAt !== null && Math.abs(now.weeklyResetAt - before.weeklyResetAt) > RESET_MOVED_MS;
+      const passed = before.weeklyResetAt !== null && before.weeklyResetAt <= current.at;
+      if (moved || passed)
+        continue;
+      drop += before.weeklyLeftPct - now.weeklyLeftPct;
+      matched++;
+    }
+    return matched === 0 ? null : drop / hours;
+  }
+  function providerPace(provider, current, baseline) {
+    const accounts = counted(provider.accounts);
+    const ideal = idealPerHour(provider.accounts, current.at);
+    const actual = baseline ? actualPerHour(provider.id, baseline, current) : null;
+    const ratio = actual !== null && ideal > 0 ? actual / ideal : null;
+    return {
+      provider: provider.id,
+      total: provider.accounts.length,
+      counted: accounts.length,
+      usable: accounts.filter((a) => isUsable(a.state)).length,
+      metered: accounts.some((a) => a.weekly !== null),
+      leftSumPct: accounts.reduce((sum, a) => sum + (a.weekly?.leftPct ?? 0), 0),
+      idealPerHour: ideal,
+      actualPerHour: actual,
+      ratio,
+      verdict: ideal <= 0 ? "none" : ratio === null ? "pending" : verdictOf(ratio),
+      baselineAt: actual === null ? null : baseline?.at ?? null
+    };
+  }
+  function windowPace(w, lengthMs, now) {
+    if (!w || w.resetAt === null)
+      return null;
+    const left = w.resetAt - now;
+    if (left <= 0 || left > lengthMs)
+      return null;
+    const elapsedShare = 1 - left / lengthMs;
+    if (elapsedShare < MIN_ELAPSED_SHARE)
+      return null;
+    const ratio = (100 - w.leftPct) / 100 / elapsedShare;
+    return { ratio, verdict: verdictOf(ratio), expectedLeftPct: left / lengthMs * 100 };
+  }
+  var weeklyPace = (a, now) => windowPace(a.weekly, WEEK_MS, now);
+  var sessionPace = (a, now) => windowPace(a.session, SESSION_MS, now);
+  var r2 = (n) => n === null ? null : Math.round(n * 100) / 100;
+  var iso = (ms) => ms === null ? null : new Date(ms).toISOString();
+  function statusJSON(usage, paces, options) {
+    const at = usage?.fetchedAt ?? options.now;
+    const list = (usage?.providers ?? []).filter((p) => !options.provider || p.id === options.provider);
+    return {
+      state: options.state,
+      problem: options.problem,
+      fetched_at: iso(usage?.fetchedAt ?? null),
+      stale: usage ? isStale(usage, options.now, options.staleMs) : false,
+      providers: list.map((p) => {
+        const pace = paces.find((x) => x.provider === p.id) ?? null;
+        return {
+          id: p.id,
+          summary: { usable: p.summary.usable, total: p.summary.total, weekly_left_sum_pct: p.summary.weeklyLeftSumPct },
+          pace: pace && {
+            verdict: pace.verdict,
+            ratio: r2(pace.ratio),
+            actual_pct_per_hour: r2(pace.actualPerHour),
+            ideal_pct_per_hour: r2(pace.idealPerHour),
+            left_sum_pct: pace.leftSumPct,
+            counted: pace.counted,
+            usable: pace.usable,
+            baseline_at: iso(pace.baselineAt)
+          },
+          ...options.accounts ? {
+            accounts: p.accounts.map((a) => ({
+              id: a.id,
+              label: a.label,
+              plan: a.plan,
+              state: a.state,
+              session_left_pct: a.session?.leftPct ?? null,
+              session_reset_at: iso(a.session?.resetAt ?? null),
+              weekly_left_pct: a.weekly?.leftPct ?? null,
+              weekly_reset_at: iso(a.weekly?.resetAt ?? null),
+              extra_usage_usd: a.extraUsd,
+              weekly_pace: r2(weeklyPace(a, at)?.ratio ?? null),
+              session_pace: r2(sessionPace(a, at)?.ratio ?? null)
+            }))
+          } : {}
+        };
+      })
+    };
+  }
+  function planAlerts(providers, fired) {
+    const next = {};
+    const alerts = [];
+    const seen = new Set;
+    for (const p of providers) {
+      seen.add(p.id);
+      const out = p.summary.total > 0 && p.summary.usable === 0;
+      if (!out)
+        continue;
+      next[p.id] = true;
+      if (!fired[p.id])
+        alerts.push({ provider: p.id, total: p.summary.total });
+    }
+    for (const id of Object.keys(fired))
+      if (!seen.has(id))
+        next[id] = true;
     return { alerts, fired: next };
   }
-  function alertMessage(alert, now) {
-    const { account, window } = alert;
-    const title = t("alert.title", "{provider} {window} limit at {percent}", {
-      provider: account.providerTitle,
-      window: windowLabel(window),
-      percent: percentText(alert.percent)
-    });
-    const reset = resetText(window, now) ?? "";
-    const pace = paceText(paceOf(window, now), now);
-    const capitalized = reset.charAt(0).toUpperCase() + reset.slice(1);
-    const body = !reset ? pace ?? "" : pace ? t("alert.body", "{reset}. At this pace it {pace}.", { reset: capitalized, pace }) : t("alert.bodyNoPace", "{reset}.", { reset: capitalized });
-    return { title, body, level: alert.top ? "error" : "warning" };
+  function alertMessage(alert) {
+    return {
+      title: t("alert.title", "No usable {provider} account", { provider: providerTitle(alert.provider) }),
+      body: t("alert.body", "All {total} accounts are used up, cooling or failing.", { total: alert.total }),
+      level: "error"
+    };
   }
-  async function notifyAlerts(alerts, now) {
+  async function notifyAlerts(alerts) {
     for (const alert of alerts) {
-      const m = alertMessage(alert, now);
-      const subtitle = alert.account.label ?? alert.account.plan ?? undefined;
+      const m = alertMessage(alert);
       try {
-        await cmux.notification.create({ title: m.title, subtitle, body: m.body, level: m.level });
+        await cmux.notification.create({ title: m.title, body: m.body, level: m.level });
       } catch (e) {
         cmux.log("usage warning not sent:", String(e));
       }
     }
   }
-  var USAGE_GET = "usage.get";
-  var POOLS_GET = "coderouter.usage.get";
-  var [accounts, setAccounts] = signal([]);
-  var [pools, setPools] = signal([]);
+  var ACCOUNT_LIST = "account.list";
+  var ACCOUNT_USAGE = "account.usage";
+  var ACCOUNT_REFRESH = "account.refresh";
+  var [usage, setUsage] = signal(null);
+  var [baseline, setBaseline] = signal(null);
   var [state, setState] = signal("loading");
   var [problem, setProblem] = signal(null);
   var [now, setNow] = signal(Date.now());
-  var allAccounts = () => [...accounts(), ...pools()];
   var settings = () => cmux.app.settings();
-  var thresholds = () => cleanThresholds(settings().warnAt);
   var staleMs = () => Math.max(1, Number(settings().staleMinutes ?? 30)) * 60000;
+  var providers = () => usage()?.providers ?? [];
+  var readingAt = () => usage()?.fetchedAt ?? now();
+  var stale = () => {
+    const u = usage();
+    return u ? isStale(u, now(), staleMs()) : false;
+  };
+  var paces = computed(() => {
+    const u = usage();
+    if (!u)
+      return [];
+    const current = snapshotOf(u, u.fetchedAt ?? now());
+    const base = baseline();
+    return u.providers.map((p) => providerPace(p, current, base));
+  });
+  var paceOf = (provider) => paces().find((p) => p.provider === provider) ?? null;
   var inFlight = null;
   var again = false;
   function load() {
@@ -433,22 +520,27 @@
     return inFlight;
   }
   async function readAll() {
-    const [usage, pool] = await Promise.allSettled([cmux.call(USAGE_GET, {}), cmux.call(POOLS_GET, {})]);
-    setNow(Date.now());
-    setPools(pool.status === "fulfilled" ? normalizePools(pool.value, t("pool", "pool")) : []);
-    if (usage.status === "fulfilled") {
-      setAccounts(normalizeUsage(usage.value));
-      setProblem(null);
-      setState("ready");
-      queueAlerts();
-    } else {
-      const e = usage.reason;
+    let next;
+    try {
+      next = normalizeUsage(await cmux.call(ACCOUNT_LIST, {}));
+    } catch (err) {
+      const e = err;
       const code = e?.code ?? "operation.failed";
-      setProblem({ code, message: e?.message ?? String(usage.reason), scope: e?.details?.scope });
-      setState(code === "operation.unsupported" ? "unavailable" : code === "scope.missing" ? "denied" : accounts().length ? "ready" : "error");
+      setProblem({ code, message: e?.message ?? String(err), scope: e?.details?.scope });
+      setState(code === "operation.unsupported" ? "unavailable" : code === "scope.missing" ? "denied" : usage() ? "ready" : "error");
       if (code !== "operation.unsupported" && code !== "scope.missing")
         cmux.log("usage read failed:", code);
+      setNow(Date.now());
+      return;
     }
+    const at = next.fetchedAt ?? Date.now();
+    const history = await cmux.call(ACCOUNT_USAGE, { before_ms: String(at - MIN_BASELINE_MS), limit: 1 }).catch(() => null);
+    setNow(Date.now());
+    setBaseline(history === null ? null : pickBaseline(normalizeHistory(history), at));
+    setUsage(next);
+    setProblem(next.error);
+    setState("ready");
+    queueAlerts();
   }
   var clockTimer = null;
   var armQueued = false;
@@ -456,19 +548,19 @@
     const countdownsTo = [];
     const agesFrom = [];
     const staleAt = [];
-    for (const a of allAccounts()) {
-      if (a.fetchedAt !== null) {
-        if (isStale(a, at, staleMs()))
-          agesFrom.push(a.fetchedAt);
-        else
-          staleAt.push(a.fetchedAt + staleMs());
-      }
-      for (const w of a.windows) {
-        if (w.resetsAt !== null)
-          countdownsTo.push(w.resetsAt);
-        const pace = paceOf(w, at);
-        if (pace?.runsOutAt)
-          countdownsTo.push(pace.runsOutAt);
+    const u = usage();
+    if (u?.fetchedAt != null) {
+      if (isStale(u, at, staleMs()))
+        agesFrom.push(u.fetchedAt);
+      else
+        staleAt.push(u.fetchedAt + staleMs());
+    }
+    for (const p of u?.providers ?? []) {
+      for (const a of p.accounts) {
+        if (a.session?.resetAt != null)
+          countdownsTo.push(a.session.resetAt);
+        if (a.weekly?.resetAt != null)
+          countdownsTo.push(a.weekly.resetAt);
       }
     }
     return { countdownsTo, agesFrom, staleAt };
@@ -494,44 +586,43 @@
   }
   function attach(demand) {
     setNow(Date.now());
-    cmux.events.on("usage.changed", () => void load(), { demand });
-    cmux.events.on("coderouter.usage.changed", () => void load(), { demand });
+    cmux.events.on("account.watch", () => void load(), { demand });
     effect(() => {
       now();
-      allAccounts();
+      usage();
       staleMs();
       requestClock();
     });
     if (state() === "loading" && !inFlight)
       load();
   }
-  async function refreshNow(params = {}) {
+  async function refreshNow() {
     let requested = true;
     try {
-      await cmux.call("usage.refresh", params);
+      await cmux.call(ACCOUNT_REFRESH, {});
     } catch {
       requested = false;
     }
     await load();
     return { requested };
   }
-  var ALERTS_KEY = "alerts.v1";
+  var ALERTS_KEY = "alerts.v2";
   var alertChain = Promise.resolve();
   var fired = null;
   function queueAlerts() {
-    if (settings().notifications === false)
+    if (settings().notifications === false || stale())
       return;
-    const snapshot = allAccounts();
+    const snapshot = providers();
     alertChain = alertChain.then(async () => {
       fired ??= await cmux.storage.get(ALERTS_KEY).catch(() => null) ?? {};
-      const plan = planAlerts(snapshot, thresholds(), fired, Date.now(), staleMs());
+      const plan = planAlerts(snapshot, fired);
       fired = plan.fired;
       await cmux.storage.set(ALERTS_KEY, plan.fired).catch((e) => cmux.log("usage alerts not persisted:", String(e)));
-      await notifyAlerts(plan.alerts, Date.now());
+      await notifyAlerts(plan.alerts);
     }).catch((e) => cmux.log("usage alerts failed:", String(e)));
   }
-  var VARIANTS = ["menuPercent", "menuMeters", "sidebarOnly"];
-  var DEFAULT_VARIANT = "menuPercent";
+  var VARIANTS = ["rows", "meters", "quiet"];
+  var DEFAULT_VARIANT = "rows";
   var OVERRIDE_KEY = "variantOverride";
   var [override, setOverride] = signal(null);
   var loaded = false;
@@ -571,72 +662,112 @@
       return { variant: next, persisted: "storage" };
     }
   }
-  var toneOf = (s) => s === "danger" ? "danger" : s === "warning" ? "warning" : "secondary";
-  var textTone = (s) => s === "normal" ? "primary" : toneOf(s);
-  var severity = (w, _at) => severityOf(percentOf(w), thresholds());
-  var accountStale = (a) => isStale(a, now(), staleMs());
-  var accountTitle = (a) => [a.providerTitle, a.label, a.plan].filter(Boolean).join(" · ");
-  var accountNote = (a) => a.error ? a.error.message : accountStale(a) ? staleText(a, now()) : "";
-  function NoteLine(a, font) {
-    const has = computed(() => accountNote(a()) !== "");
-    return () => has() ? Text(() => accountNote(a())).font(font).color(() => a().error ? "warning" : "tertiary").lineLimit(2) : null;
+  var paceTone = (p) => p && p.metered ? verdictTone(p.verdict) : "tertiary";
+  var verdictTone = (v) => {
+    switch (v) {
+      case "over":
+        return "warning";
+      case "none":
+        return "danger";
+      case "under":
+        return "accent";
+      case "onPace":
+        return "success";
+      default:
+        return "tertiary";
+    }
+  };
+  var stateTone = (s) => {
+    switch (s) {
+      case "active":
+        return "success";
+      case "rec":
+        return "accent";
+      case "temp":
+        return "warning";
+      case "error":
+        return "danger";
+      case "cooked":
+      case "unknown":
+        return "tertiary";
+      default:
+        return "secondary";
+    }
+  };
+  var STATE_SYMBOL = {
+    active: "bolt.fill",
+    rec: "arrow.right.circle",
+    ready: "circle",
+    protected: "lock",
+    temp: "hourglass",
+    cooked: "flame",
+    error: "exclamationmark.triangle",
+    unknown: "questionmark.circle"
+  };
+  function worstVerdict() {
+    const order = ["none", "over", "under", "onPace", "pending"];
+    const list = paces().filter((p) => p.metered);
+    for (const v of order)
+      if (list.some((p) => p.verdict === v))
+        return v;
+    return null;
   }
-  function windowDetail(w, at) {
-    const parts = [amountText(w), resetText(w, at), paceText(paceOf(w, at), at)].filter((p) => !!p);
+  var meteredPaces = () => paces().filter((p) => p.metered);
+  function paceToken(p) {
+    const tail = p.ratio !== null ? ratioText(p.ratio) : p.verdict === "none" ? "0" : `${p.usable}/${p.total}`;
+    return `${providerInitial(p.provider)} ${tail}`;
+  }
+  var providerLine = (p) => `${providerTitle(p.provider)} · ${summaryText(p)}`;
+  function statusHelp() {
+    const list = meteredPaces();
+    return list.length ? list.map(providerLine).join(`
+`) : t("menu.noData", "No usage data");
+  }
+  function accountDetail(a, at, readAt) {
+    const parts = [];
+    const session = windowText(a.session, at);
+    const weekly = windowText(a.weekly, at);
+    if (session)
+      parts.push(t("window.session", "5h {text}", { text: session }));
+    if (weekly)
+      parts.push(t("window.weekly", "wk {text}", { text: weekly }));
+    const pace = accountPaceText(weeklyPace(a, readAt));
+    if (pace)
+      parts.push(pace);
+    if (a.extraUsd !== null)
+      parts.push(t("extra", "+${usd} extra", { usd: a.extraUsd < 100 ? a.extraUsd.toFixed(2) : String(Math.round(a.extraUsd)) }));
+    if (!session && !weekly && a.plan)
+      parts.push(a.plan);
     return parts.join(" · ");
   }
-  var top = () => tightest(allAccounts());
-  function Meter(window, width, height, withPace) {
-    const used = () => {
-      const w = window();
-      const p = w ? percentOf(w) : null;
-      return p === null ? 0 : Math.min(100, p) / 100;
-    };
-    const tick = () => {
-      const w = window();
-      if (!withPace || !w)
-        return null;
-      const p = paceOf(w, now());
-      return p ? Math.min(1, Math.max(0, p.expectedPercent / 100)) : null;
-    };
-    const tone = () => {
-      const w = window();
-      return w ? toneOf(severity(w, now())) : "tertiary";
-    };
-    const seg = (fn) => () => ({ width: Math.max(0, Math.round(fn() * 10) / 10), height });
-    const usable = width - 1;
-    const u = () => used() * usable;
-    const k = () => tick() === null ? null : tick() * usable;
-    const fillBefore = () => k() === null ? u() : Math.min(u(), k());
-    const trackBefore = () => k() === null ? 0 : Math.max(0, k() - u());
-    const fillAfter = () => k() === null ? 0 : Math.max(0, u() - k());
-    const tickW = () => k() === null ? 0 : 1;
-    const rest = () => width - fillBefore() - trackBefore() - tickW() - fillAfter();
-    return HStack({ spacing: 0 }, [
-      Rectangle().fill(tone).frame(seg(fillBefore)),
-      Rectangle().fill("separator").frame(seg(trackBefore)),
-      Rectangle().fill("primary").frame(seg(tickW)),
-      Rectangle().fill(tone).frame(seg(fillAfter)),
-      Rectangle().fill("separator").frame(seg(rest))
-    ]).frame({ width, height }).cornerRadius(height / 2);
+  var accountBadge = (a) => a.weekly ? pctText(a.weekly.leftPct) : stateText(a.state);
+  function accountTone(a, readAt) {
+    if (a.state === "error" || a.state === "cooked" || a.state === "temp")
+      return stateTone(a.state);
+    const p = weeklyPace(a, readAt);
+    return p?.verdict === "over" ? "warning" : "primary";
+  }
+  var sessionShare = (a) => a.session ? a.session.leftPct / 100 : null;
+  var weeklyShare = (a) => a.weekly ? a.weekly.leftPct / 100 : null;
+  var [collapsed, setCollapsed] = signal({});
+  var isCollapsed = (id) => collapsed()[id] === true;
+  var toggleCollapsed = (id) => setCollapsed((c) => ({ ...c, [id]: !c[id] }));
+  var headroomShare = (p) => p && p.counted > 0 ? Math.min(1, p.leftSumPct / (p.counted * 100)) : 0;
+  function Meter(value, width, height, tone) {
+    const fill = () => ({ width: Math.round(Math.min(1, Math.max(0, value())) * width * 10) / 10, height });
+    const rest = () => ({ width: Math.max(0, width - fill().width), height });
+    return HStack({ spacing: 0 }, [Rectangle().fill(tone).frame(fill), Rectangle().fill("separator").frame(rest)]).frame({ width, height }).cornerRadius(height / 2);
   }
   function menuItems(actions) {
-    const at = now();
     const items = [];
-    const accounts = allAccounts();
-    if (state() !== "ready" || accounts.length === 0)
+    const list = paces();
+    if (state() !== "ready" || list.length === 0)
       items.push(Button(problemTitle()).disabled());
-    for (const a of accounts) {
-      if (items.length)
-        items.push(Divider());
-      items.push(Button(accountStale(a) ? `${accountTitle(a)} · ${staleText(a, at)}` : accountTitle(a)).disabled());
-      if (a.error)
-        items.push(Button(a.error.message).disabled());
-      for (const w of a.windows) {
-        const detail = windowDetail(w, at);
-        items.push(Button(`${windowLabel(w)}  ${percentText(percentOf(w))}${detail ? `  ${detail}` : ""}`).disabled());
-      }
-    }
+    const u = usage();
+    if (u && stale())
+      items.push(Button(staleText(u, now())).disabled());
+    for (const p of list)
+      items.push(Button(providerLine(p)).disabled());
     items.push(Divider(), Button(t("menu.refresh", "Refresh Now"), actions.refresh), Button(t("menu.show", "Show Usage"), actions.show));
     return items;
   }
@@ -645,13 +776,13 @@
       case "loading":
         return t("loading", "Loading…");
       case "unavailable":
-        return t("unavailable.title", "Usage service not available");
+        return t("unavailable.title", "Usage server not available");
       case "denied":
         return t("scope.title", "No permission to read usage");
       case "error":
         return t("error.title", "Cannot read usage");
       default:
-        return allAccounts().length ? "" : t("empty.title", "No plans found");
+        return providers().length ? "" : t("empty.title", "No accounts found");
     }
   }
   var problemSpec = computed(() => {
@@ -659,9 +790,9 @@
     let spec = null;
     if (s === "loading")
       spec = { loading: true };
-    else if (!(s === "ready" && allAccounts().length > 0)) {
+    else if (!(s === "ready" && providers().length > 0)) {
       const p = problem();
-      const message = s === "unavailable" ? t("unavailable.message", "This build has no usage service ({op}) yet.", { op: "usage.get" }) : s === "denied" ? t("scope.message", "Allow {scope} in Settings > Apps > Usage.", { scope: p?.scope ?? "usage:read" }) : s === "error" ? p?.message ?? "" : t("empty.message", "Sign in to Claude Code or Codex in a terminal and cmux shows their usage here.");
+      const message = s === "unavailable" ? t("unavailable.message", "This build has no usage server ({op}) yet.", { op: "account.list" }) : s === "denied" ? t("scope.message", "Allow {scope} in Settings > Apps > Usage.", { scope: p?.scope ?? "account:read" }) : s === "error" ? p?.message ?? "" : t("empty.message", "Add accounts to your router (sr add) and cmux shows their usage here.");
       const symbol = s === "ready" ? "gauge.with.dots.needle.0percent" : s === "denied" ? "lock" : "exclamationmark.triangle";
       spec = { title: problemTitle(), message, symbol };
     }
@@ -675,98 +806,102 @@
       return HStack({ spacing: 6 }, [ProgressView(), Text(t("loading", "Loading…")).secondary()]).padding(8);
     return EmptyState(spec);
   }
-  var percentLabel = (w) => percentText(percentOf(w));
-  var SYMBOLS = {
-    session: "timer",
-    daily: "sun.max",
-    weekly: "calendar",
-    monthly: "calendar",
-    budget: "dollarsign.circle",
-    credits: "creditcard",
-    other: "gauge.with.dots.needle.50percent"
-  };
-  function statusHelp() {
-    const tt = top();
-    if (!tt)
-      return t("menu.noData", "No usage data");
-    return t("status.help", "{provider} · {window} · {percent}", { provider: accountTitle(tt.account), window: windowLabel(tt.window), percent: percentText(tt.percent) });
+  function noticeText() {
+    const u = usage();
+    if (!u || state() !== "ready")
+      return "";
+    const parts = [];
+    if (u.error)
+      parts.push(u.error.message || u.error.code);
+    for (const s of u.sources)
+      if (s.error)
+        parts.push(`${s.id}: ${s.error.message || s.error.code}`);
+    if (stale())
+      parts.push(staleText(u, now()));
+    return parts.join(" · ");
   }
-  var topStale = () => {
-    const tt = top();
-    return tt ? accountStale(tt.account) : false;
-  };
-  function percentStatus(actions) {
-    const tone = () => {
-      const tt = top();
-      return tt ? toneOf(severity(tt.window, now())) : "tertiary";
-    };
-    return HStack({ spacing: 3 }, [
-      Icon(() => tone() === "danger" ? "gauge.with.needle.fill" : "gauge.with.needle").color(tone).size(11),
-      Menu(() => top() ? percentText(top().percent) : "—", []).contextMenu(() => menuItems(actions))
-    ]).opacity(() => topStale() || state() !== "ready" ? 0.55 : 1).help(statusHelp);
+  function NoticeLine(font) {
+    const has = computed(() => noticeText() !== "");
+    return () => has() ? HStack({ spacing: 4 }, [
+      Icon("exclamationmark.triangle").size(10).color("warning"),
+      Text(noticeText).font(font).color("warning").lineLimit(2)
+    ]).padding({ top: 4, leading: 12, bottom: 4, trailing: 12 }) : null;
   }
-  function windowRow(account, w) {
-    return Row({
-      title: () => windowLabel(w()),
-      subtitle: () => windowDetail(w(), now()) || null,
-      badge: () => percentLabel(w()),
-      tint: () => accountStale(account()) ? "tertiary" : toneOf(severity(w(), now())),
-      symbol: () => SYMBOLS[w().kind] ?? SYMBOLS.other
-    });
-  }
-  function accountBlock(a) {
-    return VStack({ spacing: 0 }, [
-      VStack({ spacing: 1 }, [
-        Text(() => accountTitle(a())).font("caption").secondary().lineLimit(1),
-        NoteLine(a, "caption2")
-      ]).padding({ top: 6, leading: 12, bottom: 2, trailing: 12 }),
-      ForEach({ items: () => a().windows, key: (w) => w.id }, (w) => windowRow(a, w))
-    ]).opacity(() => accountStale(a()) ? 0.7 : 1);
-  }
-  function percentDetail() {
-    return VStack({ spacing: 2 }, [() => ProblemView(), ForEach({ items: allAccounts, key: (a) => a.id }, (a) => accountBlock(a))]);
-  }
-  var CARD_METER_WIDTH = 240;
+  var providerList = () => providers();
+  var verdictLabel = (p) => p ? verdictText(p.verdict, p.metered) : "";
+  var CARD_METER_WIDTH = 320;
   function metersStatus(actions) {
-    const pair = () => {
-      const tt = top();
-      return tt ? sessionAndWeek(tt.account) : { session: null, week: null };
-    };
-    return VStack({ spacing: 2 }, [Meter(() => pair().session ?? top()?.window ?? null, 22, 4, false), Meter(() => pair().week, 22, 4, false)]).paddingVertical(3).paddingHorizontal(3).opacity(() => topStale() || state() !== "ready" ? 0.55 : 1).help(statusHelp).onTap(() => actions.show()).contextMenu(() => menuItems(actions));
+    return VStack({ spacing: 2 }, [
+      ForEach({ items: () => meteredPaces().slice(0, 3), key: (p) => p.provider }, (p) => Meter(() => headroomShare(p()), 22, 4, () => verdictTone(p().verdict)))
+    ]).paddingVertical(3).paddingHorizontal(3).opacity(() => stale() || state() !== "ready" ? 0.55 : 1).help(statusHelp).onTap(() => actions.show()).contextMenu(() => menuItems(actions));
   }
-  function windowCard(account, w) {
-    return VStack({ spacing: 3 }, [
-      HStack({ spacing: 4 }, [
-        Text(() => windowLabel(w())).font("caption"),
-        Spacer(),
-        Text(() => percentText(percentOf(w()))).font("caption").monospaced().weight("semibold").color(() => accountStale(account()) ? "tertiary" : textTone(severity(w(), now())))
-      ]),
-      Meter(w, CARD_METER_WIDTH, 5, true),
-      Text(() => windowDetail(w(), now())).font("caption2").secondary().lineLimit(1)
+  function bar(share) {
+    const has = computed(() => share() !== null);
+    return () => has() ? ProgressView(() => share() ?? 0) : null;
+  }
+  function accountLine(a) {
+    return HStack({ spacing: 8 }, [
+      VStack({ spacing: 0 }, [
+        Text(() => a().label).font("caption").lineLimit(1).truncation("middle"),
+        Text(() => stateText(a().state)).font("caption2").color(() => stateTone(a().state))
+      ]).frame({ width: 170, alignment: "leading" }),
+      VStack({ spacing: 1 }, [bar(() => sessionShare(a())), Text(() => windowText(a().session, now()) ?? "").font("caption2").secondary()]).frame({ maxWidth: "infinity", alignment: "leading" }),
+      VStack({ spacing: 1 }, [
+        bar(() => weeklyShare(a())),
+        Text(() => windowText(a().weekly, now()) ?? (a().plan ?? "")).font("caption2").color(() => accountTone(a(), readingAt()))
+      ]).frame({ maxWidth: "infinity", alignment: "leading" })
+    ]).padding({ top: 3, leading: 12, bottom: 3, trailing: 12 });
+  }
+  function providerCard(p) {
+    const pace = () => paceOf(p().id);
+    const open = computed(() => !isCollapsed(p().id));
+    const metered = computed(() => pace()?.metered === true);
+    return VStack({ spacing: 4 }, [
+      VStack({ spacing: 4 }, [
+        HStack({ spacing: 6 }, [
+          Text(() => providerTitle(p().id)).font("headline"),
+          Spacer(),
+          Text(() => verdictLabel(pace())).font("caption").weight("semibold").color(() => paceTone(pace()))
+        ]),
+        Meter(() => headroomShare(pace()), CARD_METER_WIDTH, 6, () => paceTone(pace())).opacity(() => metered() ? 1 : 0),
+        Text(() => {
+          const x = pace();
+          if (!x)
+            return "";
+          return x.metered ? `${summaryText(x, false)} · ${t("summary.left", "{left} left", { left: pctText(x.leftSumPct) })}` : summaryText(x);
+        }).font("caption").secondary().lineLimit(2)
+      ]).padding({ top: 10, leading: 12, bottom: 4, trailing: 12 }).cursor("pointer").onTap(() => toggleCollapsed(p().id)),
+      () => open() ? ForEach({ items: () => p().accounts, key: (a) => a.id }, (a) => accountLine(a)) : null
     ]);
   }
-  function accountCard(a) {
-    return VStack({ spacing: 8 }, [
-      VStack({ spacing: 1 }, [
-        HStack({ spacing: 4 }, [
-          Text(() => a().providerTitle).font("headline").lineLimit(1),
-          Spacer(),
-          Text(() => a().plan ?? "").font("caption").secondary().lineLimit(1)
-        ]),
-        Text(() => a().label ?? "").font("caption").secondary().lineLimit(1),
-        NoteLine(a, "caption")
-      ]),
-      ForEach({ items: () => a().windows, key: (w) => w.id }, (w) => windowCard(a, w))
-    ]).padding(10).background("hover").cornerRadius(8).opacity(() => accountStale(a()) ? 0.75 : 1);
+  function metersPane() {
+    return VStack({ spacing: 6 }, [NoticeLine("caption"), () => ProblemView(), ForEach({ items: providerList, key: (p) => p.id }, (p) => providerCard(p))]);
   }
-  function metersDetail() {
-    return VStack({ spacing: 8 }, [() => ProblemView(), ForEach({ items: allAccounts, key: (a) => a.id }, (a) => accountCard(a))]).padding({ top: 4, leading: 12, bottom: 8, trailing: 12 });
+  function metersSection(actions) {
+    return VStack({ spacing: 6 }, [
+      NoticeLine("caption2"),
+      () => ProblemView(),
+      ForEach({ items: providerList, key: (p) => p.id }, (p) => {
+        const pace = () => paceOf(p().id);
+        const metered = computed(() => pace()?.metered === true);
+        return VStack({ spacing: 3 }, [
+          HStack({ spacing: 4 }, [
+            Text(() => providerTitle(p().id)).font("caption"),
+            Spacer(),
+            Text(() => `${p().summary.usable}/${p().summary.total}`).font("caption").monospaced().secondary()
+          ]),
+          () => metered() ? ProgressView(() => headroomShare(pace())) : null,
+          Text(() => verdictLabel(pace())).font("caption2").color(() => paceTone(pace()))
+        ]).padding({ top: 2, leading: 12, bottom: 2, trailing: 12 }).onTap(() => actions.show());
+      })
+    ]);
   }
+  var alarming = (p) => p.metered && (p.verdict === "over" || p.verdict === "none" || p.usable === 0);
   var hot = computed(() => {
-    const tt = top();
-    if (!tt || accountStale(tt.account))
+    const list = paces().filter(alarming);
+    if (list.length === 0)
       return null;
-    return severity(tt.window, now()) === "normal" ? null : JSON.stringify({ percent: tt.percent, tone: toneOf(severity(tt.window, now())) });
+    return list.map((p) => `${providerInitial(p.provider)} ${p.ratio !== null ? ratioText(p.ratio) : `${p.usable}/${p.total}`}`).join(" · ");
   });
   function quietStatus(actions) {
     return HStack({ spacing: 0 }, [
@@ -774,43 +909,116 @@
         const h = hot();
         if (!h)
           return null;
-        const { percent, tone } = JSON.parse(h);
-        return HStack({ spacing: 3 }, [Icon("exclamationmark.triangle.fill").color(tone).size(11), Text(percentText(percent)).font("caption").monospaced().color(tone)]).help(statusHelp).onTap(() => actions.show()).contextMenu(() => menuItems(actions));
+        return HStack({ spacing: 3 }, [Icon("exclamationmark.triangle.fill").color("warning").size(11), Text(h).font("caption").monospaced().color("warning")]).help(statusHelp).onTap(() => actions.show()).contextMenu(() => menuItems(actions));
       }
     ]);
   }
-  function shortTail(w, at) {
-    const p = paceOf(w, at);
-    if (p?.runsOutAt)
-      return `↓ ${durationText(Math.max(0, p.runsOutAt - at))}`;
-    if (w.resetsAt !== null)
-      return durationText(Math.max(0, w.resetsAt - at));
-    return "";
+  var cell = (s, width) => s.length > width ? `${s.slice(0, width - 1)}…` : s.padEnd(width);
+  var short = (resetAt, at) => resetAt === null ? "" : durationText(Math.max(0, resetAt - at)).replace(" ", "");
+  function accountTableLine(a, at, readAt) {
+    const session = a.session ? `${pctText(a.session.leftPct).padStart(4)} ${short(a.session.resetAt, at)}` : "";
+    const weekly = a.weekly ? `${pctText(a.weekly.leftPct).padStart(4)} ${short(a.weekly.resetAt, at)}` : a.plan ?? "";
+    const pace = weeklyPace(a, readAt);
+    return `${cell(a.label, 26)} ${cell(stateText(a.state), 9)} ${cell(session, 11)} ${cell(weekly, 11)} ${pace ? ratioText(pace.ratio) : ""}`.trimEnd();
   }
-  function windowLine(account, w) {
-    return HStack({ spacing: 6 }, [
-      Text(() => windowLabel(w())).font("caption").lineLimit(1).frame({ width: 72 }),
-      ProgressView(() => Math.min(1, (percentOf(w()) ?? 0) / 100)).frame({ maxWidth: "infinity" }),
-      Text(() => percentText(percentOf(w()))).font("caption").monospaced().color(() => accountStale(account()) ? "tertiary" : textTone(severity(w(), now()))).frame({ width: 34 }),
-      Text(() => shortTail(w(), now())).font("caption2").color(() => paceOf(w(), now())?.runsOutAt ? "warning" : "secondary").lineLimit(1).frame({ width: 58 })
-    ]).padding({ top: 1, leading: 12, bottom: 1, trailing: 12 }).help(() => windowDetail(w(), now()));
+  function providerBlock(p) {
+    const pace = () => paceOf(p().id);
+    return VStack({ spacing: 1 }, [
+      Text(() => {
+        const x = pace();
+        const verdict = x ? verdictText(x.verdict, x.metered) + (x.ratio !== null ? ` ${ratioText(x.ratio)}` : "") : "";
+        return `${providerTitle(p().id)}  ${verdict}  ${p().summary.usable}/${p().summary.total}`;
+      }).font("caption").weight("semibold").monospaced().color(() => paceTone(pace())).padding({ top: 8, leading: 12, bottom: 2, trailing: 12 }),
+      ForEach({ items: () => p().accounts, key: (a) => a.id }, (a) => Text(() => accountTableLine(a(), now(), readingAt())).font("caption2").monospaced().lineLimit(1).color(() => a().state === "cooked" || a().state === "error" || a().state === "temp" ? stateTone(a().state) : "primary").padding({ top: 0, leading: 12, bottom: 0, trailing: 12 }))
+    ]);
   }
-  function accountLines(a) {
+  var tableHeader = () => `${cell(t("column.account", "account"), 26)} ${cell(t("column.state", "state"), 9)} ${cell(t("column.session", "5h"), 11)} ${cell(t("column.weekly", "week"), 11)} ${t("column.pace", "pace")}`;
+  function quietPane() {
+    return VStack({ spacing: 0 }, [
+      NoticeLine("caption"),
+      () => ProblemView(),
+      Text(tableHeader).font("caption2").monospaced().color("tertiary").padding({ top: 8, leading: 12, bottom: 0, trailing: 12 }),
+      ForEach({ items: providerList, key: (p) => p.id }, (p) => providerBlock(p))
+    ]);
+  }
+  function quietSection(actions) {
+    return VStack({ spacing: 1 }, [
+      NoticeLine("caption2"),
+      () => ProblemView(),
+      ForEach({ items: providerList, key: (p) => p.id }, (p) => {
+        const pace = () => paceOf(p().id);
+        return Text(() => {
+          const x = pace();
+          const tail = x && x.metered ? x.ratio !== null ? ratioText(x.ratio) : verdictText(x.verdict) : "";
+          return `${cell(providerTitle(p().id), 8)} ${cell(`${p().summary.usable}/${p().summary.total}`, 7)} ${tail}`.trimEnd();
+        }).font("caption").monospaced().color(() => paceTone(pace())).padding({ top: 1, leading: 12, bottom: 1, trailing: 12 }).onTap(() => actions.show());
+      })
+    ]);
+  }
+  function rowsStatus(actions) {
+    const title = () => meteredPaces().map(paceToken).join(" · ") || "—";
+    return HStack({ spacing: 3 }, [
+      Icon(() => worstVerdict() === "over" || worstVerdict() === "none" ? "gauge.with.needle.fill" : "gauge.with.needle").color(() => verdictTone(worstVerdict())).size(11),
+      Menu(title, []).contextMenu(() => menuItems(actions))
+    ]).opacity(() => stale() || state() !== "ready" ? 0.55 : 1).help(statusHelp);
+  }
+  function accountRow(a) {
+    return Row({
+      title: () => a().label,
+      subtitle: () => [stateText(a().state), accountDetail(a(), now(), readingAt())].filter(Boolean).join(" · "),
+      badge: () => accountBadge(a()),
+      tint: () => stateTone(a().state),
+      symbol: () => STATE_SYMBOL[a().state]
+    });
+  }
+  function providerHeader(p) {
+    const pace = () => paceOf(p().id);
     return VStack({ spacing: 2 }, [
-      VStack({ spacing: 1 }, [
-        Text(() => accountTitle(a())).font("caption2").secondary().lineLimit(1),
-        NoteLine(a, "caption2")
-      ]).padding({ top: 6, leading: 12, bottom: 0, trailing: 12 }),
-      ForEach({ items: () => a().windows, key: (w) => w.id }, (w) => windowLine(a, w))
-    ]).opacity(() => accountStale(a()) ? 0.7 : 1);
+      HStack({ spacing: 6 }, [
+        Icon(() => isCollapsed(p().id) ? "chevron.right" : "chevron.down").size(9).color("tertiary"),
+        Text(() => providerTitle(p().id)).font("headline"),
+        Spacer(),
+        Badge(() => verdictLabel(pace()), () => paceTone(pace()))
+      ]),
+      Text(() => {
+        const x = pace();
+        return x ? summaryText(x, false) : "";
+      }).font("caption").secondary().lineLimit(2)
+    ]).padding({ top: 10, leading: 12, bottom: 4, trailing: 12 }).cursor("pointer").onTap(() => toggleCollapsed(p().id));
   }
-  function quietDetail() {
-    return VStack({ spacing: 2 }, [() => ProblemView(), ForEach({ items: allAccounts, key: (a) => a.id }, (a) => accountLines(a))]).padding({ top: 0, leading: 0, bottom: 6, trailing: 0 });
+  function providerGroup(p) {
+    const open = computed(() => !isCollapsed(p().id));
+    return VStack({ spacing: 0 }, [
+      providerHeader(p),
+      () => open() ? ForEach({ items: () => p().accounts, key: (a) => a.id }, (a) => accountRow(a)) : null
+    ]);
   }
-  var SECTION = "cmux/usage#usage";
+  function rowsPane() {
+    return VStack({ spacing: 0 }, [NoticeLine("caption"), () => ProblemView(), ForEach({ items: providerList, key: (p) => p.id }, (p) => providerGroup(p))]);
+  }
+  function rowsSection(actions) {
+    return VStack({ spacing: 0 }, [
+      NoticeLine("caption2"),
+      () => ProblemView(),
+      ForEach({ items: providerList, key: (p) => p.id }, (p) => {
+        const pace = () => paceOf(p().id);
+        return Row({
+          title: () => providerTitle(p().id),
+          subtitle: () => {
+            const x = pace();
+            return x && x.ratio !== null ? `${verdictLabel(x)} ${ratioText(x.ratio)}` : verdictLabel(x);
+          },
+          badge: () => t("usableBadge", "{usable}/{total}", { usable: p().summary.usable, total: p().summary.total }),
+          tint: () => paceTone(pace()),
+          symbol: "gauge.with.needle"
+        }).onTap(() => actions.show());
+      })
+    ]);
+  }
+  var PANE = "cmux/usage#usagePane";
   async function show() {
     try {
-      await cmux.actions.run("sidebar.section.reveal", { contribution: SECTION });
+      await cmux.actions.run("app.pane.open", { kind: PANE });
       return { shown: true };
     } catch (e) {
       return { shown: false, reason: e.code ?? String(e) };
@@ -818,15 +1026,15 @@
   }
   async function refresh() {
     const r = await refreshNow();
-    return { ...r, accounts: allAccounts().length };
+    return { ...r, providers: usage()?.providers.length ?? 0 };
   }
   var cycleVariant2 = () => cycleVariant();
   async function status(args = {}) {
     if (args.refresh)
-      await refreshNow(args.provider ? { provider: args.provider } : {});
+      await refreshNow();
     else
       await load();
-    return statusJSON(allAccounts(), { now: Date.now(), staleMs: staleMs(), thresholds: thresholds(), state: state(), problem: problem(), provider: args.provider });
+    return statusJSON(usage(), paces(), { now: Date.now(), staleMs: staleMs(), state: state(), problem: problem(), provider: args.provider, accounts: args.accounts === true });
   }
   var actions = { refresh: () => refresh(), show: () => show() };
   function renderStatus() {
@@ -835,12 +1043,12 @@
     return HStack({ spacing: 0 }, [
       () => {
         switch (variant()) {
-          case "menuMeters":
+          case "meters":
             return metersStatus(actions);
-          case "sidebarOnly":
+          case "quiet":
             return quietStatus(actions);
           default:
-            return percentStatus(actions);
+            return rowsStatus(actions);
         }
       }
     ]);
@@ -851,12 +1059,28 @@
     return VStack({ spacing: 0 }, [
       () => {
         switch (variant()) {
-          case "menuMeters":
-            return metersDetail();
-          case "sidebarOnly":
-            return quietDetail();
+          case "meters":
+            return metersSection(actions);
+          case "quiet":
+            return quietSection(actions);
           default:
-            return percentDetail();
+            return rowsSection(actions);
+        }
+      }
+    ]);
+  }
+  function renderPane() {
+    loadVariantOverride();
+    attach("detail");
+    return VStack({ spacing: 0 }, [
+      () => {
+        switch (variant()) {
+          case "meters":
+            return metersPane();
+          case "quiet":
+            return quietPane();
+          default:
+            return rowsPane();
         }
       }
     ]);

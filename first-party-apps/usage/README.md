@@ -1,122 +1,138 @@
 # Usage (`cmux/usage`)
 
-Agent plan usage and limits at a glance: Claude Code plans (5-hour session window, weekly window, model-specific weekly limits), Codex/ChatGPT plans (5-hour and weekly), API-key providers (spend against a budget) and CodeRouter pools (usage per pooled account). For every window it shows percent used, the reset countdown ("resets in 2h 10m"), the pace ("runs out in 40m" when the current average rate reaches the limit before the reset) and stale data. It warns once per window at 80 and 95 percent.
+Usage of every AI plan account the user's routers know: Claude, Codex and the other providers (keyed providers too). For each provider it shows a summary line: the pace verdict (under pace, on pace, over pace), the burn ratio, the actual and ideal burn in percent per hour, and how many accounts are usable. For each account it shows the router's label and state, the 5-hour and weekly percent left, both reset countdowns, extra usage money, and the account's own pace. It lives in the menu bar (status item), a pane with every provider and account, and a sidebar section with one line per provider.
 
-The app never sees a credential. A native usage service on the host reads the agent CLIs' sign-ins, calls the providers' usage endpoints and gives the app numbers only (`usage.get`, event `usage.changed`). The service, not the app, decides when to fetch. The app does not poll.
+The app never runs a process and never sees a credential. Its server, `cmux-usage serve`, runs the router's status command and keeps the history the pace needs; the app reads it through `account.list`, `account.usage` and the stream `account.watch`. The app does not poll.
 
-Status: prototype. The usage service and the other operations below do not exist yet; the app shows "Usage service not available" until they do. Tests and previews use invented fixtures.
+Status: prototype. The server and the operations below do not exist yet; the app shows "Usage server not available" until they do. Tests and previews use invented fixtures (no real labels, ids or emails).
 
 ## Contributions
 
 | Id | Kind | What |
 | --- | --- | --- |
-| `menu` | status item (`statusStrip` today, `menuBar` proposed: gap 1) | the tightest limit, compact; click opens the dropdown |
-| `usage` | sidebar section (default region bottom) | every account and window |
-| `show` | command (palette, status item) | reveals the usage section (the popover, once it exists) |
-| `refresh` | command (palette, status item, section) | asks the service to refresh now (it rate-limits) |
-| `status` | command, MCP tool via `mcpServers` | JSON for agents: `cmux apps run cmux/usage#status --args '{"provider":"codex"}'` |
+| `menu` | status item (`statusStrip` today; `menuBar` proposed, gap 1) | the variant's glance; a click opens a dropdown with one summary line per provider, Refresh Now and Show Usage |
+| `usagePane` | pane kind (`renderPane`) | every provider (collapsible group, summary line, verdict badge) and every account |
+| `usage` | sidebar section (default region bottom) | one line per provider |
+| `show` | command (palette, status item, section) | opens the pane (proposed action `app.pane.open`) |
+| `refresh` | command (palette, status item, section) | asks the server to read the routers now (it rate-limits) |
+| `status` | command, MCP tool via `mcpServers` | JSON for agents: `cmux apps run cmux/usage#status --args '{"provider":"claude"}'`; account rows only with `"accounts": true` |
 | `cycleVariant` | command (palette): "Next Usage Variant" | DEV/NIGHTLY design switch |
 
-Settings: `variant` (DEV only), `notifications` (default on), `warnAt` (default `[80, 95]`), `staleMinutes` (default 30).
+Settings: `variant` (DEV only), `notifications` (default on), `staleMinutes` (default 30).
 
 ## Scopes
 
 | Scope | Why |
 | --- | --- |
-| `usage:read` | read usage numbers from the usage service (proposed scope) |
-| `usage:write` | ask for a refresh when the user clicks Refresh (proposed scope) |
-| `notification:write` | the 80 and 95 percent warnings |
-| `coderouter:read` (optional) | CodeRouter pool usage (proposed scope) |
+| `account:read` | read account usage and history from the usage server (proposed scope) |
+| `account:write` | ask for a read now when the user clicks Refresh (proposed scope) |
+| `notification:write` | one notice when a provider has no usable account left |
 | `mcp:expose` (optional) | the `status` tool for agents |
-| `actions:run` (optional) | reveal the section from Show Usage |
+| `actions:run` (optional) | open the pane from Show Usage |
 
-Local storage (always allowed) keeps the warning history and the variant override.
+Local storage (always allowed) keeps the notice history and the variant override.
+
+## Pace (`src/pace.ts`, pure)
+
+Per provider, at the reading time of the server:
+
+- Accounts in state `error` do not count.
+- Ideal burn = the sum over counted accounts of `weekly_left_pct / hours to that account's weekly reset` (percent per hour that uses every account's weekly headroom exactly by its reset).
+- Actual burn = the drop of `weekly_left_pct` between this reading and the newest reading at least 30 minutes older (`account.usage {before_ms, limit: 1}`), per hour. Accounts are matched by provider and id. An account whose weekly reset passed or moved between the two readings, or that is in only one of them, is left out, so a reset never shows as negative burn.
+- Verdict: under pace when actual / ideal < 0.8 ("raise load"), over pace when > 1.2 ("lower load"), else on pace. "pace in 30m" while no older reading exists; "no headroom" when the ideal burn is 0.
+- Usable = state not `cooked`, `temp` or `error`. Counts show usable of all accounts.
+
+Per account: the share of the window used divided by the share of the window that has passed (same bands), for the weekly window (7 days) and the session window (5 hours); shown from 5 percent of the window on.
 
 ## Variants
 
-| Variant | Menu bar | Detail (section, future popover) |
-| --- | --- | --- |
-| `menuPercent` (default, recommended) | gauge glyph + "62%" of the tightest window; click opens a plain dropdown listing every window ("5-hour  62%  resets in 2h 10m · runs out in 1h 44m"), Refresh Now, Show Usage | native rows: window, reset and pace subtitle, percent badge tinted at the thresholds |
-| `menuMeters` | a glyph of two tiny stacked meters (session over week) of the account with the tightest limit, no text | one card per account; a meter per window with a tick where a steady pace would be |
-| `sidebarOnly` | nothing while every limit is calm; a warning glyph + percent once a limit reaches a threshold | dense lines: label, native progress bar, percent, time to reset (or "↓ 40m" to run-out) |
+| Variant | Menu bar | Pane | Section |
+| --- | --- | --- | --- |
+| `rows` (default, recommended) | gauge glyph tinted by the worst verdict + "Cl ×1.00 · Cx ×1.40" (burn ratio per metered provider; "Cl 4/7" usable of total while the pace waits) | per provider: collapsible header with verdict badge, summary line; one native row per account ("in use · 5h 41% · 2h 10m · wk 58% · 2d 4h · pace ×0.61", badge = weekly left) | one row per provider: verdict and ratio, badge usable/total |
+| `meters` | one tiny bar per metered provider (weekly headroom left over all its accounts), tinted by the verdict | per provider: headroom bar, summary line; one line per account with session and weekly bars | provider bar, usable count, verdict |
+| `quiet` | empty while every provider is on or under pace; a warning glyph + "Cx ×1.40" when one is over pace or out of usable accounts | dense monospaced table, one line per account (label, state, 5h, week, pace) | one monospaced line per provider |
 
-Recommendation: `menuPercent`. One number is readable at menu bar size, and the dropdown is the native menu every Mac user knows. Strongest objection: one bare percent hides which limit it is (session or week, which provider); the user must open the dropdown or hover to learn that the 87% is the Codex weekly window. `menuMeters` answers that for the session/week pair but cannot be read exactly; `sidebarOnly` costs no menu bar space but gives no glance until something is wrong.
+Recommendation: `rows`. The burn ratio is the number that tells the user what to do (raise or lower parallel work), the native rows scale to about a hundred accounts, and the pane reads like the router's own status. Strongest objection: with 2 metered providers the menu bar text is about 16 characters wide, and the ratio means nothing until 30 minutes after the first reading ("Cl 4/7" before that), so the glance changes meaning; `meters` stays narrow but cannot be read exactly, and `quiet` costs no space but gives no glance while things are fine.
 
-## Data shape (proposed `usage.get` result)
+## Data shape
+
+`account.list` result: the router status schema (`sr status --json`, schema version 1), normalized by the server, plus an envelope.
 
 ```jsonc
 {
-  "revision": "7",
-  "accounts": [{
-    "id": "usage_account_1",          // opaque, stable; never an email
-    "provider": "claude-code",        // claude-code | codex | anthropic-api | openai-api | coderouter
-    "provider_title": "Claude Code",
-    "kind": "plan",                   // plan | api | pool
-    "label": "Personal",              // user-chosen; an email only if the user opted in at the service
-    "plan": "Max 20x",
-    "source": "oauth",                // where the service read it: oauth | cli | admin-api | coderouter
-    "fetched_at_ms": "1790000000000",
-    "stale": false,                   // the service missed its own refreshes (it knows its cadence)
-    "error": null,                    // {code, message, retryable}: "auth.expired", "rate_limited", …
-    "windows": [{
-      "id": "weekly:opus",            // stable within the account
-      "kind": "weekly",               // session | daily | weekly | monthly | budget | credits | other
-      "scope": "Opus",                // model-specific limit; null for the main one
-      "used_percent": 83,             // or used + limit + unit for spend
-      "used": null, "limit": null, "unit": null,   // usd | tokens | requests | credits
-      "window_seconds": 604800,
-      "resets_at_ms": "1790300000000",
-      "label": null                   // English fallback, only for kind "other"
-    }]
-  }]
+  "schema_version": 1,
+  "generated_at": "2026-10-02T12:00:00Z",
+  "fetched_at_ms": "1790942400000",   // when the router last answered (decimal string)
+  "stale": false,                     // the server missed its own reads
+  "error": null,                      // {code, message}: the last read failed; providers are the last good reading
+  "sources": [{ "id": "subrouter", "ok": true, "error": null }, { "id": "coderouter", "ok": true, "error": null }],
+  "providers": {
+    "claude": {
+      "accounts": [{
+        "id": "claude_acct_1", "label": "alder", "provider": "claude", "plan": null,
+        "state": "active",            // error | cooked | temp | active | rec | protected | ready
+        "session_left_pct": 41, "session_reset_at": "2026-10-02T14:10:00Z",
+        "weekly_left_pct": 58, "weekly_reset_at": "2026-10-04T16:00:00Z",
+        "extra_usage_usd": null,
+        "source": "subrouter"         // added by the server
+      }],
+      "summary": { "usable": 4, "total": 7, "weekly_left_sum_pct": 173 }
+    }
+  }
 }
 ```
 
-Pace is computed in the app from `used_percent`, `window_seconds` and `resets_at_ms` (linear: expected = elapsed / length; run-out = remaining / average rate; no prediction in the first 5 percent of a window). The service may add `pace` later if it keeps history.
+`account.usage` result: `{snapshots: [{taken_at_ms, accounts: [{provider, id, state, weekly_left_pct, weekly_reset_at}]}]}`, newest first.
+
+The labels are the router's labels, shown as the router shows them. The server never adds emails or tokens; the `status` command returns labels only with `accounts: true`.
+
+## Server (`cmux-usage serve`, proposed)
+
+Manifest block (needs the server schema of the platform branch plus `instances` and `data: "cache"`, gaps 2 and 3): `{kind: "native", binary: "cmux-usage", args: ["serve"], catalog: "catalog/account-catalog.json", hosts: ["local"], instances: "machine", data: "cache"}`. One instance per machine that has the app; it owns `account.*` (owner `app:cmux/usage`).
+
+- Sources. The local router CLI: `sr status --json` (90 s timeout, no shell, fixed argv, the user's PATH from the login environment). It answers from the configured router server or the hosted service and reports `server`. Pooled accounts of the hosted router that the local router does not list come from the catalog op `coderouter.accounts.usage` (owner `cloud:coderouter`), called with the user's principal, never with a key of the server's own. Accounts are merged by provider and id; the fresher reading wins; each keeps `source`.
+- Demand. The server counts open `account.watch` streams by their `demand` filter and the mount's visibility (gap 7). `detail` visible (pane or section): read when the last reading is older than 60 s, then every 2 minutes. `glance` only: every 5 minutes while the user is active, 15 minutes after an hour without input. No visible subscriber, screen locked, display asleep or Low Power Mode: no reads at all. One-shot deadlines, no repeating timer.
+- Errors. Exponential backoff 1, 2, 4, 8, 16, 30 minutes with jitter. A failed read keeps the last good reading with its `fetched_at_ms` and sets `error`; `stale` after two missed periods. A missing router binary is `router.missing` and stops reads until the binary appears (file system event).
+- History. One compact snapshot per successful read (`provider, id, state, weekly_left_pct, weekly_reset_at`), kept 8 days, thinned to one per 10 minutes after 24 hours. Cache class: never synced, deleted on uninstall.
+- `account.refresh` coalesces with a read in flight and allows one read per 30 s.
+- Logs never contain labels.
+
+The old design (a host service that reads each agent CLI's credential files and calls the providers' usage endpoints) is removed: the router already owns the accounts and their credentials.
 
 ## Proposed operations
 
 | Name | Params | Result | Owner | Risk | Scope | Invalidated by | Why existing ops do not suffice |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `usage.get` | `{provider?, account?}` | data shape above | native usage service in the cmux daemon (per machine); reads the agent CLIs' credentials, which never leave it | read | `usage:read` | `usage.changed` | nothing exposes plan limits; credentials must stay host-side, so the app cannot fetch with `net.fetch` |
-| `usage.refresh` | `{provider?, account?}` | `{accepted, next_allowed_at_ms}` | usage service | mutate-own | `usage:write` | emits `usage.changed` | a user-initiated refresh; the owner coalesces it with an in-flight fetch and allows one per account per 30 s |
-| event `usage.changed` | subscription filter `{demand: "glance" \| "detail"}` | `{revision, accounts: [id]}` | usage service | read | `usage:read` | | push instead of polling; the filter is the demand signal the cadence uses |
-| `coderouter.usage.get` | `{pool?}` | `{pools: [{id, name, accounts: [same account shape]}]}` | CodeRouter cloud (pool owner) | read | `coderouter:read` | `coderouter.usage.changed` | pool accounts live in the cloud, not on this machine |
-| `app.settings.set` | `{key, value}` | `{value}` | config layer (`cmux.json` `apps."<id>".settings`), validated against `contributes.settings` | mutate-own | none (own settings) | settings push | `cycleVariant` must persist the variant; today it falls back to a storage override |
-| action `sidebar.section.reveal` | `{contribution}` | `{}` | macOS sidebar (client view state: expand and scroll to the section) | mutate-own, user origin only | `actions:run` | | `show` must bring the usage section into view |
+| `account.list` | `{provider?}` | data shape above | `cmux-usage serve` (per machine) | read | `account:read` | `account.watch` | nothing exposes router accounts; the app may not spawn `sr` |
+| `account.usage` | `{before_ms?, since_ms?, provider?, limit?}` | snapshots, newest first | `cmux-usage serve` | read | `account:read` | `account.watch` | the pace needs a reading 30 minutes older; only the owner that reads the router can keep that history |
+| `account.refresh` | `{wait?}` | `{accepted, next_allowed_at_ms}` | `cmux-usage serve` | mutate-own | `account:write` | emits on `account.watch` | a user-initiated read, rate-limited by the owner |
+| stream `account.watch` | filter `{demand: "glance" \| "detail"}` | `{revision}` per new reading | `cmux-usage serve` | read | `account:read` | | push instead of polling; the filter is the demand signal |
+| trigger event `account.exhausted` | | `{provider, total}` | `cmux-usage serve` | read | `account:read` | | the out-of-accounts notice belongs to the owner (once per machine, also when no surface is open); the app sends it until then |
+| `app.settings.set` | `{key, value}` | `{value}` | config layer, validated against `contributes.settings` | mutate-own | none | settings push | `cycleVariant` must persist the variant; today it falls back to a storage override |
+| action `app.pane.open` | `{kind, gesture}` | `{pane}` | macOS client (layout of the focused workspace) | mutate-own, user origin only | `actions:run` | | `show` must open the pane |
 
-## Refresh policy (owned by the usage service)
+CLI verbs requested from the CLI owner: `cmux usage get --json`, `cmux usage refresh` (the v2 catalog generators would produce them from the fragment below).
 
-The app reads on mount (once), on `usage.changed`, and on Refresh. It never schedules a fetch. The service owns the cadence:
+## Platform v2
 
-- Demand. The service counts live `usage.changed` subscriptions by their `demand` filter, weighted by the host's visibility of the subscribing mount (gap 7). `detail` visible (section or popover open): refresh on open when older than 60 s, then every 2 minutes. `glance` only (menu bar): 5 minutes while the user is active or an agent is working (`agent.list` state `working`), 15 minutes after an hour without input, 30 minutes after four hours.
-- Stop. No subscriptions, screen locked, display asleep, or Low Power Mode: no fetches at all. On the next demand it fetches once if the reading is older than that demand's period.
-- Errors. Per provider and account, exponential backoff 1, 2, 4, 8, 16, 30 minutes with jitter; a 429 honors `Retry-After`. An auth failure (401, 403, expired token) stops that account until its credential file or Keychain item changes (file and Keychain change events, no retry loop). The service never refreshes a token it does not own: the agent CLI rotates its own refresh token.
-- Transient failures keep the last good reading with its original `fetched_at_ms`; the service sets `stale` after two missed periods, and the app also marks a reading stale after `staleMinutes`.
-- Mechanics: one-shot deadlines and a shared backoff (no repeating timer), so an idle machine costs zero wakeups.
-
-## Warnings
-
-After each read the app plans warnings (pure `src/alerts.ts`): a window warns when it crosses a higher threshold than the one it already warned for; it re-arms when its reset passes or its percent falls below the lowest threshold. History is keyed by account and window id (providers move the reported reset by seconds between reads) and kept in `cmux.storage`, so an app restart does not repeat a warning. Stale or failed accounts never warn. The top threshold sends an error-level notification.
-
-Objection to keeping this in the app: the app warns only while it runs, and two machines that both run it warn twice. The durable home is the usage service or a notification rule with an owner-side dedupe key (gap 12).
+`cmux-app.v2.json` and `catalog/account-catalog.json` sketch this app on the converged model (app-platform plan section 12): ops in a catalog fragment owned by `app:cmux/usage` (V1), places as interfaces `cmux.status/1`, `cmux.section/1` (V2), server with `instances: "machine"` (V10), a `variants` block and `strings/` (V11), and a gesture token on `usage.show` (V11). The CLI paths in the fragment (`usage get`, `usage history`, `usage refresh`, `usage watch`, `usage status`) are what the v2 generators would produce. Today's runtime loads only `cmux-app.json`.
 
 ## Platform gaps (most important first)
 
-1. No menu bar placement. Proposal: `statusItems[].placement: "menuBar"`, rendered as an `NSStatusItem` (variable length, height 22) whose button hosts the item's scene; a primary click opens the item's `Menu` items, or a popover contribution (`popovers: [{id, render, width, maxHeight}]`, also opened by `cmux.ui.popover.open(id)`), rendered in an `NSPopover` with the same scene renderer. The prototype declares `statusStrip`, and its "popover" is the sidebar section.
-2. No relative-time text. A countdown costs one VM wakeup per minute while a surface is mounted (one one-shot timer at the exact next change). Proposal: `Text` props `relativeTo: <ms>` and `style: "countdown" | "age"`, rendered natively (`Text(timerInterval:)`), zero app wakeups.
-3. No meter. Each bar is five `Rectangle`s with fixed widths; `ProgressView` cannot be tinted. Proposal: `Meter {value, tone, marks: [{value, tone}], height}` that fills its container's width.
-4. No container width or proportional layout, so meters use fixed widths (240 pt in cards).
-5. `Menu(title, items)` takes a static item list. The live dropdown uses `.contextMenu(fn)` on the `Menu` node. Proposal: `Menu` items accept a function.
-6. No app i18n or locale API. The app carries English and Japanese tables (`src/l10n.ts`) and reads the locale from `Intl`. Settings titles in `contributes.settings` are English only.
-7. No visibility signal. A mount cannot tell whether it is on screen, so it cannot tell the service. Proposal: the host forwards mount visibility with each subscription (or suspends hidden mounts' subscriptions), and `ctx.visible()` for apps.
-8. Proposed ops are rejected locally with `scope.missing` unless the host's scope table lists them, and the validator warns on `usage:*` and `coderouter:*` scopes.
-9. Runtime: removing a dynamic child decrements the node count by one for the whole subtree, so repeated rebuilds creep toward the 4096-node limit in a long-lived mount. The app makes dynamic children depend on booleans and kinds, not on data or the clock.
-10. No `onCleanup` for app code; resources tied to a mount have to be subscriptions or effects created inside it.
-11. Every command becomes an MCP tool. `cycleVariant` carries `"mcp": false` as a proposal for per-command exposure.
-12. `notification.create` has no dedupe key. Proposal: `dedupe_key` checked by the notification owner across machines.
+1. No menu bar placement. Proposal: `cmux.status/1` with `placement: "menuBar"`, an `NSStatusItem` whose button hosts the scene; a primary click opens the item's `Menu` items or a popover. The prototype declares `statusStrip`.
+2. Server schema: `server` exists only on the platform branch, with `data: durable | ephemeral`; this app needs `data: "cache"` and `instances: "machine"` (V10 names them, the schema does not have them yet).
+3. Server process rights: the server must run one user binary (`sr`). v2 has no rule for a server spawning a process; proposal `server.scopes: {"process:spawn:sr": reason}`, enforced by the server's OS sandbox profile, shown in consent.
+4. No pane interface in v2: V2 lists `cmux.status/1` and `cmux.section/1`, not a pane; the sketch uses `cmux.pane/1`.
+5. No visibility signal. A mount cannot tell whether it is on screen, so the server cannot stop reads for hidden surfaces. Proposal: the host forwards mount visibility with each stream subscription.
+6. No relative-time text. Countdowns cost one VM wakeup per minute while a surface is mounted (one one-shot timer at the next change). Proposal: `Text` props `relativeTo` and `style: "countdown" | "age"`.
+7. No tinted meter and no container width: bars are rectangles of fixed width (status item, meters cards) or untinted `ProgressView`s. Proposal: `Meter {value, tone, marks}` that fills its container (V7 lists `Meter`).
+8. No table: the `quiet` pane pads monospaced text into columns, which breaks for wide characters. Proposal: `Table` (V7).
+9. `Menu(title, items)` takes a static item list; the live dropdown uses `.contextMenu(fn)`.
+10. No app i18n: `src/l10n.ts` holds English and Japanese; v2 `strings/` and `cmux.t` replace it.
+11. Proposed ops are rejected locally with `scope.missing` unless the host's scope table lists them; the validator warns on `account:*`.
+12. Every command becomes an MCP tool; `cycleVariant` carries `"mcp": false` as a proposal (v2: `variants` block).
 13. `x-cmux-devOnly` on a setting is not honored yet.
-14. An empty status item still takes its slot; the host should hide a status item whose scene is empty (`sidebarOnly`).
+14. An empty status item still takes its slot (`quiet`); the host should hide an empty status item.
 
 ## Development
 
@@ -127,4 +143,4 @@ bun test first-party-apps/usage/test
 bun first-party-apps/usage/preview/build.ts                                      # preview fixtures, times relative to now
 ```
 
-Preview fixtures: `menuPercent.json`, `menuMeters.json`, `sidebarOnly.json` (normal data), `stale.json` (47 minutes old, one sign-in expired), `unavailable.json` (no usage service), `empty.json` (no plans).
+Preview fixtures: `normal.json` (Claude on pace with an account in error, Codex over pace, one keyed provider), `pending.json` (no older reading), `stale.json` (47 minutes old, router timeout), `source-error.json` (the hosted router failed), `unavailable.json` (no server), `empty.json` (no accounts).

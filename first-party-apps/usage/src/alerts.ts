@@ -1,77 +1,33 @@
-// Threshold warnings, once per window: pure planning; the store sends the
-// notifications and persists `Fired` in cmux.storage.
+// The one warning: a provider has accounts but none is usable (all used up,
+// cooling or failing). Sent once, re-armed when an account is usable again.
+// Pure planning; the store sends the notification and keeps `Fired` in
+// cmux.storage so an app restart does not repeat it.
 //
-// A window warns when its percent crosses a higher threshold than the one it
-// already warned for. It re-arms when its reset time passes or when its
-// percent falls below the lowest threshold (a reset the service reported
-// late, or a budget that was raised). The key is account + window id, not the
-// reset time, because some providers move the reported reset by seconds
-// between reads.
+// Per-account limit warnings are left out on purpose: with dozens of pooled
+// accounts the router switches accounts long before the user could act.
 
-import { percentOf, type UsageAccount, type UsageWindow } from "./model.ts"
+import type { Provider } from "./model.ts"
 
-export interface FiredEntry {
-  level: number
-  resetsAt: number | null
-}
-export type Fired = Record<string, FiredEntry>
+/** Providers that already warned. */
+export type Fired = Record<string, true>
 
 export interface Alert {
-  key: string
-  level: number
-  /** The highest configured threshold (sent as an error-level notification). */
-  top: boolean
-  percent: number
-  account: UsageAccount
-  window: UsageWindow
+  provider: string
+  total: number
 }
 
-export const DEFAULT_THRESHOLDS: readonly number[] = [80, 95]
-
-export const alertKey = (account: UsageAccount, window: UsageWindow) => `${account.id}|${window.id}`
-
-/** Valid thresholds: integers 1 to 100, deduplicated, ascending. */
-export function cleanThresholds(raw: unknown): number[] {
-  const list = Array.isArray(raw) ? raw : DEFAULT_THRESHOLDS
-  const nums = list.map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= 100)
-  return [...new Set(nums)].sort((a, b) => a - b)
-}
-
-/**
- * Returns the alerts to send now and the next `Fired` state. Stale and failed
- * accounts never warn (an old number is not news) and keep their entries.
- */
-export function planAlerts(accounts: readonly UsageAccount[], thresholds: readonly number[], fired: Fired, now: number, staleMs: number): { alerts: Alert[]; fired: Fired } {
+export function planAlerts(providers: readonly Provider[], fired: Fired): { alerts: Alert[]; fired: Fired } {
   const next: Fired = {}
   const alerts: Alert[] = []
-  const lowest = thresholds[0]
-  const live = new Set<string>()
-  for (const account of accounts) {
-    const unusable = account.error !== null || account.stale || (account.fetchedAt !== null && now - account.fetchedAt > staleMs)
-    for (const window of account.windows) {
-      const key = alertKey(account, window)
-      live.add(key)
-      const previous = fired[key]
-      if (unusable) {
-        if (previous) next[key] = previous
-        continue
-      }
-      const percent = percentOf(window)
-      const rearm = !previous || (previous.resetsAt !== null && previous.resetsAt <= now) || (percent !== null && lowest !== undefined && percent < lowest)
-      const already = rearm ? 0 : previous.level
-      const crossed = percent === null ? 0 : Math.max(0, ...thresholds.filter((th) => percent >= th))
-      if (crossed > already) {
-        alerts.push({ key, level: crossed, top: crossed === thresholds[thresholds.length - 1], percent: percent!, account, window })
-        next[key] = { level: crossed, resetsAt: window.resetsAt }
-      } else if (already > 0) {
-        next[key] = { level: already, resetsAt: window.resetsAt ?? previous!.resetsAt }
-      }
-    }
+  const seen = new Set<string>()
+  for (const p of providers) {
+    seen.add(p.id)
+    const out = p.summary.total > 0 && p.summary.usable === 0
+    if (!out) continue
+    next[p.id] = true
+    if (!fired[p.id]) alerts.push({ provider: p.id, total: p.summary.total })
   }
-  // Entries of accounts that disappeared from this read are kept until their reset passes,
-  // so an account that comes back mid-window does not warn twice.
-  for (const [key, entry] of Object.entries(fired)) {
-    if (!live.has(key) && entry.resetsAt !== null && entry.resetsAt > now) next[key] = entry
-  }
+  // A provider missing from this reading keeps its state, so a router hiccup does not re-warn.
+  for (const id of Object.keys(fired)) if (!seen.has(id)) next[id] = true
   return { alerts, fired: next }
 }

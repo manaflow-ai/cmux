@@ -5,9 +5,9 @@
 // override in cmux.storage that applies only while the setting still has the
 // value it overrode, so a later change in Settings wins.
 
-export const VARIANTS = ["menuPercent", "menuMeters", "sidebarOnly"] as const
+export const VARIANTS = ["rows", "meters", "quiet"] as const
 export type Variant = (typeof VARIANTS)[number]
-export const DEFAULT_VARIANT: Variant = "menuPercent"
+export const DEFAULT_VARIANT: Variant = "rows"
 
 const OVERRIDE_KEY = "variantOverride"
 type Override = { value: Variant; base: string | null }

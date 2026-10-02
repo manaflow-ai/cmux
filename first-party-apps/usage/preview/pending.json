@@ -27,13 +27,10 @@
   "ops": {
     "account.list": {
       "schema_version": 1,
-      "generated_at": "2026-10-02T12:32:09.397Z",
-      "fetched_at_ms": "1790944329397",
-      "stale": true,
-      "error": {
-        "code": "router.timeout",
-        "message": "The router did not answer within 90 s."
-      },
+      "generated_at": "2026-10-02T13:17:09.397Z",
+      "fetched_at_ms": "1790947029397",
+      "stale": false,
+      "error": null,
       "sources": [
         {
           "id": "subrouter",
@@ -56,9 +53,9 @@
               "plan": null,
               "state": "active",
               "session_left_pct": 41,
-              "session_reset_at": "2026-10-02T14:42:09.397Z",
+              "session_reset_at": "2026-10-02T15:27:09.397Z",
               "weekly_left_pct": 58,
-              "weekly_reset_at": "2026-10-04T16:32:09.397Z",
+              "weekly_reset_at": "2026-10-04T17:17:09.397Z",
               "extra_usage_usd": null,
               "source": "subrouter"
             },
@@ -69,9 +66,9 @@
               "plan": null,
               "state": "rec",
               "session_left_pct": 100,
-              "session_reset_at": "2026-10-02T17:22:09.397Z",
+              "session_reset_at": "2026-10-02T18:07:09.397Z",
               "weekly_left_pct": 72,
-              "weekly_reset_at": "2026-10-06T21:32:09.397Z",
+              "weekly_reset_at": "2026-10-06T22:17:09.397Z",
               "extra_usage_usd": null,
               "source": "subrouter"
             },
@@ -82,9 +79,9 @@
               "plan": null,
               "state": "ready",
               "session_left_pct": 88,
-              "session_reset_at": "2026-10-02T15:37:09.397Z",
+              "session_reset_at": "2026-10-02T16:22:09.397Z",
               "weekly_left_pct": 34,
-              "weekly_reset_at": "2026-10-03T07:32:09.397Z",
+              "weekly_reset_at": "2026-10-03T08:17:09.397Z",
               "extra_usage_usd": 12.5,
               "source": "subrouter"
             },
@@ -95,9 +92,9 @@
               "plan": null,
               "state": "protected",
               "session_left_pct": 96,
-              "session_reset_at": "2026-10-02T14:12:09.397Z",
+              "session_reset_at": "2026-10-02T14:57:09.397Z",
               "weekly_left_pct": 9,
-              "weekly_reset_at": "2026-10-05T14:32:09.397Z",
+              "weekly_reset_at": "2026-10-05T15:17:09.397Z",
               "extra_usage_usd": null,
               "source": "subrouter"
             },
@@ -108,9 +105,9 @@
               "plan": null,
               "state": "temp",
               "session_left_pct": 0,
-              "session_reset_at": "2026-10-02T13:10:09.397Z",
+              "session_reset_at": "2026-10-02T13:55:09.397Z",
               "weekly_left_pct": 47,
-              "weekly_reset_at": "2026-10-07T13:32:09.397Z",
+              "weekly_reset_at": "2026-10-07T14:17:09.397Z",
               "extra_usage_usd": null,
               "source": "subrouter"
             },
@@ -121,9 +118,9 @@
               "plan": null,
               "state": "cooked",
               "session_left_pct": 100,
-              "session_reset_at": "2026-10-02T16:32:09.397Z",
+              "session_reset_at": "2026-10-02T17:17:09.397Z",
               "weekly_left_pct": 0,
-              "weekly_reset_at": "2026-10-03T19:32:09.397Z",
+              "weekly_reset_at": "2026-10-03T20:17:09.397Z",
               "extra_usage_usd": null,
               "source": "subrouter"
             },
@@ -158,7 +155,7 @@
               "session_left_pct": null,
               "session_reset_at": null,
               "weekly_left_pct": 44,
-              "weekly_reset_at": "2026-10-05T18:32:09.397Z",
+              "weekly_reset_at": "2026-10-05T19:17:09.397Z",
               "extra_usage_usd": null,
               "source": "subrouter"
             },
@@ -171,7 +168,7 @@
               "session_left_pct": null,
               "session_reset_at": null,
               "weekly_left_pct": 81,
-              "weekly_reset_at": "2026-10-08T14:32:09.397Z",
+              "weekly_reset_at": "2026-10-08T15:17:09.397Z",
               "extra_usage_usd": null,
               "source": "subrouter"
             },
@@ -184,7 +181,7 @@
               "session_left_pct": null,
               "session_reset_at": null,
               "weekly_left_pct": 63,
-              "weekly_reset_at": "2026-10-06T23:32:09.397Z",
+              "weekly_reset_at": "2026-10-07T00:17:09.397Z",
               "extra_usage_usd": null,
               "source": "subrouter"
             },
@@ -197,7 +194,7 @@
               "session_left_pct": null,
               "session_reset_at": null,
               "weekly_left_pct": 27,
-              "weekly_reset_at": "2026-10-03T15:32:09.397Z",
+              "weekly_reset_at": "2026-10-03T16:17:09.397Z",
               "extra_usage_usd": null,
               "source": "subrouter"
             },
@@ -210,7 +207,7 @@
               "session_left_pct": null,
               "session_reset_at": null,
               "weekly_left_pct": 12,
-              "weekly_reset_at": "2026-10-05T08:32:09.397Z",
+              "weekly_reset_at": "2026-10-05T09:17:09.397Z",
               "extra_usage_usd": null,
               "source": "subrouter"
             },
@@ -223,7 +220,7 @@
               "session_left_pct": null,
               "session_reset_at": null,
               "weekly_left_pct": 0,
-              "weekly_reset_at": "2026-10-07T20:32:09.397Z",
+              "weekly_reset_at": "2026-10-07T21:17:09.397Z",
               "extra_usage_usd": null,
               "source": "subrouter"
             }
@@ -259,111 +256,7 @@
       }
     },
     "account.usage": {
-      "snapshots": [
-        {
-          "taken_at_ms": "1790941629397",
-          "accounts": [
-            {
-              "provider": "claude",
-              "id": "claude_acct_1",
-              "state": "active",
-              "weekly_left_pct": 59.537733984623934,
-              "weekly_reset_at": "2026-10-04T16:32:09.397Z"
-            },
-            {
-              "provider": "claude",
-              "id": "claude_acct_2",
-              "state": "rec",
-              "weekly_left_pct": 73.53773398462394,
-              "weekly_reset_at": "2026-10-06T21:32:09.397Z"
-            },
-            {
-              "provider": "claude",
-              "id": "claude_acct_3",
-              "state": "ready",
-              "weekly_left_pct": 34,
-              "weekly_reset_at": "2026-10-03T07:32:09.397Z"
-            },
-            {
-              "provider": "claude",
-              "id": "claude_acct_4",
-              "state": "protected",
-              "weekly_left_pct": 9,
-              "weekly_reset_at": "2026-10-05T14:32:09.397Z"
-            },
-            {
-              "provider": "claude",
-              "id": "claude_acct_5",
-              "state": "temp",
-              "weekly_left_pct": 47,
-              "weekly_reset_at": "2026-10-07T13:32:09.397Z"
-            },
-            {
-              "provider": "claude",
-              "id": "claude_acct_6",
-              "state": "cooked",
-              "weekly_left_pct": 0,
-              "weekly_reset_at": "2026-10-03T19:32:09.397Z"
-            },
-            {
-              "provider": "claude",
-              "id": "claude_acct_7",
-              "state": "error",
-              "weekly_left_pct": null,
-              "weekly_reset_at": null
-            },
-            {
-              "provider": "codex",
-              "id": "codex_acct_1",
-              "state": "active",
-              "weekly_left_pct": 45.514180177797755,
-              "weekly_reset_at": "2026-10-05T18:32:09.397Z"
-            },
-            {
-              "provider": "codex",
-              "id": "codex_acct_2",
-              "state": "rec",
-              "weekly_left_pct": 82.51418017779775,
-              "weekly_reset_at": "2026-10-08T14:32:09.397Z"
-            },
-            {
-              "provider": "codex",
-              "id": "codex_acct_3",
-              "state": "ready",
-              "weekly_left_pct": 63,
-              "weekly_reset_at": "2026-10-06T23:32:09.397Z"
-            },
-            {
-              "provider": "codex",
-              "id": "codex_acct_4",
-              "state": "ready",
-              "weekly_left_pct": 27,
-              "weekly_reset_at": "2026-10-03T15:32:09.397Z"
-            },
-            {
-              "provider": "codex",
-              "id": "codex_acct_5",
-              "state": "protected",
-              "weekly_left_pct": 12,
-              "weekly_reset_at": "2026-10-05T08:32:09.397Z"
-            },
-            {
-              "provider": "codex",
-              "id": "codex_acct_6",
-              "state": "cooked",
-              "weekly_left_pct": 0,
-              "weekly_reset_at": "2026-10-07T20:32:09.397Z"
-            },
-            {
-              "provider": "kimi",
-              "id": "kimi_acct_1",
-              "state": "rec",
-              "weekly_left_pct": null,
-              "weekly_reset_at": null
-            }
-          ]
-        }
-      ]
+      "snapshots": []
     }
   }
 }

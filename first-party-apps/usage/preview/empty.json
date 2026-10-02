@@ -1,24 +1,23 @@
 {
   "grant": [
-    "usage:read",
-    "usage:write",
+    "account:read",
+    "account:write",
     "notification:write",
-    "coderouter:read",
     "mcp:expose",
     "actions:run"
   ],
   "scopes": {
-    "usage.get": {
-      "scope": "usage:read",
+    "account.list": {
+      "scope": "account:read",
       "class": "read"
     },
-    "usage.refresh": {
-      "scope": "usage:write",
+    "account.usage": {
+      "scope": "account:read",
+      "class": "read"
+    },
+    "account.refresh": {
+      "scope": "account:write",
       "class": "mutation"
-    },
-    "coderouter.usage.get": {
-      "scope": "coderouter:read",
-      "class": "read"
     },
     "app.settings.set": {
       "scope": "settings:write",
@@ -26,9 +25,14 @@
     }
   },
   "ops": {
-    "usage.get": {
-      "revision": "1",
-      "accounts": []
+    "account.list": {
+      "schema_version": 1,
+      "fetched_at_ms": "1790947149397",
+      "sources": [],
+      "providers": {}
+    },
+    "account.usage": {
+      "snapshots": []
     }
   }
 }
