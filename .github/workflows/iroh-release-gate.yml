@@ -365,10 +365,10 @@ jobs:
           chmod 600 "$production_env"
 
       - name: Run Iroh gate
-        # Every non-soak phase is capped at 25 minutes. Stress soaks retain
-        # their one-hour workload window while the gate script bounds each
-        # setup, build, and launch phase separately.
-        timeout-minutes: ${{ inputs.soak_profile == 'stress' && 75 || 25 }}
+        # Relay-only stress is one hour of use plus the 30-minute credential
+        # rollover observation and bounded cleanup. The script's report
+        # timeout is 5,850 seconds, so this step must be longer than that.
+        timeout-minutes: ${{ inputs.soak_profile == 'stress' && 125 || 25 }}
         env:
           # The hosted runner does not have cmuxterm-hq's tagged-backend
           # helper. The explicit Worker origin remains the app's API and v2
@@ -379,6 +379,9 @@ jobs:
           # has no cmux-tui artifact yet, use the newest older artifact with
           # identical client inputs instead of failing before the app starts.
           CMUX_TUI_CLIENT_MAX_FALLBACK: 5
+          CMUX_CODEX_MODEL: gpt-5.3-codex-spark
+          CMUX_CODEX_DURATION_SECONDS: "3600"
+          CMUX_CODEX_STRICT_MODEL: "1"
         run: |
           set -euo pipefail
           case "${{ matrix.mode }}" in
@@ -408,10 +411,44 @@ jobs:
           if [[ "${{ matrix.mode }}" == automatic || "${{ matrix.mode }}" == relay-only ]]; then
             GATE_ARGS+=(--soak-profile "${{ inputs.soak_profile }}")
           fi
-          if [[ "${{ inputs.environment }}" == production && "${{ matrix.mode }}" == relay-only && "${{ inputs.soak_profile }}" == stress ]]; then
+          if [[ "${{ inputs.soak_profile }}" == stress && ( "${{ matrix.mode }}" == automatic || "${{ matrix.mode }}" == relay-only ) ]]; then
             GATE_ARGS+=(--real-usage)
           fi
           ./scripts/run-iroh-release-gate.sh "${GATE_ARGS[@]}"
+
+      - name: Verify canonical v2 Worker identity
+        if: ${{ always() }}
+        env:
+          EXPECTED_ENVIRONMENT: ${{ inputs.environment }}
+          EXPECTED_V2_URL: ${{ inputs.environment == 'production' && 'https://cmux-v2.debussy.workers.dev' || inputs.v2_base_url }}
+          HEALTH_OUTPUT: ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-worker-health.json
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 --retry-connrefused \
+            --connect-timeout 10 --max-time 30 \
+            "$EXPECTED_V2_URL/v2/health" > "$HEALTH_OUTPUT"
+          EXPECTED_ENVIRONMENT="$EXPECTED_ENVIRONMENT" EXPECTED_V2_URL="$EXPECTED_V2_URL" HEALTH_OUTPUT="$HEALTH_OUTPUT" \
+            /usr/bin/python3 - <<'PY'
+          import json
+          import os
+          from urllib.parse import urlparse
+
+          with open(os.environ["HEALTH_OUTPUT"], encoding="utf-8") as handle:
+              health = json.load(handle)
+          expected_environment = os.environ["EXPECTED_ENVIRONMENT"]
+          expected_url = os.environ["EXPECTED_V2_URL"]
+          if health.get("schemaId") != "health.v1":
+              raise SystemExit("Worker health schema is not health.v1")
+          if health.get("environment") != expected_environment:
+              raise SystemExit("Worker health environment does not match the gate")
+          if not isinstance(health.get("sourceRevision"), str) or not health["sourceRevision"] or health["sourceRevision"] == "unknown":
+              raise SystemExit("Worker health did not identify its source revision")
+          if health.get("storage", {}).get("maxSchemaVersion", 0) < 7:
+              raise SystemExit("Worker storage schema is older than v2")
+          if urlparse(expected_url).hostname in {"cmux-iroh-v2.debussy.workers.dev", "cmux-iroh-v2-staging.debussy.workers.dev"}:
+              raise SystemExit("release gate used a compatibility alias instead of the canonical Worker")
+          print(json.dumps({"url": expected_url, "health": health}, sort_keys=True))
+          PY
 
       - name: Upload redacted verdict
         if: ${{ always() }}
@@ -426,6 +463,9 @@ jobs:
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-ios-*.jsonl
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-ios-*.log
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-mac-failure.cmuxdiag
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-latency.state*
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-latency.json
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-worker-health.json
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-real-usage/**
           if-no-files-found: warn
           retention-days: 7

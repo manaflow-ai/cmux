@@ -565,7 +565,7 @@ extension CMUXCLI {
                     )
                 }
                 changed = true
-            case .unavailable, .pending, .healthy:
+            case .unavailable, .pending, .aborted, .healthy:
                 break
             }
         }

@@ -6,6 +6,7 @@ struct CodexTranscriptMonitorStopReplay {
     let payload: String
     let workspaceId: String
     let surfaceId: String?
+    let suppressNotification: Bool
 
     init?(
         sessionId: String,
@@ -13,11 +14,13 @@ struct CodexTranscriptMonitorStopReplay {
         transcriptPath: String?,
         workspaceId: String,
         surfaceId: String?,
-        lastAssistantMessage: String?
+        lastAssistantMessage: String?,
+        suppressNotification: Bool = false
     ) {
         guard !sessionId.isEmpty, !workspaceId.isEmpty else { return nil }
         self.workspaceId = workspaceId
         self.surfaceId = surfaceId
+        self.suppressNotification = suppressNotification
 
         var object: [String: Any] = [
             "session_id": sessionId,

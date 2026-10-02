@@ -30805,6 +30805,8 @@ struct CMUXCLI {
                 return summarizeCodexHookFailureCandidate(failure)
             case .healthy:
                 return nil
+            case .aborted:
+                return nil
             case .pending, .unavailable:
                 break
             }
@@ -30817,6 +30819,8 @@ struct CMUXCLI {
             case .failure(let failure):
                 return summarizeCodexHookFailureCandidate(failure)
             case .healthy:
+                return nil
+            case .aborted:
                 return nil
             case .pending, .unavailable:
                 break
@@ -30852,6 +30856,7 @@ struct CMUXCLI {
         var candidateCanPublishBeforeTerminal = false
         var sawAssistantMessage = false
         var sawTerminalTurn = false
+        var sawAbortedTurn = false
         var sawRelevantTurn = turnId == nil
         var lastAssistantMessage: String?
         for line in lines {
@@ -30885,6 +30890,7 @@ struct CMUXCLI {
                 sawRelevantTurn = true
                 candidate = nil
                 candidateCanPublishBeforeTerminal = false
+                sawAbortedTurn = false
             case "error":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
                 if let turnId, let payloadTurnId {
@@ -30930,6 +30936,7 @@ struct CMUXCLI {
                 // has no final response to classify as a failure, so let the
                 // normal Stop replay retire its stale prompt record.
                 if eventType == "turn_aborted" {
+                    sawAbortedTurn = true
                     continue
                 }
                 // Codex persists fatal turn failures inside task_complete.error. Standalone
@@ -30978,6 +30985,9 @@ struct CMUXCLI {
         }
         if candidate != nil, turnId != nil, !sawRelevantTurn {
             return .pending
+        }
+        if sawAbortedTurn, candidate == nil {
+            return .aborted
         }
         if requireTerminalCompletion, !sawTerminalTurn {
             return .pending
@@ -31847,6 +31857,16 @@ struct CMUXCLI {
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         lastAssistantMessage: lastAssistantMessage
+                    )
+                case .aborted:
+                    return CodexTranscriptMonitorStopReplay(
+                        sessionId: sessionId,
+                        turnId: turnId,
+                        transcriptPath: currentTranscriptPath,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        lastAssistantMessage: nil,
+                        suppressNotification: true
                     )
                 case .pending:
                     break
@@ -37641,6 +37661,7 @@ export default {
                     turnID: effectiveCodexStopTurnID,
                     workspaceID: workspaceId,
                     surfaceID: surfaceId,
+                    claimNotification: monitorReplay?.suppressNotification != true,
                     // Tokenized Codex launches must not let a delayed Stop
                     // for an older turn settle the currently active turn.
                     // Legacy unwrapped launches retain their historical
@@ -37700,6 +37721,7 @@ export default {
                 }
             }
             let suppressCompletionNotification = suppressVisibleMutations
+                || monitorReplay?.suppressNotification == true
                 || codexHasActiveBackgroundWork
             let cursorStopApprovalNotificationKeys: [String] = {
                 guard def.name == "cursor", !sessionId.isEmpty else { return [] }

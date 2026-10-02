@@ -81,6 +81,10 @@ if [[ "$REAL_USAGE" -eq 1 && -z "$REPORT_OUTPUT" ]]; then
   echo "error: --real-usage requires --report-output" >&2
   exit 2
 fi
+if [[ "$MODE" == relay-only && "$SOAK_PROFILE" == stress && -z "$REPORT_OUTPUT" ]]; then
+  echo "error: relay-only stress requires --report-output so latency evidence is retained" >&2
+  exit 2
+fi
 [[ "$PHASE_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
   echo "error: CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS must be a positive integer" >&2
   exit 2
@@ -379,6 +383,7 @@ PROD_CREDENTIALS_FILE=""
 PROD_ACCOUNT_STATE_FILE=""
 PROD_RECOVERY_FILE=""
 VERCEL_DIR=""
+LATENCY_STATE_FILE=""
 
 shutdown_prior_gate_simulators() {
   local simulator_name="$1"
@@ -453,6 +458,12 @@ cleanup() {
   local cleanup_code=0
   trap - EXIT INT TERM
   set +e
+  if [[ -n "$LATENCY_STATE_FILE" ]]; then
+    if ! "$SCRIPT_DIR/e2e/iroh-latency-impairment.sh" stop "$LATENCY_STATE_FILE" >/dev/null 2>&1; then
+      echo "error: latency impairment cleanup failed; the gate cannot pass with network rules still uncertain" >&2
+      cleanup_code=1
+    fi
+  fi
   if [[ -n "$REPORT_WAITER_PID" ]]; then
     kill "$REPORT_WAITER_PID" >/dev/null 2>&1 || true
   fi
@@ -501,9 +512,10 @@ cleanup() {
       --credentials-file "$PROD_CREDENTIALS_FILE" \
       --api-base-url "$STAGING_BASE_URL" \
       --recovery-file "$PROD_RECOVERY_FILE" >/dev/null
-    cleanup_code=$?
-    if [[ "$cleanup_code" -ne 0 ]]; then
+    account_cleanup_code=$?
+    if [[ "$account_cleanup_code" -ne 0 ]]; then
       echo "error: production account cleanup gate failed; redacted report: $PROD_RECOVERY_FILE" >&2
+      cleanup_code=1
       exit_code=1
     fi
   fi
@@ -546,6 +558,9 @@ cleanup() {
     else
       rm -rf "$STATE_DIR"
     fi
+  fi
+  if [[ "$cleanup_code" -ne 0 ]]; then
+    exit_code=1
   fi
   exit "$exit_code"
 }
@@ -839,6 +854,11 @@ xcrun simctl spawn "$SIMULATOR_ID" defaults write \
 # foreground budget.
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.debug.latency-trace -bool true
+
+if [[ "$RAW_MODE" == relayOnly && "$SOAK_PROFILE" == stress ]]; then
+  LATENCY_STATE_FILE="${REPORT_OUTPUT%.json}-latency.state"
+  "$SCRIPT_DIR/e2e/iroh-latency-impairment.sh" start "$LATENCY_STATE_FILE"
+fi
 
 # The driver owns this unique tag, so restart it unconditionally. A live pairing
 # socket can otherwise make `cmux_attach_ensure_mac` return without relaunching,
@@ -1146,8 +1166,9 @@ if [[ "$REAL_USAGE" -eq 1 ]]; then
   echo "==> starting real Codex workload in three Mac workspaces"
   CMUX_E2E_TAG="$TAG" \
   CMUX_CODEX_EVIDENCE_DIR="$REAL_USAGE_DIR" \
-  CMUX_CODEX_MODEL="${CMUX_CODEX_MODEL:-gpt-5.5-mini}" \
-  CMUX_CODEX_DURATION_SECONDS="${CMUX_CODEX_DURATION_SECONDS:-900}" \
+  CMUX_CODEX_MODEL="${CMUX_CODEX_MODEL:-gpt-5.3-codex-spark}" \
+  CMUX_CODEX_DURATION_SECONDS="${CMUX_CODEX_DURATION_SECONDS:-3600}" \
+  CMUX_CODEX_STRICT_MODEL="${CMUX_CODEX_STRICT_MODEL:-1}" \
   CMUX_CODEX_SHUTDOWN_FILE="$CODEX_SHUTDOWN_FILE" \
   "$SCRIPT_DIR/e2e/iroh-codex-workload.sh" \
     > "$REAL_USAGE_DIR/codex-workload.log" 2>&1 &
@@ -1198,6 +1219,13 @@ if [[ -n "$REPORT_OUTPUT" ]]; then
   then
     rm -f "$HOST_DIAGNOSTIC_OUTPUT"
     echo "warning: Mac Iroh diagnostic capture failed" >&2
+  fi
+  if [[ -n "$LATENCY_STATE_FILE" ]]; then
+    "$SCRIPT_DIR/e2e/summarize-iroh-latency.py" \
+      "$LATENCY_STATE_FILE" \
+      "${REPORT_OUTPUT%.json}-latency.json" \
+      "$(dirname "$REPORT_OUTPUT")" \
+      "${REPORT_OUTPUT%.json}"
   fi
 fi
 
@@ -1417,6 +1445,12 @@ if any(
     for item in cycles
 ):
     raise SystemExit("real usage app foreground-to-terminal exceeded two seconds")
+if any(
+    not isinstance(item.get("resume_to_mac_input_seconds"), (int, float))
+    or float(item["resume_to_mac_input_seconds"]) > 2.0
+    for item in cycles
+):
+    raise SystemExit("real usage resume-to-Mac-input exceeded two seconds")
 print(json.dumps({"cycles": cycles}, sort_keys=True))
 PY_REAL_USAGE
 fi

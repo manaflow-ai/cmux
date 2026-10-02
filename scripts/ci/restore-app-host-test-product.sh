@@ -110,3 +110,9 @@ if [ -n "${GITHUB_ENV:-}" ]; then
   echo "CMUX_CI_RUNTIME_SOURCE_ROOT=$CMUX_CI_RUNTIME_SOURCE_ROOT" >> "$GITHUB_ENV"
 fi
 scripts/ci/canonical-build-root.sh --runtime-source "$PWD"
+# `#filePath` literals keep the producer's canonical path even though the
+# compiler's prefix map makes the rest of the test metadata portable. Keep a
+# second alias at that exact path for tests that still open repository files
+# directly (for example bundled CLI scripts).
+CMUX_CI_RUNTIME_SOURCE_ROOT="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}" \
+  scripts/ci/canonical-build-root.sh --runtime-source "$PWD"
