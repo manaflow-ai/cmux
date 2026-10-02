@@ -24,6 +24,9 @@ export default defineConfig({
     outDir: path.join(webviewsRoot, "dist/acpmux-agent-session-preview"),
     emptyOutDir: true,
     target: "es2022",
-    rollupOptions: { input: path.join(previewRoot, "index.html") },
+    // The shared stylesheet's Tailwind import (with `source(...)`) is left as
+    // is here; Lightning CSS, Vite 8's default minifier, rejects it.
+    cssMinify: "esbuild",
+    rolldownOptions: { input: path.join(previewRoot, "index.html") },
   },
 });

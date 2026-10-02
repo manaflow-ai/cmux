@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { RenderRun, RenderUnderline } from "cmux/raw";
 import { renderAttrs, runPresentation } from "../src/lib/renderStyles";
 
