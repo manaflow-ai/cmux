@@ -35,10 +35,6 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     var onInfoChange: ((ConversationInfo, String?, Bool) -> Void)?
     let layoutCache = MacMessageLayoutCache()
     private let initialSpinner = NSProgressIndicator()
-    private let topEdge = NSVisualEffectView()
-    private let topEdgeMask = CAGradientLayer()
-    private let topEdgeTint = NSView()
-    private let topEdgeTintMask = CAGradientLayer()
 
     private(set) var rows: [MacConversationRow] = []
     private var rowIndex: [String: Int] = [:]
@@ -131,21 +127,6 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         replyBanner.onClose = { [weak self] in self?.exitReplyOrEdit() }
         view.addSubview(replyBanner)
 
-        // Soft top edge: content scrolling under the toolbar blurs and fades,
-        // matching the system scroll edge effect Messages shows there.
-        topEdge.material = .headerView
-        topEdge.blendingMode = .withinWindow
-        topEdge.state = .active
-        topEdge.wantsLayer = true
-        topEdge.layer?.mask = topEdgeMask
-        topEdgeMask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
-        topEdgeMask.locations = [0, 0.55, 1]
-        topEdgeTint.wantsLayer = true
-        topEdgeTint.layer?.mask = topEdgeTintMask
-        topEdgeTintMask.colors = [NSColor.black.cgColor, NSColor.black.withAlphaComponent(0.6).cgColor, NSColor.clear.cgColor]
-        topEdgeTintMask.locations = [0, 0.45, 1]
-        view.addSubview(topEdge)
-        view.addSubview(topEdgeTint)
 
         initialSpinner.style = .spinning
         initialSpinner.controlSize = .regular
@@ -198,14 +179,6 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     public override func viewDidLayout() {
         super.viewDidLayout()
-        let edgeHeight = view.safeAreaInsets.top + 18
-        // Starts above the view so the band reaches the window's top edge.
-        let edgeFrame = CGRect(x: view.safeAreaInsets.left - 15, y: -40, width: view.bounds.width - view.safeAreaInsets.left + 15, height: edgeHeight + 40)
-        topEdge.frame = edgeFrame
-        topEdgeTint.frame = edgeFrame
-        topEdgeMask.frame = topEdge.bounds
-        topEdgeTintMask.frame = topEdgeTint.bounds
-        topEdgeTint.layer?.backgroundColor = resolved(MacConversationTheme.background, in: view)
         updateInsets()
         let width = scrollView.contentSize.width
         // One column, exactly as wide as the visible transcript.

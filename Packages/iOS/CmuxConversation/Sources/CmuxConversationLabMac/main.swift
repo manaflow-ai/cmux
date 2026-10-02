@@ -16,6 +16,17 @@ if arguments.count > 2 {
     app.appearance = NSAppearance(named: arguments[2] == "light" ? .aqua : .darkAqua)
 }
 let controller = MainActor.assumeIsolated { MacConversationLab.open(endpoint: endpoint) }
+// Driven runs open on the display named by CMUX_LAB_DISPLAY (default "LG HDR 4K"),
+// never on the person's main working display.
+if driven {
+    MainActor.assumeIsolated {
+        let name = ProcessInfo.processInfo.environment["CMUX_LAB_DISPLAY"] ?? "LG HDR 4K"
+        if let screen = NSScreen.screens.first(where: { $0.localizedName.localizedCaseInsensitiveContains(name) }),
+           let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.conversationLab" }) {
+            window.setFrameOrigin(NSPoint(x: screen.visibleFrame.minX + 40, y: screen.visibleFrame.maxY - window.frame.height - 40))
+        }
+    }
+}
 
 if arguments.count > 3 {
     let fifo = arguments[3]

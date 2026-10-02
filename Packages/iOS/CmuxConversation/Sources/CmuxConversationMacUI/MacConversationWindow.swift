@@ -62,6 +62,21 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
             if #available(macOS 26.1, *) { accessory.preferredScrollEdgeEffectStyle = .soft }
             contentItem.addBottomAlignedAccessoryViewController(accessory)
             composerAccessory = accessory
+            // The name strip is a soft top accessory of the transcript pane:
+            // it makes AppKit's native toolbar edge effect soft (Messages' look)
+            // instead of the default hard cutoff with a separator line.
+            do {
+                let top = NSSplitViewItemAccessoryViewController()
+                let nameView = MacTitleNameAccessoryView(label: titleNameLabel)
+                nameView.translatesAutoresizingMaskIntoConstraints = false
+                // Measured: Messages' name baseline sits 10.5 pt higher than a
+                // 22 pt strip would put it, tucked against the toolbar.
+                nameView.heightAnchor.constraint(equalToConstant: 12).isActive = true
+                nameView.labelOffset = -12.5
+                top.view = nameView
+                if #available(macOS 26.1, *) { top.preferredScrollEdgeEffectStyle = .soft }
+                contentItem.addTopAlignedAccessoryViewController(top)
+            }
         } else {
             composerHost.autoresizingMask = [.width, .maxYMargin]
             content.view.addSubview(composerHost)
@@ -269,6 +284,7 @@ final class MacToolbarTitleView: MacFlippedView {
 /// The title-bar accessory below the toolbar that carries the name.
 final class MacTitleNameAccessoryView: MacFlippedView {
     let label: NSTextField
+    var labelOffset: CGFloat = -2
 
     init(label: NSTextField) {
         self.label = label
@@ -281,7 +297,7 @@ final class MacTitleNameAccessoryView: MacFlippedView {
 
     override func layout() {
         super.layout()
-        label.frame = CGRect(x: 0, y: -2, width: bounds.width, height: 17)
+        label.frame = CGRect(x: 0, y: labelOffset, width: bounds.width, height: 17)
     }
 }
 
@@ -330,6 +346,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         scroll.documentView = table
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
         scroll.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(scroll)
         NSLayoutConstraint.activate([
@@ -525,17 +542,20 @@ public enum MacConversationLab {
             backing: .buffered, defer: false
         )
         window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
+        // An opaque titlebar lets AppKit apply its native scroll edge effect to
+        // the transcript under the toolbar (a transparent one disables it).
+        window.titlebarAppearsTransparent = false
         window.toolbarStyle = .unified
         window.title = String(localized: "conversation.lab.title", defaultValue: "Conversation", bundle: .module)
         window.contentViewController = split
         window.toolbar = split.makeToolbar()
-        let nameAccessory = NSTitlebarAccessoryViewController()
-        nameAccessory.layoutAttribute = .bottom
-        nameAccessory.view = MacTitleNameAccessoryView(label: split.titleNameLabel)
-        nameAccessory.view.frame.size.height = 22
-        if #available(macOS 26.1, *) { nameAccessory.preferredScrollEdgeEffectStyle = .soft }
-        window.addTitlebarAccessoryViewController(nameAccessory)
+        if #unavailable(macOS 26.0) {
+            let nameAccessory = NSTitlebarAccessoryViewController()
+            nameAccessory.layoutAttribute = .bottom
+            nameAccessory.view = MacTitleNameAccessoryView(label: split.titleNameLabel)
+            nameAccessory.view.frame.size.height = 22
+            window.addTitlebarAccessoryViewController(nameAccessory)
+        }
         window.minSize = NSSize(width: 640, height: 420)
         window.setContentSize(NSSize(width: 1100, height: 760))
         window.center()
