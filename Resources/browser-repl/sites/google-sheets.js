@@ -43,6 +43,7 @@
             await selectRange(page, start);
             await page.clipboard.writeText(tsv);
             await page.keyboard.press("Meta+V");
+            await ed.saved(page);
             const want = new Map();
             values.forEach((row, i) => row.forEach((v, j) => want.set(`${ed.colName(c0 + j)}${r0 + i}`, v === null || v === undefined ? "" : String(v))));
             const verified = await ed.verify(async () => {
@@ -166,6 +167,7 @@
             run: async (page) => {
               await selectRange(page, range);
               await page.keyboard.press("Delete");
+              await ed.saved(page);
               const verified = await ed.verify(async () => (await api.cells(sheet, { ...(options || {}), range })).cells.length === 0);
               return { status: "cleared", range: range.toUpperCase(), verified };
             },

@@ -183,16 +183,21 @@
         await t.sleep(500);
         await page.keyboard.press("Escape").catch(() => {});
       },
-      // Polls check() (an export read) until it returns truthy or time runs out.
-      async verify(check, timeout = 20000) {
-        const deadline = t.now() + timeout;
-        for (;;) {
+      // Waits until the editor no longer says it is saving (its save
+      // indicator), so exports include the edit.
+      async saved(page) {
+        await t.sleep(400);
+        await t.waitIn(page, () => { const b = document.querySelector("#docs-save-indicator-badge, .docs-save-indicator-badge"); return !b || !/Saving/i.test(b.textContent || b.getAttribute("aria-label") || ""); }, undefined, { timeout: 20000, what: "the editor to save" }).catch(() => {});
+      },
+      // Checks the edit through an export, backing off (exports are rate-limited).
+      async verify(check) {
+        for (const wait of [800, 1500, 2500, 4000, 6000, 8000]) {
+          await t.sleep(wait);
           try {
             if (await check()) return true;
           } catch (e) {}
-          if (t.now() >= deadline) return false;
-          await t.sleep(700);
         }
+        return false;
       },
     };
     return editors;

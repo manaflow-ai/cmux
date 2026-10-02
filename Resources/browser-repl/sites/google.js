@@ -74,7 +74,14 @@
   // Fetches a Google URL in the signed-in session; fails clearly when Google
   // sends the sign-in page or an HTML error instead of the file.
   async function fetchFile(t, name, url, { expectHTML = false } = {}) {
-    const r = await t.fetch(url);
+    // Google limits export requests in quick succession (429); wait and retry.
+    let r = await t.fetch(url);
+    for (const wait of [2000, 4000, 8000]) {
+      if (r.status !== 429) break;
+      await t.sleep(wait);
+      r = await t.fetch(url);
+    }
+    if (r.status === 429) throw new S.SiteError("rate_limited", `${name}: Google limits export requests (HTTP 429); retry in a few seconds`);
     if (/^https:\/\/accounts\.google\.com\//.test(r.url) || r.status === 401) throw new S.SiteError("not_signed_in", `${name}: Google asked to sign in (no signed-in account in the cmux browser can open this file). Open ${url.split("?")[0]} with tabs.open() and ask the user to sign in.`);
     if (r.status === 403 || r.status === 404) throw new S.SiteError(r.status === 404 ? "not_found" : "forbidden", `${name}: Google returned HTTP ${r.status}; the file does not exist or this account (uid ${new URL(url).searchParams.get("authuser") || 0}) has no access. Try another { uid } (sites.googleAccounts.list()).`);
     if (!r.ok) throw new S.SiteError("http", `${name}: Google returned HTTP ${r.status} for ${url}`);
