@@ -150,6 +150,16 @@ public enum CloudNotificationSyncReducer: Sendable {
         if next.delivered.count > CloudNotificationSyncState.deliveredLimit {
             next.delivered.removeFirst(next.delivered.count - CloudNotificationSyncState.deliveredLimit)
         }
+        for row in rows {
+            guard let terminalID = row.terminalID else { continue }
+            var ids = next.notificationIDsByTerminalID[terminalID] ?? []
+            ids.removeAll { $0 == row.id }
+            ids.append(row.id)
+            if ids.count > CloudNotificationSyncState.notificationAssociationLimit {
+                ids.removeFirst(ids.count - CloudNotificationSyncState.notificationAssociationLimit)
+            }
+            next.notificationIDsByTerminalID[terminalID] = ids
+        }
         return Plan(deliver: deliver, removed: removed, state: next)
     }
 
@@ -431,6 +441,20 @@ public final class CloudNotificationSync {
         var next = state
         next.manuallyUnreadTerminalIDs.removeAll { terminalIDs.contains($0) }
         commit(next)
+    }
+
+    /// Notification row ids associated with the selected terminals, including
+    /// rows learned by an earlier snapshot and persisted for offline actions.
+    public func notificationIDs(for terminalIDs: Set<String>) -> [String] {
+        var ids = Set<String>()
+        for terminalID in terminalIDs {
+            ids.formUnion(state.notificationIDsByTerminalID[terminalID] ?? [])
+        }
+        for row in rows {
+            guard let terminalID = row.terminalID, terminalIDs.contains(terminalID) else { continue }
+            ids.insert(row.id)
+        }
+        return ids.sorted()
     }
 
     /// Local reads by target: every unread row whose current placement the

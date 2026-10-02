@@ -130,6 +130,18 @@ struct CloudNotificationSyncTests {
         #expect(CloudNotificationSyncReducer.unreadTerminalIDs(rows: [row], clientID: Self.me, state: state).isEmpty)
     }
 
+    @Test func terminalNotificationAssociationsSurviveRestartForOfflineReadActions() throws {
+        let row = Self.row("offline-association", terminal: "term-offline")
+        let planned = CloudNotificationSyncReducer.plan(
+            rows: [row], clientID: Self.me, state: CloudNotificationSyncState()
+        )
+        #expect(planned.state.notificationIDsByTerminalID == ["term-offline": [row.id]])
+
+        let data = try JSONEncoder().encode(planned.state)
+        let restored = try JSONDecoder().decode(CloudNotificationSyncState.self, from: data)
+        #expect(restored.notificationIDsByTerminalID["term-offline"] == [row.id])
+    }
+
     @Test @MainActor func offlineManualUnreadUpdatesCloudTreeProjectionImmediately() throws {
         let defaultsName = "cmux.tests.cloud-manual-unread.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsName))
@@ -145,6 +157,25 @@ struct CloudNotificationSyncTests {
         hub.setManualUnread(terminalIDs: ["term-offline"], machineID: machineID, unread: false)
         #expect(hub.unreadTerminalIDs[machineID] == nil)
         #expect(hub.persistenceStore.load(machineID: machineID).manuallyUnreadTerminalIDs.isEmpty)
+    }
+
+    @Test @MainActor func offlineTerminalReadActionsUseDurableNotificationAssociations() throws {
+        let defaultsName = "cmux.tests.cloud-offline-associations.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let store = CloudNotificationSyncStore(defaults: defaults)
+        store.save(
+            CloudNotificationSyncState(notificationIDsByTerminalID: [
+                "term-offline": ["notification-1", "notification-2"]
+            ]),
+            machineID: "offline-machine"
+        )
+        let hub = CloudNotificationSyncHub(persistenceStore: store)
+
+        #expect(
+            hub.notificationIDs(for: ["term-offline"], machineID: "offline-machine")
+                == ["notification-1", "notification-2"]
+        )
     }
 
     @Test func subtitleDecodesWhenTheMachineSentOne() throws {

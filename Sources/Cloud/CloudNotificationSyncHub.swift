@@ -55,6 +55,18 @@ final class CloudNotificationSyncHub {
         syncs[machineID]
     }
 
+    /// Returns durable daemon row ids for terminal-scoped read-state actions.
+    /// A disconnected machine has no live sync, so the persisted association
+    /// is the source of truth until its next snapshot arrives.
+    func notificationIDs(for terminalIDs: Set<String>, machineID: String) -> [String] {
+        guard !terminalIDs.isEmpty else { return [] }
+        if let sync = syncs[machineID] {
+            return sync.notificationIDs(for: terminalIDs)
+        }
+        let state = persistenceStore.load(machineID: machineID)
+        return Set(terminalIDs.flatMap { state.notificationIDsByTerminalID[$0] ?? [] }).sorted()
+    }
+
     func setUnread(_ terminalIDs: Set<String>, machineID: String) {
         if terminalIDs.isEmpty {
             guard unreadTerminalIDs.removeValue(forKey: machineID) != nil else { return }

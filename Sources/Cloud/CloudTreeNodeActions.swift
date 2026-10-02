@@ -574,10 +574,10 @@ struct CloudTreeNodeActions {
                 return resource.id.key
             })
             guard !allTerminalIDs.isEmpty else { return }
-            let notificationIDs = CloudNotificationSyncHub.shared.sync(machineID: machineID)?.rows.compactMap { row -> String? in
-                guard let terminalID = row.terminalID, allTerminalIDs.contains(terminalID) else { return nil }
-                return row.id
-            } ?? []
+            let notificationIDs = CloudNotificationSyncHub.shared.notificationIDs(
+                for: allTerminalIDs,
+                machineID: machineID
+            )
             CloudNotificationSyncHub.shared.setManualUnread(
                 terminalIDs: allTerminalIDs,
                 machineID: machineID,
