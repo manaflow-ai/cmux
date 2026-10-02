@@ -175,6 +175,11 @@ describe("dictation text", () => {
     expect(revise("gonna go", "Gonna go", "going to go home")).toBe("Gonna go home");
     expect(revise("I have 21", "We have 21", "I have twenty one dollars")).toBe("We have 21");
     expect(revise("I will", "I Will", "I'll go")).toBe("I Will");
+    // The last handed word revised, with an earlier copy: nothing is added rather than repeated.
+    expect(revise("the cat and the", "The cat and the", "The cat and then we left")).toBe("The cat and the");
+    expect(revise("send it to me and to", "Send it to me and to", "Send it to me and two")).toBe("Send it to me and to");
+    expect(revise("I'm sure you're sure", "I'm sure you're Sure", "I am sure you are sure now")).toBe("I'm sure you're Sure now");
+    expect(revise("it's fine, it's fine", "It's fine, it's fine", "it is fine, it is fine okay")).toBe("It's fine, it's fine okay");
     // A longer revision adds the words past the handed ones.
     expect(revise("I scream for", "We scream for", "ice cream for you")).toBe("We scream for you");
   });
@@ -186,6 +191,9 @@ describe("dictation text", () => {
     // The engine respells the handed characters: what follows their last one is new.
     expect(run(caretAt(""), [update("listening", "今天天气"), update("listening", "今天的天气很好")], edit("明天天气")).prompt.value).toBe("明天天气很好");
     expect(run(caretAt(""), [update("listening", "今天天气"), update("listening", "今天气很好")], edit("明天天气")).prompt.value).toBe("明天天气很好");
+    expect(run(caretAt(""), [update("listening", "天气很好天"), update("listening", "天气真好")], edit("天气不好天")).prompt.value).toBe("天气不好天");
+    // Characters outside the Basic Multilingual Plane count as one.
+    expect(run(caretAt(""), [update("listening", "𠮷野"), update("listening", "𠮷の野家")], edit("吉野")).prompt.value).toBe("吉野家");
     expect(run(caretAt(""), [update("listening", "こんにちは"), update("listening", "こんにちは世界")], edit("こんばんは")).prompt.value).toBe("こんばんは世界");
   });
 

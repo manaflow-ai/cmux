@@ -129,10 +129,11 @@ function remainder(text: string, anchor: DictationAnchor): { rest: string; glued
     if (!midWord) return { rest, glued: false };
     return anchor.continues ? { rest, glued: true } : { rest: rest.replace(/^[\p{L}\p{N}]+/u, ""), glued: false };
   }
-  // Scripts without spaces: by character, after the handed text's last character.
+  // Scripts without spaces: by character (code point), after the handed text's last character.
   if (unspaced.test(handed) && !/\s/u.test(handed.trim())) {
-    const at = nearest([...text], (character) => character === handed.at(-1), handed.length - 1);
-    return { rest: at < 0 ? "" : text.slice(at + 1), glued: false };
+    const characters = [...text], mine = [...handed];
+    const at = sameOccurrence(mine, characters, (a, b) => a === b);
+    return { rest: at < 0 ? "" : characters.slice(at + 1).join(""), glued: false };
   }
   const old = words(handed), next = words(text);
   const target = plain(old.join(""));
@@ -146,18 +147,20 @@ function remainder(text: string, anchor: DictationAnchor): { rest: string; glued
   }
   // Respelled ("I'm" as "I am", "21" as "twenty one"): what follows the handed text's last word
   // is new. Without that word nothing is.
-  const last = plain(old.at(-1) ?? "");
-  const at = last ? nearest(next, (word) => plain(word) === last, old.length - 1) : -1;
+  const at = plain(old.at(-1) ?? "") ? sameOccurrence(old, next, (a, b) => plain(a) === plain(b)) : -1;
   return wholeWords(at < 0 ? [] : next.slice(at + 1));
 }
 
-/// The index of the item matching `test` closest to `around` (the later one on a tie), or -1.
-function nearest<T>(items: T[], test: (item: T) => boolean, around: number): number {
-  let best = -1;
-  items.forEach((item, index) => {
-    if (test(item) && (best < 0 || Math.abs(index - around) <= Math.abs(best - around))) best = index;
-  });
-  return best;
+/// Where `handed`'s last item sits in `next`: the same occurrence of it (the third "the" if it
+/// was the third), or -1 when `next` has fewer, so a revised last item adds nothing.
+function sameOccurrence(handed: string[], next: string[], same: (a: string, b: string) => boolean): number {
+  const last = handed.at(-1);
+  if (last === undefined) return -1;
+  let wanted = handed.filter((item) => same(item, last)).length;
+  for (let index = 0; index < next.length; index += 1) {
+    if (same(next[index]!, last) && (wanted -= 1) === 0) return index;
+  }
+  return -1;
 }
 
 /// Whole words: a word boundary goes before them.
