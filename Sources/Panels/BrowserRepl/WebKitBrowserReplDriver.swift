@@ -1546,7 +1546,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 .flatMap { ($0["base64"] as? String).flatMap { Data(base64Encoded: $0) } }
                 .map { String(decoding: $0, as: UTF8.self) }
             if let text, !text.isEmpty {
-                await BrowserReplNativeInput.insertText(text, into: webView)
+                try? await BrowserReplNativeInput.insertText(text, into: webView)
             }
         }
     }
@@ -1622,7 +1622,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard !text.isEmpty else { return nil }
         // A secret from the native session: typed only when the focused
         // frame's own origin is on the secret's domains, checked on every call.
-        if let name = params["secretName"] as? String {
+        let checkTarget: @MainActor () async throws -> Void = {
+            guard let name = params["secretName"] as? String else { return }
             let frames = await BrowserReplFrameTree.frames(of: panel.webView)
             try await BrowserReplSecretGuard.checkSecretTarget(
                 name: name,
@@ -1632,7 +1633,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             )
         }
         try await withWindow(panel) { webView, _ in
-            await BrowserReplNativeInput.insertText(text, into: webView)
+            try await BrowserReplNativeInput.insertText(text, into: webView, checkTarget: checkTarget)
             await BrowserReplNativeInput.roundTrip(webView)
         }
         return nil

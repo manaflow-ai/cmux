@@ -136,19 +136,42 @@ enum BrowserReplNativeInput {
     /// fire three. Text also inserts directly when it holds a line break or a
     /// tab (editing commands, not composed text), when focus is in a frame
     /// the agent cannot inspect, or when WebKit's editor state, which gates
-    /// marked text, is not current within `stateTimeout`.
+    /// marked text, is not current within `stateTimeout`. The sequence is
+    /// ``BrowserReplTextCommit``; `checkTarget` throws to refuse the focused
+    /// element, and then nothing is inserted.
     static func insertText(
         _ text: String,
         into webView: WKWebView,
-        stateTimeout: Duration = .milliseconds(500)
-    ) async {
+        stateTimeout: Duration = .milliseconds(500),
+        checkTarget: @MainActor () async throws -> Void = {}
+    ) async throws {
         guard let client = webView as? any NSTextInputClient else { return }
-        let noReplacement = NSRange(location: NSNotFound, length: 0)
-        let composable = !text.contains { $0.isNewline || $0 == "\t" }
-        if composable,
-           !client.hasMarkedText(),
-           await focusIsRichTextEditor(webView),
-           await afterPresentationUpdate(webView, timeout: stateTimeout) {
+        let target = WebViewTextTarget(webView: webView, client: client, stateTimeout: stateTimeout)
+        try await BrowserReplTextCommit.commit(text, into: target, checkTarget: checkTarget)
+    }
+
+    /// A web view's text input client as ``BrowserReplTextCommit`` drives it.
+    @MainActor
+    private final class WebViewTextTarget: BrowserReplTextCommitTarget {
+        let webView: WKWebView
+        let client: any NSTextInputClient
+        let stateTimeout: Duration
+        private let noReplacement = NSRange(location: NSNotFound, length: 0)
+
+        init(webView: WKWebView, client: any NSTextInputClient, stateTimeout: Duration) {
+            self.webView = webView
+            self.client = client
+            self.stateTimeout = stateTimeout
+        }
+
+        var hasMarkedText: Bool { client.hasMarkedText() }
+
+        func prepareComposition() async -> Bool {
+            guard await BrowserReplNativeInput.focusIsRichTextEditor(webView) else { return false }
+            return await BrowserReplNativeInput.afterPresentationUpdate(webView, timeout: stateTimeout)
+        }
+
+        func setMarkedText(_ text: String) {
             let length = (text as NSString).length
             client.setMarkedText(
                 text,
@@ -156,13 +179,16 @@ enum BrowserReplNativeInput {
                 replacementRange: noReplacement
             )
         }
-        client.insertText(text, replacementRange: noReplacement)
+
+        func insertText(_ text: String) {
+            client.insertText(text, replacementRange: noReplacement)
+        }
     }
 
     /// Whether the focused element, followed through same-origin frames and
     /// shadow roots, is a `contenteditable` editor (not a form field) in a
     /// frame the agent world can read.
-    private static func focusIsRichTextEditor(_ webView: WKWebView) async -> Bool {
+    fileprivate static func focusIsRichTextEditor(_ webView: WKWebView) async -> Bool {
         let result = try? await webView.callAsyncJavaScript(
             """
             let doc = document;
