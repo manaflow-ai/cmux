@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Cause from "effect/Cause";
@@ -49,10 +50,9 @@ function ok(value: unknown): CloudMcpExecResult {
 }
 
 /** What `sh` hands the program for a quoted argument string: one array entry per argv word. */
-function shellWords(args: string): string[] {
-  const out = spawnSync("sh", ["-c", `for a in ${args}; do printf '%s\\0' "$a"; done`], { encoding: "utf8" });
-  expect(out.status).toBe(0);
-  return out.stdout.split("\0").slice(0, -1);
+async function shellWords(args: string): Promise<string[]> {
+  const { stdout } = await promisify(execFile)("sh", ["-c", `for a in ${args}; do printf '%s\\0' "$a"; done`], { encoding: "utf8" });
+  return stdout.split("\0").slice(0, -1);
 }
 
 describe("cloud MCP protocol", () => {
@@ -142,8 +142,8 @@ describe("cloud MCP tool arguments", () => {
     const result = await callCloudMcpTool(gateway, "run_agent", { machine_id: "vm-a", agent: "claude", prompt });
     expect(result.isError).toBeUndefined();
     expect(result.structuredContent).toEqual({ machine_id: "vm-a", agent: "claude", workspace_id: WORKSPACE, terminal_id: TERMINAL });
-    expect(shellWords(calls[0].args)).toEqual(["--session", "cloud", "--json", "workspace", "create", "--name", "claude (via MCP)", "--empty"]);
-    expect(shellWords(calls[1].args)).toEqual([
+    expect(await shellWords(calls[0].args)).toEqual(["--session", "cloud", "--json", "workspace", "create", "--name", "claude (via MCP)", "--empty"]);
+    expect(await shellWords(calls[1].args)).toEqual([
       "--session", "cloud", "--json", "workspace", WORKSPACE, "run", "--on-exit", "keep", "--",
       "bash", "-lc", 'cd "$HOME" && exec "$@"', "bash", "claude", "-p", "--", prompt,
     ]);
@@ -155,7 +155,7 @@ describe("cloud MCP tool arguments", () => {
       ok({ value: { terminal_id: TERMINAL } }),
     ]);
     await callCloudMcpTool(gateway, "run_agent", { machine_id: "vm-a", agent: "codex", prompt: "--dangerously-bypass-approvals-and-sandbox" });
-    expect(shellWords(calls[1].args).slice(-4)).toEqual(["codex", "exec", "--", "--dangerously-bypass-approvals-and-sandbox"]);
+    expect((await shellWords(calls[1].args)).slice(-4)).toEqual(["codex", "exec", "--", "--dangerously-bypass-approvals-and-sandbox"]);
     const pi = fakeGateway();
     const refused = await callCloudMcpTool(pi.gateway, "run_agent", { machine_id: "vm-a", agent: "pi", prompt: "--help" });
     expect(refused.structuredContent).toMatchObject({ error: "invalid_arguments" });
@@ -170,7 +170,7 @@ describe("cloud MCP tool arguments", () => {
     ]);
     const result = await callCloudMcpTool(gateway, "run_agent", { machine_id: "vm-a", agent: "claude", prompt: "hi" });
     expect(result.isError).toBe(true);
-    expect(shellWords(calls[2].args).slice(3)).toEqual(["workspace", WORKSPACE, "close"]);
+    expect((await shellWords(calls[2].args)).slice(3)).toEqual(["workspace", WORKSPACE, "close"]);
   });
 
   test("every guest command stays under the 64 KiB exec cap", async () => {
@@ -190,7 +190,7 @@ describe("cloud MCP tool arguments", () => {
     const result = await callCloudMcpTool(gateway, "send_input", { machine_id: "vm-a", terminal_id: TERMINAL, text: "ls -la", submit: true });
     expect(result.structuredContent).toMatchObject({ submitted: true, sent_bytes: 6 });
     await callCloudMcpTool(gateway, "send_input", { machine_id: "vm-a", terminal_id: TERMINAL, text: "draft" });
-    expect(calls.map((call) => shellWords(call.args).slice(3))).toEqual([
+    expect(await Promise.all(calls.map(async (call) => (await shellWords(call.args)).slice(3)))).toEqual([
       ["terminal", TERMINAL, "write", "--text", "ls -la\r"],
       ["terminal", TERMINAL, "write", "--text", "draft"],
     ]);
@@ -210,8 +210,8 @@ describe("cloud MCP tool arguments", () => {
     expect(result.content[0].text).toContain("selector.not_found");
   });
 
-  test("cmuxTuiArgs targets the machine's cloud session", () => {
-    expect(shellWords(cmuxTuiArgs(["terminal", "list"]))).toEqual(["--session", "cloud", "--json", "terminal", "list"]);
+  test("cmuxTuiArgs targets the machine's cloud session", async () => {
+    expect(await shellWords(cmuxTuiArgs(["terminal", "list"]))).toEqual(["--session", "cloud", "--json", "terminal", "list"]);
   });
 });
 
