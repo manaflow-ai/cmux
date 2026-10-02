@@ -5240,6 +5240,923 @@
           }
         }
       }
+    },
+    "onboarding.button.back": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "戻る"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رجوع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nazad"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilbage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zurück"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atrás"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indietro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថយក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "뒤로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilbake"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wstecz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Voltar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Назад"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้อนกลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Назад"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quay lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "返回"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "返回"
+          }
+        }
+      }
+    },
+    "onboarding.button.importWithoutPasswords": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Without Passwords"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "パスワードなしで読み込む"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استيراد بدون كلمات السر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uvezi bez lozinki"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importér uden adgangskoder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ohne Passwörter importieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importar sin contraseñas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importer sans les mots de passe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importa senza password"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នាំចូលដោយគ្មានពាក្យសម្ងាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "암호 없이 가져오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importer uten passord"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importuj bez haseł"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importar sem senhas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Импортировать без паролей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นำเข้าโดยไม่รวมรหัสผ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parolalar Olmadan İçe Aktar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Імпортувати без паролів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhập không kèm mật khẩu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "导入但不含密码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "匯入但不含密碼"
+          }
+        }
+      }
+    },
+    "onboarding.passwords.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bring saved passwords from these profiles?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "これらのプロファイルから保存済みパスワードを読み込みますか?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد جلب كلمات السر المحفوظة من هذه الملفات الشخصية؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prenijeti sačuvane lozinke iz ovih profila?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vil du hente gemte adgangskoder fra disse profiler?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gespeicherte Passwörter aus diesen Profilen übernehmen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Traer las contraseñas guardadas de estos perfiles?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importer les mots de passe enregistrés de ces profils ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portare le password salvate da questi profili?"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នាំយកពាក្យសម្ងាត់ដែលបានរក្សាទុកពីប្រវត្តិរូបទាំងនេះ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 프로필에서 저장된 암호를 가져올까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vil du hente lagrede passord fra disse profilene?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieść zapisane hasła z tych profili?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trazer as senhas salvas destes perfis?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенести сохранённые пароли из этих профилей?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นำรหัสผ่านที่บันทึกไว้จากโปรไฟล์เหล่านี้มาด้วยหรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu profillerdeki kayıtlı parolalar getirilsin mi?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенести збережені паролі з цих профілів?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mang mật khẩu đã lưu từ các hồ sơ này sang?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要从这些配置文件导入已存储的密码吗?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要從這些設定檔匯入已儲存的密碼嗎?"
+          }
+        }
+      }
+    },
+    "onboarding.passwords.keychain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next, macOS asks whether cmux may use %@. That Keychain item is the key the browser locks its saved passwords with. Choose Allow, and cmux unlocks them once, on this Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "次に、cmux が %@ を使用してよいか macOS が確認します。このキーチェーン項目は、ブラウザが保存済みパスワードを暗号化する鍵です。「許可」を選ぶと、cmux はこの Mac 上で一度だけそれらを復号します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بعد ذلك، يسأل macOS ما إذا كان يمكن لـ cmux استخدام %@. عنصر سلسلة المفاتيح هذا هو المفتاح الذي يقفل به المتصفح كلمات السر المحفوظة. اختر «السماح»، فيفتحها cmux مرة واحدة على هذا الـ Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatim macOS pita smije li cmux koristiti %@. Ta stavka privjeska ključeva je ključ kojim preglednik zaključava sačuvane lozinke. Odaberite Dozvoli i cmux će ih otključati jednom, na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Derefter spørger macOS, om cmux må bruge %@. Det nøgleringsemne er den nøgle, browseren låser sine gemte adgangskoder med. Vælg Tillad, så låser cmux dem op én gang på denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Als Nächstes fragt macOS, ob cmux %@ verwenden darf. Dieser Schlüsselbundeintrag ist der Schlüssel, mit dem der Browser seine gespeicherten Passwörter verschlüsselt. Wähle „Erlauben“, dann entschlüsselt cmux sie einmalig auf diesem Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A continuación, macOS preguntará si cmux puede usar %@. Ese ítem del llavero es la clave con la que el navegador cifra sus contraseñas guardadas. Elige Permitir y cmux las desbloqueará una sola vez, en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ensuite, macOS demande si cmux peut utiliser %@. Cet élément du trousseau est la clé avec laquelle le navigateur chiffre ses mots de passe enregistrés. Choisissez Autoriser, et cmux les déverrouille une seule fois, sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poi macOS chiede se cmux può usare %@. Quell’elemento del portachiavi è la chiave con cui il browser cifra le password salvate. Scegli Consenti e cmux le sbloccherà una sola volta, su questo Mac."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាប់មក macOS នឹងសួរថាតើ cmux អាចប្រើ %@ បានឬទេ។ ធាតុ Keychain នោះជាកូនសោដែលកម្មវិធីរុករកប្រើចាក់សោពាក្យសម្ងាត់ដែលបានរក្សាទុក។ ជ្រើសរើស អនុញ្ញាត ហើយ cmux នឹងដោះសោវាម្ដង នៅលើ Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다음으로 macOS가 cmux에서 %@ 항목을 사용해도 되는지 묻습니다. 이 키체인 항목은 브라우저가 저장된 암호를 잠그는 키입니다. 허용을 선택하면 cmux가 이 Mac에서 한 번만 잠금을 해제합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deretter spør macOS om cmux kan bruke %@. Det nøkkelringobjektet er nøkkelen nettleseren låser de lagrede passordene med. Velg Tillat, så låser cmux dem opp én gang, på denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Następnie macOS zapyta, czy cmux może użyć %@. Ten element pęku kluczy to klucz, którym przeglądarka szyfruje zapisane hasła. Wybierz Pozwól, a cmux odblokuje je jednorazowo na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Em seguida, o macOS pergunta se o cmux pode usar %@. Esse item das Chaves é a chave com que o navegador protege as senhas salvas. Escolha Permitir, e o cmux as desbloqueia uma única vez, neste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Затем macOS спросит, может ли cmux использовать %@. Этот объект связки ключей — ключ, которым браузер шифрует сохранённые пароли. Выберите «Разрешить», и cmux однократно расшифрует их на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถัดไป macOS จะถามว่า cmux ใช้ %@ ได้หรือไม่ รายการพวงกุญแจนั้นคือกุญแจที่เบราว์เซอร์ใช้ล็อกรหัสผ่านที่บันทึกไว้ เลือก อนุญาต แล้ว cmux จะปลดล็อกเพียงครั้งเดียวบน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ardından macOS, cmux’ın %@ öğesini kullanıp kullanamayacağını soracak. Bu anahtar zinciri öğesi, tarayıcının kayıtlı parolalarını kilitlediği anahtardır. İzin Ver’i seçin; cmux bunları bu Mac’te bir kez açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Далі macOS запитає, чи може cmux використати %@. Цей елемент в’язки ключів — ключ, яким браузер шифрує збережені паролі. Виберіть «Дозволити», і cmux одноразово розшифрує їх на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tiếp theo, macOS sẽ hỏi cmux có được dùng %@ không. Mục chuỗi khóa đó là khóa mà trình duyệt dùng để khóa mật khẩu đã lưu. Chọn Cho phép, và cmux sẽ mở khóa chúng một lần, trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接下来,macOS 会询问 cmux 能否使用 %@。这个钥匙串项目是浏览器用来锁定已存储密码的密钥。选择“允许”后,cmux 只会在这台 Mac 上解锁一次。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接著,macOS 會詢問 cmux 能否使用 %@。這個鑰匙圈項目是瀏覽器用來鎖定已儲存密碼的密鑰。選擇「允許」後,cmux 只會在這台 Mac 上解鎖一次。"
+          }
+        }
+      }
+    },
+    "onboarding.passwords.store": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "They go into cmux’s own encrypted password store, where autofill finds them. Agents never see them, and nothing is read until you click Import."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "パスワードは cmux 専用の暗号化されたパスワード保存先に入り、自動入力で使われます。エージェントがそれを見ることはなく、「読み込む」をクリックするまで何も読み取りません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُحفظ في مخزن كلمات السر المشفّر الخاص بـ cmux، حيث يجدها الملء التلقائي. لا يراها الوكلاء أبدًا، ولا يُقرأ شيء حتى تنقر على «استيراد»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Idu u cmuxovo vlastito šifrirano spremište lozinki, gdje ih automatsko popunjavanje pronalazi. Agenti ih nikad ne vide, a ništa se ne čita dok ne kliknete Uvezi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "De lægges i cmux’ eget krypterede adgangskodelager, hvor autoudfyld finder dem. Agenter ser dem aldrig, og intet læses, før du klikker på Importér."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sie landen im eigenen verschlüsselten Passwortspeicher von cmux, aus dem das automatische Ausfüllen liest. Agents sehen sie nie, und nichts wird gelesen, bevor du auf „Importieren“ klickst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se guardan en el almacén de contraseñas cifrado propio de cmux, donde el autorrelleno las encuentra. Los agentes nunca las ven, y no se lee nada hasta que haces clic en Importar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ils vont dans le stockage chiffré de mots de passe propre à cmux, où le remplissage automatique les trouve. Les agents ne les voient jamais, et rien n’est lu avant que vous cliquiez sur Importer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finiscono nell’archivio cifrato di password di cmux, dove le trova la compilazione automatica. Gli agenti non le vedono mai e non viene letto nulla finché non fai clic su Importa."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វាត្រូវបានដាក់ក្នុងឃ្លាំងពាក្យសម្ងាត់ដែលបានអ៊ិនគ្រីបរបស់ cmux ដែលការបំពេញស្វ័យប្រវត្តិរកឃើញ។ ភ្នាក់ងារមិនដែលឃើញវាទេ ហើយគ្មានអ្វីត្រូវបានអានទេ រហូតដល់អ្នកចុច នាំចូល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "암호는 cmux 자체의 암호화된 암호 저장소에 들어가며, 자동 완성이 여기서 찾습니다. 에이전트는 절대 볼 수 없으며, 가져오기를 클릭하기 전에는 아무것도 읽지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "De havner i cmux’ eget krypterte passordlager, der autoutfylling finner dem. Agenter ser dem aldri, og ingenting leses før du klikker på Importer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trafiają do własnego, zaszyfrowanego magazynu haseł cmux, z którego korzysta autouzupełnianie. Agenci nigdy ich nie widzą, a nic nie jest odczytywane, dopóki nie klikniesz Importuj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elas vão para o armazenamento de senhas criptografado do próprio cmux, onde o preenchimento automático as encontra. Agentes nunca as veem, e nada é lido até você clicar em Importar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Они попадают в собственное зашифрованное хранилище паролей cmux, откуда их берёт автозаполнение. Агенты их никогда не видят, и ничего не читается, пока вы не нажмёте «Импортировать»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รหัสผ่านจะถูกเก็บในที่เก็บรหัสผ่านที่เข้ารหัสของ cmux เอง ซึ่งการป้อนอัตโนมัติใช้ เอเจนต์จะไม่เห็นรหัสผ่านเลย และจะไม่มีการอ่านสิ่งใดจนกว่าคุณจะคลิก นำเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parolalar, otomatik doldurmanın kullandığı cmux’ın kendi şifreli parola deposuna gider. Ajanlar bunları asla görmez ve İçe Aktar’ı tıklayana kadar hiçbir şey okunmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вони потрапляють до власного зашифрованого сховища паролів cmux, звідки їх бере автозаповнення. Агенти їх ніколи не бачать, і нічого не читається, доки ви не натиснете «Імпортувати»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mật khẩu được đưa vào kho mật khẩu mã hóa riêng của cmux, nơi tính năng tự động điền tìm thấy chúng. Các agent không bao giờ thấy chúng, và không có gì được đọc cho đến khi bạn bấm Nhập."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密码会存入 cmux 自己的加密密码库,自动填充从这里读取。智能体永远看不到它们,在你点按“导入”之前不会读取任何内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密碼會存入 cmux 自己的加密密碼庫,自動填寫從這裡讀取。代理程式永遠看不到它們,在你按下「匯入」之前不會讀取任何內容。"
+          }
+        }
+      }
+    },
+    "onboarding.import.passwordsSkipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passwords skipped: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スキップしたパスワード: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كلمات السر التي تم تخطيها: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preskočene lozinke: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprungne adgangskoder: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Übersprungene Passwörter: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contraseñas omitidas: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mots de passe ignorés : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Password saltate: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យសម្ងាត់ដែលបានរំលង៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "건너뛴 암호: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passord hoppet over: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pominięte hasła: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Senhas ignoradas: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пропущено паролей: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รหัสผ่านที่ข้าม: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atlanan parolalar: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пропущено паролів: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mật khẩu đã bỏ qua: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已跳过的密码:%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已略過的密碼:%@"
+          }
+        }
+      }
+    },
+    "onboarding.import.passwordsNotRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some passwords weren’t imported: macOS didn’t allow the key, or the file couldn’t be read."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一部のパスワードを読み込めませんでした。macOS が鍵の使用を許可しなかったか、ファイルを読み取れませんでした。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تُستورد بعض كلمات السر: لم يسمح macOS بالمفتاح، أو تعذّرت قراءة الملف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neke lozinke nisu uvezene: macOS nije dozvolio ključ ili se datoteka nije mogla pročitati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nogle adgangskoder blev ikke importeret: macOS tillod ikke nøglen, eller filen kunne ikke læses."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Einige Passwörter wurden nicht importiert: macOS hat den Schlüssel nicht freigegeben, oder die Datei war nicht lesbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Algunas contraseñas no se importaron: macOS no permitió usar la clave o no se pudo leer el archivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Certains mots de passe n’ont pas été importés : macOS n’a pas autorisé la clé, ou le fichier n’a pas pu être lu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alcune password non sono state importate: macOS non ha consentito l’uso della chiave o il file non era leggibile."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យសម្ងាត់មួយចំនួនមិនត្រូវបាននាំចូលទេ៖ macOS មិនបានអនុញ្ញាតកូនសោ ឬមិនអាចអានឯកសារបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "일부 암호를 가져오지 못했습니다. macOS가 키 사용을 허용하지 않았거나 파일을 읽을 수 없었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noen passord ble ikke importert: macOS tillot ikke nøkkelen, eller filen kunne ikke leses."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie zaimportowano niektórych haseł: macOS nie zezwolił na użycie klucza lub nie udało się odczytać pliku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Algumas senhas não foram importadas: o macOS não permitiu a chave ou o arquivo não pôde ser lido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Некоторые пароли не импортированы: macOS не разрешила использовать ключ или файл не удалось прочитать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รหัสผ่านบางรายการไม่ถูกนำเข้า: macOS ไม่อนุญาตให้ใช้กุญแจ หรืออ่านไฟล์ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bazı parolalar içe aktarılmadı: macOS anahtara izin vermedi veya dosya okunamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Деякі паролі не імпортовано: macOS не дозволила використати ключ або файл не вдалося прочитати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một số mật khẩu chưa được nhập: macOS không cho phép dùng khóa, hoặc không đọc được tệp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "部分密码未能导入:macOS 未允许使用密钥,或无法读取文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "部分密碼未能匯入:macOS 未允許使用密鑰,或無法讀取檔案。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextDaemon
 import Foundation
 
 /// The dev server a terminal shows (#16620): the newest localhost URL on
@@ -37,18 +38,18 @@ extension PaneController {
     /// (#16620): an agent's newest dev server or pull request (the page lists
     /// no other URLs), a terminal's
     /// dev server, else a blank tab.
-    func newBrowserTabFromSelectedTab(engine: String?) {
+    func newBrowserTabFromSelectedTab(engine: String?, then: (@MainActor (SurfaceID) -> Void)? = nil) {
         switch currentContent {
         case .agent(let view):
             services.registry.track(Task {
                 let url = await view.workingContext()?.urls.first
-                newBrowserTab(url: url, engine: engine)
+                newBrowserTab(url: url, engine: engine, then: then)
                 return nil
             })
         case .terminal(let entry):
-            newBrowserTab(url: WorkingURL.devServer(in: entry.session.surfaceView.viewportText()), engine: engine)
+            newBrowserTab(url: WorkingURL.devServer(in: entry.session.surfaceView.viewportText()), engine: engine, then: then)
         case .browser, .placeholder, nil:
-            newBrowserTab(url: nil, engine: engine)
+            newBrowserTab(url: nil, engine: engine, then: then)
         }
     }
 

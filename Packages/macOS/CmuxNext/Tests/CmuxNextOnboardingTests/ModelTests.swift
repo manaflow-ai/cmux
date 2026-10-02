@@ -149,6 +149,62 @@ import Testing
         #expect(model.importer.rowState(skipped) == .idle)
     }
 
+    @Test func passwordsWaitForConsentAndReadNothingBefore() async throws {
+        let services = MockOnboardingServices()
+        services.passwordStore = true
+        let work = profile("Profile 1", browser: .edge, kinds: [.bookmarks, .passwords])
+        let home = profile("Default", browser: .chrome, kinds: [.bookmarks, .passwords])
+        services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [home]), BrowserSource(browser: .edge, appURL: nil, profiles: [work])]
+        let model = OnboardingModel(services: services, start: .importData)
+        model.stepDidAppear()
+        await settle { model.importer.phase == .ready }
+        #expect(model.importer.kindChoices.last == .passwords)
+        #expect(model.importer.kinds.contains(.passwords), "offered and checked like the rest")
+        #expect(model.importer.plan.items.allSatisfy { !$0.kinds.contains(.passwords) }, "no passwords without consent")
+
+        model.next()
+        #expect(model.importer.isConfirmingPasswords)
+        #expect(services.plans.isEmpty, "the consent screen comes before anything is read")
+        #expect(model.importer.passwordProfiles == [work, home])
+        #expect(model.importer.passwordKeychainItems == ["Microsoft Edge Safe Storage", "Chrome Safe Storage"])
+        model.next()
+        #expect(model.importer.isConfirmingPasswords, "a double click on Import does not also agree")
+
+        model.importer.toggleConsent(home)
+        model.importer.start()
+        await settle { model.importer.summary != nil }
+        let plan = try #require(services.plans.first)
+        #expect(plan.items.map(\.kinds) == [[.bookmarks, .passwords], [.bookmarks]], "passwords only from the profile agreed to")
+    }
+
+    @Test func consentCanBeSkippedOrLeft() async {
+        let services = MockOnboardingServices()
+        services.passwordStore = true
+        let work = profile("Profile 1", browser: .edge, kinds: [.bookmarks, .passwords])
+        services.sources = [BrowserSource(browser: .edge, appURL: nil, profiles: [work])]
+        let model = OnboardingModel(services: services, start: .importData)
+        model.stepDidAppear()
+        await settle { model.importer.phase == .ready }
+        model.importer.start()
+        model.importer.backFromConsent()
+        #expect(model.importer.phase == .ready && services.plans.isEmpty)
+        model.importer.start()
+        model.importer.skipPasswords()
+        await settle { model.importer.summary != nil }
+        #expect(services.plans.map { $0.items.map(\.kinds) } == [[[.bookmarks]]])
+    }
+
+    @Test func noPasswordStoreNoPasswordChoice() async {
+        let services = MockOnboardingServices()
+        services.sources = [BrowserSource(browser: .edge, appURL: nil, profiles: [profile("Default", browser: .edge, kinds: [.bookmarks, .passwords])])]
+        let model = OnboardingModel(services: services, start: .importData)
+        model.stepDidAppear()
+        await settle { model.importer.phase == .ready }
+        #expect(!model.importer.kindChoices.contains(.passwords))
+        model.next()
+        #expect(!model.importer.isConfirmingPasswords)
+    }
+
     @Test func edgeLeadsTheList() async {
         let services = MockOnboardingServices()
         let chrome = profile("Default")
