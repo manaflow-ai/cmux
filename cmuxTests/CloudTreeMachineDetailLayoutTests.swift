@@ -50,6 +50,26 @@ struct CloudTreeMachineDetailLayoutTests {
         #expect(tabsRow.children.count == 2)
     }
 
+    @Test("A connecting machine shows Connecting… and none of the link's tabs")
+    func connectingMachineHidesLinkTabs() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let snapshot = SurfaceCatalogSnapshot(machines: [SurfaceMachineInfo(
+            id: fixture.machine, name: "Fixture", status: "running", image: nil, hasDesktop: false,
+            memoryMb: nil, diskMb: nil, linkState: .connecting, linkError: nil, remoteWorkspaces: []
+        )], resources: [], projections: [])
+        let machine = try Self.machine(in: CloudTreeMachineDetailLayout().present(CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false
+        )))
+        #expect(machine.children.contains { node in
+            if case .placeholder(_, let placeholder) = node.kind { return placeholder.style == .connecting }
+            return false
+        })
+        // Ports, Terminals and Displays wait for the link; with no fleet
+        // telemetry there is no Resources either, so no tab row at all.
+        #expect(!machine.children.contains { $0.structureTag == "machineDetailTabs" })
+    }
+
     @Test("Opening Terminals shows New Terminal, then every terminal labelled with its workspace")
     func terminalsTabShowsItsRows() throws {
         let fixture = CloudSidebarOrderingFixture()
