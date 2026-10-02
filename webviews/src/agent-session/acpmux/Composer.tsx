@@ -285,24 +285,24 @@ function SlashMenu({
     list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
   // A native select or datalist cannot hold the matched-name bolding and descriptions.
-  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
   if (matches.length === 0)
     return (
       <div
         className="acpmux-slash-menu acpmux-slash-empty"
         id="acpmux-slash-menu"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="listbox"
         aria-label={COMPOSER_LABELS.commands}
       >
         {empty}
       </div>
     );
-  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
   return (
     <div
       ref={list}
       className="acpmux-slash-menu"
       id="acpmux-slash-menu"
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"
       aria-label={COMPOSER_LABELS.commands}
     >
