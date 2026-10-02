@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import type { PermissionClientState, PermissionDecision, PermissionGroup } from "./protocol";
 
 const choices: Record<PermissionDecision, string> = {
@@ -15,9 +16,16 @@ type Props = {
   onRefresh(): void;
 };
 
-function GroupItems({ group }: { group: PermissionGroup }) {
+function GroupItems({ group, expandSignal }: { group: PermissionGroup; expandSignal: number }) {
+  const container = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (expandSignal === 0) return;
+    container.current?.querySelectorAll("details").forEach((details) => {
+      details.open = true;
+    });
+  }, [expandSignal]);
   return (
-    <div className="acpmux-permission-items">
+    <div className="acpmux-permission-items" ref={container}>
       {group.items.map((item) => {
         const rawTool = item.request.toolCall;
         const tool =
@@ -53,6 +61,58 @@ function GroupItems({ group }: { group: PermissionGroup }) {
 }
 
 export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh }: Props) {
+  const shortcuts = {
+    allow_once: useShortcut(SHORTCUT_ACTIONS.permissionAllowOnce),
+    allow_chat: useShortcut(SHORTCUT_ACTIONS.permissionAllowChat),
+    deny: useShortcut(SHORTCUT_ACTIONS.permissionDeny),
+  } satisfies Record<PermissionDecision, string | undefined>;
+  const retryShortcut = useShortcut(SHORTCUT_ACTIONS.permissionRetry);
+  const revokeShortcut = useShortcut(SHORTCUT_ACTIONS.permissionRevoke);
+  const refreshShortcut = useShortcut(SHORTCUT_ACTIONS.permissionRefresh);
+  const expandShortcut = useShortcut(SHORTCUT_ACTIONS.permissionExpand);
+  const [expandSignal, setExpandSignal] = useState(0);
+  const pendingRef = useRef<typeof state.groups>([]);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  pendingRef.current = state.groups.filter((group) => group.state === "pending" || group.state === "collecting");
+  const callbacks = useRef({ onRespond, onRetry, onRevoke, onRefresh });
+  callbacks.current = { onRespond, onRetry, onRevoke, onRefresh };
+  useEffect(() => {
+    const handlers = new Map<string, EventListener>([
+      ["permissionAllowOnce", () => respondToPending("allow_once")],
+      ["permissionAllowChat", () => respondToPending("allow_chat")],
+      ["permissionDeny", () => respondToPending("deny")],
+      ["permissionRetry", runRetry],
+      ["permissionRevoke", runRevoke],
+      ["permissionRefresh", runRefresh],
+      ["permissionExpand", () => setExpandSignal((value) => value + 1)],
+    ]);
+    function respondToPending(decision: PermissionDecision) {
+      const current = stateRef.current;
+      if (!current.supported || current.busy || current.loading || current.ready === false || current.uncertain) return;
+      const group = pendingRef.current.find(
+        (candidate) => candidate.state === "pending" && candidate.decisions.includes(decision),
+      );
+      if (group) callbacks.current.onRespond(group.groupId, group.revision, decision);
+    }
+    function runRetry() {
+      const current = stateRef.current;
+      if (current.supported && current.uncertain && !current.busy && !current.loading) callbacks.current.onRetry();
+    }
+    function runRevoke() {
+      const current = stateRef.current;
+      if (current.supported && current.chatAllowance && !current.busy && !current.loading && !current.uncertain)
+        callbacks.current.onRevoke();
+    }
+    function runRefresh() {
+      const current = stateRef.current;
+      if (current.supported && !!current.error && !current.busy && !current.loading) callbacks.current.onRefresh();
+    }
+    for (const [name, handler] of handlers) window.addEventListener(`cmux-acpmux-${name}`, handler);
+    return () => {
+      for (const [name, handler] of handlers) window.removeEventListener(`cmux-acpmux-${name}`, handler);
+    };
+  }, []);
   if (!state.supported) return null;
   const pending = state.groups.filter((group) => group.state === "pending" || group.state === "collecting");
   const receipt = pending.length === 0 ? state.groups.at(-1) : undefined;
@@ -70,7 +130,7 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
         <div className="acpmux-permission-allowance">
           <span>Future eligible tool requests are allowed in this chat. Deny rules still apply.</span>
           <button disabled={disabled} onClick={onRevoke}>
-            Revoke
+            {withShortcut("Revoke", revokeShortcut)}
           </button>
         </div>
       )}
@@ -80,7 +140,12 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
           <p className="acpmux-permission-scope">
             {group.items.length} {group.items.length === 1 ? "request" : "requests"} from this turn
           </p>
-          <GroupItems group={group} />
+          {group.state === "pending" && (
+            <button type="button" onClick={() => setExpandSignal((value) => value + 1)}>
+              {withShortcut("Expand details", expandShortcut)}
+            </button>
+          )}
+          <GroupItems group={group} expandSignal={expandSignal} />
           {group.state === "collecting" ? (
             <output>Collecting requests…</output>
           ) : (
@@ -103,7 +168,7 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
                     disabled={disabled}
                     onClick={() => onRespond(group.groupId, group.revision, decision)}
                   >
-                    {choices[decision]}
+                    {withShortcut(choices[decision], shortcuts[decision])}
                   </button>
                 ))}
               </div>
@@ -120,14 +185,17 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
                 ? choices[receipt.decision]
                 : "Tool requests answered"}
           </summary>
-          <GroupItems group={receipt} />
+          <GroupItems group={receipt} expandSignal={expandSignal} />
         </details>
       )}
       {state.error && (
         <div className="acpmux-permission-error" role="alert">
           <span>{state.error}</span>
           <button disabled={state.busy || state.loading} onClick={state.uncertain ? onRetry : onRefresh}>
-            {state.uncertain ? "Check and retry" : "Refresh"}
+            {withShortcut(
+              state.uncertain ? "Check and retry" : "Refresh",
+              state.uncertain ? retryShortcut : refreshShortcut,
+            )}
           </button>
         </div>
       )}

@@ -10,10 +10,16 @@ import Testing
         let registry = ActionRegistry.standard()
         #expect(AgentPaneShortcuts.read(registry).labels == [
             "agentPane.searchChats": "⌘K", "palette.newAgentChat": "⇧⌘I", "palette.toggleDictation": "⌃⌘V",
+            "agentPane.permission.allowOnce": "⌥⌘1", "agentPane.permission.allowChat": "⌥⌘2",
+            "agentPane.permission.deny": "⌥⌘3", "agentPane.permission.expand": "⌥⌘4",
         ])
         registry.setShortcutOverride(Shortcut("p", modifiers: [.command, .option]), for: "agentPane.searchChats")
         registry.setShortcutOverride(nil, for: "palette.toggleDictation")
-        #expect(AgentPaneShortcuts.read(registry).labels == ["agentPane.searchChats": "⌥⌘P", "palette.newAgentChat": "⇧⌘I"])
+        #expect(AgentPaneShortcuts.read(registry).labels == [
+            "agentPane.searchChats": "⌥⌘P", "palette.newAgentChat": "⇧⌘I",
+            "agentPane.permission.allowOnce": "⌥⌘1", "agentPane.permission.allowChat": "⌥⌘2",
+            "agentPane.permission.deny": "⌥⌘3", "agentPane.permission.expand": "⌥⌘4",
+        ])
     }
 
     @Test func handsTheLabelsToThePageBridge() throws {

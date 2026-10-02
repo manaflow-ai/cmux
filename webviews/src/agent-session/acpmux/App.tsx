@@ -915,6 +915,19 @@ function AcpmuxPane() {
         if (name === "searchChats") setSearching((open) => !open);
         if (name === "createCheckpoint") showCheckpoint.current();
         if (
+          [
+            "permissionAllowOnce",
+            "permissionAllowChat",
+            "permissionDeny",
+            "permissionExpand",
+            "permissionRetry",
+            "permissionRevoke",
+            "permissionRefresh",
+          ].includes(name)
+        ) {
+          window.dispatchEvent(new CustomEvent(`cmux-acpmux-${name}`));
+        }
+        if (
           name === "continueIn" &&
           snapshotRef.current?.canHandoff &&
           snapshotRef.current.handoff?.ready &&
