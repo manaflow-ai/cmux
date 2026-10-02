@@ -18,7 +18,7 @@ import { Revision } from "./schemas.ts"
 
 /**
  * App store ops (spec app-platform.md section 11, contract v1 "Store ops").
- * CLI path `app <verb>`. MCP: search/info/list/install/update by default,
+ * CLI path `apps <verb>` (the Rust CLI reserves `app` for the running cmux app). MCP: search/info/list/install/update by default,
  * remove opt-in, everything that publishes, grants, yanks or decides never.
  *
  * Agents (D48): when the actor is an agent (an `agent` principal or a request
@@ -58,7 +58,7 @@ export const AppSearch = def({
   result: Schema.Struct({ apps: Schema.Array(AppListing), next_cursor: Schema.NullOr(Schema.String) }),
   errors: ["auth.unauthenticated", "validation.invalid", "owner.unreachable"],
   docs: "Search the app store (word-prefix match on name, id, publisher and description). Unverified apps are never listed. Reads the PlanetScale projection, so a new release can take a moment to appear.",
-  cli: { path: "app search", visible: true },
+  cli: { path: "apps search", visible: true },
   mcp: { expose: "default", group: "app" }
 })
 
@@ -73,7 +73,7 @@ export const AppInfo = def({
   result: AppListing,
   errors: ["auth.unauthenticated", "selector.not_found"],
   docs: "Read one app's listing with its versions (scopes with reasons, engines, yanks). `version` narrows `versions` to that one.",
-  cli: { path: "app info", visible: true },
+  cli: { path: "apps info", visible: true },
   mcp: { expose: "default", group: "app" }
 })
 
@@ -89,7 +89,7 @@ export const AppList = def({
   result: InstallsView,
   errors: ["auth.unauthenticated", "auth.forbidden"],
   docs: "List installed apps and pending approvals: the caller's (user), the team's (team, with the team app policy) or both (all, default).",
-  cli: { path: "app list", visible: true },
+  cli: { path: "apps list", visible: true },
   mcp: { expose: "default", group: "app" }
 })
 
@@ -111,7 +111,7 @@ export const AppInstallOp = def({
   result: AppInstallOutcome,
   errors: [...mutationErrors, "selector.not_found", "app.yanked", "app.unverified", "scope.invalid", "policy.denied"],
   docs: "Install an app: the newest non-yanked version in `version_range` (default any), granting `scopes` (every required scope, plus any optional ones). Team installs need a team admin and pass the team app policy. An agent's install returns `approval_required` and waits for the user.",
-  cli: { path: "app install", visible: true },
+  cli: { path: "apps install", visible: true },
   mcp: { expose: "default", group: "app" }
 })
 
@@ -132,7 +132,7 @@ export const AppUpdate = def({
   result: AppInstallOutcome,
   errors: [...mutationErrors, "selector.not_found", "app.yanked", "scope.consent_required", "scope.invalid", "policy.denied"],
   docs: "Move an installed app to `version` (default: newest non-yanked in its range). New required scopes must be in `accept_scopes`. An agent's update that grows the scope set returns `approval_required`.",
-  cli: { path: "app update", visible: true },
+  cli: { path: "apps update", visible: true },
   mcp: { expose: "default", group: "app" }
 })
 
@@ -148,7 +148,7 @@ export const AppRemove = def({
   result: Schema.Struct({ app: AppId, removed: Schema.Boolean }),
   errors: [...mutationErrors, "selector.not_found"],
   docs: "Remove an installed app and its grant.",
-  cli: { path: "app remove", visible: true },
+  cli: { path: "apps remove", visible: true },
   mcp: { expose: "opt_in", group: "app" }
 })
 
@@ -164,7 +164,7 @@ export const AppGrantSet = def({
   result: AppInstall,
   errors: [...mutationErrors, "selector.not_found", "scope.invalid"],
   docs: "Set an installed app's granted scopes (every required scope, plus optional ones). Human sessions with origin user only.",
-  cli: { path: "app grant", visible: true },
+  cli: { path: "apps grant", visible: true },
   mcp: { expose: "never", group: "app" }
 })
 
@@ -180,7 +180,7 @@ export const AppApprovalDecide = def({
   result: Schema.Struct({ approval: AppApproval, install: Schema.NullOr(AppInstall) }),
   errors: [...mutationErrors, "selector.not_found", "approval.decided", "app.yanked", "policy.denied"],
   docs: "Approve or deny an agent's pending app install or scope growth. Human sessions only, never from an MCP client; an expired request is marked expired.",
-  cli: { path: "app approval decide", visible: true },
+  cli: { path: "apps approval decide", visible: true },
   mcp: { expose: "never", group: "app" }
 })
 
@@ -199,7 +199,7 @@ export const AppPolicySet = def({
   result: AppPolicy,
   errors: [...mutationErrors],
   docs: "Change the team app policy (team admins): allowed tiers, allowlist, blocklist. Applies to later team installs, updates and approvals.",
-  cli: { path: "app policy set", visible: true },
+  cli: { path: "apps policy set", visible: true },
   mcp: { expose: "never", group: "app" }
 })
 
@@ -221,7 +221,7 @@ export const AppVersionSubmit = def({
   result: AppListing,
   errors: [...mutationErrors, "app.claim_forbidden", "app.not_publisher", "version.exists", "manifest.invalid"],
   docs: "Register a release: the manifest at tag `v<version>` of a public GitHub repository owned by the app's publisher. A version is never reused, even after a yank.",
-  cli: { path: "app publish", visible: true },
+  cli: { path: "apps publish", visible: true },
   mcp: { expose: "never", group: "app" }
 })
 
@@ -236,7 +236,7 @@ export const AppVersionYank = def({
   result: AppListing,
   errors: [...mutationErrors, "selector.not_found", "app.not_publisher"],
   docs: "Yank a version (its publisher or cmux staff). Clients on it move to the newest non-yanked compatible version or disable the app with the reason.",
-  cli: { path: "app yank", visible: true },
+  cli: { path: "apps yank", visible: true },
   mcp: { expose: "never", group: "app" }
 })
 
@@ -251,7 +251,7 @@ export const AppListingSetTier = def({
   result: AppListing,
   errors: [...mutationErrors, "selector.not_found"],
   docs: "Set an app's review tier. cmux staff only (APP_STORE_STAFF); first-party only for reserved publishers.",
-  cli: { path: "app tier", visible: false },
+  cli: { path: "apps tier", visible: false },
   mcp: { expose: "never", group: "app" }
 })
 

@@ -2464,7 +2464,7 @@
         }
       },
       "cli": {
-        "path": "app approval decide",
+        "path": "apps approval decide",
         "visible": true
       },
       "mcp": {
@@ -2860,7 +2860,7 @@
         }
       },
       "cli": {
-        "path": "app grant",
+        "path": "apps grant",
         "visible": true
       },
       "mcp": {
@@ -3075,7 +3075,7 @@
         }
       },
       "cli": {
-        "path": "app info",
+        "path": "apps info",
         "visible": true
       },
       "mcp": {
@@ -3435,7 +3435,7 @@
         }
       },
       "cli": {
-        "path": "app install",
+        "path": "apps install",
         "visible": true
       },
       "mcp": {
@@ -3838,7 +3838,7 @@
         }
       },
       "cli": {
-        "path": "app list",
+        "path": "apps list",
         "visible": true
       },
       "mcp": {
@@ -4269,7 +4269,7 @@
         }
       },
       "cli": {
-        "path": "app tier",
+        "path": "apps tier",
         "visible": false
       },
       "mcp": {
@@ -4622,7 +4622,7 @@
         }
       },
       "cli": {
-        "path": "app policy set",
+        "path": "apps policy set",
         "visible": true
       },
       "mcp": {
@@ -4840,7 +4840,7 @@
         }
       },
       "cli": {
-        "path": "app remove",
+        "path": "apps remove",
         "visible": true
       },
       "mcp": {
@@ -4998,7 +4998,7 @@
         }
       },
       "cli": {
-        "path": "app search",
+        "path": "apps search",
         "visible": true
       },
       "mcp": {
@@ -5384,7 +5384,7 @@
         }
       },
       "cli": {
-        "path": "app update",
+        "path": "apps update",
         "visible": true
       },
       "mcp": {
@@ -5837,7 +5837,7 @@
         }
       },
       "cli": {
-        "path": "app publish",
+        "path": "apps publish",
         "visible": true
       },
       "mcp": {
@@ -6182,7 +6182,7 @@
         }
       },
       "cli": {
-        "path": "app yank",
+        "path": "apps yank",
         "visible": true
       },
       "mcp": {

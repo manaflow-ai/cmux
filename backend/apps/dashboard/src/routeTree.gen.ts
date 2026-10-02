@@ -13,8 +13,11 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AutomationsRouteImport } from './routes/automations'
 import { Route as DevicesRouteImport } from './routes/devices'
 import { Route as TeamRouteImport } from './routes/team'
+import { Route as AppsIndexRouteImport } from './routes/apps/index'
+import { Route as AppsInstalledRouteImport } from './routes/apps/installed'
 import { Route as IntegrationsIndexRouteImport } from './routes/integrations/index'
 import { Route as IntegrationsCallbackRouteImport } from './routes/integrations/callback'
+import { Route as AppsPublisherNameRouteImport } from './routes/apps/$publisher.$name'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -36,6 +39,16 @@ const TeamRoute = TeamRouteImport.update({
   path: '/team',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppsIndexRoute = AppsIndexRouteImport.update({
+  id: '/apps/',
+  path: '/apps/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppsInstalledRoute = AppsInstalledRouteImport.update({
+  id: '/apps/installed',
+  path: '/apps/installed',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IntegrationsIndexRoute = IntegrationsIndexRouteImport.update({
   id: '/integrations/',
   path: '/integrations/',
@@ -46,22 +59,33 @@ const IntegrationsCallbackRoute = IntegrationsCallbackRouteImport.update({
   path: '/integrations/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppsPublisherNameRoute = AppsPublisherNameRouteImport.update({
+  id: '/apps/$publisher/$name',
+  path: '/apps/$publisher/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRoute
   '/devices': typeof DevicesRoute
   '/team': typeof TeamRoute
+  '/apps/installed': typeof AppsInstalledRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
+  '/apps/': typeof AppsIndexRoute
   '/integrations/': typeof IntegrationsIndexRoute
+  '/apps/$publisher/$name': typeof AppsPublisherNameRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRoute
   '/devices': typeof DevicesRoute
   '/team': typeof TeamRoute
+  '/apps/installed': typeof AppsInstalledRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
+  '/apps': typeof AppsIndexRoute
   '/integrations': typeof IntegrationsIndexRoute
+  '/apps/$publisher/$name': typeof AppsPublisherNameRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -69,8 +93,11 @@ export interface FileRoutesById {
   '/automations': typeof AutomationsRoute
   '/devices': typeof DevicesRoute
   '/team': typeof TeamRoute
+  '/apps/installed': typeof AppsInstalledRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
+  '/apps/': typeof AppsIndexRoute
   '/integrations/': typeof IntegrationsIndexRoute
+  '/apps/$publisher/$name': typeof AppsPublisherNameRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -79,24 +106,33 @@ export interface FileRouteTypes {
     | '/automations'
     | '/devices'
     | '/team'
+    | '/apps/installed'
     | '/integrations/callback'
+    | '/apps/'
     | '/integrations/'
+    | '/apps/$publisher/$name'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/automations'
     | '/devices'
     | '/team'
+    | '/apps/installed'
     | '/integrations/callback'
+    | '/apps'
     | '/integrations'
+    | '/apps/$publisher/$name'
   id:
     | '__root__'
     | '/'
     | '/automations'
     | '/devices'
     | '/team'
+    | '/apps/installed'
     | '/integrations/callback'
+    | '/apps/'
     | '/integrations/'
+    | '/apps/$publisher/$name'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -104,8 +140,11 @@ export interface RootRouteChildren {
   AutomationsRoute: typeof AutomationsRoute
   DevicesRoute: typeof DevicesRoute
   TeamRoute: typeof TeamRoute
+  AppsInstalledRoute: typeof AppsInstalledRoute
   IntegrationsCallbackRoute: typeof IntegrationsCallbackRoute
+  AppsIndexRoute: typeof AppsIndexRoute
   IntegrationsIndexRoute: typeof IntegrationsIndexRoute
+  AppsPublisherNameRoute: typeof AppsPublisherNameRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -138,6 +177,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/apps/': {
+      id: '/apps/'
+      path: '/apps'
+      fullPath: '/apps/'
+      preLoaderRoute: typeof AppsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/apps/installed': {
+      id: '/apps/installed'
+      path: '/apps/installed'
+      fullPath: '/apps/installed'
+      preLoaderRoute: typeof AppsInstalledRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/integrations/': {
       id: '/integrations/'
       path: '/integrations'
@@ -152,6 +205,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IntegrationsCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/apps/$publisher/$name': {
+      id: '/apps/$publisher/$name'
+      path: '/apps/$publisher/$name'
+      fullPath: '/apps/$publisher/$name'
+      preLoaderRoute: typeof AppsPublisherNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -160,8 +220,11 @@ const rootRouteChildren: RootRouteChildren = {
   AutomationsRoute: AutomationsRoute,
   DevicesRoute: DevicesRoute,
   TeamRoute: TeamRoute,
+  AppsInstalledRoute: AppsInstalledRoute,
   IntegrationsCallbackRoute: IntegrationsCallbackRoute,
+  AppsIndexRoute: AppsIndexRoute,
   IntegrationsIndexRoute: IntegrationsIndexRoute,
+  AppsPublisherNameRoute: AppsPublisherNameRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

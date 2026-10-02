@@ -19,6 +19,7 @@ button.danger { color: var(--bad); }
 input, select { font: inherit; padding: 6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
 .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; margin: 12px 0; overflow-x:auto; }
 .muted { color: var(--muted); } .error { color: var(--bad); }
+.apps a { color: var(--fg); }
 `
 
 export const Route = createRootRoute({
@@ -61,6 +62,9 @@ function Layout() {
         </Link>
         <Link to="/integrations" activeProps={{ className: "active" }}>
           Integrations
+        </Link>
+        <Link to="/apps" activeProps={{ className: "active" }}>
+          Apps
         </Link>
         <span style={{ flex: 1 }} />
         {signedIn ? (
