@@ -662,12 +662,20 @@ struct FeedCoordinatorTests {
             requestId: "codex-zero-wait-permission-request"
         )
         let done = DispatchSemaphore(value: 0)
+        let accepted = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
-            _ = FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 0)
+            _ = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0,
+                onAccepted: { _ in accepted.signal() }
+            )
             done.signal()
         }
 
         #expect(done.wait(timeout: .now() + 2) == .success)
+        // Zero-wait ingress acknowledges before its asynchronous acceptance,
+        // so wait for the accepted delivery before reading the attention hook.
+        #expect(accepted.wait(timeout: .now() + 2) == .success)
         #expect(
             attention.events.count == 1,
             "Codex TUI approvals must surface needs-input attention even without a Feed waiter"

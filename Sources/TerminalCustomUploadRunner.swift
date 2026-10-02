@@ -113,7 +113,7 @@ struct TerminalCustomUploadRunner {
                 guard normalizedLocalURL.isFileURL else {
                     throw Self.uploadError("Dropped item is not a local file.")
                 }
-                let remotePath = session.remotePastePolicy.remotePath(for: normalizedLocalURL)
+                let remotePath = RemoteSessionCoordinator.remoteDropPath(for: normalizedLocalURL)
                 let env = TerminalUploadCommand.environment(
                     localPath: normalizedLocalURL.path,
                     remotePath: remotePath,

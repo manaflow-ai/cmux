@@ -205,7 +205,7 @@ struct DetectedSSHSession: Equatable, Sendable {
     private func prepareRemotePasteDirectory() throws {
         let result = try Self.runProcess(
             executable: "/usr/bin/ssh",
-            arguments: sshArguments(command: "sh -c \(remotePastePolicy.maintenanceScript().shellSingleQuoted)"),
+            arguments: sshArguments(command: "sh -c \(Self.shellSingleQuoted(remotePastePolicy.maintenanceScript()))"),
             timeout: 12
         )
         guard result.status == 0 else {
@@ -231,7 +231,7 @@ struct DetectedSSHSession: Equatable, Sendable {
     private func finalizeRemotePasteFile(_ remotePath: String) throws {
         let result = try Self.runProcess(
             executable: "/usr/bin/ssh",
-            arguments: sshArguments(command: "sh -c \(remotePastePolicy.finalizeScript(for: remotePath).shellSingleQuoted)"),
+            arguments: sshArguments(command: "sh -c \(Self.shellSingleQuoted(remotePastePolicy.finalizeScript(for: remotePath)))"),
             timeout: 8
         )
         guard result.status == 0 else {
