@@ -4,14 +4,14 @@ import CmuxNextDesign
 /// One project: a folder symbol, the folder's name over its path, then how
 /// much the agents used it (sessions, last time, which agents) and a
 /// checkbox. Clicking anywhere on the row toggles it, over the shared hover
-/// and pressed fill (`OnboardingHover`). The icon is a symbol, not the
+/// and pressed fill (`ChromeHover`). The icon is a symbol, not the
 /// folder's own icon: reading that would raise a privacy prompt for a
 /// folder on the Desktop.
 final class ProjectRow: NSView {
     static let height: CGFloat = 40
     private let toggle: () -> Void
     private let box = NSButton(checkboxWithTitle: "", target: nil, action: nil)
-    private(set) lazy var hover = OnboardingHover(self, outset: NSSize(width: 6, height: 0))
+    private(set) lazy var hover = ChromeHover(self, outset: NSSize(width: 6, height: 0), tracking: .activeInKeyWindow)
 
     init(project: AgentProject, home: URL, now: Date, toggle: @escaping () -> Void) {
         self.toggle = toggle
