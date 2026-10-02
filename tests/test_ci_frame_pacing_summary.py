@@ -83,19 +83,6 @@ def test_a_mode_that_never_drew_says_why_instead_of_flagging() -> None:
         assert "::warning" not in result.stderr, result.stderr
 
 
-def main() -> int:
-    test_a_healthy_night_reports_both_modes_without_warnings()
-    test_a_regression_is_flagged_and_warned_but_exits_zero()
-    test_no_virtual_display_skips_the_table()
-    test_a_mode_that_never_drew_says_why_instead_of_flagging()
-    print("PASS: frame pacing summary reports numbers and flags regressions without failing")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-
 def test_a_fling_whose_rpc_replied_with_an_error_is_left_out() -> None:
     with tempfile.TemporaryDirectory() as temp:
         out = Path(temp)
@@ -109,3 +96,17 @@ def test_a_fling_whose_rpc_replied_with_an_error_is_left_out() -> None:
         assert result.returncode == 0, result.stderr
         assert "| capped (60 Hz) | 2 | 181 | 17 ms | 18 ms | 0/362 | ok |" in result.stdout, result.stdout
         assert "::warning" not in result.stderr, result.stderr
+
+
+def main() -> int:
+    test_a_healthy_night_reports_both_modes_without_warnings()
+    test_a_regression_is_flagged_and_warned_but_exits_zero()
+    test_no_virtual_display_skips_the_table()
+    test_a_mode_that_never_drew_says_why_instead_of_flagging()
+    test_a_fling_whose_rpc_replied_with_an_error_is_left_out()
+    print("PASS: frame pacing summary reports numbers and flags regressions without failing")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
