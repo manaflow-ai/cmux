@@ -5691,6 +5691,33 @@ impl Mux {
         )
     }
 
+    /// Commit the full public topology of `state` as one revision, for a
+    /// legacy path that changed the live tree while it already holds both
+    /// writer locks (registry, then state).
+    fn commit_full_resource_projection_locked(
+        &self,
+        registry: &mut WorkspaceRegistry,
+        state: &mut State,
+        operation: &str,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mut projection =
+            self.resource_effect_projection_locked(registry, state, serde_json::json!({}))?;
+        persist_public_topology_result(operation, &mut projection.result, &projection.changes)?;
+        let commit = registry.commit_resource_patch(
+            &mutation,
+            operation,
+            &serde_json::json!({"operation": operation, "mutation": mutation.id}),
+            None,
+            None,
+            &projection.patch,
+            &projection.result,
+            &projection.changes,
+        )?;
+        state.resource_revision = commit.revision;
+        Ok(commit)
+    }
+
     pub(crate) fn commit_full_resource_projection_with_mutation(
         &self,
         mutation: &WorkspaceMutation,
@@ -18270,6 +18297,13 @@ impl Mux {
                             &terminal.workspace_key,
                         )?
                     };
+                if topology_changed {
+                    self.commit_full_resource_projection_locked(
+                        &mut registry,
+                        &mut state,
+                        "terminal.move",
+                    )?;
+                }
                 (terminal, current_revision, true, changed, placement, topology_changed)
             } else {
                 let snapshot = registry.terminal_snapshot()?;
@@ -18311,6 +18345,17 @@ impl Mux {
                     terminal_id,
                     &terminal.workspace_key,
                 )?;
+                // The projection moved the terminal's view between panes;
+                // the resource topology must record that move under the
+                // same locks, or a restore reverts it and later tab moves
+                // plan from a placement that memory no longer has.
+                if topology_changed {
+                    self.commit_full_resource_projection_locked(
+                        &mut registry,
+                        &mut state,
+                        "terminal.move",
+                    )?;
+                }
                 (terminal, commit.revision, false, changed, placement, topology_changed)
             }
         };
@@ -18320,6 +18365,8 @@ impl Mux {
             let _ = surface.persist_host_workspace(&terminal.workspace_key);
         }
         if topology_changed {
+            self.publish_resource_event();
+            self.publish_pending_terminal_directories();
             self.emit(MuxEvent::TreeChanged);
         }
         Ok(TerminalMoveResult { placement, terminal, terminal_revision, replayed, changed })
