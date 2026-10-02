@@ -271,11 +271,11 @@ fn settings_set_takes_json_or_a_plain_string() {
 #[test]
 fn responses_split_transport_from_app_errors() {
     assert_eq!(
-        parse_response(r#"{"id":1,"ok":true,"result":{"pong":true}}"#),
+        parse_response(r#"{"id":"1","ok":true,"result":{"pong":true}}"#),
         Ok(Ok(json!({"pong":true})))
     );
     assert_eq!(
-        parse_response(r#"{"id":1,"ok":false,"error":{"code":"not_found"}}"#),
+        parse_response(r#"{"id":"1","ok":false,"error":{"code":"not_found"}}"#),
         Ok(Err(json!({"code":"not_found"})))
     );
     assert!(

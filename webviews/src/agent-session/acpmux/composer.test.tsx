@@ -239,12 +239,12 @@ describe("acpmux composer slash menu", () => {
   test("+ keeps a pasted path whole, keeps a named command's slash, and Escape puts the draft back", async () => {
     const plus = () => pickPlus("commands");
     await render(snapshot(commands));
-    await type("/Users/leo/x.txt is broken");
+    await type("/Users/dev/x.txt is broken");
     await plus();
     await settle();
-    expect(textarea().value).toBe("/ /Users/leo/x.txt is broken");
+    expect(textarea().value).toBe("/ /Users/dev/x.txt is broken");
     await key("Escape");
-    expect(textarea().value).toBe("/Users/leo/x.txt is broken");
+    expect(textarea().value).toBe("/Users/dev/x.txt is broken");
     expect(menu()).toBeNull();
     await type("/review main");
     await plus();

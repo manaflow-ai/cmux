@@ -19,18 +19,20 @@ nonisolated enum SectionFlow {
         var gap: CGFloat = 0
     }
 
-    /// The mode `section` uses in `look`, or nil for rows. The tray and
-    /// lines-icons looks force built-in sections into tiles or icons.
+    /// The mode `section` uses in `look`, or nil for rows. Precedence: the
+    /// section's own arrangement when it is inline or grid; otherwise (a
+    /// list, the default) the tray and lines-icons looks tile built-in
+    /// sections. The look only styles; it never overrides a choice.
     static func mode(_ section: LayoutSection, look: SectionsLookVariant) -> Mode? {
+        switch section.arrangement.layout {
+        case .inline: return .inline(iconsOnly: false)
+        case .grid: return .grid(columns: section.arrangement.columns)
+        case .list: break
+        }
         switch look.tiling(section) {
         case .grid: return .grid(columns: nil)
         case .buttons: return .inline(iconsOnly: true)
-        case nil: break
-        }
-        switch section.arrangement.layout {
-        case .list: return nil
-        case .inline: return .inline(iconsOnly: false)
-        case .grid: return .grid(columns: section.arrangement.columns)
+        case nil: return nil
         }
     }
 
@@ -54,11 +56,15 @@ nonisolated enum SectionFlow {
         case let .grid(columns):
             let fit = max(1, Int((width + gap) / (m.tileMinWidth + gap)))
             let count = min(max(columns ?? fit, 1), fit)
+            // Fitted columns (or fill) stretch the tiles to the width;
+            // fixed columns keep the tile size and place every line by
+            // the leftover of a full line, so columns line up.
             let stretched = align == .fill || columns == nil
             let tileWidth = stretched ? (width - CGFloat(count - 1) * gap) / CGFloat(count) : m.tileMinWidth
             let lines = chunk(items, count)
             return lay(lines, kind: { .tile($0, section: section.id) }, widths: { _ in tileWidth }, x: x, y: y, width: width,
-                       gap: gap, align: stretched ? .leading : align, lineHeight: m.tileHeight)
+                       gap: gap, align: stretched ? .leading : align, lineHeight: m.tileHeight,
+                       fullLine: CGFloat(count) * (tileWidth + gap) - gap)
         case let .inline(iconsOnly):
             let icon = m.iconButtonWidth
             let chips = items.map { labelWidths[$0.id] ?? icon }
@@ -80,11 +86,11 @@ nonisolated enum SectionFlow {
 
     private static func lay(_ lines: [[LayoutItem]], kind: (LayoutItemID) -> SidebarRegionRow.Kind, widths: (LayoutItemID) -> CGFloat,
                             x: CGFloat, y: CGFloat, width: CGFloat, gap: CGFloat, align: SectionArrangement.Alignment,
-                            lineHeight: CGFloat) -> Result {
+                            lineHeight: CGFloat, fullLine: CGFloat? = nil) -> Result {
         var rows: [SidebarRegionRow] = []
         for (index, line) in lines.enumerated() {
             let w = line.map { widths($0.id) }
-            let used = w.reduce(0, +) + gap * CGFloat(max(0, line.count - 1))
+            let used = fullLine ?? (w.reduce(0, +) + gap * CGFloat(max(0, line.count - 1)))
             let leftover = max(0, width - used)
             var cursor: CGFloat
             var spacing = gap
@@ -94,7 +100,8 @@ nonisolated enum SectionFlow {
             case .trailing: cursor = x + leftover
             case .fill:
                 cursor = x
-                if line.count > 1 { spacing = gap + leftover / CGFloat(line.count - 1) } else { cursor = x + leftover / 2 }
+                // One item stays leading; two or more spread to both edges.
+                if line.count > 1 { spacing = gap + leftover / CGFloat(line.count - 1) }
             }
             let lineY = y + CGFloat(index) * (lineHeight + gap)
             for (item, itemWidth) in zip(line, w) {

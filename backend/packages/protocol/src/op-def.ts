@@ -7,7 +7,7 @@ import type { Schema } from "effect"
  */
 export interface CloudOpDef<P extends Schema.Top = Schema.Top, R extends Schema.Top = Schema.Top> {
   readonly name: string
-  readonly owner: "cloud:UserDO" | "cloud:TeamDO" | "cloud:SchedulerDO" | "cloud:ConnectionDO"
+  readonly owner: "cloud:UserDO" | "cloud:TeamDO" | "cloud:SchedulerDO" | "cloud:ConnectionDO" | "cloud:FeedDO"
   readonly class: "read" | "mutation"
   readonly risk: "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
   readonly target: string

@@ -126,7 +126,7 @@ History: first build 18 pass (compat daemon code) (daemon reads, own snapshot); 
 | browser_api_p0 | fail | browser.wait unsupported |
 | browser_api_unsupported_matrix | fail | expects the full old browser method matrix in capabilities |
 | browser_cli_agent_port | fail | browser.wait unsupported |
-| browser_cli_wait_and_screenshot | fail | cmux.cmuxError: CLI failed (/Users/lawrence/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
+| browser_cli_wait_and_screenshot | fail | cmux.cmuxError: CLI failed ($HOME/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
 | browser_custom_keybinds | fail | 2 test(s) failed. |
 | browser_devtools_visibility_stability | fail | browser.focus_webview unsupported |
 | browser_eval_domrect | fail | browser eval of DOMRect returns null |
@@ -144,7 +144,7 @@ History: first build 18 pass (compat daemon code) (daemon reads, own snapshot); 
 | cli_new_workspace_command_queue | pass |  |
 | cli_new_workspace_external_git_branch_refresh | fail | cmux.cmuxError: Expected refreshed sidebar cwd=PosixPath('/var/folders/rr/vmfx6xh12dz2tlvgtmyvjmf80000gn/T/cmux_issue_91 |
 | cli_new_workspace_layout_command_queue | fail | workspace.create layout unsupported |
-| cli_non_focus_commands_preserve_workspace | fail | cmux.cmuxError: CLI failed (/Users/lawrence/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
+| cli_non_focus_commands_preserve_workspace | fail | cmux.cmuxError: CLI failed ($HOME/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
 | cli_sidebar_metadata_commands | pass |  |
 | close_surface_selection | fail | 2 test(s) failed |
 | close_workspace_selection | fail | 2 test(s) failed |
@@ -232,7 +232,7 @@ History: first build 18 pass (compat daemon code) (daemon reads, own snapshot); 
 | terminal_notification_rendering | fail | old-app debug.* methods |
 | terminal_paste_delivery | fail | AssertionError: Use the isolated issue tag |
 | tmux_compat_geometry | fail | pane.list pixel_frame not reported |
-| tmux_compat_matrix | fail | cmux.cmuxError: CLI failed (/Users/lawrence/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
+| tmux_compat_matrix | fail | cmux.cmuxError: CLI failed ($HOME/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
 | trigger_flash | fail | old-app debug.* methods |
 | update_timing | fail | source-shape test for the old app |
 | v1_panel_creation_preserves_focus | fail | cmux.cmuxError: 'new_surface' failed: "ERROR: Unknown command 'new_surface'. cmux-next speaks v2 JSON requests only." |

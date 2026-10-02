@@ -9,6 +9,10 @@
 use std::path::{Path, PathBuf};
 
 const DEBUG_BUNDLE_ID: &str = "com.cmuxterm.app.debug";
+/// `action.list`'s per-action surface plan key (where the app offers the
+/// action: palette, CLI, right-click, MCP). App control vocabulary for UI
+/// surfaces, not a daemon resource word; `cmux mcp` reads its `mcp` entry.
+pub(crate) const ACTION_SURFACE_PLAN: &str = "surfaces";
 const CHANNELS: [(&str, &str); 3] = [
     ("com.cmuxterm.app.nightly", "nightly"),
     ("com.cmuxterm.app.rc", "rc"),

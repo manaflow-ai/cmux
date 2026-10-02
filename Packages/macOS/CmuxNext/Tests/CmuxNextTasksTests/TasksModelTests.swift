@@ -115,3 +115,35 @@ struct SplitMix {
         return z ^ (z >> 31)
     }
 }
+
+/// Review findings (MEDIUM): no reconnect, pending intents never resent;
+/// settings and archived labels ignored.
+@MainActor
+struct TasksReconnectTests {
+    @Test func pendingIntentsAreResentWithTheirKeysAfterReconnect() {
+        let source = MockTasksSource()
+        source.echoImmediately = false
+        let model = TasksModel(source: source)
+        model.start()
+        model.setStatus("task_3", to: "st_done")
+        let key = try? #require(model.pending.first?.key)
+        source.dropHeld()
+        source.disconnect()
+        #expect(model.send(.archive(task: "task_4")) == false, "nothing queues while disconnected")
+        source.reconnect()
+        #expect(source.sentKeys.filter { $0 == key }.count == 2, "resent once, same key")
+        source.deliverHeld()
+        #expect(model.pending.isEmpty)
+        #expect(model.confirmed["task_3"]?.status == "st_done")
+    }
+
+    @Test func settingsAndArchivedLabelsUpdateTheMirror() {
+        let source = MockTasksSource()
+        let model = TasksModel(source: source)
+        model.start()
+        model.handle(.event(TasksEvent(seq: 50, tx: "k", kind: "task.settings.updated", change: .settings(TasksSettings(keyPrefix: "ENG")))))
+        #expect(model.keyPrefix == "ENG")
+        model.handle(.event(TasksEvent(seq: 51, tx: "k", kind: "task.label.deleted", change: .label(TaskLabelItem(id: "lbl_bug", name: "bug", color: 1, archived: true)))))
+        #expect(model.labels["lbl_bug"] == nil)
+    }
+}

@@ -1,5 +1,6 @@
 import type { OutboxRow } from "@cmux/ownership"
 import type { Env } from "./env.ts"
+import { pgSafe } from "./text-safe.ts"
 
 /**
  * Projection writes into PlanetScale `cmux-next`. A DO never writes Postgres in
@@ -77,6 +78,12 @@ const statements: Record<string, (p: Record<string, unknown>, stream: string, se
       ]
     ]
   },
+  "audit.append": (p, stream, seq) => [
+    `INSERT INTO audit_events (team_id, n, op, actor, on_behalf_of, transaction, at, summary, detail, prev_hash, hash, source_stream, source_seq)
+     VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7 / 1000.0), $8, $9, $10, $11, $12, $13)
+     ON CONFLICT DO NOTHING`,
+    [p.team, p.n, p.op, p.actor, p.on_behalf_of ?? null, p.tx, p.at, p.summary, JSON.stringify(p.detail ?? null), p.prev_hash, p.hash, stream, seq]
+  ],
   "connection.upsert": (p, stream, seq) => {
     const account = p.account as { key?: string; name?: string } | null
     return [
@@ -97,6 +104,12 @@ const statements: Record<string, (p: Record<string, unknown>, stream: string, se
   ]
 }
 
+/** The SQL for one outbox row, or undefined for a kind this drain does not know. */
+export const projectionStatement = (kind: string, payload: unknown, stream: string, seq: number): [string, Array<unknown>] | undefined => {
+  const make = statements[kind]
+  return make ? make(pgSafe(payload) as Record<string, unknown>, stream, seq) : undefined
+}
+
 export const drainOutbox = async (env: Env, stream: string, rows: ReadonlyArray<OutboxRow>): Promise<void> => {
   if (!env.HYPERDRIVE) throw new Error("HYPERDRIVE binding missing")
   // Loaded on first drain only: keeps pg (CommonJS, node:net) off the request path and out of unit tests.
@@ -106,14 +119,13 @@ export const drainOutbox = async (env: Env, stream: string, rows: ReadonlyArray<
   try {
     await client.query("BEGIN")
     for (const row of rows) {
-      const make = statements[row.kind]
+      const statement = projectionStatement(row.kind, row.payload, stream, row.seq)
       // An unknown kind (newer writer than this drain) must not block every later row.
-      if (!make) {
+      if (!statement) {
         console.error(JSON.stringify({ msg: "outbox row skipped: no projection", stream, seq: row.seq, kind: row.kind }))
         continue
       }
-      const [text, values] = make(row.payload as Record<string, unknown>, stream, row.seq)
-      await client.query(text, values)
+      await client.query(statement[0], statement[1])
     }
     await client.query("COMMIT")
   } catch (e) {

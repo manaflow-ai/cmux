@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a";
+pub const ir_sha256 = "06426902f6b840fe5bda861cd89adf95557247009953da568266a7381b1a1f9c";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -4481,6 +4481,7 @@ pub const NewFrontendBrowserTabRequest = struct {
     cols: wire.Field(u16) = .absent,
     engine: []const u8,
     favicon_url: wire.Field([]const u8) = .absent,
+    owner: wire.Field([]const u8) = .absent,
     pane: wire.Field(Id) = .absent,
     profile_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
@@ -6399,6 +6400,7 @@ pub fn updateBrowserProfile(client: anytype, request: UpdateBrowserProfileReques
 
 pub const UpdateFrontendBrowserTabRequest = struct {
     favicon_url: wire.Field([]const u8) = .absent,
+    owner: wire.Field([]const u8) = .absent,
     surface: Id,
     title: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,

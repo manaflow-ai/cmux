@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
+import CmuxNextApps
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextPalette
 import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -14,7 +16,7 @@ import Foundation
 enum TunableCatalog {
     static var all: [TunableDescriptor] {
         DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
-            + AgentActivityTunables.all + TasksTunables.all
+            + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PaletteTunables.all
     }
 }
 

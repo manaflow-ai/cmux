@@ -1,12 +1,9 @@
-//! The mouse input operations' parameter rules that the catalog's types
-//! cannot state: which fields each input kind needs or forbids.
+//! Mouse input constraints the catalog types cannot express: which fields
+//! each `kind` of a browser or terminal mouse event requires.
 
-use serde_json::{Map, Value, json};
+use super::*;
 
-use super::{invalid_value, validation_error};
-use crate::resource::ResourceError;
-
-pub(super) fn validate_browser(fields: &Map<String, Value>) -> Result<(), ResourceError> {
+pub(super) fn validate_browser_mouse(fields: &Map<String, Value>) -> Result<(), ResourceError> {
     let kind = fields["kind"].as_str().expect("catalog enum validation");
     let has_button = fields.contains_key("button");
     let has_click_count = fields.contains_key("click_count");
@@ -25,7 +22,7 @@ pub(super) fn validate_browser(fields: &Map<String, Value>) -> Result<(), Resour
     Ok(())
 }
 
-pub(super) fn validate_terminal(fields: &Map<String, Value>) -> Result<(), ResourceError> {
+pub(super) fn validate_terminal_mouse(fields: &Map<String, Value>) -> Result<(), ResourceError> {
     let kind = fields["kind"].as_str().expect("catalog enum validation");
     let has_button = fields.contains_key("button");
     let has_delta = fields.contains_key("delta_rows");

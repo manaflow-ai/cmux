@@ -1,4 +1,4 @@
-import codexRecording from "./fixtures/codex-session-events.ndjson?raw";
+import codexRecording from "./fixtures/agent-session-events.ndjson?raw";
 import claudeRecording from "./fixtures/claude-live-notifications.ndjson?raw";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../acpmux/model";
 import { commandsFromUpdate } from "../acpmux/slashCommands";

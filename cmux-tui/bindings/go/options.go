@@ -279,6 +279,19 @@ type ScreenLayoutUndoOptions struct {
 	ConfirmationToken *string
 }
 
+// ScreenColumnUpdateOptions pins, unpins, or resizes one viewport column
+// (column.update). Column is the column's split ID. Set Sticky, Width, or
+// both; Edge ("left"|"right") and Mode ("docked"|"overlay") apply only when
+// Sticky is true.
+type ScreenColumnUpdateOptions struct {
+	MutationOptions
+	Column string
+	Sticky *bool
+	Edge   *string
+	Mode   *string
+	Width  *float64
+}
+
 type PaneListOptions struct{ ReadOptions }
 type PaneCreateOptions struct {
 	MutationOptions

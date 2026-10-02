@@ -46,7 +46,8 @@ extension SidebarView {
         belowRegion.update(content(bands.below), width: b.width)
         let (aboveHeight, belowHeight) = SidebarBandHeights.resolve(
             above: aboveRegion.layoutResult, below: belowRegion.layoutResult, available: available,
-            preferences: DesignSettings.shared.sidebarSections, minimumList: Metrics.sidebarRowHeight * 3)
+            preferences: DesignSettings.shared.sidebarSections, minimumList: Metrics.sidebarRowHeight * 3,
+            bandFloor: Metrics.sidebarRowHeight + Metrics.space2)
         aboveFade.frame = NSRect(x: 0, y: y, width: b.width, height: aboveHeight)
         size(aboveRegion, in: aboveScroll, width: b.width)
         belowFade.frame = NSRect(x: 0, y: b.height - footerHeight - belowHeight, width: b.width, height: belowHeight)

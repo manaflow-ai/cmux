@@ -12,11 +12,11 @@ A web UI (React, `webviews/src/agent-session/acpmux/`) in a native tab, themed b
 
 ![Agent pane, light](../images/window/light-agent-pane.png)
 
-## Bridge (`Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTheme.swift:17-52`)
+## Bridge (`Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTheme.swift:17-52 (AgentPaneTheme.values)`)
 
 | CSS variable | token |
 |---|---|
-| --agent-page-bg | contentBackground (transparent when the window is translucent) |
+| --agent-page-bg, --agent-surface | contentBackground (transparent when the window is translucent) |
 | --agent-surface-elevated | elevatedBackground |
 | --agent-input-bg | hoverFill |
 | --agent-border / --agent-border-strong | separator / paneBorder (transparent under borders none) |
@@ -29,7 +29,7 @@ A web UI (React, `webviews/src/agent-session/acpmux/`) in a native tab, themed b
 
 ## Geometry and type
 
-Shell font 13px system. Header 44px (padding 0 8px), title 13px medium, status 12px textSecondary. Conversation 14px / 22.75px system-ui, column 720px, gutter 26.5px. User bubble max 78%, padding 9px 12px, radius 16px, fill text 5%. Composer box radius 22px with a 0.5px inset edge (text 18% over page), fill text 13% over page; field 15px / 22px, padding 15px 16px 8px; bar 48px; picker buttons 32px tall, radius 16px; Send 32px circle. Menus radius 12px, padding 6px, items 28px radius 8px, shadow 0 10px 30px. Session sidebar 292px; rail 48px with 34px buttons radius 9px. Sources: `acpmux/styles.css`, `acpmux/conversation/conversation.css:11-34`.
+Shell font 13px system. Header 44px (padding 0 8px), title 13px medium, status 12px textSecondary. Conversation 14px / 22.75px system-ui, column 720px, gutter 26.5px. User bubble (`.cv-user__bubble`) max-width 70%, padding 10.5px 16px 9.5px, radius 16px, fill text 5%. Inline code 13px ui-monospace (`.cv-code`); shell output 12px / 18px ui-monospace (`.cv-shell__body`). Composer box radius 22px with a 0.5px inset edge (text 18% over page), fill text 13% over page; field 15px / 22px, padding 15px 16px 8px; bar 48px; picker buttons 32px tall, radius 16px; Send 32px circle. Menus radius 12px, padding 6px, items 28px radius 8px, shadow 0 10px 30px. Session sidebar 292px; rail 48px with 34px buttons radius 9px. Sources: `acpmux/styles.css`, `acpmux/composerControls.css`, `acpmux/conversation/conversation.css:11-34 (:root), 58-62 (.cv-user__bubble), 131-133 (.cv-code), 605-612 (.cv-shell__body)`.
 
 ## States
 
@@ -39,12 +39,22 @@ Shell font 13px system. Header 44px (padding 0 8px), title 13px medium, status 1
 | Send | idle (empty draft) | mix(highlight 72%, base) |
 | picker / plan button | hover or open | composerHover = text 14% over page |
 | plan toggle | pressed | highlight 16%, text highlight |
+| switch | on | track highlight, knob highlightText |
 | session row | hover / selected | text 5% / text 9% |
 | icon button | hover | text 6%, color text |
 | rail button | hover / current / disabled | text 6% / text 9% / opacity 0.4 |
-| focus-visible | | 1.5-2px outline, text 40% (session rows: accent) |
+| focus-visible | composer picker, plan, Send | 1.5px solid text, offset 2px |
+| focus-visible | rail buttons, sidebar toggle and actions | 2px, text 40%, offset -2px (toggle 0) |
+| focus-visible | session rows | 2px accent (= text), offset -2px |
+| focus-visible | diff tools, file headers | 1.5px muted, offset 1px |
 | menu item | active | text 14% over base |
 | unrestricted mode | | warning color (attention, else danger) |
 | turn footer | | "Worked for Ns", copy, time in textTertiary, tabular numbers |
 
 UNVERIFIED screenshots: hover and menu states (the page needs pointer events inside WebKit; `debug.agent_pane` only seeds rows and measures), tool-call cards, permission card.
+
+Highlight (the theme's ANSI 4) is the one hue in chrome, and only these composer controls use it: Send, the pressed plan toggle and a switch's on state.
+
+## Borders none
+
+Target: under `appearance.borders = none` the agent pane draws no edge. The bridge sets `--agent-border` and `--agent-border-strong` to transparent. Today these edges still draw because they are not tied to the setting: the composer edge (`--acpmux-composer-edge`, a 0.5px inset at text 18%), menu and slash-menu edges, and the code block ring (`--cv-codeblock-ring`, 1px at text 11.5%). A code fix is in progress in a separate lane; ports implement the target.

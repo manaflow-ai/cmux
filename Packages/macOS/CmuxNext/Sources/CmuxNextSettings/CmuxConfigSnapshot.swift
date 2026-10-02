@@ -17,6 +17,8 @@ public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
         case shortcutConflict
         /// The file sets a key an MDM profile or the team policy manages; the file's value is ignored.
         case managedOverride
+        /// An MDM forced value and the team policy's enforced value differ; the MDM value applies (decision E2).
+        case managedConflict
     }
 
     public let kind: Kind

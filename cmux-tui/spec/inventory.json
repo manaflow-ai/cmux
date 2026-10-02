@@ -29,6 +29,7 @@
     "client.sizing.set",
     "closed.list",
     "closed.reopen",
+    "column.update",
     "frontend_projection.get",
     "frontend_projection.put",
     "git.diff",

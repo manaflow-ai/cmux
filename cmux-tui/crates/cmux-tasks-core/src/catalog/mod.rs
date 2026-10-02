@@ -38,7 +38,10 @@ pub enum Expose {
 pub enum Ty {
     Str,
     /// A public id with this prefix; `generate` makes the CLI mint one when omitted.
-    Id { prefix: &'static str, generate: bool },
+    Id {
+        prefix: &'static str,
+        generate: bool,
+    },
     /// A task reference: `CMX-12`, `task_…` or a unique id prefix.
     TaskRef,
     Bool,
@@ -92,9 +95,15 @@ impl Entry {
         let mut required = Vec::new();
         for p in self.params {
             let item = ty_schema(p.ty, p.doc);
-            let schema = if p.repeated { json!({"type": "array", "items": item, "description": p.doc}) } else { item };
+            let schema = if p.repeated {
+                json!({"type": "array", "items": item, "description": p.doc})
+            } else {
+                item
+            };
             properties.insert(p.name.to_owned(), schema);
-            if p.required {
+            // Generated ids may be omitted: the owner derives them from the
+            // idempotency key, so a retry converges.
+            if p.required && !matches!(p.ty, Ty::Id { generate: true, .. }) {
                 required.push(Value::from(p.name));
             }
         }
@@ -134,7 +143,9 @@ impl Entry {
 fn ty_schema(ty: Ty, doc: &str) -> Value {
     match ty {
         Ty::Str => json!({"type": "string", "description": doc}),
-        Ty::Id { prefix, .. } => json!({"type": "string", "pattern": format!("^{prefix}[0-9a-z_-]{{1,64}}$"), "description": doc}),
+        Ty::Id { prefix, .. } => {
+            json!({"type": "string", "pattern": format!("^{prefix}[0-9a-z_-]{{1,64}}$"), "description": doc})
+        }
         Ty::TaskRef => json!({"type": "string", "description": doc}),
         Ty::Bool => json!({"type": "boolean", "description": doc}),
         Ty::U32 | Ty::U64 => json!({"type": "integer", "minimum": 0, "description": doc}),
@@ -154,7 +165,8 @@ pub fn find_cli(words: &[&str]) -> Option<(&'static Entry, usize)> {
         .iter()
         .filter_map(|e| {
             let path: Vec<&str> = e.cli.split(' ').collect();
-            (words.len() >= path.len() && words[..path.len()] == path[..]).then_some((e, path.len()))
+            (words.len() >= path.len() && words[..path.len()] == path[..])
+                .then_some((e, path.len()))
         })
         .max_by_key(|(_, n)| *n)
 }
@@ -185,7 +197,9 @@ fn ts_type(ty: Ty) -> String {
         Ty::Str | Ty::Id { .. } | Ty::TaskRef => "string".to_owned(),
         Ty::Bool => "boolean".to_owned(),
         Ty::U32 | Ty::U64 | Ty::I64 => "number".to_owned(),
-        Ty::Enum(values) => values.iter().map(|v| format!("\"{v}\"")).collect::<Vec<_>>().join(" | "),
+        Ty::Enum(values) => {
+            values.iter().map(|v| format!("\"{v}\"")).collect::<Vec<_>>().join(" | ")
+        }
         Ty::Json => "unknown".to_owned(),
     }
 }
@@ -210,7 +224,10 @@ pub fn export_typescript() -> String {
             Class::Stream => "AsyncIterable<TaskEvent>",
         };
         let member = e.name.trim_start_matches("task.").replace('.', "_");
-        functions.push_str(&format!("    /** {} */\n    {member}(params: {name}Params): Promise<{result}>;\n", e.docs));
+        functions.push_str(&format!(
+            "    /** {} */\n    {member}(params: {name}Params): Promise<{result}>;\n",
+            e.docs
+        ));
     }
     out.push_str("export interface OpResult { id: string; key?: string }\nexport interface TaskEvent { seq: number; index: number; tx: string; kind: string; details?: unknown; change: unknown }\n");
     out.push_str(&format!("export interface Mux {{\n  task: {{\n{functions}  }};\n}}\n"));

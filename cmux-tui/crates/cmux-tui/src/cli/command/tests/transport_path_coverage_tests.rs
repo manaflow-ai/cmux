@@ -9,9 +9,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
     // The case list is shared with `cmux mcp`'s parity test (command/cases.rs).
     let cases = cases::safe_operation_cases();
 
-    assert_eq!(cases.len(), 173);
+    assert_eq!(cases.len(), 174);
     let catalog = operation_catalog();
-    assert_eq!(catalog["operations"].as_object().unwrap().len(), 183);
+    assert_eq!(catalog["operations"].as_object().unwrap().len(), 184);
     let mut seen = std::collections::BTreeSet::new();
     let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
     for (args, expected) in &cases {

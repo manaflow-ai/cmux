@@ -21,9 +21,12 @@ use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind
 use cmux_layout_reducer::LayoutOpKind;
 
 mod batch_close;
+mod column_update;
+mod layout_document;
 mod layout_projection;
 mod structural_move;
 pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget};
+use layout_document::layout_document;
 use layout_projection::sync_layout_column_projection;
 pub(super) use structural_move::structural_tab_move_plan;
 
@@ -694,6 +697,13 @@ impl Mux {
                     fingerprint: &fingerprint,
                 },
             )?,
+            ResourceOperation::ColumnUpdate => self.resource_update_column(
+                selectors,
+                &fields,
+                expected_revision,
+                mutation,
+                &fingerprint,
+            )?,
             ResourceOperation::TabRename => self.resource_rename_tab(
                 selectors,
                 nullable_name(&fields)?,
@@ -740,6 +750,7 @@ impl Mux {
                 | ResourceOperation::PaneZoom
                 | ResourceOperation::PaneSplitRatioSet
                 | ResourceOperation::PaneViewportWidthSet
+                | ResourceOperation::ColumnUpdate
                 | ResourceOperation::WorkspaceLayoutApply
                 | ResourceOperation::ScreenLayoutUndo
                 | ResourceOperation::PaneCreate
@@ -6132,72 +6143,6 @@ fn tab_value(tab: &RegistryTab, topology: &ResourceTopologySnapshot) -> anyhow::
     let pane = topology_pane(topology, &tab.pane_id)?;
     u32::try_from(tab.position).context("tab index exceeds uint32")?;
     Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
-}
-
-fn layout_document(
-    screen: &RegistryScreen,
-    topology: &ResourceTopologySnapshot,
-) -> anyhow::Result<Value> {
-    let root = if screen.viewport.columns.is_empty() {
-        layout_node_value(&screen.layout, topology)?
-    } else {
-        json!({
-            "kind":"viewport",
-            "base_width":screen.viewport.base_width.context("viewport has no base width")?,
-            "columns":screen.viewport.columns.iter().map(|column| {
-                Ok(json!({
-                    "column_id":column.id,
-                    "width":column.width,
-                    "root":layout_node_value(&column.layout, topology)?,
-                }))
-            }).collect::<anyhow::Result<Vec<_>>>()?,
-        })
-    };
-    Ok(json!({
-        "version":1,
-        "screen_id":screen.public_id,
-        "active_pane_id":screen.active_pane,
-        "zoomed_pane_id":screen.zoomed_pane,
-        "root":root,
-    }))
-}
-
-fn layout_node_value(
-    node: &RegistryLayoutNode,
-    topology: &ResourceTopologySnapshot,
-) -> anyhow::Result<Value> {
-    Ok(match node {
-        RegistryLayoutNode::Leaf { pane } => {
-            let record = topology_pane(topology, pane)?;
-            let tabs = topology.tabs.iter().filter(|tab| &tab.pane_id == pane).collect::<Vec<_>>();
-            let mut value = json!({
-                "kind":"leaf",
-                "pane_id":pane,
-                "tab_ids":tabs.iter().map(|tab| &tab.public_id).collect::<Vec<_>>(),
-            });
-            if let Some(active) = &record.active_tab {
-                value["active_tab_id"] = json!(active);
-            }
-            value
-        }
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => json!({
-            "kind":"split",
-            "split_id":split,
-            "direction":match direction.as_str() {
-                "right" | "horizontal" => "horizontal",
-                "down" | "vertical" => "vertical",
-                other => anyhow::bail!("invalid durable split direction {other:?}"),
-            },
-            "ratio":ratio,
-            "first":layout_node_value(first, topology)?,
-            "second":layout_node_value(second, topology)?,
-        }),
-        RegistryLayoutNode::Stack { panes, expanded } => json!({
-            "kind":"stack",
-            "pane_ids":panes,
-            "expanded_pane_id":expanded,
-        }),
-    })
 }
 
 fn focus_deltas(

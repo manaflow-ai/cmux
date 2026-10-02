@@ -2573,6 +2573,17 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "tab search",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "tab.search",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "tab move-to-new-workspace",
       "context_menu" : "offered",
       "context_menus" : [
@@ -7743,6 +7754,28 @@
       ],
       "id" : "sidebar.layout.reset",
       "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action app-store-show",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "id" : "appStore.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action app-store-show-installed",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "appStore.showInstalled",
+      "mcp" : "guiOnly",
       "palette" : "offered"
     }
   ],

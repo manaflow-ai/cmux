@@ -1,13 +1,11 @@
 //! Catalog-driven argument parsing: flags come from the op's params
 //! (`--add-labels x` for `add_labels`), the positional param takes the first
-//! bare word, ids marked `generate` are minted when omitted.
+//! bare word, omitted generated ids are derived by the owner from the key.
 
 use std::io::Read;
 
 use cmux_tasks_core::catalog::{Entry, Param, Ty};
 use serde_json::{Map, Value, json};
-
-use crate::owner::mint;
 
 #[derive(Debug, Default)]
 pub struct Global {
@@ -39,11 +37,23 @@ pub fn split_global(args: &[String]) -> Result<(Global, Vec<String>), String> {
             "--json" => global.json = true,
             "-h" | "--help" => global.help = true,
             a if a == "--team" || a.starts_with("--team=") => global.team = Some(value_of("team")?),
-            a if a == "--data" || a.starts_with("--data=") => global.data = Some(value_of("data")?.into()),
-            a if a == "--idempotency-key" || a.starts_with("--idempotency-key=") => global.key = Some(value_of("idempotency-key")?),
-            a if a == "--key-prefix" || a.starts_with("--key-prefix=") => global.key_prefix = Some(value_of("key-prefix")?),
-            a if a == "--count" || a.starts_with("--count=") => global.count = Some(value_of("count")?.parse().map_err(|_| "--count takes a number")?),
-            a if a == "--timeout" || a.starts_with("--timeout=") => global.timeout = Some(value_of("timeout")?.parse().map_err(|_| "--timeout takes seconds")?),
+            a if a == "--data" || a.starts_with("--data=") => {
+                global.data = Some(value_of("data")?.into());
+            }
+            a if a == "--idempotency-key" || a.starts_with("--idempotency-key=") => {
+                global.key = Some(value_of("idempotency-key")?);
+            }
+            a if a == "--key-prefix" || a.starts_with("--key-prefix=") => {
+                global.key_prefix = Some(value_of("key-prefix")?);
+            }
+            a if a == "--count" || a.starts_with("--count=") => {
+                global.count =
+                    Some(value_of("count")?.parse().map_err(|_| "--count takes a number")?);
+            }
+            a if a == "--timeout" || a.starts_with("--timeout=") => {
+                global.timeout =
+                    Some(value_of("timeout")?.parse().map_err(|_| "--timeout takes seconds")?);
+            }
             _ => rest.push(arg.clone()),
         }
     }
@@ -66,7 +76,10 @@ fn convert(param: &Param, raw: &str) -> Result<Value, String> {
         Ty::Str | Ty::TaskRef | Ty::Id { .. } => {
             if raw == "-" && matches!(param.name, "description" | "body" | "prompt") {
                 json!(read_stdin()?)
-            } else if let Some(path) = raw.strip_prefix('@').filter(|_| matches!(param.name, "description" | "body" | "prompt")) {
+            } else if let Some(path) = raw
+                .strip_prefix('@')
+                .filter(|_| matches!(param.name, "description" | "body" | "prompt"))
+            {
                 json!(std::fs::read_to_string(path).map_err(|e| format!("--{flag} {path}: {e}"))?)
             } else {
                 json!(raw)
@@ -77,7 +90,9 @@ fn convert(param: &Param, raw: &str) -> Result<Value, String> {
             "false" | "no" | "0" => json!(false),
             _ => return Err(format!("--{flag} takes true or false")),
         },
-        Ty::U32 | Ty::U64 => json!(raw.parse::<u64>().map_err(|_| format!("--{flag} takes a number"))?),
+        Ty::U32 | Ty::U64 => {
+            json!(raw.parse::<u64>().map_err(|_| format!("--{flag} takes a number"))?)
+        }
         Ty::I64 => json!(raw.parse::<i64>().map_err(|_| format!("--{flag} takes a number"))?),
         Ty::Enum(values) => {
             let normalized = raw.replace('-', "_");
@@ -117,11 +132,17 @@ pub fn params(entry: &Entry, words: &[String]) -> Result<Value, String> {
             let raw = match (param.ty, inline) {
                 (_, Some(v)) => v,
                 (Ty::Bool, None) => "true".to_owned(),
-                (_, None) => iter.next().cloned().ok_or_else(|| format!("--{name} needs a value"))?,
+                (_, None) => {
+                    iter.next().cloned().ok_or_else(|| format!("--{name} needs a value"))?
+                }
             };
             let value = convert(param, &raw)?;
             if param.repeated {
-                out.entry(param.name).or_insert_with(|| json!([])).as_array_mut().expect("array").push(value);
+                out.entry(param.name)
+                    .or_insert_with(|| json!([]))
+                    .as_array_mut()
+                    .expect("array")
+                    .push(value);
             } else if out.insert(param.name.to_owned(), value).is_some() {
                 return Err(format!("--{name} given twice"));
             }
@@ -138,10 +159,17 @@ pub fn params(entry: &Entry, words: &[String]) -> Result<Value, String> {
         if out.contains_key(param.name) {
             continue;
         }
-        if let Ty::Id { prefix, generate: true } = param.ty {
-            out.insert(param.name.to_owned(), json!(mint(prefix)));
-        } else if param.required {
-            let shown = if param.positional { param.name.to_uppercase() } else { format!("--{}", flag_name(param)) };
+        // Generated ids stay omitted: the owner derives them from the
+        // idempotency key, so retrying with the printed key replays.
+        if matches!(param.ty, Ty::Id { generate: true, .. }) {
+            continue;
+        }
+        if param.required {
+            let shown = if param.positional {
+                param.name.to_uppercase()
+            } else {
+                format!("--{}", flag_name(param))
+            };
             return Err(format!("`{}` needs {shown}", entry.cli));
         }
     }
@@ -150,7 +178,12 @@ pub fn params(entry: &Entry, words: &[String]) -> Result<Value, String> {
 
 /// Help text for one op, generated from its params.
 pub fn usage(entry: &Entry) -> String {
-    let positional = entry.params.iter().find(|p| p.positional).map(|p| format!(" {}", p.name.to_uppercase())).unwrap_or_default();
+    let positional = entry
+        .params
+        .iter()
+        .find(|p| p.positional)
+        .map(|p| format!(" {}", p.name.to_uppercase()))
+        .unwrap_or_default();
     let mut out = format!("cmux {}{positional} [flags]\n  {}\n", entry.cli, entry.docs);
     for p in entry.params.iter().filter(|p| !p.positional) {
         let value = match p.ty {
@@ -161,7 +194,11 @@ pub fn usage(entry: &Entry) -> String {
             _ => " VALUE".to_owned(),
         };
         let many = if p.repeated { " (repeatable)" } else { "" };
-        let req = if p.required && !matches!(p.ty, Ty::Id { generate: true, .. }) { " (required)" } else { "" };
+        let req = if p.required && !matches!(p.ty, Ty::Id { generate: true, .. }) {
+            " (required)"
+        } else {
+            ""
+        };
         out.push_str(&format!("  --{}{value}  {}{many}{req}\n", flag_name(p), p.doc));
     }
     out

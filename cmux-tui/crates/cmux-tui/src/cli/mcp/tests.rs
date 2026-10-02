@@ -99,27 +99,40 @@ impl Backend for Fake {
     }
 }
 
+/// The fixture names the app's surface plan key `PLAN`; this puts the real
+/// key (`ACTION_SURFACE_PLAN`) in its place.
+fn with_plan_key(mut value: Value) -> Value {
+    for action in value["actions"].as_array_mut().into_iter().flatten() {
+        if let Some(object) = action.as_object_mut()
+            && let Some(plan) = object.remove("PLAN")
+        {
+            object.insert(crate::app_identity::ACTION_SURFACE_PLAN.to_owned(), plan);
+        }
+    }
+    value
+}
+
 fn fixture_actions() -> Value {
-    json!({"actions": [
+    with_plan_key(json!({"actions": [
         {
             "id": "renameWorkspace", "title": "Rename Workspace…", "cli_name": "workspace rename",
             "cli": true, "targets": ["workspace"], "requires": [], "destructive": false,
-            "surfaces": {"cli": "offered", "mcp": "offered"},
+            "PLAN": {"cli": "offered", "mcp": "offered"},
             "arguments": [{"name": "name", "title": "Name", "kind": "string", "required": true}],
         },
         {
             "id": "newWindow", "title": "New Window", "cli_name": "app new-window",
-            "surfaces": {"cli": "offered", "mcp": "offered"}, "targets": [], "arguments": [],
+            "PLAN": {"cli": "offered", "mcp": "offered"}, "targets": [], "arguments": [],
         },
         {
             "id": "closeWorkspace", "title": "Close Workspace", "cli_name": "workspace close",
             "cli": true, "destructive": true, "targets": ["workspace"],
-            "surfaces": {"cli": "offered", "mcp": "offered"},
+            "PLAN": {"cli": "offered", "mcp": "offered"},
             "arguments": [{"name": "confirm", "title": "Confirm", "kind": "bool", "required": false}],
         },
         {
             "id": "accounts.connect", "title": "Connect Account", "cli_name": "accounts connect",
-            "surfaces": {"cli": "offered", "mcp": "credentials"}, "targets": [],
+            "PLAN": {"cli": "offered", "mcp": "credentials"}, "targets": [],
             "arguments": [{"name": "provider", "title": "Provider", "kind": "enum", "required": true,
                            "choices": [{"value": "codex", "title": "Codex"}]}],
         },
@@ -131,7 +144,7 @@ fn fixture_actions() -> Value {
             "id": "oldApp", "title": "Old App Action", "cli_name": "old action", "cli": true,
             "targets": [], "arguments": [],
         },
-    ]})
+    ]}))
 }
 
 fn object(value: Value) -> Map<String, Value> {

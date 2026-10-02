@@ -27,6 +27,8 @@ export type MockSession = {
   reply?: string;
   /// What a session needing input waits on: the tool call its permission card names.
   permission?: { title: string; kind: string };
+  /// The call a running session is in the middle of, after its last text.
+  working?: { title: string; kind: string; command?: string };
 };
 
 type Update = Record<string, unknown>;
@@ -114,6 +116,7 @@ export const mockSessions: MockSession[] = [
     branch: "fix-sidebar-flicker",
     reply:
       "The sidebar reads the theme before the window applies it, so the first frame uses the old background. I'm moving the read after `applyTheme` and checking every theme.",
+    working: { title: "Run bun test Sources/Sidebar", kind: "execute", command: "bun test Sources/Sidebar" },
   },
   {
     sessionId: "mock-tab-strip",
@@ -245,6 +248,7 @@ export const mockSessions: MockSession[] = [
     hostKind: "local",
     branch: "stream-tool-output",
     reply: "Splitting tool output into 8 KiB chunks so long shell runs stream instead of arriving at the end.",
+    working: { title: "Edit src/tools/stream.rs", kind: "edit" },
   },
   {
     sessionId: "mock-resume",
@@ -587,6 +591,19 @@ export function sessionHistory(session: MockSession): SeedStep[] {
         },
       },
     );
-  } else if (session.status !== "running") steps.push({ ago: at, mux: "turn_result", msg: { status: "completed" } });
+  } else if (session.status === "running" && session.working)
+    // A running agent is usually in the middle of a call, which its pane shows under "Working for".
+    steps.push({
+      ago: at + 10_000,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: `${session.sessionId}-working`,
+        kind: session.working.kind,
+        title: session.working.title,
+        status: "in_progress",
+        ...(session.working.command ? { rawInput: { command: session.working.command } } : {}),
+      },
+    });
+  else if (session.status !== "running") steps.push({ ago: at, mux: "turn_result", msg: { status: "completed" } });
   return steps;
 }

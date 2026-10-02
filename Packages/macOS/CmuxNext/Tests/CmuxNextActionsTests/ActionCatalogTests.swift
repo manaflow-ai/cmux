@@ -73,7 +73,7 @@ import Testing
         .workspace: 139, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs + 4 room/workspace theme actions
         .pane: 71, // + Move Pane to New Workspace, Undo Layout Change; + 4 sticky column actions (sticky-column.md)
         .screen: 62,
-        .tab: 76, // + Show Tab (`tab.focus`, state-ownership.md 3), + New Tab of the pane kind
+        .tab: 77, // + Show Tab (`tab.focus`, state-ownership.md 3), + New Tab of the pane kind, + Search Tabs (tab-search.md)
         .terminal: 35, // + Set / Reset Terminal Theme
         .browser: 110, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions
         .sidebar: 54, // + 24 sidebar section actions (sidebar-sections.md 6)
@@ -81,7 +81,7 @@ import Testing
         .agents: 20, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats
         .cloud: 28, // + accounts.show, refresh, reauthenticate, connect, remove
         .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
-        .settings: 50, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only), + Open Debug Settings (DEV and NIGHTLY only)
+        .settings: 52, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only), + Open Debug Settings (DEV and NIGHTLY only), + App Store, Installed Apps
     ]
 
     @Test func everyKeyboardShortcutIDExists() {

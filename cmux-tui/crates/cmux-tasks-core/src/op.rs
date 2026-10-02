@@ -7,7 +7,10 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{AgentClass, Principal};
-use crate::model::{Category, GhosttyColor, PlanStep, Priority, ProjectState, RelationKind, SessionStatus, AgentFlow};
+use crate::model::{
+    AgentFlow, Category, GhosttyColor, PlanStep, Priority, ProjectState, RelationKind,
+    SessionStatus,
+};
 
 /// The channel a request came through (OWNERSHIP-PRINCIPLES origin rule).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

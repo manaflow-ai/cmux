@@ -71,16 +71,46 @@ import Testing
     }
 
     @Test func arrangementIsValidatedAndRoundTrips() throws {
-        let bad = SectionPatch(arrangement: SectionArrangement(layout: .grid, columns: 40))
+        let bad = SectionPatch(layout: .grid, columns: .set(40))
         let result = SidebarLayoutReducer.reduce(.defaults, .sectionUpdate(SidebarLayoutDocument.topSectionID, bad))
         #expect(result == .failure(.invalidArrangement))
-        let good = SectionPatch(arrangement: .grid)
+        let good = SectionPatch(layout: .grid)
         let doc = try SidebarLayoutReducer.reduce(.defaults, .sectionUpdate(SidebarLayoutDocument.topSectionID, good)).get()
         #expect(doc.section(SidebarLayoutDocument.topSectionID)?.arrangement == .grid)
         let json = #"{"layout":"inline"}"#
         #expect(try JSONDecoder().decode(SectionArrangement.self, from: Data(json.utf8)) == .inline)
+        // Unknown values from a newer app fall back (L5).
+        let future = #"{"layout":"masonry","align":"justify","gap":4}"#
+        #expect(try JSONDecoder().decode(SectionArrangement.self, from: Data(future.utf8)) == SectionArrangement(gap: 4))
         let data = try JSONEncoder().encode(SidebarLayoutDocument.defaults)
         #expect(try JSONDecoder().decode(SidebarLayoutDocument.self, from: data) == .defaults)
+    }
+
+    /// Any arrangement, width and item count: every item placed once,
+    /// inside the line's width (once it fits an icon), no overlap on a line.
+    @Test(arguments: [3, 11, 77, 404])
+    func flowPlacesEveryItemInsideWithoutOverlap(seed: UInt64) {
+        var rng = SeededGenerator(seed: seed)
+        for _ in 0..<200 {
+            let count = Int.random(in: 1...12, using: &rng)
+            let items = (0..<count).map { item("f\($0)", label: Bool.random(using: &rng)) }
+            let arrangement = SectionArrangement(layout: [.inline, .grid].randomElement(using: &rng)!,
+                                                 align: SectionArrangement.Alignment.allCases.randomElement(using: &rng)!,
+                                                 gap: Int.random(in: 0...16, using: &rng),
+                                                 columns: Bool.random(using: &rng) ? nil : Int.random(in: 1...6, using: &rng))
+            let s = section(arrangement, items: items)
+            let width = CGFloat(Int.random(in: 50...320, using: &rng))
+            let widths = Dictionary(uniqueKeysWithValues: items.filter(\.showsLabel).map { ($0.id, CGFloat(Int.random(in: 40...140, using: &rng))) })
+            let mode: SectionFlow.Mode = arrangement.layout == .grid ? .grid(columns: arrangement.columns) : .inline(iconsOnly: false)
+            let rows = SectionFlow.place(s, mode: mode, x: 10, y: 0, width: width, labelWidths: widths, metrics: m).rows
+            #expect(rows.count == count)
+            for row in rows { #expect(row.frame.minX >= 10 - 0.001 && row.frame.maxX <= 10 + width + 0.001) }
+            let lines = Dictionary(grouping: rows, by: \.frame.minY)
+            for line in lines.values {
+                let sorted = line.sorted { $0.frame.minX < $1.frame.minX }
+                for (a, b) in zip(sorted, sorted.dropFirst()) { #expect(a.frame.maxX <= b.frame.minX + 0.001) }
+            }
+        }
     }
 
     // MARK: Band heights
@@ -95,7 +125,7 @@ import Testing
     @Test func bandsStopAtTheirShareWhenScrolling() {
         let heights = SidebarBandHeights.resolve(above: band(height: 400), below: band(height: 400), available: 600,
                                                  preferences: .defaults, minimumList: 84)
-        #expect(heights.above == 200 && heights.below == 150)
+        #expect(heights.above == 200 && heights.below == 150) // 350 fits in 600 - 84
         let custom = SidebarBandHeights.resolve(above: band(height: 400), below: band(height: 50), available: 600,
                                                 preferences: SidebarSectionsPreferences(topBandMaxShare: 0.5), minimumList: 84)
         #expect(custom.above == 300 && custom.below == 50)

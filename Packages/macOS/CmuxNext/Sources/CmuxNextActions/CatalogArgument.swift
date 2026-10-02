@@ -157,6 +157,12 @@ nonisolated enum CatalogArgument {
     }
 
     /// Optional page to open (`openBrowser`).
+    /// Optional search text (`tab.search`): the page opens with it typed.
+    static var queryString: ActionArgument {
+        ActionArgument(name: "query", title: String(localized: "argument.query", defaultValue: "Search", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
     static var urlString: ActionArgument {
         ActionArgument(name: "url", title: String(localized: "argument.url", defaultValue: "URL", bundle: .module), kind: .string, isRequired: false)
     }

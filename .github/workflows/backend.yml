@@ -16,12 +16,14 @@ on:
     types: [opened, synchronize, reopened, closed]
     paths:
       - backend/**
+      - clients/ts/**
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
   push:
     branches: [feat-cmux-next, main]
     paths:
       - backend/**
+      - clients/ts/**
       - .github/workflows/backend.yml
   workflow_dispatch:
     inputs:
@@ -69,8 +71,13 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Typecheck
         run: bun run typecheck
-      - name: Catalog drift
+      - name: Catalog and generated client drift
         run: bun run catalog:check
+      - name: No god files (500 lines per hand-written source file)
+        run: bun run lint:size
+      - name: Generated cloud client (clients/ts/cloud, GPL) tests
+        working-directory: clients/ts/cloud
+        run: bun test test
       - name: Migration lint (parsed SQL) and lint tests
         working-directory: backend/db
         run: bun migrate.ts --lint && bun test test

@@ -1,6 +1,6 @@
 # Spec proposal: visuals
 
-Design tokens, every component state, and screenshots for cmux-next, so the GPUI and Chromium ports can match the macOS app pixel for pixel and a person can see what each state looks like. Prepared for lawrence-coordinator to commit into manaflow-ai/cmux-next-spec (suggested spec paths in brackets).
+Design tokens, every component state, and screenshots for cmux-next, so the GPUI and browser ports can match the macOS app pixel for pixel and a person can see what each state looks like. Prepared for lawrence-coordinator to commit into manaflow-ai/cmux-next-spec (suggested spec paths in brackets).
 
 | page | contents | spec path |
 |---|---|---|
@@ -18,7 +18,7 @@ Design tokens, every component state, and screenshots for cmux-next, so the GPUI
 
 ![Default window, dark](images/window/dark-default.png)
 
-Provenance: images from tagged build `specvis-v1` of feat-cmux-next `1824883286a` (fleet job 6ae58467e770db91c783bc05), run with scratch configs (empty Ghostty config, so the default Apple System Colors theme; scratch cmux.json), window never brought to front. Source refs at the same SHA; status indicator refs at `9e5083e7554`. Resolved colors are computed by the Python port and matched screenshot pixels to within one 8-bit level.
+Provenance: images from tagged build `specvis-v1` of feat-cmux-next `1824883286a` (fleet job 6ae58467e770db91c783bc05), run with scratch configs (empty Ghostty config, so the default Apple System Colors theme; scratch cmux.json), window never brought to front. Source refs are `path:line (Type.member)` at feat-cmux-next `dd5e6216935`; the symbol is the anchor when lines drift. Resolved colors are computed by the Python port and matched screenshot pixels to within one 8-bit level.
 
 ## UNVERIFIED states (no screenshot; tokens from code, diagrams where useful)
 
@@ -32,8 +32,15 @@ Provenance: images from tagged build `specvis-v1` of feat-cmux-next `1824883286a
 - Agent pane hover, menus, tool-call and permission cards.
 - Terminal content colors are Ghostty's and are out of scope here.
 
+## Known gaps between the target and the code
+
+These rows describe the target. Code fixes are in progress in separate lanes; ports implement the target.
+
+- Reduce Transparency: the palette, its actions menu and shortcut recorder, hover cards, and the browser find bar, prompt bar and notices call `Glass.makePanel` directly, so they skip the opaque fallback ([design-tokens.md](design-tokens.md#4-materials)).
+- `appearance.borders = none`: the agent pane composer, menu and code block edges still draw ([agent-pane.md](components/agent-pane.md#borders-none)).
+
 ## Open questions for Lawrence (via the coordinator)
 
-1. `focus.inactiveTabStyle` and `sidebar.sections.look` are Debug Settings tunables only, with no cmux.json key. Per the "every default is a user setting" rule they need cmux.json keys and docs once a variant is picked. Which variants win (current defaults: fade, quiet)?
+1. `focus.inactiveTabStyle` is a Debug Settings tunable only, with no cmux.json key. Per the "every default is a user setting" rule it needs a cmux.json key and docs once a variant is picked. Which variant wins (current default: fade)? The section look already has its key, `sidebar.sectionLook` (default quiet).
 2. Should the pixel-parity harness be a CI gate for cmux2-gpui and cmux-browser now, or a report until the ports reach feature parity?
 3. Non-macOS fonts: accept the platform system UI font at the same size (proposed), or bundle Inter/SF-like fonts for identical metrics?

@@ -70,7 +70,9 @@ public actor AppEngine {
             "app": ["id": .string(configuration.manifest.id), "version": .string(configuration.manifest.version)],
             "settings": configuration.settings,
             "apiVersion": .string(configuration.scopes.apiVersion),
-            "ops": .array(configuration.scopes.allowedOps(granted: configuration.grantedScopes).map(AppJSON.string)),
+            // Every op a declared scope could allow: a scope granted later
+            // works without a reload; the host checks the live grant per call.
+            "ops": .array(configuration.scopes.allowedOps(granted: declaredScopes).map(AppJSON.string)),
         ]
         let result = enter("__cmuxAppInit", [initJSON.jsonText])
         if let result, !result.isEmpty, !(result == "undefined") { try fail("init: \(result)") }
@@ -131,6 +133,10 @@ public actor AppEngine {
         context?.exceptionHandler = nil
         context = nil
         configuration.output(.stopped(reason: reason))
+    }
+
+    private var declaredScopes: Set<String> {
+        Set((configuration.manifest.scopes + configuration.manifest.optionalScopes).map(\.scope))
     }
 
     var stoppedReason: String? {

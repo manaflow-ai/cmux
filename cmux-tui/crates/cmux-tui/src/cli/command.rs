@@ -16,7 +16,10 @@ use flags::BOOLEAN_FLAGS;
 pub(in crate::cli) mod cases;
 mod flags;
 mod git;
+mod screen;
 mod state;
+
+use screen::{parse_screen, parse_screen_strings};
 
 pub(super) enum ParsedCommand {
     Help(Option<String>),
@@ -710,74 +713,6 @@ fn parse_workspace(
             parse_screen_strings(tail, selectors, flags, argv)
         }
         _ => usage("workspace action"),
-    }
-}
-
-fn parse_screen(
-    words: &[String],
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-    argv: Option<Vec<String>>,
-) -> Result<CommandPlan, UsageError> {
-    let refs = strs(words);
-    parse_screen_strings(&refs, selectors, flags, argv)
-}
-
-fn parse_screen_strings(
-    words: &[&str],
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-    argv: Option<Vec<String>>,
-) -> Result<CommandPlan, UsageError> {
-    match words {
-        ["group", rest @ ..] => state::parse_screen_group(rest, selectors, flags),
-        ["list"] => request(ResourceOperation::ScreenList, selectors, flags, Map::new()),
-        ["create"] => {
-            let mut params = Map::new();
-            insert_optional_string(&mut params, flags, "name", "name");
-            request(ResourceOperation::ScreenCreate, selectors, flags, params)
-        }
-        [selector, "show"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request(ResourceOperation::ScreenGet, selectors, flags, Map::new())
-        }
-        [selector, "rename"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request_with_required_name(ResourceOperation::ScreenRename, selectors, flags)
-        }
-        [selector, "focus"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request(ResourceOperation::ScreenFocus, selectors, flags, Map::new())
-        }
-        [selector, action @ ("update" | "pin" | "unpin" | "move")] => {
-            selectors.insert("screen", "screen", selector)?;
-            state::screen_change(action, selectors, flags)
-        }
-        [selector, "close"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request(ResourceOperation::ScreenClose, selectors, flags, Map::new())
-        }
-        [selector, "layout", "export"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request(ResourceOperation::ScreenLayoutExport, selectors, flags, Map::new())
-        }
-        [selector, "layout", "undo"] => {
-            selectors.insert("screen", "screen", selector)?;
-            let mut params = Map::new();
-            if flags.boolean("confirm-close") {
-                params.insert("confirm_close".into(), Value::Bool(true));
-            }
-            if let Some(token) = flags.take("confirmation-token") {
-                validate_bounded_text("--confirmation-token", &token)?;
-                params.insert("confirmation_token".into(), Value::String(token));
-            }
-            request(ResourceOperation::ScreenLayoutUndo, selectors, flags, params)
-        }
-        [selector, "pane", tail @ ..] => {
-            selectors.insert("screen", "screen", selector)?;
-            parse_pane_strings(tail, selectors, flags, argv)
-        }
-        _ => usage("screen action"),
     }
 }
 

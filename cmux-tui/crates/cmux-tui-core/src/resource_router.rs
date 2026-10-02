@@ -24,6 +24,7 @@ use crate::resource::{
 use crate::resource_api::{ResourceMachineRequest, operation_failed, public_session_snapshot};
 use crate::workspace_registry::{ResourceEffectOutcome, ResourceEffectPreparation};
 use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget};
+use mouse::{validate_browser_mouse, validate_terminal_mouse};
 
 const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v2.json");
 
@@ -666,8 +667,8 @@ fn validate_operation_constraints(
                 ));
             }
         }
-        ResourceOperation::BrowserInputMouse => mouse::validate_browser(fields)?,
-        ResourceOperation::TerminalInputMouse => mouse::validate_terminal(fields)?,
+        ResourceOperation::BrowserInputMouse => validate_browser_mouse(fields)?,
+        ResourceOperation::TerminalInputMouse => validate_terminal_mouse(fields)?,
         _ => {}
     }
     Ok(())
@@ -921,6 +922,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::PaneZoom
         | ResourceOperation::PaneSplitRatioSet
         | ResourceOperation::PaneViewportWidthSet
+        | ResourceOperation::ColumnUpdate
         | ResourceOperation::PaneClose
         | ResourceOperation::PaneRun
         | ResourceOperation::TabList

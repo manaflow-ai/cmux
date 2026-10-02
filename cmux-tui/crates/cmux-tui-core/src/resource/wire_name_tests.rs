@@ -1,4 +1,4 @@
-//! Operation wire names round-trip through serde.
+//! Wire names of resource operations round-trip through serde.
 
 use super::ResourceOperation;
 

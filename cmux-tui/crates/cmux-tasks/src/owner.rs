@@ -22,7 +22,9 @@ pub struct LocalOwner {
 pub enum Owner {
     Local(LocalOwner),
     /// Routed through the API Worker and `TeamVmDO` (not implemented here).
-    TeamVm { team: String },
+    TeamVm {
+        team: String,
+    },
 }
 
 pub const DEFAULT_TEAM: &str = "local";
@@ -42,7 +44,9 @@ fn state_root() -> PathBuf {
 }
 
 fn valid_team(team: &str) -> bool {
-    !team.is_empty() && team.len() <= 64 && team.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    !team.is_empty()
+        && team.len() <= 64
+        && team.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 /// Resolve the owner of `team` (default `local`). `data_dir` overrides the
@@ -57,35 +61,50 @@ pub fn resolve(team: Option<&str>, data_dir: Option<PathBuf>) -> Result<Owner, S
     Ok(Owner::Local(LocalOwner { team: team.to_owned(), dir, socket }))
 }
 
-/// The local caller. Locally the trust boundary is the user (same uid, a
-/// 0700 store directory and socket), like the control socket: an agent
-/// process states its principal through `CMUX_AGENT_PRINCIPAL` (set by
-/// acpmux), everyone else acts as the local person. Remote owners take the
-/// actor from the authenticated connection instead.
-pub fn local_actor() -> Principal {
-    let person = env::var("CMUX_TASKS_USER")
-        .ok()
-        .filter(|u| is_valid_id(u, prefix::USER))
-        .unwrap_or_else(|| {
-            let name: String = env::var("USER")
-                .unwrap_or_else(|_| "me".to_owned())
+fn env_var(name: &str) -> Option<String> {
+    env::var(name).ok()
+}
+
+/// The local person from an environment (`CMUX_TASKS_USER`, else `USER`).
+/// Agent variables are ignored: this is who owns the machine.
+pub fn person_from(env: impl Fn(&str) -> Option<String>) -> Principal {
+    let person =
+        env("CMUX_TASKS_USER").filter(|u| is_valid_id(u, prefix::USER)).unwrap_or_else(|| {
+            let name: String = env("USER")
+                .unwrap_or_else(|| "me".to_owned())
                 .to_ascii_lowercase()
                 .chars()
                 .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
                 .collect();
             format!("{}{}", prefix::USER, if name.is_empty() { "me".to_owned() } else { name })
         });
-    match env::var("CMUX_AGENT_PRINCIPAL") {
-        Ok(agent) if is_valid_id(&agent, prefix::AGENT) => Principal::Agent(AgentRef {
+    Principal::user(person)
+}
+
+/// The local person of this process (the server's default actor for a
+/// connection that sends no hello).
+pub fn local_person() -> Principal {
+    person_from(env_var)
+}
+
+/// The local caller, as a client states it in its hello. Locally the trust
+/// boundary is the user (same uid, a 0700 store directory and socket), like
+/// the control socket: an agent process states its principal through
+/// `CMUX_AGENT_PRINCIPAL` (set by acpmux), everyone else acts as the local
+/// person. Remote owners take the actor from the authenticated connection.
+pub fn local_actor() -> Principal {
+    let person = local_person();
+    match env_var("CMUX_AGENT_PRINCIPAL") {
+        Some(agent) if is_valid_id(&agent, prefix::AGENT) => Principal::Agent(AgentRef {
             principal: agent,
-            class: match env::var("CMUX_AGENT_CLASS").as_deref() {
-                Ok("mux") => AgentClass::Mux,
+            class: match env_var("CMUX_AGENT_CLASS").as_deref() {
+                Some("mux") => AgentClass::Mux,
                 _ => AgentClass::Ordinary,
             },
-            harness: env::var("CMUX_AGENT_HARNESS").unwrap_or_else(|_| "unknown".to_owned()),
-            on_behalf_of: person,
+            harness: env_var("CMUX_AGENT_HARNESS").unwrap_or_else(|| "unknown".to_owned()),
+            on_behalf_of: person.id().to_owned(),
         }),
-        _ => Principal::user(person),
+        _ => person,
     }
 }
 

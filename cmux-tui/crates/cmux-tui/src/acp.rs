@@ -89,9 +89,6 @@ fn finish(result: anyhow::Result<()>) -> i32 {
     }
 }
 
-/// A tagged dev build keeps its own acpmux daemon and sessions, so it never
-/// shares state with the user's cmux or with another tag. Untagged builds use
-/// the acpmux default (`~/.acpmux`), shared with a standalone `acpmux`.
 /// The tag whose acpmux home `cmux acp` uses: `CMUX_TAG` (set in the
 /// app's terminals), else the tag of the app bundle around this executable,
 /// so a tagged build started from Finder or a script keeps its acpmux apart
@@ -103,6 +100,9 @@ pub(crate) fn acpmux_tag(
     env_tag.filter(|tag| !tag.trim().is_empty()).or_else(|| identity?.tag)
 }
 
+/// A tagged dev build keeps its own acpmux daemon and sessions, so it never
+/// shares state with the user's cmux or with another tag. Untagged builds use
+/// the acpmux default (`~/.acpmux`), shared with a standalone `acpmux`.
 pub(crate) fn tagged_home(tag: Option<&str>, home: &Path) -> Option<PathBuf> {
     let slug = sanitize_tag(tag?)?;
     Some(home.join(".acpmux").join("tags").join(slug))
