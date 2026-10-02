@@ -469,6 +469,17 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "plan") this.rows.set(`plan-${event.seq}`, { id: `plan-${event.seq}`, version: 1, at: event.at, kind: "plan", text: text || JSON.stringify(update.entries ?? update.content ?? "") });
   }
 
+  /// The tool calls and time since the turn's user message. A prompt still sending (queued
+  /// behind this turn) or one that failed to send did not start a turn.
+  private turnTotals(endedAt: number): { durationMs?: number; toolCount: number } {
+    const rows = [...this.rows.values()].filter((row) => !row.pending && !row.failed).sort((a, b) => a.at - b.at);
+    let start = rows.length;
+    while (start > 0 && rows[start - 1]!.kind !== "user") start -= 1;
+    const user = rows[start - 1];
+    const toolCount = rows.slice(start).reduce((sum, row) => sum + (row.kind === "activity" ? row.toolCount ?? 0 : 0), 0);
+    return { durationMs: user ? Math.max(0, endedAt - user.at) : undefined, toolCount };
+  }
+
   /// Closes the assistant text being streamed, so later text starts a new row below.
   private endAssistantSegment(): void {
     if (!this.streamingAssistant) return;

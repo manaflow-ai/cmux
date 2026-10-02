@@ -111,6 +111,12 @@ nonisolated extension ActionCatalog {
                 surfaces: [.palette, .menu], cliName: "settings onboarding", mainMenu: .app
             ),
             ActionDescriptor(
+                id: "palette.onboardingGallery",
+                title: String(localized: "action.palette.onboardingGallery", defaultValue: "Onboarding Gallery", bundle: .module),
+                keywords: ["onboarding", "variants", "design", "gallery"], category: .settings, symbol: "square.grid.3x3",
+                surfaces: [.palette], cliName: "settings onboarding-gallery", isDebugOnly: true
+            ),
+            ActionDescriptor(
                 id: "sendFeedback",
                 title: String(localized: "action.sendFeedback", defaultValue: "Send Feedback", bundle: .module),
                 keywords: ["bug", "report", "contact"], category: .settings, symbol: "envelope",

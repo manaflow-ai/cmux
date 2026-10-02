@@ -81,7 +81,7 @@ import Testing
         .agents: 17, // + Resume Agent Session
         .cloud: 28, // + accounts.show, refresh, reauthenticate, connect, remove
         .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
-        .settings: 48, // + Toggle Column Scroll Bar
+        .settings: 49, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only)
     ]
 
     @Test func everyKeyboardShortcutIDExists() {
