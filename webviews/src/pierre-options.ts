@@ -13,10 +13,7 @@ export type DiffViewerOptions = {
   wordWrap: boolean;
 };
 
-export function codeViewOptions(
-  options: DiffViewerOptions,
-  appearance: DiffViewerAppearance,
-): CodeViewOptions<any> {
+export function codeViewOptions(options: DiffViewerOptions, appearance: DiffViewerAppearance): CodeViewOptions<any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
     diffStyle: options.layout,
@@ -194,7 +191,11 @@ export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearan
   const palette = theme.palette ?? {};
   const renderedBackground = appearanceBackgroundColor(theme.background, appearance);
   const contrastBackground = themeBackgroundForContrast(theme);
-  const foreground = readableColor(theme.foreground, contrastBackground, theme.type === "light" ? "#000000" : "#ffffff");
+  const foreground = readableColor(
+    theme.foreground,
+    contrastBackground,
+    theme.type === "light" ? "#000000" : "#ffffff",
+  );
   const tokenColor = (value: unknown, fallback = foreground) => readableColor(value, contrastBackground, fallback);
   return {
     name: theme.name,
@@ -229,12 +230,21 @@ export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearan
     },
     tokenColors: [
       { settings: { foreground, background: renderedBackground } },
-      { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: tokenColor(palette["8"]), fontStyle: "italic" } },
+      {
+        scope: ["comment", "punctuation.definition.comment"],
+        settings: { foreground: tokenColor(palette["8"]), fontStyle: "italic" },
+      },
       { scope: ["string", "constant.other.symbol"], settings: { foreground: tokenColor(palette["2"]) } },
-      { scope: ["constant.numeric", "constant.language", "support.constant"], settings: { foreground: tokenColor(palette["3"]) } },
+      {
+        scope: ["constant.numeric", "constant.language", "support.constant"],
+        settings: { foreground: tokenColor(palette["3"]) },
+      },
       { scope: ["keyword", "storage", "storage.type"], settings: { foreground: tokenColor(palette["5"]) } },
       { scope: ["entity.name.function", "support.function"], settings: { foreground: tokenColor(palette["4"]) } },
-      { scope: ["entity.name.type", "entity.name.class", "support.type"], settings: { foreground: tokenColor(palette["6"]) } },
+      {
+        scope: ["entity.name.type", "entity.name.class", "support.type"],
+        settings: { foreground: tokenColor(palette["6"]) },
+      },
       {
         scope: ["markup.heading", "punctuation.definition.heading"],
         settings: { foreground: tokenColor(palette["12"], tokenColor(palette["4"])), fontStyle: "bold" },
@@ -264,7 +274,10 @@ export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearan
         settings: { foreground: tokenColor(palette["9"], tokenColor(palette["1"])) },
       },
       { scope: ["variable", "meta.definition.variable"], settings: { foreground } },
-      { scope: ["invalid", "message.error"], settings: { foreground: tokenColor(palette["9"], tokenColor(palette["1"])) } },
+      {
+        scope: ["invalid", "message.error"],
+        settings: { foreground: tokenColor(palette["9"], tokenColor(palette["1"])) },
+      },
     ],
   };
 }

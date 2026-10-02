@@ -90,13 +90,18 @@ final class AppRunMarker {
     /// Chromium resets these signals to their default action at start.
     func installHandlers() {
         guard fatalSignalDescriptor >= 0 else { return }
-        for signal in [SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS, SIGTERM] {
+        // SIGTERM is a requested quit: `QuitSignal` turns it into "Quit, keep
+        // sessions" once installed; until then this handler records it.
+        let signals = QuitSignal.isInstalled ? [SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS]
+            : [SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS, SIGTERM]
+        for signal in signals {
             var action = sigaction()
             action.__sigaction_u.__sa_sigaction = fatalSignalHandler
             action.sa_flags = SA_RESETHAND | SA_SIGINFO
             sigemptyset(&action.sa_mask)
             sigaction(signal, &action, nil)
         }
+        QuitSignal.ignoreProcessSignal()
     }
 
     private func markSurvived() {

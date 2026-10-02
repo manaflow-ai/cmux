@@ -32,8 +32,8 @@ final class LineTransport: Sendable {
     /// (`DaemonEvent.decode`); the connection opens one stream, `session.events`.
     static let streamEvent = "cmux.protocol/2 stream"
 
-    private enum Waiter {
-        case continuation(cmd: String, CheckedContinuation<Response, any Error>)
+    enum Waiter {
+        case reply(cmd: String, ReplySlot)
         case discard(cmd: String, onError: (@Sendable (DaemonError) -> Void)?)
         /// Its deadline passed; the late reply is dropped. The id stays in
         /// `order` so an id-less error still maps to the right request.
@@ -41,7 +41,7 @@ final class LineTransport: Sendable {
 
         var cmd: String {
             switch self {
-            case .continuation(let cmd, _), .discard(let cmd, _), .expired(let cmd): cmd
+            case .reply(let cmd, _), .discard(let cmd, _), .expired(let cmd): cmd
             }
         }
     }
@@ -142,25 +142,24 @@ final class LineTransport: Sendable {
     /// arrived in time fails the request with `DaemonError.timedOut`; the
     /// late reply is dropped when it comes (architecture.md 5a).
     func request(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
-        // A one-shot deadline, armed synchronously inside the continuation
-        // body, so the deferred cancel always runs after it.
+        let slot = ReplySlot()
+        // A failed submit resolved the slot already.
+        guard case .success(let id) = submit(.reply(cmd: cmd, slot), body) else { return try await slot.value() }
         let timer = DemandTimer(owner: "LineTransport.deadline")
         defer { timer.cancel() }
-        return try await withCheckedThrowingContinuation { continuation in
-            guard case .success(let id) = submit(.continuation(cmd: cmd, continuation), body), let timeout else { return }
-            timer.schedule(after: timeout) { [weak self] in self?.expire(id: id, after: timeout) }
-        }
+        if let timeout { timer.schedule(after: timeout) { [weak self] in self?.expire(id: id, after: timeout) } }
+        return try await slot.value()
     }
 
     /// Fails a still-pending request with `timedOut`.
-    private func expire(id: UInt64, after timeout: Duration) {
-        let continuation: (String, CheckedContinuation<Response, any Error>)? = state.withLock { state in
-            guard case .continuation(let cmd, let continuation)? = state.pending[id] else { return nil }
+    func expire(id: UInt64, after timeout: Duration) {
+        let pending: (String, ReplySlot)? = state.withLock { state in
+            guard case .reply(let cmd, let slot)? = state.pending[id] else { return nil }
             state.pending[id] = .expired(cmd: cmd)
-            return (cmd, continuation)
+            return (cmd, slot)
         }
-        guard let (cmd, continuation) = continuation else { return }
-        continuation.resume(throwing: DaemonError.timedOut("\(cmd) (no reply within \(timeout))"))
+        guard let (cmd, slot) = pending else { return }
+        slot.resolve(.failure(DaemonError.timedOut("\(cmd) (no reply within \(timeout))")))
     }
 
     /// Sends one command without waiting. The response is consumed and
@@ -187,7 +186,7 @@ final class LineTransport: Sendable {
     /// registration the waiter is resumed here; after it, `failAll` owns it.
     /// Returns the request id once the waiter is registered.
     @discardableResult
-    private func submit(_ waiter: Waiter, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
+    func submit(_ waiter: Waiter, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
         var writeFailure: String?
         var submittedID: UInt64 = 0
         let early: (any Error)? = socket.withLock { socket -> (any Error)? in
@@ -213,7 +212,7 @@ final class LineTransport: Sendable {
             return nil
         }
         if let early {
-            if case .continuation(_, let continuation) = waiter { continuation.resume(throwing: early) }
+            if case .reply(_, let slot) = waiter { slot.resolve(.failure(early)) }
             return .failure(early)
         }
         if let writeFailure {
@@ -252,7 +251,7 @@ final class LineTransport: Sendable {
         let error = Self.closedError(reason)
         for waiter in waiters {
             switch waiter {
-            case .continuation(_, let continuation): continuation.resume(throwing: error)
+            case .reply(_, let slot): slot.resolve(.failure(error))
             case .discard, .expired: break
             }
         }
@@ -353,14 +352,12 @@ final class LineTransport: Sendable {
         }
         guard let (barrier, waiter) = waiter else { return }
         if envelope.ok == true {
-            if case .continuation(_, let continuation) = waiter {
-                continuation.resume(returning: Response(line: line, eventBarrier: barrier))
-            }
+            if case .reply(_, let slot) = waiter { slot.resolve(.success(Response(line: line, eventBarrier: barrier))) }
             return
         }
         let error = DaemonError.command(cmd: waiter.cmd, message: envelope.error ?? "unknown error", code: envelope.errorCode)
         switch waiter {
-        case .continuation(_, let continuation): continuation.resume(throwing: error)
+        case .reply(_, let slot): slot.resolve(.failure(error))
         case .discard(_, let onError): onError?(error)
         case .expired: break
         }

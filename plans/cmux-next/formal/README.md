@@ -8,6 +8,8 @@
 
 **Drag presentation.** A strip hides the dragged tab while the gesture is held and while its landing awaits settle. A second drag may start during a landing. A drop on the tab's own place (same pane, same clamped final index, or a split of its own pane when it is the only tab) sends nothing. Every end shows the tab again: cancel, reject, a settled landing (echo, barrier or snapshot) or a lost connection. `BUGGY_DETACH = TRUE` reproduces the app bug fixed in `TabDragLifecycle.release`: release happened only when the mirror removed the tab from its source strip, so a drop on its own pane at another index kept it hidden forever.
 
+Difference from the app: on a lost connection the model ends both the landing and a gesture still in flight (`Disconnect`, `OwnerRestart`). The app settles a committing drag on `.disconnected` or when the event stream ends (DaemonStore runs every waiter, db4ea257a73), and `release` then ends its presentation, as in the model. A drag not yet committed is not ended by the disconnect: the session cancels it on the next mouse-down or app resign. The model's earlier end is a stronger assumption only for the presentation of an uncommitted gesture; that gesture sends nothing, so the owner and mirror properties are unaffected.
+
 Abstractions: split and tear-off intents add no provisional pane to the visible state (the client does not know the new id). Pane geometry, columns, groups and terminals are not modeled. A snapshot is read atomically from owner state.
 
 ## Properties
@@ -50,3 +52,7 @@ Buggy counterexample: (1) initial state, pane 1 = [1, 2], pane 2 = [3]; (2) clie
 Mutation checks on the fixed config: settling an intent before the mirror reaches the settle sequence (no write barrier) fails `ConcurrentSerializable` at depth 5; removing the owner's replay dedup fails `IdempotentReplay` at depth 5. Reusing pane ids is not caught by any property (a stale op that names a removed pane would land in a new pane with that id), so id freshness is an assumption of the model, not a checked result.
 
 Not covered: two faults in one behavior (`MaxFaults = 2`), a replay record that is lost on restart, a snapshot that arrives out of order with later batches, columns and groups. The fixed run is too slow for every push at this load; a CI job should run `run-tlc.sh` on a dedicated runner or nightly.
+
+## Companion: `OwnershipConvergence.tla`
+
+The generic op protocol under every single-writer entity (`../ownership.md` section 6): owner commit before publish (a restart loses only the staged op), `request-settled` with a sequence, client replies held in memory until the mirror covers that sequence, snapshots carrying the requester's decided keys, resend of every intent on reconnect, and client-owned records written only by the connection's identity. Run `./run-ownership-tlc.sh` (default config), `./run-ownership-tlc.sh OwnershipConvergence-live.cfg` (liveness) or `./run-ownership-tlc.sh --mutants` (seven broken variants that must each fail).

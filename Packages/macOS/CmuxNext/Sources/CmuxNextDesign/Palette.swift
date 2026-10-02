@@ -29,6 +29,8 @@ public struct Palette {
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
     /// Floating cards: palette, hover card, editors.
     public static var elevatedBackground: NSColor { color(\.elevatedBackground, dynamic: PaletteDynamic.elevatedBackground) }
+    /// Every pane's tab strip: a shade darker than the window.
+    public static var stripBackground: NSColor { color(\.stripBackground, dynamic: PaletteDynamic.stripBackground) }
 
     /// Primary text.
     public static var textPrimary: NSColor { color(\.textPrimary, dynamic: PaletteDynamic.textPrimary) }
@@ -73,6 +75,12 @@ public struct Palette {
 
     /// Text on top of `textPrimary` fills (inverted badges).
     public static var textOnPrimary: NSColor { color(\.contentBackground, opaque: true, dynamic: PaletteDynamic.textOnPrimary) }
+
+    /// A Debug Settings color tunable's role, in the active theme scope
+    /// (the app theme outside one).
+    public static func tunable(_ color: TunableColor) -> NSColor {
+        color.resolve(in: ThemeContext.active ?? ThemeScope.app.tokens).nsColor
+    }
 
     /// Inside `performWithTheme` (or `ThemeScope.perform`) a plain color of
     /// the active scope; elsewhere the dynamic app-theme color.

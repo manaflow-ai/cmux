@@ -49,12 +49,12 @@ extension OnboardingGalleryController {
 
     func renderBar() {
         let picked = store.pick(for: step) == variant.id
-        barView.label.stringValue = runningFlowLabel ?? "\(GalleryNames.screen(step)) · \(letter(index))  \(variant.name)\(picked ? "  ✓ picked" : "")"
+        barView.label.stringValue = runningFlowLabel ?? "\(step.galleryName) · \(letter(index))  \(variant.name)\(picked ? "  ✓ picked" : "")"
         barView.detail.stringValue = "\(index + 1) of \(variants.count) · \(variant.summary) · \(variant.surface.rawValue), \(variant.transition.rawValue)"
         if barView.window?.firstResponder !== barView.note.currentEditor() { barView.note.stringValue = store.review.notes[variant.id] ?? "" }
         barView.pick.title = picked ? "Picked" : "Pick (P)"
         barView.compare.title = isComparing ? "Single (Space)" : "Compare (Space)"
     }
 
-    func letter(_ index: Int) -> String { GalleryNames.letter(index) }
+    func letter(_ index: Int) -> String { index.galleryLetter }
 }

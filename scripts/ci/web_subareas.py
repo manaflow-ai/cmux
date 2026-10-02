@@ -173,9 +173,19 @@ UNIT_TESTS_EXCLUDED_PREFIXES = (
 REACT_EXACT = {
     "scripts/build-webviews-app.sh",
     "scripts/check-webviews-react-compiler.mjs",
+    # The generated agent pane page, its build and regenerate scripts, and
+    # the merge driver that keeps it mergeable: react-apps-check verifies
+    # the page and runs the driver's test.
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
+    "scripts/cmux-next/build-agent-pane-web.sh",
+    "scripts/cmux-next/regenerate-web-bundles.sh",
+    ".gitattributes",
+    "scripts/install-git-hooks.sh",
+    "tests/test_install_git_hooks.py",
 }
 REACT_PREFIXES = (
     "Resources/markdown-viewer/",
+    "config/vite-plus/",
     "webviews/",
 )
 

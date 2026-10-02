@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextBrowserImport
@@ -79,6 +80,8 @@ final class AppServices {
     private(set) var chromiumWarmup: ChromiumWarmup!
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
+    /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
+    private(set) lazy var debugSettings = DebugSettingsService(services: self)
     /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// First-run onboarding, browser import and default-app claims.
@@ -106,6 +109,9 @@ final class AppServices {
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
     let favicons = TabFaviconStore()
+    /// The one owner of hover cards in the app: at most one card, ever
+    /// (plans/cmux-next/hovercards.md).
+    let hoverCards = HoverCardCoordinator()
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
     private(set) var remoteTerminals: RemoteTerminalService!
 
@@ -135,7 +141,11 @@ final class AppServices {
         }
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)
-        cache.cef.onReady = { [crashRecovery] in crashRecovery.marker?.installHandlers() }
+        cache.cef.onReady = { [crashRecovery] in
+            crashRecovery.marker?.installHandlers()
+            // Chromium resets signal actions at start; SIGTERM stays a quit.
+            QuitSignal.ignoreProcessSignal()
+        }
         cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
             // Chromium wanted a window and has none for that profile (a
             // normal one; an incognito store never gets here): a new browser

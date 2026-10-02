@@ -98,6 +98,7 @@ extension DaemonStore {
     public func run(connection: DaemonConnection, scheduler: any FrameBatchScheduler = NextTurnFrameScheduler()) async {
         let driver = StoreDriver(connection: connection, inbox: EventInbox(), scheduler: scheduler)
         self.driver = driver
+        beginConnection()
         let pump = Task.detached { [weak self] () -> String? in
             do {
                 for try await envelope in connection.events where driver.inbox.append(envelope) {

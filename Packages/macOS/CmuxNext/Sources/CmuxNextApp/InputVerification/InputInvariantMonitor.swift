@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
 import os
@@ -95,6 +96,10 @@ final class InputInvariantMonitor {
         var result = InputInvariants.world(InputObservationBuilder.observe(services))
         result.violations += Self.pageGeometry(services)
         result.violations += Self.tabConservation(services)
+        result.violations += Self.mirrorWrites(services)
+        result.violations += services.hoverCards.singleCardViolations().map {
+            InputViolation(invariant: .hoverCardSingle, window: nil, detail: $0)
+        }
         lastResult = result
         return result
     }
@@ -127,6 +132,18 @@ final class InputInvariantMonitor {
                 guard Set(shown) != Set(held) || shown.count != held.count else { return nil }
                 return InputViolation(invariant: .stripShowsPaneTabs, window: controller.state.id,
                                       detail: "pane \(pane.paneKey) shows \(shown) but holds \(held)")
+            }
+        }
+    }
+
+    /// M1 (plans/cmux-next/ownership.md step 4): mirror writes outside
+    /// daemon apply and the intent overlay, found by each store's
+    /// debug-build check (DaemonStore+MirrorCheck.swift). Each stays
+    /// listed (and reported once) for the life of its store.
+    static func mirrorWrites(_ services: AppServices) -> [InputViolation] {
+        services.machines.daemons.flatMap { daemon in
+            daemon.store.mirrorViolations.map {
+                InputViolation(invariant: .mirrorSingleWriter, window: nil, detail: "\(daemon.machineID): \($0)")
             }
         }
     }

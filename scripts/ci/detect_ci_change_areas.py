@@ -936,6 +936,15 @@ def is_web_change(path: str) -> bool:
         "tests/test_web_validation.py",
         "scripts/build-webviews-app.sh",
         "scripts/check-webviews-react-compiler.mjs",
+        # The generated agent pane page, its build and regenerate scripts, and
+        # the merge driver that keeps it mergeable: react-apps-check verifies
+        # the page and runs the driver's test.
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
+        "scripts/cmux-next/build-agent-pane-web.sh",
+        "scripts/cmux-next/regenerate-web-bundles.sh",
+        ".gitattributes",
+        "scripts/install-git-hooks.sh",
+        "tests/test_install_git_hooks.py",
     }
 
 
@@ -1326,6 +1335,8 @@ def is_macos_neutral(
             "ios/",
             "web/",
             "webviews/",
+            # Lint and format settings for webviews/ and cmux-tui web only.
+            "config/vite-plus/",
             "cmux-tui/",
             "cmux-browser/",
             "daemon/remote/",

@@ -1,0 +1,333 @@
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { AcpmuxSnapshot } from "./model";
+import { ArrowUpIcon, PlusIcon, StopIcon } from "./ComposerPickers";
+import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
+
+/// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
+/// How long after a send the Stop button that replaces Send ignores clicks.
+const STOP_GUARD_MS = 600;
+
+export const COMPOSER_LABELS = {
+  placeholder: "Ask anything",
+  prompt: "Prompt",
+  send: "Send",
+  stop: "Stop",
+  commands: "Commands",
+  noCommands: "No commands",
+  noMatchingCommands: "No matching commands",
+};
+
+type Props = {
+  snapshot: AcpmuxSnapshot;
+  chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
+  onSend(text: string): void;
+  onStop(): void;
+  /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
+  leading?: React.ReactNode;
+  /// Buttons before Send, such as the dictation mic.
+  accessory?: React.ReactNode;
+};
+
+/// The prompt box with the agent's `/` command menu, drawn as Codex's composer:
+/// the prompt over a bar with + at the left, the mode and model chips, and a
+/// round Send button at the right, which turns into Stop while a turn runs and
+/// the prompt is empty. Enter sends and
+/// Shift+Enter breaks the line. The menu opens while the prompt is a single
+/// leading `/word`, filters as it grows, and picking a command writes `/name `
+/// so its arguments can follow.
+export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, accessory }: Props) {
+  const [text, setText] = useState("");
+  const [caret, setCaret] = useState(0);
+  const [active, setActive] = useState(0);
+  const [dismissed, setDismissed] = useState<string | undefined>();
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  const pendingCaret = useRef<number | undefined>(undefined);
+  // Send becomes Stop in place once the turn starts; a second click of a
+  // double-click, or a click right after Enter, must not cancel the new turn.
+  const sentAt = useRef(0);
+  /// What + wrote over the draft, so Escape can put the draft back.
+  const plusDraft = useRef<{ written: string; original: string } | undefined>(undefined);
+  const composing = useRef(false);
+  // Send and Stop are separate buttons, so focus on Send moves to whichever replaces it.
+  const refocusSend = useRef(false);
+  const sendButton = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    if (!refocusSend.current) return;
+    const focused = document.activeElement;
+    // The user moved on before the turn started: leave their focus alone.
+    if (focused && focused !== document.body && focused !== sendButton.current) {
+      refocusSend.current = false;
+      return;
+    }
+    sendButton.current?.focus();
+    if (snapshot.isWorking) refocusSend.current = false;
+  });
+  const commands = snapshot.commands;
+  const query = slashQuery(text, caret);
+  const open = query !== undefined && dismissed !== text;
+  const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
+
+  useEffect(() => setActive(0), [query]);
+  // A live command update can shrink the list under the selection.
+  const selected = Math.min(active, Math.max(matches.length - 1, 0));
+  useLayoutEffect(() => {
+    if (pendingCaret.current === undefined || !textarea.current) return;
+    textarea.current.setSelectionRange(pendingCaret.current, pendingCaret.current);
+    pendingCaret.current = undefined;
+  });
+
+  const edit = (value: string, at: number) => {
+    setText(value);
+    setCaret(at);
+    setDismissed(undefined);
+  };
+  const pick = (command: SlashCommand) => {
+    const next = applyCommand(text, caret, command);
+    pendingCaret.current = next.caret;
+    edit(next.text, next.caret);
+    textarea.current?.focus();
+  };
+  /// The draft without what + wrote over it, while the text is still exactly that.
+  const unwrapped = () => {
+    const plus = plusDraft.current;
+    return plus && plus.written === text ? plus.original : text;
+  };
+  const submit = (event: React.SyntheticEvent) => {
+    event.preventDefault();
+    const prompt = unwrapped().trim();
+    plusDraft.current = undefined;
+    if (!prompt) return;
+    edit("", 0);
+    sentAt.current = Date.now();
+    refocusSend.current = document.activeElement?.classList.contains("acpmux-send") ?? false;
+    onSend(prompt);
+  };
+  // Until attachments land, + opens the agent's commands: the menu reads the
+  // text before the caret, so "/" ahead of the draft opens it and a pick keeps
+  // the draft as arguments. A draft that already starts a command keeps its "/",
+  // so a pick replaces that command; anything else (a pasted path) is kept whole.
+  const openCommands = () => {
+    if (composing.current) return;
+    const first = /^\/(\S*)/.exec(text)?.[1];
+    const named = first !== undefined && (commands ?? []).some((command) => command.name.startsWith(first));
+    const next = named ? text : text ? `/ ${text}` : "/";
+    plusDraft.current = { written: next, original: text };
+    pendingCaret.current = 1;
+    edit(next, 1);
+    textarea.current?.focus();
+  };
+  const stopTurn = () => {
+    if (Date.now() - sentAt.current > STOP_GUARD_MS) onStop();
+  };
+  const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Every key belongs to the input method while it composes, not only Enter.
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // Enter sends unless it picks a command: with the menu closed, with nothing
+    // to pick (an unknown command or a pasted path), or on a command already
+    // typed in full that takes no arguments.
+    const typedInFull = matches[selected]?.command.name === query && !matches[selected]?.command.hint;
+    if (event.key === "Enter" && plain && (!open || matches.length === 0 || typedInFull)) {
+      submit(event);
+      return;
+    }
+    if (!open) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      const plus = plusDraft.current;
+      plusDraft.current = undefined;
+      if (plus && plus.written === text) {
+        edit(plus.original, plus.original.length);
+        pendingCaret.current = plus.original.length;
+        return;
+      }
+      setDismissed(text);
+      return;
+    }
+    if (matches.length === 0) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      setActive((selected + step + matches.length) % matches.length);
+    } else if ((event.key === "Enter" || event.key === "Tab") && plain) {
+      event.preventDefault();
+      pick(matches[selected].command);
+    }
+  };
+  const track = (event: React.SyntheticEvent<HTMLTextAreaElement>) => setCaret(event.currentTarget.selectionStart);
+
+  const stop = snapshot.isWorking && !text.trim();
+  // Focus leaving the composer closes the menu and takes back what + wrote.
+  const blur = (event: React.FocusEvent<HTMLFormElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    const original = unwrapped();
+    plusDraft.current = undefined;
+    if (original !== text) edit(original, original.length);
+    else if (open) setDismissed(text);
+  };
+  return (
+    <form className="acpmux-composer" onSubmit={submit} onBlur={blur}>
+      {open && (
+        <SlashMenu
+          matches={matches}
+          active={selected}
+          empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands}
+          onHover={setActive}
+          onPick={pick}
+        />
+      )}
+      <div className="acpmux-composer-box">
+        {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
+        <textarea
+          ref={textarea}
+          className="acpmux-composer-field"
+          aria-label={COMPOSER_LABELS.prompt}
+          name="prompt"
+          rows={1}
+          placeholder={COMPOSER_LABELS.placeholder}
+          value={text}
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={open ? "acpmux-slash-menu" : undefined}
+          aria-autocomplete="list"
+          aria-activedescendant={open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined}
+          onChange={(event) => edit(event.target.value, event.target.selectionStart)}
+          onSelect={track}
+          onKeyDown={keyDown}
+          onCompositionStart={() => {
+            composing.current = true;
+          }}
+          onCompositionEnd={() => {
+            composing.current = false;
+          }}
+        />
+        <div className="acpmux-composer-bar">
+          {leading !== undefined ? (
+            leading
+          ) : (
+            <button
+              type="button"
+              className="acpmux-composer-plus"
+              aria-label={COMPOSER_LABELS.commands}
+              title={COMPOSER_LABELS.commands}
+              disabled={!commands?.length}
+              onClick={openCommands}
+            >
+              <PlusIcon />
+            </button>
+          )}
+          <Chips snapshot={snapshot} />
+          <span className="acpmux-composer-actions">
+            {accessory}
+            {stop ? (
+              <button
+                key="stop"
+                ref={sendButton}
+                type="button"
+                className="acpmux-send acpmux-cancel"
+                aria-label={COMPOSER_LABELS.stop}
+                title={COMPOSER_LABELS.stop}
+                onClick={stopTurn}
+              >
+                <StopIcon />
+              </button>
+            ) : (
+              <button
+                key="send"
+                ref={sendButton}
+                type="submit"
+                className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`}
+                aria-label={COMPOSER_LABELS.send}
+                title={COMPOSER_LABELS.send}
+              >
+                <ArrowUpIcon />
+              </button>
+            )}
+          </span>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+function SlashMenu({
+  matches,
+  active,
+  empty,
+  onHover,
+  onPick,
+}: {
+  matches: SlashMatch[];
+  active: number;
+  empty: string;
+  onHover(index: number): void;
+  onPick(command: SlashCommand): void;
+}) {
+  const list = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [active]);
+  // A native select or datalist cannot hold the matched-name bolding and descriptions.
+  if (matches.length === 0)
+    return (
+      <div
+        className="acpmux-slash-menu acpmux-slash-empty"
+        id="acpmux-slash-menu"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+        role="listbox"
+        aria-label={COMPOSER_LABELS.commands}
+      >
+        {empty}
+      </div>
+    );
+  return (
+    <div
+      ref={list}
+      className="acpmux-slash-menu"
+      id="acpmux-slash-menu"
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="listbox"
+      aria-label={COMPOSER_LABELS.commands}
+    >
+      {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
+      {matches.map((match, index) => (
+        <div
+          key={match.command.name}
+          id={`acpmux-slash-${index}`}
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+          role="option"
+          tabIndex={-1}
+          aria-selected={index === active}
+          className={index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row"}
+          onMouseMove={() => {
+            if (index !== active) onHover(index);
+          }}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            onPick(match.command);
+          }}
+        >
+          <span className="acpmux-slash-name">
+            /<Highlighted name={match.command.name} ranges={match.ranges} />
+          </span>
+          {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
+          <span className="acpmux-slash-description">{match.command.description}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Highlighted({ name, ranges }: { name: string; ranges: [number, number][] }) {
+  const parts: React.ReactNode[] = [];
+  let at = 0;
+  for (const [start, end] of ranges) {
+    if (start > at) parts.push(name.slice(at, start));
+    parts.push(<mark key={start}>{name.slice(start, end)}</mark>);
+    at = end;
+  }
+  if (at < name.length) parts.push(name.slice(at));
+  return <>{parts}</>;
+}

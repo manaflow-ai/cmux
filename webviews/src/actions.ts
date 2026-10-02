@@ -34,8 +34,9 @@ function hasURLScheme(url: string): boolean {
 }
 
 export function diffSourceDetail(payload: any): string {
-  const parts = [payload.sourceLabel, payload.repoRoot, payload.branchBaseRef]
-    .filter((value) => typeof value === "string" && value.trim() !== "");
+  const parts = [payload.sourceLabel, payload.repoRoot, payload.branchBaseRef].filter(
+    (value) => typeof value === "string" && value.trim() !== "",
+  );
   return parts.join(" | ");
 }
 

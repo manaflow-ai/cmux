@@ -138,7 +138,7 @@ final class PaneOverlayView: NSView {
         border.borderWidth = borderStyle.width ?? PaneChromeGeometry.hairlineWidth(scale: scale)
         ring.borderWidth = focusRing.width
         glow.borderWidth = focusRing.width
-        glow.shadowRadius = max(2, focusRing.width * 3)
+        glow.shadowRadius = max(2, focusRing.width * LayoutTunables.focusGlowRadiusFactor.value)
         attention.borderWidth = attentionSettings.width
         CATransaction.commit()
     }
@@ -214,9 +214,9 @@ final class PaneOverlayView: NSView {
 
     private func applyColors() {
         performWithTheme {
-            let ringColor = focusRing.color?.nsColor ?? Palette.focusRing.withAlphaComponent(0.55)
+            let ringColor = focusRing.color?.nsColor ?? Palette.focusRing.withAlphaComponent(LayoutTunables.focusRingAlpha.value)
             ring.borderColor = ringColor.cgColor
-            glow.borderColor = ringColor.withAlphaComponent(ringColor.alphaComponent * 0.6).cgColor
+            glow.borderColor = ringColor.withAlphaComponent(ringColor.alphaComponent * LayoutTunables.focusGlowAlpha.value).cgColor
             glow.shadowColor = ringColor.cgColor
             let attentionColor = attentionMark?.color?.nsColor ?? attentionSettings.color?.nsColor ?? Palette.attention
             attention.borderColor = attentionColor.cgColor

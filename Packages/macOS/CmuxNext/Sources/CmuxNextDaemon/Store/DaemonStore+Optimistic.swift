@@ -3,8 +3,10 @@ import Foundation
 /// A local patch applied at intent time, before the daemon confirms it.
 /// Patches must be idempotent: after a snapshot they are reapplied until the
 /// daemon echoes their transaction, and the snapshot may already include them.
+///
+/// Legacy: tab moves use the intent log (DaemonStore+Intents.swift); the
+/// other patches migrate there one at a time (ownership.md step 4).
 public enum OptimisticPatch: Sendable {
-    case moveTab(surface: SurfaceID, toPane: PaneID, index: Int)
     case setTabPinned(surface: SurfaceID, pinned: Bool)
     case renameTab(surface: SurfaceID, name: String?)
     case renameWorkspace(key: WorkspaceKey, name: String)
@@ -43,8 +45,10 @@ extension DaemonStore {
     }
 
     public func applyOptimistic(_ patch: OptimisticPatch, transaction: ClientTransactionID) {
+        verifyMirrorUnchanged(before: "legacy patch")
         pendingPatches.append(PendingPatch(transaction: transaction, patch: patch))
         apply(patch)
+        recordMirror()
         workspaceListMayHaveChanged()
     }
 
@@ -95,7 +99,8 @@ extension DaemonStore {
     /// daemon truth); `all` runs every waiter (the connection is gone: the
     /// store will hold nothing newer for them).
     func runAppliedWaiters(_ transaction: ClientTransactionID?, snapshot: Bool = false, all: Bool = false) {
-        guard !appliedWaiters.isEmpty, applyDepth == 0 else { return }
+        // Inside an apply, the caller flushes once the visible state is back.
+        guard !appliedWaiters.isEmpty, applyDepth == 0, !overlayLifted else { return }
         let isDue: (AppliedWaiter) -> Bool = { [appliedSequence, confirmedTransactions] waiter in
             if all { return true }
             if let transaction { return waiter.transaction == transaction }
@@ -111,7 +116,7 @@ extension DaemonStore {
 
     /// Runs the due waiters, or every waiter after a disconnect.
     func flushAppliedWaiters() {
-        guard applyDepth == 0 else { return }
+        guard applyDepth == 0, !overlayLifted else { return }
         let all = drainAppliedWaiters
         drainAppliedWaiters = false
         runAppliedWaiters(nil, all: all)
@@ -124,12 +129,6 @@ extension DaemonStore {
 
     private func apply(_ patch: OptimisticPatch) {
         switch patch {
-        case .moveTab(let surface, let toPane, let index):
-            guard let target = panesByHandle[toPane], let source = pane(containing: surface) else { return }
-            if source === target, target.tabs.firstIndex(where: { $0.surface == surface }) == min(index, target.tabs.count - 1) { return }
-            guard let tab = source.removeTab(surface: surface) else { return }
-            target.insertTab(tab, at: index)
-            structureChanged()
         case .setTabPinned(let surface, let pinned):
             tabsBySurface[surface]?.setPinned(pinned)
         case .renameTab(let surface, let name):

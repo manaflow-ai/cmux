@@ -243,6 +243,8 @@ pub struct PresentationSnapshot {
     pub screens: super::ScreenPresentationState,
     /// Saved screen groups, in order.
     pub saved_screen_groups: Vec<super::SavedScreenGroupRecord>,
+    /// Keep-layout records of live tabs by public tab id (`kept_tab_store`).
+    pub kept_tabs: HashMap<String, super::KeptTabRecord>,
 }
 
 /// Chrome's tab group colors. Frontends render them as muted tints.
@@ -1041,6 +1043,7 @@ impl WorkspaceRegistry {
         let saved_tab_groups = read_saved_tab_groups(&self.connection)?;
         let screens = super::screen_store::read_screen_state(&self.connection)?;
         let saved_screen_groups = super::screen_store::read_saved_screen_groups(&self.connection)?;
+        let kept_tabs = super::kept_tab_store::read_kept_tabs(&self.connection)?;
         Ok(PresentationSnapshot {
             groups,
             workspaces,
@@ -1050,6 +1053,7 @@ impl WorkspaceRegistry {
             saved_tab_groups,
             screens,
             saved_screen_groups,
+            kept_tabs,
         })
     }
 

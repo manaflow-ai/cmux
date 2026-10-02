@@ -7,7 +7,7 @@ struct CommandTicket {
 }
 
 /// Every command funnel (`run`, `runReportingTimeout`, `send`, `failure`,
-/// `perform`, `commit`) reports to the action scope it runs in
+/// `perform`, `commit`, `intend`, `request`) reports to the action scope it runs in
 /// (`DaemonCommandScope.current`, bound by the control socket's
 /// `action.run`), so an action run from the CLI answers after every command
 /// its handlers sent, whether they awaited it, tracked it, or started it in

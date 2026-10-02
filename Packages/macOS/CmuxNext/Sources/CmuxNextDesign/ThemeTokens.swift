@@ -24,6 +24,10 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
     public var chromeBackground: ThemeRGB
     /// Floating cards (palette, hover card, editors) under or instead of glass.
     public var elevatedBackground: ThemeRGB
+    /// Every pane's tab strip: a shade darker than the window in light
+    /// themes too, so the strips read as quiet bands (a pure black window
+    /// has no darker shade; there the strip matches it).
+    public var stripBackground: ThemeRGB
 
     // Text
     public var textPrimary: ThemeRGB
@@ -54,6 +58,12 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
     public var attention: ThemeRGB
     public var danger: ThemeRGB
     public var success: ThemeRGB
+    /// The one action color (the composer's Send): the theme's ANSI blue,
+    /// at least 3:1 on the background.
+    public var highlight: ThemeRGB
+    /// Glyphs and labels on `highlight`, at least 4.5:1: the opaque
+    /// background or foreground, whichever contrasts more, else black or white.
+    public var highlightText: ThemeRGB
     /// ANSI 0...15.
     public var ansi: [ThemeRGB]
 
@@ -85,6 +95,15 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
         func status(_ index: Int) -> ThemeRGB { readable(palette[index], over: bg, minimum: minimumMarkContrast) }
 
         let surface = bg.withAlpha(input.backgroundOpacity)
+        let highlight = status(4)
+        func best(_ candidates: [ThemeRGB]) -> ThemeRGB {
+            candidates.max { $0.contrast(with: highlight) < $1.contrast(with: highlight) }!
+        }
+        // A theme color when one reads on the blue; black or white always reaches 4.5:1.
+        let themed = best([bg.withAlpha(1), primary.withAlpha(1)])
+        let highlightText = themed.contrast(with: highlight) >= minimumTextContrast
+            ? themed
+            : best([ThemeRGB(hex: 0x000000), ThemeRGB(hex: 0xFFFFFF)])
         return ThemeTokens(
             isDark: isDark,
             windowBackground: surface,
@@ -92,6 +111,7 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
             contentBackground: surface,
             chromeBackground: bg.mixed(toward: fg, isDark ? 0.05 : 0.035),
             elevatedBackground: bg.mixed(toward: fg, isDark ? 0.07 : 0.02),
+            stripBackground: bg.mixed(toward: .black, isDark ? 0.22 : 0.05).withAlpha(input.backgroundOpacity),
             textPrimary: primary,
             textSecondary: secondary,
             textTertiary: tertiary,
@@ -109,6 +129,8 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
             attention: status(3),
             danger: status(1),
             success: status(2),
+            highlight: highlight,
+            highlightText: highlightText,
             ansi: palette,
             backgroundOpacity: input.backgroundOpacity,
             backgroundBlur: input.backgroundBlur
@@ -117,7 +139,7 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
 
     /// `color`, pushed away from `surface` (toward white or black) until it
     /// reaches `minimum` contrast.
-    static func readable(_ color: ThemeRGB, over surface: ThemeRGB, minimum: Double) -> ThemeRGB {
+    public static func readable(_ color: ThemeRGB, over surface: ThemeRGB, minimum: Double) -> ThemeRGB {
         guard color.contrast(with: surface) < minimum else { return color }
         let pole: ThemeRGB = surface.relativeLuminance < 0.18 ? .white : .black
         var step = 0.0
