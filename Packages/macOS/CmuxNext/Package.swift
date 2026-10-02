@@ -55,6 +55,8 @@ import PackageDescription
 //     plans/cmux-next/server.md)
 //   CmuxNextRemoteView -> Design (remote desktop pane: decode, presenters, chrome, input capture;
 //     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
+//   CmuxNextServerHelper -> system frameworks only (privileged helper XPC protocol, fix allowlist,
+//     same-team listener; plans/cmux-next/server.md 9.4)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
 
@@ -438,6 +440,17 @@ let package = Package(
             name: "CmuxNextServerTests",
             dependencies: ["CmuxNextServer"],
             swiftSettings: uiSwiftSettings
+        ),
+        // The cmux server's privileged helper (plans/cmux-next/server.md 9.4): the XPC
+        // protocol, the fixed allowlist of fixes and the same-team listener. No UI.
+        .target(
+            name: "CmuxNextServerHelper",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextServerHelperTests",
+            dependencies: ["CmuxNextServerHelper"],
+            swiftSettings: daemonSwiftSettings
         ),
         .target(
             name: "CmuxNextResources",
