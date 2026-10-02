@@ -2103,258 +2103,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Room"
+            "value": "New Space"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "غرفة جديدة"
+            "value": "مساحة جديدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova soba"
+            "value": "Novi prostor"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nyt rum"
+            "value": "Nyt område"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neuer Raum"
+            "value": "Neuer Space"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nueva sala"
+            "value": "Nuevo espacio"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nouvelle salle"
+            "value": "Nouvel espace"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nuova stanza"
+            "value": "Nuovo spazio"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新規ルーム"
+            "value": "新規スペース"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ទប់ថ្មី"
+            "value": "លំហថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 룸"
+            "value": "새 스페이스"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nytt rom"
+            "value": "Nytt område"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowy pokój"
+            "value": "Nowy obszar"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova Sala"
+            "value": "Novo Espaço"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новая комната"
+            "value": "Новая область"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ห้องใหม่"
+            "value": "พื้นที่ใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni Oda"
+            "value": "Yeni Alan"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нова кімната"
+            "value": "Новий простір"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Phòng mới"
+            "value": "Không gian mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新房间"
+            "value": "新空间"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新房間"
+            "value": "新空間"
           }
         }
       }
     },
-    "sidebar.room.new": {
+    "sidebar.space.new": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Room"
+            "value": "New Space"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "غرفة جديدة"
+            "value": "مساحة جديدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova soba"
+            "value": "Novi prostor"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nyt rum"
+            "value": "Nyt område"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neuer Raum"
+            "value": "Neuer Space"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nueva sala"
+            "value": "Nuevo espacio"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nouvelle salle"
+            "value": "Nouvel espace"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nuova stanza"
+            "value": "Nuovo spazio"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新規ルーム"
+            "value": "新規スペース"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ទប់ថ្មី"
+            "value": "លំហថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 룸"
+            "value": "새 스페이스"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nytt rom"
+            "value": "Nytt område"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowy pokój"
+            "value": "Nowy obszar"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova Sala"
+            "value": "Novo Espaço"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новая комната"
+            "value": "Новая область"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ห้องใหม่"
+            "value": "พื้นที่ใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni Oda"
+            "value": "Yeni Alan"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нова кімната"
+            "value": "Новий простір"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Phòng mới"
+            "value": "Không gian mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新建房间"
+            "value": "新建空间"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新增房間"
+            "value": "新增空間"
           }
         }
       }
@@ -2365,127 +2365,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rooms"
+            "value": "Spaces"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الغرف"
+            "value": "المساحات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sobe"
+            "value": "Prostori"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rum"
+            "value": "Områder"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Räume"
+            "value": "Spaces"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Salas"
+            "value": "Espacios"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Salles"
+            "value": "Espaces"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stanze"
+            "value": "Spazi"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ルーム"
+            "value": "スペース"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ទប់"
+            "value": "លំហ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "룸"
+            "value": "스페이스"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rom"
+            "value": "Områder"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokoje"
+            "value": "Obszary"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Salas"
+            "value": "Espaços"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Комнаты"
+            "value": "Области"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ห้อง"
+            "value": "พื้นที่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odalar"
+            "value": "Alanlar"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Кімнати"
+            "value": "Простори"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Phòng"
+            "value": "Không gian"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "房间"
+            "value": "空间"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "房間"
+            "value": "空間"
           }
         }
       }
@@ -2496,127 +2496,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@, current room"
+            "value": "%@, current space"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@، الغرفة الحالية"
+            "value": "%@، المساحة الحالية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@, trenutna soba"
+            "value": "%@, trenutni prostor"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@, nuværende rum"
+            "value": "%@, nuværende område"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@, aktueller Raum"
+            "value": "%@, aktueller Space"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@, sala actual"
+            "value": "%@, espacio actual"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@, salle actuelle"
+            "value": "%@, espace actuel"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@, stanza attuale"
+            "value": "%@, spazio attuale"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@、現在のルーム"
+            "value": "%@、現在のスペース"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ បន្ទប់បច្ចុប្បន្ន"
+            "value": "%@ លំហបច្ចុប្បន្ន"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@, 현재 룸"
+            "value": "%@, 현재 스페이스"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@, gjeldende rom"
+            "value": "%@, gjeldende område"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@, bieżący pokój"
+            "value": "%@, bieżący obszar"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@, sala atual"
+            "value": "%@, espaço atual"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@, текущая комната"
+            "value": "%@, текущая область"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ ห้องปัจจุบัน"
+            "value": "%@ พื้นที่ปัจจุบัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@, geçerli oda"
+            "value": "%@, geçerli alan"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@, поточна кімната"
+            "value": "%@, поточний простір"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@, phòng hiện tại"
+            "value": "%@, không gian hiện tại"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@，当前房间"
+            "value": "%@，当前空间"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@，目前房間"
+            "value": "%@，目前空間"
           }
         }
       }
@@ -3927,6 +3927,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "通知"
+          }
+        }
+      }
+    },
+    "sidebar.builtin.customize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customize Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "外観をカスタマイズ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تخصيص المظهر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prilagodi izgled"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpas udseende"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erscheinungsbild anpassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizar apariencia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personnaliser l’apparence"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizza aspetto"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្ដូររូបរាងតាមបំណង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모양 사용자화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpass utseende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostosuj wygląd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizar aparência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настроить оформление"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปรับแต่งรูปลักษณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Görünümü Özelleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштувати вигляд"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tùy chỉnh giao diện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自定义外观"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自訂外觀"
           }
         }
       }

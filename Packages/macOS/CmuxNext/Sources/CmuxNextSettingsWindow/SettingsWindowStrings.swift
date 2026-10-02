@@ -22,7 +22,7 @@ nonisolated enum SettingsWindowStrings {
     static var soundNone: String { text("settingsWindow.soundNone", "None") }
     static var blankPage: String { text("settingsWindow.blankPage", "Blank page") }
     static var themeTitle: String { text("settingsWindow.theme", "Theme") }
-    static var themeLevelRoom: String { text("settingsWindow.themeLevel.room", "Room") }
+    static var themeLevelRoom: String { text("settingsWindow.themeLevel.room", "Space") }
     static var themeLevelWorkspace: String { text("settingsWindow.themeLevel.workspace", "Workspace") }
     static var themeLevelTerminal: String { text("settingsWindow.themeLevel.terminal", "Terminal") }
     static var themeSearch: String { text("settingsWindow.themeSearch", "Search Ghostty themes") }
@@ -36,8 +36,8 @@ nonisolated enum SettingsWindowStrings {
     static var shellIntegrationUnknown: String { text("settingsWindow.shellIntegrationUnknown", "Set by the Ghostty config") }
     static var keyboardHint: String { text("settingsWindow.keyboardHint", "Click a shortcut to record a new one. Esc cancels.") }
     static var conflict: String { text("settingsWindow.conflict", "Another action uses this shortcut in the same place.") }
-    static var roomsUnavailable: String { text("settingsWindow.roomsUnavailable", "Rooms need a newer cmux-tui on this Mac.") }
-    static var roomsEmpty: String { text("settingsWindow.roomsEmpty", "No rooms yet.") }
+    static var roomsUnavailable: String { text("settingsWindow.roomsUnavailable", "Spaces need a newer cmux-tui on this Mac.") }
+    static var roomsEmpty: String { text("settingsWindow.roomsEmpty", "No spaces yet.") }
     static var browserProfilesTitle: String { text("settingsWindow.browserProfiles", "Browser Profiles") }
     static var browserProfilesHint: String {
         text("settingsWindow.browserProfilesHint", "Each profile has its own cookies, logins, history, extensions and site permissions.")
@@ -56,6 +56,9 @@ nonisolated enum SettingsWindowStrings {
         text("settingsWindow.resetAllBody", "Every setting and shortcut in cmux.json goes back to its default. Custom actions stay.")
     }
     static var cancel: String { text("settingsWindow.cancel", "Cancel") }
+    static var studioTitle: String { text("settingsWindow.studio.title", "Customize Appearance") }
+    static var studioSubtitle: String { text("settingsWindow.studio.subtitle", "Changes show in this window as you make them.") }
+    static var studioClose: String { text("settingsWindow.studio.close", "Close") }
     static var problems: String { text("settingsWindow.problems", "Problems in cmux.json") }
     static var noProblems: String { text("settingsWindow.noProblems", "No problems.") }
     static func minutes(_ value: String) -> String { format("settingsWindow.minutes", "%@ min", value) }

@@ -41,11 +41,11 @@ enum Strings {
     static var closeButton: String { String(localized: "sidebar.a11y.closeWorkspace", defaultValue: "Close workspace", bundle: .module) }
     static func groupCount(_ value: Int) -> String { String(localized: "sidebar.a11y.groupCount", defaultValue: "\(value) workspaces", bundle: .module) }
     static var sidebarLabel: String { String(localized: "sidebar.a11y.sidebar", defaultValue: "Workspaces", bundle: .module) }
-    static var newProfileName: String { String(localized: "sidebar.room.newName", defaultValue: "New Room", bundle: .module) }
-    static var newProfile: String { String(localized: "sidebar.room.new", defaultValue: "New Room", bundle: .module) }
-    static var profiles: String { String(localized: "sidebar.a11y.rooms", defaultValue: "Rooms", bundle: .module) }
+    static var newProfileName: String { String(localized: "sidebar.room.newName", defaultValue: "New Space", bundle: .module) }
+    static var newProfile: String { String(localized: "sidebar.space.new", defaultValue: "New Space", bundle: .module) }
+    static var profiles: String { String(localized: "sidebar.a11y.rooms", defaultValue: "Spaces", bundle: .module) }
     static func profileCurrent(_ name: String) -> String {
-        String(localized: "sidebar.a11y.roomCurrent", defaultValue: "\(name), current room", bundle: .module)
+        String(localized: "sidebar.a11y.roomCurrent", defaultValue: "\(name), current space", bundle: .module)
     }
     static var resize: String { String(localized: "sidebar.a11y.resize", defaultValue: "Resize sidebar", bundle: .module) }
 }

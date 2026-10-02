@@ -8,7 +8,8 @@ import Observation
 
 // Sidebar sections (plans/cmux-next/sidebar-sections.md): every window
 // draws `SidebarLayoutService.document`; built-in items run their registry
-// action as the user; pinned workspaces select; layout ops go to the
+// action as the user; pinned workspaces select, and pinned tabs, pages
+// and spaces open (SidebarBridge+PinnedItems); layout ops go to the
 // service, which refuses them until the store serves `sidebar-layout-v1`.
 extension SidebarBridge {
     /// The registry action each built-in runs.
@@ -20,14 +21,27 @@ extension SidebarBridge {
         .history: "history.show",
         .bookmarks: "bookmark.manager",
         .appStore: "appStore.show",
+        .customize: "appearance.customize",
     ]
 
     func activateLayoutItem(_ id: LayoutItemID) {
         guard let item = model.layout.item(id) else { return }
-        if let builtIn = item.ref.builtIn, let action = Self.builtInActions[builtIn] {
+        activate(item.ref)
+    }
+
+    /// Runs a sidebar item (sidebar-sections.md 2): pinned tabs, pages and
+    /// spaces are in SidebarBridge+PinnedItems.
+    func activate(_ ref: LayoutItemRef) {
+        if let builtIn = ref.builtIn, let action = Self.builtInActions[builtIn] {
             _ = services.registry.perform(action, invocation: ActionInvocation(origin: .user))
-        } else if item.ref.kind == LayoutItemRef.workspaceKind {
-            handle(.select(SidebarWorkspaceID(item.ref.value)))
+            return
+        }
+        switch ref.kind {
+        case LayoutItemRef.workspaceKind: handle(.select(SidebarWorkspaceID(ref.value)))
+        case LayoutItemRef.tabKind: revealPinnedTab(ref.value)
+        case LayoutItemRef.urlKind: openPinnedPage(ref.value)
+        case LayoutItemRef.roomKind: switchToPinnedSpace(ref.value)
+        default: break
         }
     }
 
