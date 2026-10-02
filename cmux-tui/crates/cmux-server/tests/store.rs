@@ -1,0 +1,305 @@
+//! Store apply, refusal, unpack safety, flip atomicity, rollback and GC.
+
+mod common;
+
+use std::fs;
+use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use cmux_server::error::ExitKind;
+use cmux_server::store::unpack::{Limits, unpack};
+use cmux_server::store::{ApplyRequest, Store};
+use cmux_server_core::Platform;
+use common::*;
+
+const FAR: &str = "2027-01-01T00:00:00Z";
+
+struct Fixture {
+    _tmp: tempfile::TempDir,
+    store: Store,
+    signer: Signer,
+    fetcher: MapFetcher,
+}
+
+fn fixture() -> Fixture {
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::Linux);
+    Fixture {
+        store: Store::new(&layout),
+        _tmp: tmp,
+        signer: Signer::new(7),
+        fetcher: MapFetcher::default(),
+    }
+}
+
+impl Fixture {
+    fn apply_bytes(
+        &self,
+        manifest: &[u8],
+        signature: &[u8],
+    ) -> cmux_server::Result<cmux_server::store::ApplyReport> {
+        let keys = [self.signer.key("current")];
+        let req = ApplyRequest {
+            manifest,
+            signature,
+            keys: &keys,
+            channel: "stable",
+            running_cmux: "1.0.0",
+            roles: &["server"],
+            now_ms: NOW_MS,
+        };
+        self.store.apply(&req, &self.fetcher)
+    }
+
+    fn apply(&self, manifest: &[u8]) -> cmux_server::Result<cmux_server::store::ApplyReport> {
+        self.apply_bytes(manifest, &self.signer.sign(manifest))
+    }
+
+    fn release(&self, sequence: u64, tag: &str) -> Vec<u8> {
+        let cmux =
+            Pkg { name: "cmux", version: "1.0.0", archive: bin_package("cmux", tag.as_bytes()) };
+        self.fetcher.serve(&cmux);
+        manifest(sequence, FAR, "1.0.0", &[&cmux])
+    }
+}
+
+fn current_body(store: &Store) -> String {
+    fs::read_to_string(store.current.join("bin/cmux")).unwrap()
+}
+
+#[test]
+fn apply_builds_profile_flips_current_and_is_idempotent() {
+    let f = fixture();
+    let m1 = f.release(1, "v1");
+    let r = f.apply(&m1).unwrap();
+    assert_eq!((r.from, r.to, r.changed, r.reapply), (None, 1, true, false));
+    assert_eq!(r.fetched, ["cmux"]);
+    assert_eq!(current_body(&f.store), "v1");
+    assert_eq!(f.store.current_generation(), Some(1));
+    assert_eq!(fs::read_link(&f.store.current).unwrap(), Path::new("profiles/1"));
+    // The package tree is read-only after unpack.
+    let pkg = f.store.current.join("pkgs/cmux/bin/cmux");
+    assert!(fs::metadata(&pkg).unwrap().permissions().readonly());
+    // Re-running the same manifest is a no-op: store hit, no flip.
+    let hits_before = f.fetcher.hit_count();
+    let again = f.apply(&m1).unwrap();
+    assert_eq!((again.changed, again.reapply), (false, true));
+    assert_eq!(again.store_hits, ["cmux"]);
+    assert_eq!(f.fetcher.hit_count(), hits_before, "no download on a store hit");
+    assert_eq!(f.store.last_applied().unwrap().unwrap().sequence, 1);
+}
+
+#[test]
+fn tampered_package_is_refused_and_current_does_not_move() {
+    let f = fixture();
+    f.apply(&f.release(1, "v1")).unwrap();
+    let good = Pkg { name: "cmux", version: "2.0.0", archive: bin_package("cmux", b"v2") };
+    let m2 = manifest(2, FAR, "1.0.0", &[&good]);
+    // Same size, one byte changed.
+    let mut bad = good.archive.clone();
+    let last = bad.len() - 9;
+    bad[last] ^= 0xff;
+    f.fetcher.put(&good.url(), bad);
+    let err = f.apply(&m2).unwrap_err();
+    assert_eq!(err.kind, ExitKind::Verification, "{err}");
+    assert!(err.message.contains("SHA-256 mismatch"), "{err}");
+    assert_eq!(f.store.current_generation(), Some(1));
+    assert_eq!(current_body(&f.store), "v1");
+    // A longer body is refused by size before it is hashed in full.
+    let mut long = good.archive.clone();
+    long.push(0);
+    f.fetcher.put(&good.url(), long);
+    assert_eq!(f.apply(&m2).unwrap_err().kind, ExitKind::Verification);
+    assert_eq!(f.store.last_applied().unwrap().unwrap().sequence, 1);
+}
+
+#[test]
+fn core_refusals_map_to_verification_failed() {
+    let f = fixture();
+    f.apply(&f.release(2, "v2")).unwrap();
+    // Lower sequence (downgrade or replay).
+    let m1 = f.release(1, "v1");
+    let err = f.apply(&m1).unwrap_err();
+    assert_eq!(err.kind, ExitKind::Verification);
+    assert!(err.message.contains("lower than the last applied 2"), "{err}");
+    // Same sequence, other bytes.
+    let other = f.release(2, "v2-other");
+    assert_eq!(f.apply(&other).unwrap_err().kind, ExitKind::Verification);
+    // Untrusted key.
+    let m3 = f.release(3, "v3");
+    let err = f.apply_bytes(&m3, &Signer::new(9).sign(&m3)).unwrap_err();
+    assert_eq!(err.kind, ExitKind::Verification);
+    // Expired.
+    let cmux = Pkg { name: "cmux", version: "3", archive: bin_package("cmux", b"x") };
+    let expired = manifest(4, "2026-01-01T00:00:00Z", "1.0.0", &[&cmux]);
+    assert_eq!(f.apply(&expired).unwrap_err().kind, ExitKind::Verification);
+    assert_eq!(f.store.current_generation(), Some(2));
+}
+
+#[test]
+fn needs_newer_cmux_stages_only_cmux_and_refuses() {
+    let f = fixture();
+    let cmux = Pkg { name: "cmux", version: "9.0.0", archive: bin_package("cmux", b"new") };
+    let tool = Pkg { name: "tool", version: "1", archive: bin_package("tool", b"t") };
+    f.fetcher.serve(&cmux);
+    f.fetcher.serve(&tool);
+    let m = manifest(5, FAR, "9.0.0", &[&cmux, &tool]);
+    let err = f.apply(&m).unwrap_err();
+    assert_eq!(err.kind, ExitKind::Rejected);
+    assert!(err.message.contains("needs cmux 9.0.0"), "{err}");
+    assert!(f.store.store.join(sha_hex(&cmux.archive)).join(".cmux-package").is_file());
+    assert!(!f.store.store.join(sha_hex(&tool.archive)).exists());
+    assert_eq!(f.store.current_generation(), None);
+}
+
+#[test]
+fn rollback_and_gc_keep_three_profiles_and_current() {
+    let f = fixture();
+    for g in 1..=5 {
+        f.apply(&f.release(g, &format!("v{g}"))).unwrap();
+    }
+    assert_eq!(f.store.generations(), [3, 4, 5]);
+    let packages = fs::read_dir(&f.store.store).unwrap().count();
+    assert_eq!(packages, 3, "packages of removed profiles are collected");
+    let flip = f.store.rollback(None).unwrap();
+    assert_eq!((flip.from, flip.to), (Some(5), 4));
+    assert_eq!(current_body(&f.store), "v4");
+    let flip = f.store.rollback(Some(3)).unwrap();
+    assert_eq!(flip.to, 3);
+    assert_eq!(f.store.rollback(Some(1)).unwrap_err().kind, ExitKind::NotFound);
+    assert_eq!(f.store.rollback(None).unwrap_err().kind, ExitKind::NotFound);
+    // A new apply flips forward and collects the oldest profile.
+    f.apply(&f.release(6, "v6")).unwrap();
+    assert_eq!(f.store.generations(), [4, 5, 6]);
+    f.apply(&f.release(7, "v7")).unwrap();
+    assert_eq!(f.store.generations(), [5, 6, 7]);
+    // GC never removes the profile `current` points at.
+    f.store.rollback(Some(5)).unwrap();
+    f.store.gc(1).unwrap();
+    assert_eq!(f.store.generations(), [5, 7]);
+    assert_eq!(current_body(&f.store), "v5");
+    // Rolled back below the last applied: the same manifest flips forward.
+    f.store.rollback(Some(5)).unwrap();
+    let m7 = f.release(7, "v7");
+    let r = f.apply(&m7).unwrap();
+    assert_eq!((r.from, r.to, r.changed, r.reapply), (Some(5), 7, true, true));
+}
+
+#[test]
+fn flip_is_atomic_for_readers() {
+    let f = fixture();
+    f.apply(&f.release(1, "v1")).unwrap();
+    f.apply(&f.release(2, "v2")).unwrap();
+    let current = f.store.current.clone();
+    let stop = Arc::new(AtomicBool::new(false));
+    let reader = {
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            let mut reads = 0u64;
+            while !stop.load(Ordering::Relaxed) {
+                let target = fs::read_link(&current).expect("current never disappears");
+                assert!(target == Path::new("profiles/1") || target == Path::new("profiles/2"));
+                reads += 1;
+            }
+            reads
+        })
+    };
+    for i in 0..300 {
+        f.store.switch_to(1 + i % 2).unwrap();
+    }
+    stop.store(true, Ordering::Relaxed);
+    assert!(reader.join().unwrap() > 0);
+    let leftovers: Vec<_> = fs::read_dir(&f.store.root)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().contains(".swap."))
+        .collect();
+    assert!(leftovers.is_empty(), "no temporary links remain");
+}
+
+#[test]
+fn concurrent_apply_is_refused_while_the_lock_is_held() {
+    let f = fixture();
+    let _held = cmux_server::store::state::StoreLock::acquire(&f.store.root).unwrap();
+    let err = f.apply(&f.release(1, "v1")).unwrap_err();
+    assert_eq!(err.kind, ExitKind::Unreachable, "{err}");
+}
+
+fn try_unpack(tar: &[u8]) -> cmux_server::Result<tempfile::TempDir> {
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = tmp.path().join("a.tar");
+    fs::write(&archive, tar).unwrap();
+    unpack(&archive, &tmp.path().join("out"), Limits::for_archive(tar.len() as u64)).map(|()| tmp)
+}
+
+#[test]
+fn unpack_refuses_traversal_absolute_and_escaping_links() {
+    use tar::EntryType::{Link, Regular, Symlink};
+    let cases: Vec<(&str, Vec<u8>)> = vec![
+        ("dotdot", raw_tar(&[raw_entry(b"../evil", Regular, b"", b"x")])),
+        ("nested dotdot", raw_tar(&[raw_entry(b"bin/../../evil", Regular, b"", b"x")])),
+        ("absolute", raw_tar(&[raw_entry(b"/tmp/evil", Regular, b"", b"x")])),
+        ("escaping symlink", raw_tar(&[raw_entry(b"bin/x", Symlink, b"../../etc/passwd", b"")])),
+        ("absolute symlink", raw_tar(&[raw_entry(b"bin/x", Symlink, b"/etc/passwd", b"")])),
+        ("hard link", raw_tar(&[raw_entry(b"bin/x", Link, b"bin/y", b"")])),
+        (
+            "write through a symlink",
+            raw_tar(&[
+                raw_entry(b"lib", Symlink, b"bin", b""),
+                raw_entry(b"lib/x", Regular, b"", b"x"),
+            ]),
+        ),
+        (
+            "duplicate file",
+            raw_tar(&[raw_entry(b"a", Regular, b"", b"1"), raw_entry(b"a", Regular, b"", b"2")]),
+        ),
+    ];
+    for (name, tar) in cases {
+        let err = try_unpack(&tar).err().unwrap_or_else(|| panic!("{name} was accepted"));
+        assert_eq!(err.kind, ExitKind::Verification, "{name}: {err}");
+    }
+    // An inside symlink and `./` prefixes are fine.
+    let ok = raw_tar(&[
+        raw_entry(b"./bin/real", Regular, b"", b"hi"),
+        raw_entry(b"bin/alias", Symlink, b"real", b""),
+        raw_entry(b"lib/link", Symlink, b"../bin/real", b""),
+    ]);
+    let tmp = try_unpack(&ok).unwrap();
+    assert_eq!(fs::read_to_string(tmp.path().join("out/lib/link")).unwrap(), "hi");
+}
+
+#[test]
+fn unpack_enforces_the_size_limit() {
+    let tar = raw_tar(&[raw_entry(b"big", tar::EntryType::Regular, b"", &vec![0u8; 4096])]);
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = tmp.path().join("a.tar");
+    fs::write(&archive, &tar).unwrap();
+    let limits = Limits { max_bytes: 1024, max_entries: 10 };
+    let err = unpack(&archive, &tmp.path().join("out"), limits).unwrap_err();
+    assert_eq!(err.kind, ExitKind::Verification);
+}
+
+#[test]
+fn https_fetcher_refuses_http_unless_built_for_tests() {
+    use cmux_server::store::fetch::{Fetch, HttpsFetcher, check_url};
+    let strict = HttpsFetcher::new().unwrap();
+    let err = strict.open("http://127.0.0.1:9/x").err().unwrap();
+    assert_eq!(err.kind, ExitKind::Rejected);
+    assert!(check_url("https://cmux.com@evil.example/x", false).is_err());
+    assert!(check_url("ftp://cmux.com/x", true).is_err());
+    assert!(check_url("http://127.0.0.1:8765/x", true).is_ok());
+    assert!(check_url("https://files.cmux.com/a.tar.gz", false).is_ok());
+}
+
+#[test]
+fn remove_all_keeps_state() {
+    let f = fixture();
+    f.apply(&f.release(1, "v1")).unwrap();
+    f.store.remove_all().unwrap();
+    assert!(!f.store.store.exists() && !f.store.profiles.exists());
+    assert!(!cmux_server::fsx::exists_no_follow(&f.store.current));
+    assert!(f.store.record.is_file(), "the updater record stays with the state");
+    // A reinstall still refuses an older manifest.
+    assert_eq!(f.apply(&f.release(0, "v0")).unwrap_err().kind, ExitKind::Verification);
+}
