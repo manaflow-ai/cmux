@@ -13,7 +13,8 @@ private final class RecordingSource: ResourceSampleSource {
 }
 
 /// The workspace hover card samples the workspace's CPU and memory from
-/// hover start until the card hides, and never otherwise.
+/// hover start (activation) until the card ends (deactivation), and never
+/// otherwise.
 @MainActor
 @Suite struct WorkspaceHoverCardTests {
     @Test func samplingStartsAtHoverStartAndStopsWhenTheCardHides() async {
@@ -22,12 +23,12 @@ private final class RecordingSource: ResourceSampleSource {
         controller.resources.setSource(source)
         #expect(!controller.resources.isOpen)
 
-        controller.hover(w("a"), anchor: .zero, parent: nil)
+        controller.hoverCardActivated(WorkspaceHoverCardController.targetID(WorkspaceID("a")))
         #expect(controller.resources.target == .workspace("a"))
         for _ in 0..<100 where source.targets.isEmpty { await Task.yield() }
         #expect(source.targets == [.workspace("a")])
 
-        controller.hide()
+        controller.hoverCardDeactivated(WorkspaceHoverCardController.targetID(WorkspaceID("a")))
         #expect(!controller.resources.isOpen)
         #expect(!controller.resources.isScheduled)
     }

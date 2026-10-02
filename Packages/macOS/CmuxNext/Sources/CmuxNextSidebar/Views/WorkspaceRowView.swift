@@ -110,15 +110,13 @@ final class WorkspaceRowView: SidebarRowView {
         needsLayout = true
         guard isHovered, !renaming else {
             title.stopMarquee()
-            toolTip = nil
             return
         }
-        // The x appears on hover and narrows the title first.
+        // The x appears on hover and narrows the title first. Under Reduce
+        // Motion no marquee runs: the workspace hover card shows the whole
+        // name (wrapped), so no second popover (a tooltip) shows with it.
         layoutSubtreeIfNeeded()
-        if !title.startMarquee(), title.isTruncated {
-            // Reduce Motion or animations off: the full title as a tooltip.
-            toolTip = title.stringValue
-        }
+        title.startMarquee()
     }
 
     override func updateLayer() {

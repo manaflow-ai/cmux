@@ -15,6 +15,8 @@ import { SessionSidebar } from "./SessionSidebar";
 import { turnFiles, turnRows } from "./diff";
 import { DiffPanel } from "./DiffPanel";
 import { Markdown } from "./conversation/Markdown";
+import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
+import { WORKED, isFoldedCopy, turnView } from "./conversation/turns";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -55,13 +57,17 @@ const MessageRow = memo(function MessageRow({ row }: RowProps) {
   return <Markdown>{row.text ?? ""}</Markdown>;
 }, (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version);
 
-const toolCalls = (count = 0) => count === 1 ? "1 tool call" : `${count} tool calls`;
+/// Tool calls and thoughts as Codex's quiet rows (inside an open "Worked for", or live).
+const ToolActivityRow = memo(function ToolActivityRow({ row }: RowProps) {
+  return <ToolRows row={row} />;
+}, (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version);
 
-const ToolActivityRow = memo(function ToolActivityRow({ row, onToggleActivity, expanded }: RowProps) {
-  return <div className="acpmux-activity"><button className="acpmux-activity-toggle" aria-expanded={expanded} onClick={() => onToggleActivity(row.id)}>{expanded ? "⌄" : "›"} Worked with {toolCalls(row.toolCount)}</button>{expanded && <div className="acpmux-activity-items">{(row.items ?? []).map((item) => <div className="acpmux-activity-item" key={`${row.id}-${item.text}`}><span className="acpmux-glyph">{item.kind === "tool" ? "▣" : "✦"}</span>{item.text}{item.tool?.output && <pre>{item.tool.output}</pre>}</div>)}</div>}</div>;
-}, (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version && previous.expanded === next.expanded);
+/// "Worked for 15s": opens the turn's commentary and tool calls (turnView in conversation/turns.ts).
+const WorkedRow = memo(function WorkedRow({ row, onToggleActivity, expanded }: RowProps) {
+  return <WorkedFor row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+}, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.expanded === b.expanded && a.onToggleActivity === b.onToggleActivity);
 
-const SummaryRow = memo(function SummaryRow({ row }: RowProps) { return <div className="acpmux-summary">{row.durationMs === undefined ? toolCalls(row.toolCount) : `Worked for ${Math.round(row.durationMs / 1000)}s · ${toolCalls(row.toolCount)}`}</div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
+const SummaryRow = memo(function SummaryRow({ row }: RowProps) { return <TurnFooter row={row} />; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
 const NoticeRow = memo(function NoticeRow({ row }: RowProps) { return <div className="acpmux-muted">{row.text}</div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
 const PermissionRow = memo(function PermissionRow({ row }: RowProps) { const permission = row.permission; return <div className="acpmux-permission-card"><strong>{permission?.title || "Permission required"}</strong><div className="acpmux-permission-buttons">{permission?.options.map((option) => <button key={option.id} onClick={() => void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })}>{option.name}</button>)}</div></div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
 const EditedFilesRow = memo(function EditedFilesRow({ row, onOpenDiff }: RowProps) {
@@ -75,7 +81,7 @@ const EditedFilesRow = memo(function EditedFilesRow({ row, onOpenDiff }: RowProp
   })}</div>;
 }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff);
 
-const defaultRegistry: NativeRegistry = { user: MessageRow, assistant: MessageRow, activity: ToolActivityRow, editedFiles: EditedFilesRow, turnSummary: SummaryRow, notice: NoticeRow, plan: NoticeRow, typing: NoticeRow, permission: PermissionRow };
+const defaultRegistry: NativeRegistry = { user: MessageRow, assistant: MessageRow, activity: ToolActivityRow, [WORKED]: WorkedRow, editedFiles: EditedFilesRow, turnSummary: SummaryRow, notice: NoticeRow, plan: NoticeRow, typing: NoticeRow, permission: PermissionRow };
 
 /// A row's height as the page drew it, valid while the row's content version and width hold.
 type DrawnHeight = { version: number; width: number; height: number };
@@ -101,7 +107,7 @@ function RowFrame({ row, kind, index, setSize, top, rowWidth, expanded, observer
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string) => kind === "user" ? "You" : kind === "assistant" ? "Agent" : undefined;
-const rowKind = (row: AcpmuxRow) => row.kind === "activity" && row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ? "editedFiles" : row.kind;
+const rowKind = (row: AcpmuxRow) => row.kind === "activity" && !isFoldedCopy(row) && row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ? "editedFiles" : row.kind;
 const currentRegistry = (): NativeRegistry => ({ ...defaultRegistry, ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined) });
 
 /// Where a scroller sits, read while its content still matches `totalHeight`.
@@ -270,6 +276,8 @@ export function AcpmuxApp() {
 function AcpmuxPane() {
   const [snapshot, setSnapshot] = useState<AcpmuxSnapshot>({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connecting", isWorking: false, queue: [], catalog: [], canLoadOlder: false });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Codex's turn shape: work folds under "Worked for" until opened.
+  const transcriptRows = useMemo(() => turnView(snapshot.rows, expanded), [snapshot.rows, expanded]);
   // The open changes view: a turn of one session, and the control that opened it.
   const [diffView, setDiffView] = useState<{ sessionId?: string; rowId: string; path?: string; opener?: HTMLElement }>();
   const sessionIdRef = useRef(snapshot.sessionId);
@@ -414,5 +422,5 @@ function AcpmuxPane() {
   const toggleSidebar = () => setSidebar(sidebarShown ? "closed" : "open");
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot);
-  return <section className="acpmux-shell" data-sidebar={sidebar}><SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />{sidebar === "open" && <button type="button" className="acpmux-sidebar-scrim" aria-label="Close sessions" tabIndex={-1} onClick={closeOverlay} />}<div className="acpmux-main"><div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}><header className="acpmux-header"><div><button type="button" className="acpmux-sidebar-toggle" ref={sidebarToggle} aria-label="Sessions" title="Sessions" aria-controls="acpmux-sidebar" aria-expanded={sidebarShown} onClick={toggleSidebar} /><strong className="acpmux-title">{header.title}</strong>{header.status && <span className="acpmux-status">{header.status}</span>}</div></header><VirtualTranscript rows={snapshot.rows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onOpenDiff={openDiff} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}</div>{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<Composer snapshot={composerSnapshot} chips={ComposerChips} onSend={(text) => void callNative("chat.send", { text })} onStop={() => void callNative("chat.cancel")} /></div></section>;
+  return <section className="acpmux-shell" data-sidebar={sidebar}><SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />{sidebar === "open" && <button type="button" className="acpmux-sidebar-scrim" aria-label="Close sessions" tabIndex={-1} onClick={closeOverlay} />}<div className="acpmux-main"><div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}><header className="acpmux-header"><div><button type="button" className="acpmux-sidebar-toggle" ref={sidebarToggle} aria-label="Sessions" title="Sessions" aria-controls="acpmux-sidebar" aria-expanded={sidebarShown} onClick={toggleSidebar} /><strong className="acpmux-title">{header.title}</strong>{header.status && <span className="acpmux-status">{header.status}</span>}</div></header><VirtualTranscript rows={transcriptRows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onOpenDiff={openDiff} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}</div>{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<Composer snapshot={composerSnapshot} chips={ComposerChips} onSend={(text) => void callNative("chat.send", { text })} onStop={() => void callNative("chat.cancel")} /></div></section>;
 }
