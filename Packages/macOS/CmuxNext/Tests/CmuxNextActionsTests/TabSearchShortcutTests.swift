@@ -41,7 +41,21 @@ import Testing
         #expect(descriptor?.isPaletteVisible == true)
         #expect(descriptor?.surfacePlan.cli == .offered)
         #expect(descriptor?.surfacePlan.mcpExemption == nil)
-        #expect(descriptor?.surfacePlan.contextMenuExemption == .noObject)
+        #expect(descriptor?.surfacePlan.contextMenuExemption == .focusMove)
         #expect(descriptor?.arguments.first { $0.name == "query" }?.isRequired == false)
+        #expect(descriptor?.targets == [.tab])
+    }
+
+    /// Go to Tab… is Search Tabs now: one tab list. The old id still binds
+    /// and runs it, so cmux.json bindings and scripts keep working.
+    @Test func goToTabIsAnAliasOfSearchTabs() {
+        let registry = ActionRegistry.standard()
+        #expect(registry.canonicalID(for: "palette.goToTab") == "tab.search")
+        #expect(registry.descriptor(for: "palette.goToTab")?.id == "tab.search")
+        #expect(!registry.descriptors.contains { $0.id == "palette.goToTab" })
+        var runs = 0
+        registry.bind("palette.goToTab") { runs += 1 }
+        #expect(registry.perform("tab.search"))
+        #expect(runs == 1)
     }
 }
