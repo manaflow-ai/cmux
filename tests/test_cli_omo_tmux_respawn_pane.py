@@ -225,6 +225,7 @@ def run_cli(
     socket_path: Path,
     fake_home: Path,
     args: list[str],
+    env_overrides: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["CMUX_SOCKET_PATH"] = str(socket_path)
@@ -233,6 +234,8 @@ def run_cli(
     env["TMUX_PANE"] = f"%{PANE_ID}"
     env["HOME"] = str(fake_home)
     env["CMUX_OMO_CMUX_BIN"] = cli_path
+    if env_overrides is not None:
+        env.update(env_overrides)
     return subprocess.run(
         [cli_path, "--socket", str(socket_path), *args],
         capture_output=True,
@@ -453,6 +456,38 @@ def assert_public_respawn_uses_same_surface_lifecycle(
         raise AssertionError(f"public respawn must not send text: {state.sent_text!r}")
 
 
+def assert_respawn_entrypoints_forward_caller_environment(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+    state: FakeCmuxState,
+) -> None:
+    entrypoints = [
+        ("tmux", ["__tmux-compat", "respawn-pane", "-k", "-t", f"%{PANE_ID}", "echo ENV"]),
+        ("public", ["respawn-pane", "--workspace", "workspace:1", "--surface", "surface:2", "--command", "echo ENV"]),
+    ]
+    cases = [
+        ({"PATH": "/tmp/cmux-respawn-provider:/usr/bin:/bin", "OPENCODE_PORT": "4123"}, True),
+        ({"PATH": " ", "OPENCODE_PORT": " "}, False),
+    ]
+    for caller_environment, should_forward in cases:
+        for label, args in entrypoints:
+            state.respawn_params.clear()
+            respawn = run_cli(cli_path, socket_path, fake_home, args, caller_environment)
+            assert_success(respawn, f"{label} environment respawn")
+            if len(state.respawn_params) != 1:
+                raise AssertionError(f"expected one {label} respawn: {state.respawn_params!r}")
+            actual = state.respawn_params[0].get("startup_environment")
+            if should_forward and actual != caller_environment:
+                raise AssertionError(
+                    f"{label} respawn lost caller provider environment: "
+                    f"expected {caller_environment!r}, got {actual!r}"
+                )
+            if not should_forward and actual:
+                raise AssertionError(f"{label} respawn forwarded blank overrides: {actual!r}")
+    state.respawn_params.clear()
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -489,6 +524,9 @@ def main() -> int:
                     socket_path,
                     fake_home,
                     state,
+                )
+                assert_respawn_entrypoints_forward_caller_environment(
+                    cli_path, socket_path, fake_home, state
                 )
             finally:
                 server.shutdown()
