@@ -61,7 +61,7 @@ def socket_request_method(request: object) -> str | None:
     if not isinstance(request, dict):
         return None
     method = request.get("method")
-    return method if isinstance(method, str) else None
+    return method if isinstance(method, str) and method else None
 
 
 def resolve_cmux_cli() -> str:
