@@ -20,6 +20,10 @@ export function mockReply(prompt: string): string {
 type Update = Record<string, unknown>;
 /// One scripted step: an ACP `session/update`, or a daemon (mux) event.
 type Step = { update: Update } | { mux: string; msg?: Record<string, unknown> };
+/// A recorded turn to replay instead of the scripted one (the screenshot harness,
+/// `webviews/scripts/agent-pane`). `atMs` stamps a step that far after the turn
+/// started, so durations read as recorded; steps are delivered without pacing.
+export type MockScript = { steps: Array<Step & { atMs?: number }>; endAtMs?: number };
 
 const text = (value: string): Update => ({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: value } });
 const tool = (toolCallId: string, kind: string, title: string, status: string, extra: Update = {}): Update => ({ sessionUpdate: "tool_call", toolCallId, kind, title, status, ...extra });
@@ -58,8 +62,9 @@ export class MockAcpmuxSocket {
   private queue: Promise<unknown> = Promise.resolve();
 
   /// `delay` paces the scripted turn; tests pass one that resolves at once.
-  constructor(private readonly delay: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms))) {
-    this.record(sessionId, { update: text("Mock agent session. Type a prompt to see the pane render a turn.") });
+  constructor(private readonly delay: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)), private readonly script?: MockScript) {
+    // A replayed turn starts from an empty session, as the recording did.
+    if (!script) this.record(sessionId, { update: text("Mock agent session. Type a prompt to see the pane render a turn.") });
     queueMicrotask(() => { this.readyState = 1; this.onopen?.(); });
   }
 
@@ -104,28 +109,31 @@ export class MockAcpmuxSocket {
     this.turns += 1;
     const running = { cancelled: false };
     this.running = running;
+    const started = Date.now();
     this.emit(target, { mux: "user_message", msg: { text: prompt, promptId } });
     this.emit(target, { mux: "turn_started" });
-    for (const step of mockTurn(prompt, this.turns)) {
-      await this.delay(350);
+    const steps: MockScript["steps"] = this.script?.steps ?? mockTurn(prompt, this.turns);
+    for (const step of steps) {
+      if (!this.script) await this.delay(350);
       if (running.cancelled) break;
-      this.emit(target, step);
+      this.emit(target, step, step.atMs === undefined ? undefined : started + step.atMs);
     }
-    this.emit(target, { mux: "turn_result", msg: { status: running.cancelled ? "cancelled" : "completed" } });
+    const endAt = this.script?.endAtMs;
+    this.emit(target, { mux: "turn_result", msg: { status: running.cancelled ? "cancelled" : "completed" } }, endAt !== undefined ? started + endAt : undefined);
     this.running = undefined;
     return { stopReason: running.cancelled ? "cancelled" : "end_turn" };
   }
 
-  private record(target: string, step: Step): EventRecord {
+  private record(target: string, step: Step, at = Date.now()): EventRecord {
     this.seq += 1;
     const event: EventRecord = "update" in step
-      ? { sessionId: target, seq: this.seq, at: Date.now(), dir: "in", kind: String(step.update.sessionUpdate), msg: { method: "session/update", params: { sessionId: target, update: step.update } } }
-      : { sessionId: target, seq: this.seq, at: Date.now(), dir: "mux", kind: step.mux, msg: step.msg ?? {} };
+      ? { sessionId: target, seq: this.seq, at, dir: "in", kind: String(step.update.sessionUpdate), msg: { method: "session/update", params: { sessionId: target, update: step.update } } }
+      : { sessionId: target, seq: this.seq, at, dir: "mux", kind: step.mux, msg: step.msg ?? {} };
     this.events.push(event);
     return event;
   }
 
-  private emit(target: string, step: Step): void { this.deliver({ jsonrpc: "2.0", method: "_acpmux/event", params: this.record(target, step) }); }
+  private emit(target: string, step: Step, at?: number): void { this.deliver({ jsonrpc: "2.0", method: "_acpmux/event", params: this.record(target, step, at) }); }
 
   private deliver(message: unknown): void {
     queueMicrotask(() => { if (this.readyState === 1) this.onmessage?.({ data: JSON.stringify(message) }); });

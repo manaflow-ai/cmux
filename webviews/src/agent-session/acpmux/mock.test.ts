@@ -59,4 +59,21 @@ describe("mock transport", () => {
     expect(snapshots.at(-1)?.sessions.map((entry) => entry.sessionId)).toContain(created);
     client.close();
   });
+
+  test("a recorded turn replays with its own timestamps and no greeting", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    (globalThis as any).window ??= globalThis;
+    const script = { steps: [{ atMs: 2_000, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Recorded answer." } } }], endAtMs: 15_000 };
+    const client = await AcpmuxDirectClient.connect(mockHost, (snapshot) => snapshots.push(snapshot), undefined, () => new MockAcpmuxSocket(() => Promise.resolve(), script) as unknown as WebSocket);
+    client.snapshot();
+    expect(snapshots.at(-1)?.rows).toEqual([]);
+    await client.send("replay");
+    await until(() => snapshots.at(-1)?.rows.some((row) => row.kind === "turnSummary") === true);
+    const rows = snapshots.at(-1)!.rows;
+    expect(rows.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual(["Recorded answer."]);
+    const user = rows.find((row) => row.kind === "user")!;
+    expect(rows.find((row) => row.kind === "assistant")!.at - user.at).toBeGreaterThanOrEqual(2_000);
+    expect(rows.find((row) => row.kind === "turnSummary")!.at - user.at).toBeGreaterThanOrEqual(15_000);
+    client.close();
+  });
 });
