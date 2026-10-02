@@ -164,10 +164,10 @@ mod apps {
     #[test]
     fn commands_report_through_done() {
         let mut h = Harness::new(&app(r#"return { refresh: async (args) => ({ got: args.n }) }"#));
-        h.vm.run_command(7, "refresh", &json!({ "n": 2 })).expect("run");
+        h.vm.run_command(7, "refresh", &json!({ "n": 2 }), None).expect("run");
         h.pump().expect("pump");
         assert_eq!(h.done.get(&7), Some(&(true, json!({ "value": { "got": 2 } }))));
-        h.vm.run_command(8, "missing", &json!({})).expect("run");
+        h.vm.run_command(8, "missing", &json!({}), None).expect("run");
         h.pump().expect("pump");
         assert_eq!(h.done[&8].1["code"], "export.missing");
     }
@@ -214,7 +214,7 @@ mod apps {
         ));
         // Each step nests one more promise, so the chain also grows; whichever
         // limit trips first, the drain stops it and the VM dies.
-        let error = h.vm.run_command(1, "go", &json!({})).expect_err("stopped");
+        let error = h.vm.run_command(1, "go", &json!({}), None).expect_err("stopped");
         assert!(
             matches!(
                 error,
@@ -239,7 +239,7 @@ mod apps {
             json!({}),
             limits,
         );
-        let error = hog.vm.run_command(1, "grow", &json!({})).expect_err("memory");
+        let error = hog.vm.run_command(1, "grow", &json!({}), None).expect_err("memory");
         assert!(matches!(error, VmError::Fatal { reason: FatalReason::Memory, .. }), "{error:?}");
         hog.pump().ok();
         assert!(matches!(
@@ -272,16 +272,16 @@ mod apps {
         let mut logs = Harness::new(&app(
             r#"return { go: () => { for (let i = 0; i < 1e6; i++) cmux.log("x".repeat(1000)) } }"#,
         ));
-        let error = logs.vm.run_command(1, "go", &json!({})).expect_err("flood");
+        let error = logs.vm.run_command(1, "go", &json!({}), None).expect_err("flood");
         assert!(matches!(error, VmError::Fatal { reason: FatalReason::Memory, .. }), "{error:?}");
         let mut timers = Harness::new(&app(
             r#"return { go: () => { for (let i = 0; i < 1000; i++) cmux.timer.after(60000, () => {}) } }"#,
         ));
-        assert!(timers.vm.run_command(1, "go", &json!({})).is_err());
+        assert!(timers.vm.run_command(1, "go", &json!({}), None).is_err());
         let mut subs = Harness::new(&app(
             r#"return { go: () => { for (let i = 0; i < 1000; i++) cmux.events.on("x.changed", () => {}) } }"#,
         ));
-        assert!(subs.vm.run_command(1, "go", &json!({})).is_err());
+        assert!(subs.vm.run_command(1, "go", &json!({}), None).is_err());
     }
 
     #[test]
@@ -291,5 +291,26 @@ mod apps {
         h.eval(r#"(__cmuxAppNative.call("workspace.list", "{}", "{}", 9), __cmuxAppNative.call("workspace.list", "{}", "{}", 9), 0)"#);
         assert_eq!(h.unanswered.len(), 1);
         assert_eq!(h.vm.pending_calls(), 1);
+    }
+
+    #[test]
+    fn a_run_with_a_gesture_carries_it_through_ctx_cmux_until_it_settles() {
+        let mut h = Harness::new(&app(r#"return { focusTab: async (args, ctx) => {
+                globalThis.seen = ctx.gesture
+                await ctx.cmux.tab.focus({ tab: args.tab })
+                await ctx.cmux.tab.focus({ tab: "later" })
+                await cmux.tab.focus({ tab: "global" })
+            } }"#));
+        h.handle("tab.focus", |_, _| (true, json!({ "value": null })));
+        h.vm.run_command(3, "focusTab", &json!({ "tab": "tab_1" }), Some("g9")).expect("run");
+        h.pump().expect("pump");
+        let gestures: Vec<Value> = h
+            .calls
+            .iter()
+            .map(|c| c.options.get("gesture").cloned().unwrap_or(Value::Null))
+            .collect();
+        assert_eq!(gestures, vec![json!("g9"), json!("g9"), Value::Null]);
+        assert_eq!(h.eval("globalThis.seen"), json!("g9"));
+        assert!(h.done[&3].0);
     }
 }

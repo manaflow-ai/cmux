@@ -12,6 +12,8 @@ const SCOPES_JSON: &str = include_str!("../../../cmux-app-host/generated/scopes.
 
 /// How long a gesture token stays valid after the user event.
 pub const GESTURE_TTL: Duration = Duration::from_secs(10);
+/// A command run's token lives until its `done`, at most this long (ABI.md).
+pub const COMMAND_GESTURE_TTL: Duration = Duration::from_secs(2);
 const MAX_GESTURES: usize = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,6 +160,9 @@ struct Token {
 #[derive(Default)]
 pub struct Gestures {
     tokens: HashMap<String, Token>,
+    /// Client tokens of palette/keybinding invocations already honored, so
+    /// one invocation yields one gesture.
+    client_seen: HashMap<String, Instant>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,7 +174,17 @@ pub enum GestureCheck {
 }
 
 impl Gestures {
+    /// An event token (10 s).
     pub fn mint(&mut self, app: &str, now: Instant) -> String {
+        self.mint_for(app, now, GESTURE_TTL)
+    }
+
+    /// Ends a token early (a command's token at its `done`).
+    pub fn revoke(&mut self, token: &str) {
+        self.tokens.remove(token);
+    }
+
+    fn mint_for(&mut self, app: &str, now: Instant, ttl: Duration) -> String {
         self.tokens.retain(|_, t| t.expires > now);
         if self.tokens.len() >= MAX_GESTURES
             && let Some(oldest) =
@@ -184,17 +199,35 @@ impl Gestures {
         let token = format!("g_{}", bytes.iter().map(|b| format!("{b:02x}")).collect::<String>());
         self.tokens.insert(
             token.clone(),
-            Token { app: app.to_string(), expires: now + GESTURE_TTL, spent: false },
+            Token { app: app.to_string(), expires: now + ttl, spent: false },
         );
         token
     }
 
-    /// Presents `token` for `app`. A mutation spends it; a read does not.
+    /// A user invocation from a client (palette, keybinding) presents its own
+    /// token; the supervisor answers with a gesture of its own minting, once
+    /// per client token. Malformed or reused tokens get none.
+    pub fn accept_client(&mut self, app: &str, client_token: &str, now: Instant) -> Option<String> {
+        let well_formed = (8..=128).contains(&client_token.len())
+            && client_token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+        self.client_seen.retain(|_, at| *at + GESTURE_TTL > now);
+        if !well_formed
+            || self.client_seen.contains_key(client_token)
+            || self.client_seen.len() >= MAX_GESTURES
+        {
+            return None;
+        }
+        self.client_seen.insert(client_token.to_string(), now);
+        Some(self.mint_for(app, now, COMMAND_GESTURE_TTL))
+    }
+
+    /// Presents `token` for `app`. A view-state change (`spend`) uses it up;
+    /// other calls run with origin user while it is live (ABI.md).
     pub fn present(
         &mut self,
         app: &str,
         token: Option<&str>,
-        mutation: bool,
+        spend: bool,
         now: Instant,
     ) -> GestureCheck {
         let Some(token) = token.and_then(|t| self.tokens.get_mut(t)) else {
@@ -203,7 +236,7 @@ impl Gestures {
         if token.app != app || token.spent || token.expires <= now {
             return GestureCheck::None;
         }
-        if mutation {
+        if spend {
             token.spent = true;
         }
         GestureCheck::User
@@ -288,6 +321,16 @@ mod tests {
             gestures.present("cmux/a", Some(&late), true, now + GESTURE_TTL),
             GestureCheck::None
         );
+        let command = gestures.accept_client("cmux/a", "palette-0001", now).expect("command token");
+        assert_eq!(gestures.present("cmux/a", Some(&command), false, now), GestureCheck::User);
+        assert_eq!(
+            gestures.present("cmux/a", Some(&command), false, now + COMMAND_GESTURE_TTL),
+            GestureCheck::None,
+            "a command token lives 2 s"
+        );
+        let revoked = gestures.accept_client("cmux/a", "palette-0002", now).expect("command token");
+        gestures.revoke(&revoked);
+        assert_eq!(gestures.present("cmux/a", Some(&revoked), false, now), GestureCheck::None);
         assert!(needs_gesture("tab.focus") && needs_gesture("pane.focus_direction"));
         assert!(needs_gesture("terminal.input.focus") && !needs_gesture("tab.close"));
     }

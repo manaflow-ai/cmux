@@ -69,6 +69,9 @@ enum Command {
         args: Value,
         #[serde(default)]
         idempotency_key: Option<String>,
+        /// A palette/keybinding invocation's own token (origin user only).
+        #[serde(default)]
+        gesture: Option<String>,
     },
     #[serde(rename = "apps-logs")]
     Logs {
@@ -193,14 +196,10 @@ pub(super) fn try_handle(
         Command::Dispatch { mount_id, node, event, payload } => {
             supervisor.dispatch(client, &mount_id, &node, &event, payload, user)
         }
-        Command::Run { app, op, args, idempotency_key } => {
+        Command::Run { app, op, args, idempotency_key, gesture } => {
             let writer = writer.clone();
             supervisor.run(
-                &app,
-                &op,
-                args,
-                idempotency_key,
-                origin,
+                crate::apps::RunRequest { app, op, args, idempotency_key, origin, gesture },
                 Box::new(move |result| {
                     reply(&writer, id, result);
                 }),
