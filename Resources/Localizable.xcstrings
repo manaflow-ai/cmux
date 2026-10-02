@@ -618218,6 +618218,124 @@
           }
         }
       }
+    },
+    "sudo.approval.hidden_characters.badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden characters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隠し文字"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Versteckte Zeichen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caractères masqués"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أحرف مخفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caracteres ocultos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏字元"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏字符"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "숨겨진 문자"
+          }
+        }
+      }
+    },
+    "sudo.approval.hidden_characters.warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This request contains %ld invisible or text-direction characters. They are shown as ⟨U+XXXX⟩ markers. Deny it unless you expected them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このリクエストには不可視文字またはテキスト方向を変える文字が %ld 個含まれています。⟨U+XXXX⟩ の形式で表示しています。想定していない場合は拒否してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Anfrage enthält %ld unsichtbare oder textrichtungsändernde Zeichen. Sie werden als ⟨U+XXXX⟩-Markierungen angezeigt. Lehnen Sie sie ab, wenn Sie diese nicht erwartet haben."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette demande contient %ld caractères invisibles ou de direction du texte. Ils sont affichés sous forme de marqueurs ⟨U+XXXX⟩. Refusez-la si vous ne les attendiez pas."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي هذا الطلب على %ld من الأحرف غير المرئية أو أحرف اتجاه النص. تُعرض كعلامات ⟨U+XXXX⟩. ارفضه ما لم تكن تتوقعها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta solicitud contiene %ld caracteres invisibles o de dirección del texto. Se muestran como marcadores ⟨U+XXXX⟩. Deniégala a menos que los esperaras."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此請求包含 %ld 個不可見或改變文字方向的字元，已顯示為 ⟨U+XXXX⟩ 標記。除非你預期會有這些字元，否則請拒絕。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此请求包含 %ld 个不可见或改变文本方向的字符，已显示为 ⟨U+XXXX⟩ 标记。除非你预期会有这些字符，否则请拒绝。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 요청에는 보이지 않거나 텍스트 방향을 바꾸는 문자가 %ld개 포함되어 있습니다. ⟨U+XXXX⟩ 표시로 나타납니다. 예상한 것이 아니라면 거부하세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

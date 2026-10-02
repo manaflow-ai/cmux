@@ -27,7 +27,8 @@ extension CMUXCLI {
                 isDirectory: true
             ),
             requesterIdentity: requesterIdentity,
-            requesterCommand: requesterCommand
+            requesterCommand: requesterCommand,
+            helperPolicy: context.helperPolicy
         )
         do {
             return try command.run(arguments: commandArgs)
@@ -47,7 +48,7 @@ extension CMUXCLI {
             let runner = SudoExecutionRunner(
                 paths: context.paths,
                 expectedParentExecutableURL: context.appExecutableURL,
-                privilegedHelperExecutableURL: context.cliExecutableURL,
+                helperPolicy: context.helperPolicy,
                 messages: .localized
             )
             return runner.run(
@@ -77,7 +78,8 @@ extension CMUXCLI {
               let applicationSupportDirectory = FileManager.default.urls(
                 for: .applicationSupportDirectory,
                 in: .userDomainMask
-              ).first else {
+              ).first,
+              let helperPolicy = Self.sudoHelperPolicy(appBundleURL: bundle.bundleURL) else {
             throw CLIError(
                 message: String(
                     localized: "sudo.cli.error.enclosing_app",
@@ -92,9 +94,26 @@ extension CMUXCLI {
             ),
             appBundleURL: bundle.bundleURL,
             appExecutableURL: appExecutableURL,
-            cliExecutableURL: URL(fileURLWithPath: CommandLine.arguments[0])
-                .standardizedFileURL
+            helperPolicy: helperPolicy
         )
+    }
+
+    /// The Developer ID team that signs every distributed cmux build.
+    private static let sudoReleaseTeamIdentifier = "7WLXT3NR37"
+
+    /// Pins the signing identity of bundled helpers before any of them reaches sudo.
+    ///
+    /// Distributed builds require the Developer ID team. Debug builds, which are
+    /// ad-hoc or development signed, require the running CLI's own identity instead.
+    private static func sudoHelperPolicy(appBundleURL: URL) -> SudoBundledHelperPolicy? {
+        #if DEBUG
+        return SudoBundledHelperPolicy.runningCodeIdentity(appBundleURL: appBundleURL)
+        #else
+        return SudoBundledHelperPolicy.developerID(
+            appBundleURL: appBundleURL,
+            teamIdentifier: sudoReleaseTeamIdentifier
+        )
+        #endif
     }
 
     private func sudoRequesterCommand(
@@ -154,6 +173,6 @@ extension CMUXCLI {
         let paths: SudoBrokerPaths
         let appBundleURL: URL
         let appExecutableURL: URL
-        let cliExecutableURL: URL
+        let helperPolicy: SudoBundledHelperPolicy
     }
 }
