@@ -27,6 +27,7 @@ final class CloudTerminalProjectionRegistry {
         let sharedTask = Task<SurfaceRemotePlacement, Error> { @MainActor [weak self] in
             defer { self?.finish(key: key, token: token) }
             do {
+                try Task.checkCancellation()
                 let placement = try await operation()
                 completion.resolve(.success(placement))
                 return placement
