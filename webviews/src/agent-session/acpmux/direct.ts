@@ -1,5 +1,6 @@
 import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { sessionEntry, type AcpmuxSessionEntry } from "./sessionList";
+import { agentName } from "./agents";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -109,6 +110,9 @@ function sessionUpdate(event: EventRecord): any | undefined {
   return event.dir === "in" && event.msg.method === "session/update" ? event.msg.params?.update : undefined;
 }
 
+/// Opens the client's socket; mock mode passes an in-page daemon (mock.ts).
+export type OpenSocket = (url: URL) => WebSocket;
+
 /** Direct browser client for the authenticated acpmux WebSocket protocol. */
 export class AcpmuxDirectClient {
   private socket?: WebSocket;
@@ -151,15 +155,15 @@ export class AcpmuxDirectClient {
   private attachedGeneration = -1;
   private historyExhausted = false;
 
-  private constructor(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void) {
+  private constructor(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void, private readonly openSocket: OpenSocket = (url) => new WebSocket(url)) {
     this.host = host;
     this.listener = listener;
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
   }
 
-  static async connect(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void): Promise<AcpmuxDirectClient> {
-    const client = new AcpmuxDirectClient(host, listener, onLost);
+  static async connect(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void, openSocket?: OpenSocket): Promise<AcpmuxDirectClient> {
+    const client = new AcpmuxDirectClient(host, listener, onLost, openSocket);
     await client.open();
     return client;
   }
@@ -170,7 +174,7 @@ export class AcpmuxDirectClient {
     const url = new URL(this.host.endpoint);
     url.searchParams.set("token", this.host.token);
     await new Promise<void>((resolve, reject) => {
-      const socket = new WebSocket(url);
+      const socket = this.openSocket(url);
       this.socket = socket;
       let opened = false;
       socket.onopen = () => { opened = true; resolve(); };
@@ -555,5 +559,5 @@ export class AcpmuxDirectClient {
 
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
-  return (Array.isArray(harnesses) ? harnesses : Object.entries(harnesses).map(([id, data]) => ({ id, ...(data as any) }))).map((harness: any) => ({ id: String(harness.id ?? harness.name), name: String(harness.name ?? harness.id), models: (harness.models ?? []).map((model: any) => ({ id: String(model.id ?? model.modelId), name: model.name })) }));
+  return (Array.isArray(harnesses) ? harnesses : Object.entries(harnesses).map(([id, data]) => ({ id, ...(data as any) }))).map((harness: any) => ({ id: String(harness.id ?? harness.name), name: agentName(String(harness.id ?? harness.name), harness.name == null ? undefined : String(harness.name)), models: (harness.models ?? []).map((model: any) => ({ id: String(model.id ?? model.modelId), name: model.name })) }));
 }

@@ -17,13 +17,22 @@ extension TabDragSession {
         let source = drag.source.window
         let sourcePane = drag.source.pane
         let tabs = sourcePane.map { Self.focusTabs(drag.source.item, pane: $0) } ?? []
+        drag.revealTabs = tabs
         let drop = drag.winner?.window ?? source
+        // Option files the tabs away: focus stays where it was.
+        if drag.filesAway {
+            source?.focus.send(.dragEnded(.cancelled))
+            return
+        }
         switch outcome {
         case .cancel, .moveWindow, .moveWorkspaceToNewWindow, .moveWorkspace:
             source?.focus.send(.dragEnded(.cancelled))
-        case .workspace:
-            // Into a workspace this window does not show: focus stays here.
+        case .workspace(let id):
+            // Into another workspace: its window shows it once the move
+            // lands (`revealLanded`) and focus follows the tab there.
             source?.focus.send(.dragEnded(.movedAway))
+            let landing = services.landingWindow(tab: tabs.first ?? "", workspaceID: id) ?? drop
+            landing?.focus.send(.dragEnded(.dropped(tabs: tabs, awayFrom: sourcePane?.paneKey)))
         case .tearOff:
             // The new window focuses it once it opens (`focusTornOff`).
             source?.focus.send(.dragEnded(.movedAway))
@@ -39,7 +48,7 @@ extension TabDragSession {
 
     /// A torn-off window focuses the dragged tab once its workspace loads.
     func focusTornOff(_ controller: WindowController?, drag: Drag) {
-        guard let controller, let pane = drag.source.pane else { return }
+        guard !drag.filesAway, let controller, let pane = drag.source.pane else { return }
         controller.focus.send(.dragEnded(.dropped(tabs: Self.focusTabs(drag.source.item, pane: pane))))
     }
 

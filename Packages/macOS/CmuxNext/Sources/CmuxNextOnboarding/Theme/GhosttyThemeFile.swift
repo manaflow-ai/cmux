@@ -43,12 +43,16 @@ public nonisolated struct ThemeChoice: Sendable, Equatable, Identifiable {
     /// Ghostty theme name (`theme = <name>`); nil is "keep my Ghostty theme".
     public var name: String?
     public var input: ThemeInput
+    /// Shown instead of the name ("Apple System (follows appearance)" for
+    /// the default when the user has no theme of their own).
+    public var label: String?
 
     public var id: String { name ?? "" }
 
-    public init(name: String?, input: ThemeInput) {
+    public init(name: String?, input: ThemeInput, label: String? = nil) {
         self.name = name
         self.input = input
+        self.label = label
     }
 
     /// Hand-picked Ghostty themes, dark first. Names are Ghostty file names.
