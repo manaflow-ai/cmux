@@ -68,7 +68,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.renameTab", defaultValue: "Rename Tab…", bundle: .module),
                 keywords: ["tab", "title"], defaultShortcut: Shortcut("r", modifiers: [.command]), category: .tab,
                 symbol: "pencil", surfaces: [.palette, .keyboard, .contextMenu],
-                arguments: [CatalogArgument.nameString], targets: [.tab], cliName: "tab rename"
+                arguments: [CatalogArgument.nameString.renamingTarget], targets: [.tab], cliName: "tab rename"
             ),
             ActionDescriptor(
                 id: "palette.clearTabName",

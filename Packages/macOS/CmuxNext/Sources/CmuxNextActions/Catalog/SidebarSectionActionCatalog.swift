@@ -71,7 +71,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "sidebar.section.rename", title: t("action.sidebar.section.rename", "Rename Section…"),
                 keywords: ["sidebar", "section", "rename", "title"], category: .sidebar, symbol: "pencil",
-                surfaces: [.palette, .keyboard, .contextMenu], arguments: [titleArgument(required: true)], targets: section,
+                surfaces: [.palette, .keyboard, .contextMenu], arguments: [titleArgument(required: true).renamingTarget], targets: section,
                 cliName: "sidebar rename-section", surfacePlan: plan(menus: [p(.sidebarSection, .identity, 100)])
             ),
             ActionDescriptor(

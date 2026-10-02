@@ -51,7 +51,34 @@ import Testing
         let model = controller.model
         #expect(model.isTextInput, "\(id) asks for the name")
         #expect(model.query == title, "\(id) starts from the current name")
+        #expect(model.selectsQuery, "\(id) selects the name so typing replaces it")
         #expect(recorder.runs.isEmpty)
+    }
+
+    /// Editing the name ends the select-all: the field keeps the caret
+    /// where the user put it.
+    @Test func editingTheNameDropsTheSelection() throws {
+        let (controller, data, _) = makeController("renameWorkspace")
+        let (target, _) = try menuTarget(.workspace, in: data)
+        controller.registry.perform("renameWorkspace", invocation: ActionInvocation(target: target))
+        controller.model.query = "api"
+        #expect(!controller.model.selectsQuery)
+    }
+
+    /// The palette's own Rename Workspace… and Rename Tab… rows start from
+    /// the focused workspace's and tab's names, selected, the same way.
+    @Test func thePalettesOwnRenameRowsStartFromTheCurrentName() async {
+        for (query, title) in [("rename workspace", "cmux"), ("rename tab", "zsh")] {
+            let (controller, _, _) = makeController("renameWorkspace")
+            let model = controller.model
+            model.reset(to: controller.commandsPage())
+            model.query = query
+            await model.settle()
+            model.handle(.submit)
+            #expect(model.isTextInput, "\(query)")
+            #expect(model.query == title, "\(query)")
+            #expect(model.selectsQuery, "\(query)")
+        }
     }
 
     @Test(arguments: renames)
