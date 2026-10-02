@@ -906,10 +906,31 @@ struct ContentView: View {
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.notifications.paneFlashColorHex) private var paneFlashColorHex
+    @AppStorage("notificationPaneFlashThemeColor") private var paneFlashThemeColor = false
     /// Resolved cmux accent, seeded from the app delegate's observer and
     /// updated from its change notification. This view is the window root,
     /// so it cannot read the accent from its own environment modifier.
     @State private var cmuxAccent = AppDelegate.shared?.accentColor ?? CmuxAccentColor()
+    /// Terminal theme foreground, which colors pane flashes when no flash
+    /// color is configured. Updated from the default appearance notification.
+    @State private var terminalThemeForeground = GhosttyApp.shared.defaultForegroundColor
+
+    private var resolvedWorkspaceAttentionColor: WorkspaceAttentionColor {
+        resolveWorkspaceAttentionColor()
+    }
+
+    private func resolveWorkspaceAttentionColor(
+        configuredHex: String?? = nil,
+        accent: CmuxAccentColor? = nil,
+        themeForeground: NSColor? = nil
+    ) -> WorkspaceAttentionColor {
+        WorkspaceAttentionColor(
+            configuredHex: configuredHex ?? paneFlashColorHex,
+            accent: accent ?? cmuxAccent,
+            themeForeground: themeForeground ?? terminalThemeForeground,
+            useThemeForeground: paneFlashThemeColor
+        )
+    }
     /// Canonical sidebar width, deliberately NOT observed by ContentView:
     /// divider ticks re-evaluate only the SidebarWidthReader wrappers that
     /// consume the width, never this body. All reads/writes outside view
@@ -7182,10 +7203,7 @@ struct ContentView: View {
                     CommandPaletteContextKeys.panelIsBrowser,
                     true
                 )
-                snapshot.setBool(
-                    CommandPaletteContextKeys.panelBrowserFocusModeActive,
-                    browserPanel.isBrowserFocusModeActive
-                )
+                Self.setCommandPaletteBrowserToggleContext(for: browserPanel, in: &snapshot)
                 snapshot.setBool(
                     CommandPaletteContextKeys.panelBrowserOmnibarVisible,
                     browserPanel.isOmnibarVisible
@@ -7227,9 +7245,7 @@ struct ContentView: View {
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
             snapshot.setBool(CommandPaletteContextKeys.panelIsSimulator, panelContext.panel.panelType == .simulator)
-            if let browserPanel = panelContext.panel as? BrowserPanel {
-                snapshot.setBool(CommandPaletteContextKeys.panelBrowserFocusModeActive, browserPanel.isBrowserFocusModeActive)
-            }
+            if let browserPanel = panelContext.panel as? BrowserPanel { Self.setCommandPaletteBrowserToggleContext(for: browserPanel, in: &snapshot) }
             // Markdown zoom only affects the rendered preview, so don't surface
             // the zoom commands when the panel is in raw text-edit mode.
             snapshot.setBool(
@@ -8131,6 +8147,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
         )
+        Self.appendBrowserKeepPageActiveCommandContribution(to: &contributions, panelSubtitle: browserPanelSubtitle)
         Self.appendViewZoomCommandContributions(to: &contributions, panelSubtitle: panelSubtitle)
         contributions.append(
             CommandPaletteCommandContribution(
@@ -8389,6 +8406,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
+        contributions.append(contentsOf: Self.commandPaletteTerminalScrollContributions(subtitle: terminalPanelSubtitle))
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitRight",
@@ -8681,6 +8699,9 @@ struct ContentView: View {
 
     /// Registers runnable handlers for every built-in command-palette contribution.
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+        registry.register(commandId: "palette.browseSidebarTemplates") {
+            CmuxExtensionSidebarSelection.browseTemplates()
+        }
         registry.register(commandId: "palette.findWork") {
             guard let service = AppDelegate.shared?.currentWorkQueryService() else {
                 NSSound.beep()
@@ -9375,6 +9396,7 @@ struct ContentView: View {
                 NSSound.beep()
             }
         }
+        registerTerminalScrollCommandPaletteHandlers(&registry)
         registry.register(commandId: "palette.terminalClearScreenKeepScrollback") {
             if !tabManager.clearFocusedTerminalKeepingScrollback() {
                 NSSound.beep()
@@ -9469,6 +9491,7 @@ struct ContentView: View {
             }
         }
         registerPaneResizeHandlers(&registry) { observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow }
+        registerBrowserKeepPageActiveCommandHandler(&registry, performBrowserAction: performBrowserAction)
         registerShortcutParityCommandHandlers(
             &registry,
             performBrowserAction: performBrowserAction
@@ -11134,6 +11157,7 @@ struct VerticalTabsSidebar: View, Equatable {
     let chromeBackgroundColor: NSColor
     var observedWindow: NSWindow? { observedWindowReference.window }
     @EnvironmentObject var tabManager: TabManager
+    @EnvironmentObject var sidebarState: SidebarState
     // Plain reference by design. Native row and titlebar subscribers own the
     // unread invalidation boundary, so this O(workspaces) root stays inert.
     var notificationStore: TerminalNotificationStore { .shared }
@@ -12698,6 +12722,9 @@ struct VerticalTabsSidebar: View, Equatable {
 
     @ViewBuilder
     private func extensionSidebarScrollAreaContent(renderContext: WorkspaceListRenderContext) -> some View {
+        let inMemoryTemplatePreview = CmuxExtensionSidebarSelection.inMemoryTemplatePreviewSource(
+            for: effectiveExtensionSidebarProviderId
+        )
         if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.conversationSidebarProviderId {
             ConversationSidebarView(
                 store: sessionIndexStore,
@@ -12738,7 +12765,9 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             )
         } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
-                  let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId) {
+                  let customSidebarURL = inMemoryTemplatePreview == nil
+                    ? CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId)
+                    : URL(fileURLWithPath: "/__cmux-in-memory-sidebar-preview.js") {
             // Periodic tick so the custom sidebar re-renders live (clock,
             // countdowns, and refreshed workspace/data context), mirroring the
             // default sidebar's TimelineView. No banned timers involved.
@@ -12755,6 +12784,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 TimelineView(.periodic(from: .now, by: 1)) { timeline in
                     CustomSidebarSurface(
                         fileURL: customSidebarURL,
+                        sourceOverride: inMemoryTemplatePreview,
                         dataContext: customSidebarDataContext(
                             now: timeline.date,
                             unreadSnapshot: unreadSnapshot
@@ -12764,7 +12794,7 @@ struct VerticalTabsSidebar: View, Equatable {
                             top: SidebarWorkspaceScrollInsets.workspaceList.top,
                             bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
                         ),
-                        rendersInProcess: customSidebarRenderer == .inProcess,
+                        rendersInProcess: inMemoryTemplatePreview != nil || customSidebarRenderer == .inProcess,
                         client: $sidebarRenderWorkerClient
                     )
                 }
@@ -12893,7 +12923,8 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func scheduleWorkspaceSnapshotRefresh(workspaceId: UUID) {
-        workspaceSnapshotRefreshCoalescer.schedule(workspaceId: workspaceId) { workspaceIds in
+        workspaceSnapshotRefreshCoalescer.schedule(workspaceId: workspaceId) { [sidebarState] workspaceIds in
+            guard sidebarState.isVisible else { return }
             refreshWorkspaceSnapshots(workspaceIds: workspaceIds)
         }
     }
@@ -16905,7 +16936,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var helpText: String {
-        entries.map(\.sidebarDisplayText)
+        entries.map(\.sidebarHelpText)
         .joined(separator: "\n")
     }
 
@@ -16933,7 +16964,7 @@ private struct SidebarMetadataEntryRow: View {
                     rowContent(underlined: true)
                 }
                 .buttonStyle(.plain)
-                .safeHelp(url.absoluteString)
+                .safeHelp(entry.sidebarToolTip(linkURL: url) ?? url.absoluteString)
             } else {
                 rowContent(underlined: false)
                     .contentShape(Rectangle())

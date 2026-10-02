@@ -16,6 +16,44 @@ import Testing
 /// parsing, chunked base64 framing, and digest verification exactly as an agent
 /// would hit them.
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testVMRemoveRejectsTrailingArgumentsBeforeDestroying() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-rm-args")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            return self.v2Response(id: id, ok: true, result: [:])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "rm", "brave-otter", "unexpected"],
+            environment: environment,
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0, "trailing arguments must fail closed")
+        XCTAssertFalse(
+            state.snapshot().contains { $0.contains(#""method":"vm.destroy""#) },
+            "a malformed destructive command must not reach the Cloud socket"
+        )
+    }
+
     /// Thread-safe byte accumulator for chunks arriving on mock-server threads.
     final class VMTransferMockState: @unchecked Sendable {
         private let lock = NSLock()
@@ -46,6 +84,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         private let lock = NSLock()
         private var keys: [String] = []
 
+        /// Records one create request's idempotency key and returns its ordinal.
         func record(key: String?) -> Int {
             lock.lock()
             defer { lock.unlock() }
@@ -53,6 +92,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return keys.count
         }
 
+        /// Returns the create keys observed by the mock server in request order.
         func snapshot() -> [String] {
             lock.lock()
             defer { lock.unlock() }
@@ -478,6 +518,113 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let poolData = try Data(contentsOf: isolatedHome.appendingPathComponent(".cmuxterm/vm-run-pool.json"))
         let pool = try JSONSerialization.jsonObject(with: poolData) as? [String: Any]
         XCTAssertEqual(pool?["machines"] as? [String], ["recovered-1"])
+
+        let next = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "run", "--new", "--", "echo", "recovered"],
+            environment: environment,
+            timeout: 30
+        )
+        XCTAssertFalse(next.timedOut, next.stderr)
+        XCTAssertEqual(next.status, 0, "a completed create should permit a fresh create: stderr=\(next.stderr)")
+        let completedKeys = attempts.snapshot()
+        XCTAssertEqual(completedKeys.count, 3)
+        guard completedKeys.count == 3 else { return }
+        XCTAssertNotEqual(completedKeys[2], keys[0], "a completed create must not reuse its retry key")
+    }
+
+    /// An id-less success response remains retryable without minting a new key.
+    func testVMRunReusesCreateKeyAfterCreateResponseOmitsMachineID() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-run-create-missing-id")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let attempts = VMRunCreateAttemptState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let isolatedHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-run-home-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: isolatedHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: isolatedHome) }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "vm.list":
+                return self.v2Response(id: id, ok: true, result: ["vms": []])
+            case "vm.create":
+                let params = request["params"] as? [String: Any] ?? [:]
+                let key = params["idempotency_key"] as? String
+                let attempt = attempts.record(key: key)
+                if attempt == 1 {
+                    // A valid protocol response with no id is still ambiguous:
+                    // the provider may have created the machine before the
+                    // response was truncated or malformed upstream.
+                    return self.v2Response(id: id, ok: true, result: ["status": "creating"])
+                }
+                return self.v2Response(id: id, ok: true, result: ["id": "missing-id-recovered", "provider": "freestyle", "status": "running", "image": "cmuxd-ws:tooling-20260509f"])
+            case "vm.rename":
+                return self.v2Response(id: id, ok: true, result: ["id": "missing-id-recovered", "displayName": "agent-pool"])
+            case "vm.status":
+                return self.v2Response(id: id, ok: true, result: ["id": "missing-id-recovered", "provider": "freestyle", "status": "running"])
+            case "vm.exec":
+                return self.vmExecOKResponse(id: id, stdout: "missing-id-recovered\n")
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = isolatedHome.path
+
+        let first = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "run", "--", "echo", "missing-id-recovered"],
+            environment: environment,
+            timeout: 30
+        )
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertFalse(first.timedOut, first.stderr)
+        XCTAssertNotEqual(first.status, 0, "a response without an id must surface as a retryable failure")
+
+        // Keep the recorded owner alive for the retry. Otherwise the exited
+        // CLI's PID would make the key reusable even without marking it
+        // uncertain, masking the same-process recovery bug.
+        let createStore = isolatedHome.appendingPathComponent(".cmuxterm/vm-run-create-idempotency.json")
+        let createData = try Data(contentsOf: createStore)
+        var createState = try XCTUnwrap(JSONSerialization.jsonObject(with: createData) as? [String: Any])
+        var records = try XCTUnwrap(createState["records"] as? [String: [[String: Any]]])
+        let signature = try XCTUnwrap(records.keys.first)
+        var record = try XCTUnwrap(records[signature]?.first)
+        XCTAssertEqual(record["uncertain"] as? Bool, true, "a response without an id leaves the create outcome unknown")
+        record["ownerPID"] = getpid()
+        records[signature] = [record]
+        createState["records"] = records
+        try Self.writeJSON(createState, to: createStore)
+
+        let second = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "run", "--", "echo", "missing-id-recovered"],
+            environment: environment,
+            timeout: 30
+        )
+        XCTAssertFalse(second.timedOut, second.stderr)
+        XCTAssertEqual(second.status, 0, "the retry should reuse the ambiguous create: stderr=\(second.stderr)")
+        XCTAssertEqual(second.stdout, "missing-id-recovered\n")
+        let keys = attempts.snapshot()
+        XCTAssertEqual(keys.count, 2)
+        XCTAssertEqual(keys.first, keys.last, "an ambiguous create response must not mint a second key")
     }
 
     /// Two routers provisioning at the same moment must both end up in the pool

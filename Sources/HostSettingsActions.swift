@@ -55,6 +55,7 @@ final class HostSettingsActions: SettingsHostActions {
     /// the old one and closing Settings does not leave an untracked playback
     /// task behind.
     private var notificationSoundPreviewTask: Task<Void, Never>?
+    private var customSidebarPreview: (id: String, providerId: String, previousProviderId: String)?
 
     init(
         configFileURL: URL,
@@ -130,7 +131,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func resetAllSettingsSideEffects() {
-        LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
+        LanguageSettingsStore(defaults: .standard, domainName: ProcessDefaultsDomain.name).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
         TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
         PhonePushClient.shared.reloadConfigurationFromDefaults()
@@ -249,7 +250,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func applyLanguageOverride(_ language: AppLanguage) {
-        LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
+        LanguageSettingsStore(defaults: .standard, domainName: ProcessDefaultsDomain.name).applyLanguageOverride(language)
     }
 
     func openConfigInExternalEditor() {
@@ -332,15 +333,89 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
-    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+    func installCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        installCustomSidebarTemplate(id: id, openEditor: true)
+    }
+
+    func useCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        installCustomSidebarTemplate(id: id, openEditor: false)
+    }
+
+    private func installCustomSidebarTemplate(id: String, openEditor: Bool) -> CustomSidebarOnboardingResult {
+        guard CmuxExtensionSidebarSelection.customSidebarsEnabled else { return .writeFailed }
         guard let template = CustomSidebarOnboardingAssets().exampleTemplate(id: id) else {
             return .templateUnavailable
         }
-        return installCustomSidebarTemplate(
+        let result = installCustomSidebarTemplate(
             template,
             name: template.suggestedName,
-            uniquingIfNeeded: true
+            uniquingIfNeeded: true,
+            openEditor: openEditor
         )
+        if case let .created(name) = result {
+            CmuxExtensionSidebarSelection.clearInMemoryTemplatePreview()
+            customSidebarPreview = nil
+            UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
+            if template.descriptor.kind == .right {
+                if AppDelegate.shared?.selectCustomSidebarInRightPanel(name: name) != true {
+                    // A settings window can outlive the main window. Keep the
+                    // new file usable through the left-sidebar picker if the
+                    // right-panel host is unavailable.
+                    CmuxExtensionSidebarSelection.setProviderId(
+                        CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
+                    )
+                }
+            } else {
+                CmuxExtensionSidebarSelection.setProviderId(
+                    CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
+                )
+            }
+            NotificationCenter.default.post(
+                name: .customSidebarReloadRequested,
+                object: nil,
+                userInfo: ["names": [name]]
+            )
+        }
+        return result
+    }
+
+    func previewCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        revertCustomSidebarPreview()
+        guard CmuxExtensionSidebarSelection.customSidebarsEnabled else { return .writeFailed }
+        guard let template = CustomSidebarOnboardingAssets().exampleTemplate(id: id) else {
+            return .templateUnavailable
+        }
+        let previous = UserDefaults.standard.string(forKey: CmuxExtensionSidebarSelection.defaultsKey)
+            ?? CmuxExtensionSidebarSelection.defaultProviderId
+        let providerName = ".cmux-preview-\(id)-\(UUID().uuidString.prefix(8).lowercased())"
+        let providerId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + providerName
+        customSidebarPreview = (id: id, providerId: providerId, previousProviderId: previous)
+        CmuxExtensionSidebarSelection.setInMemoryTemplatePreview(providerId: providerId, source: template.source)
+        CmuxExtensionSidebarSelection.setProviderId(providerId)
+        NotificationCenter.default.post(name: .customSidebarReloadRequested, object: nil)
+        return .created(name: providerName)
+    }
+
+    func keepCustomSidebarPreview() -> CustomSidebarOnboardingResult {
+        guard let preview = customSidebarPreview else { return .templateUnavailable }
+        let result = useCustomSidebarTemplate(id: preview.id)
+        if case .created = result {
+            CmuxExtensionSidebarSelection.clearInMemoryTemplatePreview()
+            customSidebarPreview = nil
+        }
+        return result
+    }
+
+    func revertCustomSidebarPreview() {
+        guard let preview = customSidebarPreview else { return }
+        CmuxExtensionSidebarSelection.clearInMemoryTemplatePreview()
+        CmuxExtensionSidebarSelection.setProviderId(preview.previousProviderId)
+        NotificationCenter.default.post(name: .customSidebarReloadRequested, object: nil)
+        customSidebarPreview = nil
+    }
+
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+        installCustomSidebarTemplate(id: id)
     }
 
     func openCustomSidebarInExternalEditor(named name: String) {
@@ -364,7 +439,8 @@ final class HostSettingsActions: SettingsHostActions {
     private func installCustomSidebarTemplate(
         _ template: CustomSidebarTemplate,
         name: String,
-        uniquingIfNeeded: Bool
+        uniquingIfNeeded: Bool,
+        openEditor: Bool = true
     ) -> CustomSidebarOnboardingResult {
         switch CmuxExtensionSidebarSelection.writeCustomSidebar(
             named: name,
@@ -374,7 +450,9 @@ final class HostSettingsActions: SettingsHostActions {
             sidebarsDirectory: CmuxExtensionSidebarSelection.customSidebarsDirectory
         ) {
         case let .created(createdName, fileURL):
-            PreferredEditorService(defaults: .standard).open(fileURL)
+            if openEditor {
+                PreferredEditorService(defaults: .standard).open(fileURL)
+            }
             return .created(name: createdName)
         case .invalidTemplate:
             return .templateUnavailable

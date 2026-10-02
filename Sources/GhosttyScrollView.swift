@@ -209,8 +209,8 @@ final class GhosttyScrollView: NSScrollView {
     nonisolated static func savedShowScrollBarsPreference() -> String? {
         let key = TerminalScrollerStyle.showScrollBarsDefaultsKey
         let defaults = UserDefaults.standard
-        if let bundleIdentifier = Bundle.main.bundleIdentifier,
-           let appValue = defaults.persistentDomain(forName: bundleIdentifier)?[key] as? String {
+        if let domainName = ProcessDefaultsDomain.name,
+           let appValue = defaults.persistentDomain(forName: domainName)?[key] as? String {
             return appValue
         }
         return defaults.persistentDomain(forName: UserDefaults.globalDomain)?[key] as? String

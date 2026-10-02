@@ -37,6 +37,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showPortsKey = sidebar.showPorts.userDefaultsKey
     static let showLogKey = sidebar.showLog.userDefaultsKey
     static let showProgressKey = sidebar.showProgress.userDefaultsKey
+    static let showAgentUsageKey = sidebar.showAgentUsage.userDefaultsKey
     static let showAgentActivityKey = sidebar.showAgentActivity.userDefaultsKey
     static let showCustomMetadataKey = sidebar.showCustomMetadata.userDefaultsKey
     static let compactAgentStatusKey = sidebar.compactAgentStatus.userDefaultsKey
@@ -48,6 +49,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showPorts = sidebar.showPorts.defaultValue
     static let showLog = sidebar.showLog.defaultValue
     static let showProgress = sidebar.showProgress.defaultValue
+    static let showAgentUsage = sidebar.showAgentUsage.defaultValue
     static let showAgentActivity = sidebar.showAgentActivity.defaultValue
     static let showCustomMetadata = sidebar.showCustomMetadata.defaultValue
     static let compactAgentStatus = sidebar.compactAgentStatus.defaultValue
@@ -91,6 +93,7 @@ extension SidebarWorkspaceDetailDefaults {
             showMetadata: details.showCustomMetadata,
             showLog: details.showLog,
             showProgress: details.showProgress,
+            showAgentUsage: details.showAgentUsage,
             showBranchDirectory: details.showBranchDirectory,
             showPullRequests: details.showPullRequests,
             showPorts: details.showPorts,
@@ -238,6 +241,9 @@ enum NotificationSettingsFileMapping {
         .init(jsonKey: "showInMenuBar", defaultsKey: MenuBarExtraSettings.showInMenuBarKey),
         .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationPaneRingSettings.enabledKey),
         .init(jsonKey: "paneFlash", defaultsKey: NotificationPaneFlashSettings.enabledKey),
+        .init(jsonKey: "paneFlashDoubleBlink", defaultsKey: NotificationPaneFlashSettings.doubleBlinkKey),
+        .init(jsonKey: "paneFlashOnTyping", defaultsKey: NotificationPaneFlashSettings.onTypingKey),
+        .init(jsonKey: "paneFlashThemeColor", defaultsKey: NotificationPaneFlashSettings.themeColorKey),
         .init(
             jsonKey: "soundWhenFocused",
             defaultsKey: notifications.soundWhenFocused.userDefaultsKey
@@ -306,6 +312,11 @@ enum TerminalSettingsFileMapping {
             jsonKey: "showPasswordInputDots",
             defaultsKey: terminal.showPasswordInputDots.userDefaultsKey,
             invalidPath: terminal.showPasswordInputDots.id
+        ),
+        .init(
+            jsonKey: "showJumpToBottomButton",
+            defaultsKey: terminal.showJumpToBottomButton.userDefaultsKey,
+            invalidPath: terminal.showJumpToBottomButton.id
         ),
         .init(
             jsonKey: "predictiveLocalEcho",
@@ -400,6 +411,10 @@ enum SidebarSettingsFileMapping {
             defaultsKey: SidebarWorkspaceDetailDefaults.showProgressKey
         ),
         .init(
+            jsonKey: "showAgentUsage",
+            defaultsKey: SidebarWorkspaceDetailDefaults.showAgentUsageKey
+        ),
+        .init(
             jsonKey: "showAgentActivity",
             defaultsKey: SidebarWorkspaceDetailDefaults.showAgentActivityKey
         ),
@@ -458,7 +473,7 @@ enum AutomationSettingsFileMapping {
 enum BrowserSettingsFileMapping {
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(jsonKey: "showSearchSuggestions", defaultsKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey),
-        .init(jsonKey: "discardHiddenWebViews", defaultsKey: BrowserHiddenWebViewDiscardPolicy.enabledKey),
+        .init(jsonKey: "discardHiddenWebViews", defaultsKey: BrowserHiddenWebViewDiscardPolicy.enabledKey), .init(jsonKey: "autoRestoreUnloadedPages", defaultsKey: BrowserHiddenWebViewDiscardPolicy.autoRestoreKey),
         .init(
             jsonKey: "askWhereToSaveDownloads",
             defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
