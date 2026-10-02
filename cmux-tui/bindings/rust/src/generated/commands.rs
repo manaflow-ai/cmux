@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 775c143e40049003fdc122b643a0f7d56fee06b3e9c46dff2d40bf7fc9767faa.
+// cmux-tui mux protocol 12, IR 1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1913,6 +1913,22 @@ pub struct SetClientSizingRequest {
 pub type SetClientSizingResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetColumnStickyRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub edge: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mode: Optional<String>,
+    pub pane: T::Id,
+    pub sticky: bool,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<u64>,
+}
+
+#[rustfmt::skip]
+pub type SetColumnStickyResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SetDefaultColorsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3286,6 +3302,10 @@ impl CmuxClient {
 
     pub fn set_client_sizing(&mut self, request: SetClientSizingRequest) -> Result<SetClientSizingResult> {
         self.execute(&SET_CLIENT_SIZING_METADATA, &request)
+    }
+
+    pub fn set_column_sticky(&mut self, request: SetColumnStickyRequest) -> Result<SetColumnStickyResult> {
+        self.execute(&SET_COLUMN_STICKY_METADATA, &request)
     }
 
     pub fn set_default_colors(&mut self, request: SetDefaultColorsRequest) -> Result<SetDefaultColorsResult> {

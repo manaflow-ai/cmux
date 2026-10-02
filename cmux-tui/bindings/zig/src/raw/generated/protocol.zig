@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "775c143e40049003fdc122b643a0f7d56fee06b3e9c46dff2d40bf7fc9767faa";
+pub const ir_sha256 = "1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -5487,6 +5487,29 @@ pub fn setClientSizing(client: anytype, request: SetClientSizingRequest) !wire.D
     );
 }
 
+pub const SetColumnStickyRequest = struct {
+    edge: wire.Field([]const u8) = .absent,
+    mode: wire.Field([]const u8) = .absent,
+    pane: Id,
+    sticky: bool,
+    transaction: wire.Field(u64) = .absent,
+};
+
+pub const SetColumnStickyResult = JsonValue;
+
+pub fn setColumnSticky(client: anytype, request: SetColumnStickyRequest) !wire.Decoded(SetColumnStickyResult) {
+    return client.callTyped(
+        SetColumnStickyResult,
+        .{
+            .name = "set-column-sticky",
+            .authority = "control",
+            .since = 12,
+            .capability = "sticky-columns-v1",
+        },
+        request,
+    );
+}
+
 pub const SetDefaultColorsRequest = struct {
     bg: wire.Field(ColorHex) = .absent,
     complete: ?bool = null,
@@ -7512,7 +7535,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 189;
+pub const command_count: usize = 190;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7658,6 +7681,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-sizing", .authority = "control", .since = 10, .capability = null, .stream = null },
+    .{ .name = "set-column-sticky", .authority = "control", .since = 12, .capability = "sticky-columns-v1", .stream = null },
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "set-personal-terminal", .authority = "control", .since = 12, .capability = "personal-terminals-v1", .stream = null },
     .{ .name = "set-personal-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
