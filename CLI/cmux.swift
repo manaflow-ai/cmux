@@ -6174,7 +6174,7 @@ struct CMUXCLI {
                     break
                 }
                 let (nameOpt, snapshotArgs) = parseOption(rest, name: "--name")
-                guard let vmId = snapshotArgs.first else {
+                guard snapshotArgs.count == 1, let vmId = snapshotArgs.first, !vmId.hasPrefix("-") else {
                     throw CLIError(message: """
                         Usage: cmux vm snapshot <id> [--name <name>]
                                cmux vm snapshot ls <id>
@@ -6200,7 +6200,7 @@ struct CMUXCLI {
                 let (windowOpt, rem1) = parseOption(rem0, name: "--window")
                 let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
                 let vmArgs = rem1.filter { $0 != "--detach" && $0 != "-d" }
-                guard let vmId = vmArgs.first else {
+                guard vmArgs.count == 1, let vmId = vmArgs.first, !vmId.hasPrefix("-") else {
                     throw CLIError(message: """
                         Usage: cmux vm fork <id> [--name <name>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
 
@@ -6250,7 +6250,7 @@ struct CMUXCLI {
                 let (windowOpt, rem1) = parseOption(rem0, name: "--window")
                 let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
                 let restoreArgs = rem1.filter { $0 != "--detach" && $0 != "-d" }
-                guard let snapshotId = restoreArgs.first else {
+                guard restoreArgs.count == 1, let snapshotId = restoreArgs.first, !snapshotId.hasPrefix("-") else {
                     throw CLIError(message: """
                         Usage: cmux vm restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
                     """)
@@ -6346,7 +6346,7 @@ struct CMUXCLI {
                 }
 
             case "rm", "destroy", "delete":
-                guard let vmId = rest.first else {
+                guard rest.count == 1, let vmId = rest.first, !Self.isFlagToken(vmId) else {
                     throw CLIError(message: """
                         Usage: cmux vm rm <id>
 
@@ -6542,7 +6542,7 @@ struct CMUXCLI {
                 print("inspect:  cmux vm tools \(vmId)")
 
             case "promote-template":
-                guard let vmId = rest.first else {
+                guard rest.count == 1, let vmId = rest.first, !vmId.hasPrefix("-") else {
                     throw CLIError(message: "Usage: cmux vm promote-template <id>")
                 }
                 let name = "template-\(String(vmId.prefix(12)))-\(Int(Date().timeIntervalSince1970))"
@@ -21057,7 +21057,7 @@ struct CMUXCLI {
               press|key|keydown|keyup [--key <key> | <key>] [--snapshot-after]  \(String(localized: "cli.browser.help.keyboardNaming", defaultValue: "Named keys follow Playwright/W3C names. Space, Spacebar, and space emit DOM key \" \" with code \"Space\"; --key ' ' passes the raw DOM key."))
               select [--selector <css> | <css>] [--value <value> | <value>] [--snapshot-after]
               scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
-              screenshot [--out <path>]
+              screenshot [--out <path>] [--json]
               get <url|title|text|html|value|attr|count|box|styles> [...]
                 text|html|value|count|box|styles|attr: [--selector <css> | <css>]
                 attr: [--attr <name> | <name>]
@@ -21070,7 +21070,7 @@ struct CMUXCLI {
                 nth: [--index <n> | <n>] [--selector <css> | <css>]
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
-              download list [--limit <1...25>] | download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              download list [--limit <1...25>] [--json] | download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
               profiles <list|add|rename|clear|delete> [...]
               import [--interactive|--non-interactive|-y|--yes] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--create-profile] [--domain <domain>]
               \(String(localized: "cli.browser.cookies.help", defaultValue: "cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--http-only] [--all]"))
@@ -29372,7 +29372,13 @@ struct CMUXCLI {
             // hook set it to Running) and the app suppresses this banner. Skip the
             // "Needs input" pill/lifecycle so the idle nag can't undo the Running
             // status; the app still gates the (tagged) notification itself.
-            let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
+            // A completed Claude turn stays idle when the delayed waiting nag
+            // arrives. Permission prompts and errors still carry their own state.
+            let idleReminderForCompletedSession = notifyCategory == .idleReminder
+                && classifiedSubtitle != "Error"
+                && mappedSession?.agentLifecycle == .idle
+            let suppressNeedsInputState = notifyCategory == .idleReminder
+                && (notifyPending || idleReminderForCompletedSession)
 
             // `.other` remains ungated. Error alerts carry a contextual
             // `errorStalled` sound type; other uncategorized alerts omit the
@@ -30911,7 +30917,7 @@ struct CMUXCLI {
                     candidate = failure
                     candidateCanPublishBeforeTerminal = turnId == nil || payloadTurnId == turnId || sawRelevantTurn
                 }
-            case "task_complete", "turn_complete":
+            case "task_complete", "turn_complete", "turn_aborted":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
                 if let turnId {
                     guard payloadTurnId == turnId else {
@@ -30920,6 +30926,12 @@ struct CMUXCLI {
                 }
                 sawRelevantTurn = true
                 sawTerminalTurn = true
+                // An interrupted turn is still terminal for the monitor. It
+                // has no final response to classify as a failure, so let the
+                // normal Stop replay retire its stale prompt record.
+                if eventType == "turn_aborted" {
+                    continue
+                }
                 // Codex persists fatal turn failures inside task_complete.error. Standalone
                 // error events are transient, and a failed turn may still contain partial
                 // assistant output, so the terminal error must be authoritative.
