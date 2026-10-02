@@ -112,24 +112,38 @@ export function readChangeSet(value: unknown, scope: ChangeScope): ChangeSet | u
   };
 }
 
-/// A unified patch's hunks, numbered from their `@@` headers.
+/// A unified patch's hunks, numbered from their `@@` headers. Each hunk reads as many
+/// lines as its header counts, so a blank context line whose space was trimmed in transit
+/// still counts, and anything after the hunk ("\ No newline at end of file") does not.
 export function patchHunks(patch: string | undefined): DiffHunk[] {
   const hunks: DiffHunk[] = [];
-  let lines: DiffLine[] | undefined;
+  let lines: DiffLine[] = [];
   let oldLine = 0;
   let newLine = 0;
-  for (const line of (patch ?? "").split("\n")) {
-    const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+  let oldLeft = 0;
+  let newLeft = 0;
+  for (const raw of (patch ?? "").split("\n")) {
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+    const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
     if (header) {
       lines = [];
       hunks.push({ lines });
       oldLine = Number(header[1]);
-      newLine = Number(header[2]);
-    } else if (!lines) continue;
-    else if (line.startsWith("+")) lines.push({ type: "add", text: line.slice(1), newLine: newLine++ });
-    else if (line.startsWith("-")) lines.push({ type: "del", text: line.slice(1), oldLine: oldLine++ });
-    else if (line.startsWith(" "))
+      oldLeft = header[2] === undefined ? 1 : Number(header[2]);
+      newLine = Number(header[3]);
+      newLeft = header[4] === undefined ? 1 : Number(header[4]);
+    } else if (oldLeft <= 0 && newLeft <= 0) continue;
+    else if (line.startsWith("+") && newLeft > 0) {
+      lines.push({ type: "add", text: line.slice(1), newLine: newLine++ });
+      newLeft -= 1;
+    } else if (line.startsWith("-") && oldLeft > 0) {
+      lines.push({ type: "del", text: line.slice(1), oldLine: oldLine++ });
+      oldLeft -= 1;
+    } else if ((line.startsWith(" ") || line === "") && oldLeft > 0 && newLeft > 0) {
       lines.push({ type: "context", text: line.slice(1), oldLine: oldLine++, newLine: newLine++ });
+      oldLeft -= 1;
+      newLeft -= 1;
+    }
   }
   return hunks;
 }
@@ -144,5 +158,7 @@ export function changeSetFiles(changeSet: ChangeSet): TurnFile[] {
     additions: file.additions,
     deletions: file.deletions,
     created: file.status === "added" || file.status === "untracked",
+    deleted: file.status === "deleted",
+    binary: file.binary,
   }));
 }

@@ -68,7 +68,7 @@ export function DiffPanel({
   const [showTree, setShowTree] = useState(() => stored(TREE_KEY) !== "off");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const [viewed, setViewed] = useState<ReadonlySet<string>>(() => new Set());
-  const [selected, setSelected] = useState(initialPath ?? files[0]?.path);
+  const [selected, setSelected] = useState<string | undefined>(initialPath ?? files[0]?.path);
   const body = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
   const totals = useMemo(
@@ -198,8 +198,13 @@ export function DiffPanel({
         <ScopeMenu
           scope={scope}
           onScope={(next) => {
+            if (next === scope) return;
+            // Another scope is other contents: its files start open, unviewed and unpicked.
             stopRevealing();
             setScope(next);
+            setCollapsed(new Set());
+            setViewed(new Set());
+            setSelected(undefined);
           }}
         >
           {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
@@ -224,7 +229,14 @@ export function DiffPanel({
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">
           {scopeState ? (
-            <LoadState state={scopeState} onRetry={retry} />
+            <LoadState
+              state={scopeState}
+              onRetry={() => {
+                // Retry leaves as the load starts, so focus moves to the scope pill.
+                panel.current?.querySelector<HTMLElement>(".acpmux-diff-scope")?.focus();
+                retry();
+              }}
+            />
           ) : files.length === 0 ? (
             <div className="acpmux-muted">No file changes in this turn.</div>
           ) : (

@@ -1,6 +1,6 @@
 // The changes view's scope pill and menu, after Codex's: Last turn, then the working tree
 // (Uncommitted, Unstaged, Staged), then history (Committed, Branch), the chosen one checked.
-// It is a menu button: it opens on the chosen scope, arrows move through the scopes, Enter or
+// It is a menu button: it opens (from a press or an arrow key) on the chosen scope, arrows move through the scopes, Enter or
 // Space picks one, and Escape, Tab or a press elsewhere closes it.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Check, ChevronDown } from "../changeIcons";
@@ -66,6 +66,11 @@ export function ScopeMenu({
         aria-expanded={open}
         // WebKit does not focus a clicked button, so closing from it puts focus there.
         onClick={() => (open ? close(true) : setOpen(true))}
+        onKeyDown={(event) => {
+          if (open || (event.key !== "ArrowDown" && event.key !== "ArrowUp")) return;
+          event.preventDefault();
+          setOpen(true);
+        }}
       >
         <strong>{SCOPE_LABEL[scope]}</strong>
         <ChevronDown className="acpmux-scope-chevron" />
