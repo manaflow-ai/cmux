@@ -44,6 +44,7 @@ public final class SettingsApplier {
         if design.stickyColumnEdge != snapshot.stickyColumnEdge { design.stickyColumnEdge = snapshot.stickyColumnEdge }
         if design.stickyColumnMode != snapshot.stickyColumnMode { design.stickyColumnMode = snapshot.stickyColumnMode }
         if design.minimumPaneContentSize != snapshot.minimumPaneContentSize { design.minimumPaneContentSize = snapshot.minimumPaneContentSize }
+        if design.closeFocus != snapshot.closeFocus { design.closeFocus = snapshot.closeFocus }
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }
         if design.focusRing != snapshot.focusRing { design.focusRing = snapshot.focusRing }
         if design.attention != snapshot.attention { design.attention = snapshot.attention }

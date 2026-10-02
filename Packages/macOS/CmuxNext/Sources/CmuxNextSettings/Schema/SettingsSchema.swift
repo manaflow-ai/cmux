@@ -121,6 +121,16 @@ public nonisolated enum SettingsSchema {
                 ]),
                 default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["niri", "scroll", "scrollbar", "minimap"]
             ),
+            SettingDescriptor(
+                CloseFocusSetting.configPath, section: .general, group: columns,
+                title: SettingsText.text("settings.layout.closeFocus", "Focus After Closing a Pane"),
+                help: SettingsText.text("settings.layout.closeFocus.help", "Which pane gets focus when the focused pane closes."),
+                kind: .choice([
+                    SettingChoice(CloseFocusPolicy.previousNeighbor.rawValue, SettingsText.text("settings.choice.closeFocusPreviousNeighbor", "Previous Neighbor")),
+                    SettingChoice(CloseFocusPolicy.mostRecent.rawValue, SettingsText.text("settings.choice.closeFocusMostRecent", "Most Recently Focused")),
+                ]),
+                default: .string(CloseFocusSetting.fallback.rawValue), keywords: ["close", "focus", "neighbor", "recent"]
+            ),
         ]
     }
 
@@ -208,6 +218,16 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(FocusRingStyle.none.rawValue, SettingsText.text("settings.choice.none", "None")),
                 ]),
                 default: .string(FocusRingSettings().style.rawValue)
+            ),
+            SettingDescriptor(
+                ["focusRing", "contrast"], section: .appearance, group: ring,
+                title: SettingsText.text("settings.focusRing.contrast", "Contrast"),
+                kind: .choice([
+                    SettingChoice(FocusRingContrast.subtle.rawValue, SettingsText.text("settings.choice.subtle", "Subtle")),
+                    SettingChoice(FocusRingContrast.standard.rawValue, SettingsText.text("settings.choice.standard", "Standard")),
+                    SettingChoice(FocusRingContrast.strong.rawValue, SettingsText.text("settings.choice.strong", "Strong")),
+                ]),
+                default: .string(FocusRingSettings().contrast.rawValue)
             ),
             SettingDescriptor(
                 ["focusRing", "color"], section: .appearance, group: ring,

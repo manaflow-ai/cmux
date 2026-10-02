@@ -34,6 +34,10 @@ export type AcpmuxActivity = {
     status: string;
     inputSummary?: string;
     output?: string;
+    /// A shell call's command line (`rawInput.command`), for its Shell block.
+    command?: string;
+    /// A finished shell call's exit status (Codex's `rawOutput.exit_code`).
+    exitCode?: number;
     diffs?: AcpmuxFileDiff[];
     locations?: { path: string; line?: number }[];
   };

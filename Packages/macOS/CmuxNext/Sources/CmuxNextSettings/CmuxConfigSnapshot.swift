@@ -77,6 +77,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var stickyColumnMode: StickyDefaultMode = ColumnLayoutSettings.stickyModeFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
+    /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
+    public var closeFocus: CloseFocusPolicy = CloseFocusSetting.fallback
     /// `layout.defaultColumnWidth`; 0.5 when unset or invalid.
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback
     /// `focusRing.*`.
@@ -146,6 +148,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (scrollbar, scrollbarDiagnostic) = StripScrollbarSetting.parse(root)
         snapshot.stripScrollbar = scrollbar
         if let scrollbarDiagnostic { snapshot.diagnostics.append(scrollbarDiagnostic) }
+        let (closeFocus, closeFocusDiagnostic) = CloseFocusSetting.parse(root)
+        snapshot.closeFocus = closeFocus
+        if let closeFocusDiagnostic { snapshot.diagnostics.append(closeFocusDiagnostic) }
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
         ColumnLayoutSettings.parse(root, into: &snapshot)
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
