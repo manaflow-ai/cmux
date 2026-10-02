@@ -16,7 +16,7 @@ Status: phase 1 design landed, phase 2 in progress, app platform lead, 2026-10-0
 | --- | --- | --- |
 | `cmux-tui/crates/cmux-app-host/js/` | engine-neutral runtime (reactive core, view builders, scene ops, `cmux` global proxy, compat module for old sidebars), bun tests, built `dist/cmux-app-runtime.js` (IIFE, checked in) | app platform lead |
 | `cmux-tui/crates/cmux-app-host/schema/cmux-app.schema.json` | manifest JSON Schema 2020-12 (source of truth for every validator) | app platform lead |
-| `cmux-tui/crates/cmux-app-host/tools/` | `gen-cmux-global.ts` (reads `cmux-tui/spec/resource-operations-v2.json`, `backend/catalog/cloud-operations.json`, `plans/cmux-next/action-surfaces.json`; writes `generated/`), `validate-manifest.ts` (`cmux app validate` logic until the Rust CLI verb exists) | app platform lead |
+| `cmux-tui/crates/cmux-app-host/tools/` | `gen-cmux-global.ts` (reads `cmux-tui/spec/resource-operations-v2.json`, `backend/catalog/cloud-operations.json`, `plans/cmux-next/action-surfaces.json`; writes `generated/`), `validate-manifest.ts` (`cmux apps validate` logic until the Rust CLI verb exists) | app platform lead |
 | `cmux-tui/crates/cmux-app-host/generated/` | `cmux-app.d.ts`, `cmux-global.js`, `scopes.json` (checked in; CI checks they match the catalogs) | generated |
 | `cmux-tui/crates/cmux-app-host/src/` (later) | Rust crate: supervisor + QuickJS host (rquickjs), built and tested on the Blacksmith testbox only | app platform lead, with the cmux-tui owners |
 | `samples/apps/<name>/` | sample apps: `github-prs` (section), `running-agents` (section), `agent-status` (status item) | app platform lead |
@@ -29,13 +29,13 @@ The Swift module syncs the runtime and generated files from `cmux-tui/crates/cmu
 
 | Action / op | Palette | CLI | Right-click | MCP | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `appStore.show` | App Store | `cmux app store` exempt `guiOnly` | sidebar background > Options | follows CLI (exempt) | opens the App Store window (tab kind `app_store` later) |
+| `appStore.show` | App Store | `cmux apps store` exempt `guiOnly` | sidebar background > Options | follows CLI (exempt) | opens the App Store window (tab kind `app_store` later) |
 | `appStore.showInstalled` | Installed Apps | exempt `guiOnly` | — | — | App Store window, Installed tab |
-| `app.search`, `app.info`, `app.list` | via App Store page | `cmux app search|info|list --json` | — | default | cloud reads (spec section 11) |
-| `app.install`, `app.update`, `app.remove` | App Store buttons | `cmux app install|update|remove [--wait]` | Installed row menu | default (approval when the actor is an agent) | cloud mutations; the local supervisor follows |
-| `app.reload`, `app.disable`, `app.enable`, `app.logs` | per app ("Reload GitHub PRs") | `cmux app reload|disable|enable|logs` | Installed row, app section header | default (logs) / opt_in | local supervisor |
-| `app.dev`, `app.validate`, `app.init`, `app.pack`, `app.publish` | — | `cmux app dev|validate|init|pack|publish` | — | validate only | author tools |
-| app commands `app:<id>#<cmd>` | listed under the app's name | `cmux app run <id>#<cmd>` | placements declared by `contexts` | generated tool per command when the app holds `mcp:expose` | registered at runtime; check-action-surfaces exempts the dynamic family with `appContribution` |
+| `app.search`, `app.info`, `app.list` | via App Store page | `cmux apps search|info|list --json` | — | default | cloud reads (spec section 11) |
+| `app.install`, `app.update`, `app.remove` | App Store buttons | `cmux apps install|update|remove [--wait]` | Installed row menu | default (approval when the actor is an agent) | cloud mutations; the local supervisor follows |
+| `app.reload`, `app.disable`, `app.enable`, `app.logs` | per app ("Reload GitHub PRs") | `cmux apps reload|disable|enable|logs` | Installed row, app section header | default (logs) / opt_in | local supervisor |
+| `app.dev`, `app.validate`, `app.init`, `app.pack`, `app.publish` | — | `cmux apps dev|validate|init|pack|publish` | — | validate only | author tools |
+| app commands `app:<id>#<cmd>` | listed under the app's name | `cmux apps run <id>#<cmd>` | placements declared by `contexts` | generated tool per command when the app holds `mcp:expose` | registered at runtime; check-action-surfaces exempts the dynamic family with `appContribution` |
 | `sidebar.section.addApp` | Add <App> Section | `cmux sidebar section add --app <id>#<section>` | sidebar background > Add | yes | requested from the sections agent |
 
 CLI verbs go to the Rust CLI owner (#16174 session) as a request; the Swift CLI is frozen.
@@ -87,4 +87,4 @@ Sidebar: the sections lead accepted app sections: `SectionContent.app` + `Layout
 - Catalog fields needed from the D7 generator owners: `scope_family`, `invalidated_by`, `since`, event payload schemas.
 - Sections agent: `content: app(contribution)` in the layout document and placeholder rows.
 - Backend lead: review of `AppDO` and `0002_app_store.sql`; migration label `backend:apply-migrations`.
-- Rust CLI owner: `cmux app …` verbs.
+- Rust CLI owner: `cmux apps …` verbs (accepted: noun `apps`, because `cmux app` is the running app's scope; exit 0 ok, 2 usage, 3 denied, 4 expired; verbs generated from the cloud catalog). Implementation is a cli/ module PR after #16174 merges.
