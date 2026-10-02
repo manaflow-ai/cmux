@@ -22,6 +22,25 @@ struct AnalyzerRawInput: @unchecked Sendable {
     }
 }
 
+/// Start times for the analyzer's input, in the order the buffers are fed.
+struct AnalyzerTimeline {
+    /// Where the previous buffer ended.
+    private var end: CMTime?
+
+    /// The start time to give a buffer of `frames` frames at `sampleRate`
+    /// that was captured at `time`. A buffer without a time resets the
+    /// timeline.
+    mutating func start(at time: CMTime?, frames: AVAudioFrameCount, sampleRate: Double) -> CMTime? {
+        guard let time, sampleRate > 0 else {
+            end = nil
+            return time
+        }
+        let rate = CMTimeScale(min(sampleRate.rounded(), Double(Int32.max)))
+        end = CMTimeAdd(time, CMTime(value: CMTimeValue(frames), timescale: rate))
+        return time
+    }
+}
+
 /// The bounded handoff from the audio-thread tap to the actor.
 /// Lock carve-out: the AVAudioEngine tap is a synchronous audio-thread
 /// callback. It only snapshots the continuation and enqueues the tap's
