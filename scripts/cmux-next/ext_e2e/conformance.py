@@ -303,7 +303,7 @@ class Run:
         report = self.extensions()
         action = next((a for a in report.get("actions", []) if a.get("id") == MV3_ID), None)
         toolbar = app.call("debug.extensions.toolbar").get("result") or {}
-        # Unpinned actions live in the Extensions menu, as in Chrome.
+        # Unpinned actions live in the Extensions menu.
         placed = MV3_ID in toolbar.get("visible_actions", []) + toolbar.get("overflow_actions", []) or (
             action and not action.get("pinned") and toolbar.get("shows_extensions_button"))
         self.note("mv3", "action", "toolbar_button", "pass" if action and placed else "fail",

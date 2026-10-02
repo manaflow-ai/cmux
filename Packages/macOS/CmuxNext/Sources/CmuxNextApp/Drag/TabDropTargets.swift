@@ -64,7 +64,7 @@ final class SidebarTabDropTarget: TabDropTargetProviding {
 }
 
 /// The workspace layout: pane edge zones (new split), pane centers (join
-/// that pane's strip at the end), and column gaps (new niri column). Reads
+/// that pane's strip at the end), and column gaps (new strip column). Reads
 /// the window's current content on every call, so a spring-loaded
 /// workspace switch mid-drag is picked up.
 final class LayoutTabDropTarget: TabDropTargetProviding {

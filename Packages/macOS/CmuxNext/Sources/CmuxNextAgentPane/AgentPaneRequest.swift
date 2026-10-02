@@ -19,6 +19,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// or `dictation.openSettings` with `{permission}`.
     case dictation(AgentPaneDictationCommand)
+    /// `file.open` with `{path, where}`: a changed file from the changes view,
+    /// in a tab beside the agent or in the text editor.
+    case openFile(path: String, target: AgentPaneFileTarget)
     case unsupported(String)
 
     public static let maximumPacingFrames = 640
@@ -44,6 +47,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "pane.framePacing":
             if let intervals = params?["intervals"] as? [Double], !intervals.isEmpty {
                 self = .framePacing(Array(intervals.prefix(Self.maximumPacingFrames)))
+            } else {
+                self = .unsupported(method)
+            }
+        case "file.open":
+            if let path = params?["path"] as? String, !path.isEmpty,
+               let raw = params?["where"] as? String, let target = AgentPaneFileTarget(rawValue: raw) {
+                self = .openFile(path: path, target: target)
             } else {
                 self = .unsupported(method)
             }

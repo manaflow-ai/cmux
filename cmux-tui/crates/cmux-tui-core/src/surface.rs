@@ -3424,13 +3424,13 @@ impl Surface {
                     let mut resync_requested = false;
                     let mut journal_target = None;
                     let mut journal_update = None;
-                    // `reader` moves into the demultiplexer; a reconnect
-                    // assigns the replacement before `continue 'connection`.
+                    // `reader` moves into the demultiplexer; a reconnect reassigns it.
                     let frames = match host_frames::HostFrames::spawn(
                         format!("surface-{id}-host-frames"),
                         reader,
                         control_responses.clone(),
                         protocol_version,
+                        smart_renderer,
                     ) {
                         Ok(frames) => frames,
                         Err(_) => break 'connection,
@@ -3792,7 +3792,7 @@ impl Surface {
                         drop(journal_update.take());
                         journal_target = None;
                     }
-                    control_responses.fail_all();
+                    frames.abandon();
                     let Some(pty) = surface.as_pty() else { return };
                     if pty.owner_detaching.load(Ordering::Acquire) {
                         return;
@@ -5071,9 +5071,9 @@ impl Surface {
                     return Ok(());
                 }
                 if host.send_kitty_graphics_limits_until(requested, deadline)? {
-                    // The host publishes a complete replacement before its
-                    // acknowledgement. The reader has therefore committed the
-                    // authoritative parser and cache before this returns.
+                    // The host committed them; a smart host's resync reopens the
+                    // mirror later, so a repeat request compares against this.
+                    *pty.kitty_graphics_limits.lock().unwrap() = requested;
                     return Ok(());
                 }
                 // Older hosts cannot carry Kitty sidecar state. Keep the

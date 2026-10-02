@@ -79,7 +79,7 @@ extension SidebarListView {
         }
     }
 
-    /// Arc-style spring loading: hovering a row for `springLoadDelay` selects
+    /// Spring loading: hovering a row for `springLoadDelay` selects
     /// it so the user can keep dragging into that workspace's panes.
     func updateSpringLoad(_ external: ExternalDrag) {
         let target: WorkspaceID? = if case let .intoWorkspace(id)? = external.proposal { id } else { nil }

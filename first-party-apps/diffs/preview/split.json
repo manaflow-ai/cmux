@@ -1,0 +1,236 @@
+{
+  "scopes": {
+    "git.status": {
+      "scope": "git:read",
+      "class": "read"
+    },
+    "git.diff": {
+      "scope": "git:read",
+      "class": "read"
+    },
+    "diff.get": {
+      "scope": "diff:read",
+      "class": "read"
+    },
+    "diff.decide": {
+      "scope": "diff:write",
+      "class": "mutation"
+    },
+    "diff.comment.add": {
+      "scope": "diff:write",
+      "class": "mutation"
+    },
+    "feed.get": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.list": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.answer": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "ui.embed.create": {
+      "scope": "embed:run",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "workspace:read",
+      "class": "read"
+    }
+  },
+  "ops": {
+    "workspace.list": [
+      {
+        "id": "workspace_orbit",
+        "session_id": "s",
+        "name": "orbit",
+        "index": 0,
+        "focused": true
+      }
+    ],
+    "git.status": {
+      "repo": {
+        "repo": "repo_orbit",
+        "name": "orbit",
+        "branch": "cache-evictions",
+        "head": "9b7d4e2"
+      },
+      "files": [
+        {
+          "path": "src/cache/lru.ts",
+          "status": "modified",
+          "additions": 12,
+          "deletions": 2,
+          "staged": true
+        },
+        {
+          "path": "src/server/routes.ts",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1,
+          "staged": false
+        },
+        {
+          "path": "docs/caching.md",
+          "status": "added",
+          "additions": 5,
+          "deletions": 0,
+          "staged": false
+        },
+        {
+          "path": "src/legacy/memo.ts",
+          "status": "deleted",
+          "additions": 0,
+          "deletions": 4,
+          "staged": false
+        },
+        {
+          "path": "assets/logo.png",
+          "status": "binary",
+          "additions": 0,
+          "deletions": 0,
+          "binary": true,
+          "staged": false
+        },
+        {
+          "path": "notes/todo.txt",
+          "status": "untracked",
+          "additions": 0,
+          "deletions": 0,
+          "staged": false
+        }
+      ]
+    },
+    "git.diff": {
+      "diff": "diff_worktree1",
+      "title": "orbit · cache-evictions",
+      "producer": "git",
+      "base": {
+        "kind": "git",
+        "repo": "repo_orbit",
+        "rev": "HEAD"
+      },
+      "head": {
+        "kind": "worktree",
+        "repo": "repo_orbit"
+      },
+      "files": [
+        {
+          "path": "src/cache/lru.ts",
+          "status": "modified",
+          "additions": 12,
+          "deletions": 2
+        },
+        {
+          "path": "src/server/routes.ts",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1
+        },
+        {
+          "path": "docs/caching.md",
+          "status": "added",
+          "additions": 5,
+          "deletions": 0
+        },
+        {
+          "path": "src/legacy/memo.ts",
+          "status": "deleted",
+          "additions": 0,
+          "deletions": 4
+        },
+        {
+          "path": "assets/logo.png",
+          "status": "binary",
+          "additions": 0,
+          "deletions": 0,
+          "binary": true
+        }
+      ],
+      "patch": "diff --git a/src/cache/lru.ts b/src/cache/lru.ts\nindex 3f2a1c0..9b7d4e2 100644\n--- a/src/cache/lru.ts\n+++ b/src/cache/lru.ts\n@@ -12,17 +12,22 @@ export class LruCache<K, V> {\n   private readonly entries = new Map<K, V>()\n \n-  constructor(private readonly capacity: number) {}\n+  constructor(private readonly capacity: number, private readonly onEvict?: (key: K, value: V) => void) {\n+    if (capacity < 1) throw new RangeError(\"capacity must be at least 1\")\n+  }\n \n   get(key: K): V | undefined {\n     const value = this.entries.get(key)\n     if (value === undefined) return undefined\n     this.entries.delete(key)\n     this.entries.set(key, value)\n     return value\n   }\n \n   set(key: K, value: V): void {\n     this.entries.delete(key)\n     this.entries.set(key, value)\n-    if (this.entries.size > this.capacity) this.entries.delete(this.entries.keys().next().value!)\n+    if (this.entries.size <= this.capacity) return\n+    const oldest = this.entries.keys().next().value!\n+    this.onEvict?.(oldest, this.entries.get(oldest)!)\n+    this.entries.delete(oldest)\n   }\n@@ -40,4 +45,9 @@ export class LruCache<K, V> {\n   get size(): number {\n     return this.entries.size\n   }\n+\n+  clear(): void {\n+    for (const [key, value] of this.entries) this.onEvict?.(key, value)\n+    this.entries.clear()\n+  }\n }\ndiff --git a/src/server/routes.ts b/src/server/routes.ts\nindex 81c0d11..2aa90f3 100644\n--- a/src/server/routes.ts\n+++ b/src/server/routes.ts\n@@ -3,5 +3,5 @@ import { LruCache } from \"../cache/lru\"\n \n-const pages = new LruCache<string, string>(100)\n+const pages = new LruCache<string, string>(500, (key) => metrics.count(\"cache.evict\", { key }))\n \n export function render(path: string): string {\n   const hit = pages.get(path)\ndiff --git a/docs/caching.md b/docs/caching.md\nnew file mode 100644\nindex 0000000..c1d2e3f\n--- /dev/null\n+++ b/docs/caching.md\n@@ -0,0 +1,5 @@\n+# Page cache\n+\n+Rendered pages stay in an LRU cache of 500 entries.\n+Evictions are counted as `cache.evict`.\n+Call `clear()` after a deploy.\ndiff --git a/src/legacy/memo.ts b/src/legacy/memo.ts\ndeleted file mode 100644\nindex 77ab001..0000000\n--- a/src/legacy/memo.ts\n+++ /dev/null\n@@ -1,4 +0,0 @@\n-export function memo<T>(fn: () => T): () => T {\n-  let v: T | undefined\n-  return () => (v ??= fn())\n-}\ndiff --git a/assets/logo.png b/assets/logo.png\nindex 1111111..2222222 100644\nBinary files a/assets/logo.png and b/assets/logo.png differ\n",
+      "acceptVerb": "stage",
+      "rejectVerb": "discard"
+    },
+    "diff.get": {
+      "diff": "diff_prop7",
+      "title": "Count cache evictions and add clear()",
+      "producer": "agent",
+      "producerLabel": "agent in orbit",
+      "base": {
+        "kind": "git",
+        "repo": "repo_orbit",
+        "rev": "9b7d4e2"
+      },
+      "head": {
+        "kind": "snapshot",
+        "id": "snap_44"
+      },
+      "files": [
+        {
+          "path": "src/cache/lru.ts",
+          "status": "modified",
+          "additions": 12,
+          "deletions": 2
+        },
+        {
+          "path": "src/server/routes.ts",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1
+        },
+        {
+          "path": "docs/caching.md",
+          "status": "added",
+          "additions": 5,
+          "deletions": 0
+        }
+      ],
+      "patch": "diff --git a/src/cache/lru.ts b/src/cache/lru.ts\nindex 3f2a1c0..9b7d4e2 100644\n--- a/src/cache/lru.ts\n+++ b/src/cache/lru.ts\n@@ -12,17 +12,22 @@ export class LruCache<K, V> {\n   private readonly entries = new Map<K, V>()\n \n-  constructor(private readonly capacity: number) {}\n+  constructor(private readonly capacity: number, private readonly onEvict?: (key: K, value: V) => void) {\n+    if (capacity < 1) throw new RangeError(\"capacity must be at least 1\")\n+  }\n \n   get(key: K): V | undefined {\n     const value = this.entries.get(key)\n     if (value === undefined) return undefined\n     this.entries.delete(key)\n     this.entries.set(key, value)\n     return value\n   }\n \n   set(key: K, value: V): void {\n     this.entries.delete(key)\n     this.entries.set(key, value)\n-    if (this.entries.size > this.capacity) this.entries.delete(this.entries.keys().next().value!)\n+    if (this.entries.size <= this.capacity) return\n+    const oldest = this.entries.keys().next().value!\n+    this.onEvict?.(oldest, this.entries.get(oldest)!)\n+    this.entries.delete(oldest)\n   }\n@@ -40,4 +45,9 @@ export class LruCache<K, V> {\n   get size(): number {\n     return this.entries.size\n   }\n+\n+  clear(): void {\n+    for (const [key, value] of this.entries) this.onEvict?.(key, value)\n+    this.entries.clear()\n+  }\n }\ndiff --git a/src/server/routes.ts b/src/server/routes.ts\nindex 81c0d11..2aa90f3 100644\n--- a/src/server/routes.ts\n+++ b/src/server/routes.ts\n@@ -3,5 +3,5 @@ import { LruCache } from \"../cache/lru\"\n \n-const pages = new LruCache<string, string>(100)\n+const pages = new LruCache<string, string>(500, (key) => metrics.count(\"cache.evict\", { key }))\n \n export function render(path: string): string {\n   const hit = pages.get(path)\ndiff --git a/docs/caching.md b/docs/caching.md\nnew file mode 100644\nindex 0000000..c1d2e3f\n--- /dev/null\n+++ b/docs/caching.md\n@@ -0,0 +1,5 @@\n+# Page cache\n+\n+Rendered pages stay in an LRU cache of 500 entries.\n+Evictions are counted as `cache.evict`.\n+Call `clear()` after a deploy.\n",
+      "acceptVerb": "apply",
+      "rejectVerb": "drop",
+      "decisions": [
+        {
+          "path": "src/server/routes.ts",
+          "decision": "accept"
+        }
+      ]
+    },
+    "feed.get": {
+      "id": "fi_review42",
+      "title": "Review: count cache evictions",
+      "state": "open",
+      "poster": {
+        "label": "agent in orbit"
+      },
+      "prompt": {
+        "subject": "diff",
+        "ref": "diff_prop7",
+        "checklist": [
+          "Evictions are counted",
+          "clear() calls the callback"
+        ]
+      }
+    },
+    "feed.list": [
+      {
+        "id": "fi_review42",
+        "title": "Review: count cache evictions",
+        "state": "open",
+        "poster": {
+          "label": "agent in orbit"
+        },
+        "prompt": {
+          "subject": "diff",
+          "ref": "diff_prop7",
+          "checklist": [
+            "Evictions are counted",
+            "clear() calls the callback"
+          ]
+        }
+      }
+    ]
+  }
+}

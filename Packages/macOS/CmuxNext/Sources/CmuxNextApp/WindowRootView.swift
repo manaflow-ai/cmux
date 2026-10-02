@@ -16,6 +16,8 @@ import Observation
 /// terminal read as one sheet with no panel edges or seams. In a
 /// translucent window that sheet is one material with one theme tint
 /// (`backdropView`, the bottom subview) and everything above it is clear.
+/// `window.rail` adds the icon rail (`WindowRail`) before the sidebar or
+/// between the sidebar and the content column.
 final class WindowRootView: NSView {
     let titlebar = TitlebarView()
     /// The window's one material and tint (`WindowBackdrop`).
@@ -23,21 +25,27 @@ final class WindowRootView: NSView {
     /// Whether Reduce Transparency is on (tests pin it; the host setting
     /// differs between machines).
     private let reduceTransparency: @MainActor () -> Bool
-    private let contentHost = NSView()
+    let contentHost = NSView()
     private let sidebar: SidebarContainerView
+    let rail: WindowRailView
     private var titleHeight: NSLayoutConstraint?
+    /// The horizontal chain (rail, sidebar, content column) for the current `window.rail`.
+    private var placementConstraints: [NSLayoutConstraint] = []
     private var tokenObservation: Task<Void, Never>?
+    private var railObservation: Task<Void, Never>?
     private(set) weak var content: NSView?
     /// Empties AppKit's titlebar drag region: the window moves only through
     /// `TitlebarDragPolicy` (`ShellWindow.sendEvent`).
     let titlebarBandBlocker = TitlebarDragBlocker(frame: .zero)
 
     /// - Parameter sidebar: The window's sidebar.
+    /// - Parameter rail: The window's icon rail.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
     ///   setting, read on every theme and display-options change.
-    init(sidebar: SidebarContainerView,
+    init(sidebar: SidebarContainerView, rail: WindowRailView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }) {
         self.sidebar = sidebar
+        self.rail = rail
         self.reduceTransparency = reduceTransparency
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
         wantsLayer = true
@@ -51,30 +59,30 @@ final class WindowRootView: NSView {
         addSubview(sidebar)
         addSubview(titlebarBandBlocker)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
-        // Below required, so it yields to the traffic-light inset.
-        let titleFollowsSidebar = titlebar.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor)
-        titleFollowsSidebar.priority = .required - 1
         NSLayoutConstraint.activate([
             sidebar.topAnchor.constraint(equalTo: topAnchor),
-            sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
             sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
             titlebar.topAnchor.constraint(equalTo: topAnchor),
             titlebar.trailingAnchor.constraint(equalTo: trailingAnchor),
             titleHeight,
-            titleFollowsSidebar,
             // When the sidebar hides, the title stops clear of the traffic
             // lights while the content below reaches the window edge.
             titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset),
-            contentHost.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
             contentHost.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
             contentHost.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentHost.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         self.titleHeight = titleHeight
+        applyRail()
         applyTokens()
         tokenObservation = Task { [weak self] in
             for await _ in Observations({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0] }) {
                 self?.applyTokens()
+            }
+        }
+        railObservation = Task { [weak self] in
+            for await _ in Observations({ DesignSettings.shared.rail }) {
+                self?.applyRail()
             }
         }
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displayOptionsChanged),
@@ -91,6 +99,7 @@ final class WindowRootView: NSView {
 
     isolated deinit {
         tokenObservation?.cancel()
+        railObservation?.cancel()
     }
 
     var titlebarStyle: TitlebarStyle { DesignSettings.shared.titlebar }
@@ -102,6 +111,50 @@ final class WindowRootView: NSView {
         titleHeight?.constant = minimal ? 0 : Metrics.titlebarHeight
         titlebar.isHidden = minimal
         sidebar.sidebarView.titlebarHeightOverride = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
+        rail.topInset = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
+        needsLayout = true
+    }
+
+    /// Builds the horizontal chain for `window.rail`: "off" keeps the rail
+    /// out of the window (the layout before the rail existed), "leading"
+    /// puts it at the window's leading edge with the sidebar after it,
+    /// "afterSidebar" between the sidebar and the content column. The
+    /// titlebar strip and the content column follow whichever comes last.
+    func applyRail() {
+        NSLayoutConstraint.deactivate(placementConstraints)
+        let placement = DesignSettings.shared.rail
+        if placement == .off {
+            rail.removeFromSuperview()
+        } else if rail.superview !== self {
+            // Under the sidebar, so its resize handle keeps the shared edge.
+            addSubview(rail, positioned: .below, relativeTo: sidebar)
+        }
+        var constraints: [NSLayoutConstraint] = []
+        let column: NSLayoutXAxisAnchor
+        switch placement {
+        case .off:
+            constraints.append(sidebar.leadingAnchor.constraint(equalTo: leadingAnchor))
+            column = sidebar.trailingAnchor
+        case .leading:
+            constraints += [rail.leadingAnchor.constraint(equalTo: leadingAnchor), sidebar.leadingAnchor.constraint(equalTo: rail.trailingAnchor)]
+            column = sidebar.trailingAnchor
+        case .afterSidebar:
+            constraints += [sidebar.leadingAnchor.constraint(equalTo: leadingAnchor), rail.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor)]
+            column = rail.trailingAnchor
+        }
+        if placement != .off {
+            constraints += [
+                rail.topAnchor.constraint(equalTo: topAnchor),
+                rail.bottomAnchor.constraint(equalTo: bottomAnchor),
+                rail.widthAnchor.constraint(equalToConstant: WindowRail.width),
+            ]
+        }
+        // Below required, so it yields to the traffic-light inset.
+        let titleFollowsColumn = titlebar.leadingAnchor.constraint(equalTo: column)
+        titleFollowsColumn.priority = .required - 1
+        constraints += [titleFollowsColumn, contentHost.leadingAnchor.constraint(equalTo: column)]
+        NSLayoutConstraint.activate(constraints)
+        placementConstraints = constraints
         needsLayout = true
     }
 

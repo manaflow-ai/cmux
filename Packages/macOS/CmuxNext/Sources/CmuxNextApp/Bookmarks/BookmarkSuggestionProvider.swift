@@ -3,7 +3,7 @@ import CmuxNextBrowser
 import Foundation
 
 /// Bookmark rows in a browser profile's omnibar (star icon), ranked by
-/// `BookmarkRanker` (Chrome's BookmarkProvider rule). A bookmarked page also
+/// `BookmarkRanker` (Chromium's BookmarkProvider rule). A bookmarked page also
 /// in history wins the row: the engine keeps the higher score per page.
 @MainActor
 final class BookmarkSuggestionProvider: BrowserSuggestionProvider {

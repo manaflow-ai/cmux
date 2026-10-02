@@ -1,0 +1,3 @@
+.build/
+artifacts/
+*.png

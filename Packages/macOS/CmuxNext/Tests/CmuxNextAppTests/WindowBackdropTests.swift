@@ -19,7 +19,7 @@ struct WindowBackdropTests {
         #expect(!backdrop.isOpaque)
         #expect(backdrop.material == .frosted)
         // Ghostty uses white at 0.001, not clear, so the window keeps its
-        // shadow and hit testing like Terminal.app.
+        // shadow and hit testing like a standard window.
         #expect(backdrop.windowBackgroundAlpha == 0.001)
         // No blur (`background-blur = false`): plainly see-through.
         #expect(WindowBackdrop(backgroundOpacity: 0.8, backgroundBlur: 0).material == .translucent)

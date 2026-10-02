@@ -60267,127 +60267,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New WebKit Tab (experimental)"
+            "value": "New WebKit Tab"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "علامة تبويب WebKit جديدة (تجريبي)"
+            "value": "علامة تبويب WebKit جديدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Novi WebKit tab (eksperimentalno)"
+            "value": "Novi WebKit tab"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny WebKit-fane (eksperimentel)"
+            "value": "Ny WebKit-fane"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neuer WebKit-Tab (experimentell)"
+            "value": "Neuer WebKit-Tab"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nueva pestaña de WebKit (experimental)"
+            "value": "Nueva pestaña de WebKit"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nouvel onglet WebKit (expérimental)"
+            "value": "Nouvel onglet WebKit"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nuova scheda WebKit (sperimentale)"
+            "value": "Nuova scheda WebKit"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規 WebKit タブ（試験的）"
+            "value": "新規 WebKit タブ"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ថេប WebKit ថ្មី (សាកល្បង)"
+            "value": "ថេប WebKit ថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 WebKit 탭 (실험적)"
+            "value": "새 WebKit 탭"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny WebKit-fane (eksperimentell)"
+            "value": "Ny WebKit-fane"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowa karta WebKit (eksperymentalna)"
+            "value": "Nowa karta WebKit"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova Aba WebKit (experimental)"
+            "value": "Nova Aba WebKit"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новая вкладка WebKit (экспериментальная)"
+            "value": "Новая вкладка WebKit"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แท็บ WebKit ใหม่ (ทดลอง)"
+            "value": "แท็บ WebKit ใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni WebKit Sekmesi (deneysel)"
+            "value": "Yeni WebKit Sekmesi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нова вкладка WebKit (експериментальна)"
+            "value": "Нова вкладка WebKit"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tab WebKit mới (thử nghiệm)"
+            "value": "Tab WebKit mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新建 WebKit 标签页（实验性）"
+            "value": "新建 WebKit 标签页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新增 WebKit 分頁（實驗性）"
+            "value": "新增 WebKit 分頁"
           }
         }
       }
@@ -66424,127 +66424,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نمط tmux (البادئة Ctrl-B)"
+            "value": "أوتار البادئة (Ctrl-B)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "tmux stil (Ctrl-B prefiks)"
+            "value": "Prefiks akordi (Ctrl-B)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "tmux-stil (Ctrl-B-præfiks)"
+            "value": "Præfiks-akkorder (Ctrl-B)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux-Stil (Ctrl-B-Präfix)"
+            "value": "Präfix-Akkorde (Ctrl-B)"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux-style (Ctrl-B Prefix)"
+            "value": "Prefix chords (Ctrl-B)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Estilo tmux (prefijo Ctrl-B)"
+            "value": "Acordes con prefijo (Ctrl-B)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Style tmux (préfixe Ctrl-B)"
+            "value": "Accords à préfixe (Ctrl-B)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stile tmux (prefisso Ctrl-B)"
+            "value": "Accordi con prefisso (Ctrl-B)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux 風（Ctrl-B プレフィックス）"
+            "value": "プレフィックスコード（Ctrl-B）"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "រចនាប័ទ្ម tmux (បុព្វបទ Ctrl-B)"
+            "value": "អាកូដបុព្វបទ (Ctrl-B)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux 스타일 (Ctrl-B 접두사)"
+            "value": "접두사 코드 (Ctrl-B)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "tmux-stil (Ctrl-B-prefiks)"
+            "value": "Prefiks-akkorder (Ctrl-B)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Styl tmux (prefiks Ctrl-B)"
+            "value": "Akordy z prefiksem (Ctrl-B)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Estilo tmux (prefixo Ctrl-B)"
+            "value": "Acordes com prefixo (Ctrl-B)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "В стиле tmux (префикс Ctrl-B)"
+            "value": "Аккорды с префиксом (Ctrl-B)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แบบ tmux (คำนำหน้า Ctrl-B)"
+            "value": "คอร์ดคำนำหน้า (Ctrl-B)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "tmux tarzı (Ctrl-B öneki)"
+            "value": "Önek akorları (Ctrl-B)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "У стилі tmux (префікс Ctrl-B)"
+            "value": "Акорди з префіксом (Ctrl-B)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kiểu tmux (tiền tố Ctrl-B)"
+            "value": "Hợp phím tiền tố (Ctrl-B)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux 风格（Ctrl-B 前缀）"
+            "value": "前缀组合键（Ctrl-B）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux 風格（Ctrl-B 前綴）"
+            "value": "前綴組合鍵（Ctrl-B）"
           }
         }
       }
@@ -69296,6 +69296,661 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "工具"
+          }
+        }
+      }
+    },
+    "action.password.importCSV": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استيراد كلمات السر من CSV…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uvezi lozinke iz CSV-a…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importér adgangskoder fra CSV…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passwörter aus CSV importieren …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Passwords from CSV…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importar contraseñas desde CSV…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importer des mots de passe depuis un CSV…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importa password da CSV…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CSV からパスワードを読み込む…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នាំចូលពាក្យសម្ងាត់ពី CSV…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CSV에서 암호 가져오기…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importer passord fra CSV …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importuj hasła z pliku CSV…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importar Senhas de CSV…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Импортировать пароли из CSV…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นำเข้ารหัสผ่านจาก CSV…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parolaları CSV’den İçe Aktar…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Імпортувати паролі з CSV…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhập mật khẩu từ CSV…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从 CSV 导入密码…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從 CSV 匯入密碼…"
+          }
+        }
+      }
+    },
+    "action.agentActivity.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Activity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントのアクティビティ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نشاط الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktivnost agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentaktivitet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentenaktivität"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Actividad de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activité des agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attività degli agenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សកម្មភាពភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 활동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentaktivitet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktywność agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atividade de agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Активность агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กิจกรรมของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan etkinliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Активність агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hoạt động của tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理活动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理活動"
+          }
+        }
+      }
+    },
+    "action.agentPane.searchChats": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Agent Chats"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのチャットを検索"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "البحث في محادثات الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretraži razgovore agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søg i agentchats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent-Chats durchsuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar chats del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechercher dans les discussions de l'agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cerca chat dell'agente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរកការជជែករបស់ភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 채팅 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søk i agentchatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szukaj czatów agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pesquisar conversas do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поиск по чатам агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาแชทของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan sohbetlerinde ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пошук у чатах агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm kiếm cuộc trò chuyện của tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜索代理聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜尋代理聊天"
+          }
+        }
+      }
+    },
+    "action.tab.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Tabs…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "البحث في علامات التبويب…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretraži tabove…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søg i faner…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tabs durchsuchen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar pestañas…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechercher dans les onglets…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cerca nelle schede…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを検索…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរកផ្ទាំង…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 검색…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søk i faner…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szukaj kart…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar abas…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поиск вкладок…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาแท็บ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekmelerde Ara…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пошук вкладок…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm kiếm thẻ…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜索标签页…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜尋分頁…"
+          }
+        }
+      }
+    },
+    "argument.query": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بحث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretraga"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søgning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Búsqueda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recherche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ricerca"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyszukiwanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Busca"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поиск"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arama"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пошук"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm kiếm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜索"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜尋"
           }
         }
       }

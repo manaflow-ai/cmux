@@ -36,15 +36,17 @@ public struct SidebarMapping {
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
+        let indicator = StatusMapping.shared.summary(tabs: tabs)
         return SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
             title: workspace.displayName,
             subtitle: subtitle(tabs),
             status: status.flatMap { $0.isEmpty ? nil : $0 },
-            icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? workspace.icon.map { WorkspaceIcon.symbol($0) },
+            icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? workspace.icon.map(WorkspaceIcon.parse),
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
-            activity: activity(tabs)
+            activity: indicator.state,
+            activityStyle: indicator.style
         )
     }
 
@@ -61,13 +63,6 @@ public struct SidebarMapping {
         if path == home { return "~" }
         if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
         return path
-    }
-
-    func activity(_ tabs: [TabModel]) -> AgentActivity {
-        let states = tabs.compactMap { $0.agent?.state }
-        if states.contains(.blocked) { return .needsInput }
-        if states.contains(.working) { return .running }
-        return .idle
     }
 
     public func color(_ name: String?) -> GroupColor? {

@@ -75,16 +75,19 @@ extension PaletteModel {
                     showsRecent: page.showsRecent
                 )
                 publish(state.resolve(ranked), resetSelection: resetSelection)
+                if resetSelection, page.emptyQuerySelection > 0 { selectRow(at: min(page.emptyQuerySelection, rows.count - 1), scroll: true) }
                 return
             }
             let request = (query: state.query, entries: state.entries, version: state.version,
-                           orders: state.sectionOrders, frecency: frecency, now: now(), recent: page.showsRecent)
+                           orders: state.sectionOrders, frecency: frecency, now: now(), recent: page.showsRecent,
+                           keepsOrder: page.keepsSectionOrder)
             let searcher = searcher
             searchTask = Task { [weak self, weak state] in
                 await searcher.install(entries: request.entries, version: request.version)
                 let result = await searcher.search(
                     query: request.query, generation: generation, sectionOrders: request.orders,
-                    frecency: request.frecency, now: request.now, showsRecent: request.recent
+                    frecency: request.frecency, now: request.now, showsRecent: request.recent,
+                    keepsSectionOrder: request.keepsOrder
                 )
                 guard let self, let state, result.generation == self.searchGeneration, state === self.current else { return }
                 self.searchTask = nil

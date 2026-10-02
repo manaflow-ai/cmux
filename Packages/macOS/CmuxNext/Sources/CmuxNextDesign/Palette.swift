@@ -87,6 +87,12 @@ public struct Palette {
         color.resolve(in: ThemeContext.active ?? ThemeScope.app.tokens).nsColor
     }
 
+    /// The pane focus ring for `settings` in the active theme scope (the app
+    /// theme outside one).
+    public static func paneFocusRing(_ settings: FocusRingSettings, override: CGFloat?) -> NSColor {
+        settings.ringColor(in: ThemeContext.active ?? ThemeScope.app.tokens, override: override).nsColor
+    }
+
     /// Inside `performWithTheme` (or `ThemeScope.perform`) a plain color of
     /// the active scope; elsewhere the dynamic app-theme color.
     private static func color(_ keyPath: KeyPath<ThemeTokens, ThemeRGB>, opaque: Bool = false, dynamic: NSColor) -> NSColor {

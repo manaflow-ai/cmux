@@ -20,6 +20,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 targets: [.pane], cliName: "agent toggle-dictation", mainMenu: .edit
             ),
             ActionDescriptor(
+                id: "agentPane.searchChats",
+                title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
+                keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],
+                // Cmd-K searches chats only while an agent chat has the keyboard,
+                // so the simulator's Cmd-K keeps its meaning.
+                defaultShortcut: Shortcut("k", modifiers: [.command]),
+                category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane]
+            ),
+            ActionDescriptor(
                 id: "palette.openTerminalChatView",
                 title: String(localized: "action.palette.openTerminalChatView", defaultValue: "Open Terminal as Chat", bundle: .module),
                 keywords: ["agent", "chat"], category: .agents, symbol: "text.bubble", surfaces: [.palette],
@@ -96,6 +106,12 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.computerUse.screenRecording", defaultValue: "Grant Screen Recording Access", bundle: .module),
                 keywords: ["agent", "permissions", "tcc"], category: .agents, symbol: "record.circle",
                 surfaces: [.palette], cliName: "agent grant-screen-recording-access"
+            ),
+            ActionDescriptor(
+                id: "agentActivity.open",
+                title: String(localized: "action.agentActivity.open", defaultValue: "Agent Activity", bundle: .module),
+                keywords: ["agent", "computer use", "cua", "timeline", "screenshots", "automation"], category: .agents,
+                symbol: "cursorarrow.click.2", surfaces: [.palette, .menu], cliName: "agent activity", mainMenu: .window
             ),
             ActionDescriptor(
                 id: "computerUseFocus",

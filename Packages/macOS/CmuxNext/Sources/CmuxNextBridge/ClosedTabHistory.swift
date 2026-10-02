@@ -1,6 +1,6 @@
 public import Foundation
 
-/// Recently closed tabs, for Chrome's "Reopen Closed Tab". The App feeds it
+/// Recently closed tabs, for "Reopen Closed Tab". The App feeds it
 /// every tab it sees; a tab that disappears while its workspace still
 /// exists counts as closed (moves keep their durable id, so they do not).
 public nonisolated struct ClosedTabHistory: Sendable {

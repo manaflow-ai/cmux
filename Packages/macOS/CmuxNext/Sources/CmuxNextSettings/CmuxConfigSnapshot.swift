@@ -15,6 +15,10 @@ public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
         case unsupportedChord
         /// Two actions claim the same shortcut in the same context.
         case shortcutConflict
+        /// The file sets a key an MDM profile or the team policy manages; the file's value is ignored.
+        case managedOverride
+        /// An MDM forced value and the team policy's enforced value differ; the MDM value applies (decision E2).
+        case managedConflict
     }
 
     public let kind: Kind
@@ -57,7 +61,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserDefaultEngine: BrowserDefaultEngine = .fallback
     /// `browser.newTabPage`; nil opens a blank page.
     public var browserNewTabPage: URL?
-    /// `browser.showBookmarksBar`; off when unset (Chrome's default).
+    /// `browser.showBookmarksBar`; off when unset.
     public var browserShowBookmarksBar = false
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
@@ -69,14 +73,20 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var centerFocusedColumn: CenterFocusedColumn = CenterFocusedColumnSetting.fallback
     /// `layout.stripScrollbar`; "auto" when unset or invalid.
     public var stripScrollbar: StripScrollbarMode = StripScrollbarSetting.fallback
+    /// `sidebar.*` section settings; defaults when unset or invalid.
+    public var sidebarSections = SidebarSectionsPreferences.defaults
     /// `layout.splitSizing`, `layout.newColumnWidth`, sticky defaults and the
     /// minimum pane size (`ColumnLayoutSettings`).
     public var splitSizing: SplitSizing = ColumnLayoutSettings.splitSizingFallback
     public var newColumnWidth: NewColumnWidthMode = ColumnLayoutSettings.newColumnWidthFallback
     public var stickyColumnEdge: StickyDefaultEdge = ColumnLayoutSettings.stickyEdgeFallback
     public var stickyColumnMode: StickyDefaultMode = ColumnLayoutSettings.stickyModeFallback
+    /// `layout.frameOrientation`: which docks own the frame's corners.
+    public var frameOrientation: FrameOrientation = ColumnLayoutSettings.frameOrientationFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
+    /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
+    public var closeFocus: CloseFocusPolicy = CloseFocusSetting.fallback
     /// `layout.defaultColumnWidth`; 0.5 when unset or invalid.
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback
     /// `focusRing.*`.
@@ -86,10 +96,20 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both
     /// nil (Ghostty's values) when unset or invalid.
     public var windowBackground = WindowBackgroundOverride()
+    /// `appearance.statusIndicator.*`.
+    public var statusIndicator = StatusIndicatorSettings()
+    /// `status.*`.
+    public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
+    /// `appearance.focusIndicator`; "both" when unset or invalid.
+    public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
+    /// `appearance.tabBarBackground`; "window" when unset or invalid.
+    public var tabBarBackground: TabBarBackground = PaneFocusSettings.tabBarBackgroundFallback
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
+    /// `window.rail`; "off" when unset or invalid.
+    public var rail: WindowRailPlacement = WindowRailSetting.fallback
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `history.terminalCommands` (opt-in terminal command history).
@@ -147,17 +167,34 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (scrollbar, scrollbarDiagnostic) = StripScrollbarSetting.parse(root)
         snapshot.stripScrollbar = scrollbar
         if let scrollbarDiagnostic { snapshot.diagnostics.append(scrollbarDiagnostic) }
+        let (closeFocus, closeFocusDiagnostic) = CloseFocusSetting.parse(root)
+        snapshot.closeFocus = closeFocus
+        if let closeFocusDiagnostic { snapshot.diagnostics.append(closeFocusDiagnostic) }
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.sidebarSections = SidebarSectionsSetting.parse(root, diagnostics: &snapshot.diagnostics)
         ColumnLayoutSettings.parse(root, into: &snapshot)
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
         snapshot.borders = borders
         if let bordersDiagnostic { snapshot.diagnostics.append(bordersDiagnostic) }
+        let (indicator, indicatorDiagnostic) = PaneFocusSettings.parse(
+            root, at: PaneFocusSettings.focusIndicatorPath, fallback: PaneFocusSettings.focusIndicatorFallback)
+        snapshot.focusIndicator = indicator
+        if let indicatorDiagnostic { snapshot.diagnostics.append(indicatorDiagnostic) }
+        let (tabBarBackground, tabBarDiagnostic) = PaneFocusSettings.parse(
+            root, at: PaneFocusSettings.tabBarBackgroundPath, fallback: PaneFocusSettings.tabBarBackgroundFallback)
+        snapshot.tabBarBackground = tabBarBackground
+        if let tabBarDiagnostic { snapshot.diagnostics.append(tabBarDiagnostic) }
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
+        let (rail, railDiagnostic) = WindowRailSetting.parse(root)
+        snapshot.rail = rail
+        if let railDiagnostic { snapshot.diagnostics.append(railDiagnostic) }
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }

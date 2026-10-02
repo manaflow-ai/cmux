@@ -56,6 +56,41 @@ enum OnboardingStrings {
     static func imported(_ counts: String) -> String {
         String(format: String(localized: "onboarding.import.imported", defaultValue: "Imported: %@", bundle: .module), counts)
     }
+    static var back: String { String(localized: "onboarding.button.back", defaultValue: "Back", bundle: .module) }
+    static var importWithoutPasswords: String {
+        String(localized: "onboarding.button.importWithoutPasswords", defaultValue: "Import Without Passwords", bundle: .module)
+    }
+    static var passwordsTitle: String {
+        String(localized: "onboarding.passwords.title", defaultValue: "Bring saved passwords from these profiles?", bundle: .module)
+    }
+    /// `items`: the Keychain item names, each already in quotation marks.
+    static func passwordsKeychain(_ items: String) -> String {
+        String(format: String(localized: "onboarding.passwords.keychain2",
+                              defaultValue: "Import asks you to confirm with Touch ID or your password. Then macOS asks whether cmux may use %@, the Keychain item the browser locks its saved passwords with. Choose Allow, and cmux unlocks them once, on this Mac.",
+                              bundle: .module), items)
+    }
+    /// macOS shows it as “cmux is trying to …” in the Touch ID sheet.
+    static var passwordsAuthReason: String {
+        String(localized: "onboarding.passwords.authReason", defaultValue: "import saved passwords from your other browsers", bundle: .module)
+    }
+    static var passwordsAuthDenied: String {
+        String(localized: "onboarding.passwords.authDenied",
+               defaultValue: "Nothing was read: the confirmation didn’t finish. Click Import to try again, or import without passwords.",
+               bundle: .module)
+    }
+    static var passwordsStore: String {
+        String(localized: "onboarding.passwords.store",
+               defaultValue: "They go into cmux’s own encrypted password store, where autofill finds them. Agents never see them, and nothing is read until you click Import.",
+               bundle: .module)
+    }
+    /// "Passwords skipped: 9" (already saved, or not a web sign-in).
+    static func passwordsSkipped(_ count: String) -> String {
+        String(format: String(localized: "onboarding.import.passwordsSkipped", defaultValue: "Passwords skipped: %@", bundle: .module), count)
+    }
+    static var passwordsNotRead: String {
+        String(localized: "onboarding.import.passwordsNotRead",
+               defaultValue: "Some passwords weren’t imported: macOS didn’t allow the key, or the file couldn’t be read.", bundle: .module)
+    }
     static func kind(_ kind: ImportDataKind) -> String {
         switch kind {
         case .bookmarks: String(localized: "onboarding.kind.bookmarks", defaultValue: "Bookmarks", bundle: .module)

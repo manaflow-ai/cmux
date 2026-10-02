@@ -12,6 +12,112 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Offscreen embedded platform behind `-Dembedded-offscreen`
+
+- Branch: `cmux-offscreen-platform`
+  ([manaflow-ai/ghostty#252](https://github.com/manaflow-ai/ghostty/pull/252),
+  merge `257a40956`), based on fork `main` at `dcb1d6965`.
+- Commits: `26d3de457` (font query JSON builds on non-CoreText backends),
+  `f6b196135` (offscreen platform), `d4f861aeb` (PIC static lib with the
+  option), `fac3a25fa` (reject multi-plane dmabuf exports, close every fd),
+  `d11eec801` (skip the frame when the offscreen context is not current),
+  `30b183f6e` (validate the initial scale, check every C ABI field),
+  `285c25641` (header docs: callback reentrancy, buffer reuse, EGL lifetime).
+- What: `GHOSTTY_PLATFORM_OFFSCREEN = 6` with
+  `ghostty_platform_offscreen_s { width, height, scale }` in
+  `ghostty_platform_u` (the union stays 40 bytes, so
+  `ghostty_surface_config_s` does not change). Ghostty owns one surfaceless
+  EGL context per drawing thread and renders into its own framebuffer.
+  `ghostty_surface_set_frame_callback` delivers an RGBA8 CPU readback
+  (`ghostty_offscreen_frame_s`, rows bottom-up) and, on Linux,
+  `ghostty_surface_set_dmabuf_callback` delivers a single-plane dmabuf
+  (`ghostty_dmabuf_frame_s`, the callback owns the fd; a failed export falls
+  back to the CPU readback). Offscreen surfaces draw on the app thread:
+  `renderer/Thread.zig` asks `apprt.Surface.mustDrawFromAppThread` per
+  surface, emits `GHOSTTY_ACTION_RENDER`, and the embedder calls
+  `ghostty_surface_draw`, which delivers the frame before it returns. The
+  path works with `GHOSTTY_SURFACE_IO_MANUAL_MIRROR` and never touches termio.
+  Everything is behind the build option `-Dembedded-offscreen` (default
+  `false`). Without it `Platform.Offscreen` is `void`, tag 6 fails with
+  `UnsupportedPlatform`, no EGL code is analyzed and no EGL symbol is
+  referenced. Metal rejects tag 6. The two setters are always exported, so the
+  header and the library stay in sync.
+- Why: the cross-platform GPUI client and the cmux-browser clients render
+  daemon terminals offscreen on Linux and Windows and composite the frames
+  themselves. One fork now serves them and the macOS app.
+- macOS app: the default GhosttyKit build (`-Demit-xcframework=true
+  -Dxcframework-target=universal -Doptimize=ReleaseFast`) is unchanged; PR 252
+  reports the archive has no EGL references. cmux-next does not use tag 6 or
+  the frame setters.
+- Coverage: the PR's ABI tests (tag, struct layout, union size),
+  `Platform.init` with and without the option, initial geometry and scale,
+  app-thread drawing for offscreen surfaces only, callback registration.
+  Linux and Windows runtime rendering was not verified in this fork.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-257a4095671cfe332082f4aad474f6789ced9ffc-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `03ae3a4e640191f7d15d1a72bd512f97e8f2e46a4d759aaa6c7b1e3a34a713f0`
+  is pinned in `scripts/ghosttykit-checksums.txt`. Pinned by `feat-cmux-next`
+  (previous pin there `b1a49b601`).
+- Files touched (conflict surface for upstream merges): `include/ghostty.h`,
+  `src/apprt/embedded.zig`, `src/build/Config.zig`,
+  `src/build/GhosttyLib.zig`, `src/build_config.zig`, `src/renderer.zig`,
+  `src/renderer/Metal.zig`, `src/renderer/OpenGL.zig`,
+  `src/renderer/Thread.zig`, `src/renderer/opengl/EglContext.zig` (new).
+- Conflict notes:
+  - Keep tag 6. Tag 3 is the fork's embedder-owned `opengl` platform, and
+    upstream may give its own offscreen work a different number.
+  - If upstream changes the comptime `must_draw_from_app_thread` logic in
+    `renderer/Thread.zig`, keep the per-surface check: macOS surfaces must
+    still draw on the renderer thread.
+  - Keep the union size at 40 bytes when adding platform members.
+  - Known risk: the `opengl` and `offscreen` platforms must not mix on one
+    thread in a process. Offscreen makes Ghostty's shared EGL context current
+    on its drawing thread, while `opengl` expects the embedder's context to be
+    current; mixing them draws with GL object names from the wrong context.
+
+### PTY tee runs after the parser applies the bytes
+
+- Commit: `8bfc3b026` ([manaflow-ai/ghostty#242](https://github.com/manaflow-ai/ghostty/pull/242)),
+  directly on fork `main`.
+- File: `src/termio/Termio.zig`
+- What: `processOutput` calls the cmux PTY tee callback after
+  `processOutputAndAdvanceLocked`, still under the renderer mutex. Before, it
+  ran before the mutex was taken.
+- Why: a tee consumer could drain bytes the grid did not reflect yet. cmux's
+  predicted local echo reads the cursor under the renderer mutex and measures
+  its offsets from it, so with the tee first it saw output whose cursor move
+  had not happened. The existing consumers only enqueue (a buffered copy plus
+  a wakeup) and never take the renderer mutex, so this cannot deadlock.
+  cmux-next does not install a PTY tee.
+- Conflict notes: keep the tee after the parser and inside the mutex. A tee
+  callback must never take the renderer mutex.
+
+### Fork main between `b1a49b601` and `dcb1d6965`
+
+`feat-cmux-next` tracks fork `main` (coordinator decision, 2026-10-02). The pin
+`257a40956` therefore also brings the fork-main merges that sat between the
+previous pin `b1a49b601` and the #252 base `dcb1d6965`. Each change is
+described in its own section; this list maps the merges:
+
+- `8bfc3b026` #242: PTY tee after the parser (section above).
+- `f807ab278` #243: Cloud VT replay keeps the active viewport anchored
+  (section "Cloud VT replay keeps the active viewport anchored").
+- `e30b48042` #245: OSC 133;A prompt starts its own logical line (section 15).
+- `64cd5ebd4` #247: primary 133;P prompts and wrap padding (section 16).
+- `c0b769c31` #246, `572de52b4` #248, `92d285495` #249: VT replay blank cells
+  keep the default style (section "VT replay blank cells keep the default
+  style"). #246 is the fix on `e1b8bf5f4`, #248 the same fix on `9961d09be`
+  (`cd617fcf1` test, `e17043471` fix), #249 the same fix on `9d8d40319`.
+  They touch `src/terminal/formatter.zig`; a conflict between them resolves to
+  one copy of the style close before `splatByteAll(' ', blank_cells)`.
+- `4330ffa33` #250: merges `9c1e67c07` (the #247 prompt wrap fix plus the
+  #249 blank-cell fix) into fork `main`. No new code.
+- `dcb1d6965` #251: config API returns window padding (section "Config API
+  returns window padding"). Its fix commit `b1a49b601` was the previous pin.
+
+The cmux `main` pin `324c02738` ("libghostty: expose local-only binding flag",
+`GHOSTTY_BINDING_FLAGS_PREDICTION_LOCAL_ONLY`) is not on fork `main`, so this
+pin does not have it. cmux-next does not use that flag.
+
 ### Config API returns window padding
 
 - Branch: `cmux-config-get-window-padding` ([manaflow-ai/ghostty#251](https://github.com/manaflow-ai/ghostty/pull/251), merge `dcb1d6965`)
@@ -27,7 +133,8 @@ When we change the fork, update this document and the parent submodule SHA.
   `build-ghosttykit.yml`), cmux-next `PaneAlignmentTests`.
 - Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b1a49b6015235d2b36a8473ff5ae72aa16db82b0-crashsubdir-cmux-crash-sentry-off-noi18n-v2
 - SHA-256 `740cd227436bbb9d705158f87479dd58a07c6432715f0e708a7a8d88929443a9`
-- Pinned by `feat-cmux-next` (previous pin there `9961d09be`).
+- Was pinned by `feat-cmux-next` (previous pin there `9961d09be`); the pin
+  is now `257a40956`, which contains it through merge `dcb1d6965`.
 - Conflict note: if upstream adds its own C value for `WindowPadding`, keep
   the field order `top_left`, `bottom_right`; cmux reads the header struct.
 

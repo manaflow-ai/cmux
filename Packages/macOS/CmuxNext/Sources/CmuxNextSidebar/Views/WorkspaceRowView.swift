@@ -8,7 +8,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// row (TitleFade); NSTextField would end it in an ellipsis instead.
     let title = MarqueeLabel()
     private let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
-    private let activity = ActivityIndicatorView()
+    private let activity = StatusIndicatorView()
     private let badge = UnreadBadgeView()
     let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .bold, label: Strings.closeButton)
 
@@ -61,7 +61,7 @@ final class WorkspaceRowView: SidebarRowView {
         // Only live status earns a second line; the cwd is in the hover card.
         subtitle.stringValue = ws.liveDetail ?? ""
         hasSubtitle = ws.liveDetail != nil
-        activity.configure(ws.activity)
+        activity.configure(ws.activity, style: ws.activityStyle)
         badge.configure(ws.unread)
         // The workspace hover card shows the cwd (and CPU and memory).
         toolTip = nil
@@ -81,12 +81,7 @@ final class WorkspaceRowView: SidebarRowView {
         case .dot: parts.append(Strings.unreadDot)
         default: break
         }
-        switch ws.activity {
-        case .running: parts.append(Strings.activityRunning)
-        case .needsInput: parts.append(Strings.activityNeedsInput)
-        case .error: parts.append(Strings.activityError)
-        case .idle: break
-        }
+        if let text = Strings.activity(ws.activity) { parts.append(text) }
         return parts.joined(separator: ", ")
     }
 
@@ -152,7 +147,7 @@ final class WorkspaceRowView: SidebarRowView {
         switch iconKind {
         case nil: side = 0
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
-        case .symbol?: side = SidebarStyle.iconBox
+        case .symbol?, .emoji?: side = SidebarStyle.iconBox
         }
         icon.frame = NSRect(x: leading, y: (b.height - side) / 2, width: side, height: side)
 
@@ -172,7 +167,7 @@ final class WorkspaceRowView: SidebarRowView {
             badge.frame = NSRect(x: trailing - w - (badge.state == .dot ? Metrics.space2 : 0), y: (b.height - h) / 2, width: w, height: h)
             trailing = badge.frame.minX - Metrics.space2
         }
-        if activity.activity != .idle {
+        if activity.showsGlyph {
             let ind = SidebarStyle.indicatorSize
             activity.frame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2

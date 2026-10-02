@@ -73,6 +73,12 @@ final class CrashRecoveryService {
     /// The restart notice's text while it is shown (`debug.crashes`).
     var noticeText: String? { notice?.isShown == true ? notice?.text : nil }
 
+    /// A requested quit has begun (`AppRunMarker.markQuitting`); returns
+    /// once that is on disk or its deadline passed.
+    func quitBegan() async {
+        await marker?.markQuitting()
+    }
+
     /// A normal quit.
     func applicationWillTerminate() {
         if let crashObserver { crashLog?.removeObserver(crashObserver) }

@@ -17,7 +17,7 @@ public nonisolated enum SidebarEdits {
     @discardableResult
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
-        case .select, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile:
+        case .select, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .activateItem, .layout, .toggleLayoutSection:
             return false
         case let .setGroupPinned(id, pinned):
             return mutateGroup(id, in: &sections) { $0.isPinned = pinned }
@@ -49,6 +49,7 @@ public nonisolated enum SidebarEdits {
             return mutateWorkspaces(ids, in: &sections) { ws in
                 switch (ws.icon, color) {
                 case let (.symbol(name, _)?, color): ws.icon = .symbol(name, tint: color)
+                case (.emoji?, _): break // an emoji keeps its own colors
                 case let (_, color?): ws.icon = .swatch(color)
                 case (.swatch?, nil), (nil, nil): ws.icon = nil
                 }

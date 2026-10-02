@@ -16,9 +16,9 @@ public nonisolated enum BorderMode: String, Sendable, CaseIterable, Codable, Tun
 
 /// The one switch every border, hairline and separator in the app goes
 /// through (pane borders, the focus ring, divider lines, tab, strip,
-/// sidebar and palette separators, panel and badge strokes). Pure, so the
-/// rule is tested without views.
-public nonisolated struct BorderPolicy: Sendable, Equatable {
+/// sidebar and palette separators, panel and badge strokes). A value, so
+/// the rule is tested without views; `Borders.current` is the live one.
+public nonisolated struct Borders: Sendable, Equatable {
     public var mode: BorderMode
 
     public init(mode: BorderMode) {
@@ -37,17 +37,16 @@ public nonisolated struct BorderPolicy: Sendable, Equatable {
     public func color(_ color: NSColor) -> NSColor { drawsLines ? color : .clear }
 }
 
-/// The live border switch: a Debug Settings override, else cmux.json.
-@MainActor
-public enum Borders {
+/// The live switch: a Debug Settings override, else cmux.json. Reading it
+/// in an observed scope tracks the setting.
+extension Borders {
     public nonisolated static let tunable = Tunable<BorderMode>.choice(
         "appearance.borders", .shape, "Borders",
         help: "None removes every border, hairline and separator (overrides appearance.borders in cmux.json).",
         default: .default, code: "Borders.tunable")
 
-    public static var mode: BorderMode { tunable.override ?? DesignSettings.shared.borders }
-    public static var policy: BorderPolicy { BorderPolicy(mode: mode) }
-    public static var drawsLines: Bool { policy.drawsLines }
-    public static func width(_ width: CGFloat) -> CGFloat { policy.width(width) }
-    public static func color(_ color: NSColor) -> NSColor { policy.color(color) }
+    @MainActor public static var current: Borders { Borders(mode: tunable.override ?? DesignSettings.shared.borders) }
+    @MainActor public static var drawsLines: Bool { current.drawsLines }
+    @MainActor public static func width(_ width: CGFloat) -> CGFloat { current.width(width) }
+    @MainActor public static func color(_ color: NSColor) -> NSColor { current.color(color) }
 }

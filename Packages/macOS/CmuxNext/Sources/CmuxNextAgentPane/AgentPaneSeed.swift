@@ -39,28 +39,31 @@ public final class AgentPaneSeedSource {
     func take() async -> AgentPaneSeed? {
         if let read {
             self.read = nil
-            value = await Self.first(within: limit, read)
+            value = await agentPaneFirst(within: limit, read)
         }
         let seed = value
         value?.draft = nil
         return seed
     }
+}
 
-    private static func first(within limit: Duration, _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) async -> AgentPaneSeed? {
-        await withCheckedContinuation { continuation in
-            let once = AgentPaneResumeOnce()
-            // task-owner: one-shot deadline for the read below; cancelled when the read answers first
-            let deadline = Task { @MainActor in
-                // wakeup-allow: one-shot deadline (agent tab seed)
-                try? await Task.sleep(for: limit)
-                once.run { continuation.resume(returning: nil) }
-            }
-            // task-owner: one-shot seed read; a late answer is dropped
-            Task { @MainActor in
-                let seed = await read()
-                once.run { continuation.resume(returning: seed) }
-                deadline.cancel()
-            }
+/// `read`'s answer, or nil once `limit` passes. A late answer is dropped
+/// without being awaited (a hung page never answers), unlike a deadline
+/// raced in a task group, which waits for its loser.
+func agentPaneFirst<T: Sendable>(within limit: Duration, _ read: @escaping @MainActor @Sendable () async -> T?) async -> T? {
+    await withCheckedContinuation { continuation in
+        let once = AgentPaneResumeOnce()
+        // task-owner: one-shot deadline for the read below; cancelled when the read answers first
+        let deadline = Task { @MainActor in
+            // wakeup-allow: one-shot deadline (a read from another tab or the page)
+            try? await Task.sleep(for: limit)
+            once.run { continuation.resume(returning: nil) }
+        }
+        // task-owner: one-shot read; a late answer is dropped
+        Task { @MainActor in
+            let value = await read()
+            once.run { continuation.resume(returning: value) }
+            deadline.cancel()
         }
     }
 }

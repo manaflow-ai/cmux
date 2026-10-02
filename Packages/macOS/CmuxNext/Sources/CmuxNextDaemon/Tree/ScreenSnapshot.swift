@@ -5,7 +5,7 @@ public struct ViewportSplit: Sendable, Hashable, Decodable {
     public var width: Double
 }
 
-/// One horizontal scrolling column (niri-style). Present when the screen has
+/// One horizontal scrolling column. Present when the screen has
 /// viewport splits (`viewport-splits-v1`).
 public struct ColumnSnapshot: Sendable, Hashable, Decodable {
     public var id: ColumnID
