@@ -413,10 +413,13 @@ sensitivity sensitive, subject the terminal and its ancestors):
 `{command, cwd, exit_code, started_at_ms, duration_ms}`. `command` is the
 screen text of the `B` row from the `B` column, read at `C`, trimmed, without
 control characters and cut at 1 KiB (null when the shell sends no `B`);
-multi-row command lines keep their first row. `cwd` is the OSC 7 directory at
-`C`; times are decimal strings. A `D` without a `C` (an empty Enter) records
+multi-row command lines keep their first row. `cwd` is the local path of the
+OSC 7 directory at `C` (null when it names another host); times are decimal
+strings. A `D` without a `C` (an empty Enter) records
 nothing; an `A` while a command runs ends it with a null `exit_code`. While off,
-marks are dropped and the screen is never read.
+nothing is recorded and no screen text is read; only the cursor position at
+the last `B` is kept, so the command typed at the prompt shown when recording
+turns on keeps its line.
 
 Params: `{enabled: bool}`. Result: `{enabled: bool}`.
 

@@ -7,11 +7,12 @@
 //! `D[;exit]` command end. A [`CommandTracker`] per terminal turns those
 //! marks into finished commands: the command line is the screen text from
 //! the `B` position to the end of that row, read when `C` arrives; the
-//! working directory is the terminal's OSC 7 directory at `C`.
+//! working directory is the local path of the terminal's OSC 7 directory at
+//! `C`.
 //!
 //! Recording is opt-in per daemon (`set-terminal-command-history`), off by
-//! default: no mark is tracked and nothing is journaled until a client turns
-//! it on. A command line can hold secrets, so the journal record is
+//! default: nothing is journaled and no screen text is read until a client
+//! turns it on (only the cursor at `B` is kept). A command line can hold secrets, so the journal record is
 //! `sensitive` (trusted local clients only) and capped at
 //! [`MAX_COMMAND_BYTES`]. No `C` mark is emitted at a password prompt, so a
 //! typed password is never read.
@@ -140,7 +141,11 @@ impl CommandTracker {
     /// at `B`, never screen text), so the first command after recording
     /// turns on still has its line; drops any running command.
     pub(crate) fn track_position(&mut self, mark: ShellMark, screen: &mut impl CommandScreen) {
-        let _ = (mark, screen);
+        self.running = None;
+        self.input_start = match mark {
+            ShellMark::InputStart => screen.cursor_absolute(),
+            ShellMark::PromptStart | ShellMark::CommandStart | ShellMark::CommandEnd { .. } => None,
+        };
     }
 
     fn finish(&mut self, exit_code: Option<i32>, now_ms: u64) -> Option<FinishedCommand> {
@@ -158,8 +163,8 @@ impl CommandTracker {
 /// The local path of an OSC 7 report (`file://host/path`), or `None` for
 /// another host's directory or an unreadable report.
 pub(crate) fn command_cwd(report: &str) -> Option<String> {
-    let _ = report;
-    None
+    crate::platform::terminal_pwd_to_local_path(report)
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
 /// A command line as stored: trimmed, without control characters, cut to
@@ -254,7 +259,7 @@ impl CommandScreen for TerminalCommandScreen<'_> {
     }
 
     fn cwd(&mut self) -> Option<String> {
-        self.0.pwd()
+        self.0.pwd().as_deref().and_then(command_cwd)
     }
 }
 
