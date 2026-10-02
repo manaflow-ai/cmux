@@ -91,6 +91,12 @@ export const coderouterPools = pgTable("coderouter_pools", {
   uniqueIndex("coderouter_pools_default_unique").on(table.teamId).where(sql`${table.isDefault}`),
 ]);
 
+/** Records that a VM pool has received its initial team-account snapshot. */
+export const coderouterPoolInitializations = pgTable("coderouter_pool_initializations", {
+  poolId: uuid("pool_id").primaryKey().references(() => coderouterPools.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const cloudVms = pgTable(
   "cloud_vms",
   {
