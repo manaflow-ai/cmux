@@ -23,6 +23,7 @@ enum CloudStrings {
         }
     }
     static var notConnected: String { String(localized: "cloud.failed.notConnected", defaultValue: "The Cloud machine is not connected yet.", table: "Cloud", bundle: .module) }
+    static var commandRequired: String { String(localized: "cloud.failed.commandRequired", defaultValue: "Pass a command to run on the Cloud machine.", table: "Cloud", bundle: .module) }
     static var alreadySignedIn: String { String(localized: "cloud.failed.alreadySignedIn", defaultValue: "Already signed in.", table: "Cloud", bundle: .module) }
     static var noTeams: String { String(localized: "cloud.failed.noTeams", defaultValue: "This account has no teams.", table: "Cloud", bundle: .module) }
     static var mobilePairing: String { String(localized: "cloud.unavailable.mobilePairing", defaultValue: "Mobile pairing arrives with the iOS phase of cmux-next (plans/cmux-next/cloud-ios.md).", table: "Cloud", bundle: .module) }
