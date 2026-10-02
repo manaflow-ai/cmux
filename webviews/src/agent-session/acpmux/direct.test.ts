@@ -205,7 +205,9 @@ describe("direct client session state", () => {
     expect(latest().catalog).toEqual([]);
     const catalog = client.harnesses();
     await settle();
-    ScriptedSocket.current.release("_acpmux/harnesses", { harnesses: { codex: { name: "Codex", models: [{ modelId: "gpt-6-astra" }] } } });
+    ScriptedSocket.current.release("_acpmux/harnesses", {
+      harnesses: { codex: { name: "Codex", models: [{ modelId: "gpt-6-astra" }] } },
+    });
     expect(await catalog).toEqual([{ id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: undefined }] }]);
   });
 

@@ -8,7 +8,10 @@ import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 export type MockActions = Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
 
 const sessionId = "mock-session";
-const catalog = [{ id: "claude", name: "Claude", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] }, { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] }];
+const catalog = [
+  { id: "claude", name: "Claude", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] },
+  { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] },
+];
 
 export function mockSnapshot(rows: AcpmuxRow[], isWorking = false): AcpmuxSnapshot {
   return {
@@ -34,24 +37,71 @@ export function mockReply(prompt: string): string {
 export function mockEdit(turn: number): Omit<AcpmuxRow, "id" | "version" | "at"> {
   const notes = `# Notes\n\nMock turn ${turn}.\n`;
   const items = [
-    { kind: "tool", text: "Edit src/greeting.ts", tool: { id: `mock-edit-${turn}`, title: "Edit src/greeting.ts", kind: "edit", status: "completed", diffs: [{ path: "/mock/project/src/greeting.ts", oldText: 'export function greet(name: string) {\n  return "Hello " + name;\n}\n', newText: 'export function greet(name: string, punctuation = "!") {\n  return `Hello, ${name}${punctuation}`;\n}\n', line: 1 }] } },
-    { kind: "tool", text: "Write NOTES.md", tool: { id: `mock-write-${turn}`, title: "Write NOTES.md", kind: "edit", status: "completed", diffs: [{ path: "/mock/project/NOTES.md", newText: notes }] } },
+    {
+      kind: "tool",
+      text: "Edit src/greeting.ts",
+      tool: {
+        id: `mock-edit-${turn}`,
+        title: "Edit src/greeting.ts",
+        kind: "edit",
+        status: "completed",
+        diffs: [
+          {
+            path: "/mock/project/src/greeting.ts",
+            oldText: 'export function greet(name: string) {\n  return "Hello " + name;\n}\n',
+            newText:
+              'export function greet(name: string, punctuation = "!") {\n  return `Hello, ${name}${punctuation}`;\n}\n',
+            line: 1,
+          },
+        ],
+      },
+    },
+    {
+      kind: "tool",
+      text: "Write NOTES.md",
+      tool: {
+        id: `mock-write-${turn}`,
+        title: "Write NOTES.md",
+        kind: "edit",
+        status: "completed",
+        diffs: [{ path: "/mock/project/NOTES.md", newText: notes }],
+      },
+    },
   ];
   return { kind: "activity", toolCount: items.length, items };
 }
 
-export function startMockHost(onSnapshot: (snapshot: AcpmuxSnapshot) => void, schedule: (run: () => void) => void = (run) => { window.setTimeout(run, 400); }): MockActions {
-  let rows: AcpmuxRow[] = [{ id: "mock-welcome", version: 1, at: Date.now(), kind: "assistant", text: "Mock agent session. Type a prompt to see the pane render a turn." }];
+export function startMockHost(
+  onSnapshot: (snapshot: AcpmuxSnapshot) => void,
+  schedule: (run: () => void) => void = (run) => {
+    window.setTimeout(run, 400);
+  },
+): MockActions {
+  let rows: AcpmuxRow[] = [
+    {
+      id: "mock-welcome",
+      version: 1,
+      at: Date.now(),
+      kind: "assistant",
+      text: "Mock agent session. Type a prompt to see the pane render a turn.",
+    },
+  ];
   let next = 0;
   const publish = (isWorking = false) => onSnapshot(mockSnapshot(rows, isWorking));
-  const append = (row: Omit<AcpmuxRow, "id" | "version" | "at">) => { rows = [...rows, { id: `mock-${next++}`, version: 1, at: Date.now(), ...row }]; };
+  const append = (row: Omit<AcpmuxRow, "id" | "version" | "at">) => {
+    rows = [...rows, { id: `mock-${next++}`, version: 1, at: Date.now(), ...row }];
+  };
   publish();
   return {
     "chat.send": async ({ text }) => {
       const prompt = String(text ?? "");
       append({ kind: "user", text: prompt });
       publish(true);
-      schedule(() => { append(mockEdit(next)); append({ kind: "assistant", text: mockReply(prompt) }); publish(); });
+      schedule(() => {
+        append(mockEdit(next));
+        append({ kind: "assistant", text: mockReply(prompt) });
+        publish();
+      });
     },
     "chat.cancel": async () => publish(),
     "chat.permission": async () => publish(),
@@ -59,7 +109,10 @@ export function startMockHost(onSnapshot: (snapshot: AcpmuxSnapshot) => void, sc
     "chat.mode": async () => undefined,
     "chat.effort": async () => undefined,
     "chat.select": async () => undefined,
-    "chat.new": async () => { rows = []; publish(); },
+    "chat.new": async () => {
+      rows = [];
+      publish();
+    },
     "chat.history": async () => undefined,
   };
 }
