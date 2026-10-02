@@ -45,8 +45,9 @@ struct AppSceneDecorations: ViewModifier {
             .contentShape(shape)
             .onHover { hovering in
                 guard hoverFill != nil else { return }
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) { isHovered = hovering }
+                isHovered = hovering
             }
+            .animation(reduceMotion ? nil : Motion.animation(.hover), value: isHovered)
             .modifier(AppSceneTap(enabled: node.flag("onTap") && node.type != .button) { model.send(id, "tap") })
             .contextMenu(node.type == .menu ? nil : menu)
     }
