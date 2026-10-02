@@ -1,0 +1,2 @@
+# preview:build output; Tailwind scans webviews/ and would pick up its classes.
+dist/

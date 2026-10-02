@@ -1,5 +1,5 @@
 import { render as renderInTestRoot, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { RenderGraphicPlacement } from "cmux/raw";
 import type { ReactElement } from "react";
 import { RenderGraphics, RenderGraphicsBudgetProvider } from "../src/components/RenderGraphics";

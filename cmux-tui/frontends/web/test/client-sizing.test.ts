@@ -1,5 +1,5 @@
 import type { ClientInfo } from "cmux/raw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { paneClientSummary } from "../src/lib/clientSizing";
 
 function client(id: bigint, size: { cols: number; rows: number } | null, participating: boolean): ClientInfo {

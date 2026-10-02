@@ -52,6 +52,11 @@ enum DebugKey {
                 return .object(["error": .string("the Settings window is not open")])
             }
             window = settings
+        } else if params["target"]?.stringValue == "debugSettings" {
+            guard let debugWindow = services.debugSettings.window, debugWindow.isVisible else {
+                return .object(["error": .string("Debug Settings is not open")])
+            }
+            window = debugWindow
         } else if params["target"]?.stringValue == "devtools" {
             let pane = params["pane"]?.stringValue ?? controller.focus.state.pane
             guard let pane, let devTools = devToolsWindow(of: pane, in: controller) else {
@@ -115,6 +120,10 @@ enum DebugKey {
                              "pending": .bool(recorder.pending != nil), "options": .array(recorder.options.map { .string("\($0)") })])
                 } ?? .null,
             ])
+        }
+        if params["target"]?.stringValue == "debugSettings" {
+            return .object(["handled_by": .string(handledBy == "page" ? "debugSettings" : handledBy), "action": action,
+                            "window_kind": .string("debugSettings"), "debug_settings": DebugTunables.state(services)])
         }
         if params["target"]?.stringValue == "settings", let model = services.settingsWindow.model {
             return .object(["handled_by": .string(handledBy == "page" ? "settings" : handledBy), "action": action, "window_kind": .string("settings"),

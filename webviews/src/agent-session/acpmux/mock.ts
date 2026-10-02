@@ -1,4 +1,5 @@
 import type { AcpmuxHostConfig, EventRecord } from "./direct";
+import { MOCK_SESSION_CWD, mockSessions } from "./mockSessions";
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
 // acpmux daemon is wanted (demos, screenshots, tests). The page then runs the
@@ -21,7 +22,14 @@ const commands = [
   { name: "pr-comments", description: "Get comments from a GitHub pull request" },
   { name: "review", description: "Review a pull request" },
 ];
-const session = { sessionId, title: "Mock session", harness: "claude", model: "claude-sonnet", status: "idle" };
+const session = {
+  sessionId,
+  title: "Polish the agent pane sidebar",
+  harness: "claude",
+  model: "claude-sonnet",
+  status: "idle",
+  cwd: MOCK_SESSION_CWD,
+};
 
 /// The host config the page connects with in mock mode.
 export const mockHost: AcpmuxHostConfig = {
@@ -120,7 +128,11 @@ export class MockAcpmuxSocket {
   onerror: (() => void) | null = null;
   onclose: (() => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
-  private sessions = [{ ...session }];
+  // The mock session is the newest, so it opens selected; the seeded ones fill the sidebar.
+  private sessions: Array<{ sessionId: string } & Record<string, unknown>> = [
+    { ...session, updatedAt: Date.now() },
+    ...mockSessions(Date.now()),
+  ];
   private events: EventRecord[] = [];
   private seq = 0;
   private turns = 0;
@@ -173,11 +185,23 @@ export class MockAcpmuxSocket {
         return { sessions: this.sessions };
       case "_acpmux/harnesses":
         return { harnesses };
-      case "_acpmux/attach":
-        return {
-          session: this.sessions.find((entry) => entry.sessionId === target),
-          events: this.events.filter((event) => event.sessionId === target),
-        };
+      case "_acpmux/attach": {
+        // A seeded session has no recorded turn or permission to show, so opening one settles it.
+        const index = this.sessions.findIndex((entry) => entry.sessionId === target);
+        if (
+          index >= 0 &&
+          target !== sessionId &&
+          (this.sessions[index].status === "running" || this.sessions[index].status === "waiting")
+        ) {
+          this.sessions[index] = { ...this.sessions[index], status: "idle", pendingPermissions: 0 };
+          this.deliver({
+            jsonrpc: "2.0",
+            method: "_acpmux/session_changed",
+            params: { kind: "updated", session: this.sessions[index] },
+          });
+        }
+        return { session: this.sessions[index], events: this.events.filter((event) => event.sessionId === target) };
+      }
       case "_acpmux/events":
         return {
           events: this.events.filter((event) => event.sessionId === target && event.seq > Number(params.afterSeq ?? 0)),

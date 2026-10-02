@@ -100,12 +100,14 @@ extension LayoutRootView {
 
     /// The drop highlight's material (`debug.layers`), and a pin for it
     /// (`debug.drop_highlight`; nil follows this Mac).
-    public var dropHighlightMaterial: OverlayMaterial { highlight.surface.material }
-    public func pinDropHighlightMaterial(_ material: OverlayMaterial?) { highlight.surface.materialOverride = material }
+    public var dropHighlightMaterial: OverlayMaterial { highlight.material }
+    public func pinDropHighlightMaterial(_ material: OverlayMaterial?) { highlight.pinMaterial(material) }
+    /// The drop overlay style drawing now (`drop.overlay.style`).
+    public var dropHighlightStyle: DropOverlayStyle { highlight.style }
 
-    /// The drop highlight's frame in window coordinates while it shows.
+    /// The drop highlight's target rect in window coordinates while it shows.
     public var dropHighlightFrameInWindow: CGRect? {
         guard highlight.isShowing, window != nil else { return nil }
-        return convert(highlight.frame, to: nil)
+        return highlight.convert(highlight.targetRect, to: nil)
     }
 }
