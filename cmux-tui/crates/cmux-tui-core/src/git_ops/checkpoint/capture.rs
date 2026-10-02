@@ -602,7 +602,7 @@ fn hash_failed(
 /// The one line a run prints, such as an object id.
 fn single(
     git: &WriteGit<'_>,
-    index: Option<&std::path::Path>,
+    index: Option<&Path>,
     arguments: &[&str],
     stdin: &[u8],
     bound: Bound,
