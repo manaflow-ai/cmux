@@ -30,10 +30,11 @@ mod device;
 mod multipath;
 mod net;
 mod stream;
-mod underlay;
 /// Two-peer loopback harness. Test support for this crate and its dependents;
 /// it links no code into a binary that does not call it.
 pub mod testing;
+mod timers;
+mod underlay;
 
 pub use config::{ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, WgConfig};
 pub use ip_network::IpNetwork;

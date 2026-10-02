@@ -14,11 +14,12 @@ use std::hash::{BuildHasher, Hasher};
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use boringtun::noise::{Tunn, TunnResult};
-use cmux_transport::{DatagramClass, classify};
 use bytes::{Buf, Bytes};
+use cmux_transport::{DatagramClass, classify};
 use ip_network::IpNetwork;
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
 use smoltcp::socket::tcp;
@@ -28,12 +29,14 @@ use tokio::net::UdpSocket;
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::{Notify, mpsc, oneshot};
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 use tokio_util::sync::PollSender;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::config::{InterfaceAddress, WgConfig};
 use crate::device::VirtualDevice;
 use crate::stream::{Outbound, WgStream};
+use crate::timers::TimerSchedule;
 use crate::underlay::{Origin, SocketPath, Underlay, is_transient};
 
 /// Per-socket receive and transmit buffers. Terminal traffic is small; the
@@ -53,8 +56,6 @@ const LISTENER_BACKLOG: usize = 16;
 const LISTEN_SPARES: usize = 8;
 /// Commands in flight before `connect`/`listen` callers wait.
 const COMMAND_DEPTH: usize = 64;
-/// WireGuard timer resolution; boringtun's own device uses the same.
-const TIMER_TICK: Duration = Duration::from_millis(250);
 /// Idle TCP connections with no ACK for this long are aborted.
 const TCP_TIMEOUT: Duration = Duration::from_secs(60);
 /// Probe each idle TCP connection before its receive timeout. WireGuard
@@ -131,6 +132,7 @@ impl From<io::Error> for WgError {
 pub struct WgNet {
     commands: mpsc::Sender<Command>,
     wake: Arc<Notify>,
+    wakeups: Arc<AtomicU64>,
     routes: Arc<[IpNetwork]>,
     addresses: Arc<[InterfaceAddress]>,
     driver: Option<JoinHandle<()>>,
@@ -192,17 +194,21 @@ impl WgNet {
     /// Start the tunnel on a caller-built underlay, for example a
     /// [`crate::Multipath`]. The configured endpoint is ignored: the underlay
     /// owns addressing.
-    pub fn start_with_underlay(
-        config: WgConfig,
-        underlay: impl Underlay,
-    ) -> Result<Self, WgError> {
+    pub fn start_with_underlay(config: WgConfig, underlay: impl Underlay) -> Result<Self, WgError> {
         let routes: Arc<[IpNetwork]> = config.allowed_ips.clone().into();
         let addresses: Arc<[InterfaceAddress]> = config.addresses.clone().into();
         let (commands_tx, commands_rx) = mpsc::channel(COMMAND_DEPTH);
         let wake = Arc::new(Notify::new());
         let driver = Driver::new(config, Box::new(underlay), commands_rx, Arc::clone(&wake))?;
+        let wakeups = Arc::clone(&driver.wakeups);
         let handle = tokio::spawn(driver.run());
-        Ok(Self { commands: commands_tx, wake, routes, addresses, driver: Some(handle) })
+        Ok(Self { commands: commands_tx, wake, wakeups, routes, addresses, driver: Some(handle) })
+    }
+
+    /// How many times the driver task has woken since it started: datagrams,
+    /// commands, stream writes, timers. An idle tunnel stops counting.
+    pub fn wakeups(&self) -> u64 {
+        self.wakeups.load(Ordering::Relaxed)
     }
 
     /// Networks reachable through the tunnel (the peer's `AllowedIPs`).
@@ -283,12 +289,12 @@ impl WgNet {
     /// initial handshake during startup, so polling this value is a bounded
     /// end-to-end readiness check.
     pub async fn wait_for_handshake(&self, timeout: Duration) -> Result<Duration, WgError> {
-        let deadline = tokio::time::Instant::now() + timeout;
+        let deadline = Instant::now() + timeout;
         loop {
             if let Some(age) = self.time_since_last_handshake().await? {
                 return Ok(age);
             }
-            let now = tokio::time::Instant::now();
+            let now = Instant::now();
             if now >= deadline {
                 return Err(WgError::HandshakeTimeout(timeout));
             }
@@ -388,7 +394,11 @@ struct Driver {
     listeners: Vec<Listener>,
     commands: mpsc::Receiver<Command>,
     wake: Arc<Notify>,
-    epoch: std::time::Instant,
+    /// The stack's clock. Tokio's, so the stack and the driver's timers
+    /// agree, including under a paused test clock.
+    epoch: Instant,
+    schedule: TimerSchedule,
+    wakeups: Arc<AtomicU64>,
     next_port: u16,
     scratch: Vec<u8>,
 }
@@ -420,7 +430,9 @@ impl Driver {
             None,
         );
 
-        let epoch = std::time::Instant::now();
+        let epoch = Instant::now();
+        let keepalive = config.persistent_keepalive.is_some_and(|seconds| seconds > 0);
+        let schedule = TimerSchedule::new(epoch, keepalive);
         let mut device = VirtualDevice::new(config.mtu);
         let mut iface_config = Config::new(HardwareAddress::Ip);
         iface_config.random_seed = RandomState::new().build_hasher().finish();
@@ -458,6 +470,8 @@ impl Driver {
             commands,
             wake,
             epoch,
+            schedule,
+            wakeups: Arc::new(AtomicU64::new(0)),
             next_port: random_ephemeral_port(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
@@ -471,8 +485,6 @@ impl Driver {
 
     async fn run(mut self) {
         let wake = Arc::clone(&self.wake);
-        let mut ticks = tokio::time::interval(TIMER_TICK);
-        ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut datagram = vec![0u8; BUFFER_BYTES];
 
         self.initiate_handshake();
@@ -490,6 +502,13 @@ impl Driver {
                     None => std::future::pending::<()>().await,
                 }
             };
+            let next_tick = self.schedule.next_tick();
+            let timers = async {
+                match next_tick {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending::<()>().await,
+                }
+            };
             let underlay = &mut self.underlay;
             let received = std::future::poll_fn(|cx| underlay.poll_recv(cx, &mut datagram));
             let event = tokio::select! {
@@ -499,9 +518,10 @@ impl Driver {
                 },
                 command = self.commands.recv() => Event::Command(command),
                 () = wake.notified() => Event::Wake,
-                _ = ticks.tick() => Event::Tick,
+                () = timers => Event::Tick,
                 () = stack_deadline => Event::StackDeadline,
             };
+            self.wakeups.fetch_add(1, Ordering::Relaxed);
             match event {
                 Event::Datagram(count, origin) => self.handle_datagram(&datagram[..count], origin),
                 Event::DatagramError(error) => {
@@ -517,7 +537,10 @@ impl Driver {
                 }
                 Event::Command(Some(command)) => self.handle_command(command),
                 Event::Wake | Event::StackDeadline => {}
-                Event::Tick => self.update_timers(),
+                Event::Tick => {
+                    self.schedule.on_tick(Instant::now());
+                    self.update_timers();
+                }
             }
             self.underlay.flush();
             self.service();
@@ -533,12 +556,19 @@ impl Driver {
             self.tunn.format_handshake_initiation(&mut self.scratch, false)
         {
             self.underlay.send(packet);
+            self.schedule.on_activity(Instant::now());
         }
     }
 
     fn update_timers(&mut self) {
         if let TunnResult::WriteToNetwork(packet) = self.tunn.update_timers(&mut self.scratch) {
+            // A handshake retry keeps the timers running until boringtun
+            // gives up; a keepalive alone does not.
+            let retry = classify(packet) == DatagramClass::WireGuardInitiation;
             self.underlay.send(packet);
+            if retry {
+                self.schedule.on_activity(Instant::now());
+            }
         }
     }
 
@@ -563,10 +593,12 @@ impl Driver {
                     // learns its peer in the first place.
                     self.underlay.authenticated(origin);
                     self.underlay.send(packet);
+                    self.schedule.on_activity(Instant::now());
                     input = &[];
                 }
                 TunnResult::WriteToTunnelV4(packet, _) | TunnResult::WriteToTunnelV6(packet, _) => {
                     self.underlay.authenticated(origin);
+                    self.schedule.on_activity(Instant::now());
                     if let Some(origin) = packet_source(packet)
                         && self.config.routes_contain(origin)
                     {
@@ -579,12 +611,17 @@ impl Driver {
     }
 
     fn flush_tx(&mut self) {
+        let mut sent = false;
         while let Some(packet) = self.device.pop_tx() {
             if let TunnResult::WriteToNetwork(encrypted) =
                 self.tunn.encapsulate(&packet, &mut self.scratch)
             {
                 self.underlay.send(encrypted);
+                sent = true;
             }
+        }
+        if sent {
+            self.schedule.on_activity(Instant::now());
         }
     }
 
@@ -644,6 +681,7 @@ impl Driver {
                 {
                     self.underlay.send(packet);
                 }
+                self.schedule.on_activity(Instant::now());
                 let _ = reply.send(());
             }
             Command::Shutdown => {}

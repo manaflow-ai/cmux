@@ -225,7 +225,11 @@ impl World {
     /// (b) The direct link goes dark. Its probes are lost, both selectors
     /// fall back to the relay, and the stream continues there.
     async fn cut_direct(&mut self, a_direct: SocketAddr) {
-        self.sim.set_link(a_direct, addr(B_DIRECT), LinkProfile { latency: DIRECT_LATENCY, cut: true });
+        self.sim.set_link(
+            a_direct,
+            addr(B_DIRECT),
+            LinkProfile { latency: DIRECT_LATENCY, cut: true },
+        );
         for side in [&self.client, &self.server] {
             lose(&side.control, side.direct);
             assert_eq!(side.control.current(), Some(side.relay), "fell back to the relay");
@@ -279,7 +283,7 @@ async fn one_session_survives_a_path_switch_a_cut_path_and_a_rebind() {
     world.switch_to_direct().await;
     world.cut_direct(addr(A_DIRECT)).await;
     world.rebind_client().await;
-    assert_eq!(*world.progress.borrow() < TOTAL, true, "every change happened mid-transfer");
+    assert!(*world.progress.borrow() < TOTAL, "every change happened mid-transfer");
     world.finish().await;
 }
 
