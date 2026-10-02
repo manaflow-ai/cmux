@@ -1,6 +1,6 @@
 import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
-import { sessionEntry, type AcpmuxSessionEntry } from "./sessionList";
+import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 
 export type AcpmuxHostConfig = {
@@ -767,6 +767,10 @@ export class AcpmuxDirectClient {
             cwd: summary.cwd,
             turnCount: summary.turnCount,
             usage: this.usage,
+            host: text(summary.host),
+            hostKind: hostKind(summary.hostKind),
+            branch: text(summary.branch),
+            worktree: text(summary.worktree),
             title: summary.title,
             name: summary.name,
             harness: summary.harness,

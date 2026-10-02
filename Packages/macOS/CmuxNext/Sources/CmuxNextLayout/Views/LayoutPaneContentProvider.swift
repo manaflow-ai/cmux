@@ -42,10 +42,13 @@ final class LayoutViewContext {
     var requestFrames: () -> Void = {}
     /// Pane hosts or dividers moved: the overlay plane follows them.
     var overlayNeedsSync: () -> Void = {}
+    /// The strip scrollbar's fade-out deadline clock.
+    let scrollbarClock: any Clock<Duration>
 
-    init(model: LayoutModel, provider: any LayoutPaneContentProvider) {
+    init(model: LayoutModel, provider: any LayoutPaneContentProvider, scrollbarClock: any Clock<Duration> = ContinuousClock()) {
         self.model = model
         self.provider = provider
+        self.scrollbarClock = scrollbarClock
     }
 
     var style: LayoutStyle { model.style }

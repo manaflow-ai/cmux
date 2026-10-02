@@ -15,5 +15,15 @@
   "debug_r2_key": "cef/763e751ffbbfb402c5f5f17ce3966a6e1a6689434b5f9cdae4a325d190afbfa3/cef-154.0.28-cmux.12-macos-arm64-debug.tar.xz",
   "fork_branch": "cmux/8037-ext",
   "fork_ref": "549c38a71072fc4e4051549f8bc33aced8e18687",
-  "cmux_cef_api_version": 14
+  "cmux_cef_api_version": 14,
+  "x86_64": {
+    "asset": "cef-154.0.28-cmux.12-macos-x86_64.tar.xz",
+    "sha256": "5c76349a9b8abbff10b05a5c8212e47dc533934d27ccafc23a3eef850522ba2d",
+    "r2_key": "cef/5c76349a9b8abbff10b05a5c8212e47dc533934d27ccafc23a3eef850522ba2d/cef-154.0.28-cmux.12-macos-x86_64.tar.xz",
+    "url": "https://github.com/manaflow-ai/cef/releases/download/cef-154.0.28-cmux.12/cef-154.0.28-cmux.12-macos-x86_64.tar.xz",
+    "debug_asset": "cef-154.0.28-cmux.12-macos-x86_64-debug.tar.xz",
+    "debug_sha256": "f9b0a6b0484a7e695a6882ed33bae47613d1a514a05361b53ef7fc6f5744467b",
+    "debug_r2_key": "cef/f9b0a6b0484a7e695a6882ed33bae47613d1a514a05361b53ef7fc6f5744467b/cef-154.0.28-cmux.12-macos-x86_64-debug.tar.xz",
+    "fork_ref": "e475934700b410c006ed68d2657d3239614c0fc0"
+  }
 }
