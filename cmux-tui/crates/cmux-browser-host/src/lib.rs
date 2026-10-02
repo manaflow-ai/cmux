@@ -15,6 +15,7 @@ pub mod driver;
 pub mod engines;
 pub mod gate;
 pub mod host;
+pub mod mcp;
 pub mod policy;
 pub mod protocol;
 pub mod provider;
