@@ -166,6 +166,7 @@ final class SidebarBridge {
     private func markReadyForReveal() {
         guard !isReadyForReveal else { return }
         isReadyForReveal = true
+        DebugTimings.markLaunch("sidebar_rows_shown")
         // LaunchReveal seam: call `markReady(.sidebar)` here once LaunchReveal lands on feat-cmux-next.
     }
 
