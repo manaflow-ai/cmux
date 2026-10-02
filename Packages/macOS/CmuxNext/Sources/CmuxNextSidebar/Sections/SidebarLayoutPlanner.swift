@@ -3,19 +3,26 @@ import Foundation
 /// Turns user commands ("Add Home to Sidebar", "Pin to Section") into one
 /// layout op against the current document. Pure; the caller sends the op.
 public nonisolated enum SidebarLayoutPlanner {
-    /// Adds `ref` at the start of the first items section of `region`
-    /// (creating a section there when none exists). Nil when the layout
-    /// already holds `ref` anywhere.
+    /// Adds `ref` to the first items section of `region` that shows in
+    /// every room: first in the top region, last elsewhere. With no such
+    /// section, adds one (no title, `look`) holding the item. Nil when the
+    /// layout already holds `ref` anywhere.
     public static func add(_ ref: LayoutItemRef, to region: SidebarRegion = .top, in document: SidebarLayoutDocument,
                            look: SectionLook = .builtIn, newItem: LayoutItemID = .mint(),
                            newSection: LayoutSectionID = .mint()) -> SidebarLayoutOp? {
-        nil
+        guard document.firstItem(with: ref) == nil else { return nil }
+        let item = LayoutItem(id: newItem, ref: ref)
+        let index = region == .top ? 0 : Int.max
+        if let section = document.sections.first(where: { $0.region == region && $0.room == nil && $0.content == .items }) {
+            return .itemAdd(item, section: section.id, index: index)
+        }
+        return .sectionAdd(LayoutSection(id: newSection, region: region, look: look, items: [item]), index: index)
     }
 
-    /// Removes every item with `ref` (the first one; the layout holds at
-    /// most one per section, and built-in commands target the first).
+    /// Removes the first item with `ref` in document order (built-in
+    /// commands such as "Remove Home from Sidebar" target it).
     public static func remove(_ ref: LayoutItemRef, in document: SidebarLayoutDocument) -> SidebarLayoutOp? {
-        nil
+        document.firstItem(with: ref).map { .itemRemove($0.id) }
     }
 }
 
@@ -35,8 +42,12 @@ public nonisolated struct SidebarLayoutMemoryOwner: Sendable {
     /// stored result and changes nothing; the same key with another op is
     /// refused.
     public mutating func apply(_ op: SidebarLayoutOp, key: String) -> Result<SidebarLayoutDocument, SidebarLayoutReject> {
+        if let entry = ledger[key] {
+            return entry.op == op ? entry.result : .failure(.idempotencyConflict)
+        }
         let result = SidebarLayoutReducer.reduce(document, op)
         if case .success(let next) = result { document = next }
+        ledger[key] = (op, result)
         return result
     }
 }

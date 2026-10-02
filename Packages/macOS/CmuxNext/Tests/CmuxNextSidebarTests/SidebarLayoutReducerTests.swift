@@ -72,7 +72,7 @@ import Testing
         let doc = try reduce(defaults, .itemMove(home, section: SidebarLayoutDocument.bottomSectionID, index: 1))
         #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [settings, home, LayoutItemID("itm_account")])
         #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.isEmpty == true)
-        #expect(Self.itemIDs(doc) == Self.itemIDs(defaults))
+        #expect(Set(Self.itemIDs(doc)) == Set(Self.itemIDs(defaults)))
     }
 
     @Test func moveWithinASectionExcludesItself() throws {
@@ -146,6 +146,15 @@ import Testing
         #expect(reject(defaults, .sectionUpdate(id, SectionPatch(title: .set(String(repeating: "x", count: 81))))) == .invalidTitle)
         #expect(reject(defaults, .sectionUpdate(id, SectionPatch(maxRows: .set(0)))) == .invalidMaxRows)
         #expect(reject(defaults, .sectionUpdate(id, SectionPatch(maxRows: .set(51)))) == .invalidMaxRows)
+    }
+
+    @Test func theWorkspacesSectionCannotBeRoomScoped() {
+        let patch = SectionPatch(room: .set("prof_a"))
+        #expect(reject(defaults, .sectionUpdate(SidebarLayoutDocument.workspacesSectionID, patch)) == .workspacesRequired)
+    }
+
+    @Test func resetOfTheDefaultsIsANoOp() throws {
+        #expect(try reduce(defaults, .reset) == defaults)
     }
 
     @Test func emptyPatchIsANoOp() throws {
@@ -272,7 +281,8 @@ import Testing
             #expect(doc.sections.count <= SidebarLayoutReducer.maxSections && ids.count <= SidebarLayoutReducer.maxItems)
             if case .itemMove = op { #expect(Set(ids) == Set(Self.itemIDs(before))) }
             if case .sectionMove = op { #expect(Set(ids) == Set(Self.itemIDs(before))) }
-            #expect(doc.revision == before.revision + (doc.sections == before.sections ? 0 : 1) || op == .reset)
+            #expect(doc.revision == before.revision + (doc.sections == before.sections ? 0 : 1))
+            #expect(doc.sections.filter { $0.content == .workspaces }.allSatisfy { $0.room == nil })
         }
     }
 
