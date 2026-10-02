@@ -5,7 +5,7 @@ import Foundation
 /// Imported passwords go to the target profile's Chromium password store
 /// (`CEFEngine.importPasswords`, fork API 15), the store autofill reads,
 /// encrypted with cmux's own "cmux Safe Storage" key. A target id that is not
-/// a browser profile is refused (never the default profile). Passwords stay
+/// a browser profile is refused, never sent to the default profile instead. Passwords stay
 /// `SecretBytes` the whole way: the rows point into them, and they are zeroed
 /// as soon as the shim has copied them.
 struct AppPasswordDestination: PasswordDestination {
