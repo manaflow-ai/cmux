@@ -23,6 +23,8 @@ the code already deployed keeps working when production gets them before the mer
 migrations (drops, renames, NOT NULL) ship alone in a later PR, after production code no
 longer uses what they remove.
 
+A PR that changes nothing under `backend/db/migrations` passes the gate without touching a database.
+
 How to write one: [skills/cmux-backend-migrations/SKILL.md](../skills/cmux-backend-migrations/SKILL.md).
 Runner: `backend/db/migrate.ts` (`--lint`, `--env <env> [--verify]`).
 Credentials: GitHub environments `cmux-next-development`, `cmux-next-staging`,
