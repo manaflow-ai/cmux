@@ -1824,8 +1824,14 @@ async fn wait_for_parent_exit(expected: u32) {
     if !parent_process_is(expected) {
         return;
     }
-    let watched = tokio::task::spawn_blocking(move || wait_for_process_exit(expected)).await;
-    if matches!(watched, Ok(Ok(()))) {
+    // A detached thread, not `spawn_blocking`: dropping a tokio runtime waits
+    // for its blocking tasks, so a shutdown while the parent is alive would
+    // hang until the parent exits (and deadlock if the parent waits for us).
+    let (exited_tx, exited_rx) = tokio::sync::oneshot::channel();
+    let spawned = std::thread::Builder::new().name("parent-exit-watch".to_owned()).spawn(move || {
+        let _ = exited_tx.send(wait_for_process_exit(expected));
+    });
+    if spawned.is_ok() && matches!(exited_rx.await, Ok(Ok(()))) {
         return;
     }
     while parent_process_is(expected) {
