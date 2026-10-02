@@ -222,37 +222,66 @@ describe("grouped permission protocol", () => {
     { operation: "refresh", state: "resolved", deletion: 1 },
     { operation: "retry", state: "resolved", deletion: 2 },
     { operation: "retry", state: "pending", deletion: 1 },
-  ] as const)("$operation cleanup of a $state group cannot overwrite another chat", async ({ operation, state, deletion }) => {
-    const storage = new MemoryStorage();
-    storage.values.set("cmux.permission.group:session-1", {
-      sessionId: "session-1", groupId: "group-1", revision: 2, decision: "allow_once", decisionKey: "saved-key",
-    });
-    let release!: () => void;
-    let entered!: () => void;
-    const waiting = new Promise<void>((resolve) => { entered = resolve; });
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    let deletions = 0;
-    storage.delete = async (key) => {
-      if (++deletions === deletion) { entered(); await gate; }
-      storage.values.delete(key);
-    };
-    const client = new PermissionGroupClient(async (_method, params) => {
-      if (params.sessionId === "session-2") throw { code: "native.timed_out", origin: "native", message: "New chat read timed out" };
-      return { ...list, groups: [{ ...group, state, revision: state === "pending" ? 3 : 2, decision: state === "resolved" ? "allow_once" : null }] };
-    }, () => {}, storage);
-    client.configure(true);
-    client.select("session-1");
-    const old = (operation === "retry" ? client.retry() : client.refresh()).catch(() => {});
-    await waiting;
-    client.select("session-2");
-    await expect(client.refresh()).rejects.toMatchObject({ uncertain: true });
-    const current = { ...client.state };
-    release();
-    await old;
-    expect(client.state).toEqual(current);
-    expect(client.state.error).toBe("New chat read timed out");
-    expect(client.state.uncertain).toBe(true);
-  });
+  ] as const)(
+    "$operation cleanup of a $state group cannot overwrite another chat",
+    async ({ operation, state, deletion }) => {
+      const storage = new MemoryStorage();
+      storage.values.set("cmux.permission.group:session-1", {
+        sessionId: "session-1",
+        groupId: "group-1",
+        revision: 2,
+        decision: "allow_once",
+        decisionKey: "saved-key",
+      });
+      let release!: () => void;
+      let entered!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let deletions = 0;
+      storage.delete = async (key) => {
+        if (++deletions === deletion) {
+          entered();
+          await gate;
+        }
+        storage.values.delete(key);
+      };
+      const client = new PermissionGroupClient(
+        async (_method, params) => {
+          if (params.sessionId === "session-2")
+            throw { code: "native.timed_out", origin: "native", message: "New chat read timed out" };
+          return {
+            ...list,
+            groups: [
+              {
+                ...group,
+                state,
+                revision: state === "pending" ? 3 : 2,
+                decision: state === "resolved" ? "allow_once" : null,
+              },
+            ],
+          };
+        },
+        () => {},
+        storage,
+      );
+      client.configure(true);
+      client.select("session-1");
+      const old = (operation === "retry" ? client.retry() : client.refresh()).catch(() => {});
+      await waiting;
+      client.select("session-2");
+      await expect(client.refresh()).rejects.toMatchObject({ uncertain: true });
+      const current = { ...client.state };
+      release();
+      await old;
+      expect(client.state).toEqual(current);
+      expect(client.state.error).toBe("New chat read timed out");
+      expect(client.state.uncertain).toBe(true);
+    },
+  );
 
   test("wrong-session owner data never becomes ready or gets adopted", async () => {
     const wrong = { ...list, groups: [{ ...group, sessionId: "other-session" }] };

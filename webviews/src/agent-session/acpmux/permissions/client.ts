@@ -247,6 +247,8 @@ export class PermissionGroupClient {
         )
       ) {
         await this.clearPending(sessionId);
+        if (generation !== this.generation || refreshSerial !== this.refreshSerial || sessionId !== this.sessionId)
+          return;
         this.state = { ...this.state, uncertain: false, error: undefined };
       }
     } catch (error) {
@@ -430,12 +432,14 @@ export class PermissionGroupClient {
       }
       if ((group.state === "resolved" || group.state === "cancelled") && group.revision >= pending.revision) {
         await this.clearPending(sessionId);
+        if (generation !== this.generation || sessionId !== this.sessionId) return;
         this.state = { ...this.state, uncertain: false, error: undefined };
         this.changed();
         return;
       }
       if (group.revision !== pending.revision) {
         await this.clearPending(sessionId);
+        if (generation !== this.generation || sessionId !== this.sessionId) throw this.selectionChanged();
         const error = new PermissionRpcError({
           code: "revision.conflict",
           message: "The permission group changed. Review it again before retrying.",
