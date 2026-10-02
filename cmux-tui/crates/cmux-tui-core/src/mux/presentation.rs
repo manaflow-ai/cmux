@@ -739,7 +739,7 @@ impl Mux {
         let browser_id = BrowserPublicId::random()?;
         {
             let mut registry = self.workspace_registry.lock().unwrap();
-            registry.put_frontend_browser(browser_id.as_str(), &record)?;
+            registry.put_frontend_browser(browser_id.as_str(), &record, None)?;
             self.reload_presentation(&registry)?;
         }
         let fields = Map::from_iter([(
@@ -782,6 +782,8 @@ impl Mux {
         let browser_id = self.frontend_browser_id(&runtime).ok_or_else(|| {
             anyhow::anyhow!("surface {surface} is not a frontend-rendered browser")
         })?;
+        // `conversation-tabs-v1`: a conversation tab's row never gets a page.
+        self.refuse_conversation_tab(&runtime)?;
         if let Some(owner) = &owner {
             crate::state::window_record_store::validate_key("owner", owner)?;
         }

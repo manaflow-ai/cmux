@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "06426902f6b840fe5bda861cd89adf95557247009953da568266a7381b1a1f9c";
+pub const ir_sha256 = "68f320c61aea43c8086b6eb581a5d4f6411714c3749b5177b44c3806a2e34d87";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1459,10 +1459,12 @@ pub const TabBrowserStatus = enum {
 pub const TabKind = enum {
     pty,
     browser,
+    conversation,
 
     pub fn fromWire(value: []const u8) !@This() {
         if (std.mem.eql(u8, value, "pty")) return .pty;
         if (std.mem.eql(u8, value, "browser")) return .browser;
+        if (std.mem.eql(u8, value, "conversation")) return .conversation;
         return error.UnknownEnumValue;
     }
 
@@ -1470,6 +1472,7 @@ pub const TabKind = enum {
         return switch (self) {
             .pty => "pty",
             .browser => "browser",
+            .conversation => "conversation",
         };
     }
 };
@@ -4472,6 +4475,31 @@ pub fn newBrowserTab(client: anytype, request: NewBrowserTabRequest) !wire.Decod
             .authority = "control",
             .since = 5,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const NewConversationTabRequest = struct {
+    cols: wire.Field(u16) = .absent,
+    conversation: []const u8,
+    mutation_id: wire.Field([]const u8) = .absent,
+    origin: wire.Field([]const u8) = .absent,
+    owner: []const u8,
+    pane: wire.Field(Id) = .absent,
+    rows: wire.Field(u16) = .absent,
+};
+
+pub const NewConversationTabResult = JsonValue;
+
+pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !wire.Decoded(NewConversationTabResult) {
+    return client.callTyped(
+        NewConversationTabResult,
+        .{
+            .name = "new-conversation-tab",
+            .authority = "control",
+            .since = 12,
+            .capability = "conversation-tabs-v1",
         },
         request,
     );
@@ -7697,7 +7725,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 196;
+pub const command_count: usize = 197;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7798,6 +7826,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "move-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "move-workspace-to-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "new-browser-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "new-conversation-tab", .authority = "control", .since = 12, .capability = "conversation-tabs-v1", .stream = null },
     .{ .name = "new-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },
     .{ .name = "new-pane", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "new-pane-right", .authority = "control", .since = 9, .capability = "viewport-splits-v1", .stream = null },

@@ -630,7 +630,7 @@ fn validate_operation_constraints(
     }
     match operation {
         ResourceOperation::ClientMetadataUpdate => {
-            require_any(supplied, operation, &["name", "kind"])?;
+            require_any(supplied, operation, &["name", "kind", "capabilities"])?;
         }
         ResourceOperation::SessionTerminalDefaultsUpdate => {
             require_any(
@@ -823,12 +823,20 @@ fn dispatch_resource_request(
                 Ok(json!({"alive":true,"cursor":snapshot["cursor"]}))
             }
             ResourceOperation::TerminalList => list_resources(mux, &request.selectors, "terminals"),
-            ResourceOperation::BrowserList => list_resources(mux, &request.selectors, "browsers"),
+            // A conversation tab's content is not a browser (`conversation-tabs-v1`).
+            ResourceOperation::BrowserList => list_resources(mux, &request.selectors, "browsers")
+                .map(|mut browsers| {
+                    mux.retain_browser_pages(&mut browsers);
+                    browsers
+                }),
             ResourceOperation::TerminalGet => {
                 get_resource(mux, &request.selectors, ResourceTarget::Terminal, "terminals")
             }
             ResourceOperation::BrowserGet => {
-                get_resource(mux, &request.selectors, ResourceTarget::Browser, "browsers")
+                let browser =
+                    get_resource(mux, &request.selectors, ResourceTarget::Browser, "browsers")?;
+                mux.refuse_conversation_content(&browser)?;
+                Ok(browser)
             }
             ResourceOperation::NotificationList => {
                 ensure_session_route(mux, &request.selectors)?;

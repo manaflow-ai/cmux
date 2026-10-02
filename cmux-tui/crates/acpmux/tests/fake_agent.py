@@ -211,7 +211,7 @@ def main():
             send({"jsonrpc": "2.0", "id": rid, "result": {
                 "protocolVersion": 1,
                 "agentInfo": {"name": "fake", "version": "0"},
-                "agentCapabilities": {"loadSession": True, "sessionCapabilities": {"fork": {}}},
+                "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {"fork": {}}},
                 "authMethods": [],
             }})
         elif m == "session/new":

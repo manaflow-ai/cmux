@@ -96,8 +96,10 @@ pub use loopback_forward::{
 };
 mod bookmarks;
 mod browser_profiles;
+mod conversation_tabs_wire;
 mod launch_snapshot;
 mod personal;
+mod raw_tab;
 mod screen_json;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
@@ -217,16 +219,13 @@ pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
 /// Durable notification acknowledgement decoupled from focus:
-/// `ack-tab-notifications`, `list-notifications`, and the workspace
-/// `unread_count` rollup.
+/// `ack-tab-notifications`, `list-notifications`, and the workspace `unread_count` rollup.
 pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
-/// Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`,
-/// and `Tab.group`.
+/// Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`.
 pub const TAB_GROUPS_CAPABILITY: &str = "tab-groups-v1";
 /// Saved (pinned) tab groups that outlive their placements.
 pub const SAVED_TAB_GROUPS_CAPABILITY: &str = "saved-tab-groups-v1";
-/// Per-terminal `env` on `new-tab`, `split`, and `create-terminal`, and
-/// `cwd` on `split`.
+/// Per-terminal `env` on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`.
 pub const TERMINAL_ENV_CAPABILITY: &str = "terminal-env-v1";
 /// `identify` carries `session_id` (the durable registry id) and
 /// `machine_name` (plans/cmux-next/data-model.md section 2).
@@ -239,8 +238,7 @@ pub const PROFILES_CAPABILITY: &str = "profiles-v1";
 /// `set-personal-terminal` and `list-personal.terminals`.
 pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
 /// Browser profile records in personal state: `browser_profiles` in
-/// `list-personal` and the `*-browser-profile` commands
-/// (plans/cmux-next/data-model.md section 5).
+/// `list-personal` and the `*-browser-profile` commands (plans/cmux-next/data-model.md section 5).
 pub const BROWSER_PROFILES_CAPABILITY: &str = "browser-profiles-v1";
 pub use bookmarks::BOOKMARKS_CAPABILITY;
 /// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
@@ -426,6 +424,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         WINDOW_RECORDS_CAPABILITY,
         FRONTEND_BROWSER_OWNER_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
+        crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -892,8 +891,7 @@ struct BrowserProviderTargetRequest {
     target_id: String,
 }
 
-/// Optional shared-sizing identity carried by `set-client-info` and relay
-/// sub-views.
+/// Optional shared-sizing identity carried by `set-client-info` and relay sub-views.
 #[derive(Clone, Debug, Default, Deserialize)]
 struct ClientIdentityWire {
     #[serde(default)]
@@ -1007,8 +1005,7 @@ fn size_state_event_json(
     event
 }
 
-/// The actor recorded on a kick: the explicit `by`, else the requester's own
-/// identity.
+/// The actor recorded on a kick: the explicit `by`, else the requester's own identity.
 fn detach_actor(mux: &Mux, requester: u64, by: Option<TerminalDetachActor>) -> TerminalDetachActor {
     by.unwrap_or_else(|| {
         let identity = mux.control_clients.sizing_identity(requester).unwrap_or_default();
@@ -1061,8 +1058,7 @@ enum Command {
         enabled: bool,
     },
     /// Gracefully hand this daemon's durable session to a replacement.
-    /// The caller must fence the request with values from this daemon's
-    /// `identify` response.
+    /// The caller must fence the request with values from this daemon's `identify` response.
     ShutdownDaemon {
         pid: u32,
         generation: String,
@@ -1141,8 +1137,7 @@ enum Command {
         client: DetachClientTarget,
         #[serde(default)]
         by: Option<TerminalDetachActor>,
-        /// Resolves a participant id on this terminal only (participant ids
-        /// are per terminal).
+        /// Resolves a participant id on this terminal only (participant ids are per terminal).
         #[serde(default)]
         surface: Option<SurfaceId>,
     },
@@ -1311,8 +1306,7 @@ enum Command {
         level: Option<String>,
         #[serde(default)]
         surface: Option<SurfaceId>,
-        /// `notification-source-v1`: `cli` (default), `terminal`, `agent` or
-        /// `daemon`.
+        /// `notification-source-v1`: `cli` (default), `terminal`, `agent` or `daemon`.
         #[serde(default)]
         source: Option<String>,
     },
@@ -1341,8 +1335,7 @@ enum Command {
         ttl_ms: u64,
     },
     /// Mint a renderer credential from the stable public terminal identity.
-    /// Remote clients must not depend on this daemon generation's local
-    /// numeric surface handle.
+    /// Remote clients must not depend on this daemon generation's local numeric surface handle.
     MintTerminalRendererByTerminal {
         terminal: String,
         #[serde(default = "default_renderer_capability_ttl_ms")]
@@ -1364,8 +1357,7 @@ enum Command {
     },
     /// Set (`idle_close_seconds`) or clear (`null`, never close) the
     /// idle-close policy of one hosted terminal, named by exactly one of a
-    /// PTY `surface` or a stable `terminal_id`. The policy is durable and
-    /// survives owner restarts.
+    /// PTY `surface` or a stable `terminal_id`. The policy is durable and survives owner restarts.
     SetTerminalIdlePolicy {
         #[serde(default)]
         surface: Option<SurfaceId>,
@@ -1393,8 +1385,7 @@ enum Command {
         /// Extra environment for the new terminal's child only.
         #[serde(default)]
         env: Option<BTreeMap<String, String>>,
-        /// Expected content size in cells (spawn-at-size avoids shell
-        /// redraw artifacts).
+        /// Expected content size in cells (spawn-at-size avoids shell redraw artifacts).
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
@@ -1410,6 +1401,8 @@ enum Command {
         #[serde(default)]
         shell_args: Option<Vec<String>>,
     },
+    /// `conversation-tabs-v1`: a tab showing one conversation (server/conversation_tabs_wire.rs).
+    NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     /// The daemon persists its location and never attaches a CDP target.
     NewFrontendBrowserTab {
@@ -1571,8 +1564,7 @@ enum Command {
         #[serde(flatten)]
         mutation: MutationRequest,
     },
-    /// Create a terminal inside an existing workspace selected by stable key
-    /// or legacy numeric id.
+    /// Create a terminal inside an existing workspace selected by stable key or legacy numeric id.
     CreateTerminal {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -2033,8 +2025,7 @@ enum Command {
         mutation: MutationRequest,
     },
     /// Set, clear (`null`), or keep (absent) a workspace's shared color,
-    /// SF Symbol icon, and custom title, and set or keep its sidebar pin
-    /// and manual unread mark.
+    /// SF Symbol icon, and custom title, and set or keep its sidebar pin and manual unread mark.
     SetWorkspaceMetadata {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -2212,8 +2203,7 @@ enum Command {
     },
     /// List sidebar workspace groups in order.
     ListWorkspaceGroups,
-    /// Create a sidebar workspace group. A caller-chosen `group` id makes a
-    /// retry idempotent.
+    /// Create a sidebar workspace group. A caller-chosen `group` id makes a retry idempotent.
     CreateWorkspaceGroup {
         name: String,
         #[serde(default)]
@@ -2285,8 +2275,7 @@ enum Command {
         surface: SurfaceId,
     },
     /// Close several tab placements in one durable commit. With
-    /// `end_terminals`, also end every terminal whose views all close and
-    /// that is not kept.
+    /// `end_terminals`, also end every terminal whose views all close and that is not kept.
     CloseTabs {
         surfaces: Vec<TabRef>,
         #[serde(default)]
@@ -2456,8 +2445,7 @@ enum Command {
         #[serde(default)]
         mode: Option<String>,
         /// Optional initial viewer size. Supplying this pair makes the attach
-        /// stream a sizing participant immediately, before its first frame is
-        /// rendered.
+        /// stream a sizing participant immediately, before its first frame is rendered.
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
@@ -2638,8 +2626,7 @@ fn surface_placement(mux: &Mux, surface: SurfaceId) -> (Option<WorkspaceId>, Opt
     })
 }
 
-/// The pane that anchors a column drop: the given pane, or the active pane
-/// of the given screen.
+/// The pane that anchors a column drop: the given pane, or the active pane of the given screen.
 fn column_anchor(
     mux: &Mux,
     pane: Option<PaneId>,
@@ -3082,8 +3069,7 @@ struct ConnectionSurfaceState {
     requests: VecDeque<PendingSurfaceRequest>,
     queued_bytes: usize,
     active_clear_surfaces: HashSet<SurfaceId>,
-    /// Terminal creates handed to the terminal work pool and not yet
-    /// answered (`terminal_create`).
+    /// Terminal creates handed to the terminal work pool and not yet answered (`terminal_create`).
     active_creations: usize,
     dispatcher_started: bool,
     dispatcher_done: bool,
@@ -3711,9 +3697,10 @@ struct MessageWriter {
     next_stream_id: Arc<AtomicU64>,
     render_service: Arc<RenderService>,
     wait_wakeups: Arc<Mutex<Vec<Weak<ResourceWaitWake>>>>,
-    /// Fired when the writer closes, so stream loops block instead of
-    /// polling `is_open`.
+    /// Fired when the writer closes, so stream loops block instead of polling `is_open`.
     closed: InterruptSet,
+    /// Negotiated `conversation-tabs-v1` (server/conversation_tabs_wire.rs).
+    conversation_tabs: Arc<AtomicBool>,
 }
 
 impl MessageWriter {
@@ -3739,6 +3726,7 @@ impl MessageWriter {
             render_service,
             wait_wakeups: Arc::new(Mutex::new(Vec::new())),
             closed: InterruptSet::default(),
+            conversation_tabs: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -3896,7 +3884,7 @@ impl MessageWriter {
         let result = self
             .render_service
             .serialize_control(value)
-            .and_then(|text| self.sink.send_control(text));
+            .and_then(|text| self.sink.send_control(self.project_conversation_tabs(text)?));
         if result.is_err() {
             self.close();
         }
@@ -3907,7 +3895,8 @@ impl MessageWriter {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self.sink.send_control(text);
+        let result =
+            self.project_conversation_tabs(text).and_then(|text| self.sink.send_control(text));
         if result.is_err() {
             self.close();
         }
@@ -5529,7 +5518,10 @@ impl ClientRegistry {
                     || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
                     || capability == LOOPBACK_FORWARD_CAPABILITY
+                    || capability
+                        == crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY
             }));
+            record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
         Ok((record.name.clone(), record.kind.clone()))
     }
@@ -7308,8 +7300,7 @@ fn detach_own_view(mux: &Mux, owner: u64, placement: SurfaceId, by: TerminalDeta
 /// in-process frontend's `detach-client {client: <participant>}`): a relay
 /// sub-view leaves alone and its relay forwards the notice; the own view of
 /// a client with [`SIZING_VIEW_DETACH_CAPABILITY`] leaves alone and that
-/// client stays; any other participant's whole client is kicked with
-/// `disconnected-by`.
+/// client stays; any other participant's whole client is kicked with `disconnected-by`.
 pub fn detach_size_participant(
     mux: &Arc<Mux>,
     requester: u64,
@@ -8473,6 +8464,7 @@ fn resource_client_metadata_update(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (target, session_id) = resolve_resource_client(mux, requesting_client, &request.selectors)?;
+    conversation_tabs_wire::set_resource_capabilities(mux, requesting_client, target, request)?;
     let name = request.fields.get("name").map(|value| value.as_str().map(str::to_string));
     let kind = request.fields.get("kind").map(|value| value.as_str().map(str::to_string));
     let (name, kind) = mux.control_clients.set_resource_info(target, name, kind)?;
@@ -11620,6 +11612,8 @@ fn pane_json(
                     }
                     ContentPublicId::Terminal(_) => None,
                 });
+            let conversation = content_resource_id
+                .and_then(|id| notifications.presentation.conversation_tabs.get(id));
             let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
                 notifications.presentation.pinned_tabs.contains(tab.as_str())
             });
@@ -11632,7 +11626,7 @@ fn pane_json(
                 .filter(|_| surface.is_none_or(|surface| surface.is_dead()))
                 .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()))
                 .map(|kept| json!({"cwd": kept.cwd}));
-            json!({
+            let mut tab = json!({
                 "surface": sid,
                 "tab_resource_id": tab_resource_id,
                 "group": group_of(sid),
@@ -11648,23 +11642,6 @@ fn pane_json(
                     .as_ref()
                     .map(|identity| &identity.incarnation),
                 "short_id": short_ids.get(sid).cloned().unwrap_or_default(),
-                "kind": surface.map(|s| s.kind().as_str()).unwrap_or("pty"),
-                "browser_source": surface.and_then(|s| s.browser_source().map(|source| source.as_str())),
-                "browser_status": surface
-                    .filter(|_| frontend_browser.is_none())
-                    .and_then(|s| s.browser_status().map(|status| status.as_str())),
-                "browser_error": surface
-                    .filter(|_| frontend_browser.is_none())
-                    .and_then(|s| s.browser_status().and_then(|status| status.error())),
-                "browser_renderer": surface
-                    .filter(|surface| surface.kind() == SurfaceKind::Browser)
-                    .map(|_| if frontend_browser.is_some() { "frontend" } else { "daemon" }),
-                "browser_engine": frontend_browser.map(|record| record.engine.as_str()),
-                "favicon_url": frontend_browser.and_then(|record| record.favicon_url.as_deref()),
-                "browser_profile_id": frontend_browser.and_then(|record| record.profile_id.as_deref()),
-                "browser_owner": frontend_browser.and_then(|record| record.owner.as_deref()),
-                "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
-                "url": surface.and_then(|s| s.browser_url()),
                 "supports_clear_history_key_fallback": surface
                     .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
                 "notification": notifications.get(sid).copied().map(|n| {
@@ -11682,7 +11659,9 @@ fn pane_json(
                     json!({"cols": c, "rows": r})
                 }),
                 "dead": surface.map(|s| s.is_dead()).unwrap_or(true),
-            })
+            });
+            raw_tab::merge_browser_fields(&mut tab, surface, frontend_browser, conversation);
+            tab
         }).collect::<Vec<_>>(),
     })
 }
@@ -11967,9 +11946,9 @@ fn require_pty(surface: &crate::Surface) -> anyhow::Result<()> {
     }
 }
 
-fn require_browser(surface: &crate::Surface) -> anyhow::Result<()> {
+fn require_browser(mux: &Mux, surface: &crate::Surface) -> anyhow::Result<()> {
     if surface.kind() == SurfaceKind::Browser {
-        Ok(())
+        mux.refuse_conversation_tab(surface)
     } else {
         anyhow::bail!("PTY surface is not a browser surface")
     }
@@ -12090,7 +12069,7 @@ fn handle_browser_frame_presented(
         );
     }
     let surface = get_surface(mux, surface)?;
-    require_browser(&surface)?;
+    require_browser(mux, &surface)?;
     let owner = mux.control_clients.browser_pointer_owner(client)?;
     let accepted = surface.browser_acknowledge_pointer_frame_from(owner, frame_seq);
     Ok(json!({ "accepted": accepted }))
@@ -12115,7 +12094,7 @@ fn handle_browser_mouse_command(
         .frame_seq
         .ok_or_else(|| anyhow::anyhow!("browser pointer input requires a frame guard"))?;
     let surface = get_surface(mux, command.surface)?;
-    require_browser(&surface)?;
+    require_browser(mux, &surface)?;
     let event_type = match command.kind {
         "down" => "mousePressed",
         "up" => "mouseReleased",
@@ -12150,7 +12129,7 @@ fn handle_browser_wheel_command(
     let frame_seq =
         frame_seq.ok_or_else(|| anyhow::anyhow!("browser pointer input requires a frame guard"))?;
     let surface = get_surface(mux, surface)?;
-    require_browser(&surface)?;
+    require_browser(mux, &surface)?;
     let input_owner = mux.control_clients.browser_pointer_owner(client)?;
     surface.browser_wheel_for_frame_from(input_owner, x_px, y_px, delta_y_px, Some(frame_seq))?;
     Ok(json!({}))
@@ -14045,6 +14024,9 @@ fn handle_command_with_cancellation(
                 mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
         }
+        Command::NewConversationTab(params) => {
+            conversation_tabs_wire::new_conversation_tab(mux, params)
+        }
         Command::NewFrontendBrowserTab {
             url,
             engine,
@@ -14204,7 +14186,7 @@ fn handle_command_with_cancellation(
             text,
         } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             let event_type = match kind.as_str() {
                 "down" => "keyDown",
                 "up" => "keyUp",
@@ -14229,7 +14211,7 @@ fn handle_command_with_cancellation(
             text,
         } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             surface.browser_key_press(
                 &key,
                 &code,
@@ -14241,37 +14223,37 @@ fn handle_command_with_cancellation(
         }
         Command::BrowserInsertText { surface, text } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             surface.browser_insert_text(&text)?;
             Ok(json!({}))
         }
         Command::BrowserNavigate { surface, url } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             surface.browser_navigate(&url)?;
             Ok(json!({}))
         }
         Command::BrowserBack { surface } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             surface.browser_back()?;
             Ok(json!({}))
         }
         Command::BrowserForward { surface } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             surface.browser_forward()?;
             Ok(json!({}))
         }
         Command::BrowserReload { surface } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             surface.browser_reload()?;
             Ok(json!({}))
         }
         Command::BrowserActivate { surface } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             surface.browser_activate()?;
             Ok(json!({}))
         }

@@ -2,6 +2,8 @@
 
 use super::*;
 
+use super::adoption::{Adoption, adopted_in, session_cwd};
+
 impl Hub {
     // --------------------------------------------------------- lifecycle
 
@@ -71,7 +73,9 @@ impl Hub {
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
         // Harness discovery and launcher checks finish in the background.
         self.wait_startup().await;
-        let NewRequest { harness, preset, name, cwd, policy, model, effort } = req;
+        let NewRequest { harness, preset, name, cwd, policy, model, effort, adopt } = req;
+        // An adopted session's harness names the head unless one was given.
+        let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
         let (agent, profile, defaults, head, preset_name) = {
@@ -126,17 +130,13 @@ impl Hub {
         // set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
-        let cwd = if cwd.is_absolute() {
-            cwd
-        } else {
-            std::env::current_dir().unwrap_or_default().join(cwd)
+        // Adopting checks the id against the harness's own store before
+        // anything is created, and takes the conversation's recorded cwd.
+        let recorded = match self.adoption(adopt.as_ref(), agent, &family).await? {
+            Adoption::Existing(existing) => return Ok(existing),
+            Adoption::Found(recorded) => recorded,
         };
-        if !cwd.is_dir() {
-            return Err(RpcError::invalid_params(format!(
-                "cwd {} is not a directory",
-                cwd.display()
-            )));
-        }
+        let cwd = session_cwd(cwd, recorded, &family)?;
         let id = uuid::Uuid::now_v7().to_string();
         let now = now_ms();
         let mut meta = SessionMeta {
@@ -145,11 +145,12 @@ impl Hub {
             name: String::new(),
             harness: agent.into(),
             harness_argv: profile.argv.clone(),
-            family: Some(family),
+            family: Some(family.clone()),
             preset: preset_name.clone(),
             model_request: if spawn_model { model.clone() } else { None },
             cwd,
-            agent_session_id: None,
+            // Set before the first spawn, so the harness resumes it.
+            agent_session_id: adopt.as_ref().map(|a| a.agent_session_id.clone()),
             status: SessionStatus::Idle,
             created_at: now,
             updated_at: now,
@@ -177,6 +178,13 @@ impl Hub {
         // creations can never publish the same name twice.
         let session = {
             let mut sessions = self.sessions.lock().unwrap();
+            // Checked again under the insert lock: two concurrent adopts of
+            // one id get one session.
+            if let Some(a) = &adopt
+                && let Some(existing) = adopted_in(&sessions, &family, &a.agent_session_id)
+            {
+                return Ok(existing);
+            }
             meta.name = match name {
                 Some(n) => {
                     if sessions.values().any(|s| s.meta().name == n) {
@@ -197,12 +205,19 @@ impl Hub {
             return Err(RpcError::internal(e.to_string()));
         }
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
+        if let Some(a) = &adopt {
+            self.append(&session, "mux", "adopted", json!({"agentSessionId": a.agent_session_id}));
+        }
         let spawn = self.spawn_profile(&session, &profile, &defaults.env).await;
         if let Err(e) = self.ensure_child(&session, &spawn).await {
             // A session whose agent never started is not left behind, and
             // neither is a child that spawned but failed to initialize.
             let _ = self.kill(&session, true).await;
             return Err(e);
+        }
+        // An agent that started fresh instead of resuming fails creation.
+        if let Some(a) = &adopt {
+            self.check_resumed(&session, a, agent).await?;
         }
         // Defaults and explicit values, applied once the harness is up. A bad
         // value fails creation loudly rather than starting a session that
@@ -929,10 +944,13 @@ pub struct NewRequest {
     pub harness: Option<String>,
     pub preset: Option<String>,
     pub name: Option<String>,
-    pub cwd: PathBuf,
+    /// None: the adopted session's recorded cwd, else the home directory.
+    pub cwd: Option<PathBuf>,
     pub policy: Option<PermissionPolicy>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// A harness session to resume instead of starting a new one.
+    pub adopt: Option<crate::adopt::AdoptRequest>,
 }
 
 /// `${cwd}`, `${home}`, `${model}` and a leading `~/` in a profile env value or argv word.

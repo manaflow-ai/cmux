@@ -261,7 +261,7 @@ impl Hub {
                 let t = self
                     .new_session(NewRequest {
                         harness: Some(profile),
-                        cwd: sm.cwd.clone(),
+                        cwd: Some(sm.cwd.clone()),
                         policy: Some(policy),
                         ..Default::default()
                     })
