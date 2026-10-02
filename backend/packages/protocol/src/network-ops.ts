@@ -49,6 +49,8 @@ export const NetworkDevice = Schema.Struct({
   wg_public_key: WireGuardPublicKey,
   joined_at: Schema.Int,
   revoked_at: Schema.NullOr(Schema.Int),
+  /** Who revoked it: the device's own user (it may re-join), an admin (sticky until an admin allows a re-join) or "system" (install revoked). */
+  revoked_by: Schema.optionalKey(Schema.NullOr(Schema.String)),
   status: Schema.Literals(["pending", "ready", "revoked"]),
   tunnel: Schema.NullOr(DeviceTunnel)
 }).annotate({ identifier: "NetworkDevice" })
@@ -154,10 +156,10 @@ export const NetworkDeviceRevoke = def({
   risk: "destructive",
   target: "network",
   principals: ["session", "install"],
-  params: Schema.Struct({ install: InstallId }),
+  params: Schema.Struct({ install: InstallId, allow_rejoin: Schema.optionalKey(Schema.Boolean) }),
   result: NetworkDevice,
   errors: [...mutationErrors, "selector.not_found"],
-  docs: "Remove a device from the team network: its tunnel and rules are deleted. The device's user or a team admin.",
+  docs: "Remove a device from the team network: its tunnel and rules are deleted. The device's user or a team admin. An admin revoke is sticky: the device cannot re-join until an admin calls this again with allow_rejoin.",
   cli: { path: "network device revoke", visible: true },
   mcp: { expose: "never", group: "network" }
 })
@@ -186,7 +188,7 @@ export const NetworkMachineRegister = def({
   principals: ["session", "install"],
   params: Schema.Struct({
     machine: MachineId,
-    provider_id: Schema.NullOr(Schema.String),
+    provider_id: Schema.NullOr(Schema.String.check(Schema.isPattern(/^vm-[a-z0-9-]{1,80}$/))),
     owner_user: Schema.NullOr(UserId),
     tags: Schema.Array(TagName),
     classes: Schema.optionalKey(Schema.Array(Schema.Literals(["mux", "agent", "run"]))),
@@ -209,7 +211,7 @@ export const NetworkMachineTag = def({
   params: Schema.Struct({ machine: MachineId, tags: Schema.Array(TagName) }),
   result: NetworkMachine,
   errors: [...mutationErrors, "selector.not_found", "tag.forbidden"],
-  docs: "Replace a machine's tags. The caller must own every tag added or removed (tagOwners).",
+  docs: "Replace a machine's tags. The caller must be a team admin or the machine's owner, and own every tag added or removed (tagOwners).",
   cli: { path: "network machine tag", visible: true },
   mcp: { expose: "opt_in", group: "network" }
 })

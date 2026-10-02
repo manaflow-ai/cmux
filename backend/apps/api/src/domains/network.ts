@@ -1,4 +1,5 @@
 import {
+  isCidrOrAddress,
   compileNetwork,
   mayAssignTag,
   parsePolicy,
@@ -210,6 +211,8 @@ export const reduceNetwork = <S extends TeamLike>(state: S, op: string, params: 
       if (!d.ok) return d
       if (!p.install || !p.user) return reject("auth.forbidden", "network.device.join needs an install token")
       const existing = n.devices[p.install]
+      if (existing && existing.revoked_at !== null && (existing.revoked_by ?? existing.user) !== existing.user)
+        return reject("auth.forbidden", "a team admin removed this device from the network; an admin must allow it to re-join")
       if (existing && existing.revoked_at === null && existing.wg_public_key === d.value.wg_public_key) return { ok: true, state, value: existing, changed: false }
       // The policy must give this user's devices some reachability, or a tunnel is pointless (spec "How a Mac joins" step 2).
       if (!grantsDevice(effectivePolicy(n), state, p.user, p.install)) return reject("network.no_access", "the network policy gives this user's devices no access")
@@ -219,6 +222,7 @@ export const reduceNetwork = <S extends TeamLike>(state: S, op: string, params: 
         wg_public_key: d.value.wg_public_key,
         joined_at: existing && existing.revoked_at === null ? existing.joined_at : ctx.now,
         revoked_at: null,
+        revoked_by: null,
         status: "pending",
         tunnel: null
       }
@@ -230,8 +234,14 @@ export const reduceNetwork = <S extends TeamLike>(state: S, op: string, params: 
       const dev = n.devices[d.value.install]
       if (!dev) return reject("selector.not_found", "device not found")
       if (dev.user !== p.user && !isAdmin(state, p)) return reject("auth.forbidden", "only the device's user or a team admin may revoke it")
+      if (d.value.allow_rejoin) {
+        if (!isAdmin(state, p)) return reject("auth.forbidden", "only a team admin may allow a re-join")
+        if (dev.revoked_at === null || (dev.revoked_by ?? dev.user) === dev.user) return { ok: true, state, value: dev, changed: false }
+        const allowed: Device = { ...dev, revoked_by: dev.user }
+        return { ok: true, state: withNet(state, { ...n, devices: { ...n.devices, [dev.install]: allowed } }), value: allowed }
+      }
       if (dev.revoked_at !== null) return { ok: true, state, value: dev, changed: false }
-      const revoked: Device = { ...dev, revoked_at: ctx.now, status: "revoked", tunnel: null }
+      const revoked: Device = { ...dev, revoked_at: ctx.now, revoked_by: p.user ?? p.identity, status: "revoked", tunnel: null }
       return { ok: true, state: withNet(state, bump({ ...n, devices: { ...n.devices, [dev.install]: revoked } })), value: revoked }
     }
     case "network.machine.register": {
@@ -243,6 +253,7 @@ export const reduceNetwork = <S extends TeamLike>(state: S, op: string, params: 
       for (const t of changedTags(prev?.tags ?? [], d.value.tags))
         if (!mayAssignTag(policy, directoryOf(state), { user: p.user! }, t)) return reject("tag.forbidden", `you may not assign tag:${t}`)
       if (d.value.owner_user && !state.members[d.value.owner_user]) return reject("validation.invalid", "owner_user is not a team member")
+      if (d.value.address && !isCidrOrAddress(d.value.address)) return reject("validation.invalid", "address must be an IP address")
       const m: Machine = {
         id: d.value.machine,
         provider_id: d.value.provider_id,
@@ -259,10 +270,12 @@ export const reduceNetwork = <S extends TeamLike>(state: S, op: string, params: 
       if (!d.ok) return d
       const prev = n.machines[d.value.machine]
       if (!prev) return reject("selector.not_found", "machine not found")
+      // Tag ownership alone must not let someone retag (and so reach) another user's machine.
+      if (!isAdmin(state, p) && prev.owner_user !== p.user) return reject("auth.forbidden", "only a team admin or the machine's owner may change its tags")
       const policy = effectivePolicy(n)
       const tags = [...new Set(d.value.tags)].sort()
       for (const t of changedTags(prev.tags, tags)) {
-        if (!(t in policy.tagOwners)) return reject("tag.forbidden", `tag:${t} is not declared in tagOwners`)
+        if (!Object.hasOwn(policy.tagOwners, t)) return reject("tag.forbidden", `tag:${t} is not declared in tagOwners`)
         if (!p.user || !mayAssignTag(policy, directoryOf(state), { user: p.user }, t)) return reject("tag.forbidden", `you may not assign tag:${t}`)
       }
       if (JSON.stringify(prev.tags) === JSON.stringify(tags)) return { ok: true, state, value: prev, changed: false }
@@ -281,7 +294,7 @@ export const reduceNetwork = <S extends TeamLike>(state: S, op: string, params: 
       const install = (params as { install?: unknown })?.install
       const dev = typeof install === "string" ? n.devices[install] : undefined
       if (!dev || dev.revoked_at !== null) return { ok: true, state, value: null, changed: false }
-      const revoked: Device = { ...dev, revoked_at: ctx.now, status: "revoked", tunnel: null }
+      const revoked: Device = { ...dev, revoked_at: ctx.now, revoked_by: "system", status: "revoked", tunnel: null }
       return { ok: true, state: withNet(state, bump({ ...n, devices: { ...n.devices, [dev.install]: revoked } })), value: { install: dev.install } }
     }
     case "network.reconcile.record": {

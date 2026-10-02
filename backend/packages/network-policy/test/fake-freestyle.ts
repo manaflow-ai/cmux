@@ -110,6 +110,13 @@ export class FakeFreestyle implements FreestyleNetworkApi {
       for (const [rid, r] of this.rules) if (r.source.tunnelId === id || r.destination.tunnelId === id) this.rules.delete(rid)
     })
   }
+  /** vmId -> VPC ids; a VM missing here is reported as on no network. */
+  vmVpcs = new Map<string, Array<string>>()
+  /** When true, a VM without an entry is on every VPC (the usual test setup). */
+  autoMember = true
+  async getVmVpcs(vmId: string) {
+    return this.step("getVmVpcs", () => this.vmVpcs.get(vmId) ?? (this.autoMember ? [...this.vpcs.keys()] : []))
+  }
   async listAllRules() {
     return this.step("listRules", () => [...this.rules.values()])
   }

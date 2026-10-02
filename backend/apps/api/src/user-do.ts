@@ -54,6 +54,14 @@ export class UserDO extends OwnerDO<UserState> {
     return row ? this.bind(row.entity) : undefined
   }
 
+  /** For TeamDO's network: is this install still active? `unknown` when this object never served the user. */
+  async installStatus(entity: string, install: string): Promise<"active" | "revoked" | "unknown"> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return "unknown"
+    const inst = engine.currentState.installs[install]
+    return !inst ? "unknown" : inst.revoked_at === null ? "active" : "revoked"
+  }
+
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
   async installGrant(entity: string, install: string, grant: string): Promise<{ ok: true; op_classes: ReadonlyArray<string> } | { ok: false }> {
     const engine = this.existing()

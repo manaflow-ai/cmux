@@ -788,6 +788,16 @@
             }
           }
         },
+        "revoked_by": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
         "status": {
           "required": true,
           "type": {
@@ -9578,6 +9588,16 @@
                   }
                 ]
               },
+              "revoked_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "status": {
                 "type": "string",
                 "enum": [
@@ -9801,6 +9821,16 @@
                   }
                 ]
               },
+              "revoked_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "status": {
                 "type": "string",
                 "enum": [
@@ -9849,6 +9879,13 @@
             "type": {
               "kind": "ref",
               "name": "InstallId"
+            }
+          },
+          "allow_rejoin": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
             }
           },
           "expected_revision": {
@@ -9903,13 +9940,16 @@
         "expose": "never",
         "group": "network"
       },
-      "docs": "Remove a device from the team network: its tunnel and rules are deleted. The device's user or a team admin.",
+      "docs": "Remove a device from the team network: its tunnel and rules are deleted. The device's user or a team admin. An admin revoke is sticky: the device cannot re-join until an admin calls this again with allow_rejoin.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
         "properties": {
           "install": {
             "$ref": "#/$defs/InstallId"
+          },
+          "allow_rejoin": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -10025,6 +10065,16 @@
                   }
                 ]
               },
+              "revoked_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "status": {
                 "type": "string",
                 "enum": [
@@ -10081,7 +10131,8 @@
               "kind": "nullable",
               "inner": {
                 "kind": "primitive",
-                "name": "string"
+                "name": "string",
+                "pattern": "^vm-[a-z0-9-]{1,80}$"
               }
             }
           },
@@ -10193,7 +10244,8 @@
           "provider_id": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "pattern": "^vm-[a-z0-9-]{1,80}$"
               },
               {
                 "type": "null"
@@ -10539,7 +10591,7 @@
         "expose": "opt_in",
         "group": "network"
       },
-      "docs": "Replace a machine's tags. The caller must own every tag added or removed (tagOwners).",
+      "docs": "Replace a machine's tags. The caller must be a team admin or the machine's owner, and own every tag added or removed (tagOwners).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

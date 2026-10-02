@@ -80,17 +80,23 @@ export interface ActualRead extends FsActual {
    * for audit, never changed (the account is shared).
    */
   readonly foreign: ReadonlyArray<FsRule>
+  readonly memberVms: ReadonlySet<string>
 }
 
 export const readActual = async (api: FreestyleNetworkApi, team: string, machineIds: ReadonlyArray<string> = []): Promise<ActualRead> => {
   const [vpc, tunnels, all] = await Promise.all([api.getVpc(vpcSlug(team)), api.listTunnels(`${vpcSlug(team)}-`), api.listAllRules()])
+  const memberVms = new Set<string>()
+  if (vpc) {
+    const nets = await Promise.all(machineIds.map(async (id) => [id, await api.getVmVpcs(id)] as const))
+    for (const [id, v] of nets) if (v?.includes(vpc.id)) memberVms.add(id)
+  }
   const prefix = `${MANAGED_MARKER} team=${teamTag(team)} `
   const rules = all.filter((r) => r.description.startsWith(prefix))
   const ours = new Set<string>([...(vpc ? [vpc.id] : []), ...tunnels.map((t) => t.tunnelId), ...machineIds])
   const names = (e: FsRule["source"]) => [e.vpcId, e.tunnelId, e.vmId].some((x) => x !== undefined && ours.has(x))
   // A rule naming one of ours from somewhere else, or ours as its destination, is foreign power over the team network.
   const foreign = all.filter((r) => !r.description.startsWith(MANAGED_MARKER) && (names(r.destination) || (names(r.source) && !names(r.destination) && r.destination.public !== true)))
-  return { vpc, tunnels, rules, tunnelDetails: tunnels, foreign }
+  return { vpc, tunnels, rules, tunnelDetails: tunnels, foreign, memberVms }
 }
 
 const errorOf = (e: unknown) =>
@@ -129,7 +135,7 @@ const execute = async (api: FreestyleNetworkApi, team: string, a: FsAction): Pro
   }
 }
 
-type Working = { vpc: FsVpc | null; tunnelDetails: Array<FsTunnelDetail>; rules: Array<FsRule> }
+type Working = { vpc: FsVpc | null; tunnelDetails: Array<FsTunnelDetail>; rules: Array<FsRule>; memberVms: ReadonlySet<string> }
 
 /** Applies a successful action to the working copy, so the next phase plans without a re-read. */
 const merge = (w: Working, a: FsAction, e: Effect) => {
@@ -142,7 +148,7 @@ const merge = (w: Working, a: FsAction, e: Effect) => {
   else if (e.kind === "rule") w.rules = [...w.rules, e.rule]
 }
 
-const asActual = (w: Working): FsActual => ({ vpc: w.vpc, tunnels: w.tunnelDetails, rules: w.rules })
+const asActual = (w: Working): FsActual => ({ vpc: w.vpc, tunnels: w.tunnelDetails, rules: w.rules, memberVms: w.memberVms })
 
 const PHASES: ReadonlyArray<ReadonlyArray<FsAction["op"]>> = [["tunnel.delete"], ["rule.delete"], ["vpc.create"], ["tunnel.create", "tunnel.rotate", "tunnel.attach"], ["rule.create"]]
 
@@ -187,7 +193,7 @@ export const reconcile = async (api: FreestyleNetworkApi, team: string, compiled
   // phase plans from the previous phase's results, so a new tunnel's rules follow in the same
   // pass), then re-reads Freestyle to verify. A failure ends the pass early; the re-read settles it.
   while (passes < maxPasses) {
-    const w: Working = { vpc: actual.vpc, tunnelDetails: [...actual.tunnelDetails], rules: [...actual.rules] }
+    const w: Working = { vpc: actual.vpc, tunnelDetails: [...actual.tunnelDetails], rules: [...actual.rules], memberVms: actual.memberVms }
     let worked = false
     for (let step = 0; step < PHASES.length * 2; step++) {
       const plan = planFreestyle(team, compiled, dir, asActual(w))

@@ -50,6 +50,8 @@ export interface FsActual {
   readonly vpc: FsVpc | null
   readonly tunnels: ReadonlyArray<FsTunnel>
   readonly rules: ReadonlyArray<FsRule>
+  /** Provider VM ids confirmed on the team VPC; others are never named in a rule (an admin-supplied id could name anyone's VM). */
+  readonly memberVms?: ReadonlySet<string>
 }
 
 export type FsAction =
@@ -109,7 +111,7 @@ export const bindingsFrom = (team: string, dir: Directory, actual: FsActual): Bi
     if (t && actual.vpc && t.attachments.some((a) => a.vpcId === actual.vpc!.id)) tunnels.set(d.install, t.tunnelId)
   }
   const machines = new Map<string, string>()
-  for (const m of dir.machines) if (m.provider_id) machines.set(m.id, m.provider_id)
+  for (const m of dir.machines) if (m.provider_id && actual.memberVms?.has(m.provider_id)) machines.set(m.id, m.provider_id)
   return { vpcId: actual.vpc?.id ?? null, tunnels, machines }
 }
 
@@ -123,7 +125,7 @@ const bindEndpoint = (e: Endpoint, b: Bindings): FsEndpoint | string => {
     }
     case "machine": {
       const v = b.machines.get(e.id)
-      return v ? { vmId: v } : `machine ${e.id} has no provider id`
+      return v ? { vmId: v } : `machine ${e.id} has no provider id on the team VPC`
     }
     case "cidr":
       return { cidr: e.cidr }
@@ -173,8 +175,14 @@ export const planFreestyle = (team: string, compiled: CompiledNetwork, dir: Dire
       deletedTunnels.add(t.tunnelId)
     }
   }
+  const kept = new Set<string>()
   for (const r of actual.rules) {
-    if (desired.has(fsRuleIdentity(r))) continue
+    const id = fsRuleIdentity(r)
+    // Keep one rule per identity; duplicates (a lost create retried) are deleted.
+    if (desired.has(id) && !kept.has(id)) {
+      kept.add(id)
+      continue
+    }
     // Rules die with their tunnel (Freestyle dependency), so skip ones a tunnel delete removes.
     if (r.source.tunnelId && deletedTunnels.has(r.source.tunnelId)) continue
     if (r.destination.tunnelId && deletedTunnels.has(r.destination.tunnelId)) continue

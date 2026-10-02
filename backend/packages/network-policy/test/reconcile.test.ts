@@ -81,6 +81,20 @@ describe("reconcile against an in-memory Freestyle", () => {
     expect(vpc.id).toBeTruthy()
   })
 
+  it("never names a VM that is not on the team VPC, and deletes duplicate rules", async () => {
+    const fs = new FakeFreestyle()
+    fs.autoMember = false
+    fs.vmVpcs.set("vm-team", ["vpc-someone-else"])
+    const r = await reconcile(fs, TEAM, compiled(), directory)
+    expect([...fs.rules.values()].some((x) => x.destination.vmId || x.source.vmId)).toBe(false)
+    expect(r.deferred.some((d) => d.reason.includes("not") || d.reason.includes("team VPC"))).toBe(true)
+    // A duplicate of a managed rule is removed on the next run.
+    const one = [...fs.rules.values()][0]!
+    fs.rules.set("fw-dup", { ...one, id: "fw-dup" })
+    await reconcile(fs, TEAM, compiled(), directory)
+    expect([...fs.rules.values()].filter((x) => x.description === one.description && JSON.stringify(x.source) === JSON.stringify(one.source)).length).toBe(1)
+  })
+
   it("rotates a tunnel key when the device sends a new one", async () => {
     const fs = new FakeFreestyle()
     await reconcile(fs, TEAM, compiled(), directory)

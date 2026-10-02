@@ -76,6 +76,9 @@ export class TeamDO extends OwnerDO<TeamState> {
     const driftDue = !pending && networkInUse(n) && n.reconcile.last?.configured && now >= Math.max(this.lastDriftCheck, n.reconcile.last.at) + DRIFT_CHECK_MS
     if (!pending && !driftDue) return
 
+    // Durable revocation: the UserDO notice is best effort, so every wake also asks UserDO about live devices.
+    if (await this.dropRevokedInstalls()) return
+
     const api = this.networkApi()
     if (!api) {
       // Not configured in this environment: record it once per desired state so the alarm does not spin.
@@ -129,7 +132,31 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   private record(params: typeof ReconcileRecordParams.Type, key = `reconcile:${params.desired_seq}:${params.started_at}`) {
     const r = rejected(this.submitSystem("network.reconcile.record", params, key))
-    if (r) console.error(JSON.stringify({ msg: "network reconcile record rejected", code: r.code, message: r.message }))
+    if (r) {
+      // A rejected record leaves the desired state pending; back off instead of reconciling in a hot loop.
+      this.backoff(params.desired_seq, Date.now())
+      console.error(JSON.stringify({ msg: "network reconcile record rejected", code: r.code, message: r.message }))
+    }
+  }
+
+  /** Submits network.install.revoked for devices whose install UserDO reports revoked. True when any was dropped (state changed; the next wake reconciles). */
+  private async dropRevokedInstalls(): Promise<boolean> {
+    const state = this.boundEngine?.currentState
+    if (!state) return false
+    let dropped = false
+    for (const d of Object.values(net(state).devices)) {
+      if (d.revoked_at !== null) continue
+      try {
+        const status = await this.env.USER_DO.get(this.env.USER_DO.idFromName(d.user)).installStatus(d.user, d.install)
+        if (status === "revoked") {
+          const r = rejected(this.submitSystem("network.install.revoked", { install: d.install }, `install-revoked:${d.install}`))
+          if (!r) dropped = true
+        }
+      } catch (e) {
+        console.error(JSON.stringify({ msg: "network install status check failed", install: d.install, error: String(e) }))
+      }
+    }
+    return dropped
   }
 
   /** RPC from UserDO: an install was revoked; drop its device at once (one key per install). */

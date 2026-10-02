@@ -105,13 +105,38 @@ describe("TeamDO network reducer", () => {
     expect(net(rv.state).reconcile.desired_seq).toBeGreaterThan(net(s).reconcile.desired_seq)
   })
 
+  it("keeps an admin revoke sticky until an admin allows a re-join", () => {
+    let s = apply(base(), owner, "network.policy.apply", { document: policy(), expected_version: null }).state
+    s = apply(s, memberInstall, "network.device.join", { wg_public_key: KEY }).state
+    // Self-revoke: may re-join.
+    const self = apply(s, memberInstall, "network.device.revoke", { install: INST2 })
+    expect(self).toMatchObject({ ok: false, code: "auth.forbidden" }) // installs lack the destructive class
+    const selfSession = apply(s, member, "network.device.revoke", { install: INST2 }).state
+    expect(apply(selfSession, memberInstall, "network.device.join", { wg_public_key: KEY })).toMatchObject({ ok: true, value: { status: "pending" } })
+    // Admin revoke: sticky.
+    const byAdmin = apply(s, owner, "network.device.revoke", { install: INST2 }).state
+    expect(apply(byAdmin, memberInstall, "network.device.join", { wg_public_key: KEY })).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(apply(byAdmin, member, "network.device.revoke", { install: INST2, allow_rejoin: true })).toMatchObject({ ok: false, code: "auth.forbidden" })
+    const allowed = apply(byAdmin, owner, "network.device.revoke", { install: INST2, allow_rejoin: true }).state
+    expect(apply(allowed, memberInstall, "network.device.join", { wg_public_key: KEY })).toMatchObject({ ok: true })
+  })
+
+  it("lets only an admin or the machine's owner retag it, and validates addresses", () => {
+    let s = apply(base(), owner, "network.policy.apply", { document: policy().replace(`"tag:sandbox": ["autogroup:admin"]`, `"tag:sandbox": ["autogroup:member"]`), expected_version: null }).state
+    s = apply(s, owner, "network.machine.register", { machine: "mach_owned", provider_id: "vm-o", owner_user: OWNER, tags: [] }).state
+    // The member owns tag:sandbox but not the machine.
+    expect(apply(s, member, "network.machine.tag", { machine: "mach_owned", tags: ["sandbox"] })).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(apply(s, owner, "network.machine.register", { machine: "mach_bad", provider_id: "vm-b", owner_user: null, tags: [], address: "not-an-ip" })).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(apply(s, owner, "network.machine.register", { machine: "mach_bad", provider_id: "anything", owner_user: null, tags: [] })).toMatchObject({ ok: false, code: "validation.invalid" })
+  })
+
   it("checks tag ownership on machines", () => {
     let s = apply(base(), owner, "network.policy.apply", { document: policy(), expected_version: null }).state
     expect(apply(s, member, "network.machine.register", { machine: "mach_vm1", provider_id: "vm-1", owner_user: null, tags: ["team-vm"] })).toMatchObject({ ok: false, code: "auth.forbidden" })
     const m = apply(s, owner, "network.machine.register", { machine: "mach_vm1", provider_id: "vm-1", owner_user: null, tags: ["team-vm"] })
     expect(m).toMatchObject({ ok: true, value: { tags: ["team-vm"] } })
     s = m.state
-    expect(apply(s, member, "network.machine.tag", { machine: "mach_vm1", tags: ["team-vm", "sandbox"] })).toMatchObject({ ok: false, code: "tag.forbidden" })
+    expect(apply(s, member, "network.machine.tag", { machine: "mach_vm1", tags: ["team-vm", "sandbox"] })).toMatchObject({ ok: false, code: "auth.forbidden" })
     expect(apply(s, owner, "network.machine.tag", { machine: "mach_vm1", tags: ["team-vm", "nope"] })).toMatchObject({ ok: false, code: "tag.forbidden" })
     expect(apply(s, owner, "network.machine.tag", { machine: "mach_vm1", tags: ["team-vm", "sandbox"] })).toMatchObject({ ok: true, value: { tags: ["sandbox", "team-vm"] } })
   })

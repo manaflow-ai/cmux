@@ -26,6 +26,8 @@ export interface FreestyleNetworkApi {
   rotateTunnelKey(id: string, clientPublicKey: string): Promise<FsTunnelDetail>
   attachVpc(tunnelId: string, vpcId: string): Promise<FsTunnelDetail>
   deleteTunnel(id: string): Promise<void>
+  /** The private networks a VM is on, or null when the VM does not exist. */
+  getVmVpcs(vmId: string): Promise<ReadonlyArray<string> | null>
   /** Every firewall rule in the account (managed or not); the reconciler filters. */
   listAllRules(): Promise<ReadonlyArray<FsRule>>
   createRule(spec: FsRuleSpec, idempotencyKey: string): Promise<FsRule>
@@ -161,8 +163,11 @@ export const createFreestyleClient = (opts: FreestyleClientOptions): FreestyleNe
       })
     },
     async listTunnels(prefix) {
-      const r = await call<{ tunnels: Array<RawTunnel> }>("GET", "/v5/tunnels")
-      return (r.data?.tunnels ?? []).filter((t) => t.slug?.startsWith(prefix)).map(tunnel)
+      const r = await call<{ tunnels: Array<RawTunnel>; totalCount?: number }>("GET", "/v5/tunnels")
+      const all = r.data?.tunnels ?? []
+      // The endpoint is not paginated today; a partial page would hide a revoked device's tunnel, so fail closed.
+      if (r.data?.totalCount !== undefined && r.data.totalCount > all.length) throw new FreestyleError(0, "partial_list", `tunnel list returned ${all.length} of ${r.data.totalCount}`, "GET", "/v5/tunnels")
+      return all.filter((t) => t.slug?.startsWith(prefix)).map(tunnel)
     },
     async getTunnel(idOrSlug) {
       const r = await call<RawTunnel>("GET", `/v5/tunnels/${seg(idOrSlug)}`)
@@ -200,6 +205,10 @@ export const createFreestyleClient = (opts: FreestyleClientOptions): FreestyleNe
       await call("DELETE", `/v5/tunnels/${seg(id)}`).catch((e) => {
         if (!(e instanceof FreestyleError && e.status === 404)) throw e
       })
+    },
+    async getVmVpcs(vmId) {
+      const r = await call<{ vpcs?: Array<{ vpcId?: string; vpc?: string }> }>("GET", `/v5/vms/${seg(vmId)}`)
+      return r.data ? (r.data.vpcs ?? []).map((v) => v.vpcId ?? v.vpc ?? "").filter(Boolean) : null
     },
     async listAllRules() {
       const out: Array<FsRule> = []
