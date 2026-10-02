@@ -42,7 +42,7 @@ export interface CompiledNetwork {
   readonly notes: ReadonlyArray<string>
 }
 
-interface Located {
+export interface Located {
   readonly endpoint: Endpoint
   /** The user whose device or personal machine this is, for autogroup:self. */
   readonly owner?: string
@@ -53,17 +53,18 @@ const activeDevices = (dir: Directory) => {
   return dir.devices.filter((d) => !d.revoked && members.has(d.user))
 }
 
-const personalMachines = (dir: Directory, user: string) => dir.machines.filter((m) => m.tags.length === 0 && m.owner_user === user)
+/** Untagged machines a user owns that run no agent class: an agent VM is identified by its class, never by its owner (the evaluator agrees). */
+const personalMachines = (dir: Directory, user: string) => dir.machines.filter((m) => m.tags.length === 0 && !(m.classes && m.classes.length > 0) && m.owner_user === user)
 
 /** A user's endpoints: their devices and their untagged personal machines (tagged machines belong to their tags). */
-const userEndpoints = (dir: Directory, user: string): Array<Located> => [
+export const userEndpoints = (dir: Directory, user: string): Array<Located> => [
   ...activeDevices(dir)
     .filter((d) => d.user === user)
     .map((d) => ({ endpoint: { kind: "device" as const, install: d.install }, owner: user })),
   ...personalMachines(dir, user).map((m) => ({ endpoint: { kind: "machine" as const, id: m.id }, owner: user }))
 ]
 
-const classEndpoints = (dir: Directory, cls: AgentClass): Array<Located> => [
+export const classEndpoints = (dir: Directory, cls: AgentClass): Array<Located> => [
   ...activeDevices(dir)
     .filter((d) => d.classes?.includes(cls))
     .map((d) => ({ endpoint: { kind: "device" as const, install: d.install }, owner: d.user })),
@@ -72,7 +73,7 @@ const classEndpoints = (dir: Directory, cls: AgentClass): Array<Located> => [
     .map((m) => ({ endpoint: { kind: "machine" as const, id: m.id }, ...(m.owner_user && m.tags.length === 0 ? { owner: m.owner_user } : {}) }))
 ]
 
-const usersOfNode = (dir: Directory, path: string) =>
+export const usersOfNode = (dir: Directory, path: string) =>
   Object.entries(dir.nodes ?? {})
     .filter(([p]) => p === path || p.startsWith(`${path}.`))
     .flatMap(([, users]) => users)
@@ -107,9 +108,9 @@ const expand = (policy: Policy, dir: Directory, sel: PrincipalRef | DestRef, not
     case "host":
     case "cidr": {
       const cidr = sel.kind === "host" ? policy.hosts[sel.name]! : sel.cidr
-      // A CIDR that names known machines compiles to those machines (identity, robust to readdressing); otherwise to the range.
+      // The range itself, plus the known machines inside it by identity (robust to readdressing).
       const machines = dir.machines.filter((m) => machineMatchesCidr(m, cidr))
-      return machines.length > 0 ? machines.map((m) => ({ endpoint: { kind: "machine" as const, id: m.id } })) : [{ endpoint: { kind: "cidr" as const, cidr } }]
+      return [{ endpoint: { kind: "cidr" as const, cidr } }, ...machines.map((m) => ({ endpoint: { kind: "machine" as const, id: m.id } }))]
     }
   }
 }

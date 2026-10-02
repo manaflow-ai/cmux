@@ -149,7 +149,7 @@ export const sourceFacets = (policy: Policy, dir: Pick<Directory, "members" | "n
     case "tag":
       return { ok: true, facets: tagFacets([ref.name]) }
     case "node": {
-      if (!dir.nodes || !(ref.path in dir.nodes)) return { ok: false, message: `node:${ref.path} is not in the permission hierarchy` }
+      if (!dir.nodes || !Object.hasOwn(dir.nodes, ref.path)) return { ok: false, message: `node:${ref.path} is not in the permission hierarchy` }
       return { ok: true, facets: { classes: [], tags: [], nodes: [ref.path], groups: groupsFor(policy, dir, { classes: [], nodes: [ref.path] }), member: false, admin: false } }
     }
     default:

@@ -214,3 +214,54 @@ describe("preview", () => {
     expect(r.ok ? r.compiled.rules : r.issues).toBe(0)
   })
 })
+
+describe("review regressions", () => {
+  const dir: Directory = {
+    members: [
+      { user: LAWRENCE, role: "owner", handle: "lawrence" },
+      { user: AUSTIN, role: "member", handle: "austin" }
+    ],
+    devices: [{ install: "inst_austin00000000000000", user: AUSTIN, wg_public_key: `${"A".repeat(43)}=` }],
+    machines: [
+      { id: "mach_vm", provider_id: "vm-1", tags: ["team-vm"] },
+      { id: "mach_prod", provider_id: "vm-p", tags: ["prod"], address: "10.0.0.9" },
+      { id: "mach_agent", provider_id: "vm-a", tags: [], owner_user: AUSTIN, classes: ["agent"] }
+    ]
+  }
+  const base = (acls: string, tests: string) => `{
+    "groups": {"group:admins": ["user:lawrence"]},
+    "tagOwners": {"tag:team-vm": ["group:admins"], "tag:prod": ["group:admins"]},
+    "hosts": {"db": "10.0.0.9"},
+    "acls": [{"action": "accept", "src": ["group:admins"], "dst": ["*:*"]}${acls}],
+    "ssh": [{"action": "accept", "src": ["group:admins"], "dst": ["tag:team-vm"], "users": ["autogroup:nonroot"]}],
+    "tests": [${tests}]
+  }`
+
+  it("an agent VM does not inherit its owner's access", () => {
+    const v = validatePolicy(base(`, {"action": "accept", "src": ["user:austin"], "dst": ["tag:prod:22"]}`, `{"src": "class:agent", "deny": ["tag:prod:22"]}`), dir)
+    expect(v.ok ? "ok" : v.issues).toBe("ok")
+    if (v.ok) expect(compileNetwork(v.value.policy, dir).rules.map(ruleKey).some((k) => k.startsWith("machine:mach_agent"))).toBe(false)
+  })
+
+  it("a host alias that contains a tagged machine cannot slip past a tag deny test", () => {
+    const v = validatePolicy(base(`, {"action": "accept", "src": ["user:austin"], "dst": ["db:5432"]}`, `{"src": "user:austin", "deny": ["tag:prod:5432"]}`), dir)
+    expect(v.ok).toBe(false)
+  })
+
+  it("prototype names are unknown groups and tags", () => {
+    expect(parsePolicy(`{"acls":[{"action":"accept","src":["group:constructor"],"dst":["tag:constructor:22"]}]}`).ok).toBe(false)
+    const p = policyOf(base("", ""))
+    expect(mayAssignTag(p, dir, { user: LAWRENCE }, "constructor")).toBe(false)
+  })
+
+  it("caps ports per destination after merging ranges, and requires brackets for IPv6", () => {
+    const ranges = Array.from({ length: 4 }, (_, i) => `${i * 64 + 1}-${i * 64 + 64}`).join(",")
+    expect(parsePolicy(base(`, {"action": "accept", "src": ["*"], "dst": ["tag:prod:${ranges}"]}`, "")).ok).toBe(false)
+    expect(parsePolicy(base(`, {"action": "accept", "src": ["*"], "dst": ["2001:db8::1:443"]}`, "")).ok).toBe(false)
+  })
+
+  it("an SSH accept with a forceCommand does not satisfy the lockout guard", () => {
+    const v = validatePolicy(base("", "").replace(`"users": ["autogroup:nonroot"]}`, `"users": ["autogroup:nonroot"], "forceCommand": "/bin/false"}`), dir)
+    expect(v.ok ? [] : v.issues.map((i) => i.message)).toContain("lockout guard: admin lawrence would lose SSH (accept) to tag:team-vm")
+  })
+})

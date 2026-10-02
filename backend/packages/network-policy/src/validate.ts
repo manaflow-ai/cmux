@@ -1,6 +1,8 @@
 import { classFacets, coverage, resolveUser, runTests, selectorMatches, userFacets, type TestFailure } from "./evaluate.ts"
 import { parseJsonc } from "./jsonc.ts"
-import { parsePolicy } from "./parse.ts"
+import { compileNetwork } from "./compile.ts"
+import { concreteDenyFailures } from "./concrete.ts"
+import { LIMITS, parsePolicy } from "./parse.ts"
 import type { AgentClass, DestRef, Directory, Policy, PolicyIssue, PrincipalRef } from "./types.ts"
 
 /** The tag every team VM carries; the lockout guard keeps admins able to reach it. */
@@ -57,7 +59,7 @@ export const lockoutIssues = (policy: Policy, dir: Directory): ReadonlyArray<Pol
     const name = dir.members.find((m) => m.user === admin)?.handle ?? admin
     const tcp = coverage(policy, dir, f, vm, "tcp")
     if (!tcp.some((r) => r.from <= 22 && r.to >= 22)) issues.push({ path: "acls", message: `lockout guard: admin ${name} would lose tcp/22 to tag:${TEAM_VM_TAG}` })
-    const ssh = policy.ssh.some((s) => s.action === "accept" && s.dst.some((d) => d.kind === "tag" && d.name === TEAM_VM_TAG) && s.src.some((src) => selectorMatches(policy, dir, src, f)))
+    const ssh = policy.ssh.some((s) => s.action === "accept" && s.forceCommand === undefined && s.dst.some((d) => d.kind === "tag" && d.name === TEAM_VM_TAG) && s.src.some((src) => selectorMatches(policy, dir, src, f)))
     if (!ssh) issues.push({ path: "ssh", message: `lockout guard: admin ${name} would lose SSH (accept) to tag:${TEAM_VM_TAG}` })
   }
   return issues
@@ -75,16 +77,21 @@ export const validatePolicy = (source: string, dir: Directory): ValidateResult =
 
   for (const { ref, path } of refsOf(policy)) {
     if (ref.kind === "user" && !resolveUser(dir, ref.ref)) issues.push({ path, message: `user:${ref.ref} is not a team member` })
-    if (ref.kind === "node" && !(dir.nodes && ref.path in dir.nodes)) issues.push({ path, message: `node:${ref.path} is not in the permission hierarchy` })
+    if (ref.kind === "node" && !(dir.nodes && Object.hasOwn(dir.nodes, ref.path))) issues.push({ path, message: `node:${ref.path} is not in the permission hierarchy` })
   }
   const handles = new Map<string, number>()
   for (const m of dir.members) if (m.handle) handles.set(m.handle, (handles.get(m.handle) ?? 0) + 1)
   for (const [h, n] of handles) if (n > 1) issues.push({ path: "", message: `handle ${h} is shared by ${n} members; refer to them by user id` })
 
   for (const m of dir.machines)
-    for (const t of m.tags) if (!(t in policy.tagOwners)) issues.push({ path: "tagOwners", message: `tag:${t} is still assigned to machine ${m.id}; untag it before removing the tag` })
+    for (const t of m.tags) if (!Object.hasOwn(policy.tagOwners, t)) issues.push({ path: "tagOwners", message: `tag:${t} is still assigned to machine ${m.id}; untag it before removing the tag` })
 
-  const failed = runTests(policy, dir)
+  const compiled = compileNetwork(policy, dir)
+  if (compiled.rules.length > LIMITS.compiledRules) issues.push({ path: "acls", message: `compiles to ${compiled.rules.length} firewall rules; at most ${LIMITS.compiledRules}` })
+  // Deny tests must hold symbolically and against the compiled rules (addresses, co-located classes).
+  const symbolic = runTests(policy, dir)
+  const seen = new Set(symbolic.map((f) => f.path))
+  const failed = [...symbolic, ...concreteDenyFailures(policy, dir, compiled).filter((f) => !seen.has(f.path))]
   issues.push(...lockoutIssues(policy, dir))
   if (issues.length > 0 || failed.length > 0) return { ok: false, issues: [...issues, ...failed.map((f) => ({ path: f.path, message: `test failed: ${f.message}` }))], tests: failed }
 
@@ -97,8 +104,8 @@ export const validatePolicy = (source: string, dir: Directory): ValidateResult =
 
 /** Whether `actor` (a user, or an agent class acting for one) may assign `tag` (network.machine.tag). */
 export const mayAssignTag = (policy: Policy, dir: Directory, actor: { readonly user: string; readonly cls?: AgentClass }, tag: string): boolean => {
-  const owners = policy.tagOwners[tag]
-  if (!owners) return false
+  if (!Object.hasOwn(policy.tagOwners, tag)) return false
+  const owners = policy.tagOwners[tag]!
   const f = actor.cls ? classFacets(policy, dir, actor.cls, actor.user) : userFacets(policy, dir, actor.user)
   return owners.some((o) => selectorMatches(policy, dir, o, f))
 }

@@ -23,7 +23,12 @@ export const LIMITS = {
   testsPerPolicy: 200,
   entriesPerList: 200,
   /** Freestyle rules carry one port each, so a range expands into one rule per port. */
-  portsPerRange: 64
+  portsPerRange: 64,
+  /** Total ports one destination may name after merging ranges (each is one Freestyle rule). */
+  portsPerDestination: 64,
+  sshRules: 200,
+  /** Compiled Freestyle rules per policy and directory. */
+  compiledRules: 5000
 } as const
 
 const NAME = /^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$/
@@ -99,7 +104,10 @@ const parsePorts = (text: string): Ports | string => {
     if (to - from + 1 > LIMITS.portsPerRange) return `port range ${part} is wider than ${LIMITS.portsPerRange} ports (Freestyle rules name single ports)`
     ranges.push({ from, to })
   }
-  return mergeRanges(ranges)
+  const merged = mergeRanges(ranges)
+  const total = merged.reduce((n, r) => n + r.to - r.from + 1, 0)
+  if (total > LIMITS.portsPerDestination) return `${total} ports named; at most ${LIMITS.portsPerDestination} per destination (use * for every port)`
+  return merged
 }
 
 export const mergeRanges = (ranges: ReadonlyArray<PortRange>): ReadonlyArray<PortRange> => {
@@ -124,6 +132,8 @@ export const parseDestination = (text: string, hostNames: ReadonlySet<string>): 
     portText = text.slice(close + 2)
   } else {
     const colon = text.lastIndexOf(":")
+    const head = colon > 0 ? text.slice(0, colon) : ""
+    if (head.includes(":") && !/^(user|group|tag|class|node|autogroup):[^:]*$/.test(head)) return `write IPv6 destinations as [address]:ports, not ${JSON.stringify(text)}`
     if (colon <= 0) return `destination ${JSON.stringify(text)} needs ports, for example ${JSON.stringify(`${text}:*`)}`
     selector = text.slice(0, colon)
     portText = text.slice(colon + 1)
@@ -189,7 +199,8 @@ export const parsePolicy = (input: string | unknown): Result<Policy> => {
   for (const k of Object.keys(doc)) if (!TOP_KEYS.has(k)) issues.add(k, "unknown field")
 
   // hosts first: their names are valid selectors elsewhere.
-  const hosts: Record<string, string> = {}
+  // Null-prototype records: names such as "constructor" must not resolve to Object.prototype members.
+  const hosts: Record<string, string> = Object.create(null)
   if (doc.hosts !== undefined) {
     if (!isObject(doc.hosts)) issues.add("hosts", "must be an object")
     else
@@ -201,7 +212,7 @@ export const parsePolicy = (input: string | unknown): Result<Policy> => {
   }
   const hostNames = new Set(Object.keys(hosts))
 
-  const groups: Record<string, ReadonlyArray<PrincipalRef>> = {}
+  const groups: Record<string, ReadonlyArray<PrincipalRef>> = Object.create(null)
   if (doc.groups !== undefined) {
     if (!isObject(doc.groups)) issues.add("groups", "must be an object")
     else
@@ -220,7 +231,7 @@ export const parsePolicy = (input: string | unknown): Result<Policy> => {
       }
   }
 
-  const tagOwners: Record<string, ReadonlyArray<PrincipalRef>> = {}
+  const tagOwners: Record<string, ReadonlyArray<PrincipalRef>> = Object.create(null)
   if (doc.tagOwners !== undefined) {
     if (!isObject(doc.tagOwners)) issues.add("tagOwners", "must be an object")
     else
@@ -261,7 +272,8 @@ export const parsePolicy = (input: string | unknown): Result<Policy> => {
   const ssh: Array<SshRule> = []
   if (doc.ssh !== undefined) {
     if (!Array.isArray(doc.ssh)) issues.add("ssh", "must be an array")
-    else
+    else {
+      if (doc.ssh.length > LIMITS.sshRules) issues.add("ssh", `at most ${LIMITS.sshRules} rules`)
       doc.ssh.forEach((r, index) => {
         const path = `ssh[${index}]`
         if (!isObject(r)) return issues.add(path, "must be an object")
@@ -307,6 +319,7 @@ export const parsePolicy = (input: string | unknown): Result<Policy> => {
           index
         })
       })
+    }
   }
 
   const tests: Array<PolicyTest> = []
@@ -334,8 +347,8 @@ export const parsePolicy = (input: string | unknown): Result<Policy> => {
 
   // Every group, tag and host referenced must be defined.
   const checkRef = (r: PrincipalRef | DestRef, path: string) => {
-    if (r.kind === "group" && !(r.name in groups)) issues.add(path, `unknown group group:${r.name}`)
-    if (r.kind === "tag" && !(r.name in tagOwners)) issues.add(path, `unknown tag tag:${r.name} (declare it in tagOwners)`)
+    if (r.kind === "group" && !Object.hasOwn(groups, r.name)) issues.add(path, `unknown group group:${r.name}`)
+    if (r.kind === "tag" && !Object.hasOwn(tagOwners, r.name)) issues.add(path, `unknown tag tag:${r.name} (declare it in tagOwners)`)
   }
   for (const [g, refs] of Object.entries(groups)) refs.forEach((r, i) => checkRef(r, `groups["group:${g}"][${i}]`))
   for (const [t, refs] of Object.entries(tagOwners)) refs.forEach((r, i) => checkRef(r, `tagOwners["tag:${t}"][${i}]`))
