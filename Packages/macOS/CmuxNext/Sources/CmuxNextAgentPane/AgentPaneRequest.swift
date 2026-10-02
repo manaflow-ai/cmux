@@ -30,6 +30,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// or `dictation.openSettings` with `{permission}`.
     case dictation(AgentPaneDictationCommand)
+    /// `file.open` with `{path, where}`: a changed file from the changes view,
+    /// in a tab beside the agent or in the text editor.
+    case openFile(path: String, target: AgentPaneFileTarget)
     case unsupported(String)
 
     public static let maximumPacingFrames = 640
@@ -87,6 +90,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "file.open":
+            if let path = params?["path"] as? String, !path.isEmpty,
+               let raw = params?["where"] as? String, let target = AgentPaneFileTarget(rawValue: raw) {
+                self = .openFile(path: path, target: target)
+            } else {
+                self = .unsupported(method)
+            }
         case "dictation.toggle": self = .dictation(.toggle)
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
@@ -128,6 +138,8 @@ public nonisolated enum AgentPaneReply {
         if let sessionId = handshake.sessionId { value["sessionId"] = sessionId }
         if let newSession = handshake.newSession { value["newSession"] = newSession }
         if let newTab = handshake.newTab { value["newTab"] = newTab.reply }
+        if let cwd = handshake.cwd { value["cwd"] = cwd }
+        if let draft = handshake.draft { value["draft"] = draft }
         return success(value)
     }
 }

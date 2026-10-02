@@ -15,9 +15,17 @@ final class TerminalThemeStore {
     private(set) var themes: [String: String] = [:]
     @ObservationIgnored private let url: URL?
     @ObservationIgnored private var lastWrite: Task<Void, Never>?
+    /// The file was read; until then a save waits, so it never publishes
+    /// a partial set over the saved one.
+    @ObservationIgnored private var isLoaded = false
+    @ObservationIgnored private var saveAfterLoad = false
+    /// The file holds entries this build could not read (a newer format)
+    /// or could not be read: it is left as is, and changes stay in memory.
+    @ObservationIgnored private var keepsFile = false
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "themes")
 
-    /// `url` nil keeps themes in memory only (tests).
+    /// `url` nil keeps themes in memory only (tests). Changes reach the
+    /// file once `load()` has read it.
     init(url: URL?) {
         self.url = url
     }
@@ -32,6 +40,11 @@ final class TerminalThemeStore {
     static func key(machine: String, tab: String) -> String { "\(machine):\(tab)" }
 
     func theme(for key: String) -> String? { themes[key] }
+
+    /// The themes to move into personal state (`ThemeCoordinator.migrateTerminalThemes`).
+    /// None from a kept file: clearing its entries cannot reach the file,
+    /// so every launch would migrate them again, over newer picks.
+    var migratableThemes: [String: String] { keepsFile ? [:] : themes }
 
     /// Sets or clears (nil) one terminal's theme.
     func set(_ theme: String?, for key: String) {
@@ -52,17 +65,57 @@ final class TerminalThemeStore {
     /// Reads the file once at launch, off the main thread.
     func load() async {
         guard let url else { return }
-        let loaded = await Task.detached(priority: .userInitiated) { () -> [String: String] in
-            // concurrency-allow: runs in a detached task, off the main actor
-            guard let data = try? Data(contentsOf: url) else { return [:] }
-            return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
-        }.value
+        let logger = logger
+        let loaded = await Task.detached(priority: .userInitiated) { Self.read(url, logger: logger) }.value
         // A theme set before the file loaded wins.
-        themes = loaded.merging(themes) { _, current in current }
+        themes = loaded.themes.merging(themes) { _, current in current }
+        keepsFile = !loaded.complete
+        if keepsFile { logger.error("terminal-themes.json has entries this build cannot read; leaving it unchanged") }
+        isLoaded = true
+        if saveAfterLoad {
+            saveAfterLoad = false
+            save()
+        }
+    }
+
+    /// The string entries of the file at `url`. `complete` is false when
+    /// the file is a JSON object some of whose entries are not themes (a
+    /// newer format), or could not be read: it is kept. A file that is not
+    /// a JSON object at all (a damaged write) is moved aside to
+    /// `<name>.corrupt` (`<name>.corrupt-<uuid>` when that exists, never over it) and
+    /// reads as empty.
+    nonisolated static func read(_ url: URL, logger: Logger) -> (themes: [String: String], complete: Bool) {
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: url.path) else { return ([:], true) }
+        // concurrency-allow: called from a detached task in load(), off the main actor
+        guard let data = try? Data(contentsOf: url) else { return ([:], false) }
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            let first = url.appendingPathExtension("corrupt")
+            let aside = manager.fileExists(atPath: first.path) ? url.appendingPathExtension("corrupt-\(UUID().uuidString)") : first
+            do {
+                try manager.moveItem(at: url, to: aside)
+                logger.error("terminal-themes.json is not JSON; moved it to \(aside.lastPathComponent, privacy: .public)")
+                return ([:], true)
+            } catch {
+                logger.error("terminal-themes.json is not JSON and could not be moved aside: \(String(describing: error), privacy: .public)")
+                return ([:], false)
+            }
+        }
+        let themes = object.compactMapValues { $0 as? String }
+        return (themes, themes.count == object.count)
+    }
+
+    /// Waits for every queued write (tests).
+    func flush() async {
+        await lastWrite?.value
     }
 
     private func save() {
-        guard let url else { return }
+        guard let url, !keepsFile else { return }
+        guard isLoaded else {
+            saveAfterLoad = true
+            return
+        }
         let data = try? JSONEncoder().encode(themes)
         let empty = themes.isEmpty
         let previous = lastWrite, logger = logger

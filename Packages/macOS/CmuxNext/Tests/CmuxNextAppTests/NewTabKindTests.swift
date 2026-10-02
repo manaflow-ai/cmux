@@ -73,4 +73,32 @@ import Testing
         #expect(action?.surfaces.contains(.palette) == true)
         #expect(ActionCatalog.all.first { $0.id == "newSurface" }?.cliName == "tab new-terminal")
     }
+
+    /// Each kind opens directly from the keyboard (#16620). The chords are
+    /// Command chords nothing else owns: not another action, not a chord a
+    /// page keeps, and not one of Ghostty's default keybinds, so a terminal
+    /// never loses a key it reads.
+    @Test func eachKindHasItsOwnChord() {
+        let chords: [ActionID: Shortcut] = [
+            "newSurface": Shortcut("t", modifiers: [.control, .shift, .command]),
+            "openBrowser": Shortcut("l", modifiers: [.command, .shift]),
+            "palette.newAgentChat": Shortcut("i", modifiers: [.command, .shift]),
+        ]
+        // Ghostty's macOS defaults near these keys: scroll to selection,
+        // write screen file, select all, inspector, clear screen.
+        let ghostty: Set<Shortcut> = [
+            Shortcut("j", modifiers: [.command]), Shortcut("j", modifiers: [.command, .shift]),
+            Shortcut("a", modifiers: [.command]), Shortcut("i", modifiers: [.command, .option]),
+            Shortcut("k", modifiers: [.command]),
+        ]
+        for (id, chord) in chords {
+            let action = ActionCatalog.all.first { $0.id == id }
+            #expect(action?.defaultShortcut == chord, "\(id)")
+            #expect(action?.surfaces.contains(.keyboard) == true, "\(id)")
+            #expect(ActionCatalog.all.filter { $0.defaultShortcut == chord }.map(\.id) == [id])
+            #expect(chord.modifiers.contains(.command))
+            #expect(!BrowserChordTable.chromeReserved.contains(chord), "\(id)")
+            #expect(!ghostty.contains(chord), "\(id)")
+        }
+    }
 }

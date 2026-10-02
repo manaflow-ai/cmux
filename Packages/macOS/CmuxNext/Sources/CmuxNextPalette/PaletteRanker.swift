@@ -21,7 +21,8 @@ nonisolated public struct PaletteRankedSection: Sendable, Hashable {
 /// Empty query: a Recent section (top frecency) when the page wants it, then
 /// every visible entry grouped by section in section order. Non-empty query:
 /// entries scored as match + frecency boost + bias, grouped by section, with
-/// sections ordered by their best row and rows by score.
+/// sections ordered by their best row (or by section order when the page
+/// keeps it) and rows by score.
 nonisolated public enum PaletteRanker {
     /// Disabled rows (unbound actions in debug builds) sink below every
     /// enabled match but stay visible.
@@ -34,6 +35,7 @@ nonisolated public enum PaletteRanker {
         frecency: FrecencyStore,
         now: Date,
         showsRecent: Bool,
+        keepsSectionOrder: Bool = false,
         recentLimit: Int = 5,
         rowLimit: Int = 400,
         highlightLimit: Int = 60
@@ -67,6 +69,7 @@ nonisolated public enum PaletteRanker {
             if rowsBySection[section] == nil { order.append(section) }
             rowsBySection[section, default: []].append(PaletteRankedRow(index: match.index, score: match.score, highlights: highlights))
         }
+        if keepsSectionOrder { sortBySectionOrder(&order, sectionOrders) }
         return order.map { PaletteRankedSection(sectionIndex: $0, rows: rowsBySection[$0]!) }
     }
 
@@ -100,9 +103,14 @@ nonisolated public enum PaletteRanker {
             if rowsBySection[entry.sectionIndex] == nil { order.append(entry.sectionIndex) }
             rowsBySection[entry.sectionIndex, default: []].append(PaletteRankedRow(index: i, score: 0, highlights: []))
         }
-        let sortKey = { (section: Int) in section < sectionOrders.count ? sectionOrders[section] : Int.max }
-        order.sort { sortKey($0) != sortKey($1) ? sortKey($0) < sortKey($1) : $0 < $1 }
+        sortBySectionOrder(&order, sectionOrders)
         sections += order.map { PaletteRankedSection(sectionIndex: $0, rows: rowsBySection[$0]!) }
         return sections
+    }
+
+    /// Sorts section indices by their `order`, then by first appearance.
+    static func sortBySectionOrder(_ sections: inout [Int], _ sectionOrders: [Int]) {
+        let sortKey = { (section: Int) in section < sectionOrders.count ? sectionOrders[section] : Int.max }
+        sections.sort { sortKey($0) != sortKey($1) ? sortKey($0) < sortKey($1) : $0 < $1 }
     }
 }

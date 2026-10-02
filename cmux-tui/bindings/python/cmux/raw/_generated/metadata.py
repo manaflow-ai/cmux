@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0'
+IR_SHA256 = '714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b'
 
 
 @dataclass(frozen=True)
@@ -438,6 +438,106 @@ COMMANDS = {
             'workspace': CommandFieldMetadata(None, None),
         },
     ),
+    'conversation-agent-token': CommandMetadata(
+        'conversation-agent-token',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'participant': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-bind': CommandMetadata(
+        'conversation-bind',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'participant': CommandFieldMetadata(None, None),
+            'token': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-create': CommandMetadata(
+        'conversation-create',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'actor': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+            'participants': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-history': CommandMetadata(
+        'conversation-history',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'before_seq': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-list': CommandMetadata(
+        'conversation-list',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'conversation-op': CommandMetadata(
+        'conversation-op',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'actor': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-snapshot': CommandMetadata(
+        'conversation-snapshot',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'tail': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-typing': CommandMetadata(
+        'conversation-typing',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'actor': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'on': CommandFieldMetadata(None, None),
+        },
+    ),
     'copy': CommandMetadata(
         'copy',
         'control',
@@ -448,6 +548,28 @@ COMMANDS = {
         {
             'mode': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'create-bookmark': CommandMetadata(
+        'create-bookmark',
+        'control',
+        12,
+        'bookmarks-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'bookmark': CommandFieldMetadata(None, None),
+            'browser_profile_id': CommandFieldMetadata(None, None),
+            'created_ms': CommandFieldMetadata(None, None),
+            'favicon_key': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'kind': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'parent': CommandFieldMetadata(None, None),
+            'source_key': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
         },
     ),
     'create-browser-profile': CommandMetadata(
@@ -609,6 +731,19 @@ COMMANDS = {
             'group': CommandFieldMetadata(None, None),
             'index': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+        },
+    ),
+    'delete-bookmark': CommandMetadata(
+        'delete-bookmark',
+        'control',
+        12,
+        'bookmarks-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'bookmark': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
         },
     ),
     'delete-browser-profile': CommandMetadata(
@@ -815,6 +950,24 @@ COMMANDS = {
             'kind': CommandFieldMetadata(None, None),
         },
     ),
+    'import-bookmarks': CommandMetadata(
+        'import-bookmarks',
+        'control',
+        12,
+        'bookmarks-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile_id': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'nodes': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'parent': CommandFieldMetadata(None, None),
+            'replace': CommandFieldMetadata(None, None),
+            'source_key': CommandFieldMetadata(None, None),
+        },
+    ),
     'import-session-organization': CommandMetadata(
         'import-session-organization',
         'control',
@@ -849,6 +1002,17 @@ COMMANDS = {
         {
             'state': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'list-bookmarks': CommandMetadata(
+        'list-bookmarks',
+        'control',
+        12,
+        'bookmarks-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile_id': CommandFieldMetadata(None, None),
         },
     ),
     'list-clients': CommandMetadata(
@@ -995,6 +1159,21 @@ COMMANDS = {
         {
             'terminal': CommandFieldMetadata(None, None),
             'ttl_ms': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-bookmark': CommandMetadata(
+        'move-bookmark',
+        'control',
+        12,
+        'bookmarks-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'bookmark': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'parent': CommandFieldMetadata(None, None),
         },
     ),
     'move-browser-profile': CommandMetadata(
@@ -1175,6 +1354,7 @@ COMMANDS = {
             'edge': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'ratio': CommandFieldMetadata(None, None),
+            'respawn': CommandFieldMetadata(12, 'tab-split-respawn-v1'),
             'surface': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
         },
@@ -2375,6 +2555,23 @@ COMMANDS = {
             'group': CommandFieldMetadata(None, None),
         },
     ),
+    'update-bookmark': CommandMetadata(
+        'update-bookmark',
+        'control',
+        12,
+        'bookmarks-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'bookmark': CommandFieldMetadata(None, None),
+            'favicon_key': CommandFieldMetadata(None, None),
+            'last_used_ms': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+        },
+    ),
     'update-browser-profile': CommandMetadata(
         'update-browser-profile',
         'control',
@@ -2565,6 +2762,7 @@ COMMANDS = {
 EVENTS = {
     'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
+    'bookmarks-changed': EventMetadata('bookmarks-changed', 12, 'bookmarks-v1', ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),
     'client-attached': EventMetadata('client-attached', 6, None, ('subscribe',), 'emitted'),
     'client-changed': EventMetadata('client-changed', 6, None, ('subscribe',), 'emitted'),
@@ -2572,6 +2770,8 @@ EVENTS = {
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'colors-changed': EventMetadata('colors-changed', 6, None, ('attach-byte',), 'emitted'),
     'config-reload-requested': EventMetadata('config-reload-requested', 6, None, ('subscribe',), 'emitted'),
+    'conversation-changed': EventMetadata('conversation-changed', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
+    'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),

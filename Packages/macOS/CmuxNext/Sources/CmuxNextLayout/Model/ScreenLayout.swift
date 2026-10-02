@@ -1,4 +1,4 @@
-/// One niri-style scrollable column. Its width is a fraction of the viewport.
+/// One scrollable column. Its width is a fraction of the viewport.
 public nonisolated struct LayoutColumn: Hashable, Sendable, Identifiable {
     public var id: ColumnID
     /// Fraction of the viewport width, 0.1...1.0 (daemon `set-viewport-pane-width`).
@@ -41,11 +41,13 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
         return []
     }
 
-    /// Columns in the order the user sees them: the left sticky column, the
-    /// scrolling strip, the right sticky column (StickyStripGeometry S1, S2).
+    /// Columns in the order the user sees them: the left dock, the top dock,
+    /// the scrolling strip, the bottom dock, the right dock
+    /// (StickyStripGeometry S1, S2; layout-model.md). Focus, close-focus and
+    /// column navigation read this, so every dock stays reachable.
     public var visualColumns: [LayoutColumn] {
-        let parts = StickyStripGeometry.partition(columns)
-        return [parts.left].compactMap { $0 } + parts.scrolling + [parts.right].compactMap { $0 }
+        let parts = StickyStripGeometry.docks(columns)
+        return [parts.left, parts.top].compactMap { $0 } + parts.scrolling + [parts.bottom, parts.right].compactMap { $0 }
     }
 
     /// The column that contains `pane`, in columns mode.

@@ -31,14 +31,38 @@ enum TabMoves {
         })
     }
 
+    /// The new tab a split of `tab`'s own pane spawns there when `tab` is
+    /// its only tab: the same kind, fresh. A terminal gets a new shell in
+    /// the dragged terminal's directory; a frontend browser tab gets the New
+    /// Tab page with the dragged tab's engine and profile. Nil when the
+    /// kind cannot respawn: remote-terminal references, daemon-rendered
+    /// browser tabs, incognito tabs (their URL must stay out of the daemon),
+    /// and app-local tabs (agent chats), which are not daemon tabs.
+    @MainActor
+    static func respawn(for tab: TabModel, in pane: PaneModel, services: AppServices) -> SplitRespawn? {
+        switch tab.kind {
+        case .pty:
+            return .terminal(SpawnOptions(cwd: tab.cwd, workspace: services.workspaceKey(of: pane)))
+        case .browser:
+            guard tab.isFrontendOwned, let browserTabs = services.cache.browserTabs, !browserTabs.isIncognitoTab(tab.id),
+                  case .open(let choice) = browserTabs.resolve(requested: nil, inherited: tab.browserEngine)
+            else { return nil }
+            return .browser(url: services.newTabAddress(for: choice), engine: choice.engine, profileID: tab.snapshot.browserProfileID)
+        default:
+            return nil
+        }
+    }
+
     /// New pane on `edge` of `pane` holding the tab.
     static func toNewSplit(_ tab: TabModel, pane: PaneModel, edge: PaneEdge, services: AppServices,
+                           respawn: SplitRespawn? = nil,
                            transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
         guard services.daemon(for: pane) === daemon else { return completion(false) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
-        switch services.splitRoom(for: pane, edge: edge, movingFrom: services.locateTab(tab.id)?.1) {
+        // With a respawn the source pane stays (it gets the new tab).
+        switch services.splitRoom(for: pane, edge: edge, movingFrom: respawn == nil ? services.locateTab(tab.id)?.1 : nil) {
         case .split:
             break
         case .newColumn(let afterColumn, _):
@@ -52,8 +76,13 @@ enum TabMoves {
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-split") { connection -> Void in
                 do {
-                    _ = try await connection.moveTabToSplit(surface, pane: paneHandle, edge: edge, transaction: echoes ? transaction : nil)
-                } catch DaemonError.missingCapabilities {
+                    if let respawn {
+                        try await MoveTabToSplitRespawnRequest(surface: surface, pane: paneHandle, edge: edge, respawn: respawn,
+                                                               transaction: echoes ? transaction : nil).send(on: connection)
+                    } else {
+                        _ = try await connection.moveTabToSplit(surface, pane: paneHandle, edge: edge, transaction: echoes ? transaction : nil)
+                    }
+                } catch DaemonError.missingCapabilities where respawn == nil {
                     try await fallbackSplit(surface, target: paneHandle, edge: edge, connection: connection)
                 }
             } != nil
@@ -62,7 +91,7 @@ enum TabMoves {
         })
     }
 
-    /// New niri column after `afterColumn` (nil = right of `anchor`'s column).
+    /// New strip column after `afterColumn` (nil = right of `anchor`'s column).
     static func toNewColumn(_ tab: TabModel, anchor pane: PaneModel, afterColumn: DaemonColumnID? = nil, services: AppServices,
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Chrome-style group of screens inside one workspace (`screen-groups-v1`):
+/// A group of screens inside one workspace (`screen-groups-v1`):
 /// named, colored, collapsible, members contiguous in screen order. Wire
 /// shape `Workspace.screen_groups[]`: `{id, name, color, collapsed,
 /// saved_id, start, count, screens}`.

@@ -1,4 +1,4 @@
-// Screen actions (tmux-style windows inside a workspace). Screens have no UI
+// Screen actions (windows inside a workspace). Screens have no UI
 // until a workspace holds two or more (REWRITE.md goal 5); creating one is
 // only possible from the palette, a user-bound shortcut, or the CLI, so
 // `screen.new` and `screen.newWith` have no default shortcut and no menu.
@@ -25,10 +25,10 @@ nonisolated enum ScreenActionCatalog: ActionCatalogGroup {
     private static func screenLifecycleActions() -> [ActionDescriptor] {
         [
             screen("screen.new", String(localized: "action.screen.new", defaultValue: "New Screen", table: "ScreenActions", bundle: .module),
-                   "rectangle.stack.badge.plus", cli: "screen new", keywords: ["tmux", "window", "create"], surfaces: [.palette],
+                   "rectangle.stack.badge.plus", cli: "screen new", keywords: ["window", "create"], surfaces: [.palette],
                    startsTerminal: true),
             screen("screen.newWith", String(localized: "action.screen.newWith", defaultValue: "New Screen with…", table: "ScreenActions", bundle: .module),
-                   "rectangle.stack.badge.plus", cli: "screen new-with", keywords: ["tmux", "window", "create", "name", "directory"],
+                   "rectangle.stack.badge.plus", cli: "screen new-with", keywords: ["window", "create", "name", "directory"],
                    surfaces: [.palette], arguments: [CatalogArgument.nameString, CatalogArgument.colorChoice.optional,
                                                      CatalogArgument.iconString.optional, CatalogArgument.cwdString.optional],
                    startsTerminal: true),
@@ -101,7 +101,7 @@ nonisolated enum ScreenActionCatalog: ActionCatalogGroup {
     }
 }
 
-/// The nine group color names (Chrome's), shared by screen and screen group
+/// The nine group color names, shared by screen and screen group
 /// color actions and context submenus.
 nonisolated enum GroupColor9 {
     static let names = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]

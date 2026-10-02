@@ -33,10 +33,13 @@ public final class ThemeScope {
     /// own, else its own. A light workspace in a dark room never turns the
     /// window's chrome light.
     public var tokens: ThemeTokens {
-        guard let shown else { return ownTokens }
+        guard let shown else { return ownTokens.emphasized(emphasis) }
         let candidate = shown.tokens
-        return candidate.isDark == ownTokens.isDark ? candidate : ownTokens
+        return (candidate.isDark == ownTokens.isDark ? candidate : ownTokens).emphasized(emphasis)
     }
+    /// How strongly this scope's own views draw (a pane's tab strip in an
+    /// unfocused pane: `ChromeEmphasis`). Children keep the plain colors.
+    public private(set) var emphasis: ChromeEmphasis = .full
     /// Bumps on every change of `tokens` (tests, diagnostics).
     public private(set) var generation = 0
     /// The scope whose colors this scope's own views draw in: a window's
@@ -97,6 +100,21 @@ public final class ThemeScope {
         guard resolved != overrideInput else { return }
         overrideInput = resolved
         update(animated: animated, repaint: true)
+    }
+
+    /// The nearest scope (this one or an ancestor) without a chrome
+    /// emphasis: panels and hover cards draw there at full strength.
+    public var fullStrength: ThemeScope {
+        var scope = self
+        while scope.emphasis != .full, let parent = scope.parent { scope = parent }
+        return scope
+    }
+
+    /// Sets `emphasis` and repaints what this scope roots when it changed.
+    public func setEmphasis(_ emphasis: ChromeEmphasis, animated: Bool = true) {
+        guard emphasis != self.emphasis else { return }
+        self.emphasis = emphasis
+        refreshDisplay(animated: animated, repaint: true)
     }
 
     /// Moves this scope under another parent (a workspace shown in another

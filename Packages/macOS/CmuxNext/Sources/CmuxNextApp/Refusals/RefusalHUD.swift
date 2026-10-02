@@ -9,9 +9,16 @@ import CmuxNextWakeups
 @MainActor
 final class RefusalHUD {
     private let view = RefusalHUDView()
-    private let hideTimer = DemandTimer(owner: "App.refusalHUD.hide")
+    private let hideTimer: DemandTimer
     /// How long a message stays.
     var lifetime: Duration = .milliseconds(1800)
+    /// Runs after the deadline hides the message (tests await it).
+    var onHide: (@MainActor () -> Void)?
+
+    /// `clock` runs the hide deadline; tests pass a manual clock.
+    init(clock: any Clock<Duration> = ContinuousClock()) {
+        hideTimer = DemandTimer(owner: "App.refusalHUD.hide", clock: clock)
+    }
 
     /// The message currently shown (tests, `debug.layers` style checks).
     var message: String? { view.isShowing ? view.text : nil }
@@ -20,7 +27,11 @@ final class RefusalHUD {
         guard let content = window?.contentView else { return }
         if view.superview !== content { content.addSubview(view, positioned: .above, relativeTo: nil) }
         view.show(text, in: content.bounds)
-        hideTimer.schedule(after: lifetime) { @MainActor [weak self] in self?.view.hide() }
+        hideTimer.schedule(after: lifetime) { @MainActor [weak self] in
+            guard let self else { return }
+            self.view.hide()
+            self.onHide?()
+        }
     }
 }
 

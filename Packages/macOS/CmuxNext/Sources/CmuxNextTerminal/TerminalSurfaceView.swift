@@ -43,7 +43,7 @@ public final class TerminalSurfaceView: NSView {
     /// Grid the PTY owner announced last (``applyAnnouncedGrid(_:)``).
     var announcedGrid: TerminalGridSize? { geometry.announced }
 
-    /// App-controlled pause (off-screen niri column, unselected tab).
+    /// App-controlled pause (off-screen strip column, unselected tab).
     var isRenderingSuspended = false {
         didSet { if isRenderingSuspended != oldValue { updateOcclusion() } }
     }
@@ -66,11 +66,10 @@ public final class TerminalSurfaceView: NSView {
     var lastPerformKeyEventTimestamp: TimeInterval?
     var previousPressureStage = 0
 
-    // Copy mode (see TerminalSurfaceView+CopyMode.swift).
-    var copyMode: CopyModeSession?
-    /// Keys whose key-down copy mode took; their key-up is swallowed too,
-    /// also after the key that left copy mode.
-    var copyModeConsumedKeyUps: Set<UInt16> = []
+    /// Keyboard copy mode (``TerminalCopyMode``).
+    private(set) lazy var copyMode = TerminalCopyMode(view: self)
+    /// Ghostty's clipboard reads and confirmations (``TerminalClipboardRequests``).
+    private(set) lazy var clipboardRequests = TerminalClipboardRequests(view: self)
 
     // MARK: Lifecycle
 
@@ -199,7 +198,7 @@ public final class TerminalSurfaceView: NSView {
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         updateSurfaceSize()
-        syncCopyModeCursor()
+        copyMode.syncCursor()
     }
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`

@@ -50,7 +50,7 @@ describe("session titles", () => {
 });
 
 describe("project labels", () => {
-  test("the folder's last component", () => expect(projectLabel("/Users/lee/src/cmux/")).toBe("cmux"));
+  test("the folder's last component", () => expect(projectLabel("/Users/dev/src/cmux/")).toBe("cmux"));
   test("a home folder is ~", () => {
     expect(projectLabel("/Users/lee")).toBe("~");
     expect(projectLabel("/home/lee")).toBe("~");

@@ -36,7 +36,7 @@ public final class BrowserChromeView: NSView {
     public var showsFocusModeIndicator = false {
         didSet {
             guard showsFocusModeIndicator != oldValue else { return }
-            contentContainer.layer?.borderWidth = showsFocusModeIndicator ? 2 : 0
+            contentContainer.layer?.borderWidth = Metrics.lineWidth(showsFocusModeIndicator ? 2 : 0)
             updateColors()
         }
     }
@@ -97,7 +97,7 @@ public final class BrowserChromeView: NSView {
     public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
         self.tab = tab
         addressBar = AddressBarView(suggestionEngine: suggestionEngine)
-        // Helium/Chromium toolbar glyphs: plain arrows, not chevrons.
+        // Chromium toolbar glyphs: plain arrows, not chevrons.
         backButton = ChromeIconButton(symbol: "arrow.left", label: Strings.back, action: nil, target: nil, toolbar: true)
         forwardButton = ChromeIconButton(symbol: "arrow.right", label: Strings.forward, action: nil, target: nil, toolbar: true)
         reloadButton = ChromeIconButton(symbol: "arrow.clockwise", label: Strings.reload, action: nil, target: nil, toolbar: true)

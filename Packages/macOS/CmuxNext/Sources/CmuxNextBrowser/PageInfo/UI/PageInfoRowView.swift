@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// One bubble row (Chrome's `RichHoverButton`): icon, title, optional
+/// One bubble row (Chromium's `RichHoverButton`): icon, title, optional
 /// subtitle, and a trailing chevron, external-link mark, or toggle. Gray
 /// hover and press fills; keyboard focus draws a gray ring. Space or Return
 /// activates, as a click does.
@@ -164,7 +164,7 @@ final class PageInfoRowView: NSView {
     }
 
     private func refreshFill() {
-        layer?.borderWidth = showsFocus ? 1.5 : 0
+        layer?.borderWidth = Metrics.lineWidth(showsFocus ? 1.5 : 0)
         performWithTheme {
             let fill: NSColor = isPressed ? PageInfoStyle.pressed : (isHovering || showsFocus ? PageInfoStyle.hover : .clear)
             layer?.backgroundColor = fill.cgColor

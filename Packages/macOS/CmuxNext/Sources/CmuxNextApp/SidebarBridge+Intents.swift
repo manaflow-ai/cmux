@@ -117,6 +117,12 @@ extension SidebarBridge {
         case .setPinned(let ids, let pinned):
             model.apply(intent)
             sendPinned(ids, pinned)
+        case .activateItem(let id):
+            activateLayoutItem(id)
+        case .layout(let op):
+            applyLayoutOp(op)
+        case .toggleLayoutSection:
+            model.apply(intent)
         case .setIcon, .setGroupPinned, .openGroup:
             // Needs daemon fields this build does not map yet; apply locally
             // so the UI responds, the next store change restores truth.

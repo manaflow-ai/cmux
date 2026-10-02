@@ -15,6 +15,10 @@ Object.assign(globals, {
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  // The prompt is a Milkdown (ProseMirror) editor.
+  Node: dom.window.Node,
+  getSelection: dom.window.getSelection.bind(dom.window),
+  MutationObserver: dom.window.MutationObserver,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(() => Object.assign(globals, saved));
@@ -23,17 +27,11 @@ const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
 
-/// Types into the prompt. React decides when react-dom loads whether the page has
-/// input events, and a test file that loads it before any DOM exists (the
-/// router tests do) leaves it without them, so call the change handler directly.
-function typeInto(node: HTMLTextAreaElement, value: string) {
-  node.value = value;
-  node.setSelectionRange(value.length, value.length);
-  const props = (node as unknown as Record<string, { onChange(event: { target: HTMLTextAreaElement }): void }>)[
-    Object.keys(node).find((key) => key.startsWith("__reactProps$"))!
-  ]!;
-  props.onChange({ target: node });
-}
+const { promptField: fieldIn, typeInto } = await import("./promptFieldTesting");
+const promptField = () => fieldIn(dom.window.document);
+
+/// Milkdown makes its editor a task after the composer mounts.
+const ready = () => act(() => new Promise((resolve) => setTimeout(resolve, 10)));
 
 const snapshot = (commands?: AcpmuxSnapshot["commands"]): AcpmuxSnapshot => ({
   type: "snapshot",
@@ -56,7 +54,7 @@ const commands = [
 describe("acpmux composer slash menu", () => {
   let root: ReturnType<typeof createRoot>;
   let sent: string[];
-  const textarea = () => dom.window.document.querySelector("textarea")!;
+  const textarea = () => promptField();
   const rows = () =>
     [...dom.window.document.querySelectorAll(".acpmux-slash-row")].map(
       (row) => row.querySelector(".acpmux-slash-name")!.textContent,
@@ -64,6 +62,17 @@ describe("acpmux composer slash menu", () => {
   const active = () => dom.window.document.querySelector(".acpmux-slash-active .acpmux-slash-name")?.textContent;
   const menu = () => dom.window.document.querySelector(".acpmux-slash-menu");
   const type = async (value: string) => act(async () => typeInto(textarea(), value));
+  const plusButton = () =>
+    dom.window.document.querySelector(".acpmux-composer-plus .acpmux-picker-button") as HTMLButtonElement;
+  /// Opens + and picks one of its rows, as a click does.
+  const pickPlus = async (id: string) => {
+    await act(async () => plusButton().click());
+    await act(async () => {
+      dom.window.document
+        .querySelector(`.acpmux-composer-plus [data-value="${id}"]`)!
+        .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+  };
   /// jsdom fires `select` a task after the caret moves; let it land inside act.
   const settle = async () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   const key = async (name: string, isComposing = false) =>
@@ -72,8 +81,8 @@ describe("acpmux composer slash menu", () => {
         new dom.window.KeyboardEvent("keydown", { key: name, isComposing, bubbles: true, cancelable: true }),
       );
     });
-  const render = async (value: AcpmuxSnapshot) =>
-    act(async () =>
+  const render = async (value: AcpmuxSnapshot) => {
+    await act(async () =>
       root.render(
         createElement(Composer, {
           snapshot: value,
@@ -85,6 +94,8 @@ describe("acpmux composer slash menu", () => {
         }),
       ),
     );
+    await ready();
+  };
 
   beforeEach(() => {
     sent = [];
@@ -197,15 +208,25 @@ describe("acpmux composer slash menu", () => {
     expect(textarea().value).toBe("/review ");
   });
 
-  test("+ opens the command menu ahead of a draft, and only when the agent has commands", async () => {
-    const plus = () => dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement;
+  test("+ opens an add menu: Mention puts an @ at the caret, and Commands opens the command menu ahead of a draft", async () => {
+    const items = async () => {
+      await act(async () => plusButton().click());
+      const names = [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map((item) =>
+        item.getAttribute("data-value"),
+      );
+      await act(async () => plusButton().click());
+      return names;
+    };
     await render(snapshot());
-    // The slot stays so the chips don't jump when the command list arrives.
-    expect(plus().disabled).toBe(true);
+    expect(await items()).toEqual(["mention"]);
     await render(snapshot(commands));
-    expect(plus().disabled).toBe(false);
+    expect(await items()).toEqual(["mention", "commands"]);
+    await type("look at");
+    await pickPlus("mention");
+    expect(textarea().value).toBe("look at @");
+    expect(dom.window.document.activeElement).toBe(textarea().element);
     await type("look at main");
-    await act(async () => (dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement).click());
+    await pickPlus("commands");
     await settle();
     expect(textarea().value).toBe("/ look at main");
     expect(rows()).toEqual(["/compact", "/review", "/pr-comments"]);
@@ -216,15 +237,14 @@ describe("acpmux composer slash menu", () => {
   });
 
   test("+ keeps a pasted path whole, keeps a named command's slash, and Escape puts the draft back", async () => {
-    const plus = async () =>
-      act(async () => (dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement).click());
+    const plus = () => pickPlus("commands");
     await render(snapshot(commands));
-    await type("/Users/leo/x.txt is broken");
+    await type("/Users/dev/x.txt is broken");
     await plus();
     await settle();
-    expect(textarea().value).toBe("/ /Users/leo/x.txt is broken");
+    expect(textarea().value).toBe("/ /Users/dev/x.txt is broken");
     await key("Escape");
-    expect(textarea().value).toBe("/Users/leo/x.txt is broken");
+    expect(textarea().value).toBe("/Users/dev/x.txt is broken");
     expect(menu()).toBeNull();
     await type("/review main");
     await plus();
@@ -236,8 +256,7 @@ describe("acpmux composer slash menu", () => {
   });
 
   test("what + wrote never reaches the agent: Send and leaving the composer take the draft back", async () => {
-    const plus = async () =>
-      act(async () => (dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement).click());
+    const plus = () => pickPlus("commands");
     const submit = async () =>
       act(async () => {
         dom.window.document
@@ -305,5 +324,41 @@ describe("acpmux composer slash menu", () => {
     });
     expect(sent).toEqual(["/review main"]);
     expect(textarea().value).toBe("");
+  });
+});
+
+describe("acpmux composer draft", () => {
+  test("an inherited draft fills an empty prompt once and is not sent", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const sent: string[] = [];
+    const render = async (draft?: string) => {
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: snapshot(),
+            chips: () => null,
+            draft,
+            onSend: (text: string) => {
+              sent.push(text);
+            },
+            onStop: () => {},
+          }),
+        ),
+      );
+      await ready();
+    };
+    await render();
+    const prompt = promptField();
+    expect(prompt.value).toBe("");
+    // The draft is markdown: its quote is a quote in the prompt (the blank lines after it are not kept).
+    await render("> selected output\n\n");
+    expect(prompt.value).toBe("> selected output");
+    expect(prompt.element.querySelector("blockquote")?.textContent).toBe("selected output");
+    expect(sent).toEqual([]);
+    // What the user typed stays when another draft arrives.
+    await act(async () => typeInto(prompt, "mine"));
+    await render("another");
+    expect(prompt.value).toBe("mine");
+    await act(async () => root.unmount());
   });
 });

@@ -76,7 +76,7 @@ class PageInfoWindow: NSWindow, ThemeResponsive {
         backgroundColor = themeScope.perform { Palette.windowBackground }
     }
 
-    /// Escape closes, as in Chrome's dialogs.
+    /// Escape closes.
     override func cancelOperation(_ sender: Any?) { close() }
 
     static func sectionTitle(_ text: String) -> NSTextField {

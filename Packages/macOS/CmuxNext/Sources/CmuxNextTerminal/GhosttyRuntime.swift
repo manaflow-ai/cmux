@@ -21,7 +21,8 @@ public final class GhosttyRuntime {
 
     /// The finalized configuration currently applied to the app.
     private(set) var config: ghostty_config_t?
-    /// `background-opacity` from the user's config (not the surface override).
+    /// `background-opacity` from the user's config with cmux.json's
+    /// `appearance.backgroundOpacity` over it (not the surface override).
     private var configuredBackgroundOpacity: Double = 1
 
     /// The user's config with one theme applied, per theme name, built on
@@ -178,11 +179,19 @@ public final class GhosttyRuntime {
         for line in fontOverrideLines(fontOverride) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
-        // In a translucent window the root view paints the one translucent
-        // sheet; the surfaces draw cells over it with a transparent default
-        // background (`GhosttyRuntimeSurfacePolicy`). The configured
-        // opacity is kept for the window, theme and blur.
+        // cmux.json's window background replaces the files' opacity and
+        // blur, so the surfaces, the window and the theme read one value.
         var configured: Double = 1
+        _ = configGet(config, &configured, key: "background-opacity")
+        var configuredBlur: Int16 = 0
+        _ = configGet(config, &configuredBlur, key: "background-blur")
+        for line in backgroundOverrideLines(backgroundOverride, configuredOpacity: configured, configuredBlur: Int(configuredBlur)) {
+            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
+        }
+        // In a translucent window the root view's material and tint are the
+        // one translucent sheet; the surfaces draw cells over it with a
+        // transparent default background (`GhosttyRuntimeSurfacePolicy`).
+        // The resolved opacity is kept for the window and theme.
         _ = configGet(config, &configured, key: "background-opacity")
         var opacityCells = false
         _ = configGet(config, &opacityCells, key: "background-opacity-cells")
@@ -215,18 +224,10 @@ public final class GhosttyRuntime {
         return NSColor(srgbRed: CGFloat(color.r) / 255, green: CGFloat(color.g) / 255, blue: CGFloat(color.b) / 255, alpha: 1)
     }
 
-    /// `background-opacity` as configured, 0...1. The config applied to the
+    /// `background-opacity` as configured and resolved with cmux.json's
+    /// override (`backgroundOverride`), 0...1. The config applied to the
     /// surfaces may carry 0 instead (`GhosttyRuntimeSurfacePolicy`).
     public var backgroundOpacity: Double { configuredBackgroundOpacity }
-
-    /// Sets the config's `background-blur` radius behind `window`
-    /// (`ghostty_set_window_background_blur`), as Ghostty does for its
-    /// translucent windows. libghostty does nothing while
-    /// `background-opacity` is 1.
-    public func applyBackgroundBlur(to window: NSWindow) {
-        guard let app else { return }
-        ghostty_set_window_background_blur(app, Unmanaged.passUnretained(window).toOpaque())
-    }
 
     /// `ghostty_config_get` (ghostty.h:1321) for one key.
     static func configGet<T: BitwiseCopyable>(_ config: ghostty_config_t, _ value: inout T, key: String) -> Bool {

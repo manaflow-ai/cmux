@@ -28,9 +28,8 @@ export function isNewChat(snapshot: AcpmuxSnapshot): boolean {
   return snapshot.rows.length === 0 && !snapshot.isWorking && snapshot.queue.length === 0 && turns === 0;
 }
 
-/// A new chat's hero, centered in place of the empty transcript as Codex's home and
-/// new-chat screens draw it, quieter: a small prompt glyph and one line naming
-/// the session's project.
+/// A new chat's hero, centered in place of the empty transcript and kept quiet:
+/// a small prompt glyph and one line naming the session's project.
 export function EmptyState({ project }: { project?: string }) {
   const [before, after] = EMPTY_STATE_LABELS.promptIn.split("{project}");
   return (

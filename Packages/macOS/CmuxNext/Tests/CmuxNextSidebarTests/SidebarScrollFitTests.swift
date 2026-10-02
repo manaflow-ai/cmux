@@ -3,9 +3,8 @@ import Testing
 @testable import CmuxNextSidebar
 
 /// Dogfood nxdog13: "make sure workspace list can't scroll if there aren't
-/// enough workspaces to scroll down to." Like Finder's sidebar, the list
-/// neither scrolls nor rubber-bands while every row fits, and bounces again
-/// once rows overflow.
+/// enough workspaces to scroll down to." The list neither scrolls nor
+/// rubber-bands while every row fits, and bounces again once rows overflow.
 @MainActor @Suite struct SidebarScrollFitTests {
     func sidebar(extra: Int, height: CGFloat) -> SidebarView {
         var sections = fixture()

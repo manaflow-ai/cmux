@@ -18,14 +18,34 @@
 # (it only lowers numbers and drops entries that now meet the budget; it never
 # raises a number or adds an entry).
 #
-# Usage: scripts/cmux-next/check-no-godfiles.sh [--update-baseline] [package-root]
+# --only swift checks the Swift files and types; --only rust checks the cmux-tui
+# Rust files. CI runs them as separate steps so one half never hides the other.
+# --update-baseline rewrites the whole baseline, so it takes no --only.
+#
+# Usage: scripts/cmux-next/check-no-godfiles.sh [--update-baseline | --only swift|rust] [package-root]
 set -euo pipefail
 
 update=0
-if [[ "${1:-}" == "--update-baseline" ]]; then
-  update=1
-  shift
+only=all
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --update-baseline) update=1; shift ;;
+    --only)
+      case "${2:-}" in
+        swift | rust) only="$2" ;;
+        *) echo "--only takes swift or rust, got '${2:-}'" >&2; exit 2 ;;
+      esac
+      shift 2 ;;
+    *) break ;;
+  esac
+done
+if (( update )) && [[ "$only" != all ]]; then
+  echo "--update-baseline rewrites every entry; run it without --only" >&2
+  exit 2
 fi
+check_swift=0; check_rust=0
+[[ "$only" != rust ]] && check_swift=1
+[[ "$only" != swift ]] && check_rust=1
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="${1:-$(git -C "$script_dir" rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
 repo="$(git -C "$root" rev-parse --show-toplevel)"
@@ -38,11 +58,13 @@ rust_file_limit=1000
 rust_fn_limit=60
 rust_test_file_limit=1500
 rust_test_fn_limit=120
+# A Rust function declaration line (free fn, method, trait item).
+rust_fn_re='^[[:space:]]*(pub(\([a-z:_ ]+\))? +)?(default +)?(const +)?(async +)?(unsafe +)?(extern +"[A-Za-z]+" +)?fn +[A-Za-z_]'
 
 status=0
 
 # 1. Swift files: absolute limits.
-while IFS= read -r -d '' file; do
+(( check_swift )) && while IFS= read -r -d '' file; do
   lines=$(wc -l < "$file" | tr -d ' ')
   limit=$swift_file_limit
   [[ "$file" == */Tests/* ]] && limit=$swift_test_file_limit
@@ -64,7 +86,7 @@ trap 'rm -f "$measurements"' EXIT
 
 # Swift types. A top-level declaration starts at column 0 and ends at the next
 # line that starts with "}" (the package is formatted that way).
-if [[ -d "$root/Sources" ]]; then
+if (( check_swift )) && [[ -d "$root/Sources" ]]; then
   find "$root/Sources" -name '*.swift' -print0 | xargs -0 awk '
     FNR == 1 {
       in_decl = 0
@@ -100,10 +122,10 @@ if [[ -d "$root/Sources" ]]; then
 fi
 
 # Rust files in cmux-tui (tracked only, so build output never counts).
-while IFS= read -r rel; do
+(( check_rust )) && while IFS= read -r rel; do
   [[ -f "$repo/$rel" ]] || continue
   lines=$(wc -l < "$repo/$rel" | tr -d ' ')
-  fns=$(grep -cE '^[[:space:]]*(pub(\([a-z:_ ]+\))? +)?(default +)?(const +)?(async +)?(unsafe +)?(extern +"[A-Za-z]+" +)?fn +[A-Za-z_]' "$repo/$rel" || true)
+  fns=$(grep -cE "$rust_fn_re" "$repo/$rel" || true)
   if [[ "$rel" =~ /(tests|benches|examples)/ || "$rel" =~ (^|/|_)tests\.rs$ ]]; then
     printf 'rust-file\t%s\t%d\t%d\t%d\t%d\n' "$rel" "$lines" "$fns" "$rust_test_file_limit" "$rust_test_fn_limit"
   else
@@ -113,9 +135,11 @@ done < <(git -C "$repo" ls-files 'cmux-tui/*.rs' | grep -vE '^cmux-tui/(vendor/|
 
 # 3. Compare against the baseline.
 [[ -f "$baseline" ]] || : > "$baseline"
-report="$(awk -F'\t' -v update="$update" '
+report="$(awk -F'\t' -v update="$update" -v only="$only" '
   FILENAME == ARGV[1] {
     if ($0 ~ /^#/ || NF < 4) next
+    if (only == "swift" && $1 != "swift-type") next
+    if (only == "rust" && $1 != "rust-file") next
     base_lines[$1 "\t" $2] = $3; base_fns[$1 "\t" $2] = $4
     next
   }
@@ -148,14 +172,45 @@ report="$(awk -F'\t' -v update="$update" '
   }
 ' "$baseline" "$measurements")"
 
-# Each failure names the commit that last changed the file, so an agent can
-# tell a failure it caused from one already on the branch.
+# Each Rust failure names the commit that pushed the file over its allowance
+# (the oldest commit of the newest run of over-budget versions), so an agent
+# can tell a failure it caused from one already on the branch. Everything is
+# measured in this checkout's tree; history needs a non-shallow clone.
+allowance() { # kind key -> "lines fns" from the baseline, else the budget
+  local found
+  found="$(awk -F'\t' -v k="$1" -v p="$2" '$1==k && $2==p {print $3, $4; exit}' "$baseline")"
+  if [[ -n "$found" ]]; then echo "$found"
+  elif [[ "$2" =~ /(tests|benches|examples)/ || "$2" =~ (^|/|_)tests\.rs$ ]]; then echo "$rust_test_file_limit $rust_test_fn_limit"
+  else echo "$rust_file_limit $rust_fn_limit"; fi
+}
+grower() { # key allowed_lines allowed_fns
+  local key="$1" allow_lines="$2" allow_fns="$3" commit lines fns culprit=""
+  if [[ "$(git -C "$repo" rev-parse --is-shallow-repository 2>/dev/null)" == true ]]; then
+    echo "unknown in a shallow checkout; run the check in a full clone"
+    return
+  fi
+  lines=$(git -C "$repo" show "HEAD:$key" 2>/dev/null | wc -l | tr -d ' ')
+  fns=$(git -C "$repo" show "HEAD:$key" 2>/dev/null | grep -cE "$rust_fn_re" || true)
+  if (( lines <= allow_lines && fns <= allow_fns )); then
+    echo "uncommitted changes in this checkout"
+    return
+  fi
+  while IFS= read -r commit; do
+    lines=$(git -C "$repo" show "$commit:$key" 2>/dev/null | wc -l | tr -d ' ')
+    fns=$(git -C "$repo" show "$commit:$key" 2>/dev/null | grep -cE "$rust_fn_re" || true)
+    if (( lines > allow_lines || fns > allow_fns )); then culprit="$commit"; else break; fi
+  done < <(git -C "$repo" log --format=%H -n 40 HEAD -- "$key")
+  if [[ -n "$culprit" ]]; then
+    git -C "$repo" log -1 --format='%h %an %ad: %s' --date=short "$culprit"
+  else
+    echo "unknown"
+  fi
+}
 if grep -q '^FAIL' <<<"$report"; then
   while IFS=$'\t' read -r _ kind key message; do
     if [[ "$kind" == rust-file ]]; then
-      last="$(git -C "$repo" log -1 --format='%h %an: %s' -- "$key" 2>/dev/null || true)"
-      [[ -n "$(git -C "$repo" status --porcelain -- "$key" 2>/dev/null)" ]] && last="uncommitted changes in this checkout"
-      echo "$message [last change: ${last:-unknown}]"
+      read -r allow_lines allow_fns <<<"$(allowance "$kind" "$key")"
+      echo "$message [grown past it by: $(grower "$key" "$allow_lines" "$allow_fns")]"
     else
       echo "$message"
     fi

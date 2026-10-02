@@ -36,6 +36,9 @@ final class AgentTabStore {
     /// Tabs opened as the new tab page, and what each does with the kind
     /// the user picks there (``PaneController/newTabPage()``).
     private var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:]
+    /// What each new chat inherits from the tab it was opened from, until
+    /// its view reads it.
+    private var seeds: [String: AgentPaneSeedSource] = [:]
     /// The daemon tree each pane with agent tabs belongs to. It is watched,
     /// so the tabs of a pane closed out of sight (its window showing another
     /// workspace, its daemon away) close once the live tree drops the pane.
@@ -86,7 +89,9 @@ final class AgentTabStore {
     ///   - session: The acpmux session it shows; nil starts a new chat.
     ///   - newTab: Shows the new tab page until it becomes a chat; the
     ///     handler gets the terminal or browser choices and shortcut edits.
+    ///   - seed: What a new chat inherits (cwd, a draft); ignored with a session.
     func open(in paneKey: String, of store: DaemonStore, after: String? = nil, session: String? = nil,
+              seed: AgentPaneSeedSource? = nil,
               newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil) -> String {
         let key = LocalAgentTab.prefix + UUID().uuidString.lowercased()
         var tabs = tabsByPane[paneKey] ?? []
@@ -98,6 +103,7 @@ final class AgentTabStore {
         tabsByPane[paneKey] = tabs
         sessions[key] = session
         newTabPages[key] = newTab
+        if session == nil { seeds[key] = seed }
         paneStores[paneKey] = store
         watch(store)
         return key
@@ -119,7 +125,12 @@ final class AgentTabStore {
     func view(for key: String) -> AgentPaneView? {
         if let view = views[key] { return view }
         guard tabsByPane.values.contains(where: { $0.contains(key) }) else { return nil }
-        let model = AgentPaneModel(host: host, sessionId: sessions[key], newTab: newTabPages[key]?.page)
+        let model = AgentPaneModel(
+            host: host,
+            sessionId: sessions[key],
+            seed: seeds.removeValue(forKey: key),
+            newTab: newTabPages[key]?.page
+        )
         model.onSessionChange = { [weak self] session in
             self?.newTabPages[key]?.handler.becameChat()
             self?.sessions[key] = session
@@ -148,6 +159,7 @@ final class AgentTabStore {
         views.removeValue(forKey: key)?.close()
         sessions[key] = nil
         newTabPages[key] = nil
+        seeds[key] = nil
         forgetUnusedStores()
         stopCustomizationWhenUnused()
     }
@@ -158,6 +170,7 @@ final class AgentTabStore {
             views.removeValue(forKey: key)?.close()
             sessions[key] = nil
             newTabPages[key] = nil
+            seeds[key] = nil
         }
         forgetUnusedStores()
         stopCustomizationWhenUnused()
@@ -204,9 +217,10 @@ final class AgentTabStore {
 }
 
 extension PaneController {
-    /// New Agent Chat: a new agent tab in this pane, selected.
+    /// New Agent Chat: a new agent tab in this pane, selected. It inherits
+    /// the selected tab's context (`agentSeedFromSelectedTab`, #16620).
     func newAgentTab() {
-        showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store))
+        showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store, seed: agentSeedFromSelectedTab()))
     }
 
     /// Duplicate Tab on an agent tab: the same session, right after it.

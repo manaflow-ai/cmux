@@ -17,6 +17,9 @@ public final class MockOnboardingServices: OnboardingServices {
     /// When set, `runImport` waits here until the test resumes it.
     public var importGate: CheckedContinuation<Void, Never>?
     public var holdsImport = false
+    /// The progress reports `runImport` sends; nil: one, the first profile starting on bookmarks.
+    public var reports: [ImportProgress]?
+    public var passwordStore = false
     public var accountsView: NSView?
     /// Picked screen variants, by step.
     public var variantIDs: [OnboardingModel.Step: String] = [:]
@@ -43,13 +46,36 @@ public final class MockOnboardingServices: OnboardingServices {
 
     public func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
         plans.append(plan)
-        if let profile = plan.items.first?.profile {
+        if let reports {
+            reports.forEach(progress)
+        } else if let profile = plan.items.first?.profile {
             progress(ImportProgress(profileIndex: 0, profileCount: plan.items.count, profile: profile, kind: .bookmarks,
                                     fraction: 0.5, counts: ImportCounts(bookmarks: 1)))
         }
         if holdsImport { await withCheckedContinuation { importGate = $0 } }
         try Task.checkCancellation()
         return summary
+    }
+
+    public func canImportPasswords() async -> Bool { passwordStore }
+    /// What the Touch ID sheet answers, and the reasons it was shown with.
+    public var passwordAuthorization = true
+    public private(set) var authorizationReasons: [String] = []
+    /// While true, a Touch ID request waits for ``answerAuthorizations()``
+    /// (the sheet is up).
+    public var holdsAuthorization = false
+    private var pendingAuthorizations: [CheckedContinuation<Void, Never>] = []
+    public func authorizePasswordRead(reason: String) async -> Bool {
+        authorizationReasons.append(reason)
+        if holdsAuthorization { await withCheckedContinuation { pendingAuthorizations.append($0) } }
+        return passwordAuthorization
+    }
+
+    /// Ends every Touch ID sheet that is up, with `passwordAuthorization`.
+    public func answerAuthorizations() {
+        let pending = pendingAuthorizations
+        pendingAuthorizations = []
+        for continuation in pending { continuation.resume() }
     }
 
     public func openExternal(_ url: URL) { opened.append(url) }
@@ -67,9 +93,11 @@ public final class MockOnboardingServices: OnboardingServices {
         let services = MockOnboardingServices()
         services.themeChoices = themes
         services.accountsView = accountsView
+        services.passwordStore = true
         func profile(_ browser: ImportBrowser, _ directory: String, _ name: String) -> BrowserSourceProfile {
-            BrowserSourceProfile(browser: browser, directoryName: directory, displayName: name, path: URL(fileURLWithPath: "/sample/\(directory)"),
-                                 availability: [.bookmarks: .available, .history: .available, .cookies: .available])
+            let passwords: DataAvailability = browser.family == .chromium ? .available : .absent
+            return BrowserSourceProfile(browser: browser, directoryName: directory, displayName: name, path: URL(fileURLWithPath: "/sample/\(directory)"),
+                                        availability: [.bookmarks: .available, .history: .available, .cookies: .available, .passwords: passwords])
         }
         services.sources = [
             BrowserSource(browser: .chrome, appURL: nil, profiles: [profile(.chrome, "Default", "Personal"), profile(.chrome, "Profile 1", "Work")]),

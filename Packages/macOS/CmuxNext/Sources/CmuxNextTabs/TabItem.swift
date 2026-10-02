@@ -10,13 +10,24 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     public var isPinned: Bool
     /// Neutral notification dot (new output, unread notification).
     public var isUnread: Bool
-    /// Replaces the icon with a spinner (process running, page loading).
-    public var isBusy: Bool
+    /// The loading state the icon slot shows (`StatusIndicatorLayer`):
+    /// busy or paused, with progress when known. Waiting, error and done
+    /// stay on the `status` badge.
+    public var indicator: StatusIndicatorState = .idle
+    /// Replaces the icon with the status indicator (process running, page
+    /// loading, agent working).
+    public var isBusy: Bool {
+        get { indicator.isLoading }
+        set { if newValue != isBusy { indicator = newValue ? .busy : .idle } }
+    }
+    /// The reporter's indicator style hint; nil uses
+    /// `appearance.statusIndicator.style`.
+    public var busyStyle: StatusIndicatorStyle?
     public var status: TabStatus
     /// The page hibernated (released to save memory; reloads when
     /// selected): the icon and title are drawn dimmed.
     public var isDormant = false
-    /// Group this tab belongs to. Ignored for pinned tabs (Chrome rule) and
+    /// Group this tab belongs to. Ignored for pinned tabs and
     /// for ids missing from `TabStripModel.groups`.
     public var groupID: TabGroupID?
     /// User color of this tab (screens carry one). Tints the icon; a tab
@@ -34,6 +45,10 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// gives new tabs: a small dot of its color, named in the hover card and
     /// to VoiceOver (plans/cmux-next/data-model.md section 5).
     public var profileBadge: TabProfileBadge?
+    /// A browser tab's page address: the strip shows it in its location
+    /// field while the tab is selected. Nil for every other tab, and for a
+    /// browser tab on the New Tab page or an internal page.
+    public var location: TabLocation?
 
     public init(
         id: TabID,
@@ -46,7 +61,8 @@ public struct TabItem: Identifiable, Hashable, Sendable {
         status: TabStatus = .none,
         groupID: TabGroupID? = nil,
         tint: GroupColor? = nil,
-        machineBadge: String? = nil
+        machineBadge: String? = nil,
+        location: TabLocation? = nil
     ) {
         self.id = id
         self.title = title
@@ -54,11 +70,12 @@ public struct TabItem: Identifiable, Hashable, Sendable {
         self.icon = icon
         self.isPinned = isPinned
         self.isUnread = isUnread
-        self.isBusy = isBusy
+        self.indicator = isBusy ? .busy : .idle
         self.status = status
         self.groupID = groupID
         self.tint = tint
         self.machineBadge = machineBadge
+        self.location = location
     }
 }
 

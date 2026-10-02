@@ -30,7 +30,7 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
         /// and the field is never written.
         public var marked: NSRange?
         /// The last edit deleted, cut, or happened before the end of the
-        /// text, so no inline completion may follow it (Chrome).
+        /// text, so no inline completion may follow it.
         public var suppressCompletion = false
     }
 
@@ -70,7 +70,7 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
 
     public enum EditKind: Equatable, Sendable { case insert, delete, paste }
 
-    /// The mouse press the field is tracking (Chrome `OmniboxViewViews`
+    /// The mouse press the field is tracking (Chromium `OmniboxViewViews`
     /// `is_mouse_pressed_` and `select_all_on_mouse_release_`).
     public struct Mouse: Equatable, Sendable {
         /// A press is down. False while focus arrived from a click whose
@@ -83,7 +83,7 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
         /// dragged a selection of its own.
         public var selectAllOnRelease: Bool
         /// The word under a single click on the elided, all-selected URL, in
-        /// elided coordinates (Chrome `next_double_click_selection_*`).
+        /// elided coordinates (Chromium `next_double_click_selection_*`).
         public var wordAtPress: NSRange?
     }
 
@@ -101,7 +101,7 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
     /// (`BrowserURLDisplay.displayText`, no scheme, no `www.`) instead of the
     /// full URL. A focusing click and Escape keep it elided while all of it
     /// is selected; any other selection, Home, Cmd-L or an edit shows the
-    /// full URL (Chrome `OmniboxViewViews::UnapplySteadyStateElisions`).
+    /// full URL (Chromium `OmniboxViewViews::UnapplySteadyStateElisions`).
     public var elided = false
     /// The mouse press in the field, while one is down.
     public var mouse: Mouse?
@@ -126,10 +126,10 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
 
     public var isComposing: Bool { edit.marked != nil }
 
-    /// The full page URL (Chrome `url_for_editing_`).
+    /// The full page URL (Chromium `url_for_editing_`).
     public var permanentText: String { BrowserURLDisplay.editingText(for: pageURL) }
 
-    /// The steady-state page URL (Chrome `display_text_`).
+    /// The steady-state page URL (Chromium `display_text_`).
     public var displayText: String { BrowserURLDisplay.displayText(for: pageURL) }
 
     /// True when focusing may show the elided URL: it differs from the full one.

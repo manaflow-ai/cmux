@@ -4,6 +4,7 @@ import React from "react";
 import type { DiffEdit, TurnFile } from "../diff";
 import { ChevronDown, Eye, FileTypeIcon } from "../changeIcons";
 import { Counts } from "./Counts";
+import { FileMenu } from "./FileMenu";
 
 export type FileView = { collapsed: boolean; viewed: boolean };
 export type FileActions = { toggleCollapsed: (path: string) => void; toggleViewed: (path: string) => void };
@@ -39,6 +40,7 @@ export function FileHeader({
         <ChevronDown className="acpmux-fh-chevron" width={14} height={14} />
       </button>
       {file.created && index === 0 && <span className="acpmux-fh-badge">New</span>}
+      {file.deleted && <span className="acpmux-fh-badge">Deleted</span>}
       {file.edits.length > 1 && <span className="acpmux-fh-badge">{`Edit ${index + 1} of ${file.edits.length}`}</span>}
       <span className="acpmux-fh-spacer" />
       <Counts additions={additions} deletions={deletions} />
@@ -51,6 +53,12 @@ export function FileHeader({
       >
         <Eye />
       </button>
+      <FileMenu
+        path={file.path}
+        name={file.displayPath}
+        collapsed={view.collapsed}
+        onToggleCollapsed={() => on.toggleCollapsed(file.path)}
+      />
     </div>
   );
 }

@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import styles from "./styles.css" with { type: "text" };
 
-const css = String(styles).replace(/\/\*[\s\S]*?\*\//g, "");
+const source = String(styles).replace(/\/\*[\s\S]*?\*\//g, "");
+/** The fades sit in the Reduce Motion guard; unwrapped so its rules parse like the rest. */
+const GUARD = /@media \(prefers-reduced-motion:no-preference\)\{((?:[^{}]*\{[^}]*\})*)\}/g;
+const guarded = [...source.matchAll(GUARD)].map((match) => match[1]!).join("\n");
+const css = source.replace(GUARD, "$1");
 /** The declarations of every rule whose selector list names `selector`. */
 const declarations = (selector: string) =>
   [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
@@ -46,6 +50,8 @@ test("new tab page hovers fade on the Motion hover token and change only fills",
       transition: expect.stringContaining("var(--acpmux-motion-hover)"),
     });
     expect(transition).not.toMatch(/width|height|padding|margin|border/);
+    // Under Reduce Motion nothing fades (conversation/motion.test.ts holds the whole sheet to it).
+    expect(guarded).toContain(control);
   }
   // No hover or press rule changes size, so nothing shifts.
   const states = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([, selectors]) =>

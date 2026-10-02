@@ -34,6 +34,7 @@ mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
 mod kept_tab_store;
+pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 mod personal_mutations;
 mod personal_store;
@@ -69,9 +70,7 @@ pub(crate) use journal_extensions::{
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
 pub use kept_tab_store::KeptTabRecord;
-pub use personal_browser_profiles::{
-    BrowserProfileInput, BrowserProfileUpdate, PersonalBrowserProfile,
-};
+pub use personal_browser_profiles::{BrowserProfileInput, BrowserProfileUpdate};
 pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
 pub use personal_store::PersonalSnapshot;
 pub use presentation_store::{
@@ -2311,7 +2310,7 @@ fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::R
     }
 }
 
-fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
+pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
     open_registry_database_with_flags(path, OpenFlags::default())
 }
 

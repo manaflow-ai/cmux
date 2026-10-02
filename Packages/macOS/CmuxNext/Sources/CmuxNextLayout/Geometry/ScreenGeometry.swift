@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 public import CoreGraphics
 
 /// Resize handle on a column's trailing edge (columns mode). A sticky
@@ -37,15 +38,25 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     /// docked sticky column they are 0 and the viewport width.
     public var stripMinX: CGFloat = 0
     public var stripWidth: CGFloat = 0
+    /// The strip's vertical range in view coordinates: top and bottom docks
+    /// move it (layout-model.md F2). Without them, 0 and the viewport height.
+    public var stripMinY: CGFloat = 0
+    public var stripHeight: CGFloat = 0
     /// The x range of the strip nothing covers (view coordinates).
     public var uncoveredMinX: CGFloat = 0
     public var uncoveredMaxX: CGFloat = 0
+    public var uncoveredMinY: CGFloat = 0
+    public var uncoveredMaxY: CGFloat = 0
     /// Where strip panes are clipped (view coordinates).
     public var clipMinX: CGFloat = 0
     public var clipMaxX: CGFloat = 0
+    public var clipMinY: CGFloat = 0
+    public var clipMaxY: CGFloat = 0
     /// Sticky columns at their edges, and what of them never scrolls.
     public var sticky: [StickyColumnFrame] = []
     public var fixedPanes: Set<PaneID> = []
+    /// The orientation the docks were placed with; stacking reads it (F4).
+    public var frameOrientation: FrameOrientation = .columnMajor
     public var fixedSplits: Set<SplitID> = []
 
     public static func compute(_ layout: ScreenLayout, viewport: CGSize, style: LayoutStyle, scale: CGFloat = 2) -> ScreenGeometry {
@@ -53,31 +64,43 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
         case let .splits(root):
             let result = SplitGeometry.layout(root, in: CGRect(origin: .zero, size: viewport), style: style, scale: scale)
             return ScreenGeometry(viewport: viewport, panes: result.panes, dividers: result.dividers, contentWidth: viewport.width, isColumns: false,
-                                  stripWidth: viewport.width, uncoveredMaxX: viewport.width, clipMaxX: viewport.width)
+                                  stripWidth: viewport.width, stripHeight: viewport.height, uncoveredMaxX: viewport.width,
+                                  uncoveredMaxY: viewport.height, clipMaxX: viewport.width, clipMaxY: viewport.height)
         case let .columns(all):
+            if style.prototype.model != .off,
+               let prototype = LayoutModelPrototype.geometry(all, viewport: viewport, style: style, scale: scale) {
+                return prototype
+            }
             let gap = style.stripGap
-            let parts = StickyStripGeometry.partition(all)
+            let parts = StickyStripGeometry.docks(all)
             func minimum(_ column: LayoutColumn) -> CGFloat { SplitGeometry.minimumSize(of: column.root, style: style).width }
+            func minimumHeight(_ column: LayoutColumn) -> CGFloat { SplitGeometry.minimumSize(of: column.root, style: style).height }
             let placement = StickyStripGeometry.place(
                 left: parts.left.map { ($0, minimum($0)) }, right: parts.right.map { ($0, minimum($0)) },
-                viewport: viewport, gap: gap, scale: scale
+                top: parts.top.map { ($0, minimumHeight($0)) }, bottom: parts.bottom.map { ($0, minimumHeight($0)) },
+                viewport: viewport, gap: gap, orientation: style.frameOrientation, scale: scale
             )
             let columns = parts.scrolling
-            let stripViewport = CGSize(width: placement.stripWidth, height: viewport.height)
+            let stripViewport = CGSize(width: placement.stripWidth, height: placement.stripHeight)
             var strip = ColumnStripGeometry.frames(widths: columns.map(\.width), viewport: stripViewport, gap: gap, scale: scale,
                                                    minimumWidths: columns.map(minimum))
-            if placement.leadingInset > 0 || placement.trailingInset > 0 {
-                strip.frames = strip.frames.map { $0.offsetBy(dx: placement.leadingInset, dy: 0) }
+            if placement.leadingInset > 0 || placement.trailingInset > 0 || placement.stripMinY > 0 {
+                strip.frames = strip.frames.map { $0.offsetBy(dx: placement.leadingInset, dy: placement.stripMinY) }
                 strip.contentWidth += placement.leadingInset + placement.trailingInset
             }
             var geometry = ScreenGeometry(viewport: viewport, contentWidth: strip.contentWidth, isColumns: true,
                                           stripMinX: placement.stripMinX, stripWidth: placement.stripWidth,
+                                          stripMinY: placement.stripMinY, stripHeight: placement.stripHeight,
                                           uncoveredMinX: placement.uncoveredMinX, uncoveredMaxX: placement.uncoveredMaxX,
-                                          clipMinX: placement.clipMinX, clipMaxX: placement.clipMaxX, sticky: placement.sticky)
+                                          uncoveredMinY: placement.uncoveredMinY, uncoveredMaxY: placement.uncoveredMaxY,
+                                          clipMinX: placement.clipMinX, clipMaxX: placement.clipMaxX,
+                                          clipMinY: placement.clipMinY, clipMaxY: placement.clipMaxY, sticky: placement.sticky)
+            geometry.frameOrientation = style.frameOrientation
+            let stripY = placement.stripMinY, stripH = placement.stripHeight
             let edgeHit = style.columnEdgeHitThickness
             let dropWidth = max(gap, style.newColumnDropWidth)
             let firstGapMid = (strip.frames.first?.minX ?? gap) - gap / 2
-            geometry.gapZones.append(ColumnGapZone(after: nil, frame: CGRect(x: firstGapMid - dropWidth / 2, y: 0, width: dropWidth, height: viewport.height)))
+            geometry.gapZones.append(ColumnGapZone(after: nil, frame: CGRect(x: firstGapMid - dropWidth / 2, y: stripY, width: dropWidth, height: stripH)))
             for (column, frame) in zip(columns, strip.frames) {
                 geometry.columns[column.id] = frame
                 geometry.columnOrder.append(column.id)
@@ -88,9 +111,9 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
                 geometry.columnEdges.append(ColumnEdgeGeometry(
                     column: column.id,
                     columnFrame: frame,
-                    hitFrame: CGRect(x: gapMid - edgeHit / 2, y: 0, width: edgeHit, height: viewport.height)
+                    hitFrame: CGRect(x: gapMid - edgeHit / 2, y: stripY, width: edgeHit, height: stripH)
                 ))
-                geometry.gapZones.append(ColumnGapZone(after: column.id, frame: CGRect(x: gapMid - dropWidth / 2, y: 0, width: dropWidth, height: viewport.height)))
+                geometry.gapZones.append(ColumnGapZone(after: column.id, frame: CGRect(x: gapMid - dropWidth / 2, y: stripY, width: dropWidth, height: stripH)))
             }
             geometry.snapOffsets = ColumnStripGeometry.snapOffsets(frames: strip.frames, contentWidth: strip.contentWidth,
                                                                    viewportWidth: placement.stripWidth, gap: gap)
@@ -115,13 +138,16 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
         fixedPanes.formUnion(result.panes.keys)
         dividers.append(contentsOf: result.dividers)
         fixedSplits.formUnion(result.dividers.map(\.id))
+        // A band has no resize handle yet (its edge is horizontal; the
+        // column-edge drag is horizontal only).
+        guard !entry.sticky.edge.isBand else { return }
         // The handle sits on the column's own inner edge, so the gap beside
         // it stays with the neighboring strip column's handle (both resize).
         let edgeHit = style.columnEdgeHitThickness
         let x = entry.sticky.edge == .left ? entry.frame.maxX - edgeHit + 1 : entry.frame.minX - 1
         columnEdges.append(ColumnEdgeGeometry(
             column: column.id, columnFrame: entry.frame,
-            hitFrame: CGRect(x: x, y: 0, width: edgeHit, height: viewport.height),
+            hitFrame: CGRect(x: x, y: entry.frame.minY, width: edgeHit, height: entry.frame.height),
             stickyEdge: entry.sticky.edge
         ))
     }

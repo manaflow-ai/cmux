@@ -71,8 +71,8 @@ public final class DaemonStore {
     /// observer or frame runs. The App keeps window membership in step here,
     /// so a window never shows after its last workspace is gone.
     @ObservationIgnored public var onWorkspaceListChanged: (() -> Void)?
-    /// A browser profile's bookmarks changed (`bookmarks-changed`), on the main actor.
-    @ObservationIgnored public var onBookmarksChanged: ((String) -> Void)?
+    /// Bookmark and conversation events (not in the tree snapshot), on the main actor.
+    @ObservationIgnored public let sideEvents = DaemonSideEvents()
     /// The list last reported to `onWorkspaceListChanged`.
     @ObservationIgnored var notifiedWorkspaceList: [String]?
     /// Nesting of batch applies; the hook runs when the outermost ends.
@@ -88,6 +88,7 @@ public final class DaemonStore {
     @ObservationIgnored var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
     @ObservationIgnored var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
     @ObservationIgnored var agentsBySurface: [SurfaceID: AgentStatus] = [:]
+    @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
     /// (DaemonStore+Intents.swift).
     @ObservationIgnored var intentLog = IntentLog()
@@ -140,6 +141,11 @@ public final class DaemonStore {
     public func screen(_ handle: ScreenID) -> ScreenModel? { screensByHandle[handle] }
     public func pane(_ handle: PaneID) -> PaneModel? { panesByHandle[handle] }
     public func tab(surface: SurfaceID) -> TabModel? { tabsBySurface[surface] }
+    /// The shell's reported folder (OSC 7); a remote terminal's is never a local cwd.
+    public func noteTerminalDirectory(_ directory: String?, surface: SurfaceID) {
+        guard let tab = tabsBySurface[surface], tab.kind != .remoteTerminal else { return }
+        tab.setObservedCwd(directories.note(directory, surface: surface))
+    }
     public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
     /// The tab with durable id `id` (`TabModel.id`).
     public func tab(id: String) -> TabModel? { tabsBySurface.values.first { $0.id == id } }
@@ -202,6 +208,7 @@ public final class DaemonStore {
     }
 
     private func applyTree(_ tree: DaemonTree) {
+        directories.follow(tree.generation)
         if let value = tree.generation, generation != value { generation = value }
         if let value = tree.registryID, registryID != value { registryID = value }
         if workspaceRevision != tree.workspaceRevision { workspaceRevision = tree.workspaceRevision }
@@ -257,6 +264,7 @@ public final class DaemonStore {
                     for tab in pane.tabs {
                         tabs[tab.surface] = tab
                         if tab.agent == nil, let agent = agentsBySurface[tab.surface] { tab.setAgent(agent) }
+                        tab.setObservedCwd(directories[tab.surface])
                     }
                 }
             }

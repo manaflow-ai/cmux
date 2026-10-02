@@ -24,6 +24,7 @@ enum AgentHandlers {
         for (id, placement) in forks {
             registry.bind(id, run: { try fork(placement, invocation: $0, context: context) })
         }
+        registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
         registry.bindAgentPane { invocation in
@@ -41,6 +42,14 @@ enum AgentHandlers {
                 return context.refuse(MiscHandlerStrings.noAgentChat)
             }
             view.toggleDictation()
+        })
+        // Cmd-K in an agent chat: the page's "Search chats" palette over its sessions.
+        registry.bind("agentPane.searchChats", run: { invocation in
+            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                  let view = context.services.agentTabs.existingView(key) else {
+                return context.refuse(MiscHandlerStrings.noAgentChat)
+            }
+            view.showSearchChats()
         })
         registry.bindUnavailable(["palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
         registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))

@@ -1,34 +1,70 @@
 public import CoreGraphics
 
-/// How the window behind the terminal is set up for `background-opacity`
-/// and `background-blur`, by Ghostty's rules
-/// (ghostty/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift
-/// `syncAppearance`): the window is non-opaque for a translucent background
-/// or a macOS glass style; its own background is white at alpha 0.001 (not
-/// clear, as in Terminal.app), and non-glass styles get the CGS blur radius
-/// (`ghostty_set_window_background_blur`, a no-op while opaque).
-public struct WindowBackdrop: Equatable, Sendable {
-    public var isOpaque: Bool
-    public var appliesBlur: Bool
-    /// Panes (and the views behind a surface) paint the background only in
-    /// an opaque window. In a translucent one the window root paints the one
-    /// translucent sheet and every layer above it stays clear, so the
-    /// terminal shows the background at the configured opacity once.
-    public var panesPaintBackground: Bool { isOpaque }
+/// How the window behind the terminal is drawn for the resolved
+/// `background-opacity` and `background-blur`: one ``WindowMaterial`` for
+/// the whole window with one theme tint over it (only the tint for
+/// ``WindowMaterial/translucent``).
+///
+/// The window is non-opaque for every material other than
+/// ``WindowMaterial/opaque``, with a white background at alpha 0.001 (not
+/// clear, so it keeps its shadow and hit
+/// testing). The material view blurs by itself, so the CGS radius blur
+/// (`ghostty_set_window_background_blur`) is never applied on top of it.
+///
+/// ```swift
+/// let backdrop = WindowBackdrop(themeTokens, reduceTransparency: false)
+/// if backdrop.material == .frosted { /* host an NSVisualEffectView */ }
+/// ```
+public nonisolated struct WindowBackdrop: Equatable, Sendable {
+    /// The one material behind the window's content.
+    public var material: WindowMaterial
+    /// Alpha of the theme tint laid over the material: the resolved
+    /// `background-opacity`, or 1 for an opaque window.
+    public var tintOpacity: Double
     /// Alpha of the white window background while non-opaque.
     public let windowBackgroundAlpha: CGFloat = 0.001
 
-    /// `backgroundBlur` in Ghostty's C encoding: 0 off, > 0 radius, -1/-2
-    /// macOS glass styles.
-    public init(backgroundOpacity: Double, backgroundBlur: Int) {
-        let glass = backgroundBlur < 0
-        isOpaque = backgroundOpacity >= 1 && !glass
-        appliesBlur = backgroundOpacity < 1 && !glass
+    /// Whether the window is opaque (no material).
+    public var isOpaque: Bool { material == .opaque }
+    /// Panes (and the views behind a surface) paint the background only in
+    /// an opaque window. Over a material the root's tint is the one
+    /// translucent sheet and every layer above it stays clear, so the
+    /// terminal shows the background at the configured opacity once.
+    public var panesPaintBackground: Bool { isOpaque }
+
+    /// The backdrop for one resolved opacity and blur.
+    ///
+    /// - Parameter backgroundOpacity: `background-opacity`, 0...1.
+    /// - Parameter backgroundBlur: `background-blur` in Ghostty's C
+    ///   encoding: 0 off, > 0 radius, -1 `macos-glass-regular`, -2
+    ///   `macos-glass-clear`.
+    /// - Parameter reduceTransparency: The user's Reduce Transparency
+    ///   setting; on, the window is opaque whatever the config says.
+    public init(backgroundOpacity: Double, backgroundBlur: Int, reduceTransparency: Bool = false) {
+        let opacity = min(max(backgroundOpacity, 0), 1)
+        let material: WindowMaterial
+        if reduceTransparency {
+            material = .opaque
+        } else if backgroundBlur == -2 {
+            material = .glass(.clear)
+        } else if backgroundBlur < 0 {
+            material = .glass(.regular)
+        } else if opacity < 1 {
+            material = backgroundBlur > 0 ? .frosted : .translucent
+        } else {
+            material = .opaque
+        }
+        self.material = material
+        tintOpacity = material == .opaque ? 1 : opacity
     }
 
     /// The window the tokens' resolved opacity and blur describe: the one
     /// place chrome, panes and the window root read painting from.
-    public init(_ tokens: ThemeTokens) {
-        self.init(backgroundOpacity: tokens.backgroundOpacity, backgroundBlur: tokens.backgroundBlur)
+    ///
+    /// - Parameter tokens: The theme tokens of the view's scope.
+    /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
+    public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false) {
+        self.init(backgroundOpacity: tokens.backgroundOpacity, backgroundBlur: tokens.backgroundBlur,
+                  reduceTransparency: reduceTransparency)
     }
 }

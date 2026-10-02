@@ -1,7 +1,7 @@
 public import Foundation
 
-/// Chromium side of Page Info, through CEF's own API as Chrome's Page Info
-/// uses the same stores: content settings of the tab's `CefRequestContext`
+/// Chromium side of Page Info, through CEF's own API over the same stores
+/// Chromium's Page Info uses: content settings of the tab's `CefRequestContext`
 /// (Chromium's HostContentSettingsMap enforces every kind natively), its
 /// `CefCookieManager`, and the visible entry's `CefSSLStatus`. DevTools is
 /// used only where CEF has no API: the page's resource tree (which sites
@@ -26,7 +26,7 @@ extension CEFTab: PageInfoProviding {
         guard let browserID else { return SiteDataSummary() }
         let hosts = await pageHosts()
         let cookies = ((try? await runtime.cookies(browserID)) ?? []).filter { cookie in hosts.contains { cookie.matches(host: $0) } }
-        // Chrome allows third-party cookies unless the user blocks them, and
+        // Chromium allows third-party cookies unless the user blocks them, and
         // then hides the cookies subpage's third-party section.
         return .grouping(cookieDomains: cookies.map(\.domain), pageHost: pageHost, thirdPartyPolicy: .allowed)
     }
@@ -50,7 +50,7 @@ extension CEFTab: PageInfoProviding {
     }
 
     /// Chromium's site exceptions for `origin`: kinds whose value differs
-    /// from the profile default (what Chrome counts as changed), including
+    /// from the profile default (what Chromium counts as changed), including
     /// answers the user gave to Chromium's own prompts.
     public func pageInfoLivePermissions(origin: String) async -> [SitePermissionKind: SitePermissionSetting] {
         guard let browserID else { return [:] }
@@ -103,8 +103,8 @@ extension CEFTab: PageInfoProviding {
         if security != state.security { machine.apply(.securityChanged(security)) }
     }
 
-    /// The default value clears Chromium's exception (Chrome's "Ask
-    /// (default)"); others store one.
+    /// The default value clears Chromium's exception ("Ask (default)");
+    /// others store one.
     private func applyToChromium(_ kind: SitePermissionKind, _ setting: SitePermissionSetting, origin: String) {
         guard let browserID else { return }
         let value: CEFContentSetting = setting == kind.defaultSetting ? .default : CEFContentSetting(setting)

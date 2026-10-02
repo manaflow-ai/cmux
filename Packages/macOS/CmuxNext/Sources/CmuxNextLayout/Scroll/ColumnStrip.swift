@@ -57,11 +57,11 @@ public nonisolated struct ColumnStrip: Hashable, Sendable {
 
     public func column(containing pane: PaneID) -> Column? { index(ofPane: pane).map { columns[$0] } }
 
-    /// A column at least as wide as the viewport cannot show whole (niri
-    /// left-aligns it). Narrower columns shrink their padding instead.
+    /// A column at least as wide as the viewport cannot show whole (it is
+    /// left-aligned). Narrower columns shrink their padding instead.
     public func isWide(_ frame: CGRect) -> Bool { frame.width >= viewportWidth - 0.5 }
 
-    /// niri's padding: the gap, shrunk when the column is nearly as wide as the view.
+    /// Padding: the gap, shrunk when the column is nearly as wide as the view.
     public func padding(for width: CGFloat) -> CGFloat { min(max((viewportWidth - width) / 2, 0), gap) }
 
     /// True when `rect` (with its padding) lies inside the viewport at `offset`.

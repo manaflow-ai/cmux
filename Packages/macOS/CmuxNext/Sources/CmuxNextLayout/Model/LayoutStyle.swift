@@ -32,6 +32,8 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// Draws the hairline pane border (`layout.paneBorder` = subtle). While
     /// it shows, split dividers draw no line: the borders separate panes.
     public var showsPaneBorder = false
+    /// Divider lines and every other line draw (`appearance.borders`).
+    public var drawsLines = true
     /// The focus ring (`focusRing.*`). Drawn in the overlay plane only.
     public var focusRing = FocusRingSettings()
     /// The attention ring of panes with an unread notification
@@ -43,12 +45,25 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var paneBorderWidth: CGFloat?
     /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on.
     public var inactivePaneDimming: CGFloat = 0.14
+    /// Debug Settings `focus.ringAlpha`: the ring's foreground share in place
+    /// of `focusRing.contrast`; nil follows the setting. Read here, in the
+    /// observed style, so a slider move repaints the ring at once.
+    public var focusRingAlphaOverride: CGFloat?
+    /// `appearance.focusIndicator`, and how unfocused panes' tabs draw
+    /// subtler when it marks tabs (`ChromeEmphasis.forPane`).
+    public var focusIndicator: FocusIndicator = .both
+    public var inactiveTabStyle: InactiveTabStyle = .fade
+    public var inactiveTabStrength: CGFloat = 0.35
     /// Fraction of a pane's extent that counts as an edge drop zone.
     public var dropEdgeFraction: CGFloat = 0.28
     /// Clamp for the edge drop band.
     public var dropEdgeRange: ClosedRange<CGFloat> = 28...180
     /// Width of the "new column" drop zone centered on each column gap.
     public var newColumnDropWidth: CGFloat = 36
+    /// Which docks own the frame's corners (cmux.json `layout.frameOrientation`).
+    public var frameOrientation: FrameOrientation = .columnMajor
+    /// DEV layout model prototype (Debug Settings `layout.prototype.*`); off draws the real layout.
+    public var prototype = LayoutPrototypeSettings()
 
     public init() {}
 
@@ -75,15 +90,27 @@ extension LayoutStyle {
         style.panePadding = Metrics.panePadding
         style.paneCornerRadius = Metrics.paneCornerRadius
         style.showsPaneBorder = Metrics.paneBorder == .subtle
+        style.drawsLines = Borders.drawsLines
         style.focusRing = DesignSettings.shared.focusRing
+        style.focusIndicator = DesignSettings.shared.effectiveFocusIndicator
+        style.inactiveTabStyle = FocusIndicatorTunables.inactiveTabStyle.value
+        style.inactiveTabStrength = FocusIndicatorTunables.inactiveTabStrength.value
         style.attention = DesignSettings.shared.attention
+        if !style.drawsLines {
+            // No outlines: the focused pane is marked by the others' dim
+            // (`inactivePaneDimming`), the unread mark by the sidebar badge.
+            style.focusRing.enabled = false
+            style.attention.width = 0
+        }
         style.paneBorderColor = DesignSettings.shared.paneChrome.borderColor
         style.paneBorderWidth = Metrics.paneBorderWidth
         // cmux.json `layout.minimumPaneWidth` / `layout.minimumPaneHeight`.
         style.minimumPaneContentSize = DesignSettings.shared.minimumPaneContentSize
+        style.frameOrientation = DesignSettings.shared.frameOrientation
         // Debug Settings overrides only (no override keeps the base style's
         // value; the tunables' defaults equal the literals above).
         if let value = LayoutTunables.inactivePaneDimming.override { style.inactivePaneDimming = value }
+        if let value = LayoutTunables.focusRingAlpha.override { style.focusRingAlphaOverride = value }
         if let value = LayoutTunables.dropEdgeFraction.override { style.dropEdgeFraction = value }
         let edgeMinimum = LayoutTunables.dropEdgeMinimum.override, edgeMaximum = LayoutTunables.dropEdgeMaximum.override
         if edgeMinimum != nil || edgeMaximum != nil {
@@ -93,6 +120,9 @@ extension LayoutStyle {
         if let value = LayoutTunables.newColumnDropWidth.override { style.newColumnDropWidth = value }
         if let width = LayoutTunables.minimumContentWidth.override { style.minimumPaneContentSize.width = width }
         if let height = LayoutTunables.minimumContentHeight.override { style.minimumPaneContentSize.height = height }
+        style.prototype = LayoutPrototypeSettings(model: LayoutTunables.prototypeModel.value, dockEdge: LayoutTunables.prototypeDockEdge.value,
+                                                  orientation: LayoutTunables.prototypeOrientation.value,
+                                                  dockMode: LayoutTunables.prototypeDockMode.value.stickyMode)
         return style
     }
 }
