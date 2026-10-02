@@ -424,4 +424,23 @@ describe("direct client session state", () => {
     expect(texts()).toEqual(["a five", "a six", "a seven", "did not send"]);
     expect(latest().rows.find((row) => row.text === "did not send")?.failed).toBe(true);
   });
+
+  test("tool calls between agent messages split the reply into segments in order", async () => {
+    const update = (seq: number, update: Record<string, unknown>): EventRecord => ({ sessionId: "a", seq, at: seq, dir: "in", kind: String(update.sessionUpdate), msg: { method: "session/update", params: { sessionId: "a", update } } });
+    const chunk = (seq: number, text: string) => update(seq, { sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
+    const tool = (seq: number, toolCallId: string, status: string) => update(seq, { sessionUpdate: seq % 2 ? "tool_call" : "tool_call_update", toolCallId, title: "Run", status });
+    ScriptedSocket.respond = ({ method }) => method === "_acpmux/attach"
+      ? { session: { sessionId: "a", status: "idle" }, events: [userEvent("a", 5, "run it"), chunk(6, "I'll inspect total.py."), tool(7, "t1", "pending"), tool(8, "t1", "completed"), chunk(9, "rg is unavailable,"), chunk(10, " so I read the file."), tool(11, "t2", "completed"), chunk(12, "It prints 64.35.")] }
+      : method === "_acpmux/watch" ? { sessions: [{ sessionId: "a" }] } : {};
+    await connect();
+    await settle();
+    expect(latest().rows.map((row) => [row.kind, row.kind === "activity" ? row.toolCount : row.text])).toEqual([
+      ["user", "run it"],
+      ["assistant", "I'll inspect total.py."],
+      ["activity", 1],
+      ["assistant", "rg is unavailable, so I read the file."],
+      ["activity", 1],
+      ["assistant", "It prints 64.35."],
+    ]);
+  });
 });
