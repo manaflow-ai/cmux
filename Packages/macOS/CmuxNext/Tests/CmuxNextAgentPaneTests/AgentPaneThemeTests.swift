@@ -40,6 +40,20 @@ import Testing
         #expect((AgentPaneTheme.values(.fallback)["palette"] as? [String])?.count == 16)
     }
 
+    /// Catppuccin Latte's yellow is about 2.3:1 on its background: fine for a
+    /// terminal, unreadable as code. The page gets it lifted to text contrast.
+    @Test func paletteColorsAreLiftedToTextContrastOverTheCodeCard() {
+        let latteYellow = ThemeRGB(hex: 0xDF8E1D)
+        let latte = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0xEFF1F5), foreground: ThemeRGB(hex: 0x4C4F69), palette: [
+            0x5C5F77, 0xD20F39, 0x40A02B, 0xDF8E1D, 0x1E66F5, 0xEA76CB, 0x179299, 0xACB0BE,
+            0x6C6F85, 0xD20F39, 0x40A02B, 0xDF8E1D, 0x1E66F5, 0xEA76CB, 0x179299, 0xBCC0CC,
+        ].map { ThemeRGB(hex: $0) }))
+        let lifted = ThemeTokens.readable(latteYellow, over: latte.elevatedBackground, minimum: ThemeTokens.minimumTextContrast)
+        #expect(latteYellow.contrast(with: latte.elevatedBackground) < ThemeTokens.minimumTextContrast)
+        #expect(lifted.contrast(with: latte.elevatedBackground) >= ThemeTokens.minimumTextContrast)
+        #expect((AgentPaneTheme.values(latte)["palette"] as? [String])?[3] == AgentPaneTheme.css(lifted))
+    }
+
     /// No blue accent (REWRITE.md visual rules): the accent is the foreground.
     @Test func theAccentIsTheForeground() {
         let values = AgentPaneTheme.values(.fallback)

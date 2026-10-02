@@ -112,6 +112,7 @@ export function agentPaneTheme(input) {
     warning: css(t.attention),
     shadow: css(t.shadow),
     // The terminal's ANSI colors in order, for syntax colors that follow the theme.
-    palette: (input.palette.length >= 8 ? input.palette : ghosttyDefault.palette).slice(0, 16).map(css),
+    // Each lifted to text contrast over the code card (the elevated surface).
+    palette: (input.palette.length >= 8 ? input.palette : ghosttyDefault.palette).slice(0, 16).map((color) => css(readable(color, t.elevatedBackground, 4.5))),
   };
 }

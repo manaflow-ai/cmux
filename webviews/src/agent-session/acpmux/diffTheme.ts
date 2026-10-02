@@ -90,6 +90,9 @@ const theme = shikiTheme(AGENT_DIFF_THEME, "dark", codex.fg, syntax({ fg: codex.
 /// The same scopes in darker fallbacks for a light pane.
 const light = shikiTheme(AGENT_DIFF_THEME_LIGHT, "light", "#24292f", syntax({ fg: "#24292f", keyword: "#6f42c1", fn: "#3f7d0f", string: "#0a6b52", number: "#b35900", comment: "#6e7781", added: "#1a7f37", removed: "#cf222e", heading: "#3f7d0f", link: "#6f42c1" }));
 
+/// The two syntax themes, for tests.
+export const syntaxThemes = { dark: theme, light };
+
 let registered = false;
 export function registerAgentDiffTheme() {
   if (registered) return;

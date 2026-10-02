@@ -125,7 +125,7 @@ async function run(browser, name, scenario) {
       await settle(page);
     }
     const anchor = anchorText ? { ...scenario.anchor, text: anchorText } : scenario.anchor;
-    if (anchor) await scrollToAnchor(page, anchor);
+    if (anchor) await scrollToAnchor(page, { ...anchor, edge: !referencePath || Boolean(anchorText) });
     await settle(page);
     const shot = PNG.sync.read(await page.screenshot({ animations: "disabled", caret: "hide" }));
     if (errors.length) throw new Error(`${name}: the page threw: ${errors.join("; ")}`);
@@ -171,7 +171,7 @@ function settle(page) {
 /// snap to device pixels, so half a CSS pixel off is as close as it gets.
 async function scrollToAnchor(page, anchor) {
   for (let attempt = 0; attempt < 40; attempt++) {
-    const delta = await page.evaluate(({ text, top }) => {
+    const delta = await page.evaluate(({ text, top, edge }) => {
       const scroller = document.querySelector(".acpmux-scroll");
       if (!scroller) return "no transcript scroller (.acpmux-scroll)";
       const walker = document.createTreeWalker(scroller, NodeFilter.SHOW_TEXT);
@@ -184,14 +184,15 @@ async function scrollToAnchor(page, anchor) {
         const delta = range.getBoundingClientRect().top - top;
         const from = scroller.scrollTop;
         scroller.scrollTop += delta;
-        // Text near either end can't reach `top`: the scroll stops at the edge.
-        const clamped = Math.abs(delta) > 0.5 && Math.abs(scroller.scrollTop - from) < 0.5;
+        // A capture's text near either end can't reach `top`: the scroll stops at the edge.
+        // A scored scenario must reach it, or the crop would be misaligned.
+        const clamped = edge && Math.abs(delta) > 0.5 && Math.abs(scroller.scrollTop - from) < 0.5;
         return Math.abs(delta) <= 0.5 || clamped ? 0 : delta;
       }
       const before = scroller.scrollTop;
       scroller.scrollTop += scroller.clientHeight;
       return scroller.scrollTop === before ? `anchor text not found in one text node: ${text}` : Infinity;
-    }, anchor);
+    }, { ...anchor, edge: Boolean(anchor.edge) });
     if (typeof delta === "string") throw new Error(delta);
     await settle(page);
     if (delta === 0) return;
