@@ -63,7 +63,7 @@ final class AgentPaneDictation {
     init(
         evaluate: @escaping (String) -> Void,
         microphone: DictationMicrophone = .shared,
-        makeSession: @escaping () -> DictationSession = { DictationSession() }
+        makeSession: @escaping () -> DictationSession = { AgentPaneDictation.defaultSession() }
     ) {
         self.evaluate = evaluate
         self.microphone = microphone
@@ -71,6 +71,19 @@ final class AgentPaneDictation {
     }
 
     var phase: DictationPhase { session?.phase ?? .idle }
+
+    /// The on-device engine. Debug builds hear a recorded clip instead when
+    /// `CMUX_NEXT_DICTATION_AUDIO_FILE` names one (machines without a microphone).
+    static func defaultSession() -> DictationSession {
+        #if DEBUG
+        if let clip = RecordedDictationInput.url() {
+            return DictationSession(authorizer: RecordedInputAuthorizer(), makeTranscriber: { meter in
+                OnDeviceDictationTranscriber(levelMeter: meter, recordedInput: clip)
+            })
+        }
+        #endif
+        return DictationSession()
+    }
 
     func handle(_ command: AgentPaneDictationCommand) {
         switch command {
