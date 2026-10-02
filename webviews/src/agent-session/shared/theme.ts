@@ -20,6 +20,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   highlightText: "--agent-highlight-text",
   shadow: "--agent-shadow",
   palette: null,
+  borders: null,
 };
 
 export function applyAgentTheme(theme: AgentSessionTheme): void {
@@ -33,6 +34,9 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   root.classList.toggle("electron-dark", theme.isDark);
   root.classList.toggle("light", !theme.isDark);
   root.style.colorScheme = theme.isDark ? "dark" : "light";
+  // appearance.borders: the stylesheets clear their edges under `[data-borders="none"]`.
+  if (theme.borders === "none") root.dataset.borders = "none";
+  else delete root.dataset.borders;
   for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
     if (!variable) {
       continue;

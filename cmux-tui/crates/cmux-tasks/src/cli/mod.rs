@@ -7,8 +7,8 @@
 //! - `start KEY [--no-branch]`: assign to me, move to the started status,
 //!   create or switch to the git branch `<key>-<slug>`.
 //!
-//! `KEY` may be `current`: the task key in the git branch name (`cmx-12-…`),
-//! then `$CMUX_TASK`. `task watch` takes `--count N` and `--timeout SECONDS`
+//! `KEY` may be `current`: `$CMUX_TASK`, then the task key in the git branch
+//! name (`cmx-12-…`). `task watch` takes `--count N` and `--timeout SECONDS`
 //! so agents and MCP get a bounded wait.
 //!
 //! Exit codes of the `task` noun: 0 ok, 1 internal, 2 usage, 3 not found,
@@ -141,15 +141,20 @@ pub fn run(args: &[String]) -> ExitCode {
     }
 }
 
-/// The task key in the current git branch (`cmx-12-fix-drag` -> `CMX-12`), then `$CMUX_TASK`.
+/// `$CMUX_TASK` when set, else the task key in the git branch
+/// (`cmx-12-fix-drag` -> `CMX-12`). The owner rejects a key that names no
+/// task, so `issue-123-x` fails loudly instead of matching something else.
 fn current_task() -> Option<String> {
+    if let Some(task) = std::env::var("CMUX_TASK").ok().filter(|t| !t.is_empty()) {
+        return Some(task);
+    }
     let branch = std::process::Command::new("git")
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .output()
         .ok()
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned());
-    let from_branch = branch.and_then(|b| {
+    branch.and_then(|b| {
         let name = b.rsplit('/').next()?.to_owned();
         let mut parts = name.splitn(3, '-');
         let prefix = parts.next()?;
@@ -159,8 +164,7 @@ fn current_task() -> Option<String> {
             && number.chars().all(|c| c.is_ascii_digit())
             && !number.is_empty())
         .then(|| format!("{}-{number}", prefix.to_ascii_uppercase()))
-    });
-    from_branch.or_else(|| std::env::var("CMUX_TASK").ok().filter(|t| !t.is_empty()))
+    })
 }
 
 fn resolve_current(mut params: Value) -> Result<Value, String> {
@@ -232,15 +236,21 @@ fn watch(
     if conn.is_in_process() {
         return fail(5, "watch needs a running owner (`cmux task serve`)");
     }
-    if let Some(seconds) = timeout {
-        conn.set_deadline(std::time::Duration::from_secs(seconds));
-    }
+    // `--timeout` bounds the whole watch, not the gap between events.
+    let deadline = timeout.map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
     let mut seen = 0u64;
     if let Err(e) = conn.call("task.subscribe", params, None) {
         return fail_body(&e);
     }
     let mut stdout = std::io::stdout();
     loop {
+        match deadline {
+            Some(deadline) => match deadline.checked_duration_since(std::time::Instant::now()) {
+                Some(left) if !left.is_zero() => conn.set_deadline(left),
+                _ => return ExitCode::SUCCESS,
+            },
+            None => conn.clear_deadline(),
+        }
         match conn.read_line() {
             Ok(ServerLine::Event { event }) => {
                 let text = if json_out {

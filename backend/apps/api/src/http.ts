@@ -67,6 +67,8 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
       return { stub: env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `team:${p.team}` }
     case "cloud:SchedulerDO":
       return { stub: env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `scheduler:${p.team}` }
+    case "cloud:FeedDO":
+      return { stub: env.FEED_DO.get(env.FEED_DO.idFromName(p.user!)) as unknown as OwnerStub, entity: p.user!, stream: `feed:${p.user}` }
     case "cloud:ConnectionDO":
       return { stub: env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `connections:${p.team}` }
     default:

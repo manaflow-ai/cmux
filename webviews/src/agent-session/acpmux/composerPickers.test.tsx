@@ -135,10 +135,13 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector(".acpmux-effort-model")!.textContent).toBe("6 Astra");
     const range = doc.querySelector<HTMLInputElement>(".acpmux-effort-range")!;
     expect([range.min, range.max, range.value]).toEqual(["0", "1", "1"]);
+    // Through React's change handler: react-dom may load before the DOM exists (see typeInto).
     await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
-      setter.call(range, "0");
-      range.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      range.value = "0";
+      const props = (range as unknown as Record<string, { onChange(event: { target: HTMLInputElement }): void }>)[
+        Object.keys(range).find((key) => key.startsWith("__reactProps$"))!
+      ]!;
+      props.onChange({ target: range });
     });
     expect(calls).toEqual(["model sol", "effort reasoning_effort medium"]);
     // Escape closes it back to the chip.
