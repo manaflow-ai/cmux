@@ -10,11 +10,14 @@ import { startMockHost } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
+import { turnFiles, turnRows } from "./diff";
+import { DiffPanel } from "./DiffPanel";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
-type RowProps = { row: AcpmuxRow; onToggleActivity: (id: string) => void; expanded: boolean };
+/// `onOpenDiff` opens the changes of the turn holding `rowId`, at `path` when given.
+type RowProps = { row: AcpmuxRow; onToggleActivity: (id: string) => void; expanded: boolean; onOpenDiff?: (rowId: string, path?: string) => void };
 
 declare global {
   interface Window {
@@ -78,7 +81,16 @@ const ToolActivityRow = memo(function ToolActivityRow({ row, onToggleActivity, e
 const SummaryRow = memo(function SummaryRow({ row }: RowProps) { return <div className="acpmux-summary">{`Worked for ${Math.round((row.durationMs ?? 0) / 1000)}s · ${row.toolCount ?? 0} tool calls`}</div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
 const NoticeRow = memo(function NoticeRow({ row }: RowProps) { return <div className="acpmux-muted">{row.text}</div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
 const PermissionRow = memo(function PermissionRow({ row }: RowProps) { const permission = row.permission; return <div className="acpmux-permission-card"><strong>{permission?.title || "Permission required"}</strong><div className="acpmux-permission-buttons">{permission?.options.map((option) => <button key={option.id} onClick={() => void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })}>{option.name}</button>)}</div></div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
-const EditedFilesRow = memo(function EditedFilesRow({ row }: RowProps) { const files = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange"); return <div className="acpmux-edited-files"><strong>Edited files</strong>{files.map((file) => <div key={file.tool?.id || file.text}>▤ {file.tool?.inputSummary || file.text}</div>)}</div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
+const EditedFilesRow = memo(function EditedFilesRow({ row, onOpenDiff }: RowProps) {
+  const files = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
+  const reviewable = onOpenDiff && files.some((file) => file.tool?.diffs?.length);
+  return <div className="acpmux-edited-files"><div className="acpmux-edited-title"><strong>Edited files</strong>{reviewable && <button type="button" className="acpmux-review-changes" onClick={() => onOpenDiff(row.id)}>Review changes</button>}</div>{files.map((file) => {
+    const diffs = file.tool?.diffs ?? [];
+    if (!diffs.length || !onOpenDiff) return <div key={file.tool?.id || file.text}>▤ {file.tool?.inputSummary || file.text}</div>;
+    // One line per file the call changed; each opens the changes at its file.
+    return <div className="acpmux-edited-call" key={file.tool?.id || file.text}>▤ {diffs.map((diff, index) => <React.Fragment key={diff.path}>{index > 0 && ", "}<button type="button" className="acpmux-edited-file" title={diff.path} onClick={() => onOpenDiff(row.id, diff.path)}>{diff.path.split("/").pop()}</button></React.Fragment>)}</div>;
+  })}</div>;
+}, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff);
 
 const defaultRegistry: NativeRegistry = { user: MessageRow, assistant: MessageRow, activity: ToolActivityRow, editedFiles: EditedFilesRow, turnSummary: SummaryRow, notice: NoticeRow, plan: NoticeRow, typing: NoticeRow, permission: PermissionRow };
 
@@ -118,7 +130,7 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({ top: node.
 const SCROLL_LEAD_STEPS = 2;
 const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 
-export function VirtualTranscript({ rows, onToggleActivity, expanded, registry = defaultRegistry, canLoadOlder = false }: { rows: AcpmuxRow[]; onToggleActivity: (id: string) => void; expanded: Set<string>; registry?: NativeRegistry; canLoadOlder?: boolean }) {
+export function VirtualTranscript({ rows, onToggleActivity, onOpenDiff, expanded, registry = defaultRegistry, canLoadOlder = false }: { rows: AcpmuxRow[]; onToggleActivity: (id: string) => void; onOpenDiff?: (rowId: string, path?: string) => void; expanded: Set<string>; registry?: NativeRegistry; canLoadOlder?: boolean }) {
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const [scroll, setScroll] = useState({ top: 0, delta: 0 });
@@ -256,7 +268,7 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
   const pacing = useMemo(() => new ScrollPacing((intervals) => { callNative("pane.framePacing", { intervals }).catch(() => {}); }), []);
   useEffect(() => () => pacing.stop(), [pacing]);
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => { pacing.scrolled(); const next = event.currentTarget.scrollTop; scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight); flushSync(() => setScroll((current) => ({ top: next, delta: next - current.top }))); };
-  return <div ref={ref} className="acpmux-scroll" role="feed" aria-label="Transcript" onScroll={onScroll}><div className="acpmux-spacer" style={{ height: layout.totalHeight }}><div className="acpmux-thread">{rows.slice(range.first, range.last).map((row, index) => { const absoluteIndex = range.first + index; const kind = rowKind(row); const Component = registry[kind] ?? NoticeRow; const isExpanded = expanded.has(row.id); return <RowFrame key={row.id} row={row} kind={kind} index={absoluteIndex} setSize={canLoadOlder ? -1 : rows.length} top={layout.tops[absoluteIndex]} rowWidth={transcriptRowWidth(width)} expanded={isExpanded} observer={observer} report={reportDrawn}><Component row={row} onToggleActivity={onToggleActivity} expanded={isExpanded} /></RowFrame>; })}</div></div></div>;
+  return <div ref={ref} className="acpmux-scroll" role="feed" aria-label="Transcript" onScroll={onScroll}><div className="acpmux-spacer" style={{ height: layout.totalHeight }}><div className="acpmux-thread">{rows.slice(range.first, range.last).map((row, index) => { const absoluteIndex = range.first + index; const kind = rowKind(row); const Component = registry[kind] ?? NoticeRow; const isExpanded = expanded.has(row.id); return <RowFrame key={row.id} row={row} kind={kind} index={absoluteIndex} setSize={canLoadOlder ? -1 : rows.length} top={layout.tops[absoluteIndex]} rowWidth={transcriptRowWidth(width)} expanded={isExpanded} observer={observer} report={reportDrawn}><Component row={row} onToggleActivity={onToggleActivity} onOpenDiff={onOpenDiff} expanded={isExpanded} /></RowFrame>; })}</div></div></div>;
 }
 
 function PermissionCard({ permission }: { permission: AcpmuxPermission }) { return <div className="acpmux-permission-card"><strong>{permission.title || "Permission required"}</strong><div className="acpmux-permission-buttons">{permission.options.map((option) => <button key={option.id} onClick={() => void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })}>{option.name}</button>)}</div></div>; }
@@ -271,6 +283,37 @@ export function AcpmuxApp() {
 function AcpmuxPane() {
   const [snapshot, setSnapshot] = useState<AcpmuxSnapshot>({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connecting", isWorking: false, queue: [], catalog: [], canLoadOlder: false });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // The open changes view: a turn of one session, and the control that opened it.
+  const [diffView, setDiffView] = useState<{ sessionId?: string; rowId: string; path?: string; opener?: HTMLElement }>();
+  const sessionIdRef = useRef(snapshot.sessionId);
+  sessionIdRef.current = snapshot.sessionId;
+  const openDiff = useCallback((rowId: string, path?: string) => setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: document.activeElement instanceof HTMLElement ? document.activeElement : undefined }), []);
+  const closedByUser = useRef(false);
+  const closeDiff = useCallback(() => { closedByUser.current = true; setDiffView(undefined); }, []);
+  // Focus returns to the opener once the view is gone: until then the transcript is hidden,
+  // and a hidden control can't take focus.
+  const diffOpener = useRef<HTMLElement | undefined>(undefined);
+  if (diffView?.opener) diffOpener.current = diffView.opener;
+  useLayoutEffect(() => {
+    if (diffView || !diffOpener.current) return;
+    // A view that closed itself (session switch, turn gone) leaves focus where the reader put it.
+    const focus = document.activeElement;
+    if (closedByUser.current || !focus || focus === document.body) diffOpener.current.focus();
+    closedByUser.current = false;
+    diffOpener.current = undefined;
+  }, [diffView]);
+  // Row ids repeat across sessions (they count events), so another session closes the view.
+  const diffOpen = diffView !== undefined && diffView.sessionId === snapshot.sessionId && snapshot.rows.some((row) => row.id === diffView.rowId);
+  useEffect(() => { if (diffView && !diffOpen) setDiffView(undefined); }, [diffView, diffOpen]);
+  // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
+  const diffActivity = useRef<{ key: string; files: ReturnType<typeof turnFiles> }>(undefined);
+  const diffFiles = useMemo(() => {
+    if (!diffView || !diffOpen) return undefined;
+    const activity = turnRows(snapshot.rows, diffView.rowId).filter((row) => row.kind === "activity");
+    const key = `${diffView.rowId}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
+    if (diffActivity.current?.key !== key) diffActivity.current = { key, files: turnFiles(activity) };
+    return diffActivity.current.files;
+  }, [diffView, diffOpen, snapshot.rows]);
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
@@ -355,5 +398,5 @@ function AcpmuxPane() {
   }, []);
   const send = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = event.currentTarget; const textarea = form.elements.namedItem("prompt") as HTMLTextAreaElement; const text = textarea.value.trim(); if (!text) return; textarea.value = ""; void callNative("chat.send", { text }); };
   const ComposerChips = ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as React.ComponentType<{ snapshot: AcpmuxSnapshot }> | undefined) ?? DefaultComposerChips;
-  return <section className="acpmux-shell"><header className="acpmux-header"><div><strong className="acpmux-title">{snapshot.summary?.title || snapshot.summary?.name || "Agent Chat"}</strong><span className="acpmux-status">{snapshot.isWorking ? "Working" : snapshot.connection}</span></div><select className="acpmux-session" value={snapshot.sessionId ?? ""} onChange={(event) => void callNative("chat.select", { sessionId: event.target.value })}>{snapshot.sessions.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.title || session.name || session.sessionId.slice(0, 8)}</option>)}</select></header><VirtualTranscript rows={snapshot.rows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={composerSnapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" /><button type="submit">Send</button>{snapshot.isWorking && <button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")}>Stop</button>}</form></section>;
+  return <section className="acpmux-shell"><div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}><header className="acpmux-header"><div><strong className="acpmux-title">{snapshot.summary?.title || snapshot.summary?.name || "Agent Chat"}</strong><span className="acpmux-status">{snapshot.isWorking ? "Working" : snapshot.connection}</span></div><select className="acpmux-session" value={snapshot.sessionId ?? ""} onChange={(event) => void callNative("chat.select", { sessionId: event.target.value })}>{snapshot.sessions.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.title || session.name || session.sessionId.slice(0, 8)}</option>)}</select></header><VirtualTranscript rows={snapshot.rows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onOpenDiff={openDiff} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}</div>{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={composerSnapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" /><button type="submit">Send</button>{snapshot.isWorking && <button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")}>Stop</button>}</form></section>;
 }

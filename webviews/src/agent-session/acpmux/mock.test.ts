@@ -17,6 +17,8 @@ describe("mock transport", () => {
     pending.shift()!();
     expect(snapshots.at(-1)?.isWorking).toBe(false);
     expect(snapshots.at(-1)?.rows.at(-1)).toMatchObject({ kind: "assistant", text: mockReply("hello") });
+    // The turn edits files, so it has changes to review.
+    expect(snapshots.at(-1)?.rows.at(-2)?.items?.flatMap((item) => item.tool?.diffs ?? []).map((diff) => diff.path)).toEqual(["/mock/project/src/greeting.ts", "/mock/project/NOTES.md"]);
   });
 
   test("new session clears the transcript", async () => {

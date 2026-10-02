@@ -84,6 +84,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.report(services: services))
             },
+            // Pane chrome alignment: tab pill gaps, border, first terminal cell.
+            .mainActor("debug.pane_chrome") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugPaneChrome.report(services: services))
+            },
             .mainActor("debug.screens") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugScreens.report(services: services))
