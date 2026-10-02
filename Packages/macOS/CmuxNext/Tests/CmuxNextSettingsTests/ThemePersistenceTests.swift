@@ -67,8 +67,8 @@ import Testing
         try expectUserLookKept(url, "animation speed and shortcut")
         try await settings.file.apply([(["ui", "animationSpeed"], nil), (["browser", "showBookmarksBar"], true)])
         try expectUserLookKept(url, "several edits in one publish")
-        // Reset All removes what the schema owns; the theme is not a schema
-        // setting and stays.
+        // Reset All removes what the schema owns, except the look picked at
+        // onboarding (`SettingsSchema.keptOnResetAll`): the theme and font stay.
         try await settings.resetAllSettings()
         try expectUserLookKept(url, "Reset All Settings")
         #expect(try document(url).value(at: ["appearance", "density"]) == nil)

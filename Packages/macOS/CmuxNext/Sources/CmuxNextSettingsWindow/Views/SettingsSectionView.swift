@@ -5,12 +5,16 @@ import SwiftUI
 
 /// One section: its own content (Keyboard, Rooms, Machines, Terminal,
 /// Advanced, the theme card), the schema's rows grouped by heading, then
-/// the section's actions from the registry.
+/// the section's actions from the registry. Leading groups (the app theme,
+/// the terminal font) come before the section's own content.
 struct SettingsSectionView: View {
     let model: SettingsWindowModel
     let section: SettingsSection
 
     var body: some View {
+        let groups = model.groups(in: section)
+        let leading = groups.filter { Self.leads($0, in: section) }
+        ForEach(leading) { GroupCard(model: model, group: $0) }
         switch section {
         case .appearance:
             ThemeCard()
@@ -27,14 +31,33 @@ struct SettingsSectionView: View {
             if let accounts = model.host?.accountsView(tokens: SettingsTheme.shared.tokens) { accounts }
         case .general, .browser, .notifications: EmptyView()
         }
-        ForEach(model.groups(in: section)) { group in
-            SettingsCard(title: group.title) {
-                ForEach(group.settings) { SettingRowView(model: model, descriptor: $0) }
-            }
-        }
+        ForEach(groups.filter { !leading.contains($0) }) { GroupCard(model: model, group: $0) }
         let actions = SettingsSchema.actions(in: section).filter { model.actionTitle($0) != nil }
         if !actions.isEmpty {
             FlowActions(model: model, actions: actions)
+        }
+    }
+
+    /// Whether `group` goes above the section's own content: the most-used
+    /// rows (plans/cmux-next/settings-ia.md), the app theme on Appearance
+    /// and the font on Terminal.
+    static func leads(_ group: SettingsGroup, in section: SettingsSection) -> Bool {
+        switch section {
+        case .appearance: group.settings.contains { $0.path == AppThemeSetting.configPath }
+        case .terminal: true
+        default: false
+        }
+    }
+}
+
+/// One heading and its rows.
+private struct GroupCard: View {
+    let model: SettingsWindowModel
+    let group: SettingsGroup
+
+    var body: some View {
+        SettingsCard(title: group.title) {
+            ForEach(group.settings) { SettingRowView(model: model, descriptor: $0) }
         }
     }
 }
