@@ -79,12 +79,104 @@ struct BillingRig {
         let rig = await BillingRig()
         let offer = try await rig.loadedOffer(.max)
         await rig.store.configure(purchaseResult: .success(.completed(.verified(BillingFixtures.transaction(9, plan: .max)))))
-        await rig.api.setSubmitErrors([.rejected(statusCode: 409)])
+        await rig.api.setSubmitErrors([.rejected(statusCode: 503)])
 
         await rig.model.buy(offer, entryPoint: .cloudUpgrade)
 
         #expect(await rig.store.finished.isEmpty)
         #expect(rig.model.purchase == .awaitingServer(productID: offer.product.id))
+    }
+
+    @Test func accountMismatchIsTerminalAndLeavesTransactionUnfinished() async throws {
+        let rig = await BillingRig()
+        let offer = try await rig.loadedOffer(.pro)
+        let transaction = BillingFixtures.transaction(12)
+        await rig.store.configure(
+            purchaseResult: .success(.completed(.verified(transaction))),
+            unfinished: [.verified(transaction)]
+        )
+        await rig.api.setSubmitErrors([.accountMismatch])
+
+        await rig.model.buy(offer, entryPoint: .settings)
+
+        #expect(rig.model.purchase == .failed(.accountMismatch))
+        #expect(await rig.store.finished.isEmpty)
+        let failed = try #require(rig.analytics.events.last)
+        #expect(failed.0 == "ios_purchase_failed")
+        #expect(failed.1["reason"] == .string("account_mismatch"))
+
+        // Not re-posted automatically for this session.
+        await rig.model.retryUndeliveredTransactions()
+        #expect(await rig.api.submitted == ["jws-12"])
+        #expect(await rig.store.finished.isEmpty)
+    }
+
+    @Test func permanentRejectionsAreTerminalAndNotRepostedAutomatically() async throws {
+        for status in [400, 403, 404, 409, 422] {
+            let rig = await BillingRig()
+            let offer = try await rig.loadedOffer(.pro)
+            let transaction = BillingFixtures.transaction(13)
+            await rig.store.configure(
+                purchaseResult: .success(.completed(.verified(transaction))),
+                unfinished: [.verified(transaction)]
+            )
+            await rig.api.setSubmitErrors([.rejected(statusCode: status)])
+
+            await rig.model.buy(offer, entryPoint: .settings)
+            await rig.model.retryUndeliveredTransactions()
+
+            #expect(rig.model.purchase == .failed(.server(statusCode: status)), "status \(status)")
+            #expect(await rig.api.submitted == ["jws-13"], "status \(status)")
+            #expect(await rig.store.finished.isEmpty, "status \(status)")
+        }
+    }
+
+    @Test func transientFailuresKeepRetryingUntilAccepted() async throws {
+        let rig = await BillingRig()
+        let transaction = BillingFixtures.transaction(14)
+        await rig.store.configure(unfinished: [.verified(transaction)])
+        await rig.api.setSubmitErrors([.transport, .rejected(statusCode: 500), .rejected(statusCode: 401), .notSignedIn])
+
+        for _ in 0..<5 {
+            await rig.model.retryUndeliveredTransactions()
+        }
+
+        #expect(await rig.api.submitted.count == 5)
+        #expect(await rig.store.finished == [14])
+    }
+
+    @Test func signingInToAnotherAccountRetriesARejectedTransaction() async throws {
+        let rig = await BillingRig()
+        let transaction = BillingFixtures.transaction(15)
+        await rig.store.configure(unfinished: [.verified(transaction)])
+        await rig.api.setSubmitErrors([.accountMismatch])
+        await rig.model.retryUndeliveredTransactions()
+        await rig.model.retryUndeliveredTransactions()
+        #expect(await rig.api.submitted == ["jws-15"])
+
+        rig.model.resetForSignOut()
+        await rig.model.retryUndeliveredTransactions()
+
+        #expect(await rig.api.submitted == ["jws-15", "jws-15"])
+        #expect(await rig.store.finished == [15])
+    }
+
+    @Test func awaitingPurchaseFailsWhenItsRetryIsRejected() async throws {
+        let rig = await BillingRig()
+        let offer = try await rig.loadedOffer(.pro)
+        let transaction = BillingFixtures.transaction(16)
+        await rig.store.configure(
+            purchaseResult: .success(.completed(.verified(transaction))),
+            unfinished: [.verified(transaction)]
+        )
+        await rig.api.setSubmitErrors([.transport, .accountMismatch])
+
+        await rig.model.buy(offer, entryPoint: .settings)
+        #expect(rig.model.purchase == .awaitingServer(productID: offer.product.id))
+        await rig.model.retryUndeliveredTransactions()
+
+        #expect(rig.model.purchase == .failed(.accountMismatch))
+        #expect(await rig.store.finished.isEmpty)
     }
 
     @Test func userCancelledReturnsToIdleWithoutPosting() async throws {
@@ -217,6 +309,22 @@ struct BillingRig {
         #expect(rig.model.restore == .completed(acceptedCount: 1))
         #expect(rig.analytics.names == ["ios_restore_started", "ios_restore_completed"])
         #expect(rig.analytics.events.last?.1["restored_count"] == .int(1))
+    }
+
+    @Test func restoreRepostsARejectedTransactionAndReportsTheMismatch() async throws {
+        let rig = await BillingRig()
+        let transaction = BillingFixtures.transaction(32)
+        await rig.store.configure(unfinished: [.verified(transaction)], entitlements: [.verified(transaction)])
+        await rig.api.setSubmitErrors([.accountMismatch, .accountMismatch])
+        await rig.model.retryUndeliveredTransactions()
+
+        await rig.model.restorePurchases()
+
+        // Restore is an explicit request, so it posts again; the automatic
+        // retry inside it does not.
+        #expect(await rig.api.submitted == ["jws-32", "jws-32"])
+        #expect(rig.model.restore == .failed(.accountMismatch))
+        #expect(await rig.store.finished.isEmpty)
     }
 
     @Test func restoreCancelledAtSignInReturnsToIdle() async throws {

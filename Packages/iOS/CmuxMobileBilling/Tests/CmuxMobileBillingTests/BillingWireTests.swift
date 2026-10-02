@@ -105,7 +105,69 @@ import Testing
     @Test func failureClassificationMapsAPIAndStoreErrors() {
         #expect(BillingFailure(BillingAPIError.transport) == .network)
         #expect(BillingFailure(BillingAPIError.rejected(statusCode: 409)) == .server(statusCode: 409))
+        #expect(BillingFailure(BillingAPIError.accountMismatch) == .accountMismatch)
         #expect(BillingFailure(StoreKitClientError.purchasesNotAllowed) == .purchasesNotAllowed)
         #expect(BillingFailure.server(statusCode: 503).analyticsReason == "server_503")
+        #expect(BillingFailure.accountMismatch.analyticsReason == "account_mismatch")
     }
+
+    @Test func onlyClientErrorsThatRetryingCannotFixArePermanent() {
+        for status in [400, 403, 404, 409, 422] {
+            #expect(BillingFailure.server(statusCode: status).isPermanentRejection, "status \(status)")
+        }
+        for status in [401, 408, 429, 500, 503] {
+            #expect(!BillingFailure.server(statusCode: status).isPermanentRejection, "status \(status)")
+        }
+        #expect(BillingFailure.accountMismatch.isPermanentRejection)
+        #expect(!BillingFailure.network.isPermanentRejection)
+        #expect(!BillingFailure.notSignedIn.isPermanentRejection)
+    }
+
+    @Test func accountMismatchBodyIsDistinguishedFromOther403s() async throws {
+        let mismatch = StubURLProtocol.api(host: "mismatch.example", status: 403, body: #"{"error":"account_mismatch"}"#)
+        await #expect(throws: BillingAPIError.accountMismatch) {
+            _ = try await mismatch.submitTransaction(signedTransactionInfo: "jws")
+        }
+        let forbidden = StubURLProtocol.api(host: "forbidden.example", status: 403, body: "<html>denied</html>")
+        await #expect(throws: BillingAPIError.rejected(statusCode: 403)) {
+            _ = try await forbidden.submitTransaction(signedTransactionInfo: "jws")
+        }
+    }
+}
+
+/// Answers every request to a host with a fixed status and body.
+final class StubURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var responses: [String: (Int, Data)] = [:]
+
+    /// An API whose requests to `host` get `status` and `body`.
+    static func api(host: String, status: Int, body: String) -> HTTPBillingAPI {
+        lock.withLock { responses[host] = (status, Data(body.utf8)) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        return HTTPBillingAPI(
+            baseURL: "https://\(host)",
+            bundleID: "com.cmux.app",
+            credentials: { BillingAPICredentials(accessToken: "access", refreshToken: "refresh") },
+            session: URLSession(configuration: configuration)
+        )
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url, let host = url.host,
+              let (status, body) = Self.lock.withLock({ Self.responses[host] }),
+              let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)
+        else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
