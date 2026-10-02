@@ -8,6 +8,7 @@ extension CloudWireGuardHub {
             enroll: @escaping @Sendable () async throws -> Enrollment,
             enrollWhenCloudDisabled: (@Sendable (AuthenticatedTeamScope?) async throws -> Enrollment)? = nil,
             refreshEnrollment: (@Sendable () async throws -> Enrollment)? = nil,
+            refreshEnrollmentWhenCloudDisabled: (@Sendable (AuthenticatedTeamScope?) async throws -> Enrollment)? = nil,
             clientURL: URL,
             socketURL: URL,
             spawner: any CloudWireGuardHubSpawning,
@@ -20,6 +21,7 @@ extension CloudWireGuardHub {
             self.enroll = enroll
             self.enrollWhenCloudDisabled = enrollWhenCloudDisabled
             self.refreshEnrollment = refreshEnrollment
+            self.refreshEnrollmentWhenCloudDisabled = refreshEnrollmentWhenCloudDisabled
             self.clientURL = clientURL
             self.socketURL = socketURL
             self.spawner = spawner
@@ -36,6 +38,8 @@ extension CloudWireGuardHub {
         /// Optional activation-only enrollment before the local marker commits.
         public let enrollWhenCloudDisabled: (@Sendable (AuthenticatedTeamScope?) async throws -> Enrollment)?
         public let refreshEnrollment: (@Sendable () async throws -> Enrollment)?
+        /// Fresh recovery enrollment while first-use activation has not committed its marker.
+        public let refreshEnrollmentWhenCloudDisabled: (@Sendable (AuthenticatedTeamScope?) async throws -> Enrollment)?
         /// The cmux-tui client binary that provides `wg hub`.
         public let clientURL: URL
         /// Where the hub's SOCKS5 unix socket lives; its parent is 0700.

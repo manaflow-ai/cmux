@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxAuthRuntime
 import Foundation
 import Testing
 
@@ -170,6 +171,7 @@ struct CloudWireGuardHubTests {
     private func makeHarness(
         enrollment: (@Sendable () async throws -> CloudWireGuardHub.Enrollment)? = nil,
         refreshEnrollment: (@Sendable () async throws -> CloudWireGuardHub.Enrollment)? = nil,
+        refreshEnrollmentWhenCloudDisabled: (@Sendable (AuthenticatedTeamScope?) async throws -> CloudWireGuardHub.Enrollment)? = nil,
         backoff: [Duration] = [.seconds(1), .seconds(2)],
         readiness: @escaping @Sendable (String) async throws -> Void = { _ in }
     ) -> Harness {
@@ -181,6 +183,7 @@ struct CloudWireGuardHubTests {
         let configuration = CloudWireGuardHub.Configuration(
             enroll: enrollment ?? { CloudWireGuardHub.Enrollment(configPath: "/tmp/cmux-app.conf", routes: routes) },
             refreshEnrollment: refreshEnrollment,
+            refreshEnrollmentWhenCloudDisabled: refreshEnrollmentWhenCloudDisabled,
             clientURL: URL(fileURLWithPath: "/usr/bin/true"),
             socketURL: socketURL,
             spawner: spawner,
@@ -198,7 +201,7 @@ struct CloudWireGuardHubTests {
         let readinessAttempts = AttemptCounter()
         let h = makeHarness(
             enrollment: { CloudWireGuardHub.Enrollment(configPath: "/tmp/stale.conf", routes: ["10.0.0.0/8"]) },
-            refreshEnrollment: {
+            refreshEnrollmentWhenCloudDisabled: { _ in
                 #expect(await attempts.next() == 1)
                 return CloudWireGuardHub.Enrollment(configPath: "/tmp/fresh.conf", routes: ["10.0.0.0/8"])
             },
@@ -212,7 +215,7 @@ struct CloudWireGuardHubTests {
         // The test socket is intentionally unavailable to the fake readiness
         // probe. The first child must fail, then recovery must obtain a fresh
         // enrollment before spawning the replacement.
-        let task = Task { try await h.hub.prewarm() }
+        let task = Task { try await h.hub.prewarm(allowWhenCloudDisabled: true) }
         try await waitForSpawnCount(h.spawner, count: 1)
         try await waitForPendingSleeps(h.gate, count: 1)
         await h.gate.elapse()

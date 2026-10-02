@@ -40,6 +40,13 @@ extension CloudWireGuardHub {
                 )
             },
             refreshEnrollment: { try await CloudWireGuardHub.freshEnrollment(manager: manager) },
+            refreshEnrollmentWhenCloudDisabled: { expectedTeamScope in
+                try await CloudWireGuardHub.freshEnrollment(
+                    manager: manager,
+                    allowWhenCloudDisabled: true,
+                    expectedTeamScope: expectedTeamScope
+                )
+            },
             clientURL: clientURL,
             socketURL: manager.stateDir.appendingPathComponent("hub-\(getpid()).sock", isDirectory: false),
             spawner: CloudWireGuardHubProcessSpawner(),

@@ -415,12 +415,20 @@ public actor CloudWireGuardHub {
         refreshEnrollment: Bool
     ) async throws -> Ready {
         let enrollment: Enrollment
-        if refreshEnrollment, let refresh = configuration.refreshEnrollment {
+        if refreshEnrollment {
             // A hub process can reject a previously written config without
             // producing a useful enrollment error. Recovery must replace that
             // state before retrying, otherwise every retry starts the same
             // dead child and the shared socket never becomes ready.
-            enrollment = try await refresh()
+            if allowWhenCloudDisabled, let refresh = configuration.refreshEnrollmentWhenCloudDisabled {
+                enrollment = try await refresh(expectedTeamScope)
+            } else if let refresh = configuration.refreshEnrollment {
+                enrollment = try await refresh()
+            } else if allowWhenCloudDisabled, let activationEnrollment = configuration.enrollWhenCloudDisabled {
+                enrollment = try await activationEnrollment(expectedTeamScope)
+            } else {
+                enrollment = try await configuration.enroll()
+            }
         } else if allowWhenCloudDisabled, let activationEnrollment = configuration.enrollWhenCloudDisabled {
             enrollment = try await activationEnrollment(expectedTeamScope)
         } else {
