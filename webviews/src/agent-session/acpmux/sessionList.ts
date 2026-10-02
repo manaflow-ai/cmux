@@ -15,9 +15,16 @@ export type AcpmuxSessionEntry = {
   updatedAt?: number;
   pendingPermissions?: number;
   unread?: boolean;
+  /// Tagged `pinned` through `_acpmux/tag`; listed under Pinned instead of its project.
+  pinned?: boolean;
+  /// The machine the session runs on, when the summary names one.
+  host?: string;
 };
 
-export type SessionGroup = { key: string; label: string; cwd?: string; sessions: AcpmuxSessionEntry[] };
+export type SessionGroup = { key: string; label: string; cwd?: string; host?: string; sessions: AcpmuxSessionEntry[] };
+
+/** The tag that pins a session to the top of the list. */
+export const PINNED_TAG = "pinned";
 
 /** What a row draws at its right edge, most urgent first. */
 export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
@@ -40,6 +47,8 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     updatedAt: typeof session.updatedAt === "number" ? session.updatedAt : undefined,
     pendingPermissions: Number.isFinite(pending) ? pending : 0,
     unread: session.unread === true,
+    pinned: Array.isArray(session.tags) && session.tags.includes(PINNED_TAG),
+    host: typeof session.host === "string" && session.host ? session.host : undefined,
   };
 }
 
@@ -63,20 +72,31 @@ export function projectLabel(cwd: string | undefined): string {
   return parts[parts.length - 1] ?? trimmed;
 }
 
-/** Sessions under one header per folder. Groups follow their most recent session; sessions stay newest first. */
+/** Newest first. */
+function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
+  return [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
+}
+
+/** Sessions under one header per folder and machine. Groups follow their most recent session; sessions stay newest first. */
 export function groupByProject(sessions: AcpmuxSessionEntry[]): SessionGroup[] {
-  const sorted = [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
   const groups = new Map<string, SessionGroup>();
-  for (const session of sorted) {
-    const key = (session.cwd ?? "").replace(/\/+$/, "");
+  for (const session of byRecency(sessions)) {
+    const cwd = (session.cwd ?? "").replace(/\/+$/, "");
+    // The same folder on two machines is two projects.
+    const key = session.host ? `${session.host}:${cwd}` : cwd;
     let group = groups.get(key);
     if (!group) {
-      group = { key, label: projectLabel(key), cwd: key || undefined, sessions: [] };
+      group = { key, label: projectLabel(cwd), cwd: cwd || undefined, host: session.host, sessions: [] };
       groups.set(key, group);
     }
     group.sessions.push(session);
   }
   return [...groups.values()];
+}
+
+/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. */
+export function sidebarSections(sessions: AcpmuxSessionEntry[]): { pinned: AcpmuxSessionEntry[]; groups: SessionGroup[] } {
+  return { pinned: byRecency(sessions.filter((session) => session.pinned)), groups: groupByProject(sessions.filter((session) => !session.pinned)) };
 }
 
 /** The row's mark: a pending permission or a wait for one needs the user; then work in progress, a lost agent, and work that ended unseen. */

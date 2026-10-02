@@ -1,4 +1,5 @@
 import type { AcpmuxHostConfig, EventRecord } from "./direct";
+import { MOCK_SESSION_CWD, mockSessions } from "./mockSessions";
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
 // acpmux daemon is wanted (demos, screenshots, tests). The page then runs the
@@ -9,7 +10,7 @@ import type { AcpmuxHostConfig, EventRecord } from "./direct";
 const sessionId = "mock-session";
 const harnesses = [{ id: "claude", name: "Claude Code", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] }, { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] }];
 const commands = [{ name: "compact", description: "Clear conversation history but keep a summary in context", input: { hint: "optional custom summarization instructions" } }, { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" }, { name: "pr-comments", description: "Get comments from a GitHub pull request" }, { name: "review", description: "Review a pull request" }];
-const session = { sessionId, title: "Mock session", harness: "claude", model: "claude-sonnet", status: "idle" };
+const session = { sessionId, title: "Polish the agent pane sidebar", harness: "claude", model: "claude-sonnet", status: "idle", cwd: MOCK_SESSION_CWD };
 
 /// The host config the page connects with in mock mode.
 export const mockHost: AcpmuxHostConfig = { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://mock.invalid/acp", token: "mock", sessionId };
@@ -54,7 +55,8 @@ export class MockAcpmuxSocket {
   onerror: (() => void) | null = null;
   onclose: (() => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
-  private sessions = [{ ...session }];
+  // The mock session is the newest, so it opens selected; the seeded ones fill the sidebar.
+  private sessions: Array<{ sessionId: string } & Record<string, unknown>> = [{ ...session, updatedAt: Date.now() }, ...mockSessions(Date.now())];
   private events: EventRecord[] = [];
   private seq = 0;
   private turns = 0;

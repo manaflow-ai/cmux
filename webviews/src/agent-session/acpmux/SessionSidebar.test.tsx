@@ -55,3 +55,18 @@ test("an empty list says so", async () => {
   expect(container.textContent).toBe("No sessions yet");
   await act(async () => root.unmount());
 });
+
+test("pinned sessions get their own section and projects on another machine name it", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const list: AcpmuxSessionEntry[] = [
+    { sessionId: "pin", displayTitle: "Set up 24/7 agent work", cwd: "/src/web", updatedAt: 9, pinned: true },
+    { sessionId: "web", displayTitle: "Fix the checkout page", cwd: "/src/web", updatedAt: 8 },
+    { sessionId: "cloud", displayTitle: "Tags with a TTL", cwd: "/home/u/acpmux", host: "cobalt-butte", updatedAt: 7 },
+  ];
+  await act(async () => root.render(createElement(SessionSidebar, { sessions: list, onSelect: () => {} })));
+  expect([...container.querySelectorAll(".acpmux-sidebar-section")].map((node) => node.textContent)).toEqual(["Pinned", "Projects"]);
+  expect([...container.querySelectorAll(".acpmux-sidebar-pinned .acpmux-session-row")].map((node) => node.textContent)).toEqual(["Set up 24/7 agent work"]);
+  expect([...container.querySelectorAll(".acpmux-sidebar-project")].map((node) => node.textContent)).toEqual(["web", "acpmuxcobalt-butte"]);
+  await act(async () => root.unmount());
+});

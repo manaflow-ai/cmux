@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { GROUP_ROWS, groupByProject, projectLabel, sessionEntry, sessionMark, sessionTitle, visibleSessions, type AcpmuxSessionEntry } from "./sessionList";
+import { GROUP_ROWS, groupByProject, projectLabel, sessionEntry, sessionMark, sessionTitle, sidebarSections, visibleSessions, type AcpmuxSessionEntry } from "./sessionList";
 
 const entry = (sessionId: string, cwd: string, updatedAt: number, extra: Partial<AcpmuxSessionEntry> = {}): AcpmuxSessionEntry => ({ sessionId, cwd, updatedAt, displayTitle: sessionId, ...extra });
 
@@ -69,7 +69,25 @@ describe("row marks", () => {
 describe("summary entries", () => {
   test("keep the fields the sidebar needs from acpmux's summary", () => {
     expect(sessionEntry({ sessionId: "s", name: "codex", harness: "codex", title: "Hi", cwd: "/p", updatedAt: 7, status: "waiting", pendingPermissions: 2, unread: true, preview: "dropped" })).toEqual({
-      sessionId: "s", displayTitle: "Hi", title: "Hi", name: "codex", harness: "codex", status: "waiting", model: undefined, cwd: "/p", updatedAt: 7, pendingPermissions: 2, unread: true,
+      sessionId: "s", displayTitle: "Hi", title: "Hi", name: "codex", harness: "codex", status: "waiting", model: undefined, cwd: "/p", updatedAt: 7, pendingPermissions: 2, unread: true, pinned: false, host: undefined,
     });
+  });
+  test("read the pinned tag and the host", () => {
+    const entry = sessionEntry({ sessionId: "s", tags: ["work", "pinned"], host: "cobalt-butte" });
+    expect([entry.pinned, entry.host]).toEqual([true, "cobalt-butte"]);
+    expect(sessionEntry({ sessionId: "s", tags: "pinned", host: "" })).toMatchObject({ pinned: false, host: undefined });
+  });
+});
+
+describe("sections", () => {
+  test("pinned sessions leave their project, and one folder on two machines is two projects", () => {
+    const { pinned, groups } = sidebarSections([
+      { sessionId: "a", cwd: "/src/acpmux", updatedAt: 5 },
+      { sessionId: "b", cwd: "/src/acpmux", host: "cobalt-butte", updatedAt: 4 },
+      { sessionId: "c", cwd: "/src/acpmux", pinned: true, updatedAt: 3 },
+      { sessionId: "d", cwd: "/src/web", pinned: true, updatedAt: 9 },
+    ]);
+    expect(pinned.map((session) => session.sessionId)).toEqual(["d", "c"]);
+    expect(groups.map((group) => [group.label, group.host, group.sessions.map((session) => session.sessionId)])).toEqual([["acpmux", undefined, ["a"]], ["acpmux", "cobalt-butte", ["b"]]]);
   });
 });
