@@ -113,6 +113,62 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "feed.adopt": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.answer": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.archive": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.cancel": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.counts": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.get": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.kinds": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.list": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.post": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.prefs.set": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.read": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.seen": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.snooze": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.unarchive": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
     "github.issue.comment": {
       "scope": "github:external",
       "class": "mutation"

@@ -37,6 +37,20 @@ declare namespace Cmux {
   type Cursor = { generation: string; revision: string }
   type DeviceId = string
   type EmptyResult = Record<string, never>
+  type FeedAction = { id: string; label: string; style?: "default" | "primary" | "destructive"; answer?: string }
+  type FeedAttachment = { id: string; name: string; mime: string; size: number; sha256: string; ref: string }
+  type FeedCancelReason = "poster" | "declined" | "answered_elsewhere" | "superseded" | "poster_gone"
+  type FeedContext = { host?: string; workspace?: string; tab?: string; terminal?: string; browser_tab?: string; acp_session?: string; task?: string; url?: string }
+  type FeedFilter = { poster_kind?: Cmux.FeedPosterKind; thread?: string; workspace?: string; kind?: Cmux.FeedKind }
+  type FeedItem = { id: Cmux.FeedItemId; home: string; type: "notice" | "request"; kind: Cmux.FeedKind; title: string; body: string; prompt?: string; answer_schema?: string; priority: Cmux.FeedPriority; dedupe_key: string | null; thread: string | null; context: Cmux.FeedContext; attachments: Array<Cmux.FeedAttachment>; actions: Array<Cmux.FeedAction>; open: Cmux.FeedOpen | null; poster: Cmux.FeedPoster; state: Cmux.FeedState; answer: { value: string; by: string; device: string | null; at: number } | null; cancel: { reason: Cmux.FeedCancelReason; by: string; at: number; note: string | null } | null; needs_mac: boolean; expires_at: number; read_at: number | null; seen_at: number | null; archived_at: number | null; snoozed_until: number | null; push_due_at: number | null; pushed_at: number | null; count: number; order: number; revision: number; created_at: number; updated_at: number; closed_at: number | null }
+  type FeedItemId = string
+  type FeedKind = string
+  type FeedOpen = { action: "tab.focus" | "workspace.focus" | "browser.open" | "browser.duplicateRight" | "url.open" | "task.open" | "acp.session.open" | "app.open"; args: Record<string, never> }
+  type FeedPoster = { kind: Cmux.FeedPosterKind; scope: string; label: string; install?: string; agent?: string; harness?: string }
+  type FeedPosterKind = "agent" | "harness" | "app" | "server" | "vm" | "automation" | "integration" | "system" | "user"
+  type FeedPrefs = { push_enabled: boolean; push_delay: { urgent: number | null; high: number | null; normal: number | null; low: number | null }; push_skip_when_mac_active: boolean }
+  type FeedPriority = "low" | "normal" | "high" | "urgent"
+  type FeedState = "open" | "answered" | "cancelled" | "expired"
   type FrontendProjectionSnapshot = { id: string /* frontend_projection_… */; session_id: string /* session_… */; projection: Cmux.JsonValue; frontend_id: string; window_id: string; generation: string; projection_revision: string; extra?: Record<string, Cmux.JsonValue> }
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
   type GrantId = string
@@ -251,6 +265,38 @@ interface CmuxGlobal {
     navigate: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; url: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
     /** `browser.reload` (mutation, scope `browser:write`) */
     reload: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
+  }
+  feed: {
+    /** `feed.adopt` (mutation, scope `feed:write`): Handoff: a daemon's local feed owner moves one of its items (same id) to the cloud owner after a reconnect. */
+    adopt: CmuxOp<{ item: Cmux.FeedItem; expected_revision?: string }, Cmux.MutationResult<{ item: Cmux.FeedItem }>>
+    /** `feed.answer` (mutation, scope `feed:write`): Answer an open request (the user only, origin user). The first answer wins; a closed item is refused with feed.closed. */
+    answer: CmuxOp<{ item: Cmux.FeedItemId; answer: string; device?: string; expected_revision?: string }, Cmux.MutationResult<{ item: Cmux.FeedItem }>>
+    /** `feed.archive` (mutation, scope `feed:write`): Archive items (done) by ids or a filter. Open requests cannot be archived: answer or decline them (a filter skips them). */
+    archive: CmuxOp<{ items?: Array<Cmux.FeedItemId>; filter?: Cmux.FeedFilter; expected_revision?: string }, Cmux.MutationResult<{ items: Array<{ id: Cmux.FeedItemId; revision: number }> }>>
+    /** `feed.cancel` (mutation, scope `feed:write`): Cancel an open item: its poster withdraws it, an adapter reports it answered elsewhere, or the user declines it. */
+    cancel: CmuxOp<{ item: Cmux.FeedItemId; reason?: Cmux.FeedCancelReason; note?: string; expected_revision?: string }, Cmux.MutationResult<{ item: Cmux.FeedItem }>>
+    /** `feed.counts` (read, scope `feed:read`): Badge counts: open requests, unread active items, open requests by priority. */
+    counts: CmuxOp<Record<string, never>, { open_requests: number; unread: number; by_priority: Record<string, number>; by_poster_kind: Record<string, number>; revision: string }>
+    /** `feed.get` (read, scope `feed:read`): Read one feed item (its answer once it is answered). An agent reads only the items it posted. */
+    get: CmuxOp<{ item: Cmux.FeedItemId }, { item: Cmux.FeedItem }>
+    /** `feed.kinds` (read, scope `feed:read`): The built-in request kinds with JSON Schemas of their prompt and answer; custom kinds x-<publisher>.<name> carry their own answer_schema. */
+    kinds: CmuxOp<Record<string, never>, { kinds: Array<{ kind: string; priority: Cmux.FeedPriority; needs_mac: boolean; docs: string; prompt_schema: string; answer_schema: string }> }>
+    /** `feed.list` (read, scope `feed:read`): List feed items in the owner's order (one order for every client), optionally grouped. An agent sees only the items it posted. */
+    list: CmuxOp<{ state?: "open" | "closed" | "all"; type?: "notice" | "request"; kind?: Cmux.FeedKind; unread?: boolean; archived?: boolean; thread?: string; needs_response?: boolean; poster_kind?: Cmux.FeedPosterKind; workspace?: string; query?: string; order?: "urgent" | "recent"; group_by?: "thread" | "poster" | "workspace"; after?: Cmux.FeedItemId; limit?: number }, { items: Array<Cmux.FeedItem>; groups?: Array<{ key: string; label: string; items: Array<Cmux.FeedItemId> }>; next: Cmux.FeedItemId | null; revision: string }>
+    /** `feed.post` (mutation, scope `feed:write`): Post a notice or a request to the user's feed. A request waits for one answer from the user (use feed.watch or --wait). */
+    post: CmuxOp<{ type: "notice" | "request"; kind: Cmux.FeedKind; title: string; body?: string; prompt?: string; answer_schema?: string; priority?: Cmux.FeedPriority; dedupe_key?: string; thread?: string; context?: Cmux.FeedContext; attachments?: Array<Cmux.FeedAttachment>; actions?: Array<Cmux.FeedAction>; open?: Cmux.FeedOpen; expires_in_ms?: number; poster?: { kind?: Cmux.FeedPosterKind; label?: string; agent?: string; harness?: string }; expected_revision?: string }, Cmux.MutationResult<{ item: Cmux.FeedItem; deduped: boolean }>>
+    prefs: {
+      /** `feed.prefs.set` (mutation, scope `feed:write`): Change the user's synced push rules. */
+      set: CmuxOp<{ push_enabled?: boolean; push_delay?: { urgent?: number | null; high?: number | null; normal?: number | null; low?: number | null }; push_skip_when_mac_active?: boolean; expected_revision?: string }, Cmux.MutationResult<{ prefs: Cmux.FeedPrefs }>>
+    }
+    /** `feed.read` (mutation, scope `feed:write`): Mark items read (the user opened or acknowledged them): by ids, by a filter, or `all` unread items. */
+    read: CmuxOp<{ items?: Array<Cmux.FeedItemId>; all?: boolean; filter?: Cmux.FeedFilter; expected_revision?: string }, Cmux.MutationResult<{ items: Array<{ id: Cmux.FeedItemId; revision: number }> }>>
+    /** `feed.seen` (mutation, scope `feed:write`): Report items the user saw in view (a client's visibility rule); seen items do not push. */
+    seen: CmuxOp<{ items: Array<Cmux.FeedItemId>; expected_revision?: string }, Cmux.MutationResult<{ items: Array<{ id: Cmux.FeedItemId; revision: number }> }>>
+    /** `feed.snooze` (mutation, scope `feed:write`): Hide items until a time (at most one year ahead); they come back unread. Open requests cannot be snoozed. */
+    snooze: CmuxOp<{ items: Array<Cmux.FeedItemId>; until: number; expected_revision?: string }, Cmux.MutationResult<{ items: Array<{ id: Cmux.FeedItemId; revision: number }> }>>
+    /** `feed.unarchive` (mutation, scope `feed:write`): Move archived items back to the active list. */
+    unarchive: CmuxOp<{ items: Array<Cmux.FeedItemId>; expected_revision?: string }, Cmux.MutationResult<{ items: Array<{ id: Cmux.FeedItemId; revision: number }> }>>
   }
   github: {
     issue: {
