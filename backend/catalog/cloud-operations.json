@@ -11552,7 +11552,7 @@
         "expose": "never",
         "group": "team"
       },
-      "docs": "Stop managing an install (the install's user or a team admin). An MDM profile may enroll it again.",
+      "docs": "Stop managing an install: team admins for any install; the install's user only for an install they accepted (not one enrolled by an MDM token). Agents never.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

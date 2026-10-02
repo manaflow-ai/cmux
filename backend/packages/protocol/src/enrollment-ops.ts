@@ -115,7 +115,7 @@ export const DeviceRelease = def({
   params: Schema.Struct({ install: InstallId }),
   result: Schema.Struct({ install: InstallId }),
   errors: [...mutationErrors, "selector.not_found"],
-  docs: "Stop managing an install (the install's user or a team admin). An MDM profile may enroll it again.",
+  docs: "Stop managing an install: team admins for any install; the install's user only for an install they accepted (not one enrolled by an MDM token). Agents never.",
   cli: { path: "team device release", visible: true },
   mcp: { expose: "never", group: "team" }
 })
