@@ -43,10 +43,22 @@ nonisolated struct FocusTopology: Hashable, Sendable, Codable {
 
     var workspace: String?
     var panes: [Pane]
+    /// Every screen's columns in visual order (left sticky, strip, right
+    /// sticky; a split screen is one column), each its pane ids in layout
+    /// order. The close-focus rule reads them (close-focus.md). Empty means
+    /// one screen with one column holding `panes` in order.
+    var screens: [[[String]]]
 
-    init(workspace: String? = nil, panes: [Pane] = []) {
+    init(workspace: String? = nil, panes: [Pane] = [], screens: [[[String]]] = []) {
         self.workspace = workspace
         self.panes = panes
+        self.screens = screens
+    }
+
+    /// The columns of the screen that holds `pane`.
+    func columns(containing pane: String) -> [[String]]? {
+        if screens.isEmpty { return panes.contains { $0.id == pane } ? [panes.map(\.id)] : nil }
+        return screens.first { $0.contains { $0.contains(pane) } }
     }
 
     func pane(_ id: String) -> Pane? { panes.first { $0.id == id } }
