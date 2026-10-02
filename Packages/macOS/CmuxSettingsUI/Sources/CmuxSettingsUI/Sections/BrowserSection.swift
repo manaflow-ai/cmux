@@ -642,7 +642,7 @@ public struct BrowserSection: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(String(localized: "browser.import.hint.title", defaultValue: "Import browser data"))
                         .cmuxFont(size: 12.5, weight: .semibold)
-                    Text(String(localized: "browser.import.hint.subtitle", defaultValue: "Import bookmarks, history, and cookies from Safari, Chrome, Firefox, Brave, Edge, or Arc. Already-imported entries are deduped automatically."))
+                    Text(String(localized: "browser.import.hint.subtitle", defaultValue: "Choose a browser to import bookmarks, history, and cookies. Already-imported entries are deduped automatically."))
                         .cmuxFont(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
