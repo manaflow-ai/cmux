@@ -174,7 +174,7 @@ function replaceIn(file, find, repl) {
 const shell = (file, body) => `<!doctype html><html><head><meta charset="utf-8"><title>${esc(file.title)} - Google ${file.kind === "spreadsheets" ? "Sheets" : file.kind === "document" ? "Docs" : "Slides"}</title></head><body>
 <div id="docs-titlebar"><input class="docs-title-input" value="${esc(file.title)}" aria-label="Rename">
 <div id="share-slot"></div><div role="button" aria-label="Share screen">Present</div>
-<div id="docs-file-menu" role="menuitem">File</div></div>
+<div id="docs-file-menu" role="menuitem">File</div><div id="docs-edit-menu" role="menuitem">Edit</div></div>
 ${body}
 <script>
 // As in the editors: the Share button (no id) renders a moment after the title.
@@ -193,9 +193,10 @@ document.getElementById("docs-file-menu").addEventListener("click", () => {
   document.body.insertAdjacentHTML("beforeend", '<div role="menu"><div role="menuitem" id="trash-item">Move to trash</div></div>');
   document.getElementById("trash-item").addEventListener("click", async () => { await post("trash", {}); document.body.insertAdjacentHTML("beforeend", '<div role="dialog">File moved to trash</div>'); });
 });
-// Find and replace (Meta+Shift+H), as in Docs and Slides.
-document.addEventListener("keydown", (e) => {
-  if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "h" && !document.querySelector(".docs-findandreplacedialog")) {
+// Find and replace: Meta+Shift+H, or Edit > Find and replace. As live, the
+// Slides shortcut does nothing while the filmstrip has focus (a new tab).
+const openFind = () => {
+  if (!document.querySelector(".docs-findandreplacedialog")) {
     document.body.insertAdjacentHTML("beforeend", '<div role="dialog" class="docs-findandreplacedialog"><input aria-label="Find" class="docs-findandreplacedialog-input"><input aria-label="Replace with" class="docs-findandreplacedialog-replace-input"><button>Replace</button><button>Replace all</button><button aria-label="Close">x</button></div>');
     const d = document.querySelector(".docs-findandreplacedialog");
     d.querySelector("input").focus();
@@ -205,6 +206,13 @@ document.addEventListener("keydown", (e) => {
     });
     d.querySelector('[aria-label="Close"]').addEventListener("click", () => d.remove());
   }
+};
+document.addEventListener("keydown", (e) => {
+  if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "h" && ${JSON.stringify(file.kind)} !== "presentation") openFind();
+});
+document.getElementById("docs-edit-menu").addEventListener("click", () => {
+  document.body.insertAdjacentHTML("beforeend", '<div role="menu"><div role="menuitem" id="find-item">Find and replace⌘+Shift+H</div></div>');
+  document.getElementById("find-item").addEventListener("click", () => { document.querySelectorAll('[role="menu"]').forEach((m) => m.remove()); openFind(); });
 });
 </script></body></html>`;
 
