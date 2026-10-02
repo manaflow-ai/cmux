@@ -1092,4 +1092,23 @@ describe("direct client git reads", () => {
     expect(gitSent()).toEqual([]);
     client.close();
   });
+
+  test("a cloud session's folder is not read on this Mac", async () => {
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a", hostKind: "cloud", cwd: "/workspace" }] };
+      if (method === "_acpmux/attach")
+        return {
+          session: { sessionId: params.sessionId, status: "idle", hostKind: "cloud", cwd: "/workspace" },
+          events: [],
+        };
+      return {};
+    };
+    const client = await connect();
+    await settle();
+    await expect(client.gitDiff("uncommitted")).rejects.toThrow("runs on another machine");
+    await expect(client.gitStatus()).rejects.toThrow("runs on another machine");
+    expect(posted).toEqual([]);
+    expect(gitSent()).toEqual([]);
+    client.close();
+  });
 });
