@@ -278,6 +278,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return ProcessRunResult(status: process.terminationStatus, stdout: stdout, stderr: stderr, timedOut: timedOut)
     }
 
+    private func requireVMDevSetupLockTool() throws {
+        let probe = Process()
+        probe.executableURL = URL(fileURLWithPath: "/bin/sh")
+        probe.arguments = ["-c", "command -v flock >/dev/null 2>&1"]
+        try probe.run()
+        probe.waitUntilExit()
+        try XCTSkipUnless(
+            probe.terminationStatus == 0,
+            "vm dev setup replay requires the Linux devbox's util-linux flock"
+        )
+    }
+
     // MARK: - Detection (dry run, no socket)
 
     func testVMDevDryRunDetectsProjectsWithoutTouchingTheSocket() throws {
@@ -427,6 +439,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testVMDevSetupReplayScopesByRemoteAndSkipsAfterSuccess() throws {
+        try requireVMDevSetupLockTool()
         let fixture = try vmDevFixture("replay", files: [
             ".cmux/cloud.json": #"{"setup":["echo run >> \"$COUNT\""],"checks":[]}"#,
             "package.json": #"{"scripts":{"dev":"true"}}"#,
@@ -450,6 +463,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testVMDevSetupReplayPreservesApostrophesInRecipeCommands() throws {
+        try requireVMDevSetupLockTool()
         let fixture = try vmDevFixture("apostrophe", files: [
             ".cmux/cloud.json": #"{"setup":["echo \"it's ready\" >> \"$COUNT\""],"checks":[]}"#,
             "package.json": #"{"scripts":{"dev":"true"}}"#,
@@ -465,6 +479,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testVMDevSetupFailureReleasesLockForRetryAndEmptySetupIsValid() throws {
+        try requireVMDevSetupLockTool()
         let fixture = try vmDevFixture("retry", files: [
             ".cmux/cloud.json": #"{"setup":["if [ ! -f \"$FAIL_FLAG\" ]; then : > \"$FAIL_FLAG\"; false; else echo retry >> \"$COUNT\"; fi"]}"#,
             "package.json": #"{"scripts":{"dev":"true"}}"#,
@@ -494,6 +509,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testVMDevSetupConcurrentInvocationsRunOnce() throws {
+        try requireVMDevSetupLockTool()
         let fixture = try vmDevFixture("concurrent", files: [
             ".cmux/cloud.json": #"{"setup":["sleep 0.2; echo run >> \"$COUNT\""],"checks":[]}"#,
             "package.json": #"{"scripts":{"dev":"true"}}"#,
@@ -521,6 +537,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testVMDevSetupOwnerDeathReleasesLockForRetry() throws {
+        try requireVMDevSetupLockTool()
         let fixture = try vmDevFixture("owner-death", files: [
             // The first owner kills the generated shell after taking the lock.
             // A later invocation must acquire the kernel lock and retry instead
