@@ -34,10 +34,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
     var showsCloudVPNWarning = false
+    /// Main-workspace selection to mirror in the Cloud tree when this panel is mounted.
+    var cloudWorkspaceReveal: CloudTreeRevealRequest? = nil
     /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
     var cloudMachinesUsage: CloudMachinesUsage? = nil
     var reveal: CloudTreeRevealRequest? = nil
+    /// Clears one-shot device reveals once the coordinator selected their row.
+    var onRevealConsumed: (@MainActor (UUID) -> Void)? = nil
+    /// Clears one-shot workspace mirrors after their row was selected.
+    var onCloudWorkspaceRevealConsumed: (@MainActor (UUID) -> Void)? = nil
     var creationReveal: CloudWorkspaceCreationReveal? = nil
     var nodeBuilder: ((CloudTreeBuildInputs) -> [CloudTreeNode])? = nil
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
@@ -65,6 +71,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.onDragStateChange = onDragStateChange
         context.coordinator.pendingWorkspaceDeletions = snapshot.pendingWorkspaceDeletions ?? [:]
         context.coordinator.pendingMachineDeletions = pendingMachineDeletions
+        context.coordinator.onRevealConsumed = onRevealConsumed
+        context.coordinator.onCloudWorkspaceRevealConsumed = onCloudWorkspaceRevealConsumed
         context.coordinator.apply(style: style)
         context.coordinator.update(inputs: CloudTreeBuildInputs(
             machines: machines,
@@ -78,7 +86,18 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             canCreateCloudMachine: canCreateCloudMachine,
             cloudMachinesUsage: cloudMachinesUsage
         ))
-        context.coordinator.reveal(reveal)
+        let deviceResult = context.coordinator.reveal(reveal, channel: .device)
+        if let reveal, deviceResult == .consumed {
+            Task { @MainActor in onRevealConsumed?(reveal.token) }
+        }
+        // A device reveal is the explicit sidebar action and takes precedence
+        // over the passive workspace mirror while it is being applied.
+        if reveal == nil {
+            let cloudResult = context.coordinator.reveal(cloudWorkspaceReveal, channel: .cloudWorkspace)
+            if let cloudWorkspaceReveal, cloudResult == .consumed {
+                Task { @MainActor in onCloudWorkspaceRevealConsumed?(cloudWorkspaceReveal.token) }
+            }
+        }
         context.coordinator.reveal(creation: creationReveal)
     }
     // MARK: - Coordinator
@@ -103,7 +122,21 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>] = [:]
         var pendingMachineDeletions: Set<String> = []
         private let deletionPresentation = CloudTreeDeletionPresentation()
-        var lastRevealToken: UUID?
+        /// Reveal requests are independently fenced so device and Cloud
+        /// workspace selection cannot re-arm one another during refreshes.
+        var consumedRevealTokens: Set<UUID> = []
+        var consumedRevealTokenOrder: [UUID] = []
+        let maxConsumedRevealTokens = 64
+        /// A reveal whose row is not in the current catalog yet. A user selection
+        /// cancels it so a late catalog refresh cannot steal the tree selection.
+        var pendingRevealTokens: Set<UUID> = []
+        enum RevealChannel: Hashable {
+            case device
+            case cloudWorkspace
+        }
+        var pendingRevealByChannel: [RevealChannel: UUID] = [:]
+        var onRevealConsumed: (@MainActor (UUID) -> Void)?
+        var onCloudWorkspaceRevealConsumed: (@MainActor (UUID) -> Void)?
         var creationRevealPresentation = CloudTreeCreationRevealPresentation()
         /// Which detail tab each Cloud machine has open, and the display-only
         /// regrouping of its rows around that tab row.
@@ -439,6 +472,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }
+            if !pendingRevealByChannel.isEmpty {
+                let pending = pendingRevealByChannel
+                for (channel, token) in pending {
+                    cancelPendingReveal(token, channel: channel)
+                }
+            }
             creationRevealPresentation.noteSelectionChange()
             selectedNodeID = outlineView.selectedRow >= 0
                 ? (outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode)?.id

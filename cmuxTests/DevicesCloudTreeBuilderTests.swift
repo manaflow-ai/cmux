@@ -20,6 +20,32 @@ struct DevicesCloudTreeBuilderTests {
     private let studio = SurfaceDeviceInstanceID(deviceID: "22222222-2222-2222-2222-222222222222", tag: "default")
     private let laptop = SurfaceDeviceInstanceID(deviceID: "33333333-3333-3333-3333-333333333333", tag: "issue-8001")
 
+    @Test("A Cloud workspace reveal is scoped by machine and remote workspace id")
+    func cloudWorkspaceRevealIsMachineScoped() {
+        let request = CloudTreeRevealRequest.cloudWorkspace(machineID: "machine-a", remoteWorkspaceID: "ws-7")
+        #expect(request.nodeID == "machine:machine-a/ws/ws-7")
+
+        let machineFallback = CloudTreeRevealRequest.cloudWorkspace(machineID: "machine-a", remoteWorkspaceID: nil)
+        #expect(machineFallback.nodeID == "machine:machine-a")
+
+        let blankFallback = CloudTreeRevealRequest.cloudWorkspace(machineID: "machine-a", remoteWorkspaceID: "   ")
+        #expect(blankFallback.nodeID == "machine:machine-a")
+    }
+
+    @MainActor
+    @Test("Reveal token fencing stays bounded for a long-lived panel")
+    func revealTokenFencingIsBounded() throws {
+        let suiteName = "DevicesCloudTreeRevealTokens-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = makeCoordinator(defaults: defaults)
+        for _ in 0...coordinator.maxConsumedRevealTokens {
+            coordinator.rememberConsumedRevealToken(UUID())
+        }
+        #expect(coordinator.consumedRevealTokens.count == coordinator.maxConsumedRevealTokens)
+        #expect(coordinator.consumedRevealTokenOrder.count == coordinator.maxConsumedRevealTokens)
+    }
+
     @MainActor
     @Test("A reveal waits for its device row, expands it once, and accepts a later Open request")
     func revealWaitsForDeviceRow() throws {
@@ -48,6 +74,7 @@ struct DevicesCloudTreeBuilderTests {
         #expect(outline.isItemExpanded(section))
         #expect(outline.isItemExpanded(device))
         #expect(outline.selectedRow == outline.row(forItem: device))
+        #expect(coordinator.selectedNodeID == device.id)
 
         outline.collapseItem(device)
         outline.deselectAll(nil)
@@ -58,6 +85,22 @@ struct DevicesCloudTreeBuilderTests {
         coordinator.reveal(.machine(.device(studio)))
         #expect(outline.isItemExpanded(device))
         #expect(outline.selectedRow == outline.row(forItem: device))
+        _ = container
+    }
+
+    @MainActor
+    @Test("A cancelled pending reveal can be cleared without selecting its late row")
+    func cancelledRevealReportsConsumption() throws {
+        let suiteName = "DevicesCloudTreeRevealCancellation-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = makeCoordinator(defaults: defaults)
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let request = CloudTreeRevealRequest.machine(.device(studio))
+        #expect(coordinator.reveal(request) == .waiting)
+        coordinator.outlineViewSelectionDidChange(Notification(name: NSOutlineView.selectionDidChangeNotification))
+        #expect(coordinator.reveal(request) == .consumed)
+        #expect(coordinator.pendingRevealTokens.isEmpty)
         _ = container
     }
 

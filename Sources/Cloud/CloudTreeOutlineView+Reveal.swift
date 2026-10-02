@@ -2,17 +2,68 @@ import AppKit
 import Foundation
 
 extension CloudTreeOutlineView.Coordinator {
+    enum RevealResult: Equatable {
+        case ignored
+        case waiting
+        case consumed
+    }
+
     /// Selects a requested row once, expanding its ancestors and the row itself.
-    func reveal(_ request: CloudTreeRevealRequest?) {
-        guard let request, request.token != lastRevealToken, let outlineView,
-              let path = request.path(in: nodes), let node = path.last else { return }
+    @discardableResult
+    func reveal(
+        _ request: CloudTreeRevealRequest?,
+        channel: RevealChannel = .device
+    ) -> RevealResult {
+        guard let request else {
+            if let previous = pendingRevealByChannel[channel] {
+                cancelPendingReveal(previous, channel: channel)
+            }
+            return .ignored
+        }
+        guard !consumedRevealTokens.contains(request.token) else { return .consumed }
+        guard let outlineView else { return .waiting }
+        if let previous = pendingRevealByChannel[channel], previous != request.token {
+            cancelPendingReveal(previous, channel: channel)
+        }
+        pendingRevealByChannel[channel] = request.token
+        pendingRevealTokens.insert(request.token)
+        guard let path = request.path(in: nodes), let node = path.last else { return .waiting }
         expand(path.dropLast(), in: outlineView)
         if node.isExpandable { expand([node], in: outlineView) }
         let row = outlineView.row(forItem: node)
-        guard row >= 0 else { return }
-        lastRevealToken = request.token
-        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        guard row >= 0 else { return .waiting }
+        withProgrammaticUpdate {
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+        guard outlineView.selectedRow == row else { return .waiting }
+        selectedNodeID = node.id
+        rememberConsumedRevealToken(request.token)
+        pendingRevealTokens.remove(request.token)
+        pendingRevealByChannel.removeValue(forKey: channel)
         scrollRowFullyIntoView(row, in: outlineView)
+        return .consumed
+    }
+
+    /// Cancels a reveal whose row never became selectable, and releases the
+    /// one-shot request in the model that created it. Without this callback a
+    /// late catalog update can replay a request after the user selected another
+    /// row.
+    func cancelPendingReveal(_ token: UUID, channel: RevealChannel) {
+        guard pendingRevealByChannel[channel] == token else { return }
+        pendingRevealByChannel.removeValue(forKey: channel)
+        pendingRevealTokens.remove(token)
+        rememberConsumedRevealToken(token)
+        let callback = channel == .device ? onRevealConsumed : onCloudWorkspaceRevealConsumed
+        Task { @MainActor in callback?(token) }
+    }
+
+    func rememberConsumedRevealToken(_ token: UUID) {
+        guard consumedRevealTokens.insert(token).inserted else { return }
+        consumedRevealTokenOrder.append(token)
+        while consumedRevealTokenOrder.count > maxConsumedRevealTokens {
+            let oldest = consumedRevealTokenOrder.removeFirst()
+            consumedRevealTokens.remove(oldest)
+        }
     }
 
     /// Follows this window's workspace creation: selects the new row once it
@@ -32,7 +83,12 @@ extension CloudTreeOutlineView.Coordinator {
             let row = outlineView.row(forItem: node)
             guard row >= 0 else { return }
             // A regular selection change records the row, so reloads restore it.
-            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            withProgrammaticUpdate {
+                outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                if outlineView.selectedRow == row {
+                    selectedNodeID = id
+                }
+            }
             // The outline view refuses rows it cannot select; retry those later.
             guard outlineView.selectedRow == row else { return }
             scrollRowFullyIntoView(row, in: outlineView)
