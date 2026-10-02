@@ -643,8 +643,9 @@ const ChevronRightIcon = () => (
     <path d="m6.25 4.25 3.5 3.75-3.5 3.75" />
   </Icon>
 );
-const SearchIcon = () => (
-  <Icon size={16}>
+/// 16px in the model menu's search; the + menu draws it at its items' 18px.
+export const SearchIcon = ({ size = 16 }: { size?: number }) => (
+  <Icon size={size}>
     <circle cx="7" cy="7" r="4.25" />
     <path d="m10.25 10.25 3 3" />
   </Icon>
