@@ -157,7 +157,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   only when the frame that holds the focused element has an origin
   (`WKFrameInfo.securityOrigin`, checked in the driver's own content world)
   matching one of `secretDomains`, else fails with `secret "x" may not be
-  typed into <origin>; its domains are ...`. Captures get `secretMasks
+  typed into <origin>; its domains are ...`. The check runs right before the
+  text is committed, after the wait for the editor state (a page can move
+  focus during that wait), and the marked text and insert follow on the
+  same main-thread turn. A page can still move focus in its own web process
+  between the check's last reply and the insert reaching that process:
+  WebKit has no insert bound to an element or frame, so that cross-process
+  window remains. Captures get `secretMasks
   [{ value, domains }]`; the driver masks only in frames on those domains.
   Results, events, fetch responses, output, errors and written text are
   redacted by the session.

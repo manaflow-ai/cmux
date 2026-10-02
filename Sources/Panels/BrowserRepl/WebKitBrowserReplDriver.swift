@@ -1621,7 +1621,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let text = params["text"] as? String ?? ""
         guard !text.isEmpty else { return nil }
         // A secret from the native session: typed only when the focused
-        // frame's own origin is on the secret's domains, checked on every call.
+        // frame's own origin is on the secret's domains, checked on every
+        // call right before the text is committed (BrowserReplTextCommit),
+        // after the wait for WebKit's editor state, during which the page
+        // can move focus. What remains is the cross-process gap between the
+        // check's last reply and the insert reaching the web process.
         let checkTarget: @MainActor () async throws -> Void = {
             guard let name = params["secretName"] as? String else { return }
             let frames = await BrowserReplFrameTree.frames(of: panel.webView)

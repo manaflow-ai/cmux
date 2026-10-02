@@ -21,6 +21,15 @@ public protocol BrowserReplTextCommitTarget: AnyObject {
 @MainActor
 public enum BrowserReplTextCommit {
     /// Commits `text` into `target`.
+    ///
+    /// `checkTarget` runs last before the first commit step, after the wait
+    /// for the editor state, because the page can move focus during that
+    /// wait (into another origin's frame, say), and the text goes wherever
+    /// focus is when it is committed. The marked text and the insert follow
+    /// on the same main-actor turn, so nothing in this process runs between
+    /// them. The page's own process can still move focus after the check's
+    /// last reply and before the insert reaches it; the engine has no insert
+    /// bound to an element or frame that would close that window.
     /// - Parameter checkTarget: Decides whether the text may go to the
     ///   element that has focus; it throws to refuse, and then nothing is
     ///   committed.
@@ -29,11 +38,13 @@ public enum BrowserReplTextCommit {
         into target: some BrowserReplTextCommitTarget,
         checkTarget: @MainActor () async throws -> Void
     ) async throws {
-        try await checkTarget()
         let composable = !text.contains { $0.isNewline || $0 == "\t" }
-        if composable, !target.hasMarkedText, await target.prepareComposition() {
-            target.setMarkedText(text)
+        var composes = false
+        if composable, !target.hasMarkedText {
+            composes = await target.prepareComposition()
         }
+        try await checkTarget()
+        if composes { target.setMarkedText(text) }
         target.insertText(text)
     }
 }
