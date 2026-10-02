@@ -1,4 +1,5 @@
 import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
+import { sessionEntry, type AcpmuxSessionEntry } from "./sessionList";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -49,10 +50,9 @@ export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
   return [...bySequence.values()].sort((left, right) => left.seq - right.seq);
 }
 
-export function applySupersededMessage(rows: Map<string, AcpmuxRow>, messageRows: Map<string, string>, superseded: Set<string>, oldMessageId: string): void {
+export function applySupersededMessage(rows: Map<string, AcpmuxRow>, messageRows: Map<string, string[]>, superseded: Set<string>, oldMessageId: string): void {
   superseded.add(oldMessageId);
-  const rowId = messageRows.get(oldMessageId);
-  if (rowId) rows.delete(rowId);
+  for (const rowId of messageRows.get(oldMessageId) ?? []) rows.delete(rowId);
   messageRows.delete(oldMessageId);
 }
 
@@ -117,6 +117,8 @@ export class AcpmuxDirectClient {
   private events: EventRecord[] = [];
   private rows = new Map<string, AcpmuxRow>();
   private sessions: Session[] = [];
+  /// Sidebar entries by acpmux session object. A changed session arrives as a new object, so unchanged rows keep their entry and skip rendering.
+  private sessionEntries = new WeakMap<Session, AcpmuxSessionEntry>();
   private selectedSessionId?: string;
   private summary: Record<string, any> | undefined;
   private queue: { id: string; prompt: string }[] = [];
@@ -130,7 +132,10 @@ export class AcpmuxDirectClient {
   private streamingAssistantMessageId?: string;
   private streamingActivity?: string;
   private supersededMessageIds = new Set<string>();
-  private messageRows = new Map<string, string>();
+  /// The rows each message streamed into; tool calls split one message into several.
+  private messageRows = new Map<string, string[]>();
+  /// The activity row each tool call lives in, so a late update lands where the call began.
+  private toolRows = new Map<string, string>();
   private readonly listener: Listener;
   private readonly host: AcpmuxHostConfig;
   private reconnectTimer?: number;
@@ -227,6 +232,7 @@ export class AcpmuxDirectClient {
     this.optimisticPromptTexts.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
+    this.toolRows.clear();
     this.pendingPermission = undefined;
   }
 
@@ -382,7 +388,7 @@ export class AcpmuxDirectClient {
     // A prompt still in flight keeps its optimistic row until an event settles it; a failed one stays to show it was not sent.
     const inFlight = new Set(this.optimisticPromptRows.values());
     const local = [...this.rows.values()].filter((row) => row.failed || inFlight.has(row.id));
-    this.rows.clear(); for (const row of local) this.rows.set(row.id, row); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; this.supersededMessageIds.clear(); this.messageRows.clear(); this.pendingPermission = undefined;
+    this.rows.clear(); for (const row of local) this.rows.set(row.id, row); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; this.supersededMessageIds.clear(); this.messageRows.clear(); this.toolRows.clear(); this.pendingPermission = undefined;
     const events = [...this.events].sort((a, b) => a.seq - b.seq);
     for (const event of events) { this.lastSeq = Math.max(this.lastSeq, event.seq); this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq); this.reduce(event); }
   }
@@ -420,6 +426,7 @@ export class AcpmuxDirectClient {
         const fallbackPromptId = promptId ?? (text ? [...this.optimisticPromptTexts.entries()].find(([, value]) => value === text)?.[0] : undefined);
         settleOptimisticPrompt(this.rows, this.optimisticPromptRows, { ...msg, promptId: fallbackPromptId });
         if (fallbackPromptId) this.optimisticPromptTexts.delete(fallbackPromptId);
+        this.endAssistantSegment(); this.streamingActivity = undefined;
         this.rows.set(`user-${event.seq}`, { id: `user-${event.seq}`, version: 1, at: event.at, kind: "user", text: String(msg.text ?? "") }); this.turnOpen = true;
       }
       else if (event.kind === "turn_started") { this.turnOpen = true; this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" }); }
@@ -430,7 +437,7 @@ export class AcpmuxDirectClient {
           if (this.streamingAssistantMessageId === oldMessageId) { this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; }
         }
       }
-      else if (event.kind === "turn_end" || event.kind === "turn_result") { this.turnOpen = false; if (this.streamingAssistant) { const row = this.rows.get(this.streamingAssistant); if (row) { row.streaming = false; row.version += 1; } } this.rows.delete("typing"); if (event.kind === "turn_result") this.rows.set(`summary-${event.seq}`, { id: `summary-${event.seq}`, version: 1, at: event.at, kind: "turnSummary", durationMs: undefined, toolCount: [...this.rows.values()].filter((row) => row.kind === "activity").length, status: String(msg.status ?? "completed"), error: msg.errorText }); this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; }
+      else if (event.kind === "turn_end" || event.kind === "turn_result") { this.turnOpen = false; if (this.streamingAssistant) { const row = this.rows.get(this.streamingAssistant); if (row) { row.streaming = false; row.version += 1; } } this.rows.delete("typing"); if (event.kind === "turn_result") this.rows.set(`summary-${event.seq}`, { id: `summary-${event.seq}`, version: 1, at: event.at, kind: "turnSummary", ...this.turnTotals(event.at), status: String(msg.status ?? "completed"), error: msg.errorText }); this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; }
       else this.reduceLiveState(event);
       return;
     }
@@ -442,21 +449,50 @@ export class AcpmuxDirectClient {
       const sameMessage = Boolean(this.streamingAssistant && (!messageId || !this.streamingAssistantMessageId || this.streamingAssistantMessageId === messageId));
       const id = sameMessage ? this.streamingAssistant! : `assistant-${event.seq}`;
       const existing = this.rows.get(id);
-      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "assistant", text: `${existing?.text ?? ""}${text}`, streaming: true }); this.streamingAssistant = id; this.streamingAssistantMessageId = messageId; if (messageId) this.messageRows.set(messageId, id); this.rows.delete("typing");
+      // Text after tool calls is a new segment; the next tool call opens a new fold.
+      this.streamingActivity = undefined;
+      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: existing?.at ?? event.at, kind: "assistant", text: `${existing?.text ?? ""}${text}`, streaming: true }); this.streamingAssistant = id; this.streamingAssistantMessageId = messageId; if (messageId) { const ids = this.messageRows.get(messageId) ?? []; if (!ids.includes(id)) this.messageRows.set(messageId, [...ids, id]); } this.rows.delete("typing");
     } else if (event.kind === "agent_thought_chunk" && text) {
+      this.endAssistantSegment();
       const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id);
-      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "activity", toolCount: existing?.toolCount ?? 0, items: [...(existing?.items ?? []), { kind: "thought", text }] }); this.streamingActivity = id;
+      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: existing?.at ?? event.at, kind: "activity", toolCount: existing?.toolCount ?? 0, items: [...(existing?.items ?? []), { kind: "thought", text }] }); this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
-      const callId = String(update.toolCallId ?? `tool-${event.seq}`); const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text);
+      const callId = String(update.toolCallId ?? `tool-${event.seq}`);
+      // An update to a call already shown stays in its fold; a new call ends the text segment.
+      const known = this.toolRows.get(callId);
+      const knownRow = known && this.rows.has(known) ? known : undefined;
+      if (!knownRow) this.endAssistantSegment();
+      const id = knownRow ?? this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text);
       if (itemIndex >= 0) items[itemIndex] = item; else items.push(item);
-      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "activity", toolCount: items.filter((entry) => entry.kind === "tool").length, items }); this.streamingActivity = id;
+      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: existing?.at ?? event.at, kind: "activity", toolCount: items.filter((entry) => entry.kind === "tool").length, items }); this.toolRows.set(callId, id);
+      if (!knownRow) this.streamingActivity = id;
     } else if (event.kind === "plan") this.rows.set(`plan-${event.seq}`, { id: `plan-${event.seq}`, version: 1, at: event.at, kind: "plan", text: text || JSON.stringify(update.entries ?? update.content ?? "") });
+  }
+
+  /// The tool calls and time since the turn's user message. A prompt still sending (queued
+  /// behind this turn) or one that failed to send did not start a turn.
+  private turnTotals(endedAt: number): { durationMs?: number; toolCount: number } {
+    const rows = [...this.rows.values()].filter((row) => !row.pending && !row.failed).sort((a, b) => a.at - b.at);
+    let start = rows.length;
+    while (start > 0 && rows[start - 1]!.kind !== "user") start -= 1;
+    const user = rows[start - 1];
+    const toolCount = rows.slice(start).reduce((sum, row) => sum + (row.kind === "activity" ? row.toolCount ?? 0 : 0), 0);
+    return { durationMs: user ? Math.max(0, endedAt - user.at) : undefined, toolCount };
+  }
+
+  /// Closes the assistant text being streamed, so later text starts a new row below.
+  private endAssistantSegment(): void {
+    if (!this.streamingAssistant) return;
+    const row = this.rows.get(this.streamingAssistant);
+    if (row) this.rows.set(row.id, { ...row, version: row.version + 1, streaming: false });
+    this.streamingAssistant = undefined;
+    this.streamingAssistantMessageId = undefined;
   }
 
   private emit(connection = "connected"): void {
     const summary = this.summary;
     const effort = (summary?.configOptions ?? []).find((option: any) => option.category === "thought_level" || option.id === "reasoning_effort");
-    this.listener({ type: "snapshot", protocolVersion: 1, rows: [...this.rows.values()].sort((a, b) => a.at - b.at), sessions: this.sessions.map((session) => ({ sessionId: session.sessionId, displayTitle: session.title ?? session.name, title: session.title, name: session.name, status: session.status, model: session.model })), summary: summary ? { sessionId: summary.sessionId, title: summary.title, name: summary.name, harness: summary.harness, model: summary.model, effort: effort?.currentValue, status: summary.status, modes: summary.modes, configOptions: summary.configOptions } : undefined, connection, sessionId: this.selectedSessionId, isWorking: this.turnOpen || summary?.status === "running", queue: this.queue, permission: this.pendingPermission, catalog: [], canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1 });
+    this.listener({ type: "snapshot", protocolVersion: 1, rows: [...this.rows.values()].sort((a, b) => a.at - b.at), sessions: this.sessions.map((session) => { let entry = this.sessionEntries.get(session); if (!entry) { entry = sessionEntry(session); this.sessionEntries.set(session, entry); } return entry; }), summary: summary ? { sessionId: summary.sessionId, title: summary.title, name: summary.name, harness: summary.harness, model: summary.model, effort: effort?.currentValue, status: summary.status, modes: summary.modes, configOptions: summary.configOptions } : undefined, connection, sessionId: this.selectedSessionId, isWorking: this.turnOpen || summary?.status === "running", queue: this.queue, permission: this.pendingPermission, catalog: [], canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1 });
   }
 
   snapshot(): void { this.emit(); }

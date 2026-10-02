@@ -4,10 +4,10 @@
 
 nonisolated extension ActionCatalog {
     static func layoutActions() -> [ActionDescriptor] {
-        tabMoveActions() + paneExtraActions() + columnActions() + terminalExtraActions()
+        tabMoveActions() + paneExtraActions() + columnActions() + stickyColumnActions() + terminalExtraActions()
     }
 
-    private static func row(
+    static func row(
         _ id: ActionID, _ title: String, _ category: ActionCategory, _ symbol: String, cli: String,
         keywords: [String], targets: [ActionTargetKind], arguments: [ActionArgument] = [], startsTerminal: Bool = false
     ) -> ActionDescriptor {

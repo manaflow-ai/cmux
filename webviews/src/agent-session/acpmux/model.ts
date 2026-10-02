@@ -38,7 +38,7 @@ export type AcpmuxSnapshot = {
   type: "snapshot";
   protocolVersion: number;
   rows: AcpmuxRow[];
-  sessions: { sessionId: string; displayTitle?: string; title?: string; name?: string; status?: string; model?: string }[];
+  sessions: AcpmuxSessionEntry[];
   summary?: { sessionId: string; title?: string; name?: string; harness?: string; model?: string; effort?: string; status?: string; modes?: { availableModes: { id: string; name?: string }[]; currentModeId?: string }; configOptions?: { id: string; name?: string; category?: string; currentValue?: string; options: { value: string; name?: string }[] }[] };
   connection: string;
   sessionId?: string;
@@ -157,10 +157,21 @@ function textHeight(text: string, width: number, prepared: Map<string, PreparedT
   return text.split("\n").reduce((lines, line) => lines + Math.max(1, Math.ceil(line.length / perLine)), 0) * MESSAGE_LINE_HEIGHT;
 }
 
+/// Each item's text at the list's indent, then any list nested in it a further indent in.
+function listHeight(list: Tokens.List, width: number, prepared: Map<string, PreparedText | null>): number {
+  const inner = width - LIST_INDENT;
+  return list.items.reduce((sum, item) => {
+    const nested = item.tokens.filter((token): token is Tokens.List => token.type === "list");
+    const text = measuredText(item.tokens.filter((token) => token.type !== "list"), nested.length ? "" : item.text);
+    // An empty item (or one still streaming in) still draws its bullet's line.
+    const own = text ? textHeight(text, inner, prepared) : 0;
+    return sum + Math.max(MESSAGE_LINE_HEIGHT, own + nested.reduce((total, child) => total + listHeight(child, inner, prepared), 0));
+  }, 0);
+}
+
 function blockHeight(block: Token, width: number, prepared: Map<string, PreparedText | null>): number {
   switch (block.type) {
-    // An empty item (or one still streaming in) still draws its bullet's line.
-    case "list": return (block as Tokens.List).items.reduce((sum, item) => sum + Math.max(MESSAGE_LINE_HEIGHT, textHeight(measuredText(item.tokens, item.text), width - LIST_INDENT, prepared)), 0);
+    case "list": return listHeight(block as Tokens.List, width, prepared);
     case "blockquote": return textHeight(measuredText((block as Tokens.Blockquote).tokens, (block as Tokens.Blockquote).text), width - QUOTE_INDENT, prepared);
     case "hr": return 2;
     case "code": {
@@ -245,3 +256,15 @@ export function visibleLayoutRange(layoutModel: ConversationLayout, scrollTop: n
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
+import type { AcpmuxSessionEntry } from "./sessionList";
+
+/// The pane header: the agent the session runs (its first prompt already titles the session
+/// picker and opens the transcript), and a status only when it says something to act on.
+export function paneHeader(snapshot: AcpmuxSnapshot): { title: string; status: string } {
+  const harness = snapshot.summary?.harness;
+  const title = (harness && snapshot.catalog?.find((entry) => entry.id === harness)?.name) || harness || "Agent Chat";
+  // A turn running when the connection dropped never ends, so connection trouble wins over Working.
+  const connection = snapshot.connection;
+  const status = connection === "disconnected" ? "Reconnecting" : connection.startsWith("connecting") ? "Connecting" : snapshot.isWorking ? "Working" : connection === "mock" ? "Mock" : "";
+  return { title, status };
+}

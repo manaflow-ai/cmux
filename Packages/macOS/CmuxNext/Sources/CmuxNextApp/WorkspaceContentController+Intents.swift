@@ -24,6 +24,16 @@ extension WorkspaceContentController {
             sendGesture(transaction, phase: phase, label: "set-viewport-pane-width") { connection in
                 try await connection.setColumnWidth(of: handle, width: width, transaction: daemonTransaction)
             }
+        case .setColumnSticky(_, let anyPane, let sticky, let transaction):
+            // Hidden until the daemon serves it; a stale intent rolls back.
+            guard daemon.supports(DaemonCapabilities.shared.stickyColumns), let handle = handles.panes[anyPane] else {
+                return layoutModel.rejectTransaction(transaction)
+            }
+            let daemonTransaction = gestureTransaction(transaction, phase: .ended)
+            let wire = sticky.map(LayoutMapping.snapshot)
+            sendGesture(transaction, phase: .ended, label: "set-column-sticky") { connection in
+                try await connection.setColumnSticky(of: handle, sticky: wire, transaction: daemonTransaction)
+            }
         case .selectScreen(let screen):
             // Every screen switch (switcher click, screen actions) focuses the
             // screen's most recently focused pane, like a tmux window's
@@ -123,7 +133,7 @@ extension WorkspaceContentController {
             }
         case .newColumn(let screen, let after):
             let column = after.flatMap { id in layoutModel.screens.first { $0.id == screen }?.layout.columns.first { $0.id == id } }
-                ?? layoutModel.screens.first { $0.id == screen }?.layout.columns.last
+                ?? layoutModel.screens.first { $0.id == screen }?.layout.columns.last { $0.sticky == nil }
             guard let anchor = column?.root.panes.last, let handle = handles.panes[anchor],
                   let paneModel = daemon.store.pane(handle) else { return }
             TabMoves.toNewColumn(tab, anchor: paneModel, afterColumn: column.flatMap { handles.columns[$0.id] }, services: services, completion: restore)

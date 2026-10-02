@@ -42,6 +42,7 @@ public final class LayoutRootView: NSView {
         var centerRequest: ColumnCenterRequest?
         var centerMode: CenterFocusedColumn
         var attention: [PaneID: AttentionMark]
+        var scrollbar: StripScrollbarMode
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
@@ -80,7 +81,7 @@ public final class LayoutRootView: NSView {
     @discardableResult
     public func moveFocus(_ direction: LayoutDirection) -> PaneID? {
         guard let active = model.activeScreenID, let view = screenViews[active] else { return nil }
-        return model.moveFocus(direction, frames: view.geometry.panes)
+        return model.moveFocus(direction, frames: view.navigationFrames)
     }
 
     /// The hosted content view of `pane`, if it has been created.
@@ -95,6 +96,13 @@ public final class LayoutRootView: NSView {
     public func splitPlacement(splitting pane: PaneID, axis: SplitAxis, removing: PaneID? = nil) -> SplitPlacement {
         guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return .split }
         return view.splitPlacement(splitting: pane, axis: axis, removing: removing)
+    }
+
+    /// Pane frames of the active screen for directional focus: sticky
+    /// columns placed before and after the strip (one logical line).
+    public var navigationFrames: [PaneID: CGRect] {
+        guard let active = model.activeScreenID, let view = screenViews[active] else { return [:] }
+        return view.navigationFrames
     }
 
     /// Displayed frame of `pane` in this view's coordinates (active screen only).
@@ -115,7 +123,8 @@ public final class LayoutRootView: NSView {
             gestureActive: model.isGestureActive,
             centerRequest: model.centerRequest,
             centerMode: model.centerFocusedColumn,
-            attention: model.attention
+            attention: model.attention,
+            scrollbar: model.stripScrollbar
         )
     }
 
@@ -127,12 +136,13 @@ public final class LayoutRootView: NSView {
                     screens: model.screens,
                     activeScreen: model.activeScreenID,
                     focused: model.focusedPane,
-                            dimsInactive: model.dimsInactivePanes,
+                    dimsInactive: model.dimsInactivePanes,
                     style: model.style,
                     gestureActive: model.isGestureActive,
                     centerRequest: model.centerRequest,
                     centerMode: model.centerFocusedColumn,
-                    attention: model.attention
+                    attention: model.attention,
+                    scrollbar: model.stripScrollbar
                 )
             }) {
                 guard let self else { return }

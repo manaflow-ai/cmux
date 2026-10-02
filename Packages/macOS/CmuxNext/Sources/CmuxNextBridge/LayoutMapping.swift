@@ -43,11 +43,21 @@ public struct LayoutMapping {
                 let id = LayoutHandleMap.columnID(column.id)
                 handles.columns[id] = column.id
                 let width = min(max(column.width, ColumnWidthPreset.widthRange.lowerBound), ColumnWidthPreset.widthRange.upperBound)
-                return LayoutColumn(id: id, width: width, root: root)
+                return LayoutColumn(id: id, width: width, root: root, sticky: column.sticky.map(Self.sticky))
             }
             return columns.isEmpty ? nil : .columns(columns)
         }
         return node(screen.layout, paneIDs: paneIDs, handles: &handles).map(ScreenLayout.splits)
+    }
+
+    /// Daemon `columns[].sticky` as the layout's sticky column.
+    public nonisolated static func sticky(_ snapshot: StickySnapshot) -> StickyColumn {
+        StickyColumn(edge: snapshot.edge == .left ? .left : .right, mode: snapshot.mode == .overlay ? .overlay : .docked)
+    }
+
+    /// The layout's sticky column as the daemon's.
+    public nonisolated static func snapshot(_ sticky: StickyColumn) -> StickySnapshot {
+        StickySnapshot(edge: sticky.edge == .left ? .left : .right, mode: sticky.mode == .overlay ? .overlay : .docked)
     }
 
     /// Converts one daemon layout node. Nil when nothing in it can be shown.
