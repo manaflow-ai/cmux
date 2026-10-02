@@ -1,0 +1,200 @@
+<a node_id=1 href="https://news.ycombinator.com/" />
+<a node_id=2 href="https://news.ycombinator.com/news">Hacker News</a>
+<a node_id=3 href="https://news.ycombinator.com/newest">new</a>
+<a node_id=4 href="https://news.ycombinator.com/front">past</a>
+<a node_id=5 href="https://news.ycombinator.com/newcomments">comments</a>
+<a node_id=6 href="https://news.ycombinator.com/ask">ask</a>
+<a node_id=7 href="https://news.ycombinator.com/show">show</a>
+<a node_id=8 href="https://news.ycombinator.com/jobs">jobs</a>
+<a node_id=9 href="https://news.ycombinator.com/submit">submit</a>
+<a node_id=10 href="https://news.ycombinator.com/login?goto=news">login</a>
+<a node_id=11 href="https://news.ycombinator.com/vote?id=49901736&amp;how=up&amp;goto=news" />
+<a node_id=12 href="https://github.com/ninjahawk/livenerf">Livenerf: Has Opus 5.5 been nerfed yet?</a>
+<a node_id=13 href="https://news.ycombinator.com/from?site=github.com/ninjahawk">github.com/ninjahawk</a>
+<a node_id=14 href="https://news.ycombinator.com/user?id=bryan0">bryan0</a>
+<a node_id=15 href="https://news.ycombinator.com/item?id=49901736">5 hours ago</a>
+<a node_id=16 href="https://news.ycombinator.com/hide?id=49901736&amp;goto=news">hide</a>
+<a node_id=17 href="https://news.ycombinator.com/item?id=49901736">143 comments</a>
+<a node_id=18 href="https://news.ycombinator.com/vote?id=49899090&amp;how=up&amp;goto=news" />
+<a node_id=19 href="https://postalemployeenetwork.com/news/2026/09/26/u-s-postal-inspectors-shut-down-website-selling-millions-of-counterfeit-postage-labels/">U.S. postal inspectors shut down website selling counterfeit postage labels</a>
+<a node_id=20 href="https://news.ycombinator.com/from?site=postalemployeenetwork.com">postalemployeenetwork.com</a>
+<a node_id=21 href="https://news.ycombinator.com/user?id=ilamont">ilamont</a>
+<a node_id=22 href="https://news.ycombinator.com/item?id=49899090">8 hours ago</a>
+<a node_id=23 href="https://news.ycombinator.com/hide?id=49899090&amp;goto=news">hide</a>
+<a node_id=24 href="https://news.ycombinator.com/item?id=49899090">113 comments</a>
+<a node_id=25 href="https://news.ycombinator.com/vote?id=49893509&amp;how=up&amp;goto=news" />
+<a node_id=26 href="https://america.gov/">America.gov</a>
+<a node_id=27 href="https://news.ycombinator.com/from?site=america.gov">america.gov</a>
+<a node_id=28 href="https://news.ycombinator.com/user?id=plesiv">plesiv</a>
+<a node_id=29 href="https://news.ycombinator.com/item?id=49893509">13 hours ago</a>
+<a node_id=30 href="https://news.ycombinator.com/hide?id=49893509&amp;goto=news">hide</a>
+<a node_id=31 href="https://news.ycombinator.com/item?id=49893509">347 comments</a>
+<a node_id=32 href="https://news.ycombinator.com/vote?id=49898778&amp;how=up&amp;goto=news" />
+<a node_id=33 href="https://space.bl2.net/">Show HN: Real-time Solar System with 526k asteroids and all tracked satellites</a>
+<a node_id=34 href="https://news.ycombinator.com/from?site=bl2.net">bl2.net</a>
+<a node_id=35 href="https://news.ycombinator.com/user?id=wanick">wanick</a>
+<a node_id=36 href="https://news.ycombinator.com/item?id=49898778">8 hours ago</a>
+<a node_id=37 href="https://news.ycombinator.com/hide?id=49898778&amp;goto=news">hide</a>
+<a node_id=38 href="https://news.ycombinator.com/item?id=49898778">35 comments</a>
+<a node_id=39 href="https://news.ycombinator.com/vote?id=49903383&amp;how=up&amp;goto=news" />
+<a node_id=40 href="https://mightygodking.com/2008/04/21/fun-from-yesterday/">Strange Parodies of Atari 2600 Video Game Box Cover Art (2008)</a>
+<a node_id=41 href="https://news.ycombinator.com/from?site=mightygodking.com">mightygodking.com</a>
+<a node_id=42 href="https://news.ycombinator.com/user?id=peter_d_sherman">peter_d_sherman</a>
+<a node_id=43 href="https://news.ycombinator.com/item?id=49903383">2 hours ago</a>
+<a node_id=44 href="https://news.ycombinator.com/hide?id=49903383&amp;goto=news">hide</a>
+<a node_id=45 href="https://news.ycombinator.com/item?id=49903383">3 comments</a>
+<a node_id=46 href="https://news.ycombinator.com/vote?id=49903993&amp;how=up&amp;goto=news" />
+<a node_id=47 href="https://github.com/Sparticle62ops/pssa">PSSA: A non-transformer language model written from scratch in Rust</a>
+<a node_id=48 href="https://news.ycombinator.com/from?site=github.com/sparticle62ops">github.com/sparticle62ops</a>
+<a node_id=49 href="https://news.ycombinator.com/user?id=sparticle62">sparticle62</a>
+<a node_id=50 href="https://news.ycombinator.com/item?id=49903993">28 minutes ago</a>
+<a node_id=51 href="https://news.ycombinator.com/hide?id=49903993&amp;goto=news">hide</a>
+<a node_id=52 href="https://news.ycombinator.com/item?id=49903993">discuss</a>
+<a node_id=53 href="https://news.ycombinator.com/vote?id=49896586&amp;how=up&amp;goto=news" />
+<a node_id=54 href="https://openai.com/index/introducing-gpt-6-1-sol/">GPT 6.1 Sol: Near-Astra intelligence for a fifth of the price</a>
+<a node_id=55 href="https://news.ycombinator.com/from?site=openai.com">openai.com</a>
+<a node_id=56 href="https://news.ycombinator.com/user?id=crorella">crorella</a>
+<a node_id=57 href="https://news.ycombinator.com/item?id=49896586">10 hours ago</a>
+<a node_id=58 href="https://news.ycombinator.com/hide?id=49896586&amp;goto=news">hide</a>
+<a node_id=59 href="https://news.ycombinator.com/item?id=49896586">756 comments</a>
+<a node_id=60 href="https://news.ycombinator.com/vote?id=49892245&amp;how=up&amp;goto=news" />
+<a node_id=61 href="https://spectrum.ieee.org/delhi-electricity-loss">How Delhi cut electricity loss from 50 to 5 percent</a>
+<a node_id=62 href="https://news.ycombinator.com/from?site=ieee.org">ieee.org</a>
+<a node_id=63 href="https://news.ycombinator.com/user?id=rbanffy">rbanffy</a>
+<a node_id=64 href="https://news.ycombinator.com/item?id=49892245">15 hours ago</a>
+<a node_id=65 href="https://news.ycombinator.com/hide?id=49892245&amp;goto=news">hide</a>
+<a node_id=66 href="https://news.ycombinator.com/item?id=49892245">268 comments</a>
+<a node_id=67 href="https://news.ycombinator.com/vote?id=49895304&amp;how=up&amp;goto=news" />
+<a node_id=68 href="https://github.com/ntfargo/Relapse-Exploit">PS5 Relapse Exploit</a>
+<a node_id=69 href="https://news.ycombinator.com/from?site=github.com/ntfargo">github.com/ntfargo</a>
+<a node_id=70 href="https://news.ycombinator.com/user?id=therepanic">therepanic</a>
+<a node_id=71 href="https://news.ycombinator.com/item?id=49895304">12 hours ago</a>
+<a node_id=72 href="https://news.ycombinator.com/hide?id=49895304&amp;goto=news">hide</a>
+<a node_id=73 href="https://news.ycombinator.com/item?id=49895304">139 comments</a>
+<a node_id=74 href="https://news.ycombinator.com/vote?id=49891203&amp;how=up&amp;goto=news" />
+<a node_id=75 href="https://magazine.sebastianraschka.com/p/classifier-history-and-jev">Language models for text classification: From bag-of-words to Jev</a>
+<a node_id=76 href="https://news.ycombinator.com/from?site=sebastianraschka.com">sebastianraschka.com</a>
+<a node_id=77 href="https://news.ycombinator.com/user?id=Anon84">Anon84</a>
+<a node_id=78 href="https://news.ycombinator.com/item?id=49891203">6 hours ago</a>
+<a node_id=79 href="https://news.ycombinator.com/hide?id=49891203&amp;goto=news">hide</a>
+<a node_id=80 href="https://news.ycombinator.com/item?id=49891203">1 comment</a>
+<a node_id=81 href="https://news.ycombinator.com/vote?id=49893002&amp;how=up&amp;goto=news" />
+<a node_id=82 href="https://www.backblaze.com/blog/backblaze-drive-stats-for-q2-2026/">Backblaze drive stats for Q2 2026</a>
+<a node_id=83 href="https://news.ycombinator.com/from?site=backblaze.com">backblaze.com</a>
+<a node_id=84 href="https://news.ycombinator.com/user?id=HieronymusBosch">HieronymusBosch</a>
+<a node_id=85 href="https://news.ycombinator.com/item?id=49893002">11 hours ago</a>
+<a node_id=86 href="https://news.ycombinator.com/hide?id=49893002&amp;goto=news">hide</a>
+<a node_id=87 href="https://news.ycombinator.com/item?id=49893002">22 comments</a>
+<a node_id=88 href="https://news.ycombinator.com/vote?id=49880411&amp;how=up&amp;goto=news" />
+<a node_id=89 href="https://jagi.studio/posts/phyllotaxis/">Phyllotaxis: An audio-reactive LED display</a>
+<a node_id=90 href="https://news.ycombinator.com/from?site=jagi.studio">jagi.studio</a>
+<a node_id=91 href="https://news.ycombinator.com/user?id=evakhoury">evakhoury</a>
+<a node_id=92 href="https://news.ycombinator.com/item?id=49880411">1 day ago</a>
+<a node_id=93 href="https://news.ycombinator.com/hide?id=49880411&amp;goto=news">hide</a>
+<a node_id=94 href="https://news.ycombinator.com/item?id=49880411">45 comments</a>
+<a node_id=95 href="https://news.ycombinator.com/vote?id=49895864&amp;how=up&amp;goto=news" />
+<a node_id=96 href="https://hereticpleb.vercel.app/blog/needed-one-plus-one/">Needed 1+1, built a functional programming language</a>
+<a node_id=97 href="https://news.ycombinator.com/from?site=hereticpleb.vercel.app">hereticpleb.vercel.app</a>
+<a node_id=98 href="https://news.ycombinator.com/user?id=birdculture">birdculture</a>
+<a node_id=99 href="https://news.ycombinator.com/item?id=49895864">5 hours ago</a>
+<a node_id=100 href="https://news.ycombinator.com/hide?id=49895864&amp;goto=news">hide</a>
+<a node_id=101 href="https://news.ycombinator.com/item?id=49895864">14 comments</a>
+<a node_id=102 href="https://news.ycombinator.com/vote?id=49884583&amp;how=up&amp;goto=news" />
+<a node_id=103 href="https://www.newyorker.com/tech/annals-of-technology/remembering-chicago-pile-worlds-first-nuclear-reactor">Remembering the Chicago Pile, the First Nuclear Reactor</a>
+<a node_id=104 href="https://news.ycombinator.com/from?site=newyorker.com">newyorker.com</a>
+<a node_id=105 href="https://news.ycombinator.com/user?id=conorcleary">conorcleary</a>
+<a node_id=106 href="https://news.ycombinator.com/item?id=49884583">2 hours ago</a>
+<a node_id=107 href="https://news.ycombinator.com/hide?id=49884583&amp;goto=news">hide</a>
+<a node_id=108 href="https://news.ycombinator.com/item?id=49884583">1 comment</a>
+<a node_id=109 href="https://news.ycombinator.com/vote?id=49871018&amp;how=up&amp;goto=news" />
+<a node_id=110 href="https://somethingbig.ai/computer">NAND-16: a computer built from 277,248 NAND gates</a>
+<a node_id=111 href="https://news.ycombinator.com/from?site=somethingbig.ai">somethingbig.ai</a>
+<a node_id=112 href="https://news.ycombinator.com/user?id=rossant">rossant</a>
+<a node_id=113 href="https://news.ycombinator.com/item?id=49871018">10 hours ago</a>
+<a node_id=114 href="https://news.ycombinator.com/hide?id=49871018&amp;goto=news">hide</a>
+<a node_id=115 href="https://news.ycombinator.com/item?id=49871018">62 comments</a>
+<a node_id=116 href="https://news.ycombinator.com/vote?id=49898050&amp;how=up&amp;goto=news" />
+<a node_id=117 href="https://www.theguardian.com/environment/2026/sep/29/night-sky-darkness-city-regulation">We’re forgetting what darkness feels like</a>
+<a node_id=118 href="https://news.ycombinator.com/from?site=theguardian.com">theguardian.com</a>
+<a node_id=119 href="https://news.ycombinator.com/user?id=pseudolus">pseudolus</a>
+<a node_id=120 href="https://news.ycombinator.com/item?id=49898050">5 hours ago</a>
+<a node_id=121 href="https://news.ycombinator.com/hide?id=49898050&amp;goto=news">hide</a>
+<a node_id=122 href="https://news.ycombinator.com/item?id=49898050">54 comments</a>
+<a node_id=123 href="https://news.ycombinator.com/vote?id=49896757&amp;how=up&amp;goto=news" />
+<a node_id=124 href="https://enigma.design/">Show HN: A working 3D model of an Enigma machine</a>
+<a node_id=125 href="https://news.ycombinator.com/from?site=enigma.design">enigma.design</a>
+<a node_id=126 href="https://news.ycombinator.com/user?id=primitivesuave">primitivesuave</a>
+<a node_id=127 href="https://news.ycombinator.com/item?id=49896757">6 hours ago</a>
+<a node_id=128 href="https://news.ycombinator.com/hide?id=49896757&amp;goto=news">hide</a>
+<a node_id=129 href="https://news.ycombinator.com/item?id=49896757">12 comments</a>
+<a node_id=130 href="https://news.ycombinator.com/vote?id=49859482&amp;how=up&amp;goto=news" />
+<a node_id=131 href="https://gamesexplained.com/c64/mercenary/">Commodore 64: Mercenary</a>
+<a node_id=132 href="https://news.ycombinator.com/from?site=gamesexplained.com">gamesexplained.com</a>
+<a node_id=133 href="https://news.ycombinator.com/user?id=a1r">a1r</a>
+<a node_id=134 href="https://news.ycombinator.com/item?id=49859482">7 hours ago</a>
+<a node_id=135 href="https://news.ycombinator.com/hide?id=49859482&amp;goto=news">hide</a>
+<a node_id=136 href="https://news.ycombinator.com/item?id=49859482">6 comments</a>
+<a node_id=137 href="https://news.ycombinator.com/vote?id=49894351&amp;how=up&amp;goto=news" />
+<a node_id=138 href="https://frostyard.github.io/nsl/">Show HN: NSL – WSL for Linux</a>
+<a node_id=139 href="https://news.ycombinator.com/from?site=frostyard.github.io">frostyard.github.io</a>
+<a node_id=140 href="https://news.ycombinator.com/user?id=bketelsen">bketelsen</a>
+<a node_id=141 href="https://news.ycombinator.com/item?id=49894351">12 hours ago</a>
+<a node_id=142 href="https://news.ycombinator.com/hide?id=49894351&amp;goto=news">hide</a>
+<a node_id=143 href="https://news.ycombinator.com/item?id=49894351">70 comments</a>
+<a node_id=144 href="https://news.ycombinator.com/vote?id=49878857&amp;how=up&amp;goto=news" />
+<a node_id=145 href="https://sujithjay.com/inventing-work">A Staff Engineer's Guide to Inventing Work</a>
+<a node_id=146 href="https://news.ycombinator.com/from?site=sujithjay.com">sujithjay.com</a>
+<a node_id=147 href="https://news.ycombinator.com/user?id=amortize">amortize</a>
+<a node_id=148 href="https://news.ycombinator.com/item?id=49878857">15 hours ago</a>
+<a node_id=149 href="https://news.ycombinator.com/hide?id=49878857&amp;goto=news">hide</a>
+<a node_id=150 href="https://news.ycombinator.com/item?id=49878857">44 comments</a>
+<a node_id=151 href="https://news.ycombinator.com/vote?id=49901149&amp;how=up&amp;goto=news" />
+<a node_id=152 href="https://lucumr.pocoo.org/2026/9/29/deser/">Deser: Rethinking Rust Serialization</a>
+<a node_id=153 href="https://news.ycombinator.com/from?site=pocoo.org">pocoo.org</a>
+<a node_id=154 href="https://news.ycombinator.com/user?id=tosh">tosh</a>
+<a node_id=155 href="https://news.ycombinator.com/item?id=49901149">6 hours ago</a>
+<a node_id=156 href="https://news.ycombinator.com/hide?id=49901149&amp;goto=news">hide</a>
+<a node_id=157 href="https://news.ycombinator.com/item?id=49901149">6 comments</a>
+<a node_id=158 href="https://news.ycombinator.com/vote?id=49893157&amp;how=up&amp;goto=news" />
+<a node_id=159 href="https://news.ycombinator.com/item?id=49893157">Ask HN: What are you reading?</a>
+<a node_id=160 href="https://news.ycombinator.com/user?id=dan-bailey">dan-bailey</a>
+<a node_id=161 href="https://news.ycombinator.com/item?id=49893157">12 hours ago</a>
+<a node_id=162 href="https://news.ycombinator.com/hide?id=49893157&amp;goto=news">hide</a>
+<a node_id=163 href="https://news.ycombinator.com/item?id=49893157">422 comments</a>
+<a node_id=164 href="https://news.ycombinator.com/vote?id=49896712&amp;how=up&amp;goto=news" />
+<a node_id=165 href="https://www.tcl-lang.org/software/tcltk/9.1.html">Tcl/Tk 9.1</a>
+<a node_id=166 href="https://news.ycombinator.com/from?site=tcl-lang.org">tcl-lang.org</a>
+<a node_id=167 href="https://news.ycombinator.com/user?id=dmux">dmux</a>
+<a node_id=168 href="https://news.ycombinator.com/item?id=49896712">10 hours ago</a>
+<a node_id=169 href="https://news.ycombinator.com/hide?id=49896712&amp;goto=news">hide</a>
+<a node_id=170 href="https://news.ycombinator.com/item?id=49896712">91 comments</a>
+<a node_id=171 href="https://news.ycombinator.com/vote?id=49866031&amp;how=up&amp;goto=news" />
+<a node_id=172 href="https://cathsenker.co.uk/stuck-in-the-suez-canal-the-short-version/">Stuck in the Suez Canal – the short version (2021)</a>
+<a node_id=173 href="https://news.ycombinator.com/from?site=cathsenker.co.uk">cathsenker.co.uk</a>
+<a node_id=174 href="https://news.ycombinator.com/user?id=joebig">joebig</a>
+<a node_id=175 href="https://news.ycombinator.com/item?id=49866031">8 hours ago</a>
+<a node_id=176 href="https://news.ycombinator.com/hide?id=49866031&amp;goto=news">hide</a>
+<a node_id=177 href="https://news.ycombinator.com/item?id=49866031">5 comments</a>
+<a node_id=178 href="https://news.ycombinator.com/vote?id=49897993&amp;how=up&amp;goto=news" />
+<a node_id=179 href="https://www.bbc.com/future/article/20260928-a-virtual-power-plant-hidden-in-vermont-homes-is-keeping-the-lights-on-during-storms">Vermont replacing power plants with home batteries</a>
+<a node_id=180 href="https://news.ycombinator.com/from?site=bbc.com">bbc.com</a>
+<a node_id=181 href="https://news.ycombinator.com/user?id=devonnull">devonnull</a>
+<a node_id=182 href="https://news.ycombinator.com/item?id=49897993">6 hours ago</a>
+<a node_id=183 href="https://news.ycombinator.com/hide?id=49897993&amp;goto=news">hide</a>
+<a node_id=184 href="https://news.ycombinator.com/item?id=49897993">104 comments</a>
+<a node_id=185 href="https://news.ycombinator.com/vote?id=49891295&amp;how=up&amp;goto=news" />
+<a node_id=186 href="https://www.derekthompson.org/p/the-death-of-the-american-host">Everybody’s home. No one’s coming over</a>
+<a node_id=187 href="https://news.ycombinator.com/from?site=derekthompson.org">derekthompson.org</a>
+<a node_id=188 href="https://news.ycombinator.com/user?id=barry-cotter">barry-cotter</a>
+<a node_id=189 href="https://news.ycombinator.com/item?id=49891295">16 hours ago</a>
+<a node_id=190 href="https://news.ycombinator.com/hide?id=49891295&amp;goto=news">hide</a>
+<a node_id=191 href="https://news.ycombinator.com/item?id=49891295">684 comments</a>
+<a node_id=192 href="https://news.ycombinator.com/vote?id=49896604&amp;how=up&amp;goto=news" />
+<a node_id=193 href="https://openai.com/index/introducing-dots/">Dots: Always-on agents</a>
+<a node_id=194 href="https://news.ycombinator.com/from?site=openai.com">openai.com</a>
+<a node_id=195 href="https://news.ycombinator.com/user?id=alvis">alvis</a>
+<a node_id=196 href="https://news.ycombinator.com/item?id=49896604">10 hours ago</a>
+<a node_id=197 href="https://news.ycombinator.com/hide?id=49896604&amp;goto=news">hide</a>
+<a node_id=198 href="https://news.ycombinator.com/item?id=49896604">360 comments</a>
+<a node_id=199 href="https://news.ycombinator.com/vote?id=49892175&amp;how=up&amp;goto=news" />
+<a node_id=200 href="https://www.withouthotair.com/">Sustainable energy without the hot air (2008)</a>

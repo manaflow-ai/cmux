@@ -59,6 +59,13 @@ export const Eye = (p: P) => (
     <circle cx="8" cy="8" r="2" />
   </svg>
 );
+export const More = (p: P) => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="currentColor" aria-hidden {...p}>
+    <circle cx="3.5" cy="8" r="1.1" />
+    <circle cx="8" cy="8" r="1.1" />
+    <circle cx="12.5" cy="8" r="1.1" />
+  </svg>
+);
 export const Search = (p: P) => (
   <svg {...line(16)} {...p}>
     <circle cx="7" cy="7" r="4.6" />

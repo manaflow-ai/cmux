@@ -1040,6 +1040,122 @@ describe("acpmux turn diff", () => {
     }
   });
 
+  test("a file's More menu copies its path and folds it, from the mouse or the keyboard", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window;
+    const document = dom.window.document;
+    const copied: string[] = [];
+    const clipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, "clipboard");
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void copied.push(text) },
+    });
+    const diffRow: AcpmuxRow = {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      toolCount: 2,
+      items: [
+        {
+          kind: "tool",
+          text: "Edit main.ts",
+          tool: {
+            id: "t1",
+            title: "Edit main.ts",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/src/main.ts", oldText: "a\nb\nc\n", newText: "a\nB\nc\n" }],
+          },
+        },
+        {
+          kind: "tool",
+          text: "Write notes.md",
+          tool: {
+            id: "t2",
+            title: "Write notes.md",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/notes.md", newText: "hello\n" }],
+          },
+        },
+      ],
+    };
+    const click = (node: Element) =>
+      act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+    const key = (node: Element, name: string) =>
+      act(async () => {
+        node.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+      });
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow],
+          sessions: [],
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        }),
+      );
+      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
+      const diffShown = () =>
+        [...panel.querySelectorAll(".acpmux-diff-file")].map((node) => node.querySelector("diffs-container") !== null);
+      const more = panel.querySelector<HTMLElement>('[aria-label="More actions for notes.md"]')!;
+      expect(more).not.toBeNull();
+      expect([more.getAttribute("aria-haspopup"), more.getAttribute("aria-expanded")]).toEqual(["menu", "false"]);
+      const items = () => [...panel.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')];
+      // The menu opens on its first item; Copy path copies the file's full path and closes it.
+      more.focus();
+      await click(more);
+      expect(more.getAttribute("aria-expanded")).toBe("true");
+      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Collapse file"]);
+      expect(document.activeElement).toBe(items()[0]);
+      await click(items()[0]!);
+      expect(copied).toEqual(["/repo/notes.md"]);
+      expect(items()).toEqual([]);
+      expect(document.activeElement).toBe(more);
+      // From the keyboard: Arrow Down moves to Collapse file, Enter folds the file.
+      await click(more);
+      await key(items()[0]!, "ArrowDown");
+      expect(document.activeElement?.textContent).toBe("Collapse file");
+      await key(document.activeElement!, "Enter");
+      expect(diffShown()).toEqual([true, false]);
+      expect(items()).toEqual([]);
+      // Folded, the item opens the file again.
+      await click(more);
+      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Expand file"]);
+      await click(items()[1]!);
+      expect(diffShown()).toEqual([true, true]);
+      // Escape closes only the menu and returns focus to its button; the view stays open.
+      await click(more);
+      await key(items()[0]!, "Escape");
+      expect(items()).toEqual([]);
+      expect(document.activeElement).toBe(more);
+      expect(document.querySelector(".acpmux-diff-panel")).not.toBeNull();
+      // A press anywhere else closes it too.
+      await click(more);
+      await act(async () => {
+        panel
+          .querySelector(".acpmux-diff-header")!
+          .dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+      });
+      expect(items()).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+      delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
+      if (clipboard) Object.defineProperty(globalThis.navigator, "clipboard", clipboard);
+      else delete (globalThis.navigator as unknown as Record<string, unknown>).clipboard;
+    }
+  });
+
   test("a file header keeps focus as its file folds, the tree opens a folded file, and Escape leaves the filter alone", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const host = dom.window as unknown as Window;

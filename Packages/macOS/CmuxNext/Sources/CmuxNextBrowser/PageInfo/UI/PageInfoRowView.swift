@@ -164,7 +164,7 @@ final class PageInfoRowView: NSView {
     }
 
     private func refreshFill() {
-        layer?.borderWidth = showsFocus ? 1.5 : 0
+        layer?.borderWidth = Metrics.lineWidth(showsFocus ? 1.5 : 0)
         performWithTheme {
             let fill: NSColor = isPressed ? PageInfoStyle.pressed : (isHovering || showsFocus ? PageInfoStyle.hover : .clear)
             layer?.backgroundColor = fill.cgColor

@@ -1,0 +1,57 @@
+Browser tab: 370922480, Title: "NPR : National Public Radio", URL: "http://127.0.0.1:18911/corpus/npr.html".
+1 AXWebArea NPR : National Public Radio, URL: 127.0.0.1:18911/corpus/npr.html
+	2 container
+		3 text Text-Only Version 
+		4 link Description: Go To Full Site, Value: npr.org/
+	5 container
+		6 heading NPR : National Public Radio, Value: 1
+			7 text NPR : National Public Radio
+		8 text Tuesday, September 29, 2026
+		9 content list
+			10 link Description: Cornell fraternity rape case is reopened, as Hochul calls for review of school response, Value: text.npr.org/nx-s1-5983480
+			11 link Description: U.S. Supreme Court sides with Trump administration in third-country deportations, Value: text.npr.org/g-s1-145266
+			12 link Description: What to know about the $810 million in spending canceled by President Trump, Value: text.npr.org/nx-s1-5982739
+			13 link Description: Potential Taiwan tension sparked 'last minute' change in Trump-Xi National Archives visit, Value: text.npr.org/nx-s1-5984989
+			14 link Description: Tennessee is set to execute a woman for the first time in 200 years, Value: text.npr.org/g-s1-145408
+			15 link Description: How to hide your spending habits from retailers (so you don't get ripped off), Value: text.npr.org/nx-s1-5983457
+			16 link Description: Mahmoud Khalil on his detention by ICE: 'It is a stain on the U.S. consciousness', Value: text.npr.org/nx-s1-5984548
+			17 link Description: The Senate passes the Protect College Sports Act, but the bill's future is unclear, Value: text.npr.org/nx-s1-5977851
+			18 link Description: This startup wants to prove gene-editing embryos is safe for making healthy babies, Value: text.npr.org/nx-s1-5950439
+			19 link Description: 5 men arrested near a U.S.-run base bailed as UK police probe if there's an Iran link, Value: text.npr.org/g-s1-145245
+			20 link Description: Meet the 20 scholars and artists who've just won MacArthur Fellowships, Value: text.npr.org/nx-s1-5980447
+			21 link Description: This year's MacArthur Fellows include researchers who fuse science and justice, Value: text.npr.org/nx-s1-5983444
+			22 link Description: As the U.S. signals a smaller Middle East footprint, Turkey is ready to step in, Value: text.npr.org/nx-s1-5983685
+			23 link Description: News organizations ask court to bar White House enforcement of access ban, Value: text.npr.org/nx-s1-5984349
+			24 link Description: Melissa Aldana with Gonzalo Rubalcaba: Tiny Desk Concert, Value: text.npr.org/1234569831
+			25 link Description: How to speak in public with confidence, Value: text.npr.org/1196978022
+			26 link Description: Simple ways to keep your car running smoothly, Value: text.npr.org/1109431302
+			27 link Description: How to ask about guns before a playdate, Value: text.npr.org/1196978309
+			28 link Description: Dear Life Kit: Is a recital really more important than my wedding?, Value: text.npr.org/1099758306
+			29 link Description: Democrat Pete Buttigieg criticizes Trump's rollback of fuel-economy standards, Value: text.npr.org/nx-s1-5983537
+	30 container
+		31 text Topics
+		32 content list
+			33 container
+				34 AXListMarker • 
+				35 link Description: News, Value: text.npr.org/1001
+			36 container
+				37 AXListMarker • 
+				38 link Description: Culture, Value: text.npr.org/1008
+			39 container
+				40 AXListMarker • 
+				41 link Description: Music, Value: text.npr.org/1039
+	42 container
+		43 link Description: Contact Us, Value: text.npr.org/614470770
+		44 link Description: Terms of Use, Value: text.npr.org/179876898
+		45 link Description: Permissions, Value: text.npr.org/179881519
+		46 link Description: Privacy Policy, Value: text.npr.org/179878450
+		47 text © NPR
+	48 container react-scan-toast
+		49 container react-scan-toast-title
+			50 text ⚛️ React Not Detected
+		51 text React is not detected on this page.
+Please ensure you're visiting a React application.
+		52 button react-scan-toast-close-button
+			53 image
+
+The focused UI element is 1 AXWebArea NPR : National Public Radio, URL: 127.0.0.1:18911/corpus/npr.html

@@ -1,0 +1,197 @@
+Browser tab: 370922480, Title: "BBC News - Breaking news, video and the latest top stories from the U.S. and around the world", URL: "http://127.0.0.1:18911/corpus/bbc.html".
+1 AXWebArea BBC News - Breaking news, video and the latest top stories from the U.S. and around the world, URL: 127.0.0.1:18911/corpus/bbc.html
+	2 container
+		3 link Description: Skip to content, Value: bbc.com/news#bbc-main
+		4 container
+			5 button (collapsed) Description: Open menu, Secondary Actions: Expand
+				6 image
+			7 link Description: Watch Live, Value: bbc.com/watch-live-news/
+			8 link Description: British Broadcasting Corporation, Value: bbc.com/
+			9 button Subscribe
+			10 link Description: Sign In, Value: session.bbc.com/session?userOrigin=BBCS_BBC&ptrt=https%3A%2F%2Fwww.bbc.com%2Fnews
+		11 container main-navigation-container
+			12 content list
+				13 link Description: Home, Value: bbc.com/
+				14 link Description: News, Value: bbc.com/news
+				15 link Description: Sport, Value: bbc.com/sport
+				16 link Description: Business, Value: bbc.com/business
+				17 link Description: Technology, Value: bbc.com/technology
+				18 link Description: Health, Value: bbc.com/health
+				19 link Description: Culture, Value: bbc.com/culture
+				20 link Description: Arts, Value: bbc.com/arts
+				21 link Description: Travel, Value: bbc.com/travel
+				22 link Description: Earth, Value: bbc.com/future-planet
+				23 link Description: Audio, Value: bbc.com/audio
+				24 link Description: Video, Value: bbc.com/video
+				25 link Description: Live, Value: bbc.com/live
+				26 link Description: Documentaries, Value: bbc.com/video/docs
+			27 content list
+				28 link Description: US & Canada, Value: bbc.com/news/us-canada
+				29 link Description: UK, Value: bbc.com/news/uk
+				30 link Description: Africa, Value: bbc.com/news/world/africa
+				31 link Description: Asia, Value: bbc.com/news/world/asia
+				32 link Description: Australia, Value: bbc.com/news/world/australia
+				33 link Description: Europe, Value: bbc.com/news/world/europe
+				34 link Description: Latin America, Value: bbc.com/news/world/latin_america
+				35 link Description: Middle East, Value: bbc.com/news/world/middle_east
+				36 link Description: In Pictures, Value: bbc.com/news/in_pictures
+				37 link Description: BBC InDepth, Value: bbc.com/news/bbcindepth
+				38 link Description: BBC Verify, Value: bbc.com/news/bbcverify
+		39 container
+			40 heading News, Value: 1
+				41 image News
+			42 container
+				43 link Description: Aerial footage shows white vans in Whelford, near RAF Fairford., Value: bbc.com/news/articles/cqn8m342rgk9o
+				44 link Value: bbc.com/news/articles/cqn8m342rgk9o, Description: One of the five men arrested near RAF Fairford called 999 himself He made the call almost an hour before a farmer also called police after seeing men in balaclavas. 4 hrs ago UK
+				45 link Value: bbc.com/news/articles/cmrergq3j7lgo, Description: Moonshot AI logo on a smartphone Chinese AI tool told researchers how to make bioweapons Mindgard said it discovered in July that Kimi models K2.6 and K3 Swarm could evade developer's safety limits. 5 hrs ago Technology
+				46 link Value: bbc.com/news/articles/c5rm9gv7n07xo, Description: Former American Idol contestant and pastor found guilty of murdering wife Caleb Flynn weeps in court as he is convicted of shooting his wife, Ashley, dead in their Ohio home. 6 hrs ago US & Canada
+				47 link Value: bbc.com/news/articles/cwe879654mj7o, Description: US Supreme Court denies Christa Pike's last-ditch bid to halt execution The Tennessee inmate has been awaiting execution since she was sentenced to death in 1996 for the murder of a teenage classmate. 4 hrs ago US & Canada
+				48 link Value: bbc.com/news/articles/cme30dz5vkzko, Description: US President Donald Trump and SpacexAI Founder and CEO Elon Musk speak to the media at the White House driveway following a luncheon for tech leaders in the East Room, in Washington, DC, US, 29 September 29, 2026. Three takeaways from Trump's 'Super Intelligence' summit The president also signed an executive order requiring his government to refer to AI as Super Intelligence. 26 mins ago Business
+				49 link Value: bbc.com/news/articles/cjkg7k6z9296o, Description: A man in a silver cloak stands near a blazing furnace holding a metal prod Ukraine's prized steel industry left in ruins by Russian missile campaign Ukraine's remaining steelworks, a vital part of its economy, have all but ground to a halt because of relentless attacks. 4 hrs ago Europe
+				50 link Value: bbc.com/sport/football/articles/c65y51l3gzq4o, Description: Manchester City celebration winning the Premier League title The intricate web Man City spun to con the Premier League The 40-page document which confirmed Manchester City were found guilty of inflating sponsorship income makes fascinating reading. Here's what it sets out. 7 hrs ago Man City
+				51 link Value: bbc.com/news/videos/cv70d2nd6r0yo, Description: White building falling into a river Watch: Moment a government building collapses into a river in Nepal amid floods The municipality building in Baglung was left teetering on an unstable ledge due to floods before it fell into a river. 28 mins ago Asia
+			52 container
+				53 link Description: Spain announces ban on evictions after protests over 87-year-old woman's removal from flat, Value: bbc.com/news/articles/cwm2qmjgy93do
+				54 link Description: Six Flags shuts down X2 rollercoaster after more than 100 allege brain injuries, Value: bbc.com/news/articles/cw14d37446d8o
+				55 link Description: 'I was lured into a trap': Evan Gershkovich on moment that led to 16 months in Russian jail, Value: bbc.com/news/articles/ck9qr8jy8ynyo
+				56 link Description: South Africa to clean up high-risk areas after 12 women killed, Value: bbc.com/news/articles/c51kx9ze1mdzo
+				57 link Description: More than 400 detained as France student protests escalate, Value: bbc.com/news/articles/c862epne7glyo
+			58 container
+				59 heading MORE TO EXPLORE, Value: 2
+					60 text MORE TO EXPLORE
+			61 container
+				62 link Description: A person stands in front of William Turner’s 1835 painting “Rome, from Mount Aventine”, Value: bbc.com/news/videos/crkgwvqjk0g7o
+				63 link Value: bbc.com/news/videos/crkgwvqjk0g7o, Description: Close-up look at Turner's '£50m' Rome painting on show in the city Turner’s early 19th century painting - Rome, from Mount Aventine - will be on display in the Italian capital for the first time ahead of an auction in London in December. 14 hrs ago Europe
+				64 link Value: bbc.com/news/articles/cm4gl1yllg6po, Description: Three university students sitting on concrete stairs, talking and smiling while looking at a digital tablet and laptop. There are two women to the left both looking at a male student to the right. Hidden habits that make your social anxiety worse - and how to break them Social anxiety is more common than many think. Here's what you need to know about the condition. 3 hrs ago Health
+				65 link Value: bbc.com/news/articles/c6p3kelx4epwo, Description: How did the RAF Fairford incident go from 'suspected bomb plot' to police bail? Detectives are entering a vital stage of the investigation, with a number of options still open, the BBC's Daniel Sandford writes. 8 hrs ago UK
+				66 link Value: bbc.com/news/videos/c6lymekx0repo, Description: Are Trump's US government funded ads illegal? President Trump has faced criticism after fronting adverts which were paid for by the US government. 1 day ago BBC Verify
+				67 link Value: bbc.com/news/articles/c63eqgz41n0xo, Description:  Perez leaning against a blue Honda car in a parking lot, smiling Venezuelan man shot by ICE in Texas is charged with assault Wilber Rafael Garces-Perez is accused of striking an agent with his car's side-view mirror while driving away. 4 hrs ago US & Canada
+				68 link Value: bbc.com/news/articles/cmdx575lq49xo, Description: Gyanesh Kumar, Chief Election Commissioner (CEC) of India, addresses a press conference in New Delhi on August 17, 2025. (Photo by Sajjad HUSSAIN / AFP) (Photo by SAJJAD HUSSAIN/AFP via Getty Images) How India's election chief became embroiled in a crisis of trust Praised as a tough administrator, Gyanesh Kumar now finds himself at the centre of election-related controversy. 6 hrs ago India
+				69 link Value: bbc.com/news/articles/cv5yjgrj4ello, Description: Several pinned beetle specimens in a museum-style display tray. Their oval wing cases shine metallic gold, green and bronze under bright light, with fine ridges running lengthways along their backs. The largest beetle, on the right, has six dark grey legs spread outward and curved, claw-like feet. Smaller beetles lie nearby, partly cropped by the frame. Each specimen is mounted on a thin pin above a small white identification label, some with tiny printed codes. The tray has white sides and a pale grey base. The bright reflections make the insects appear almost jewel-like, although they are preserved scientific specimens. How AI is creating a UK super-museum and revealing our planet's history More than 70 million specimens from 100 UK collections will be put into an online digital museum 3 hrs ago Science & Environment
+				70 link Value: bbc.com/sport/football/videos/cjly4dlwd1n5o, Description: Ferran Soriano questioned Man City CEO refuses to answer questions on guilty verdict Manchester City chief executive Ferran Soriano refused to answer questions about the Premier League charges from BBC Sports Editor Dan Roan at a conference of top European clubs in Copenhagen. 13 hrs ago
+			71 container
+				72 heading MOST WATCHED, Value: 2
+					73 text MOST WATCHED
+				74 link Description: 1 Why an investigation into alleged frat house gang rape is reopening, Value: bbc.com/news/videos/cqvgyrr0mrngo
+				75 link Description: 2 Watch: Luxury units uncovered inside an Indonesian prison, Value: bbc.com/news/videos/c6vgy293vvp3o
+				76 link Description: 3 Watch: Moment a government building collapses into a river in Nepal amid floods, Value: bbc.com/news/videos/cv70d2nd6r0yo
+				77 link Description: 4 Fires and blockades as students stage school protests across France, Value: bbc.com/news/videos/cmy0zey3ey2lo
+				78 link Description: 5 Would you pay for this robot to clean your house?, Value: bbc.com/news/videos/c6lyq52wx7dko
+			79 container
+				80 heading ALSO IN NEWS, Value: 2
+					81 text ALSO IN NEWS
+			82 container
+				83 link Description: Clancy in court on Tuesday, Value: bbc.com/news/articles/c8046wd93l44o
+				84 link Value: bbc.com/news/articles/c8046wd93l44o, Description: Lindsay Clancy appears in court as her lawyer pushes for murder case dismissal Clancy's defence lawyer wants her to be cleared of murdering her three children in 2023 but prosecutors say the state proved guilt. 10 hrs ago US & Canada
+				85 link Value: bbc.com/news/articles/c5wyzrm0n74ro, Description: A stock picture of students walking in the Cornell university campus US prosecutors reopen case of alleged gang rape at Cornell University It comes after the woman filed a civil lawsuit alleging she was drugged and raped at a fraternity house in 2024. 7 hrs ago US & Canada
+				86 link Value: bbc.com/news/articles/cvlylj41egxgo, Description: Israeli security forces and journalists inspect a destroyed car and a fire-damaged home belonging to the al-Tubasi family, following an Israeli settler attack in Jalud, in the occupied West Bank (29 September 2026) Israeli settlers attack West Bank village and block Palestinian family's return home Two homes belonging to the al-Tubasi family were set on fire and Israeli security forces were also targeted by settlers. 15 hrs ago Middle East
+				87 link Value: bbc.com/news/articles/crn8e069v7p7o, Description: Hindu monks stand in front of the Eiffel Tower wearing traditional orange robes. Eiffel Tower chief to quit after female staff replaced by men during religious visit The company that runs the Eiffel Tower said the removal of female staff during the visit earlier this month was "unacceptable". 11 hrs ago Europe
+				88 link Value: bbc.com/news/articles/cw5ym18znr0ro, Description: An FBI agent stands near a security point at Los Angeles Stadium (SoFi Stadium) ahead of the 2026 World Cup Group G football match between Iran and New Zealand in Inglewood, California, on June 15, 2026. Dutch police arrest suspected member of group that claimed FBI hack The suspect, 24, was arrested before the alleged cyber attack took place. 12 hrs ago Technology
+			89 container
+				90 heading MOST READ, Value: 2
+					91 text MOST READ
+				92 link Description: 1 US prosecutors reopen case of alleged gang rape at Cornell University, Value: bbc.com/news/articles/c5wyzrm0n74ro
+				93 link Description: 2 One of the five men arrested near RAF Fairford called 999 himself, Value: bbc.com/news/articles/cqn8m342rgk9o
+				94 link Description: 3 Former American Idol contestant and pastor found guilty of murdering wife, Value: bbc.com/news/articles/c5rm9gv7n07xo
+				95 link Description: 4 Six Flags shuts down X2 rollercoaster after more than 100 allege brain injuries, Value: bbc.com/news/articles/cw14d37446d8o
+				96 link Description: 5 Three takeaways from Trump's 'Super Intelligence' summit, Value: bbc.com/news/articles/cme30dz5vkzko
+				97 link Description: 6 US Supreme Court denies Christa Pike's last-ditch bid to halt execution, Value: bbc.com/news/articles/cwe879654mj7o
+				98 link Description: 7 Chinese AI tool told researchers how to make bioweapons, Value: bbc.com/news/articles/cmrergq3j7lgo
+				99 link Description: 8 Ukraine's prized steel industry left in ruins by Russian missile campaign, Value: bbc.com/news/articles/cjkg7k6z9296o
+				100 link Description: 9 Spain announces ban on evictions after protests over 87-year-old woman's removal from flat, Value: bbc.com/news/articles/cwm2qmjgy93do
+				101 link Description: 10 Felled Sycamore Gap stump has 'encouraging' growth, Value: bbc.com/news/articles/c8vgyxrlve46o
+			102 container
+				103 heading SPORT, Value: 2
+					104 text SPORT
+			105 container
+				106 link Description: Manchester City celebration winning the Premier League title, Value: bbc.com/sport/football/articles/c65y51l3gzq4o
+				107 link Value: bbc.com/sport/football/articles/c65y51l3gzq4o, Description: The intricate web Man City spun to con the Premier League The 40-page document which confirmed Manchester City were found guilty of inflating sponsorship income makes fascinating reading. Here's what it sets out. 7 hrs ago Man City
+				108 link Value: bbc.com/sport/football/articles/c8dx51r59xndo, Description: Trent Alexander-Arnold Time for Tuchel to offer Alexander-Arnold some trust Having been overlooked for so long, Trent Alexander-Arnold produced a world-class moment on his return, writes Phil McNulty. 6 hrs ago England Men
+				109 link Value: bbc.com/sport/football/articles/c63reg93xwzro, Description: Man City guilty of 'sham' contracts and £830m 'disguised funding scheme' The Premier League confirms that Manchester City have been found guilty of all charges related to breaches of Premier League financial rules between 2009-10 and 2017-18. 10 hrs ago Man City
+				110 link Value: bbc.com/sport/rugby-union/articles/ck7902q3g5vgo, Description: Saracens face fines over 'wine consultant' Venter's media no-shows Saracens are facing fines from Prem Rugby for director of rugby Brendan Venter's failure to fulfil media commitments. 12 hrs ago Saracens
+				111 link Value: bbc.com/sport/football/articles/cmrl6g9nw5lyo, Description: Billy Gilmour of Scotland New coach, new players, but same old failings hamper Scotland Self-inflicted wounds cost Scotland on Sebastien Pocognoli's Hampden debut, writes Tom English. 5 hrs ago Scotland Men
+				112 link Value: bbc.com/sport/football/articles/c6g7kldr9378o, Description: Morgan Rogers celebrates with Anthony Gordon. Who continues to show how important they are? England player ratings How the England players rated following their Nations League match. 7 hrs ago England Men
+				113 link Value: bbc.com/sport/football/articles/cmed7q89vp5no, Description: Roy Keane working as a pundit I'd stick my Man City medals in bin - Keane Roy Keane says he would throw his "medals in the bin" if he were a Manchester City player after the club were found guilty of all charges relating to breaches of Premier League financial rules. 5 hrs ago Football
+		114 container bbc-footer
+			115 link Description: British Broadcasting Corporation, Value: bbc.com/
+			116 container Footer navigation
+				117 content list
+					118 link Description: Home, Value: bbc.com/
+					119 link Description: News, Value: bbc.com/news
+					120 link Description: Sport, Value: bbc.com/sport
+					121 link Description: Business, Value: bbc.com/business
+					122 link Description: Technology, Value: bbc.com/technology
+					123 link Description: Health, Value: bbc.com/health
+					124 link Description: Culture, Value: bbc.com/culture
+					125 link Description: Arts, Value: bbc.com/arts
+					126 link Description: Travel, Value: bbc.com/travel
+					127 link Description: Earth, Value: bbc.com/future-planet
+					128 link Description: Audio, Value: bbc.com/audio
+					129 link Description: Video, Value: bbc.com/video
+					130 link Description: Live, Value: bbc.com/live
+					131 link Description: Documentaries, Value: bbc.com/video/docs
+					132 link Description: Weather, Value: bbc.com/weather
+					133 link Description: BBC Shop, Value: shop.bbc.com/
+					134 link Description: BritBox, Value: britbox.com/?utm_source=bbc.com&utm_medium=referral&utm_campaign=footer
+			135 button BBC in other languages
+				136 text BBC in other languages
+				137 image
+			138 text Follow BBC on:
+			139 button Follow BBC on x
+				140 image
+			141 button Follow BBC on facebook
+				142 image
+			143 button Follow BBC on instagram
+				144 image
+			145 button Follow BBC on tiktok
+				146 image
+			147 button Follow BBC on linkedin
+				148 image
+			149 button Follow BBC on youtube
+				150 image
+			151 content list
+				152 link Description: Terms of Use, Value: bbc.com/pages/terms-of-use
+				153 link Description: Subscription Terms, Value: bbc.com/pages/subscription-terms
+				154 link Description: About the BBC, Value: bbc.co.uk/aboutthebbc
+				155 link Description: Privacy Policy, Value: bbc.com/pages/privacy-policy
+				156 link Description: Cookies, Value: bbc.com/usingthebbc/cookies/how-can-i-change-my-bbc-cookie-settings/
+				157 link Description: Do not share or sell my info, Value: bbc.com/usingthebbc/cookies/how-can-i-change-my-bbc-cookie-settings/
+				158 link Description: Accessibility Help, Value: bbc.co.uk/accessibility/
+				159 link Description: Contact the BBC, Value: bbc.co.uk/contact
+				160 link Description: Advertise with us, Value: advertising.bbcstudios.com/
+				161 link Description: BBC.com Help & FAQs, Value: help.bbc.com/hc/
+				162 link Description: Content Index, Value: bbc.com/pages/content-index
+				163 link Description: Set Preferred Source, Value: bbc.com/future/article/20260128-how-to-make-google-put-trusted-sources-up-top-when-you-search
+			164 container
+				165 text Copyright 2026 BBC. All rights reserved. The BBC is not responsible for the content of external sites. 
+				166 link Description: Read about our approach to external linking., Value: bbc.com/editorialguidelines/guidance/links-and-feeds
+	167 container SP Consent Message, ID: sp_message_container_1504881
+		168 container Description: SP Consent Message, ID: sp_message_iframe_1504881
+			169 AXWebArea Privacy Manager US App, URL: about:srcdoc
+				170 container
+					171 image BBC logo
+					172 text Terms of Use & Privacy
+					173 container
+						174 text By clicking “Accept and Continue,” you confirm you agree to the 
+						175 link Description: Terms of Use, Value: bbc.com/pages/terms-of-use
+						176 text  and the collection and use of your information, as described in our 
+						177 link Description: Privacy Policy, Value: bbc.com/pages/privacy-policy
+						178 text . 
+					179 container
+						180 text This includes the use of cookies and similar technologies to share information about your use of BBC.com, including with advertising vendors, as described in our 
+						181 link Description: Advertising FAQs, Value: bbc.com/usingthebbc/cookies/how-does-the-bbc-use-cookies-for-advertising/
+						182 text . 
+					183 container
+						184 text You can learn more about choices you may have in sharing your information 
+						185 link Description: here, Value: bbc.com/pages/privacy-policy#section-617309
+						186 text .
+					187 button Accept and Continue
+	188 container react-scan-toast
+		189 container react-scan-toast-title
+			190 text ⚛️ React Not Detected
+		191 text React is not detected on this page.
+Please ensure you're visiting a React application.
+		192 button react-scan-toast-close-button
+			193 image
+
+The focused UI element is 1 AXWebArea BBC News - Breaking news, video and the latest top stories from the U.S. and around the world, URL: 127.0.0.1:18911/corpus/bbc.html

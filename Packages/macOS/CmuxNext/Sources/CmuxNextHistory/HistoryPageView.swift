@@ -31,7 +31,7 @@ struct HistoryPageView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider().overlay(colors.separator)
+            HairlineDivider(color: colors.separator)
             if model.groups.isEmpty {
                 Text(model.text.isEmpty ? HistoryStrings.empty : HistoryStrings.emptySearch)
                     .font(Font(Typography.body)).foregroundStyle(colors.tertiary)
