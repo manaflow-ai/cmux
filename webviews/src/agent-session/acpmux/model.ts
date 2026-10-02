@@ -57,6 +57,10 @@ export type AcpmuxSnapshot = {
     sessionId: string;
     cwd?: string;
     turnCount?: number;
+    host?: string;
+    hostKind?: "local" | "cloud";
+    branch?: string;
+    worktree?: string;
     title?: string;
     name?: string;
     harness?: string;
