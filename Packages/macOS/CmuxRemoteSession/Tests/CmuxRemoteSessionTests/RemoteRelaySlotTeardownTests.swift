@@ -416,12 +416,14 @@ struct RemoteRelaySlotTeardownTests {
         in runner: SpyProcessRunner,
         matching predicate: (String) -> Bool
     ) throws -> String {
-        try #require(
-            runner.requests
-                .compactMap(\.arguments.last)
-                .first(where: predicate)
-        )
+        let commands = runner.requests.compactMap(\.arguments.last)
+        guard let command = commands.first(where: { predicate($0) }) else {
+            throw MissingCleanupCommand()
+        }
+        return command
     }
+
+    private struct MissingCleanupCommand: Error {}
 
     enum MalformedSlotCleanupScope: String, CaseIterable, Sendable {
         case persistentSlot
