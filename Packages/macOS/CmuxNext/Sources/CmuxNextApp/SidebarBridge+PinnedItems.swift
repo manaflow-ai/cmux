@@ -4,10 +4,10 @@ import CmuxNextTabs
 import Foundation
 
 // Pinned tabs, pages and spaces in sidebar sections
-// (plans/cmux-next/sidebar-sections.md 2). Each acts in this bridge's
-// window: a tab is selected in its workspace, a page focuses a tab of the
-// window's current space already showing it else opens in a new browser
-// tab, and a space is shown in the window.
+// (plans/cmux-next/sidebar-sections.md 2), clicked in this bridge's
+// window: a tab is selected in its workspace (in the window that lists
+// it), a page focuses a tab of this window's current space already
+// showing it else opens in a new browser tab, and a space is shown here.
 extension SidebarBridge {
     /// Selects a pinned tab in its workspace and focuses it. `ref` is the
     /// tab's id or its qualified `<session>:tab_…` form.
@@ -16,11 +16,12 @@ extension SidebarBridge {
         reveal(tab, in: pane, workspace: workspace, state: state)
     }
 
-    /// Focuses a tab of this window's current space showing `text`, else
+    /// Focuses a tab of this window's current space showing `text` (an
+    /// http or https page; anything else does nothing), else
     /// opens it in a new browser tab of the focused pane, on the profile
     /// the workspace or the space sets (data-model.md 5).
     func openPinnedPage(_ text: String) {
-        guard let state, let url = URL(string: text), url.scheme != nil else { return }
+        guard let state, let url = URL(string: text), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
         if let (tab, pane, workspace) = openPage(url, in: state) {
             reveal(tab, in: pane, workspace: workspace, state: state)
             return
@@ -90,16 +91,18 @@ extension SidebarBridge {
         return nil
     }
 
-    /// Selects `tab` in this window: directly when its pane is on screen
-    /// here, else through the window's selection memory and focus, then
-    /// shows its workspace (switching space if it lives in another).
+    /// Selects `tab` in the window that lists its workspace (another open
+    /// window that owns it comes forward, else this one shows it): directly
+    /// when its pane is on screen, else through that window's selection
+    /// memory and focus. Showing the workspace switches space if needed.
     private func reveal(_ tab: TabModel, in pane: PaneModel, workspace: String, state: WindowState) {
-        if let shown = services.windows.controller(for: state.id)?.content?.pane(for: pane.handle), shown.pane === pane {
-            shown.select(StripTabID(tab.id))
-            return
-        }
-        state.selection.select(tab.id, in: pane.id)
-        state.focus.send(.selectTab(pane: pane.id, tab: tab.id, workspace: workspace, source: .intent))
-        services.windows.show(workspaceID: workspace, in: state)
+        let windows = services.windows!
+        let value = windows.registry.value
+        let owner = value.owner(of: workspace).flatMap { $0 != state.id && value.window($0)?.isOpen == true ? windows.controller(for: $0) : nil }
+        let target = owner?.state ?? state
+        target.selection.select(tab.id, in: pane.id)
+        target.focus.send(.selectTab(pane: pane.id, tab: tab.id, workspace: workspace, source: .intent))
+        services.paneController(for: pane)?.select(StripTabID(tab.id))
+        windows.show(workspaceID: workspace, in: state)
     }
 }

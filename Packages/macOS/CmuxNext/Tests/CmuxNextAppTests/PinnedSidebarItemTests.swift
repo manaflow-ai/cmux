@@ -13,7 +13,7 @@ import Testing
 @MainActor
 struct PinnedSidebarItemTests {
     static let keys = (1...3).map { WorkspaceKey(rawValue: "5b2d7c1e-8f3a-4e6b-9c0d-1a2b3c4d5e6\($0)") }
-    static let session = "22222222-3333-4444-8555-666666666666"
+    nonisolated static let session = "22222222-3333-4444-8555-666666666666"
     static let work: ProfileID = "prof_work"
 
     private static func id(_ index: Int) -> String { keys[index - 1].rawValue }
@@ -68,6 +68,28 @@ struct PinnedSidebarItemTests {
         window.sidebar.activate(.tab(ref))
         #expect(window.state.workspaceID == Self.id(2))
         #expect(window.state.selection.selection(in: "pane_2") == "tab_docs")
+        window.window?.close()
+    }
+
+    @Test func aPinnedTabListedByAnotherWindowIsSelectedThere() throws {
+        let services = Self.services()
+        let here = try #require(services.windows.openWindow(workspaces: [Self.id(1), Self.id(3)]))
+        let there = try #require(services.windows.openWindow(workspaces: [Self.id(2)]))
+        here.sidebar.activate(.tab("tab_docs"))
+        #expect(there.state.workspaceID == Self.id(2))
+        #expect(there.state.selection.selection(in: "pane_2") == "tab_docs")
+        #expect(here.state.selection.selection(in: "pane_2") == nil)
+        #expect(here.state.workspaceID != Self.id(2))
+        here.window?.close()
+        there.window?.close()
+    }
+
+    @Test func aPinnedPageThatIsNotHTTPDoesNothing() throws {
+        let services = Self.services()
+        let window = try Self.window(services)
+        window.sidebar.activate(.url("javascript:alert(1)"))
+        window.sidebar.activate(.url("file:///etc/hosts"))
+        #expect(window.state.workspaceID == Self.id(1))
         window.window?.close()
     }
 

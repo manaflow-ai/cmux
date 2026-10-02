@@ -26,10 +26,10 @@ Items:
 | --- | --- | --- | --- |
 | `builtIn(id)` | home, settings, account, notifications, history, bookmarks (tasks later) | id defined in code (`SidebarBuiltIn`) | runs the item's registry action (`home.show`, `openSettings`, `accounts.show`, `history.show`, `bookmark.manager`, `showNotifications`) with origin `user` |
 | `workspace(ref)` | a pinned workspace | qualified public id `<session>:ws_…` | selects it |
-| `tab(ref)` | a pinned terminal, browser page or agent tab | `<session>:tab_…` | selects its workspace and focuses the tab |
+| `tab(ref)` | a pinned terminal, browser page or agent tab | `<session>:tab_…` | selects its workspace and focuses the tab, in the window that lists the workspace |
 | `room(id)` | jump to a space | space (profile) id | shows that space in the window; an unknown id does nothing |
 | `savedGroup(id)` | reopen a saved group | group id | reopens or focuses it |
-| `url(string)` | a pinned page | URL | focuses a browser tab of the window's current space already showing it (host case, a trailing slash and the fragment ignored), else opens it in a new browser tab of the focused pane on the profile the workspace or space sets (data-model.md 5) |
+| `url(string)` | a pinned page | http or https URL | focuses a browser tab of the window's current space already showing it (host case, a trailing slash and the fragment ignored), else opens it in a new browser tab of the focused pane on the profile the workspace or space sets (data-model.md 5) |
 
 Home is a plain built-in item: right-click "Remove from Sidebar", the palette ("Remove Home from
 Sidebar", "Add Home to Sidebar"), the CLI and MCP remove and re-add it. The Workspaces section can
