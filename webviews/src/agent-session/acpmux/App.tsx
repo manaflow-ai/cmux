@@ -131,6 +131,8 @@ const trustSource: TrustSource = {
 /// The changes view reads git scopes from whoever runs the session: the acpmux client
 /// (or the mock daemon), else the native host.
 const changesSource: ChangesSource = { diff: (scope) => callNative("git.diff", { scope, include_patch: true }) };
+/// The host opens a changed file in a tab beside the agent or in the editor (`file.open`).
+const openChangedFile = (path: string, where: "tab" | "editor") => callNative("file.open", { path, where });
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
@@ -1236,6 +1238,7 @@ function AcpmuxPane() {
                     initialPath={diffView.path}
                     onClose={closeDiff}
                     source={changesSource}
+                    onOpenFile={openChangedFile}
                     checkpointAction={
                       checkpoints.supported ? (
                         <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>

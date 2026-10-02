@@ -128,15 +128,17 @@ struct WindowBackgroundOverrideTests {
         view.subviews.filter { $0 is NSVisualEffectView || $0 is NSGlassEffectView }
     }
 
-    @Test func frostedHostsOneBehindWindowEffectView() throws {
+    /// Frosted is the tint alone; the window's blur radius frosts the
+    /// desktop under it. A behind-window effect view here painted the
+    /// window opaque.
+    @Test func frostedHostsOnlyTheTint() throws {
         let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
-        view.apply(WindowBackdrop(backgroundOpacity: 0.7, backgroundBlur: 20), tint: .black)
-        #expect(materialViews(in: view).count == 1)
-        let effect = try #require(view.materialView as? NSVisualEffectView)
-        #expect(effect.blendingMode == .behindWindow)
-        #expect(effect.state == .active)
-        #expect(effect.material == .underWindowBackground)
-        #expect(view.subviews.first === effect, "the material is below the tint")
+        let backdrop = WindowBackdrop(backgroundOpacity: 0.7, backgroundBlur: 20)
+        view.apply(backdrop, tint: .black)
+        #expect(view.material == .frosted)
+        #expect(backdrop.setsWindowBlurRadius)
+        #expect(materialViews(in: view).isEmpty)
+        #expect(view.materialView == nil)
         let tint = try #require(view.tintColor)
         #expect(abs(tint.alpha - 0.7) < 0.001)
     }
@@ -182,9 +184,11 @@ struct WindowBackgroundOverrideTests {
         #expect(materialViews(in: view).isEmpty)
         view.apply(WindowBackdrop(backgroundOpacity: 0.8, backgroundBlur: 0), tint: .black)
         #expect(materialViews(in: view).isEmpty, "see-through drops the glass")
-        view.apply(WindowBackdrop(backgroundOpacity: 0.8, backgroundBlur: 20), tint: .black)
+        view.apply(WindowBackdrop(backgroundOpacity: 0.8, backgroundBlur: -2), tint: .black)
         #expect(materialViews(in: view).count == 1)
-        #expect(view.materialView is NSVisualEffectView)
+        #expect(view.materialView is NSGlassEffectView)
+        view.apply(WindowBackdrop(backgroundOpacity: 0.8, backgroundBlur: 20), tint: .black)
+        #expect(materialViews(in: view).isEmpty, "frosted drops the glass")
     }
 
     @Test func clicksPassThrough() {

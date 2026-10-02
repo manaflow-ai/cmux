@@ -24,7 +24,8 @@ struct WindowRootMaterialTests {
         let model = SidebarModel()
         let root = WindowRootView(sidebar: SidebarContainerView(model: model),
                                   rail: WindowRailView(model: model, registry: ActionBindingCoverageTests.boundServices().registry),
-                                  reduceTransparency: { reduceTransparency.on })
+                                  reduceTransparency: { reduceTransparency.on },
+                                  applyWindowBlur: { _ in })
         let room = ThemeScope(level: .room)
         room.setOverride(ThemeSpec("Catppuccin Mocha")!, input: input, animated: false)
         room.root(root)
@@ -53,22 +54,29 @@ struct WindowRootMaterialTests {
         return found
     }
 
-    @Test(arguments: [(0.8, 20, "frosted"), (0.5, 1, "frosted"), (1.0, -1, "glass"), (0.6, -2, "glass")])
-    func aTranslucentRootHostsExactlyOneMaterialAtTheBottom(opacity: Double, blur: Int, kind: String) throws {
+    @Test(arguments: [(1.0, -1), (0.6, -2)])
+    func aGlassRootHostsExactlyOneMaterialAtTheBottom(opacity: Double, blur: Int) throws {
         let (root, room) = makeRoot(input(opacity: opacity, blur: blur))
         let materials = rootMaterialViews(root)
         #expect(materials.count == 1)
-        let material = try #require(materials.first)
-        if kind == "glass" {
-            #expect(material is NSGlassEffectView)
-        } else {
-            let effect = try #require(material as? NSVisualEffectView)
-            #expect(effect.blendingMode == .behindWindow)
-            #expect(effect.state == .active)
-            #expect(effect.material == .underWindowBackground)
-        }
+        #expect(materials.first is NSGlassEffectView)
         #expect(root.subviews.first === root.backdropView, "the material is the bottom subview")
         // The tint replaces the root's own translucent paint.
+        #expect(root.layer?.backgroundColor == nil)
+        let tint = try #require(root.backdropView.tintColor)
+        #expect(abs(tint.alpha - opacity) < 0.001)
+        withExtendedLifetime(room) {}
+    }
+
+    /// A frosted root hosts no material view: the tint at the opacity over
+    /// the desktop, which the window's blur radius frosts. A behind-window
+    /// NSVisualEffectView made the window opaque.
+    @Test(arguments: [(0.8, 20), (0.5, 1)])
+    func aFrostedRootHostsOnlyTheTint(opacity: Double, blur: Int) throws {
+        let (root, room) = makeRoot(input(opacity: opacity, blur: blur))
+        #expect(root.backdrop.material == .frosted)
+        #expect(root.backdrop.setsWindowBlurRadius)
+        #expect(rootMaterialViews(root).isEmpty)
         #expect(root.layer?.backgroundColor == nil)
         let tint = try #require(root.backdropView.tintColor)
         #expect(abs(tint.alpha - opacity) < 0.001)
@@ -107,8 +115,9 @@ struct WindowRootMaterialTests {
 
         reduce.on = false
         NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
-        #expect(rootMaterialViews(root).count == 1)
         #expect(root.backdrop.material == .frosted)
+        #expect(try #require(root.backdropView.tintColor).alpha < 1)
+        #expect(root.layer?.backgroundColor == nil)
         withExtendedLifetime(room) {}
     }
 
