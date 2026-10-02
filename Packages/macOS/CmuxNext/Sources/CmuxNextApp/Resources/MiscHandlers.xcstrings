@@ -3538,6 +3538,137 @@
         }
       }
     },
+    "handlers.misc.failed.continueInNeedsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue in… requires focus; use cmux acp continue for a headless handoff."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「…」で続行するにはフォーカスが必要です。UI なしで引き継ぐには cmux acp continue を使ってください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب المتابعة في… التركيز؛ استخدم cmux acp continue للتسليم من دون واجهة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavak u… zahteva fokus; koristite cmux acp continue za predaju bez sučelja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsæt i… kræver fokus; brug cmux acp continue til en hovedløs overdragelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiter in… erfordert den Fokus; für eine Übergabe ohne Oberfläche verwenden Sie cmux acp continue."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar en… requiere el foco; usa cmux acp continue para una transferencia sin interfaz."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer dans… nécessite le focus ; utilisez cmux acp continue pour un transfert sans interface."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continua in… richiede il focus; usa cmux acp continue per un passaggio senza interfaccia."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តក្នុង… ត្រូវការការផ្ដោត; ប្រើ cmux acp continue សម្រាប់ការផ្ទេរដោយគ្មាន UI។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음에서 계속…하려면 포커스가 필요합니다. UI 없는 핸드오프에는 cmux acp continue를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsett i… krever fokus; bruk cmux acp continue for en håndover uten brukergrensesnitt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontynuuj w… wymaga fokusu; użyj cmux acp continue do przekazania bez interfejsu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar em… requer foco; use cmux acp continue para uma transferência sem interface."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для продолжения в… нужен фокус; используйте cmux acp continue для передачи без интерфейса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดำเนินการต่อใน… ต้องมีโฟกัส ใช้ cmux acp continue สำหรับการส่งต่องานแบบไม่มี UI"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şurada devam et… için odak gerekir; arayüzsüz aktarım için cmux acp continue kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для продовження в… потрібен фокус; використовуйте cmux acp continue для передачі без інтерфейсу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục trong… cần tiêu điểm; dùng cmux acp continue để bàn giao không có giao diện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续使用…需要焦点；无界面交接请使用 cmux acp continue。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "繼續使用…需要焦點；無介面交接請使用 cmux acp continue。"
+          }
+        }
+      }
+    },
     "handlers.misc.failed.noAgentChat": {
       "extractionState": "manual",
       "localizations": {

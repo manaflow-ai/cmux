@@ -134,7 +134,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.openFilesPane",
         ],
         .guiOnly: [
-            "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette",
+            "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
             "palette.openTaskManager", "palette.sleepyMode", "about", "palette.workspaceCustomColor",
             "revealWorkspaceInFinder", "workspaceGroup.editConfig", "manageLayouts",
             "palette.openWorkspacePullRequests", "palette.findWork", "toggleSplitZoom", "canvasOverview",

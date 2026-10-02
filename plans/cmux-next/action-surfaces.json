@@ -5613,6 +5613,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-continue-in",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.continueIn",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
       "cli" : "liveInput",
       "cli_name" : "action agent-pane-search-chats",
       "context_menu" : "noTargetSurface",
@@ -6688,6 +6699,17 @@
       ],
       "id" : "appearance.titlebar.standard",
       "mcp" : "systemChange",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "settings customize-appearance",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "appearance.customize",
+      "mcp" : "guiOnly",
       "palette" : "offered"
     },
     {

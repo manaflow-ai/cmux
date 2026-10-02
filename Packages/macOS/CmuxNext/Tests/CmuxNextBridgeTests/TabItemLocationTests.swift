@@ -36,6 +36,22 @@ struct TabItemLocationTests {
         #expect(item(tabs.terminal).location == nil, "a terminal tab has none")
     }
 
+    /// A Chromium New Tab page never names itself, so its recorded title
+    /// is its address; the strip shows the fallback ("New Tab") instead.
+    @Test(arguments: ["chrome://newtab/", "about:blank"])
+    func theNewTabPageReadsAsTheFallbackTitle(_ address: String) throws {
+        let fixture = try #require(Bundle.module.url(forResource: "list-workspaces", withExtension: "json", subdirectory: "Fixtures"))
+        var tree = try JSONDecoder().decode(BridgeFixture.Envelope.self, from: Data(contentsOf: fixture)).data
+        tree.workspaces[0].screens[0].panes[0].tabs[1].kind = .browser
+        tree.workspaces[0].screens[0].panes[0].tabs[1].url = address
+        tree.workspaces[0].screens[0].panes[0].tabs[1].title = address
+        tree.workspaces[0].screens[0].panes[0].tabs[1].name = nil
+        let store = DaemonStore()
+        store.apply(snapshot: tree)
+        let tab = try #require(store.tab(surface: 13))
+        #expect(item(tab).title == "Untitled")
+    }
+
     @Test func anHttpPageIsNotSecure() throws {
         let tabs = try browserTab(url: "http://localhost:3000/")
         #expect(item(tabs.browser).location?.isSecure == false)

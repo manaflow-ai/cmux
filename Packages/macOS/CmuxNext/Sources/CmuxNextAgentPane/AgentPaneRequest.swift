@@ -120,6 +120,7 @@ public nonisolated enum AgentPaneReply {
         if let newTab = handshake.newTab { value["newTab"] = newTab.reply }
         if let cwd = handshake.cwd { value["cwd"] = cwd }
         if let draft = handshake.draft { value["draft"] = draft }
+        value["handoffStrings"] = AgentPaneHandoffStrings().values
         return success(value)
     }
 }
