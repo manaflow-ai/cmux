@@ -91,13 +91,46 @@ test("an empty list says so", async () => {
   await act(async () => root.unmount());
 });
 
-test("pinned sessions get their own section and projects on another machine name it", async () => {
+test("pinned sessions get their own section, an all-cloud project names its machine, and rows show where they run", async () => {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   const list: AcpmuxSessionEntry[] = [
     { sessionId: "pin", displayTitle: "Set up 24/7 agent work", cwd: "/src/web", updatedAt: 9, pinned: true },
     { sessionId: "web", displayTitle: "Fix the checkout page", cwd: "/src/web", updatedAt: 8 },
-    { sessionId: "cloud", displayTitle: "Tags with a TTL", cwd: "/home/u/acpmux", host: "cobalt-butte", updatedAt: 7 },
+    {
+      sessionId: "cloud",
+      displayTitle: "Tags with a TTL",
+      cwd: "/home/u/acpmux",
+      host: "cobalt-butte",
+      hostKind: "cloud",
+      updatedAt: 7,
+    },
+    {
+      sessionId: "local",
+      displayTitle: "Lint",
+      cwd: "/src/web",
+      host: "This Mac",
+      hostKind: "local",
+      branch: "lint",
+      updatedAt: 6,
+    },
+    {
+      sessionId: "far",
+      displayTitle: "CI",
+      cwd: "/src/web",
+      host: "hearty-elk",
+      hostKind: "cloud",
+      branch: "ci",
+      updatedAt: 5,
+    },
+    {
+      sessionId: "tree",
+      displayTitle: "Home",
+      cwd: "/src/web",
+      branch: "home",
+      worktree: "/src/web-home",
+      updatedAt: 4,
+    },
   ];
   await act(async () => root.render(createElement(SessionSidebar, { sessions: list, onSelect: () => {} })));
   expect([...container.querySelectorAll(".acpmux-sidebar-section")].map((node) => node.textContent)).toEqual([
@@ -111,5 +144,20 @@ test("pinned sessions get their own section and projects on another machine name
     "web",
     "acpmuxcobalt-butte",
   ]);
+  const row = (id: string) =>
+    [...container.querySelectorAll<HTMLButtonElement>(".acpmux-session-row")].find(
+      (node) => node.textContent === list.find((session) => session.sessionId === id)!.displayTitle,
+    )!;
+  const place = (id: string) => row(id).querySelector(".acpmux-session-place")?.className.split("-").pop();
+  // This Mac is never named; a cloud row in a mixed project carries the machine instead of its branch.
+  expect([place("web"), place("local"), place("far"), place("tree"), place("cloud")]).toEqual([
+    undefined,
+    "branch",
+    "cloud",
+    "worktree",
+    undefined,
+  ]);
+  expect(row("far").title).toBe("CI\nRuns on hearty-elk, Branch ci");
+  expect(row("tree").getAttribute("aria-label")).toBe("Home, Worktree home");
   await act(async () => root.unmount());
 });
