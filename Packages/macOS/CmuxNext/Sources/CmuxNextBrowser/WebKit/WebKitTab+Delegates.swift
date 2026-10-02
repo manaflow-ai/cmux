@@ -95,13 +95,15 @@ extension WebKitTab: WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-        guard let id = navigationID(for: navigation, creating: false) else { return }
+        let id = navigationID(for: navigation, creating: navigation != nil) ?? allocateNavigationID()
+        if state.activeNavigation == nil { apply(.started(id, url: webView.url)) }
         forgetNavigation(navigation)
         apply(.failed(id, BrowserLoadError(error)))
     }
 
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
-        guard let id = navigationID(for: navigation, creating: false) else { return }
+        let id = navigationID(for: navigation, creating: navigation != nil) ?? allocateNavigationID()
+        if state.activeNavigation == nil { apply(.started(id, url: webView.url)) }
         forgetNavigation(navigation)
         apply(.failed(id, BrowserLoadError(error)))
     }

@@ -96,9 +96,36 @@ extension WebKitDriver {
         let url = try Self.navigableURL(raw, method: "tab.navigate")
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
         let generation = session.waits.beginNavigation()
+
+        // A fragment navigation does not create a document, and WebKit does
+        // not reliably report its URL change through KVO. Drive it in the
+        // page instead, then let the watcher satisfy the pending wait and
+        // emit the same-document event deterministically.
+        if let current = tab.webView.url, !tab.webView.isLoading,
+           TabWatcher.differOnlyInFragment(current, url) {
+            let literal = try Self.javaScriptString(url.absoluteString)
+            do {
+                _ = try await tab.evaluate("location.href = \(literal)", world: .page)
+            } catch {
+                throw DriverError(.invalid, "page.goto: \(error.localizedDescription)")
+            }
+            session.watcher?.noteSameDocumentNavigation(to: url)
+            try await session.waits.reach(until, after: generation, timeout: try params.timeout(), what: "page.goto")
+            return .object(["url": .string(url.absoluteString)])
+        }
+
         tab.load(url)
         try await session.waits.reach(until, after: generation, timeout: try params.timeout(), what: "page.goto")
         return .object(["url": .string(tab.webView.url?.absoluteString ?? raw)])
+    }
+
+    private static func javaScriptString(_ value: String) throws(DriverError) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: [value]),
+              let encoded = String(data: data, encoding: .utf8),
+              encoded.first == "[", encoded.last == "]" else {
+            throw DriverError(.invalid, "page.goto: cannot encode URL")
+        }
+        return String(encoded.dropFirst().dropLast())
     }
 
     func tabHistory(_ params: DriverParams) async throws(DriverError) -> DriverJSON {

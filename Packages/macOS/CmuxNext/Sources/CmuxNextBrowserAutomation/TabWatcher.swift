@@ -38,6 +38,19 @@ final class TabWatcher {
         urlObservation = nil
     }
 
+    /// Records a same-document navigation initiated by the driver. WebKit's
+    /// URL KVO does not fire consistently for fragment loads, so the driver
+    /// supplies the event after changing `location.href`. The URL guard keeps
+    /// this from duplicating a KVO event that arrived first.
+    func noteSameDocumentNavigation(to url: URL) {
+        guard !stopped, let tab, let session, lastURL != url else { return }
+        lastURL = url
+        session.waits.sameDocument()
+        emit("tab.navigated", ["targetId": .string(tab.id.rawValue), "url": .string(url.absoluteString),
+                               "frameId": session.frames.mainFrameID.map(DriverJSON.string) ?? .null,
+                               "sameDocument": .bool(true)])
+    }
+
     private func urlChanged(_ url: URL?, loading: Bool) {
         guard !stopped, let tab, let session, url != lastURL else { return }
         let previous = lastURL
