@@ -116,6 +116,19 @@ Mutants caught: 6 pane, 2 tab, 6 list, 4 strip, 7 TLA+ runs. The strip check fou
 bug: niri's restore point fired on an unfocused close of the just-opened column (fixed;
 `ColumnScrollRestoreTests`).
 
+## Live check after the fix (tagged no-activate build of 076a9b988a2, debug socket)
+
+B1 (lower split pane closed after visiting the right column: focus went to the pane above),
+B2 (middle column closed by Cmd-W: the left column took focus and was revealed; the CLI
+closing the focused pane: its left neighbor, no scroll), C1 (CLI close of an unfocused
+column: focus kept), S1 (new workspace revealed), S2 (CLI close above the viewport: rows
+unchanged pixel for pixel), S3 (selected workspace closed: successor fully visible, no
+jump) all pass. `debug.focus`: `app_active` false, `key_window` null throughout.
+UNVERIFIED live: sticky columns (pinned daemon lacks `sticky-columns-v1`; covered by
+`CloseFocusReducerTests`), closing the last workspace, closing a window, a selected
+workspace closed while scrolled out of view (covered by `SidebarCloseScrollTests`), the
+pill and animation smoothness (screenshots are settled frames).
+
 ## Decisions for the user
 
 1. Pane successor when the closed pane was the first of a column that keeps other panes:
