@@ -91,4 +91,12 @@ describe("acpmux pane header", () => {
     expect(paneHeader(snapshot({ ...base, connection: "disconnected" }))).toEqual({ title: "Codex", status: "Reconnecting" });
     expect(paneHeader(snapshot({ connection: "mock" }))).toEqual({ title: "Agent Chat", status: "Mock" });
   });
+
+  /// While the daemon is down the pane retries, setting "connecting" or "connecting: <error>"; a turn
+  /// that was running when the connection dropped never ends, so connection trouble wins over Working.
+  test("shows connection trouble while retrying, even during a turn", () => {
+    expect(paneHeader(snapshot({ connection: "connecting" })).status).toBe("Connecting");
+    expect(paneHeader(snapshot({ connection: "connecting: Error: refused" })).status).toBe("Connecting");
+    expect(paneHeader(snapshot({ connection: "disconnected", isWorking: true })).status).toBe("Reconnecting");
+  });
 });
