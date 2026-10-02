@@ -14,6 +14,8 @@ public struct BookmarkList: Decodable, Sendable, Equatable {
 public struct BookmarkResult: Decodable, Sendable, Equatable {
     public var bookmark: BookmarkRecord
     public var changed: Bool?
+    /// True when the daemon replayed an earlier write with the same mutation key.
+    public var replayed: Bool?
 }
 
 public struct BookmarkDeletion: Decodable, Sendable, Equatable {

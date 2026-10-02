@@ -15,6 +15,8 @@ public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
         case unsupportedChord
         /// Two actions claim the same shortcut in the same context.
         case shortcutConflict
+        /// The file sets a key an MDM profile or the team policy manages; the file's value is ignored.
+        case managedOverride
     }
 
     public let kind: Kind
@@ -87,6 +89,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var attention = AttentionSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
+    /// `appearance.focusIndicator`; "both" when unset or invalid.
+    public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
+    /// `appearance.tabBarBackground`; "window" when unset or invalid.
+    public var tabBarBackground: TabBarBackground = PaneFocusSettings.tabBarBackgroundFallback
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `window.rail`; "off" when unset or invalid.
@@ -158,6 +164,14 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
         snapshot.borders = borders
         if let bordersDiagnostic { snapshot.diagnostics.append(bordersDiagnostic) }
+        let (indicator, indicatorDiagnostic) = PaneFocusSettings.parse(
+            root, at: PaneFocusSettings.focusIndicatorPath, fallback: PaneFocusSettings.focusIndicatorFallback)
+        snapshot.focusIndicator = indicator
+        if let indicatorDiagnostic { snapshot.diagnostics.append(indicatorDiagnostic) }
+        let (tabBarBackground, tabBarDiagnostic) = PaneFocusSettings.parse(
+            root, at: PaneFocusSettings.tabBarBackgroundPath, fallback: PaneFocusSettings.tabBarBackgroundFallback)
+        snapshot.tabBarBackground = tabBarBackground
+        if let tabBarDiagnostic { snapshot.diagnostics.append(tabBarDiagnostic) }
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }

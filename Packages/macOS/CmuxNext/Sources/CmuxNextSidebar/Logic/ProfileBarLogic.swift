@@ -14,6 +14,14 @@ public nonisolated enum ProfileBarLogic {
         return target == index ? nil : order[target]
     }
 
+    /// Leading x of each room's slot, centered as a group in `width`, then
+    /// the "+" slot right after the last room. The "+" shows only on hover,
+    /// so it must not shift the dots.
+    public static func slotXs(count: Int, slot: Double, width: Double) -> [Double] {
+        let x0 = (width - slot * Double(count)) / 2
+        return (0...count).map { x0 + Double($0) * slot }
+    }
+
     /// Insertion index (the `move-workspace` rule: an index into the list
     /// before removal) for a dot dragged to horizontal offset `x`, given the
     /// dots' center x positions in order.

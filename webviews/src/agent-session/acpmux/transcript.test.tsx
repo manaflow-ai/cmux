@@ -1725,7 +1725,7 @@ describe("acpmux live turn status", () => {
       act(async () =>
         root.render(
           createElement(VirtualTranscript, {
-            rows: turnView(rows, new Set(), working),
+            rows: turnView(rows, new Set(), { working }),
             onToggleActivity: () => {},
             expanded: new Set<string>(),
           }),
@@ -1901,6 +1901,115 @@ describe("acpmux shell calls", () => {
       expect(shell?.textContent).toBe("Shell$ bun test1 failExit code 1");
       expect(dom.window.document.querySelector(".cv-tool-output")?.textContent).toBe("{ apps: [] }");
       expect(dom.window.document.querySelectorAll(".cv-shell")).toHaveLength(1);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+});
+
+describe("acpmux timestamp lines", () => {
+  /// Codex dates a turn that starts over an hour after the last answer; the pane showed no
+  /// date at all.
+  test("a turn over an hour after the previous answer draws its time above it", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const at = Date.now() - 20 * 60_000;
+    const rows: AcpmuxRow[] = [
+      { id: "u", version: 1, at: at - 3 * 36e5, kind: "user", text: "find SOTA harness research" },
+      { id: "a", version: 1, at: at - 3 * 36e5 + 60_000, kind: "assistant", text: "RLMs lead." },
+      { id: "u2", version: 1, at, kind: "user", text: "and since then?" },
+    ];
+    try {
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: turnView(rows, new Set()),
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      // One over the thread's first prompt (over an hour old), one over the late prompt.
+      const lines = [...dom.window.document.querySelectorAll("time.cv-date-line")];
+      expect(lines.map((line) => line.getAttribute("datetime"))).toEqual([
+        new Date(at - 3 * 36e5).toISOString(),
+        new Date(at).toISOString(),
+      ]);
+      // "Today", or "Yesterday" when the test runs just after midnight.
+      expect(lines[1]!.textContent).toMatch(/^(Today|Yesterday) \d{1,2}:\d{2}\s[AP]M$/);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+});
+
+describe("acpmux edit diffs", () => {
+  /// An edit inside an opened "Worked for" was a dead row: Codex opens it to the change.
+  test("an edit in an opened fold opens to its diff", async () => {
+    const restore = fakeViewport({ width: 760, height: 900 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const diff = {
+      path: "/repo/Sources/Total.swift",
+      oldText: "let a = 1\nlet b = 2\n",
+      newText: "let a = 1\nlet b = 3\nlet c = 4\n",
+    };
+    const turn: AcpmuxRow[] = [
+      { id: "u", version: 1, at: 1, kind: "user", text: "fix it" },
+      // One call per row: two calls in a row fold into a run summary (ToolRun).
+      {
+        id: "e",
+        version: 1,
+        at: 2,
+        kind: "activity",
+        toolCount: 1,
+        items: [
+          {
+            kind: "tool",
+            text: "Edit Total.swift",
+            tool: { id: "t1", title: "Edit Total.swift", kind: "edit", status: "completed", diffs: [diff] },
+          },
+        ],
+      },
+      { id: "c", version: 1, at: 3, kind: "assistant", text: "Now the notes." },
+      {
+        id: "n",
+        version: 1,
+        at: 4,
+        kind: "activity",
+        toolCount: 1,
+        items: [
+          {
+            kind: "tool",
+            text: "Edit notes",
+            tool: { id: "t2", title: "Edit notes", kind: "edit", status: "completed" },
+          },
+        ],
+      },
+      { id: "a", version: 1, at: 5, kind: "assistant", text: "Done." },
+      { id: "s", version: 1, at: 6, kind: "turnSummary", durationMs: 3000, toolCount: 2 },
+    ];
+    const open = new Set(["worked-u"]);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows: turnView(turn, open), onToggleActivity: () => {}, expanded: open }),
+        ),
+      );
+      const document = dom.window.document;
+      const toggles = () => [...document.querySelectorAll<HTMLButtonElement>("button.cv-tool.is-toggle")];
+      // The edit with a diff opens; the one without a diff or output stays a plain row.
+      expect(toggles().map((button) => button.textContent)).toEqual(["Edit Total.swift"]);
+      expect(document.body.textContent).toContain("Edit notes");
+      expect(document.querySelector(".cv-edit-diff")).toBeNull();
+      await act(async () => toggles()[0]!.click());
+      const card = document.querySelector(".cv-edit-diff");
+      expect(card?.querySelector(".cv-edit-diff__name")?.textContent).toBe("Total.swift");
+      expect(card?.querySelector(".cv-edit-diff__add")?.textContent).toBe("+2");
+      expect(card?.querySelector(".cv-edit-diff__del")?.textContent).toBe("-1");
+      expect(card?.querySelector(".cv-edit-diff__body")?.children.length).toBe(1);
+      expect(toggles()[0]!.getAttribute("aria-expanded")).toBe("true");
     } finally {
       await act(async () => root.unmount());
       restore();

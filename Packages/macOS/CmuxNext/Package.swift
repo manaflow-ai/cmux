@@ -40,6 +40,9 @@ import PackageDescription
 //     handshake; the page talks to acpmux itself; no daemon)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
+//   CmuxNextApps -> Design (app platform: manifest model, scene store + native renderer, JavaScriptCore
+//     prototype engine, prototype registry, App Store window; no daemon; the App supplies the
+//     operation sink; plans/cmux-next/app-platform.md)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
 
@@ -119,6 +122,7 @@ let package = Package(
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
                 "CmuxNextAgentActivity",
+                "CmuxNextApps",
             ],
             resources: [
                 .process("Resources"),
@@ -259,7 +263,7 @@ let package = Package(
         // owns every session; the App supplies the source.
         .target(
             name: "CmuxNextAgentActivity",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -268,6 +272,26 @@ let package = Package(
         .testTarget(
             name: "CmuxNextAgentActivityTests",
             dependencies: ["CmuxNextAgentActivity"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // App platform (plans/cmux-next/app-platform.md): the cmux-app.json
+        // model, the scene store and native renderer, the JavaScriptCore
+        // prototype engine (DEV) that runs the engine-neutral runtime synced
+        // from cmux-tui/crates/cmux-app-host by
+        // scripts/cmux-next/sync-app-runtime.sh, the prototype app registry
+        // and the App Store window. The App supplies the operation sink.
+        .target(
+            name: "CmuxNextApps",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources/Localizable.xcstrings"),
+                .copy("Resources/AppPlatform"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAppsTests",
+            dependencies: ["CmuxNextApps"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -393,6 +417,7 @@ let package = Package(
                 .process("RemoteActions.xcstrings"),
                 .process("ScreenActions.xcstrings"),
                 .process("SettingsActions.xcstrings"),
+                .process("SidebarSectionActions.xcstrings"),
                 .process("ShortcutRecorder.xcstrings"),
                 .process("ThemeActions.xcstrings"),
                 .process("WorkspaceActions.xcstrings"),
