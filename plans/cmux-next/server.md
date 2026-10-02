@@ -16,7 +16,7 @@ Goals:
 
 Non-goals (phase 1 to 3):
 - Public internet exposure of app services (later: an edge route per app, its own design).
-- A no-account mode with remote access. Without an account, a server is local only (plus SSH, which we never configure).
+- A new no-account remote mode. Without an account, a server is local only, plus the tailnet mode of D5 (the daemon checks the peer's tailnet identity against a local allowlist, `cmux tailnet allow`), plus SSH, which we never configure.
 - Changing the host's SSH, firewall or VPN configuration. The overlay is in-process userspace WireGuard.
 - Running untrusted third-party native code as app services in phase 1 (first-party and `local/` apps only, like the app host).
 - GPU and remote desktop streaming (spec/computer-use.md owns the `streaming` host class).
@@ -58,6 +58,7 @@ Non-goals (phase 1 to 3):
 Rules:
 - All server logic is Rust (two crates: `cmux-server-core`, pure; `cmux-server`, I/O) mounted in the `cmux` binary as the `server` role set and `cmux server …` verbs. The macOS app renders a projection and registers the launchd agent and the privileged helper; it owns no server state.
 - The unit's command line is frozen as `cmux host run` (lane 1, vm-image.md 4.5). Roles come from the machine's config (`server.json`), so behavior moves with the binary in the store.
+- Split with lane 1 (VM image): lane 1 owns the `cmux host run` supervisor, instance bind, per-clone identity, the store and the updater; this lane owns the server roles (`apps`, `postgres`, `health`, the server parts of `link`), the installer, pairing and the `server.*` ops. The `browser` and `automations` roles belong to their leads; this lane only enables them.
 - One code path for the VM and servers: `cmux host run` with role `team` on the VM and role `server` on servers enables the same `apps`, `postgres`, `browser`, `automations` roles. Differences are listed in section 11.
 
 ## 4. Install
