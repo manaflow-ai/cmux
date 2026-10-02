@@ -12106,6 +12106,9 @@ impl Mux {
             .into_iter()
             .filter_map(|(terminal_id, entry)| {
                 let terminal_id = TerminalPublicId::parse(terminal_id).ok()?;
+                // A terminal without a runtime runs no agent: its tabs are
+                // dead (a host loss keeps them, invariant 3) or kept.
+                state_snapshot.terminal_catalog.get(&terminal_id)?;
                 let representative = state_snapshot
                     .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
                     .first()
