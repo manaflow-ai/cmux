@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// `ThemeStepModel.select`, which applies the theme to the app at once.
 @MainActor
 enum ThemeKit {
-    static func name(_ choice: ThemeChoice) -> String { choice.name ?? OnboardingStrings.ghosttyTheme }
+    static func name(_ choice: ThemeChoice) -> String { OnboardingStrings.themeName(choice) }
 
     /// Dark when the background is dim; drives the Dark/Light columns.
     static func isDark(_ input: ThemeInput) -> Bool { input.background.relativeLuminance < 0.3 }

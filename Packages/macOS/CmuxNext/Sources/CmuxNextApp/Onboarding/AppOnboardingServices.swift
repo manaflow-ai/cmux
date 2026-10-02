@@ -21,6 +21,7 @@ final class AppOnboardingServices: OnboardingServices {
     }
 
     var ghosttyTheme: ThemeInput { ThemeStore.shared.input }
+    var ghosttyHasOwnTheme: Bool { GhosttyOwnTheme.isSet() }
     var selectedThemeName: String? { services.settings?.snapshot.root.value(at: TerminalThemeSetting.path)?.stringValue }
     var density: Density { DesignSettings.shared.density }
 
