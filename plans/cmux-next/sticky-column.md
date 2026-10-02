@@ -18,8 +18,8 @@ Code: `CmuxNextLayout` (`Model/StickyColumn.swift`, `Geometry/StickyStripGeometr
 A sticky column is an ordinary column (`columns[]` in the daemon) with `sticky: {edge, mode}`.
 It holds panes, splits and tabs like any column. The daemon owns the flag with the rest of the
 layout: it is journaled, undoable (`undo-layout`) and survives restart. The app is a projection
-and applies a change optimistically under a transaction until the daemon echoes or rejects it
-(architecture.md 1). Capability `sticky-columns-v1`; until the pinned cmux-tui serves it the
+(OWNERSHIP-PRINCIPLES.md): it validates a change like the daemon, sends the typed op, and changes
+nothing until the daemon's snapshot carries it; no optimistic copy. Capability `sticky-columns-v1`; until the pinned cmux-tui serves it the
 actions are disabled with the daemon's reason and the app never sends the command.
 
 Daemon rules (cmux-tui `set-column-sticky {pane, sticky, edge, mode, transaction}`): at most one

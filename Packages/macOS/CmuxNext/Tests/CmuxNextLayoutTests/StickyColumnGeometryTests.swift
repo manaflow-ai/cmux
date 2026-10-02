@@ -164,3 +164,41 @@ import Testing
         #expect(layout.visualColumns.map(\.id) == ["l", "a", "b", "r"])
     }
 }
+
+/// The daemon owns the flag (OWNERSHIP-PRINCIPLES.md): the model validates
+/// and emits the intent, and changes nothing until the snapshot carries it.
+@MainActor
+@Suite struct StickyColumnIntentTests {
+    private func model() -> LayoutModel {
+        LayoutModel(screens: [LayoutScreen(id: "s", name: "", layout: .columns([
+            LayoutColumn(id: "a", root: .leaf("pa")), LayoutColumn(id: "b", root: .leaf("pb")),
+        ]))], activeScreenID: "s", focusedPane: "pa")
+    }
+
+    @Test func emitsTheIntentWithoutAnOptimisticCopy() {
+        let model = model()
+        var intents: [LayoutIntent] = []
+        model.intentHandler = { intents.append($0) }
+        let before = model.screens
+        #expect(model.setColumnSticky("b", StickyColumn(edge: .right, mode: .overlay)) == nil)
+        #expect(model.screens == before)
+        guard case let .setColumnSticky(column, anyPane, sticky, _)? = intents.first else {
+            Issue.record("no intent")
+            return
+        }
+        #expect(column == "b" && anyPane == "pb" && sticky == StickyColumn(edge: .right, mode: .overlay))
+    }
+
+    @Test func refusesWhatTheDaemonWouldRefuse() {
+        let model = model()
+        var intents: [LayoutIntent] = []
+        model.intentHandler = { intents.append($0) }
+        #expect(model.setColumnSticky("b", nil) == .unchanged)
+        model.apply(screens: [LayoutScreen(id: "s", name: "", layout: .columns([
+            LayoutColumn(id: "a", root: .leaf("pa"), sticky: StickyColumn(edge: .left)), LayoutColumn(id: "b", root: .leaf("pb")),
+        ]))])
+        #expect(model.setColumnSticky("b", StickyColumn(edge: .right)) == .lastScrollingColumn)
+        #expect(model.setColumnSticky("zz", StickyColumn()) == .notColumns)
+        #expect(intents.isEmpty)
+    }
+}

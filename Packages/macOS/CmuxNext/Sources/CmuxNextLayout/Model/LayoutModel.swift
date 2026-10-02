@@ -81,8 +81,6 @@ public final class LayoutModel {
     @ObservationIgnored private var pendingIntents: [PendingKey: LayoutIntent] = [:]
     @ObservationIgnored private var splitOverrides: [SplitID: Override] = [:]
     @ObservationIgnored private var widthOverrides: [ColumnID: Override] = [:]
-    /// Optimistic sticky changes until the daemon echoes or rejects them.
-    @ObservationIgnored var stickyOverrides: [ColumnID: StickyOverride] = [:]
 
     private enum PendingKey: Hashable {
         case split(SplitID)
@@ -118,7 +116,6 @@ public final class LayoutModel {
         daemonScreens = newScreens
         splitOverrides = splitOverrides.filter { !$0.value.settled }
         widthOverrides = widthOverrides.filter { !$0.value.settled }
-        stickyOverrides = stickyOverrides.filter { !$0.value.settled }
         screens = overlaid(newScreens)
         if activeScreenID == nil || !screens.contains(where: { $0.id == activeScreenID }) {
             activeScreenID = screens.first?.id
@@ -139,19 +136,15 @@ public final class LayoutModel {
         for (key, value) in widthOverrides where value.transaction == transaction && value.ended {
             widthOverrides[key]?.settled = true
         }
-        for (key, value) in stickyOverrides where value.transaction == transaction {
-            stickyOverrides[key]?.settled = true
-        }
     }
 
     /// The daemon rejected the command carrying `transaction`: drop its
     /// overrides and show the last daemon value at once.
     public func rejectTransaction(_ transaction: LayoutTransactionID) {
-        let splits = splitOverrides.count, widths = widthOverrides.count, stickies = stickyOverrides.count
+        let splits = splitOverrides.count, widths = widthOverrides.count
         splitOverrides = splitOverrides.filter { $0.value.transaction != transaction }
         widthOverrides = widthOverrides.filter { $0.value.transaction != transaction }
-        stickyOverrides = stickyOverrides.filter { $0.value.transaction != transaction }
-        guard splits != splitOverrides.count || widths != widthOverrides.count || stickies != stickyOverrides.count else { return }
+        guard splits != splitOverrides.count || widths != widthOverrides.count else { return }
         let restored = overlaid(daemonScreens)
         if restored != screens { screens = restored }
     }
@@ -178,7 +171,7 @@ public final class LayoutModel {
                     layout = layout.settingWidth(override.value, for: column)
                 }
             }
-            result[index].layout = overlaidSticky(layout)
+            result[index].layout = layout
         }
         return result
     }

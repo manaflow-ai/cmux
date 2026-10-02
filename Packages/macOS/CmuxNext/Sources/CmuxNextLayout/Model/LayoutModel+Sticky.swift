@@ -1,15 +1,10 @@
 public import CmuxNextDesign
 
-/// Sticky columns (plans/cmux-next/sticky-column.md). The daemon owns the
-/// flag; the model applies the change optimistically under a transaction
-/// until the daemon accepts (next snapshot wins) or rejects it.
+/// Sticky columns (plans/cmux-next/sticky-column.md). The daemon's
+/// workspace store owns the flag (OWNERSHIP-PRINCIPLES.md): the model only
+/// validates a change and emits the intent; the layout changes when the
+/// daemon's snapshot carries it. No optimistic copy.
 extension LayoutModel {
-    struct StickyOverride {
-        var value: StickyColumn?
-        var transaction: LayoutTransactionID
-        var settled = false
-    }
-
     /// Why a column cannot become sticky or change its stickiness.
     public enum StickyRefusal: Hashable, Sendable {
         /// The screen does not scroll columns (one tiled split tree).
@@ -35,34 +30,17 @@ extension LayoutModel {
         return nil
     }
 
-    /// Makes `column` sticky at `sticky`'s edge and mode, or scrolling for
-    /// nil. Applied at once; the daemon command carries `transaction`.
-    /// Returns the refusal instead when the change is not allowed.
+    /// Asks the daemon to make `column` sticky at `sticky`'s edge and mode,
+    /// or scrolling for nil; the command carries `transaction`. Returns the
+    /// refusal instead when the change is not allowed.
     @discardableResult
     public func setColumnSticky(_ column: ColumnID, _ sticky: StickyColumn?, transaction: LayoutTransactionID = .make()) -> StickyRefusal? {
         if let refusal = validateSticky(sticky, for: column) { return refusal }
         guard let anyPane = screens.lazy.compactMap({ $0.layout.columns.first { $0.id == column }?.root.panes.first }).first else {
             return .notColumns
         }
-        stickyOverrides[column] = StickyOverride(value: sticky, transaction: transaction)
-        updateScreens { $0.settingSticky(sticky, for: column) }
         emit(.setColumnSticky(column, anyPane: anyPane, sticky: sticky, transaction: transaction))
         return nil
-    }
-
-    /// Applies pending sticky overrides onto a daemon layout; an override
-    /// the daemon already reports is confirmed and dropped.
-    func overlaidSticky(_ layout: ScreenLayout) -> ScreenLayout {
-        var layout = layout
-        for (column, override) in stickyOverrides {
-            guard let incoming = layout.columns.first(where: { $0.id == column }) else { continue }
-            if incoming.sticky == override.value {
-                stickyOverrides[column] = nil
-            } else {
-                layout = layout.settingSticky(override.value, for: column)
-            }
-        }
-        return layout
     }
 
     /// cmux.json `layout.stripScrollbar`, or the pin for tests and the demo.
