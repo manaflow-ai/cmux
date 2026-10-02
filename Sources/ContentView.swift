@@ -5640,6 +5640,7 @@ struct ContentView: View {
             return hasher.finalize()
         }
         let windowContexts = commandPaletteSwitcherWindowContexts()
+        let cloudWorkspaceTargets = commandPaletteCloudWorkspaceTargets()
         let fingerprintContexts = windowContexts.map { context in
             CommandPaletteSwitcherFingerprintContext(
                 windowId: context.windowId,
@@ -5672,7 +5673,13 @@ struct ContentView: View {
                 }
             )
         }
-        return CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts)
+        var fingerprint = CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts)
+        for target in cloudWorkspaceTargets {
+            fingerprint = fingerprint &* 31 &+ target.machine.rawValue.hashValue
+            fingerprint = fingerprint &* 31 &+ target.workspace.id.hashValue
+            fingerprint = fingerprint &* 31 &+ target.workspace.name.hashValue
+        }
+        return fingerprint
     }
 
     private static func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
@@ -5741,6 +5748,59 @@ struct ContentView: View {
             Spacer()
             commandPaletteRenderTrailingLabelView(trailingLabel)
         }
+    }
+
+    private struct CommandPaletteCloudWorkspaceTarget {
+        let machine: SurfaceMachineID
+        let workspace: SurfaceRemoteWorkspace
+        let group: SurfaceResourceGroup
+    }
+
+    private func commandPaletteCloudWorkspaceTargets() -> [CommandPaletteCloudWorkspaceTarget] {
+        guard CloudMachinesFeature.isEnabled else { return [] }
+        let catalog = SurfaceCatalog.shared
+        let snapshot = catalog.snapshot
+        let allNodes = CloudTreeNodeBuilder.nodes(
+            machines: [],
+            snapshot: snapshot,
+            localWorkspaces: [],
+            includeLocalMachine: false
+        )
+        let sidebarNodes = catalog.sidebarNodes()
+        let sidebarWorkspaceIDs = Set(
+            CloudTreeNodeBuilder.flattened(sidebarNodes).compactMap { node -> String? in
+                guard case .workspace(let machine, let workspace, _, _, _) = node.kind else { return nil }
+                return "\(machine.rawValue):\(workspace.id)"
+            }
+        )
+
+        let orderedNodes = CloudTreeNodeBuilder.flattened(sidebarNodes) +
+            CloudTreeNodeBuilder.flattened(allNodes).filter { node in
+                guard case .workspace(let machine, let workspace, _, _, _) = node.kind else { return false }
+                return !sidebarWorkspaceIDs.contains("\(machine.rawValue):\(workspace.id)")
+            }
+
+        var seen = Set<String>()
+        return orderedNodes.compactMap { node in
+            guard case .workspace(let machine, let workspace, _, _, _) = node.kind,
+                  let group = node.dragGroup,
+                  seen.insert("\(machine.rawValue):\(workspace.id)").inserted else { return nil }
+            return CommandPaletteCloudWorkspaceTarget(machine: machine, workspace: workspace, group: group)
+        }
+    }
+
+    private func openCommandPaletteCloudWorkspace(_ target: CommandPaletteCloudWorkspaceTarget) {
+        let actions = CloudTreeNodeActions.bound(
+            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
+            catalog: { SurfaceCatalog.shared },
+            selectedWorkspaceID: { self.tabManager.selectedTabId },
+            selectLocalWorkspace: { workspaceID in self.tabManager.selectedTabId = workspaceID },
+            onDidMutate: {},
+            onFailure: { _ in NSSound.beep() },
+            refresh: {},
+            workspaceCreationHost: { CloudWorkspaceCreationHost(manager: self.tabManager) }
+        )
+        actions.openWorkspace(target.machine, target.workspace, target.group)
     }
 
     private func commandPaletteSwitcherEntries(includeSurfaces: Bool) -> [CommandPaletteCommand] {
@@ -5852,6 +5912,36 @@ struct ContentView: View {
                     nextRank += 1
                 }
             }
+        }
+
+        let cloudWorkspaceKind = String(localized: "commandPalette.kind.cloudWorkspace", defaultValue: "Cloud Workspace")
+        let cloudWorkspaceTargets = commandPaletteCloudWorkspaceTargets()
+        for target in cloudWorkspaceTargets {
+            let machineName = SurfaceCatalog.shared.machineInfo(for: target.machine)?.name ?? target.machine.rawValue
+            let title = target.workspace.name
+            let commandID = "switcher.cloudWorkspace.\(target.machine.rawValue).\(target.workspace.id)"
+            let keywords = CommandPaletteSwitcherSearchIndexer(
+                baseKeywords: [
+                    "cloud", "workspace", "remote", "vm", "open", "go", "switch", title, machineName
+                ],
+                detail: .workspace
+            ).keywords
+            entries.append(
+                CommandPaletteCommand(
+                    id: commandID,
+                    rank: nextRank,
+                    title: title,
+                    subtitle: Self.commandPaletteSwitcherSubtitle(base: cloudWorkspaceKind + " • " + machineName, windowLabel: nil),
+                    shortcutHint: nil,
+                    kindLabel: cloudWorkspaceKind,
+                    keywords: keywords,
+                    dismissOnRun: true,
+                    action: { [weak self] in
+                        self?.openCommandPaletteCloudWorkspace(target)
+                    }
+                )
+            )
+            nextRank += 1
         }
 
         return entries
