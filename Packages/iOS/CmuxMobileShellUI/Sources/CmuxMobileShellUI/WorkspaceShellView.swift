@@ -461,6 +461,9 @@ struct WorkspaceShellView: View {
                         .mobileToolbarVisibility(.hidden, for: .tabBar)
                     }
             }
+            // The root stack owns the shared picker toolbar. Keep its title
+            // region inline so the list and Feed start directly below it.
+            .mobileInlineNavigationTitle()
         } notifications: {
             if !usesCompactStack {
                 workspaceTabContent(presentation: presentation)
@@ -487,6 +490,9 @@ struct WorkspaceShellView: View {
                         .mobileToolbarVisibility(.hidden, for: .tabBar)
                 }
             }
+            // The root stack owns the shared picker toolbar. Keep its title
+            // region inline so the list starts directly below it.
+            .mobileInlineNavigationTitle()
             .onAppear {
                 notificationsStackIsOnScreen = true
                 consumePendingPrimarySearchNavigation(for: .notifications)
@@ -842,6 +848,7 @@ struct WorkspaceShellView: View {
                     .background(InteractiveSwipeBackEnabler())
             }
         }
+        .mobileInlineNavigationTitle()
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
             if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
                 currentPath: compactNavigationPath,
