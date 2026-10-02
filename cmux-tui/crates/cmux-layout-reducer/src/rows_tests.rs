@@ -131,9 +131,10 @@ fn moving_a_lone_tab_onto_its_own_rows_boundary_is_a_no_op() {
         assert_eq!(next, state);
         assert!(events.is_empty());
     }
-    // Another height is a real change.
-    let (next, _) = apply(&state, &op("b", to_row(1000, 100, false, 500, None))).unwrap();
-    assert_ne!(next, state);
+    // In an explicit row, another height is a real change.
+    let (rows, _) = apply(&state, &op("b", insert_row(100, 80, 300, 3000))).unwrap();
+    let (next, _) = apply(&rows, &op("c", to_row(3000, 300, false, 500, None))).unwrap();
+    assert_ne!(next, rows);
 }
 
 #[test]
@@ -196,6 +197,24 @@ fn flatten_rows_keeps_every_pane_and_tab() {
 }
 
 #[test]
+fn insert_row_refuses_content_already_placed() {
+    let state = columns(&[1, 1]);
+    let mut kind = insert_row(100, 70, 200, 2000);
+    if let LayoutOpKind::InsertRow { new_tab, .. } = &mut kind {
+        new_tab.content = state.tabs[&1001].clone();
+    }
+    assert_eq!(apply(&state, &op("a", kind)), Err(Reject::ContentPlaced(1001)));
+}
+
+#[test]
+fn a_lone_pane_in_an_implicit_row_is_own_place_at_any_height() {
+    let state = columns(&[1]);
+    let (next, events) = apply(&state, &op("a", to_row(1000, 100, false, 400, None))).unwrap();
+    assert_eq!(next, state);
+    assert!(events.is_empty());
+}
+
+#[test]
 fn a_row_id_is_never_reused() {
     let state = columns(&[1, 1]);
     let (state, _) = apply(&state, &op("a", insert_row(100, 70, 200, 2000))).unwrap();
@@ -216,7 +235,7 @@ enum Step {
     ToRow { tab: usize, anchor: usize, before: bool, height: u16, respawn: bool },
     Heights { column: usize, height: u16, fit: bool },
     Flatten { column: usize },
-    Split { tab: usize, pane: usize },
+    Split { tab: usize, pane: usize, before: bool },
     Move { tab: usize, pane: usize },
     Close { tab: usize },
 }
@@ -236,7 +255,8 @@ fn step() -> impl Strategy<Value = Step> {
         (any::<usize>(), 90u16..=1010, any::<bool>())
             .prop_map(|(column, height, fit)| Step::Heights { column, height, fit }),
         any::<usize>().prop_map(|column| Step::Flatten { column }),
-        (any::<usize>(), any::<usize>()).prop_map(|(tab, pane)| Step::Split { tab, pane }),
+        (any::<usize>(), any::<usize>(), any::<bool>())
+            .prop_map(|(tab, pane, before)| Step::Split { tab, pane, before }),
         (any::<usize>(), any::<usize>()).prop_map(|(tab, pane)| Step::Move { tab, pane }),
         any::<usize>().prop_map(|tab| Step::Close { tab }),
     ]
@@ -279,16 +299,29 @@ fn concrete(state: &LayoutState, step: &Step, next: &mut u64) -> Option<LayoutOp
         },
         Step::Heights { column, height, fit } => {
             let c = pick(&columns, *column)?;
-            let heights = c.rows.iter().map(|row| (row.id, *height)).collect();
+            // With fit, the heights share 1000 and the last row takes the
+            // remainder; without, every row gets `height`.
+            let count = c.rows.len() as u16;
+            let heights = c
+                .rows
+                .iter()
+                .enumerate()
+                .map(|(index, row)| {
+                    let share = 1000 / count.max(1);
+                    let last = index + 1 == c.rows.len();
+                    let fitted = if last { 1000 - share * (count - 1) } else { share };
+                    (row.id, if *fit { fitted } else { *height })
+                })
+                .collect();
             LayoutOpKind::SetRowHeights { column: c.id, heights, fit: *fit }
         }
         Step::Flatten { column } => {
             LayoutOpKind::FlattenRows { column: pick(&columns, *column)?.id }
         }
-        Step::Split { tab, pane } => LayoutOpKind::MoveTabToSplit {
+        Step::Split { tab, pane, before } => LayoutOpKind::MoveTabToSplit {
             tab: pick(&tabs, *tab)?,
             pane: pick(&panes, *pane)?,
-            edge: Edge::Bottom,
+            edge: if *before { Edge::Top } else { Edge::Bottom },
             new_pane: fresh(),
             respawn: None,
         },

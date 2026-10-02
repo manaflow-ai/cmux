@@ -293,6 +293,8 @@ pub enum Reject {
     RowSetMismatch(ColumnId),
     /// `SetRowHeights { fit: true }` heights that do not sum to 1000.
     FitSum(u32),
+    /// `InsertRow` names content that this tab already places.
+    ContentPlaced(TabId),
     /// The key was already used for a different op.
     IdempotencyConflict(IdempotencyKey),
     /// The result would break an invariant.
@@ -321,6 +323,7 @@ impl fmt::Display for Reject {
             Self::RowSetMismatch(column) => {
                 write!(f, "the rows named are not column {column}'s rows")
             }
+            Self::ContentPlaced(tab) => write!(f, "tab {tab} already places this content"),
             Self::FitSum(sum) => write!(f, "fitted row heights sum to {sum}\u{2030}, not 1000"),
             Self::IdempotencyConflict(key) => {
                 write!(f, "idempotency key {key} was used for another op")
