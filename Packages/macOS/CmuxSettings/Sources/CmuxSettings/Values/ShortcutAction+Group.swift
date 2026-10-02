@@ -26,7 +26,7 @@ extension ShortcutAction {
              .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete,
              .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces,
-             .toggleFocusedWorkspaceGroupCollapsed, .reopenClosedBrowserPanel,
+             .toggleFocusedWorkspaceGroupCollapsed, .reopenClosedBrowserPanel, .tabSearch,
              .newSurface, .toggleTerminalCopyMode, .focusTextBoxInput,
              .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow,
              .clearScreenKeepScrollback:

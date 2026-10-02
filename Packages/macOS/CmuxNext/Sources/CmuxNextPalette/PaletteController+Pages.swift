@@ -105,9 +105,6 @@ extension PaletteController {
         provider.effectOverrides["goToWorkspace"] = { [weak self] in
             self?.workspacesPage().map { .push($0) }
         }
-        provider.effectOverrides["palette.goToTab"] = { [weak self] in
-            self?.tabsPage().map { .push($0) }
-        }
         for (id, make) in sources.actionPages {
             provider.effectOverrides[id] = { make().map { .push($0) } }
         }

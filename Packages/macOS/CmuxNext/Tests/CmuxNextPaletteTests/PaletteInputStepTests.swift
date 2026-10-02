@@ -49,7 +49,7 @@ import Testing
     /// sources, not the registry); `renameTabAndRenameWorkspaceSubmitOnReturn`
     /// and the navigation tests cover them.
     static let paletteServed: Set<ActionID> = ["renameTab", "renameWorkspace", "palette.terminalOpenDirectory",
-                                               "palette.toggleSetting", "palette.searchShortcuts", "goToWorkspace", "palette.goToTab"]
+                                               "palette.toggleSetting", "palette.searchShortcuts", "goToWorkspace"]
 
     /// Palette-visible actions with a required text or number argument.
     static func inputActionIDs() -> [ActionID] {
