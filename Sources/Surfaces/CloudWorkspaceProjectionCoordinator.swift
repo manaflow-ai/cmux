@@ -148,7 +148,7 @@ final class CloudWorkspaceProjectionCoordinator {
                         // there is nothing safe to materialize here. Keep
                         // reconciliation moving so obsolete panes and layout can
                         // still converge; a later accepted membership will retry.
-                        if Self.shouldSkipMissingLocalPreview(placement, error: error) {
+                        if CloudWorkspaceProjectionPolicy.shouldSkipMissingLocalPreview(placement, error: error) {
                             continue
                         }
                         throw error
@@ -183,13 +183,4 @@ final class CloudWorkspaceProjectionCoordinator {
         failures = failures.filter { live.contains($0.key) }
     }
 
-    static func shouldSkipMissingLocalPreview(
-        _ placement: SurfaceResourcePlacement,
-        error: Error
-    ) -> Bool {
-        guard placement.resource.kind == .display || placement.resource.isForwardedPort else { return false }
-        guard let catalogError = error as? SurfaceCatalogError,
-              case .unavailable = catalogError else { return false }
-        return true
-    }
 }

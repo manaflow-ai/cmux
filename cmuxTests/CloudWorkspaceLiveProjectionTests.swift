@@ -25,8 +25,8 @@ struct CloudWorkspaceLiveProjectionTests {
             reason: "remote placement data is unavailable"
         )
 
-        #expect(CloudWorkspaceProjectionCoordinator.shouldSkipMissingLocalPreview(display, error: error))
-        #expect(!CloudWorkspaceProjectionCoordinator.shouldSkipMissingLocalPreview(
+        #expect(CloudWorkspaceProjectionPolicy.shouldSkipMissingLocalPreview(display, error: error))
+        #expect(!CloudWorkspaceProjectionPolicy.shouldSkipMissingLocalPreview(
             SurfaceResourcePlacement(
                 resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-1"),
                 remoteWorkspaceID: "workspace-b"
