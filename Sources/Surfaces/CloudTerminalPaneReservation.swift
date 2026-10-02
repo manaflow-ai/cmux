@@ -159,7 +159,8 @@ final class CloudTerminalPaneReservation {
         resourceID: SurfaceResourceID,
         remoteTabID: String?,
         materializedPlacement: SurfaceRemotePlacement? = nil,
-        catalog: SurfaceCatalog
+        catalog: SurfaceCatalog,
+        allowPlacementRepair: Bool = false
     ) throws -> SurfaceRemotePlacement? {
         guard let expected = attachmentPlacement else { return materializedPlacement }
         guard resourceID == expected.resource, resourceID.machine == machine,
@@ -167,13 +168,25 @@ final class CloudTerminalPaneReservation {
             throw CloudDiagnosticFailure.placement
         }
         guard expected.remoteWorkspaceID != nil || expected.remoteTabID != nil else { return materializedPlacement }
-        guard let view = try? catalog.remoteView(
+        if let view = try? catalog.remoteView(
             for: resourceID, tabID: expected.remoteTabID, workspaceID: expected.remoteWorkspaceID
-        ) else { throw CloudDiagnosticFailure.placement }
-        if let materializedPlacement,
-           materializedPlacement.workspaceID != view.workspace.id || materializedPlacement.tabID != view.tabID {
+        ) {
+            if let materializedPlacement,
+               materializedPlacement != SurfaceRemotePlacement(workspaceID: view.workspace.id, tabID: view.tabID) {
+                guard allowPlacementRepair,
+                      materializedPlacement.workspaceID == view.workspace.id else {
+                    throw CloudDiagnosticFailure.placement
+                }
+                return materializedPlacement
+            }
+            return materializedPlacement ?? SurfaceRemotePlacement(workspaceID: view.workspace.id, tabID: view.tabID)
+        }
+        guard allowPlacementRepair else { throw CloudDiagnosticFailure.placement }
+        guard let materializedPlacement else { return nil }
+        if let expectedWorkspaceID = expected.remoteWorkspaceID,
+           materializedPlacement.workspaceID != expectedWorkspaceID {
             throw CloudDiagnosticFailure.placement
         }
-        return materializedPlacement ?? SurfaceRemotePlacement(workspaceID: view.workspace.id, tabID: view.tabID)
+        return materializedPlacement
     }
 }
