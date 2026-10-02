@@ -10,16 +10,16 @@ adapted for one laptop, many Mac minis and many Cloud VMs.
 1. Three roles. A **session host** runs on every machine with terminals and owns PTYs, processes, output, the canonical grid, ordered and attributed input, and presence; it knows no layout. The **workspace store** is per user and owns the arrangement (windows as records, workspaces, columns, panes, tabs that reference sessions on any host, browser tab records, pins, groups, rooms, history). The **client** (Mac app, iPhone, TUI) owns view state and renders.
 2. Single writer per entity: the owner applies typed ops through a pure reducer; everyone else is a mirror plus one log of pending intents settled by transaction echo or reject.
 3. Not strict projection, each with a named owner: client view state (the client; persisted only in its own window record), browser runtime (the hosting Mac app, which alone writes the browser record), preferences (config layer), terminal geometry (session host arbitrates client claims), gestures (local until their commit intent).
-4. The store has one sequencer per document. Until the cross-device sync hub is decided, the primary store replica is the local cmux-tui on the device that holds the document; other devices reach it through that device (iPhone through the Mac). Replicas never accept writes on their own.
+4. The store has one sequencer per document. Synced documents are sequenced by a Cloudflare Durable Object (user decision); each device's local store is a replica that forwards ops. Whether a document may stay local-only (editable offline) is open for the cloud spec lead. Replicas never accept writes on their own.
 5. Mac minis and Cloud VMs run session hosts only for this user's Mac. Their own TUI users get a store on that machine, so the same terminal can be arranged differently by each viewer.
 6. Remote CLI and agent layout verbs (`cmux pane split` inside a VM terminal) become layout intents: the session host forwards them to every store that places that terminal, and each store applies them once by idempotency key.
-7. Offline: a client refuses ops on an unreachable owner's entities and shows the state; only ops marked safe queue, with their idempotency keys, and the owner validates them on reconnect. Terminal input never queues.
+7. Offline (user decision): nothing queues. While an owner is unreachable every change to its entities is refused and the client shows the disconnected state; on reconnect the client resends only intents it had sent before the disconnect (same keys, the ledger dedupes).
 8. App inventory: 65 optimistic sites, 54 with no patch, 60 never settled by op id, 31 never send the op id; 11 second copies of shared state, 5 can drift; 6 per-client facts written as shared; one window document that two Macs overwrite.
 9. Daemon inventory: one commit choke point with an exactly-once ledger, but about 156 layout entry points, a client echo on one event kind, terminal death by direct callback (inferred on host loss), shared focus written by single clients, no reducer, proptest or model.
 10. TLA+ (`formal/OwnershipConvergence.tla`, companion to the landed `TabLayout.tla`): two clients, intent logs, reordered, duplicated and lost messages, disconnect, reconnect, owner restart, commit before publish, client-owned records. TLC passes every safety invariant (5,680,649 states) and liveness `EventuallyConverged` (1,785,780 states); seven mutants each fail, including today's drop-at-next-snapshot (`PendingVisible`), publish-before-commit (`NoLostAck`) and trusting a client-sent owner (`RecordSingleWriter`).
 11. Agreed with PR 16174 (session feat-cmux-next-99): the store is built on `cmux-tui-core::state`; window records are one row per `(install_id, window_id)` with an owner field and per-record compare-and-swap; `mutation-echo-v1` uses an opaque tag (keyed hash of client id and idempotency key) set centrally in the dispatcher plus `request-settled` for every request.
 12. Steps (section 7), each shippable alone with a failing test first: ownership.md and TLA+; pure layout reducer crate with proptest and kani; `mutation-echo-v1`; authenticated client identity per connection with owner-checked single-writer records; app mirror plus one intent log; daemon-owned workspace lifecycle; session host / store split after PR 16174 lands.
-13. Decisions for the user are in section 8.
+13. Decisions (section 8): all answered: Durable Objects sync hub, account directory discovery, TUI closes emptied workspaces, each Mac renders its own Chromium, nothing queues offline, smallest attached viewer sets the canonical grid with a presence list and kick.
 
 ## 0. Agreements and related plans
 
@@ -50,13 +50,13 @@ adapted for one laptop, many Mac minis and many Cloud VMs.
 | --- | --- | --- | --- | --- | --- |
 | PTY, process, exit status, cwd, title, git branch, OSC progress | session host on the machine that runs it | clients and CLIs attached to it | every viewer | host process, registry | refuse ops; show last snapshot and "reconnecting" |
 | Output record and checkpoints (bounded, per-session opt-out) | session host | none (derived) | viewers, search, agents | replay today (10 MiB); durable transcript is new | read the last snapshot |
-| Canonical grid size | session host (sizing reducer) | claims and activity from each viewer | viewers | memory | n/a |
+| Canonical grid size | session host (sizing reducer; default policy: smallest attached viewer wins) | viewport reports from each attached viewer | viewers (each renders its own viewport of the grid) | memory | n/a |
 | Input order with attribution | session host | each attached participant | session host journal | journal | refuse; never queue keystrokes |
-| Presence, kick-off, revive | session host | connections, `set-client-info` | viewers | memory | n/a |
-| Notifications, unread, agent state | session host (terminal-derived) | hooks, agents; viewers ack | viewers | registry | ack is a safe op (queues) |
+| Presence, kick-off, revive | session host | connections, `set-client-info`; any attached user may kick a client | viewers (presence list of every client) | memory | the kicked client shows "disconnected by X" (the old cmux screen) |
+| Notifications, unread, agent state | session host (terminal-derived) | hooks, agents; viewers ack | viewers | registry | refuse (nothing queues) |
 | Workspaces, screens, columns incl. sticky, splits, panes, tab order, tabs referencing `{host, terminal}` | workspace store | local app, CLI, TUI; remote agents via layout intents | every client of that store | store registry + journal | the local store is always reachable |
 | Workspace identity (name, color, icon), tab names, pins, tab groups | workspace store | same | same | same | same |
-| Browser tab record (placement, last URL, title, profile, zoom, short history) | workspace store; fields written only by the hosting Mac app, placement by user ops | hosting app; user ops (move, close) | clients | store | same |
+| Browser tab record (placement, URL with revision, title, profile, zoom, short history) | workspace store | any app showing the tab: `browser.navigate` with `expected_revision`, page info for the current URL revision only; user ops (move, close) | clients (each Mac's page follows the URL) | store | same |
 | Rooms, workspace groups and order, saved groups, closed history, keep-layout records, session registry, browser profiles | workspace store (personal) | local app, CLI | clients | store | same |
 | Window records (workspaces per window, selected tab per pane, focused pane, frame, sidebar) | the owning app install (client view state), stored as one row per `(install_id, window_id)` in the store | that install only (owner field, per-record CAS) | that app; CLI, TUI, iOS read | store | n/a (local) |
 | Remote-terminal tab snapshot (at most 64 KiB of text the app last showed of a remote terminal) | the app install that showed it: per-client view cache, single-writer record (today on the home store's `remote_terminal_tabs` row via `update-remote-terminal-tab`; owner field added with the v2-ops follow-up) | that install only | that app | store | shown labeled as a stale cache; never terminal output, never replayed as output; live output replaces it once the host answers |
@@ -68,15 +68,16 @@ adapted for one laptop, many Mac minis and many Cloud VMs.
 
 1. Client view state. The client owns it. Other tools read it only from the client's own
    window record, which only that client writes (2.1).
-2. Browser runtime. The page is the source of truth for live URL, title and history; the
-   store's browser record is a projection OF the hosting app. Exactly one app hosts a
-   given browser tab (the app whose window shows it; a second viewer of the same store
-   shows a placeholder with the last URL and title, or opens its own page only as an
-   explicit "open here", which moves hosting). This keeps one writer per record.
+2. Browser runtime. Each Mac that shows a browser tab runs its own Chromium page (user
+   decision 8.4); the page's live state is that Mac's. The store's browser record stays
+   single-owner (the store): navigations are ops from any showing app, title and favicon
+   updates are accepted only for the current URL revision, and each page follows the
+   record's URL.
 3. Preferences. Owned by the config layer of each machine; never synced through the store.
-4. Terminal geometry. The session host owns the grid; viewers contribute claims and
-   activity, and render with their own viewport (crop, pan, scale). The default policy is
-   a decision (8.5).
+4. Terminal geometry. The session host owns one canonical grid; by default the smallest
+   attached viewer sets it (user decision), and every viewer renders its own viewport
+   (crop, pan, scale). A presence list shows every attached client, and any user can kick
+   a client, which then shows "disconnected by X".
 5. Gestures. A drag, divider resize or strip scroll is local continuous state; only its
    commit becomes an intent. A reject animates back.
 6. Launch snapshot. A read-only provisional mirror drawn before connecting, replaced in
@@ -162,7 +163,7 @@ each other. Implemented by session feat-cmux-next-99 after its catch-up.
 | iPhone + Mac | the phone projects the Mac's store (window records included) and attaches terminals through the Mac or directly to the host |
 | Two Macs, same user | separate stores until the sync hub is decided (8.1); both attach to the same terminals, input is ordered and attributed, the grid is shared |
 | Agent in a VM runs `cmux pane split` | the VM's session host creates the terminal and forwards a layout intent (anchor terminal, verb, idempotency key) to every store that places the anchor; each applies it once; a store that does not place the anchor lists the new terminal under the machine |
-| Partition (Mac loses a VM) | layout stays editable; that VM's tabs are placeholders; ops on its terminals are refused |
+| Partition (Mac loses a VM) | that VM's tabs are placeholders and every op on its terminals is refused (nothing queues); layout ops are refused too while the layout's own owner (the synced document's Durable Object) is unreachable, unless the document is local-only (open, 8.1) |
 | Reconnect | mirror resyncs from a snapshot; decided intents leave the log; undecided intents are resent with the same key (the ledger dedupes) |
 | Session host restarts | adopts running terminal hosts; viewers reattach; layout untouched |
 | Store restarts mid-op | ledger and journal are durable; clients resend undecided intents; nothing is applied twice |
@@ -340,17 +341,33 @@ COORDINATION.md line.
    typed lifecycle events on a channel instead of calling `Mux::surface_exited`; per-client
    focus and zoom leave the shared tree.
 
-## 8. Decisions for the user
+## 8. Decisions
 
-1. Cross-device store sync hub: an account relay with end-to-end encryption, peer to peer,
-   or both. Until decided, each device's store is separate and the iPhone reaches the Mac's.
-2. Host discovery for many Mac minis and Cloud VMs: an account directory with local
-   fallback, or manual.
-3. Default for emptied workspaces for plain cmux-tui clients (close, or keep empty).
-4. Which ops are safe to queue offline. Proposed: notification ack, rename, pin, group
-   collapse; never terminal input, close or move.
-5. Default grid policy: `latest` (newest active viewer sets the size, today) or one fixed
-   canonical grid with per-client viewports (the post's recommendation).
-6. Browser tab shown by two viewers of one store: one host with a placeholder elsewhere
-   (proposed), or a page per viewer with the record written by the last navigator (two
-   writers, against the principles).
+Answered by the user (2026-10-01):
+
+1. Cross-device sync hub: Cloudflare Durable Objects for now (unit per user or team
+   document chosen by the cloud spec lead; teams first-class), an own peer-to-peer
+   overlay later. Consequence for ownership: a synced document's sequencer (its single
+   writer) is its Durable Object; each device's local store is a replica that forwards
+   ops and keeps the last confirmed state. Open for the spec lead: whether a document can
+   be local-only (owned by the local store, never synced) so layout stays editable
+   offline, and how a document moves between local and synced ownership (an explicit
+   handover op, never two sequencers at once).
+2. Host discovery: account directory with local fallback.
+3. Emptied workspace in the TUI: closes, same as the app (the store applies one policy).
+4. A browser tab shown by two Macs: each Mac renders its own Chromium. Ownership rule
+   that keeps one writer: the browser record is owned by the store; URL changes are ops
+   (`browser.navigate {tab, url, expected_revision}`) from any app that shows the tab,
+   and every app's page follows the record's URL; title and favicon updates name the
+   URL revision they belong to and are refused for a stale revision. Page-local state
+   (back/forward stack beyond the record's short list, scroll, form state, loading,
+   devtools) stays per Mac. Remote desktop, VNC and remote Chrome tabs come later.
+
+5. Offline: nothing queues. While an owner is unreachable every change to its entities
+   is refused and the client shows the disconnected state. Reconnect resends only the
+   intents sent before the disconnect, with their keys (the model's `Reconnect`; `Issue`
+   requires a live connection).
+6. Grid policy default: one canonical grid per terminal, the smallest attached viewer
+   wins; a presence list shows every client; any user can kick a client, and the kicked
+   client shows a "disconnected by X" screen (reuse the old cmux UI). Maps to the
+   `smallest` policy of `shared-sizing-v1` plus `detach-client` with a reason and actor.
