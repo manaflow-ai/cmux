@@ -226,7 +226,8 @@ pub enum Op {
     Reset,
 }
 
-/// Why the owner refused an op; `as_str` is the wire reason.
+/// Why the owner refused an op; `as_str` is the wire reason. (A reused
+/// idempotency key is the commit path's `idempotency.conflict`.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reject {
     WorkspacesRequired,
@@ -238,7 +239,6 @@ pub enum Reject {
     InvalidMaxRows,
     InvalidArrangement,
     TooMany,
-    IdempotencyConflict,
 }
 
 impl Reject {
@@ -253,7 +253,6 @@ impl Reject {
             Reject::InvalidMaxRows => "invalid_max_rows",
             Reject::InvalidArrangement => "invalid_arrangement",
             Reject::TooMany => "too_many",
-            Reject::IdempotencyConflict => "idempotency_conflict",
         }
     }
 }
