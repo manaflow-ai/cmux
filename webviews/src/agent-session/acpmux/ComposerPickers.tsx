@@ -244,6 +244,7 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
       )}
       {effort && efforts.length > 0 && (
         <EffortPicker
+          label={PICKER_LABELS.effort}
           efforts={efforts}
           current={effort.currentValue}
           model={model?.name ?? summary?.model}
@@ -517,6 +518,7 @@ export function Picker({
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="combobox"
         className="acpmux-picker-button"
+        data-menu={label}
         aria-label={label}
         aria-haspopup="listbox"
         aria-expanded={open}

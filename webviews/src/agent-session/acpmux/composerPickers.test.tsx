@@ -421,10 +421,13 @@ describe("acpmux composer pickers", () => {
     // Opening an open menu keeps it open rather than toggling it shut.
     await act(async () => {
       openPicker("Effort");
+    });
+    await act(async () => {
       openPicker("Effort");
     });
     expect(button("Effort")!.getAttribute("aria-expanded")).toBe("true");
     expect(doc.activeElement).toBe(doc.querySelector(".acpmux-effort-range"));
+    expect(doc.querySelector('button[data-menu="Effort"]')).toBe(button("Effort"));
   });
 
   test("opening a menu by its label takes focus off the prompt first, as a click does", async () => {

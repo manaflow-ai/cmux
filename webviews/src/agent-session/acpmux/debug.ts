@@ -128,8 +128,8 @@ export function createAcpmuxDebug(host: { replaceRows(rows: AcpmuxRow[]): void; 
       if (!openPicker(label)) return { error: `no menu labelled ${JSON.stringify(label)}`, menus: pickerLabels() };
       await nextFrame();
       await nextFrame();
-      const button = [...document.querySelectorAll('[role="combobox"]')].find(
-        (node) => node.getAttribute("aria-label") === label,
+      const button = [...document.querySelectorAll<HTMLElement>("button[data-menu]")].find(
+        (node) => node.dataset.menu === label,
       );
       return { opened: label, open: button?.getAttribute("aria-expanded") === "true" };
     },
