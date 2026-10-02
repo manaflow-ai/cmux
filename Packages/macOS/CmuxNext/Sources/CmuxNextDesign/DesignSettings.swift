@@ -55,6 +55,10 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    public var focusIndicator: FocusIndicator = .border
+    public var tabBarBackground: TabBarBackground = .darker
+    public var effectiveFocusIndicator: FocusIndicator { FocusIndicatorTunables.indicator.override ?? focusIndicator }
+    public var effectiveTabBarBackground: TabBarBackground { FocusIndicatorTunables.tabBarBackground.override ?? tabBarBackground }
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
     /// `window.rail`: the window's icon rail, off by default.

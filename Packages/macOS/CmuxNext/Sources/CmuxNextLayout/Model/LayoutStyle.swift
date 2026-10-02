@@ -49,6 +49,9 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// of `focusRing.contrast`; nil follows the setting. Read here, in the
     /// observed style, so a slider move repaints the ring at once.
     public var focusRingAlphaOverride: CGFloat?
+    public var focusIndicator: FocusIndicator = .both
+    public var inactiveTabStyle: InactiveTabStyle = .fade
+    public var inactiveTabStrength: CGFloat = 0.45
     /// Fraction of a pane's extent that counts as an edge drop zone.
     public var dropEdgeFraction: CGFloat = 0.28
     /// Clamp for the edge drop band.

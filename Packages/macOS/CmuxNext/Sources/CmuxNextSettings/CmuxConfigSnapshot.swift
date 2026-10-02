@@ -87,6 +87,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var attention = AttentionSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
+    public var focusIndicator: FocusIndicator = .border
+    public var tabBarBackground: TabBarBackground = .darker
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `window.rail`; "off" when unset or invalid.

@@ -99,6 +99,9 @@ public final class ThemeScope {
         update(animated: animated, repaint: true)
     }
 
+    public private(set) var emphasis: ChromeEmphasis = .full
+    public func setEmphasis(_ emphasis: ChromeEmphasis, animated: Bool = true) { self.emphasis = emphasis }
+
     /// Moves this scope under another parent (a workspace shown in another
     /// window, a terminal moved to another workspace).
     public func setParent(_ newParent: ThemeScope, animated: Bool = false) {

@@ -163,6 +163,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         return content.superview === contentHost
     }
 
+    var showsStripFill: Bool { !stripBackdrop.isHidden }
+    func setChromeEmphasis(_ emphasis: ChromeEmphasis, animated: Bool) {}
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         themeDidChange()
