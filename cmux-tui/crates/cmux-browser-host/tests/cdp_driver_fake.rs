@@ -105,7 +105,9 @@ impl FakeWire {
             | "Fetch.enable"
             | "Fetch.disable"
             | "Fetch.failRequest"
-            | "Fetch.continueRequest" => json!({}),
+            | "Fetch.continueRequest"
+            | "Network.enable"
+            | "Network.setBlockedURLs" => json!({}),
             "Page.getFrameTree" => {
                 let target = target_of(&session);
                 json!({"frameTree": {
@@ -709,7 +711,9 @@ fn a_request_filter_intercepts_and_decides_every_request() {
     assert!(h.methods_since(mark).iter().any(|m| m == "Fetch.enable"));
     let mark = h.mark();
     assert!(h.driver.set_request_filter(None));
-    assert!(h.methods_since(mark).iter().any(|m| m == "Fetch.disable"));
+    let disabled = h.sent_since(mark);
+    assert!(disabled.iter().any(|(m, _)| m == "Fetch.disable"));
+    assert!(disabled.iter().any(|(m, p)| m == "Network.setBlockedURLs" && p["urls"] == json!([])));
 }
 
 #[test]
