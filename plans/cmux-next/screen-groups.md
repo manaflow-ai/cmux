@@ -53,3 +53,16 @@ command layers still copied, and what this change shares or fixes:
 - Automatic group colors skip blue (no blue in colors cmux picks itself);
   the editor still offers all nine colors (architecture.md 7: group colors
   are content).
+
+## Known gaps (review, 2026-10-02)
+
+- The tab group action gate (`ctx.needs(tabGroups)`) checks the daemon
+  that was active when the actions were bound, not the group's owner: a
+  remote daemon without `tab-groups-v1` is not refused up front (its
+  command fails instead).
+- Saved tab group unsave and delete read the active daemon's saved
+  records; saved groups live in personal state on the home daemon
+  (`personalOnHome`), so this matches today, but it is not routed through
+  `GroupOwnership`.
+- The app sends each idempotency key once; nothing resends a failed
+  request with the same key yet, so replay is possible but unused.

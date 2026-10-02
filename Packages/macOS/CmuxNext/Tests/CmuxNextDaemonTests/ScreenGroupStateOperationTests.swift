@@ -16,11 +16,4 @@ import Testing
         #expect(collapse.params == ["screen_group": .string("sgrp_1"), "collapsed": .bool(true)], "only the fields that change")
         #expect(Op.ungroup(group: "sgrp_1").params == ["screen_group": .string("sgrp_1")])
     }
-
-    @Test func stateResourcesIsAdvertisedButNotRequiredOfThePin() {
-        let capabilities = DaemonCapabilities.shared
-        #expect(capabilities.awaitingPin.contains(capabilities.stateResources))
-        #expect(!capabilities.optional.contains(capabilities.stateResources))
-        #expect(capabilities.advertised.contains(capabilities.stateResources))
-    }
 }

@@ -56,4 +56,25 @@ struct GroupOwnershipTests {
         #expect(found.daemon === remote)
         #expect(found.pane === remote.store.workspaces.first?.screens.first?.panes.first)
     }
+
+    /// The check every whole-group move and every add-to-group runs
+    /// (TabGroupMoves.owner, tabGroup.moveToWorkspace, tabGroup.addTab):
+    /// the target must be on the group's own machine.
+    @Test func aTargetOnAnotherMachineIsRefused() throws {
+        let (machines, remote) = try Self.machines()
+        let here = TabGroupID(rawValue: "tg_here"), there = TabGroupID(rawValue: "tg_there")
+        #expect(GroupOwnership.owner(ofTabGroup: here, sameMachineAs: machines.local, machines: machines) === machines.local)
+        #expect(GroupOwnership.owner(ofTabGroup: there, sameMachineAs: remote, machines: machines) === remote)
+        #expect(GroupOwnership.owner(ofTabGroup: there, sameMachineAs: machines.local, machines: machines) == nil,
+                "a remote group never takes a local target")
+        #expect(GroupOwnership.owner(ofTabGroup: here, sameMachineAs: remote, machines: machines) == nil)
+    }
+
+    @Test func screenGroupTargetsResolveOnTheirOwnMachine() throws {
+        let (machines, remote) = try Self.machines()
+        let found = try #require(GroupOwnership.screenGroup(ScreenGroupID(rawValue: "sgrp_there"), machines: machines))
+        #expect(found.daemon === remote)
+        #expect(found.group.name == "S")
+        #expect(GroupOwnership.daemon(holdingScreenGroup: ScreenGroupID(rawValue: "sgrp_there"), in: machines.daemons) === remote)
+    }
 }

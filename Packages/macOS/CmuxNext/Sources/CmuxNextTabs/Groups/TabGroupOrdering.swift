@@ -63,6 +63,22 @@ public struct TabGroupOrdering {
         return items
     }
 
+    /// The item to select before `group` collapses over `selected`, for
+    /// callers that cannot open a new item: Chrome's nearest visible item
+    /// (`selectionAfterCollapsing`), else the first item outside the group
+    /// (selecting it expands its own collapsed group, so the selection stays
+    /// visible). Nil when nothing needs to change or every item is in `group`.
+    public static func selectionBeforeCollapsing(
+        _ group: TabGroupID,
+        in ordered: [TabItem],
+        collapsed: Set<TabGroupID>,
+        selected: TabID?
+    ) -> TabID? {
+        guard let selected, ordered.first(where: { $0.id == selected })?.groupID == group else { return nil }
+        return selectionAfterCollapsing(group, in: ordered, collapsed: collapsed, selected: selected)
+            ?? ordered.first { $0.groupID != group }?.id
+    }
+
     /// The color a new group gets: the first of the nine group colors no
     /// group in the same strip uses yet (Chrome), skipping blue (no blue in
     /// what cmux picks itself; a user may still choose it); grey when every

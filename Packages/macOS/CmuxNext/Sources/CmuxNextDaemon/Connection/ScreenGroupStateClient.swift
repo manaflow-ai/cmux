@@ -1,8 +1,9 @@
 import Foundation
 
 /// Screen group changes as protocol-v2 state operations (`state-resources-v1`,
-/// `screen_group.*`): each carries the client's idempotency key, so a retry
-/// replays the stored result instead of applying twice, and the daemon
+/// `screen_group.*`): each carries the client's idempotency key (a request
+/// sent again with the same key replays the stored result instead of
+/// applying twice; the app does not resend today), and the daemon
 /// commits it on the same path as the raw `screen-groups-v1` commands
 /// (cmux-tui `mux/state_screens.rs`). Screens and groups are named by their
 /// public ids (`ScreenModel.id`, `ScreenGroupID`). Its own type, not a

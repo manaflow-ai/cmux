@@ -16,7 +16,7 @@ import CmuxNextTabs
 enum ScreenGroupCommands {
     static func create(_ screens: [ScreenModel], in workspace: WorkspaceModel, name: String?, color: GroupColor?, daemon: DaemonService) {
         let handles = screens.map(\.handle), color = (color ?? nextColor(in: workspace)).rawValue
-        change("create-screen-group", .create(screens: screens.map(\.id), name: name, color: color), daemon: daemon) {
+        change("create-screen-group", stateIDs(screens).map { .create(screens: $0, name: name, color: color) }, daemon: daemon) {
             _ = try await $0.createScreenGroup(handles, name: name, color: color)
         }
     }
@@ -24,13 +24,13 @@ enum ScreenGroupCommands {
     static func add(_ screens: [ScreenModel], to group: ScreenGroupID, index: Int? = nil, daemon: DaemonService) {
         let handles = screens.map(\.handle)
         // The v2 operation has no index: a placed add stays on the raw command.
-        let state: ScreenGroupStateClient.Operation? = index == nil ? .addScreens(group: group.rawValue, screens: screens.map(\.id)) : nil
+        let state = index == nil ? stateIDs(screens).map { ScreenGroupStateClient.Operation.addScreens(group: group.rawValue, screens: $0) } : nil
         change("add-screens-to-screen-group", state, daemon: daemon) { _ = try await $0.addScreens(handles, toGroup: group, index: index) }
     }
 
     static func remove(_ screens: [ScreenModel], daemon: DaemonService) {
         let handles = screens.map(\.handle)
-        change("remove-screens-from-screen-group", .removeScreens(screens.map(\.id)), daemon: daemon) {
+        change("remove-screens-from-screen-group", stateIDs(screens).map { .removeScreens($0) }, daemon: daemon) {
             _ = try await $0.removeScreensFromGroup(handles)
         }
     }
@@ -50,9 +50,8 @@ enum ScreenGroupCommands {
            ref.members.contains(where: { $0.id == active }) {
             let bar = content.screenBar.model
             let collapsedGroups = Set(bar.groups.filter(\.isCollapsed).map(\.id))
-            if let next = TabGroupOrdering.selectionAfterCollapsing(CmuxNextTabs.TabGroupID(ref.group.id.rawValue), in: bar.orderedTabs,
-                                                                   collapsed: collapsedGroups, selected: StripTabID(active)),
-               next.rawValue != active {
+            if let next = TabGroupOrdering.selectionBeforeCollapsing(CmuxNextTabs.TabGroupID(ref.group.id.rawValue), in: bar.orderedTabs,
+                                                                    collapsed: collapsedGroups, selected: StripTabID(active)) {
                 ScreenCommands.select(LayoutScreenID(next.rawValue), in: content)
             }
         }
@@ -99,6 +98,13 @@ enum ScreenGroupCommands {
         guard let state, daemon.supports(DaemonCapabilities.shared.stateResources) else { return daemon.send(label, raw) }
         let key = idempotencyKey(label)
         daemon.send(label) { _ = try await ScreenGroupStateClient(connection: $0).send(state, idempotencyKey: key) }
+    }
+
+    /// The screens' resource ids (`screen_<hex>`) the v2 operations take;
+    /// nil when one has none (an older snapshot): the raw command then runs.
+    static func stateIDs(_ screens: [ScreenModel]) -> [String]? {
+        let ids = screens.compactMap { $0.resourceID?.rawValue }
+        return ids.count == screens.count ? ids : nil
     }
 
     /// `cmux-next-<label>-<uuid>`: unique per user intent, under 128 bytes.

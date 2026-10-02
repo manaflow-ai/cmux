@@ -40,6 +40,11 @@ enum TabGroupHandlers {
         return (id, pane)
     }
 
+    /// The connection of `pane`'s own daemon; refuses (daemon offline) without one.
+    static func connection(for pane: PaneModel, _ ctx: AppActionContext) -> DaemonConnection? {
+        ctx.services.daemon(for: pane).connection ?? ctx.refuse(MiscHandlerStrings.daemonOffline)
+    }
+
     /// The pane holding `group`, on whichever machine owns it (`GroupOwnership`).
     static func pane(holding group: GroupID, _ ctx: AppActionContext) -> PaneModel? {
         GroupOwnership.pane(holdingTabGroup: group, machines: ctx.services.machines)?.pane
@@ -51,7 +56,7 @@ enum TabGroupHandlers {
                     _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
         // The pane's own machine, not the active window's daemon.
         let daemon = pane.map { ctx.services.daemon(for: $0) } ?? ctx.services.activeDaemon
-        guard daemon.connection != nil else { return }
+        guard daemon.connection ?? ctx.refuse(MiscHandlerStrings.daemonOffline) != nil else { return }
         Task {
             let ok = await daemon.perform(label, patch: patch, expectEcho: false, body)
             if !ok, let pane { ctx.services.paneController(for: pane)?.resyncStrip() }
@@ -79,6 +84,9 @@ enum TabGroupHandlers {
             guard !tab.pinned else { return ctx.refuse(RefusalStrings.pinnedCannotGroup) }
             let group = GroupID(rawValue: ref.id), surface = tab.surface
             guard let pane = pane(holding: group, ctx) ?? ctx.refuse(RefusalStrings.noOpenTabGroup(ref.id)) else { return }
+            // The tab must be on the group's machine (surface ids are per daemon).
+            guard GroupOwnership.owner(ofTabGroup: group, sameMachineAs: ctx.services.machines.daemon(forTab: tab),
+                                       machines: ctx.services.machines) != nil else { return ctx.refuse(RefusalStrings.otherMachine) }
             run("add-tabs-to-group", pane: pane, ctx) { c, t in _ = try await c.addTabs([surface], toGroup: group, transaction: t) }
         }
         bind("tabGroup.removeTab") { invocation in
@@ -93,7 +101,8 @@ enum TabGroupHandlers {
             let cwd = pane.tabs.last { $0.tabGroup == group }?.cwd
             let controller = ctx.services.paneController(for: pane)
             let workspace = ctx.services.workspaceKey(of: pane)
-            guard let connection = ctx.services.daemon(for: pane).connection else { return }
+            guard let connection = connection(for: pane, ctx) else { return }
+            let logger = ctx.services.daemon(for: pane).logger
             Task {
                 do {
                     let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace))
@@ -104,7 +113,7 @@ enum TabGroupHandlers {
                         controller.workspace?.expectFocus(on: created.surface)
                     }
                 } catch {
-                    ctx.services.daemon.logger.error("new-tab-in-group failed: \(String(describing: error), privacy: .public)")
+                    logger.error("new-tab-in-group failed: \(String(describing: error), privacy: .public)")
                 }
             }
         }
@@ -147,9 +156,8 @@ enum TabGroupHandlers {
             let strip = controller.stripModel
             let stripGroup = CmuxNextTabs.TabGroupID(group.rawValue)
             let collapsedGroups = Set(strip.groups.filter(\.isCollapsed).map(\.id))
-            if let next = TabGroupOrdering.selectionAfterCollapsing(stripGroup, in: strip.orderedTabs, collapsed: collapsedGroups,
-                                                                   selected: strip.selectedID),
-               next != strip.selectedID {
+            if let next = TabGroupOrdering.selectionBeforeCollapsing(stripGroup, in: strip.orderedTabs, collapsed: collapsedGroups,
+                                                                    selected: strip.selectedID) {
                 controller.select(next)
             }
         }

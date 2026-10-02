@@ -81,9 +81,7 @@ enum TabGroupMoves {
 
     /// The daemon that owns `group`, when `pane` is on that machine too.
     static func owner(of group: TabGroupID, target pane: PaneModel, services: AppServices) -> DaemonService? {
-        guard let daemon = GroupOwnership.daemon(holdingTabGroup: group, machines: services.machines),
-              services.daemon(for: pane) === daemon else { return nil }
-        return daemon
+        GroupOwnership.owner(ofTabGroup: group, sameMachineAs: services.daemon(for: pane), machines: services.machines)
     }
 
     private static func run(_ label: String, daemon: DaemonService, transaction: ClientTransactionID,
