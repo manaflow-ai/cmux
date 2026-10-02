@@ -122,6 +122,7 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.surfaceView.frame = surface.paneHost.bounds
         window.contentView?.addSubview(surface.paneHost)
         surface.attachedView = surface.surfaceView
+        #expect(!surface.isRendererPresented)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -131,7 +132,9 @@ private func rendererReleaseWasOccluded() -> Bool
         }
 
         // The visibility edge ran before the hosted view had a real window.
-        // Attachment is the retry edge when no later frame delta occurs.
+        // The app target's GhosttyNSView.viewDidMoveToWindow call is the
+        // attachment retry edge; this package test verifies the readiness
+        // transition it replays once usable geometry exists.
         surface.rendererPresentationReadinessDidChange()
         #expect(surface.renderHealth == .awaitingFrame)
         acknowledgePresentation(on: surface)
