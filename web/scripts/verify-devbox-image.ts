@@ -46,6 +46,7 @@ import {
   devboxDir,
   devboxGhosttyVersion,
   devboxIdentityCheckCommand,
+  devboxIdleWakeupCheckCommand,
   devboxTerminfoCheckCommand,
   devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
@@ -361,8 +362,15 @@ async function waitForBakedDaemon(provider: string, exec: Exec): Promise<number>
 const provider = process.argv[2] ?? "";
 const image = process.argv[3] ?? "";
 if (!image) {
-  throw new Error("usage: bun scripts/verify-devbox-image.ts freestyle <snapshot-id> [--expect-kind desktop|base]");
+  throw new Error("usage: bun scripts/verify-devbox-image.ts freestyle <snapshot-id> [--expect-kind desktop|base] [--strict-clone-identity]");
 }
+// Machine id and random state per clone: reported always, failing only with
+// --strict-clone-identity until the bind step regenerates the machine id
+// (plans/cmux-next/vm-image.md, "Production promotion").
+const strictCloneIdentity = process.argv.includes("--strict-clone-identity");
+// Prototype runs name their sandboxes (for example cmuxnp-dev-verify) so they
+// are told apart from production machines on a shared provider account.
+const verifyName = process.env.CMUX_DEVBOX_VERIFY_NAME?.trim() || "cmux-devbox-verify";
 // The caller's belief about the image (promote-devbox-image.ts derives it from
 // --no-desktop). The stamp baked into the image is the truth; a mismatch fails
 // the verification so a base image is never promoted as the desktop default.
@@ -400,7 +408,7 @@ if (provider === "freestyle") {
     };
   };
   const t0 = Date.now();
-  const { vm, vmId } = await fs.vms.create({ snapshotId: image, displayName: "cmux-devbox-verify", firewall });
+  const { vm, vmId } = await fs.vms.create({ snapshotId: image, displayName: verifyName, firewall });
   console.log(`provisioned ${vmId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
     const exec = execFor(vm);
@@ -428,9 +436,16 @@ if (provider === "freestyle") {
         ? `cmux-tui pin: ${bakedCommit} (${bakedSha.slice(0, 12)}…), the current files.cmux.com pin`
         : `cmux-tui pin: baked ${bakedCommit} (${bakedSha.slice(0, 12)}…); files.cmux.com now pins ${live.commit} (${live.sha256.slice(0, 12)}…), a rebake picks it up`,
     );
+    // An idle machine must not wake: the terminal host's main thread (the warm
+    // template terminal) stays under a small bound of voluntary context
+    // switches over a quiet minute. Run before anything else touches the guest.
+    const idle = await exec(devboxIdleWakeupCheckCommand(), 180_000);
+    console.log(`  $ idle-wakeup check\n    exit=${idle.exitCode}\n    ${idle.output.trim().split("\n").join("\n    ")}`);
+    const idleOk = idle.exitCode === 0;
+    let cloneIdentityOk = true;
     // A second machine from the same memory snapshot must mint its own
     // identity; a shared one would let every machine impersonate every other.
-    const second = await fs.vms.create({ snapshotId: image, displayName: "cmux-devbox-verify-2", firewall });
+    const second = await fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall });
     try {
       const exec2 = execFor(second.vm);
       await waitForBakedDaemon("freestyle", exec2);
@@ -460,6 +475,16 @@ if (provider === "freestyle") {
         throw new Error(`two machines from ${image} share one SSH host key (${fingerprintA})`);
       }
       console.log(`SSH host keys differ across machines: ${fingerprintA.slice(7, 19)}… vs ${fingerprintB.slice(7, 19)}…`);
+      // machine-id (journald, D-Bus) and the kernel random state must be per
+      // machine too. The first urandom read is taken right away on both.
+      const perMachine = "cat /etc/machine-id; head -c 32 /dev/urandom | sha256sum | cut -c1-64";
+      const [idA, idB] = await Promise.all([exec(perMachine, 30_000), exec2(perMachine, 30_000)]);
+      const [machineA, randomA] = idA.output.trim().split("\n");
+      const [machineB, randomB] = idB.output.trim().split("\n");
+      const machineIdShared = idA.exitCode !== 0 || idB.exitCode !== 0 || !machineA || machineA === machineB;
+      const randomShared = !randomA || randomA === randomB;
+      console.log(`machine-id ${machineIdShared ? "SHARED" : "differs"} across machines (${(machineA ?? "").slice(0, 8)}… vs ${(machineB ?? "").slice(0, 8)}…); first urandom bytes ${randomShared ? "SHARED" : "differ"}`);
+      if (strictCloneIdentity && (machineIdShared || randomShared)) cloneIdentityOk = false;
     } finally {
       await second.vm.delete();
       console.log(`deleted ${second.vmId}`);
@@ -482,7 +507,9 @@ if (provider === "freestyle") {
       ...(desktop
         ? desktopChecks()
         : [`test ! -e ${DEVBOX_DESKTOP_START_SCRIPT} && echo base-image-has-no-desktop`]),
-    ], exec);
+    ], exec) && idleOk && cloneIdentityOk;
+    if (!idleOk) console.log("[freestyle] idle-wakeup check FAILED");
+    if (!cloneIdentityOk) console.log("[freestyle] clone identity check FAILED (--strict-clone-identity)");
   } finally {
     await vm.delete();
     console.log(`deleted ${vmId}`);
