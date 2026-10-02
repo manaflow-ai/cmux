@@ -58,7 +58,7 @@ struct CLIRemotesAddRouteParsingTests {
 
         #expect(run.result.status != 0)
         #expect(
-            run.result.stderr.contains("unknown option"),
+            run.result.stderr.contains("unknown flag"),
             Comment(rawValue: run.result.stderr + run.result.stdout))
         #expect(try Self.remotesAddParams(run) == nil, "no mutation request may be sent")
     }
@@ -80,6 +80,60 @@ struct CLIRemotesAddRouteParsingTests {
         #expect(
             !run.result.stderr.contains("requires at least one --route"),
             Comment(rawValue: run.result.stderr + run.result.stdout))
+    }
+
+    @Test func terminatorSuffixIsTreatedAsPositionalName() throws {
+        // Everything after the first `--` is positional: a dash-prefixed name
+        // such as `-staging` must reach `remotes.add` instead of being
+        // refused as an unknown option.
+        let run = try runRemotesAdd(
+            arguments: [
+                "remotes", "add",
+                "--route", "100.64.1.2:51001",
+                "--", "-staging",
+            ])
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
+        let params = try #require(try Self.remotesAddParams(run))
+        #expect(params["name"] as? String == "-staging")
+        #expect(params["routes"] as? [String] == ["100.64.1.2:51001"])
+    }
+
+    @Test func equalsTagValueIsPreserved() throws {
+        let run = try runRemotesAdd(
+            arguments: [
+                "remotes", "add", "fixture",
+                "--route", "100.64.1.2:51001",
+                "--tag=stable",
+            ])
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
+        let params = try #require(try Self.remotesAddParams(run))
+        #expect(params["tag"] as? String == "stable")
+    }
+
+    @Test func emptyEqualsTagIsRefusedBeforeTheMutationRPC() throws {
+        // `--tag=` must fail fast instead of sending a request with the tag
+        // silently omitted.
+        let run = try runRemotesAdd(
+            arguments: [
+                "remotes", "add", "fixture",
+                "--route", "100.64.1.2:51001",
+                "--tag=",
+            ])
+
+        #expect(run.result.status != 0)
+        #expect(
+            run.result.stderr.contains("--tag requires a value"),
+            Comment(rawValue: run.result.stderr + run.result.stdout))
+        #expect(try Self.remotesAddParams(run) == nil, "no mutation request may be sent")
+    }
+
+    @Test func emptyEqualsRouteIsRefusedBeforeTheMutationRPC() throws {
+        let run = try runRemotesAdd(arguments: ["remotes", "add", "fixture", "--route="])
+
+        #expect(run.result.status != 0)
+        #expect(try Self.remotesAddParams(run) == nil, "no mutation request may be sent")
     }
 
     // MARK: - Harness
