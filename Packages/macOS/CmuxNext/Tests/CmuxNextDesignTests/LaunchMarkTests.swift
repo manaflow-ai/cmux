@@ -67,7 +67,7 @@ struct LaunchMarkTests {
         let scale = try #require(view.mark.animation(forKey: "launch.transform") as? CABasicAnimation)
         let from = try #require(scale.fromValue as? CATransform3D)
         #expect(from.m11 > 1, "shrinks to size, never grows past it")
-        #expect(scale.timingFunction == Motion.fadeCurve)
+        #expect(Self.controlPoints(scale.timingFunction) == Self.controlPoints(Motion.fadeCurve))
         #expect(view.mark.animation(forKey: "launch.shadowOpacity") != nil)
     }
 
@@ -77,6 +77,21 @@ struct LaunchMarkTests {
         Motion.reduceMotionOverride = reduceMotion
         #expect(Motion.duration(.launch) < 0.4)
         #expect(Motion.duration(.launch) > 0)
+    }
+
+    @Test func traceDrawsTheOutlineAboveTheBody() {
+        let view = make()
+        #expect(view.outline.superlayer === view.mark, "not inside the body, whose opacity hides it while it draws")
+        #expect(view.mark.sublayers?.last === view.outline)
+    }
+
+    private static func controlPoints(_ curve: CAMediaTimingFunction?) -> [Float] {
+        guard let curve else { return [] }
+        return [1, 2].flatMap { index -> [Float] in
+            var point: [Float] = [0, 0]
+            curve.getControlPoint(at: index, values: &point)
+            return point
+        }
     }
 
     @Test func concealFadesOut() {

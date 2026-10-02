@@ -74,7 +74,7 @@ final class DaemonConnectingView: NSView {
     }
 
     /// While connecting in a window: the mark, then the status line, each
-    /// after its delay from when the window first showed this view.
+    /// after its delay from when this view entered the window.
     private func staggerIfConnecting() {
         guard window != nil, !state.isUnavailable else { return }
         if !mark.isRevealed {

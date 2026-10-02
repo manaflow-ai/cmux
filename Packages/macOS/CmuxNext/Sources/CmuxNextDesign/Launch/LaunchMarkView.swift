@@ -29,8 +29,10 @@ public final class LaunchMarkView: NSView {
         mark.actions = ["bounds": NSNull(), "position": NSNull(), "opacity": NSNull(), "transform": NSNull()]
         outline.fillColor = nil
         outline.lineJoin = .round
-        body.addSublayer(outline)
+        // Siblings: the outline draws above the body while the body is
+        // still clear (`trace`).
         mark.addSublayer(body)
+        mark.addSublayer(outline)
         layer?.addSublayer(mark)
         setAccessibilityElement(false)
     }
@@ -49,7 +51,7 @@ public final class LaunchMarkView: NSView {
         Motion.transaction(nil) {
             mark.frame = bounds
             body.frame = mark.bounds
-            outline.frame = body.bounds
+            outline.frame = mark.bounds
             let path = LaunchMarkPath.path(in: bounds.insetBy(dx: Metrics.lineWidth(1.5), dy: Metrics.lineWidth(1.5)))
             body.path = path
             outline.path = path

@@ -50,6 +50,7 @@ extension Motion {
 
     /// Fades the mark out (`fadeOut`) when content replaces it.
     public static func concealLaunchMark(_ mark: CALayer) {
+        for key in mark.animationKeys() ?? [] where key.hasPrefix("launch.") { mark.removeAnimation(forKey: key) }
         set(mark, "opacity", to: Float(0), fade: .fadeOut)
     }
 }

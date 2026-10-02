@@ -32,6 +32,8 @@ import Testing
         h.view.apply(.connecting)
         h.window.contentView!.addSubview(h.view)
         #expect(!h.view.mark.isRevealed && !h.view.isTitleShown)
+        // Both timers registered, so each deadline counts from the same instant.
+        await h.clock.sleepers(atLeast: 2)
         var elapsed = 0.0
         await h.advance(to: MotionTunables.launchMarkDelay.value, from: &elapsed)
         #expect(h.view.mark.isRevealed)
