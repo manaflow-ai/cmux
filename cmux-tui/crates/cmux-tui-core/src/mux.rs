@@ -3460,6 +3460,28 @@ impl Mux {
             .as_ref()
             .and_then(|binding| binding.placements.first().map(|(slot, _)| *slot))
             .unwrap_or_else(|| self.next_id());
+        // A detached terminal (`detached-terminals-v1`) whose daemon died
+        // before its resource row committed has no binding. It never had a
+        // tab, so it is adopted as a catalog-only runtime under a new public
+        // id, which the next resource projection persists, instead of being
+        // given a placement in a workspace its sentinel key cannot name.
+        let binding = match binding {
+            None if self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(&record.terminal_id)?
+                .is_some_and(|terminal| {
+                    terminal.workspace_key == DETACHED_TERMINAL_WORKSPACE_KEY
+                }) =>
+            {
+                Some(RestoredTerminalBinding {
+                    public_id: TerminalPublicId::random()?,
+                    placements: Vec::new(),
+                })
+            }
+            binding => binding,
+        };
         match binding {
             Some(binding) if !binding.placements.is_empty() => {
                 let (_, identity) = binding.placements.first().expect("checked placement");
@@ -3555,6 +3577,7 @@ impl Mux {
                 && !template_claimed
                 && options.adopt_template_terminal
                 && !record.workspace_key.is_empty()
+                && record.workspace_key != DETACHED_TERMINAL_WORKSPACE_KEY
                 && self.state.lock().unwrap().workspaces.is_empty()
                 && terminal_host_record_liveness(&record_path, &record)
                     == TerminalHostLiveness::Live
@@ -4042,7 +4065,25 @@ impl Mux {
         };
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
+        let unpublished_detached = terminal.workspace_key == DETACHED_TERMINAL_WORKSPACE_KEY
+            && registry.terminal_resource_id(terminal_id)?.is_none();
         drop(registry);
+        if unpublished_detached {
+            // A detached terminal adopted after its daemon died before the
+            // creating projection committed: persist its new public id now.
+            // A failure here leaves it for the next projection to persist.
+            let detail = serde_json::json!({"terminal_id":terminal_id, "detached":true});
+            if let Err(error) = self.commit_full_resource_projection_with_mutation(
+                &WorkspaceMutation::local("cmux-tui-detached-adoption"),
+                "raw.terminal.adopt_detached",
+                &detail,
+                detail.clone(),
+            ) {
+                eprintln!(
+                    "cmux-tui: could not publish adopted detached terminal {terminal_id}: {error:#}"
+                );
+            }
+        }
         // Adoption makes the terminal's resource surface available. Retry
         // only hooks scoped to this terminal, not the entire pending table.
         if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
@@ -8169,9 +8210,6 @@ impl Mux {
                     )?;
                     (false, revision)
                 };
-                if !replayed && detached {
-                    registry.set_terminal_keep(&terminal_hex, true)?;
-                }
                 if !replayed {
                     self.emit_terminal_registry_changed(&registry, revision);
                 }
@@ -8298,9 +8336,6 @@ impl Mux {
                 )?;
                 if commit.replayed {
                     anyhow::bail!("terminal_create_replayed");
-                }
-                if detached {
-                    registry.set_terminal_keep(&terminal_hex, true)?;
                 }
                 self.emit_terminal_registry_changed(&registry, commit.revision);
             }
@@ -14720,6 +14755,36 @@ impl Mux {
             .resource_terminal_host_identity(&surface)
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
         self.detached_terminal_result(&identity.terminal_id, false)
+    }
+
+    /// End a detached terminal whose creation failed before its resource
+    /// projection committed. Nothing else would end it (it is kept and has no
+    /// tab), and the caller was told the creation failed. It has no resource
+    /// row yet, so its exit commits to the terminal registry alone, which
+    /// works even when the resource commit that failed keeps failing.
+    pub(crate) fn end_unpublished_detached_terminal(
+        &self,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+    ) -> anyhow::Result<()> {
+        self.persist_terminal_exit(
+            terminal_id,
+            incarnation,
+            &TerminalExit::unknown("detached-create-failed"),
+        )?;
+        let runtime = {
+            let mut state = self.state.lock().unwrap();
+            let public_id = self
+                .catalog_terminal_by_host(&state, terminal_id)?
+                .and_then(|runtime| runtime.terminal_public_id().cloned());
+            public_id.and_then(|public_id| {
+                remove_terminal_content_from_state(self, &mut state, &public_id).0
+            })
+        };
+        if let Some(runtime) = runtime {
+            runtime.kill();
+        }
+        Ok(())
     }
 
     fn detached_terminal_result(
