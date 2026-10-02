@@ -119,12 +119,13 @@ struct CloudActivationCoordinatorTests {
         defaults.set(false, forKey: CloudActivationCoordinator.activationKey)
         let firstStarted = AsyncStream<Void>.makeStream()
         let secondStarted = AsyncStream<Void>.makeStream()
-        let cleanupStarted = AsyncStream<Void>.makeStream()
         var firstRelease: CheckedContinuation<Void, Never>?
         var secondRelease: CheckedContinuation<Void, Never>?
         var cleanupRelease: CheckedContinuation<Void, Never>?
         var cleanupCalls = 0
         var prepareCalls = 0
+        var cleanupActive = false
+        var secondBeganWhileCleanup = false
         let coordinator = CloudActivationCoordinator(
             defaults: defaults,
             notificationCenter: NotificationCenter(),
@@ -135,13 +136,14 @@ struct CloudActivationCoordinatorTests {
                     firstStarted.continuation.yield(())
                     await withCheckedContinuation { firstRelease = $0 }
                 } else {
+                    secondBeganWhileCleanup = cleanupActive
                     secondStarted.continuation.yield(())
                     await withCheckedContinuation { secondRelease = $0 }
                 }
             },
             cleanup: {
                 cleanupCalls += 1
-                cleanupStarted.continuation.yield(())
+                cleanupActive = true
                 if cleanupCalls == 1 {
                     await withCheckedContinuation { cleanupRelease = $0 }
                 }
@@ -155,17 +157,17 @@ struct CloudActivationCoordinatorTests {
         #expect(coordinator.state == .cancelled)
         coordinator.retry()
         #expect(coordinator.state == .enabled)
-        var cleanupIterator = cleanupStarted.stream.makeAsyncIterator()
-        _ = await cleanupIterator.next()
         #expect(prepareCalls == 1)
 
         // The replacement waits for the cancelled attempt to unwind, so the
         // two setup owners can never overlap.
         firstRelease?.resume()
+        cleanupActive = false
         cleanupRelease?.resume()
         var secondIterator = secondStarted.stream.makeAsyncIterator()
         _ = await secondIterator.next()
         #expect(prepareCalls == 2)
+        #expect(!secondBeganWhileCleanup)
         secondRelease?.resume()
         await coordinator.activationTask?.value
         await coordinator.cleanupTask?.value
