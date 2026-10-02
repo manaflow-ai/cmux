@@ -229,7 +229,7 @@ struct CloudPortsVPNAffordanceTests {
             content.layoutSubtreeIfNeeded()
             // Only the row's own labels: on macOS 15 a titled NSButton has an extra
             // NSTextField descendant that AppKit sizes, not this row.
-            let labels = content.subviews.compactMap { $0 as? NSTextField }
+            let labels = content.subviews.compactMap { $0 as? NSTextField }.filter { !$0.isHidden }
             let expectedLabelCount = status.state == .loading ? 1 : 2
             #expect(labels.count == expectedLabelCount)
             for label in labels {
