@@ -44,13 +44,11 @@ struct RemotePasteFileTransferPolicyTests {
             [.modificationDate: Date(timeIntervalSinceNow: -(policy.maximumAge + 60))],
             ofItemAtPath: stale.path
         )
+        // Shell mtimes have one-second resolution; give the size-capped files
+        // distinct ages so "oldest" does not fall back to glob order.
         try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSinceNow: -30)],
+            [.modificationDate: Date(timeIntervalSinceNow: -120)],
             ofItemAtPath: old.path
-        )
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date()],
-            ofItemAtPath: newest.path
         )
 
         try runShell(policy.maintenanceScript(), home: home)
