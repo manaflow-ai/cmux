@@ -518,7 +518,8 @@ impl Driver {
                     return;
                 }
                 Event::Command(Some(Command::Shutdown)) | Event::Command(None) => {
-                    self.shutdown();
+                    let resets = self.shutdown();
+                    self.farewell(resets);
                     return;
                 }
                 Event::Command(Some(command)) => self.handle_command(command),
@@ -634,8 +635,9 @@ impl Driver {
         }
     }
 
-    /// Reset every connection and send what is left, unpaced.
-    fn shutdown(&mut self) {
+    /// Reset every connection and send what is left, unpaced. Returns the
+    /// resets, which [`Driver::farewell`] repeats.
+    fn shutdown(&mut self) -> Vec<Vec<u8>> {
         for conn in &self.conns {
             self.sockets.get_mut::<tcp::Socket>(conn.handle).abort();
         }
@@ -650,16 +652,21 @@ impl Driver {
         while let Some(packet) = self.device.pop_tx() {
             self.pacer.push(packet, Instant::now());
         }
+        let mut resets = Vec::new();
         for packet in self.pacer.drain() {
             if let TunnResult::WriteToNetwork(encrypted) =
                 self.tunn.encapsulate(&packet, &mut self.scratch)
             {
                 self.underlay.send(encrypted);
             }
+            if crate::pacing::segment(&packet).is_some_and(|segment| segment.reset) {
+                resets.push(packet);
+            }
         }
         self.underlay.flush();
         self.conns.clear();
         self.listeners.clear();
+        resets
     }
 
     fn handle_command(&mut self, command: Command) {

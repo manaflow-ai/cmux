@@ -56,6 +56,7 @@ pub(crate) struct Segment {
     pub ack: Option<u32>,
     /// Sequence space the segment occupies (payload, SYN and FIN).
     pub len: u32,
+    pub reset: bool,
 }
 
 /// Parse the TCP segment in an IPv4 or IPv6 packet.
@@ -91,6 +92,7 @@ pub(crate) fn segment(packet: &[u8]) -> Option<Segment> {
         seq: u32::from_be_bytes(tcp[4..8].try_into().ok()?),
         ack: (flags & 0x10 != 0).then(|| u32::from_be_bytes([tcp[8], tcp[9], tcp[10], tcp[11]])),
         len: u32::try_from(payload).ok()? + syn_fin,
+        reset: flags & 0x04 != 0,
     })
 }
 

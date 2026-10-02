@@ -1,6 +1,8 @@
 //! The driver's WireGuard timer and probe operations (an `impl` block of
 //! [`super::Driver`], kept apart from the I/O loop in `net.rs`).
 
+use std::time::Duration;
+
 use boringtun::noise::TunnResult;
 use cmux_transport::{DatagramClass, classify};
 use tokio::time::Instant;
@@ -9,7 +11,41 @@ use super::Driver;
 use crate::probing;
 use crate::timers::SESSION_FRESH;
 
+/// Waits before each repeat of the shutdown resets: 0.2, 0.4, 0.8 and 1.6 s
+/// after shutdown.
+const FAREWELL_WAITS: [Duration; 4] = [
+    Duration::from_millis(200),
+    Duration::from_millis(200),
+    Duration::from_millis(400),
+    Duration::from_millis(800),
+];
+
 impl Driver {
+    /// A reset is sent once and never retransmitted, and the driver ends
+    /// right after it: one lost datagram would leave the peer's connection
+    /// open until its keepalive gives up (60 s). Keep the session and the
+    /// carrier for 1.6 s more and repeat the resets, each encrypted afresh
+    /// (WireGuard drops a repeated counter). `shutdown` does not wait for it.
+    pub(super) fn farewell(self, resets: Vec<Vec<u8>>) {
+        if resets.is_empty() {
+            return;
+        }
+        let Driver { mut tunn, mut underlay, mut scratch, .. } = self;
+        tokio::spawn(async move {
+            for wait in FAREWELL_WAITS {
+                tokio::time::sleep(wait).await;
+                for packet in &resets {
+                    if let TunnResult::WriteToNetwork(encrypted) =
+                        tunn.encapsulate(packet, &mut scratch)
+                    {
+                        underlay.send(encrypted);
+                    }
+                }
+                underlay.flush();
+            }
+        });
+    }
+
     pub(super) fn initiate_handshake(&mut self) {
         if !self.underlay.has_peer() {
             return;
