@@ -12,6 +12,9 @@ export type TurnFile = {
   additions: number;
   deletions: number;
   created: boolean;
+  /// A git scope's file that the change removed, or whose contents are not text.
+  deleted?: boolean;
+  binary?: boolean;
 };
 
 /// Lines unchanged around a change that a hunk keeps, as `git diff` does.
@@ -202,7 +205,11 @@ function fileEdit(toolId: string, change: AcpmuxFileDiff): DiffEdit {
 /// One edit as a unified patch Pierre can render, with the edit's hunks and line numbers.
 export function editPatch(file: TurnFile, edit: DiffEdit): string {
   const name = file.displayPath;
-  const lines = [`diff --git a/${name} b/${name}`, file.created ? "--- /dev/null" : `--- a/${name}`, `+++ b/${name}`];
+  const lines = [
+    `diff --git a/${name} b/${name}`,
+    file.created ? "--- /dev/null" : `--- a/${name}`,
+    file.deleted ? "+++ /dev/null" : `+++ b/${name}`,
+  ];
   for (const hunk of edit.hunks) {
     const oldLines = hunk.lines.filter((line) => line.type !== "add");
     const newLines = hunk.lines.filter((line) => line.type !== "del");
