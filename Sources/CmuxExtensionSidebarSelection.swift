@@ -2,6 +2,7 @@ import AppKit
 import CmuxExtensionSidebarExamples
 import CmuxFoundation
 import CmuxSettings
+import CmuxSettingsUI
 import CmuxSidebarProviderKit
 import Foundation
 
@@ -347,7 +348,7 @@ enum CmuxExtensionSidebarSelection {
             navigationTarget: .customSidebars
         )
         SettingsNavigationRequest.post(.customSidebars, anchorID: "setting:customSidebars:templates", highlight: true)
-        CustomSidebarTemplateGalleryRequest.request()
+        CustomSidebarTemplateGalleryRequest.shared.request()
     }
 
     @MainActor

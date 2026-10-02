@@ -14,9 +14,9 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
     let body: String
     let createdAt: Date
     var isRead: Bool
-    /// Whether an agent hook produced this notification (a permission, plan,
-    /// question, or turn-completion banner). Agent events already have a
-    /// first-class row in the mobile Feed, so its merge skips these records.
+    /// Whether an agent hook produced this notification. The notification
+    /// history retains this provenance for the Notifications tab; the agent
+    /// Feed is sourced from workstream events only.
     var isAgentEvent: Bool = false
     var paneFlash: Bool = true
     var scrollPosition: TerminalNotificationScrollPosition?

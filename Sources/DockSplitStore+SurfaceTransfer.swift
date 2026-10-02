@@ -309,6 +309,7 @@ extension DockSplitStore {
             customTitleSource: titleMetadata.customTitleSource,
             manuallyUnread: wasManuallyUnread,
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
+            promptState: preservedTransfer?.promptState,
             restorableAgent: transferredRestorableAgent,
             restorableAgentResumeState: transferredResumeState,
             restoredAgentCompletedGeneration: transferredCompletedGeneration,

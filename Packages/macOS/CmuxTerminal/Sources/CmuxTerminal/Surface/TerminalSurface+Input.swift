@@ -52,6 +52,7 @@ extension TerminalSurface {
     /// Notifies the current panel owner after explicit terminal input is accepted.
     @MainActor
     public func didAcceptExplicitInput() {
+        paneHost.terminalSurfaceDidAcceptExplicitInput()
         onExplicitInput?()
     }
 

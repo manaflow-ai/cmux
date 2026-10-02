@@ -27,15 +27,42 @@ struct RemoteRelayCoreRPCPolicyTests {
     @Test("capabilities filter exact method names without adding unsupported grants")
     func capabilityDiscovery() {
         let methods = RemoteRelayCommandPolicy().permittedMethods(from: [
-            "system.ping", "workspace.list", "surface.send_text", "system.capabilities",
+            "system.ping", "workspace.list", "surface.send_text", "terminal.paste", "system.capabilities",
             "system.exec", "system.command_spec", "workspace.create", "surface.respawn", "browser.open",
             "workspace.list.future", "ping", "capabilities"
         ])
-        #expect(methods == ["system.ping", "workspace.list", "surface.send_text", "system.capabilities"])
+        #expect(methods == ["system.ping", "workspace.list", "surface.send_text", "terminal.paste", "system.capabilities"])
         #expect(decision("surface.send_text", [:]) != .allowed)
         #expect(decision("surface.send_text", [
             "workspace_id": owner.uuidString, "surface_id": UUID().uuidString, "text": "id\n"
         ]) != .allowed)
+    }
+
+    @Test("terminal paste syntax is narrower than generic terminal input")
+    func terminalPasteSyntax() throws {
+        let valid: [String: Any] = [
+            "workspace_id": owner.uuidString,
+            "surface_id": surface.uuidString,
+            "text": "hello\nworld",
+            "submit_key": "return",
+        ]
+        #expect(decision("terminal.paste", valid) == .allowed)
+        let request = try JSONSerialization.data(withJSONObject: ["method": "terminal.paste", "params": valid])
+        #expect(RemoteRelayCommandPolicy().evaluate(
+            commandLine: request, workspaceAliases: [:], surfaceAliases: [:]
+        ) == .allow)
+
+        for params in [
+            ["workspace_id": owner.uuidString, "surface_id": surface.uuidString, "text": "hello"],
+            ["workspace_id": owner.uuidString, "surface_id": surface.uuidString, "text": "hello", "submit_key": "enter"],
+            ["workspace_id": owner.uuidString, "surface_id": surface.uuidString, "text": 7, "submit_key": "none"],
+        ] as [[String: Any]] {
+            #expect(decision("terminal.paste", params) != .allowed)
+            let invalid = try JSONSerialization.data(withJSONObject: ["method": "terminal.paste", "params": params])
+            #expect(RemoteRelayCommandPolicy().evaluate(
+                commandLine: invalid, workspaceAliases: [:], surfaceAliases: [:]
+            ) != .allow)
+        }
     }
 
     @Test("workspace discovery defaults only to authenticated provenance")

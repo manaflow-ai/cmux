@@ -2924,6 +2924,12 @@ jobs:
             echo "::error::no cmux CLI in the restored product" >&2
             exit 1
           fi
+          # The standalone CLI finds bundled resources beside its executable,
+          # as it does inside the app's Resources. Without this it falls back
+          # to its compile-time #filePath, which a consumer runner lacks.
+          if [ ! -e "$(dirname "$cli")/opencode-plugin.js" ]; then
+            cp Resources/opencode-plugin.js "$(dirname "$cli")/opencode-plugin.js"
+          fi
           echo "CMUX_CLI_PATH=$cli" >> "$GITHUB_ENV"
           echo "Testing $cli"
 
@@ -2954,6 +2960,7 @@ jobs:
             "TEST_RUNNER_XDG_CONFIG_HOME=$CMUX_CLI_TESTS_HOME/.config" \
             "TEST_RUNNER_SSH_AUTH_SOCK=" \
             "TEST_RUNNER_CMUX_CLI_PATH=$CMUX_CLI_PATH" \
+            "TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT=${CMUX_CI_RUNTIME_SOURCE_ROOT:-}" \
             bash scripts/ci/run-and-capture.sh "$test_log" \
             xcodebuild test-without-building \
             -xctestrun "$CMUX_CLI_TESTS_XCTESTRUN" \

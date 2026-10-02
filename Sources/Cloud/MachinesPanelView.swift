@@ -85,6 +85,16 @@ struct MachinesPanelView: View {
         return CloudMachinesFeature.isEnabled
     }
 
+    /// Keep every New Cloud Machine affordance on the same plan gate. A plan
+    /// that has not loaded yet stays available so the shared presenter can
+    /// resolve it; once loaded, a free plan at its ceiling shows its upgrade
+    /// guidance through the existing empty-state action instead.
+    private var canCreateCloudMachine: Bool {
+        guard includesCloud else { return false }
+        guard let plan = viewModel.plan else { return true }
+        return !plan.isAtLimit || plan.isPaidPlan
+    }
+
     /// The panel replaces its cached tree as soon as a team mutation starts;
     /// waiting for the scope observer would leave the previous team's rows
     /// visible while the create or switch is still in flight.
@@ -196,6 +206,17 @@ struct MachinesPanelView: View {
     private var authenticatedContent: some View {
         if includesCloud {
             controlBar
+            CloudNewMachineButton {
+                if canCreateCloudMachine {
+                    _ = AppDelegate.shared?.performNewCloudMachineAction(
+                        tabManager: tabManager,
+                        preferredWindow: tabManager?.window,
+                        debugSource: "cloudTree.newMachineButton"
+                    )
+                } else {
+                    ProUpgradePresenter.present(source: .newMachineAtLimit)
+                }
+            }
         }
         if includesCloud {
             MachinesPanelBanners(
@@ -225,6 +246,12 @@ struct MachinesPanelView: View {
             teamScopeLoading
         } else {
             content
+            if includesCloud {
+                CloudRefreshMachinesButton(
+                    isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
+                    action: refreshMachines
+                )
+            }
         }
     }
 
@@ -292,6 +319,9 @@ struct MachinesPanelView: View {
             accountFlow: accountFlow,
             presentation: teamPickerPresentation,
             chromeBackgroundColor: chromeBackgroundColor,
+            isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
+            onRefresh: refreshMachines,
+            onNewMachine: requestNewMachine,
             status: { cloudStatus }
         )
     }
@@ -401,9 +431,6 @@ struct MachinesPanelView: View {
         }
     }
 
-    /// Cloud-agent launcher: each agent entry opens a local terminal running
-    /// that agent preloaded with the cmux Cloud skill; Copy Cloud Prompt puts
-    /// the same kickoff prompt on the clipboard for any other terminal.
     private func requestNewMachine() {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
@@ -411,6 +438,7 @@ struct MachinesPanelView: View {
             lockedMemoryOptionsMb: viewModel.lockedMemoryOptionsMb,
             memoryUpgradePlanId: viewModel.memoryUpgradePlanId,
             memoryUpgradePlansByMb: viewModel.memoryUpgradePlansByMb,
+            vcpusByMemoryMb: viewModel.vcpusByMemoryMb,
             preferredWindow: tabManager?.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )
@@ -428,7 +456,8 @@ struct MachinesPanelView: View {
         // Max-only size and wait for a server rejection.
         let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
         machineActions.resizeMemoryOptionsGiB = planMemoryGiB
-        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
+        // The image ladder pairs one vCPU with every 2 GB (8 GB = 4 vCPU).
+        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 1) / 2) }
         viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         var nodeActions = CloudTreeNodeActions.bound(
@@ -465,7 +494,6 @@ struct MachinesPanelView: View {
                 debugSource: "cloudTree.cloudMachinesSection"
             )
         }
-        nodeActions.newWorkspaceOnResolvedMachine = CloudTreeNodeActions.resolvedWorkspaceCreationAction(tabManager: tabManager)
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
@@ -486,7 +514,7 @@ struct MachinesPanelView: View {
                 incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable()
             ),
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
-            canCreateCloudMachine: includesCloud,
+            canCreateCloudMachine: canCreateCloudMachine,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
             reveal: devicesModel.revealRequest ?? selectionReveal,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
@@ -603,7 +631,7 @@ struct MachinesPanelView: View {
         )
     }
 
-    /// Paid plans: "Your plan includes 50 machines" under the create button,
+    /// Paid plans: "Your plan includes 5 machines" under the create button,
     /// so the empty state answers "what do I get" before the Cloud Machines
     /// header shows a count. The uncapped wording only appears when an
     /// operator lifted the cap.

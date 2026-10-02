@@ -191,6 +191,10 @@ path = "tests/test_claude_teams_test_utils.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_fake_socket_env.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cli_codex_teams_informational.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -634,6 +638,10 @@ path = "tests/test_ci_cli_contract_verb_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_socket_capability_guard.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_source_lint_guard_structure.py"
 lane = "linux-guard"
 
@@ -767,6 +775,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_localize_changes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_localization_defaults.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1520,6 +1532,11 @@ path = "tests/test_iroh_drift_issue.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cli_vm_mutation_arguments.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_submodule_forward_only.py"
 lane = "linux-guard"
 
@@ -1541,4 +1558,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_production_secrets_protected_env.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_frame_pacing_summary.py"
 lane = "linux-guard"

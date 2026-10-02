@@ -13338,6 +13338,478 @@
           }
         }
       }
+    },
+    "settings.notifications.paneFlashThemeColor.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the terminal theme foreground for flashes; unread rings stay cmux blue."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende die Vordergrundfarbe des Terminaldesigns für Blitze; ungelesene Ringe bleiben cmux-blau."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser le premier plan du thème du terminal pour les flashs ; les anneaux non lus restent bleus cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم مقدمة سمة الطرفية للومضات؛ تبقى حلقات عدم القراءة باللون الأزرق لـ cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa el primer plano del tema de la terminal para los destellos; los anillos no leídos siguen siendo azules de cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用終端主題前景色顯示閃爍；未讀環維持 cmux 藍色。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用终端主题前景色显示闪烁；未读环保持 cmux 蓝色。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플래시에 터미널 테마 전경색을 사용하며 읽지 않은 링은 cmux 파란색으로 유지합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フラッシュにターミナルテーマの前景色を使い、未読リングは cmux ブルーのままにします。"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneFlashThemeColor.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Theme Foreground"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vordergrund des Designs verwenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser le premier plan du thème"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام مقدمة السمة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar el primer plano del tema"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用主題前景色"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用主题前景色"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테마 전경색 사용"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマの前景色を使う"
+          }
+        }
+      }
+    },
+    "settings.terminal.showJumpToBottomButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jump to Bottom Button"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زر الانتقال إلى الأسفل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schaltfläche „Zum Ende springen“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Botón Ir al final"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bouton Aller en bas"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「一番下へ移動」ボタン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "맨 아래로 이동 버튼"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“跳到底部”按钮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「跳至底部」按鈕"
+          }
+        }
+      }
+    },
+    "settings.terminal.showJumpToBottomButton.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows a Jump to Bottom button while you scroll a terminal up into its scrollback. Full-screen programs such as vim, less, or an agent's fullscreen mode handle their own scrolling and never show it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض زر الانتقال إلى الأسفل أثناء التمرير لأعلى في سجل الطرفية. البرامج بملء الشاشة مثل vim وless أو وضع ملء الشاشة للوكيل تتولى التمرير بنفسها ولا تعرضه أبدًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt die Schaltfläche „Zum Ende springen“, während du in einem Terminal im Verlauf nach oben scrollst. Vollbildprogramme wie vim, less oder der Vollbildmodus eines Agenten scrollen selbst und zeigen sie nie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra un botón Ir al final mientras te desplazas hacia arriba en el historial de una terminal. Los programas a pantalla completa como vim, less o el modo de pantalla completa de un agente gestionan su propio desplazamiento y nunca lo muestran."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche un bouton Aller en bas lorsque vous remontez dans l'historique d'un terminal. Les programmes plein écran comme vim, less ou le mode plein écran d'un agent gèrent leur propre défilement et ne l'affichent jamais."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのスクロールバックを上にスクロールしている間、「一番下へ移動」ボタンを表示します。vim、less、エージェントのフルスクリーンモードなどのフルスクリーンプログラムは独自にスクロールを扱うため、表示されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널의 스크롤백을 위로 스크롤하는 동안 맨 아래로 이동 버튼을 표시합니다. vim, less 또는 에이전트의 전체 화면 모드 같은 전체 화면 프로그램은 스크롤을 직접 처리하므로 표시되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端中向上滚动回滚内容时显示“跳到底部”按钮。vim、less 或代理的全屏模式等全屏程序会自行处理滚动，永远不会显示此按钮。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在終端機中向上捲動回溯內容時顯示「跳至底部」按鈕。vim、less 或代理的全螢幕模式等全螢幕程式會自行處理捲動，永遠不會顯示此按鈕。"
+          }
+        }
+      }
+    },
+    "settings.automation.agentMessages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Messages"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رسائل الوكلاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Nachrichten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensajes de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messages d'agents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントメッセージ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 메시지"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理訊息"
+          }
+        }
+      }
+    },
+    "settings.automation.agentMessages.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turning this off also fails messages that are waiting to be delivered. To turn messages off for one agent, run cmux agent messages off in its terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يؤدي إيقاف هذا الخيار أيضًا إلى إفشال الرسائل التي تنتظر التسليم. لإيقاف الرسائل لوكيل واحد، شغّل cmux agent messages off في طرفيته."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Ausschalten schlagen auch Nachrichten fehl, die noch auf Zustellung warten. Um Nachrichten nur für einen Agenten auszuschalten, führe cmux agent messages off in seinem Terminal aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al desactivarlo también fallan los mensajes que esperan entrega. Para desactivar los mensajes de un solo agente, ejecuta cmux agent messages off en su terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La désactivation fait aussi échouer les messages en attente de remise. Pour désactiver les messages d'un seul agent, exécutez cmux agent messages off dans son terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにすると、配信待ちのメッセージも失敗になります。1 つのエージェントだけメッセージをオフにするには、そのターミナルで cmux agent messages off を実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄면 전달을 기다리는 메시지도 실패 처리됩니다. 에이전트 하나만 메시지를 끄려면 해당 터미널에서 cmux agent messages off를 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭后，等待投递的消息也会标记为失败。若只想关闭某个代理的消息，请在它的终端中运行 cmux agent messages off。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉後，等待遞送的訊息也會標為失敗。若只要關閉某個代理的訊息，請在它的終端機中執行 cmux agent messages off。"
+          }
+        }
+      }
+    },
+    "settings.automation.agentMessages.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent messages are off. Sends fail and nothing is delivered."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رسائل الوكلاء متوقفة. يفشل الإرسال ولا يُسلَّم شيء."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Nachrichten sind aus. Senden schlägt fehl und nichts wird zugestellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los mensajes de agentes están desactivados. Los envíos fallan y no se entrega nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les messages d'agents sont désactivés. Les envois échouent et rien n'est remis."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントメッセージはオフです。送信は失敗し、何も配信されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 메시지가 꺼져 있습니다. 전송이 실패하고 아무것도 전달되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理消息已关闭。发送会失败，也不会投递任何消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理訊息已關閉。傳送會失敗，也不會遞送任何訊息。"
+          }
+        }
+      }
+    },
+    "settings.automation.agentMessages.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents can message each other with cmux agent message."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن للوكلاء مراسلة بعضهم باستخدام cmux agent message."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können sich mit cmux agent message gegenseitig Nachrichten senden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes pueden enviarse mensajes con cmux agent message."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents peuvent s’envoyer des messages avec cmux agent message."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント同士が cmux agent message でメッセージを送り合えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트끼리 cmux agent message로 메시지를 보낼 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理可以使用 cmux agent message 互相发送消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理可以使用 cmux agent message 互相傳送訊息。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

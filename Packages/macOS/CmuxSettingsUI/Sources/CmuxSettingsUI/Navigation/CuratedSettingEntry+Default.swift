@@ -31,12 +31,10 @@ extension Array where Element == CuratedSettingEntry {
                 title: String(localized: "settings.automation.agentAutoResume", defaultValue: "Auto-Resume Agents After Errors"),
                 detailText: String(localized: "settings.automation.agentAutoResume.subtitle", defaultValue: "Send “continue” when an agent's turn ends on a retryable error such as model capacity or a dropped connection."),
                 paths: ["automation.agentAutoResume"],
-                synonyms: String(
-                    localized: "settings.search.alias.setting.automation.agent-error-auto-resume",
-                    defaultValue: "automation.agentAutoResume auto resume continue retry capacity overloaded agent error"
-                ),
+                synonyms: String(localized: "settings.search.alias.setting.automation.agent-error-auto-resume", defaultValue: "automation.agentAutoResume auto resume continue retry capacity overloaded agent error"),
                 anchorPath: "automation.agentAutoResume"
             ),
+            .init(section: .automation, id: "agent-messages", title: String(localized: "settings.automation.agentMessages", defaultValue: "Agent Messages", bundle: .module), paths: ["agentMessages.enabled"], synonyms: "Agent Messages agentMessages.enabled agent message inbox communication mute disable off send deliver"),
             .init(section: .automation, id: "canonical-agent-scratch", title: String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"), synonyms: "Canonical Agent Scratch automation.canonicalAgentScratch agent artifacts temporary files cleanup retention claude codex opencode storage"),
             .init(section: .automation, id: "cursor", title: String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), synonyms: "Cursor Integration automation.cursorIntegration cursor ide agent hooks notifications"),
             .init(section: .automation, id: "gemini", title: String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), synonyms: "Gemini CLI Integration automation.geminiIntegration gemini cli google agent hooks notifications"),
@@ -146,6 +144,9 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "show-menu-bar", title: String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"), synonyms: "Show in Menu Bar notifications.showInMenuBar menubar menu bar status item tray extra"),
             .init(section: .app, id: "unread-pane-ring", title: String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"), synonyms: "Unread Pane Ring notifications.unreadPaneRing blue border unread ring notification pane outline"),
             .init(section: .app, id: "pane-flash", title: String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"), synonyms: "Pane Flash notifications.paneFlash flash blink highlight pane notification pulse"),
+            .init(section: .app, id: "pane-flash-double-blink", title: String(localized: "settings.notifications.paneFlashDoubleBlink.title", defaultValue: "Double Blink"), synonyms: "Double Blink notifications.paneFlashDoubleBlink pane flash blink twice pulse"),
+            .init(section: .app, id: "pane-flash-on-typing", title: String(localized: "settings.notifications.paneFlashOnTyping.title", defaultValue: "Flash While Typing"), synonyms: "Flash While Typing notifications.paneFlashOnTyping pane flash typing terminal interaction notification pulse"),
+            .init(section: .app, id: "pane-flash-theme-color", title: String(localized: "settings.notifications.paneFlashThemeColor.title", defaultValue: "Use Theme Foreground"), synonyms: "Use Theme Foreground notifications.paneFlashThemeColor pane flash terminal theme foreground"),
             .init(
                 section: .app,
                 id: "agent-permission-prompt",
@@ -240,6 +241,14 @@ extension Array where Element == CuratedSettingEntry {
                 detailText: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters. Pasted text is not counted."),
                 paths: ["terminal.showPasswordInputDots"],
                 synonyms: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"
+            ),
+            .init(
+                section: .terminal,
+                id: "jump-to-bottom-button",
+                title: String(localized: "settings.terminal.showJumpToBottomButton", defaultValue: "Jump to Bottom Button"),
+                detailText: String(localized: "settings.terminal.showJumpToBottomButton.subtitle", defaultValue: "Shows a Jump to Bottom button while you scroll a terminal up into its scrollback. Full-screen programs such as vim, less, or an agent's fullscreen mode handle their own scrolling and never show it."),
+                paths: ["terminal.showJumpToBottomButton"],
+                synonyms: "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude"
             ),
             .init(
                 section: .terminal,
@@ -583,7 +592,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Reset
             .init(section: .reset, id: "reset-all", title: String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), synonyms: "Reset All Settings factory reset restore defaults clear preferences"),
-        ])) + terminalGhosttyOptionEntries
+        ])) + terminalGhosttyOptionEntries + sidebarAgentUsageEntries
     }
 
     private static var keyboardShortcutActionSynonyms: String {

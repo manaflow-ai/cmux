@@ -10,7 +10,7 @@ extension CMUXCLI {
 
         switch command {
         case "notify":
-            valueOptions = ["--title", "--subtitle", "--body", "--workspace", "--surface", "--window"]
+            valueOptions = ["--title", "--subtitle", "--body", "--desktop", "--workspace", "--surface", "--window"]
             flagOptions = ["--reply", "--clear"]
         case "list-notifications":
             valueOptions = []
