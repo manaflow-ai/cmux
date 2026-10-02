@@ -36,13 +36,17 @@ public nonisolated enum AgentPaneFileOpen {
     ]
 
     /// Whether a tab may show the file at `url`. The tab loads it as a WebKit page
-    /// that can read the files beside it, so a file WebKit would run as a page, or
-    /// one with no extension for WebKit to type it by, opens in the editor only.
+    /// that can read the files beside it, so it shows only a file the system types
+    /// as plain text, source code, an image or a PDF, and never a page type; a file
+    /// with an unknown type or no extension, which WebKit might sniff, opens in the
+    /// editor only.
     public static func showsInTab(_ url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
-        guard !ext.isEmpty, !pageExtensions.contains(ext) else { return false }
-        guard let type = UTType(filenameExtension: ext) else { return true }
-        return ![UTType.html, .xml, .svg, .webArchive, .internetLocation].contains { type.conforms(to: $0) }
+        guard !ext.isEmpty, !pageExtensions.contains(ext),
+              let type = UTType(filenameExtension: ext), type.isDeclared else { return false }
+        let shown: [UTType] = [.plainText, .sourceCode, .image, .pdf]
+        let page: [UTType] = [.html, .xml, .svg, .webArchive, .internetLocation]
+        return shown.contains { type.conforms(to: $0) } && !page.contains { type.conforms(to: $0) }
     }
 
     /// The app that edits text: the default for source code, else for plain text.
