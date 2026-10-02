@@ -11,7 +11,7 @@ extension SettingsWindowModel {
     /// Every entry matching `query`, in the order the results list shows
     /// them (empty without a query).
     public func searchEntries() -> [SettingsSearchEntry] {
-        SettingsSearchIndex.matching(Self.words(query), in: SettingsSearchIndex.entries(registry: registry))
+        SettingsSearchIndex(registry: registry).entries().matching(Self.words(query))
     }
 
     /// The results list: per section, the matching rows grouped as
@@ -46,12 +46,11 @@ extension SettingsWindowModel {
     }
 
     /// Return in the search field: opens the best result
-    /// (`SettingsSearchIndex.best`). False when nothing but shortcuts (or
+    /// (`best(_:)` over `SettingsSearchIndex`). False when nothing but shortcuts (or
     /// nothing) matches.
     @discardableResult
     public func openFirstResult() -> Bool {
-        let entries = SettingsSearchIndex.entries(registry: registry)
-        guard let first = SettingsSearchIndex.best(Self.words(query), in: entries) else { return false }
+        guard let first = SettingsSearchIndex(registry: registry).entries().best(Self.words(query)) else { return false }
         open(first.anchor)
         return true
     }
@@ -59,7 +58,7 @@ extension SettingsWindowModel {
     /// The deep link `openSettings setting:<key>`. False for an unknown key.
     @discardableResult
     public func open(setting key: String) -> Bool {
-        guard let anchor = SettingsSearchIndex.anchor(for: key) else { return false }
+        guard let anchor = SettingsAnchor(key: key) else { return false }
         open(anchor)
         return true
     }
