@@ -47,6 +47,35 @@ pub fn check_agent_budget(
     Ok(())
 }
 
+/// The O(1) loop guard over the head's counters (`agent_text_streak`,
+/// `last_agent_text_at`, kept by `apply` on every text send): the same limits as
+/// [`check_agent_budget`], but no row window, so text-less work cards cannot push
+/// the streak out of view and two agents cannot loop. The owner uses this one;
+/// the row-window check stays for the conformance corpus's local cases.
+pub fn check_agent_streak(
+    head: &ConversationHead,
+    actor: &str,
+    parts: &[Part],
+    now_ms: u64,
+) -> Result<(), Reject> {
+    let agent = head.participant(actor).is_some_and(|p| p.kind == ParticipantKind::Agent);
+    if !agent || !parts.iter().any(|part| matches!(part, Part::Text { .. })) {
+        return Ok(());
+    }
+    if head.agent_text_streak as usize >= MAX_AGENT_TURNS {
+        return Err(Reject::AgentBudget);
+    }
+    let too_soon = head
+        .last_agent_text_at
+        .as_deref()
+        .and_then(parse_rfc3339_millis)
+        .is_some_and(|at| now_ms >= at && now_ms < at.saturating_add(MIN_AGENT_GAP_MS));
+    if too_soon {
+        return Err(Reject::AgentRate);
+    }
+    Ok(())
+}
+
 /// Parses the owner's own timestamp format (`format_rfc3339_millis`), for
 /// example `2026-10-01T12:34:56.789Z`, to Unix milliseconds.
 pub fn parse_rfc3339_millis(text: &str) -> Option<u64> {
@@ -113,6 +142,8 @@ mod tests {
             created_at: format_rfc3339_millis(0),
             updated_at: format_rfc3339_millis(0),
             read_cursors: Default::default(),
+            agent_text_streak: 0,
+            last_agent_text_at: None,
         }
     }
 
