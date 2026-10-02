@@ -144,7 +144,7 @@ struct CloudActivationCoordinatorTests {
         coordinator.cancel()
         #expect(coordinator.state == .cancelled)
         coordinator.retry()
-        #expect(coordinator.state == .enabling)
+        #expect(coordinator.state == .enabled)
         await Task.yield()
         #expect(prepareCalls == 1)
 
@@ -208,13 +208,12 @@ struct CloudActivationCoordinatorTests {
         var updates = coordinator.activationChanges().makeAsyncIterator()
         #expect(await updates.next() == .disabled)
         coordinator.enable()
-        #expect(await updates.next() == .enabling)
+        #expect(await updates.next() == .enabled)
         var startedIterator = started.stream.makeAsyncIterator()
         _ = await startedIterator.next()
         release?.resume()
         await coordinator.activationTask?.value
         await coordinator.cleanupTask?.value
-        #expect(await updates.next() == .enabled)
     }
 
     @Test("Settings can disable Cloud without deleting persisted identities")

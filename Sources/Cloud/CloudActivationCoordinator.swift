@@ -130,7 +130,12 @@ final class CloudActivationCoordinator {
             state = .unavailable
             return
         }
-        state = .enabling
+        // Commit the activation marker before preparation so the normal Cloud
+        // sidebar renders immediately. Preparation only warms shared runtime
+        // resources; failures roll this optimistic marker back below.
+        defaults.set(true, forKey: Self.activationKey)
+        notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
+        state = .enabled
         let id = UUID()
         activationID = id
         let previousCleanup = cleanupTask
@@ -152,32 +157,39 @@ final class CloudActivationCoordinator {
                 try await self.prepare()
                 guard !Task.isCancelled, self.activationID == id else { throw CancellationError() }
                 guard self.isAvailable() else {
+                    self.rollbackOptimisticActivation()
                     await self.settle(id: id, state: .unavailable)
                     return
                 }
-                self.defaults.set(true, forKey: Self.activationKey)
-                self.notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
-                self.state = .enabled
             } catch is CancellationError {
                 // User cancellation clears activationID first, so settle()
                 // ignores it. A cancellation from preparation is a transient
                 // service interruption unless the Cloud capability disappeared.
+                self.rollbackOptimisticActivation()
                 await self.settle(
                     id: id,
                     state: self.isAvailable() ? .failed(.serviceUnavailable) : .unavailable
                 )
             } catch let error as VMClientError {
+                self.rollbackOptimisticActivation()
                 await self.settle(
                     id: id,
                     state: self.isAvailable() ? .failed(Self.failure(for: error)) : .unavailable
                 )
             } catch {
+                self.rollbackOptimisticActivation()
                 await self.settle(
                     id: id,
                     state: self.isAvailable() ? .failed(.serviceUnavailable) : .unavailable
                 )
             }
         }
+    }
+
+    private func rollbackOptimisticActivation() {
+        guard defaults.object(forKey: Self.activationKey) as? Bool == true else { return }
+        defaults.set(false, forKey: Self.activationKey)
+        notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
     }
 
     /// Disables Cloud after preserving its identities and other persisted
@@ -220,6 +232,7 @@ final class CloudActivationCoordinator {
         activationID = nil
         activationTask = nil
         task?.cancel()
+        rollbackOptimisticActivation()
         scheduleCleanup(after: task)
         state = .cancelled
     }
