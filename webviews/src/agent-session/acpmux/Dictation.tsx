@@ -10,8 +10,10 @@ import { applyDictation, type DictationAnchor, type DictationState, type Dictati
 type Call = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
 const listeners = new Set<(update: DictationUpdate) => void>();
-/// The host's `cmuxAcpmuxBridge.dictation(update)`.
+/// The host's `cmuxAcpmuxBridge.dictation(update)`. The waveform takes one sample per update,
+/// however many composers listen.
 export function deliverDictation(update: DictationUpdate): void {
+  setLevel(update.level, isActive(update.state));
   for (const listener of listeners) listener(update);
 }
 
@@ -120,7 +122,6 @@ export function useDictation(prompt: React.RefObject<HTMLTextAreaElement | null>
     const receive = (update: DictationUpdate) => {
       requested.current = false;
       setState(update.state);
-      setLevel(update.level, isActive(update.state));
       if (update.state === "failed" || update.state === "denied") setNotice(update);
       else if (update.state === "starting") setNotice(null);
       if (!composing) apply(update);

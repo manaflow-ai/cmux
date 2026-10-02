@@ -289,6 +289,21 @@ describe("composer dictation", () => {
     }
   });
 
+  test("the waveform keeps the last five levels and a new session starts from silence", async () => {
+    const pane = await mountPane();
+    const bars = () =>
+      [...pane.mic().querySelectorAll<HTMLElement>(".acpmux-mic-meter span")].map((bar) => bar.style.transform);
+    try {
+      for (const level of [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]) await pane.send({ state: "listening", level });
+      expect(bars()).toEqual([0.2, 0.3, 0.4, 0.5, 0.6].map((level) => `scaleY(${level * 1.4})`));
+      await pane.send({ state: "failed", message: "The microphone stopped." });
+      await pane.send({ state: "listening", level: 0.5 });
+      expect(bars()).toEqual(["scaleY(0.18)", "scaleY(0.18)", "scaleY(0.18)", "scaleY(0.18)", `scaleY(${0.5 * 1.4})`]);
+    } finally {
+      await pane.unmount();
+    }
+  });
+
   test("auto-send does not send a draft typed after the dictated words were sent", async () => {
     const pane = await mountPane();
     try {
