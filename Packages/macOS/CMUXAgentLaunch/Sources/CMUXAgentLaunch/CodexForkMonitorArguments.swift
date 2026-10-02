@@ -1,5 +1,6 @@
 /// Builds the arguments forwarded to a detached Codex fork monitor.
-public struct CodexForkMonitorArguments {
+public struct CodexForkMonitorArguments: Sendable {
+    /// Creates a stateless argument builder.
     public init() {}
 
     /// Preserves the parent-session claim and optional launch ownership values.

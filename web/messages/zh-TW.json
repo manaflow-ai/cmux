@@ -542,6 +542,11 @@
         "team": "建立團隊",
         "banner": "你現在使用的是 {plan}。",
         "bannerLink": "方案與帳單"
+      },
+      "appStore": {
+        "title": "透過 App Store 計費",
+        "body": "你的方案是在 cmux iPhone App 中購買，由 Apple 計費。請在 App Store 訂閱中變更或取消。",
+        "manage": "在 App Store 中管理"
       }
     },
     "mobileDevices": {
@@ -5183,7 +5188,8 @@
   "pricing": {
     "billingUnavailable": "目前無法使用結算功能。請稍後再試。",
     "signedOutNotice": "你尚未登入。登入後可查看目前方案或恢復既有購買。",
-    "signedOutSignIn": "登入"
+    "signedOutSignIn": "登入",
+    "manageInAppStore": "在 App Store 中管理"
   },
   "platforms": {
     "macos": "macOS",

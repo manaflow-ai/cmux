@@ -838,6 +838,11 @@
         "team": "Create a team",
         "banner": "You are on {plan} now.",
         "bannerLink": "Plan & billing"
+      },
+      "appStore": {
+        "title": "Billed through the App Store",
+        "body": "Your plan was purchased in the cmux iPhone app and is billed by Apple. Change or cancel it in your App Store subscriptions.",
+        "manage": "Manage in the App Store"
       }
     },
     "testflight": {
@@ -2019,7 +2024,8 @@
       "team": "Team & Enterprise"
     },
     "priceMonthlyNote": "${amount}/mo when billed monthly",
-    "priceMonthlyPerUserNote": "${amount}/user/mo when billed monthly"
+    "priceMonthlyPerUserNote": "${amount}/user/mo when billed monthly",
+    "manageInAppStore": "Manage in the App Store"
   },
   "home": {
     "taglinePrefix": "The terminal built for ",

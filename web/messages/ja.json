@@ -838,6 +838,11 @@
         "team": "チームを作成",
         "banner": "{plan} をご利用中です。",
         "bannerLink": "プランと請求"
+      },
+      "appStore": {
+        "title": "App Store で請求されています",
+        "body": "このプランは cmux の iPhone アプリで購入され、Apple から請求されています。変更や解約は App Store のサブスクリプションから行ってください。",
+        "manage": "App Store で管理"
       }
     },
     "testflight": {
@@ -2019,7 +2024,8 @@
       "team": "チームとエンタープライズ"
     },
     "priceMonthlyNote": "月払いは${amount}/月",
-    "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月"
+    "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月",
+    "manageInAppStore": "App Store で管理"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",

@@ -542,6 +542,11 @@
         "team": "Criar uma equipe",
         "banner": "Agora você está no {plan}.",
         "bannerLink": "Plano e cobrança"
+      },
+      "appStore": {
+        "title": "Cobrado pela App Store",
+        "body": "Seu plano foi comprado no app cmux para iPhone e é cobrado pela Apple. Altere ou cancele nas suas assinaturas da App Store.",
+        "manage": "Gerenciar na App Store"
       }
     },
     "mobileDevices": {
@@ -5184,7 +5189,8 @@
   "pricing": {
     "billingUnavailable": "O faturamento não está disponível no momento. Tente novamente mais tarde.",
     "signedOutNotice": "Você não iniciou sessão. Entre para ver seu plano atual ou restaurar uma compra existente.",
-    "signedOutSignIn": "Entrar"
+    "signedOutSignIn": "Entrar",
+    "manageInAppStore": "Gerenciar na App Store"
   },
   "platforms": {
     "macos": "macOS",
