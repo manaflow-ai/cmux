@@ -19,27 +19,6 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 
     private var planRefreshTask: Task<Void, Never>?
     private var planRefreshID: UUID?
-    private let fleetPageLoader: @MainActor () async -> VMListPage?
-    private let retryDelays: [Duration]
-    private let retryClock: any Clock<Duration>
-
-    /// The sheet must not be built from an empty fallback page: that page has no
-    /// plan limits, which makes SwiftUI hide the size picker. Retry startup and
-    /// transient Cloud read failures before giving the person a sheet.
-    init(
-        fleetPageLoader: @escaping @MainActor () async -> VMListPage? = {
-            guard let client = VMClient.shared else { return nil }
-            return try? await client.listPage()
-        },
-        retryDelays: [Duration] = [.milliseconds(100), .milliseconds(250), .milliseconds(500), .seconds(1), .seconds(2)],
-        retryClock: any Clock<Duration> = ContinuousClock()
-    ) {
-        self.fleetPageLoader = fleetPageLoader
-        self.retryDelays = retryDelays
-        self.retryClock = retryClock
-        super.init()
-    }
-
     /// The shared paywall decision used by both sheet entrypoints.
     static func shouldPresentUpgrade(for plan: MachinePlanSnapshot?) -> Bool {
         guard let plan else { return false }
@@ -224,7 +203,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         let selectionID = UUID()
         pendingSelectionID = selectionID
         let coordinator = MachineCreateCoordinator.shared
-        guard let page = await fetchFleetPageForPresentation(),
+        guard let page = await CloudMenuModel.shared.fleetPageForPresentation(),
               !Task.isCancelled, !isPresenting else {
             finishSelection(selectionID, request: nil)
             return nil
@@ -289,19 +268,6 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             )
             return didStart ? cancellation : nil
         })
-    }
-
-    /// Reads the authoritative fleet page before constructing the sheet. A nil
-    /// page means the client is still booting or the read failed transiently; it
-    /// is never a valid plan snapshot for presentation.
-    func fetchFleetPageForPresentation() async -> VMListPage? {
-        for attempt in 0...retryDelays.count {
-            if let page = await fleetPageLoader() { return page }
-            guard attempt < retryDelays.count, !Task.isCancelled else { return nil }
-            do { try await retryClock.sleep(for: retryDelays[attempt]) }
-            catch { return nil }
-        }
-        return nil
     }
 
     /// Completes only the active sheet selection; late cancellation cannot dismiss a newer sheet.

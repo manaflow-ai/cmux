@@ -22,6 +22,7 @@ final class CloudMenuModel {
 
     private(set) var machines: [MachineSnapshot] = []
     private(set) var loadState: LoadState = .idle
+    private(set) var fleetPage: VMListPage?
     /// Bumped on every published change so AppKit menus can rebuild while open.
     private(set) var revision: UInt64 = 0
     /// Cloud feature availability, observable so the main-menu Cloud menu
@@ -37,6 +38,7 @@ final class CloudMenuModel {
     @ObservationIgnored private var lastLoadedAt: ContinuousClock.Instant?
     @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var pageWaiters: [UUID: CheckedContinuation<VMListPage?, Never>] = [:]
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var featureObserver: CloudFeatureAvailabilityObserver?
     @ObservationIgnored private let mainMenu: @MainActor () -> NSMenu?
@@ -85,7 +87,29 @@ final class CloudMenuModel {
         }
     }
 
-    /// Called when a Cloud menu opens: reuse a fresh fleet, otherwise read it.
+    /// Returns the authoritative fleet page used to build Cloud creation UI.
+    /// Callers wait on the shared refresh owner instead of inventing a second
+    /// readiness or retry policy in their presenter.
+    func fleetPageForPresentation() async -> VMListPage? {
+        if let fleetPage { return fleetPage }
+        guard isAvailable() else { return nil }
+        let waiterID = UUID()
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                pageWaiters[waiterID] = continuation
+                if let fleetPage {
+                    pageWaiters.removeValue(forKey: waiterID)?.resume(returning: fleetPage)
+                } else {
+                    refresh()
+                }
+            }
+        }, onCancel: {
+            Task { @MainActor [weak self] in
+                self?.pageWaiters.removeValue(forKey: waiterID)?.resume(returning: nil)
+            }
+        })
+    }
+
     func menuWillOpen() {
         guard isAvailable() else { reset(); return }
         if task != nil { return }
@@ -117,14 +141,24 @@ final class CloudMenuModel {
     private func apply(_ result: Result<VMListPage, Error>) {
         switch result {
         case .success(let page):
+            fleetPage = page
+            let waiters = pageWaiters
+            pageWaiters.removeAll()
+            for waiter in waiters.values { waiter.resume(returning: page) }
             let windowDays = page.limits?.freeAccessWindowDays ?? 0
             let snapshots = page.vms.map { MachineSnapshotBuilder.snapshot(from: $0, freeAccessWindowDays: windowDays) }
             lastLoadedAt = ContinuousClock.now
             publish(machines: ordered(snapshots), loadState: .loaded)
         case .failure(let error as VMClientError):
+            let waiters = pageWaiters
+            pageWaiters.removeAll()
+            for waiter in waiters.values { waiter.resume(returning: nil) }
             if case .notSignedIn = error { reset(); return }
             publish(loadState: .failed(MachinesPanelViewModel.classifyListFailure(error)))
         case .failure:
+            let waiters = pageWaiters
+            pageWaiters.removeAll()
+            for waiter in waiters.values { waiter.resume(returning: nil) }
             publish(loadState: .failed(.unreachable))
         }
     }
@@ -145,6 +179,10 @@ final class CloudMenuModel {
         task?.cancel()
         task = nil
         lastLoadedAt = nil
+        fleetPage = nil
+        let waiters = pageWaiters
+        pageWaiters.removeAll()
+        for waiter in waiters.values { waiter.resume(returning: nil) }
         guard !machines.isEmpty || loadState != .idle else { return }
         publish(machines: [], loadState: .idle)
     }

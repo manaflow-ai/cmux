@@ -11,7 +11,7 @@ import Testing
 @MainActor
 @Suite("New machine sheet plan readiness")
 struct NewMachineSheetPresenterTests {
-    @Test("a transient fleet miss is retried before presentation")
+    @Test("presentation waits for and uses the shared authoritative fleet page")
     func transientFleetMissIsRetried() async {
         var attempts = 0
         let expected = VMListPage(vms: [], limits: VMPlanLimits(
@@ -20,18 +20,20 @@ struct NewMachineSheetPresenterTests {
             freeAccessWindowDays: 0,
             memoryOptionsMb: [4096, 8192, 16384]
         ))
-        let presenter = NewMachineSheetPresenter(
-            fleetPageLoader: {
+        let model = CloudMenuModel(
+            listMachines: {
                 attempts += 1
-                return attempts == 2 ? expected : nil
+                return expected
             },
-            retryDelays: [.zero],
-            retryClock: ContinuousClock()
+            isAvailable: { true },
+            isFeatureEnabled: { true },
+            mainMenu: { nil }
         )
 
-        let page = await presenter.fetchFleetPageForPresentation()
+        let page = await model.fleetPageForPresentation()
 
         #expect(page?.limits?.memoryOptionsMb == [4096, 8192, 16384])
-        #expect(attempts == 2)
+        #expect(attempts == 1)
+        #expect(model.fleetPage?.limits?.memoryOptionsMb == [4096, 8192, 16384])
     }
 }
