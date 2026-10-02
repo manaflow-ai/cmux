@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use boringtun::noise::{Tunn, TunnResult};
+use cmux_transport::{DatagramClass, classify};
 use bytes::{Buf, Bytes};
 use ip_network::IpNetwork;
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
@@ -546,7 +547,15 @@ impl Driver {
         let source = origin.addr.map(|addr| addr.ip());
         loop {
             match self.tunn.decapsulate(source, input, &mut self.scratch) {
-                TunnResult::Done => break,
+                TunnResult::Done => {
+                    // A data message that decrypts to nothing is a keepalive:
+                    // authenticated, so it moves the peer like any packet.
+                    // (Done for other messages, a cookie reply, proves less.)
+                    if !input.is_empty() && classify(input) == DatagramClass::WireGuardData {
+                        self.underlay.authenticated(origin);
+                    }
+                    break;
+                }
                 TunnResult::Err(_) => break,
                 TunnResult::WriteToNetwork(packet) => {
                     // Authenticated traffic from a new address moves the peer
