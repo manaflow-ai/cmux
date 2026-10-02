@@ -52,6 +52,5 @@ enum OnboardingControl {
         button.cell?.wraps = false
         button.lineBreakMode = .byTruncatingTail
         button.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
-        button.setContentHuggingPriority(.defaultHigh, for: .horizontal)
     }
 }

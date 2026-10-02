@@ -41,8 +41,23 @@ import Testing
             window.contentView?.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
             #expect(window.contentView?.frame.size == OnboardingMetrics.windowSize, "\(variant.id)")
+            if let content = window.contentView {
+                let ambiguous = Self.ambiguousViews(content)
+                #expect(ambiguous.isEmpty, "\(variant.id): ambiguous layout in \(ambiguous)")
+            }
             window.close()
         }
+    }
+
+    /// Views of ours whose Auto Layout is ambiguous (AppKit's own control internals are skipped).
+    static func ambiguousViews(_ view: NSView) -> [String] {
+        var found: [String] = []
+        let ours = String(reflecting: type(of: view)).hasPrefix("CmuxNextOnboarding")
+        // A scroll document is placed by its clip view, not by constraints.
+        let document = view.superview is NSClipView
+        if ours, !document, !view.translatesAutoresizingMaskIntoConstraints, view.hasAmbiguousLayout { found.append(String(describing: type(of: view))) }
+        for child in view.subviews { found += ambiguousViews(child) }
+        return found
     }
 
     @Test func galleryBuildsEveryTileAndStoresPicks() {

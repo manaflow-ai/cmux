@@ -24,7 +24,7 @@ enum OnboardingScaffold {
     /// The whole screen: `body` fills the space between the text and the footer.
     static func make(title: String, subtitle: String?, body: NSView, context: OnboardingStepContext, style: Style = Style()) -> NSView {
         let root = FlippedView()
-        let titleLabel = OnboardingLabel.make(title, font: .systemFont(ofSize: style.titleSize, weight: style.titleWeight))
+        let titleLabel = OnboardingLabel.make(title, font: .systemFont(ofSize: style.titleSize, weight: style.titleWeight), lines: 2)
         let sentence = OnboardingLabel.make(subtitle ?? "", color: Palette.textSecondary, lines: 2)
         sentence.isHidden = subtitle == nil
         let footer = OnboardingFooter(context: context, glassContinue: style.glassContinue)

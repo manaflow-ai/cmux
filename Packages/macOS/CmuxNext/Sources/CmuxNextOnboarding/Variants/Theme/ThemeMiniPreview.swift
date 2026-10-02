@@ -70,6 +70,11 @@ final class ThemeTile: NSStackView, ThemeChoiceItem {
         alignment = .centerX
         spacing = 4
         caption.alignment = .center
+        // A fixed wrap width makes the caption's height unambiguous.
+        caption.preferredMaxLayoutWidth = size.width
+        // In a row of tiles with one- and two-line names, a short tile keeps
+        // its own height (top aligned) instead of stretching.
+        setHuggingPriority(.defaultHigh, for: .vertical)
         addArrangedSubview(preview)
         addArrangedSubview(caption)
         NSLayoutConstraint.activate([

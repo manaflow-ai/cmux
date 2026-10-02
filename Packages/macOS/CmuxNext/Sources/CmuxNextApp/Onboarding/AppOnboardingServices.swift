@@ -80,8 +80,14 @@ final class AppOnboardingServices: OnboardingServices {
     /// cmux.json `debug.onboardingVariants.<step>` (set from the gallery).
     static func variantPath(_ step: OnboardingModel.Step) -> [String] { ["debug", "onboardingVariants", step.rawValue] }
 
+    /// DEBUG builds only: a Release first run always uses each screen's
+    /// default (a gallery pick in a tagged build must not change it).
     func variantID(for step: OnboardingModel.Step) -> String? {
+        #if DEBUG
         services.settings?.snapshot.root.value(at: Self.variantPath(step))?.stringValue
+        #else
+        nil
+        #endif
     }
 
     func setVariantID(_ id: String?, for step: OnboardingModel.Step) {

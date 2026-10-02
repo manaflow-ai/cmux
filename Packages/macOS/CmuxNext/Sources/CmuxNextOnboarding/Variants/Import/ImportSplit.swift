@@ -22,7 +22,7 @@ struct ImportSplit: OnboardingScreenVariant {
         for view in [left, divider, right, notes] { body.addSubview(view) }
         NSLayoutConstraint.activate([
             left.leadingAnchor.constraint(equalTo: body.leadingAnchor), left.topAnchor.constraint(equalTo: body.topAnchor),
-            left.bottomAnchor.constraint(lessThanOrEqualTo: notes.topAnchor, constant: -16),
+            left.bottomAnchor.constraint(equalTo: notes.topAnchor, constant: -16),
             divider.leadingAnchor.constraint(equalTo: left.trailingAnchor, constant: 24),
             divider.topAnchor.constraint(equalTo: body.topAnchor), divider.bottomAnchor.constraint(equalTo: left.bottomAnchor),
             right.leadingAnchor.constraint(equalTo: divider.trailingAnchor, constant: 24),

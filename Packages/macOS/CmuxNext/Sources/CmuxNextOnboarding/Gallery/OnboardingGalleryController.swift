@@ -6,7 +6,9 @@ import CmuxNextDesign
 /// full size; Use This stores it as the flow's pick for that screen;
 /// Preview Flow runs the real onboarding with the picks.
 public final class OnboardingGalleryController: NSWindowController, NSWindowDelegate {
-    /// Fresh sample services per thumbnail (they never write settings).
+    /// Fresh sample services per thumbnail and preview: sample browsers and
+    /// themes, no settings writes; the accounts view is the real one (the
+    /// thumbnails are inert, a full-size preview acts on real accounts).
     private let makeServices: @MainActor () -> any OnboardingServices
     private let picks: any OnboardingServices
     private let previewFlow: () -> Void
@@ -78,7 +80,7 @@ public final class OnboardingGalleryController: NSWindowController, NSWindowDele
         stack.edgeInsets = NSEdgeInsets(top: 24, left: 32, bottom: 32, right: 32)
         stack.translatesAutoresizingMaskIntoConstraints = false
         let preview = OnboardingControl.button("Preview Flow", prominent: true, target: self, action: #selector(previewPressed))
-        let header = NSStackView(views: [OnboardingLabel.make("Pick one design per screen; Preview Flow runs it.", color: Palette.textSecondary),
+        let header = NSStackView(views: [OnboardingLabel.make("Pick one design per screen. Preview Flow runs the real onboarding with your picks.", color: Palette.textSecondary),
                                          preview])
         header.spacing = 16
         stack.addArrangedSubview(header)

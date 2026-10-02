@@ -26,7 +26,7 @@ final class ImportKindPicker: NSStackView {
         case .vertical: 12
         case .toggles: 12
         }
-        if style == .toggles { distribution = .fillEqually }
+        if style == .toggles { distribution = .fillEqually } else { setHuggingPriority(.defaultHigh, for: .horizontal) }
         for (index, kind) in ImportStepModel.offeredKinds.enumerated() {
             let control = makeControl(OnboardingStrings.kind(kind))
             control.tag = index

@@ -44,8 +44,10 @@ final class OnboardingService {
             let themes = await picks.loadThemeChoices()
             guard let self, gallery == nil else { return }
             let gallery = OnboardingGalleryController(picks: picks, makeServices: { [weak self] in
-                MockOnboardingServices.gallerySample(themes: [ThemeChoice(name: nil, input: ThemeStore.shared.input)] + themes,
-                                                     accountsView: self.map { AppOnboardingServices(owner: $0).makeAccountsStepView() } ?? nil)
+                let sample = MockOnboardingServices.gallerySample(themes: themes,
+                                                                  accountsView: self.map { AppOnboardingServices(owner: $0).makeAccountsStepView() } ?? nil)
+                sample.ghosttyTheme = ThemeStore.shared.input
+                return sample
             }, previewFlow: { [weak self] in self?.show() })
             gallery.onClose = { [weak self] in self?.gallery = nil }
             self.gallery = gallery

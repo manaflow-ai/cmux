@@ -45,7 +45,8 @@ class ThemePressable: NSView {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
         setAccessibilityElement(true)
-        setAccessibilityRole(.button)
+        setAccessibilityRole(.radioButton)
+        focusRingType = .default
     }
 
     @available(*, unavailable)
@@ -64,5 +65,19 @@ class ThemePressable: NSView {
     override func accessibilityPerformPress() -> Bool {
         onPress?()
         return true
+    }
+
+    // Keyboard: Tab reaches each item (Full Keyboard Access), Space or
+    // Return picks it, and the system draws the focus ring.
+    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKeyView: Bool { true }
+    override var focusRingMaskBounds: NSRect { bounds }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10).fill() }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 49, 36, 76: onPress?()   // Space, Return, Enter
+        default: super.keyDown(with: event)
+        }
     }
 }

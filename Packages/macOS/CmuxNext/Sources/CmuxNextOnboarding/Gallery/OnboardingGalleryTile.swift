@@ -9,6 +9,7 @@ final class OnboardingGalleryTile: NSStackView {
     private let picks: any OnboardingServices
     private var useButton: NSButton!
     private let model: OnboardingModel
+    private var pickLoop: RenderLoop?
 
     init(variant: any OnboardingScreenVariant.Type, gallery: OnboardingGalleryController, picks: any OnboardingServices,
          services: any OnboardingServices) {
@@ -38,7 +39,9 @@ final class OnboardingGalleryTile: NSStackView {
         for view in [thumb, name, summary, detail, buttons] as [NSView] { addArrangedSubview(view) }
         summary.widthAnchor.constraint(equalToConstant: thumb.frame.width).isActive = true
         setAccessibilityIdentifier("onboarding.gallery.tile.\(variant.id)")
-        refreshPick()
+        thumb.makeInert(label: variant.name)
+        // The pick is written through cmux.json; follow the settings projection.
+        pickLoop = RenderLoop { [weak self] in self?.refreshPick() }
     }
 
     @available(*, unavailable)
@@ -69,7 +72,6 @@ final class ScaledThumbnail: NSView {
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
         layer?.borderWidth = 1
-        layer?.borderColor = Palette.separator.cgColor
         NSLayoutConstraint.activate([widthAnchor.constraint(equalToConstant: size.width), heightAnchor.constraint(equalToConstant: size.height)])
     }
 
@@ -90,9 +92,36 @@ final class ScaledThumbnail: NSView {
 
     override var isFlipped: Bool { true }
 
+    override func updateLayer() {
+        super.updateLayer()
+        layer?.borderColor = Palette.separator.cgColor
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+
     override func layout() {
         super.layout()
         if let fullSize, bounds.size != fullSize { bounds = NSRect(origin: .zero, size: fullSize) }
+    }
+
+    /// The live screen inside never takes keyboard focus or reaches
+    /// VoiceOver; the box is one button that opens the full-size preview.
+    func makeInert(label: String) {
+        func disable(_ view: NSView) {
+            (view as? NSControl)?.refusesFirstResponder = true
+            view.setAccessibilityElement(false)
+            view.subviews.forEach(disable)
+        }
+        subviews.forEach(disable)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(label)
+    }
+
+    override func accessibilityChildren() -> [Any]? { [] }
+    override func accessibilityPerformPress() -> Bool {
+        onClick?()
+        return true
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
