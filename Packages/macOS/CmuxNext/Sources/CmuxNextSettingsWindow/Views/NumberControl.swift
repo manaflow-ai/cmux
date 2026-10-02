@@ -10,7 +10,7 @@ struct NumberControl: View {
 
     var body: some View {
         let stored = model.value(descriptor)?.doubleValue
-        let shown = stored ?? number.placeholder
+        let shown = stored ?? model.host?.derivedNumber(at: descriptor.path) ?? number.placeholder
         let binding = Binding<Double>(get: { shown }, set: { model.set(descriptor, .number(NumberText.snap($0, number))) })
         HStack(spacing: Metrics.space4) {
             if number.unit == .count {

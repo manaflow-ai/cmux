@@ -20,6 +20,8 @@ use crate::conversation_store::{
 /// `conversation-changed` and `conversation-typing` events, on trusted local
 /// connections only.
 pub const LOCAL_CONVERSATIONS_CAPABILITY: &str = "local-conversations-v1";
+/// `conversation-search` on the local conversation owner.
+pub const CONVERSATION_SEARCH_CAPABILITY: &str = "conversation-search-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.
@@ -59,6 +61,14 @@ pub(super) struct OpParams {
     op: Value,
 }
 
+/// `conversation-search`: Home-only search over the text of every message
+/// that is not retracted; every word matches as a prefix.
+#[derive(Deserialize)]
+pub(super) struct SearchParams {
+    query: String,
+    limit: u32,
+}
+
 /// `conversation-typing`: a typing indicator. Never stored.
 #[derive(Deserialize)]
 pub(super) struct TypingParams {
@@ -91,6 +101,11 @@ fn resolve_actor(mux: &Mux, client: u64, declared: Option<String>) -> anyhow::Re
         return Err(ConversationRejected(Reject::ActorMismatch).into());
     }
     Ok(principal)
+}
+
+/// The stable reason of a conversation reject (the `reason` response field).
+pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
+    error.downcast_ref::<ConversationRejected>().map(|rejected| rejected.0.code().to_string())
 }
 
 /// The `error_code` of a conversation reject.
@@ -163,6 +178,13 @@ pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::
     let messages =
         mux.with_conversations(|store| store.history(&conversation, before_seq, limit))?;
     Ok(json!({"messages": messages}))
+}
+
+pub(super) fn search(mux: &Mux, client: u64, params: SearchParams) -> anyhow::Result<Value> {
+    require_local(mux, client)?;
+    let SearchParams { query, limit } = params;
+    let hits = mux.with_conversations(|store| store.search(&query, limit))?;
+    Ok(json!({"hits": hits}))
 }
 
 pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {

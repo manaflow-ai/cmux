@@ -584,11 +584,11 @@ Rules:
    `cmux-tui` CLI, so the TUI and the app see the same terminals) or a
    dedicated `cmux-app` session.
 
-## 8. Sessions, rooms and breaking changes (decision 2026-09-30)
+## 8. Sessions, spaces and breaking changes (decision 2026-09-30)
 
 The app federates many cmux-tui sessions (plans/cmux-next/data-model.md 1):
 terminals belong to their machine's session, a workspace's layout to its home
-session, and personal state (rooms, browser profiles, workspace groups,
+session, and personal state (spaces, browser profiles, workspace groups,
 sidebar order, saved groups, the session registry) only to the local home
 session. Session identity is `registry_id`. Breaking changes, each behind a
 capability, with the app in read-only fallback against older daemons:
