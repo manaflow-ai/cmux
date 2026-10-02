@@ -1,5 +1,5 @@
-import CmuxNextDesign
-import SwiftUI
+public import CmuxNextDesign
+public import SwiftUI
 
 /// The appearance studio (`appearance.customize`, "Customize Appearance…"):
 /// a floating glass panel over the window it customizes, so that window is
