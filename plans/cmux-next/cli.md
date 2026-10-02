@@ -128,6 +128,66 @@ On the merge of `feat-cmux-next` (2026-10-01):
   `history.list`/`bookmark.list`; the incoming bookmark, history, theme, browser profile,
   accounts and remote actions are marked for the CLI.
 
+## Numeric refs replacement
+
+The old CLI's refs and selector flags have no Rust equivalent; `cmux` takes the
+daemon's public ids (C7). Discover them with `cmux workspace list`, `cmux screen list`,
+`cmux pane list`, `cmux tab list`, `cmux terminal list` (add `--json` for the full
+records) or `cmux window list` for app windows.
+
+| Old form | New form |
+| --- | --- |
+| `workspace:N`, `--workspace workspace:N` | `ws_<32 hex>` or a unique prefix, as the selector (`cmux workspace ws_1a2b update …`); `current` for the session's focused workspace |
+| `pane:N`, `--pane`/`--panel pane:N` | `pane_…` or a unique prefix (`cmux pane pane_9f split --right`) |
+| `surface:N`, `tab:N`, `--surface …` | `tab_…` for the tab, `term_…` for its terminal (`cmux terminal term_77 write --text …`) |
+| the caller's own terminal (`--surface` default) | `$CMUX_TUI_TERMINAL_ID` (set in every cmux terminal); `current` is the session's focused object |
+| `window:N`, `--window …` | the app window id from `cmux window list` (`win_…` once window ids are typed, Remaining 1) |
+| `build-box:workspace:N` | `--session build-box` with a public id, or the qualified form `build-box:ws_…` once qualified ids land (Remaining 12) |
+| names (`--name build`) | exact names where a scope accepts them (rooms, groups); otherwise look up the id with `list` |
+
+## Ports from main and feat-cmux-next
+
+Every Swift CLI, compat-layer and wrapper change since the branch point
+(`git log 6ae6960d8d1..origin/feat-cmux-next -- CLI/ Resources/bin/ …/Compat`), and
+the CLI requests that came with the merge, with the decision taken.
+
+| Commit | Author | Change | Decision |
+| --- | --- | --- | --- |
+| 270b069f273 | Lawrence Chen | accounts: CLI waits for CodeRouter | ported: `accounts show|refresh|reauth|connect|remove` are app actions with `cli: true`; connect/remove `waits_for_result`, the CLI reads for 45 s; `cmux rpc accounts.list` is now `cmux accounts list` (`accounts.list`) |
+| fdb08f68315, 803d2877c33 | Lawrence Chen | `cmux coderouter status|machines|claude …`, `cmux cr …` | deferred: needs `coderouter` app scope over `coderouter.claude_upstream.*`, `coderouter.machines`, `coderouter.accounts.list` (secrets from env/stdin/TTY only) and exec of the bundled `bin/coderouter` with `CMUX_*` removed; the native handoff waits for PR 10194 |
+| c900ee9bad1 | Leo | Search All Windows (⌥⌘F) | not needed: a palette page; scripts read text with `terminal <sel> screen read`/`history read` |
+| 137e95e5f83 | Leo Li | namespace types refactor | not needed: compat-internal |
+| 73ae48025f9 | nightcityblade | browser JSON flags in help | not needed: Swift browser verbs; `cmux browser` help is cmux-tui's |
+| 2bb742d3705, a4e862d030f, 8aa9b5c995c | Alejandro Florez, Leo | Codex/OpenCode auto-naming | not needed: the Swift hook auto-naming is not ported (Agent hooks) |
+| 86230a59c43 | Leo | custom sidebar templates | not needed: cmux-next has no custom sidebar |
+| 2f574d677c4, 24f1ee0007f | Abdulaziz Albahar, Lawrence Chen | Codex transcript monitor | not needed: cmux-tui's agent projection reports agent state |
+| a20ed74ca17 | Austin Wang | `new-window --name` | deferred: add a `name` argument to `newWindow` (`cmux app new-window --name`) |
+| 64bb5e9f3fb, 974d0a0c941, b3d644ba873, e94800760c4 | Austin Wang, Leo, Lawrence Chen | legacy app model, updater revert, guarded close UX, Cmd-hold pills | not needed: legacy app |
+| fa7fa0aa2c0, f627d1fb076 | Leo, Alejandro Florez | tmux compat options, extra send-key operands | not needed: no tmux compat (C3); the Rust parser rejects extra operands |
+| 2e75b7ca209 | Lawrence Chen | bookmark verbs | ported: `bookmark list|search` (`bookmark.list`); `bookmark add-page|add|new-folder|open|open-in-new-tab|open-all|edit|move|remove|import|export` are app actions with `cli: true` |
+| 91fca8c8ab4 | Austin Wang | `cmux pr` handoff | not needed: cmux-next has no PR sidebar link |
+| 448f7ab1c2b | Lawrence Chen | notification source | ported: the daemon stamps `source` (`notification-source-v1`); `notification create` sends `cli` |
+| 155f8d0fb2b, c07e6d9f505, 2f3e13d8ce0 | Lawrence Chen | federation: local default, `--all-sessions`, session-qualified refs, send/read-screen on remote-terminal tabs | partly: lists act on the one session the CLI addresses (`--session` picks another) and `cmux --session S terminal term_… write|keys|screen read` reaches a remote terminal over v2; deferred: `--all-sessions`, `<session>:` qualified ids (resolve to `--session` in `cli/resolve.rs`), and tab-to-terminal routing, until the remote tab fields are in the merged tree |
+| federation-tui-r8 (not landed) | federation agent | create-terminal {detached}, remote-terminal tab create/update/snapshot, set-terminal-keep | deferred: waiting for v2 ops (terminal.create {detached}, tab.create_remote_terminal, tab.update_remote_terminal, tab.remote_terminal_snapshot, terminal.update {keep}); then `cmux terminal create --detached [--keep]`, `cmux tab create remote-terminal --session S --terminal term_…`, `cmux terminal <term_> keep|unkeep` |
+| 17dee8d2801 | Lawrence Chen | Open Terminal on Machine Here | ported: `remote open-terminal-here` (`cli: true`) |
+| 63ae925e97f | Lawrence Chen | history queries | ported: `history list|search [--kind] [--range] [--limit]` (`history.list`); `history back|forward|last|locations|closed|show|search-in-palette|resume|reopen|clear` and `layout undo` run as app actions (`cli: true` for show, resume, reopen, clear, layout undo) |
+| 6ed2890368a | Lawrence Chen | terminal command history (`set-terminal-command-history`) | deferred: no CLI verb yet (app setting `history.terminalCommands`) |
+| c8779bdd6f3 | Lawrence Chen | `tab new` of the focused pane's kind | ported: `tab new` (`newTab.sameKind`) and `tab new-terminal` (`newSurface`) are app actions with `cli: true` |
+| quit flags | Lawrence Chen | `app quit --keep-sessions|--end-sessions|--end-everything` | ported: `quit` is `cli: true`; a bare flag is true and flags map to camelCase arguments |
+| sticky columns | sticky-column lead | `column make-sticky|make-sticky-left|unstick|toggle-sticky-overlay`, `settings toggle-column-scrollbar` | deferred: the actions are not on the merged base; mark them in `cliActionIDs` when they land (`settings <verb>` already falls through to actions) |
+| ca831d42829, fa5e63276d5, 61128c6ca92, 7ba97404a02 | Lawrence Chen, Leo, Austin Wang | compile fix, test timing, SSH/Mosh launcher, pool VMs | not needed: Swift CLI internals and verbs outside the curated surface |
+| 5e33b84e085, 258c2ee9b11 | Leo | `cmux agent message` (and over the SSH relay) | deferred: Remaining 10 |
+| 7bce471a35f | Leo | `cmux agent hibernate|wake` | ported: `tab hibernate|wake` (`hibernateTab`/`wakeTab`, `cli: true`) |
+| 90d931ab9c8 | Lawrence Chen | surface size verbs | not needed: compat message |
+| ef3e6588f55, 555d7507823, 6606ca2cf76, ea6e02be168 | Leo | Claude hook sessions, auto-resume, notification ring, hook activity | not needed: Swift hook machinery is not ported (Agent hooks) |
+| 8216c54b526 | Leo | refuse `send` over an agent prompt draft | deferred: a daemon guard on `terminal.input.write` from the agent projection's prompt state |
+| 258501989df, 5605b57c1f6 | Lawrence Chen | Sentry redaction, no `--yolo` from transcript evidence | not needed: no Sentry or restore in the Rust CLI; a future restore keeps the rule (paths inside `CODEX_HOME` only, no full-access flags from evidence) |
+| df28c39c9c7 | Abdulaziz Albahar | iOS agent Feed | not needed for the CLI |
+| d453f3aaf7d | Leo | `cmux shot|record`, `docs capture` | deferred: app window capture control methods and Rust verbs (Remaining 4) |
+| 10e78b5cf6f | Leo | setting actions, `cmux config set` | ported: `settings get|set|unset`; setting actions run as `settings toggle-setting` |
+| d13dde39006 | Lawrence Chen | diff viewer review labels | not needed: no diff viewer CLI |
+| 7b2979e6345, 5f7699ecd26, 6eaa946e7b5 | Lawrence Chen | team invites and roster verbs | deferred: app-owned team service; add app control methods and an `auth team` scope |
+
 ## Remaining
 
 1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.
@@ -153,3 +213,4 @@ On the merge of `feat-cmux-next` (2026-10-01):
     entries in `agent_hook_install.rs`.
 11. `send`/`read-screen` on a remote-terminal tab need the daemon side of
     `remote-terminal-tabs-v1`, which is not in cmux-tui yet.
+12. Session-qualified ids (`build-box:ws_…`) and `--all-sessions` (federation).
