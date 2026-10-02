@@ -68,7 +68,7 @@ terminal belongs to scrollback, so rows cannot take plain vertical wheel events 
 ```
 Screen { columns: [Column] }                          // horizontal strip, unchanged
 Column { id, width_permille, sticky?, rows: [Row] }    // rows non-empty
-Row    { id, height_permille, root: SplitTree, auto_layout_order? }  // id never reused
+Row    { id, height_permille, root: SplitTree, creation_order_auto_layout? }  // id never reused
 SplitTree = Leaf(pane) | Split { id, dir, ratio_permille, a, b } | Stack { panes, expanded }
 ```
 
@@ -198,7 +198,7 @@ Daemon (cmux-tui) under capability `rows-v1`:
 
 - Undo: `ScreenLayoutSnapshot` holds the columns with their rows, so `undo-layout` covers rows.
 - Model change in `model.rs`: `LayoutColumn.root` becomes `rows: Vec<LayoutRow>` (non-empty by
-  construction, like `StackPanes`); the column's auto-layout order field moves to the row. `Screen::root` stays
+  construction, like `StackPanes`); `creation_order_auto_layout` moves to the row. `Screen::root` stays
   the compat projection for split-tree consumers. The TUI frontend renders rows as a vertical
   chain that fits the height until it gets row scrolling (step 6).
 

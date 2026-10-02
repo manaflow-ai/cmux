@@ -12,11 +12,11 @@
 use super::*;
 use std::io::Write as _;
 
-/// A screen: tree (one column, id 0) or niri columns, each a list of panes
+/// A screen: tree (one column, id 0) or scrolling columns, each a list of panes
 /// given by their tab counts.
 #[derive(Clone, Debug)]
 struct ScreenShape {
-    niri: bool,
+    columns_mode: bool,
     columns: Vec<Vec<usize>>,
 }
 
@@ -51,9 +51,9 @@ fn screens_of(panes: &[usize]) -> Vec<Vec<ScreenShape>> {
     for screens in splits(panes) {
         let mut combos: Vec<Vec<ScreenShape>> = vec![Vec::new()];
         for screen in &screens {
-            let mut options = vec![ScreenShape { niri: false, columns: vec![screen.clone()] }];
+            let mut options = vec![ScreenShape { columns_mode: false, columns: vec![screen.clone()] }];
             for columns in splits(screen) {
-                options.push(ScreenShape { niri: true, columns });
+                options.push(ScreenShape { columns_mode: true, columns });
             }
             combos = combos
                 .iter()
@@ -125,7 +125,7 @@ fn build(shape: &Shape, content: &dyn Fn(usize) -> (u64, bool)) -> (LayoutState,
             let screen = id();
             let mut columns = Vec::new();
             for panes in &screen_shape.columns {
-                let column = if screen_shape.niri { id() } else { 0 };
+                let column = if screen_shape.columns_mode { id() } else { 0 };
                 let mut built_panes = Vec::new();
                 for tabs in panes {
                     let pane = id();
@@ -142,7 +142,7 @@ fn build(shape: &Shape, content: &dyn Fn(usize) -> (u64, bool)) -> (LayoutState,
                 }
                 columns.push(Column { id: column, panes: built_panes });
             }
-            built.push(Screen { id: screen, columns, columns_active: screen_shape.niri });
+            built.push(Screen { id: screen, columns, columns_active: screen_shape.columns_mode });
         }
         state.workspaces.push(Workspace { id: workspace, screens: built });
     }

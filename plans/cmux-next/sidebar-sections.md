@@ -95,7 +95,7 @@ both reducers (Swift and cmux-tui-core).
 
 Arrangement is a small flexbox (Lawrence, 2026-10-02): `list` puts one item per row; `inline` puts
 items on one line with icon and label while they fit (an item with `shows_label: false` shows its icon
-only), then icons only, then wraps; `grid` puts tiles in columns (Arc's pinned tiles). `align` places
+only), then icons only, then wraps; `grid` puts tiles in columns. `align` places
 the leftover space on a line (`fill` spreads it between items, so two items sit at both edges; one
 item stays leading). `align` defaults to leading for every layout; a grid with fitted columns
 stretches its tiles, and a grid with fixed columns places every line by the leftover of a full

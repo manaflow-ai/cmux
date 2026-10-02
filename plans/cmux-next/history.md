@@ -29,7 +29,7 @@ journal (cmux-tui/spec/session-journal.md).
 
 | Kind | Fact | Owner (writes) | Store | Retention | Restore action |
 | --- | --- | --- | --- | --- | --- |
-| `page` | a finished main-frame navigation: URL, title, time, browser profile, tab | the app (browsers always run locally) | per browser profile, app-local SQLite `BrowserProfiles/<profile>/History.sqlite` (Chrome's `History` file model) | 90 days, at most 100,000 visits per profile | Open (current tab, new tab) |
+| `page` | a finished main-frame navigation: URL, title, time, browser profile, tab | the app (browsers always run locally) | per browser profile, app-local SQLite `BrowserProfiles/<profile>/History.sqlite` (one history database per profile) | 90 days, at most 100,000 visits per profile | Open (current tab, new tab) |
 | `location` | where the user was: window, room, machine, workspace, screen, pane, tab (the "where was I" trail) | the app, from each window's settled focus | home session personal projection `history.trail` (≤ 1 MiB CAS document) | 200 entries | Go Back / Go Forward, Go To |
 | `closed` | a closed tab, screen or workspace with what reopens it (kind, pane, index, cwd, URL, engine, terminal id) | the app observes the daemon trees (a tab gone while its workspace lives); later the daemon (`closed-history-v1`) | memory (25 tabs, 20 screens) | session of the app; terminals reopen live within the daemon's 30 s reap grace, else a new shell in the same directory | Reopen |
 | `layout` | a structural layout change on a screen (split, column resize, swap, zoom, tab move) | the daemon (`layout-undo-v1`, 32 entries per screen, memory) | daemon | daemon lifetime | Undo Layout Change |

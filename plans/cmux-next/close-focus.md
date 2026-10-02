@@ -20,7 +20,7 @@ or protocol changed.
 | S3 | close the selected workspace while its successor is at the viewport edge | successor selected but cut off | fully visible |
 
 Checked and correct already: closing an unfocused column left of the strip viewport
-(focused column kept its screen x), closing an unfocused visible column, Chrome's tab
+(focused column kept its screen x), closing an unfocused visible column, the tab
 successor (right, else left), an unselected tab closed by the CLI, the workspace successor
 order (next, else previous). Closing the last column springs back to the clamp, which is
 forced (no empty space past the last column).
@@ -50,7 +50,7 @@ the strip's scroll function (niri.md).
   the newest surviving pane of this window's history on that screen, else the default.
   Closing the right sticky column focuses the strip's last column; the left one, the
   strip's first.
-- Tab: the next shown tab, else the previous shown one (Chrome); members of a collapsed
+- Tab: the next shown tab, else the previous shown one; members of a collapsed
   group are skipped while a shown tab survives.
 - Workspace: the next workspace below, else the one above (`WindowRegistry.repairedSelection`).
 - A rejected close (the tab or pane comes back) does not move focus back.
@@ -139,7 +139,7 @@ pill and animation smoothness (screenshots are settled frames).
 2. Entering the left column after a column closes lands on that column's most recently
    focused pane, else its first (niri keeps an active tile per column), not the
    geometrically nearest pane.
-3. Tabs keep Chrome's rule (right, else left) and do not follow `layout.closeFocus`.
+3. Tabs keep their own rule (right, else left) and do not follow `layout.closeFocus`.
    Workspaces keep next-below, else above.
 4. The sidebar reveals the active row only when it changed or was visible; it does not
    pull a manually scrolled list back on unrelated closes.
@@ -148,6 +148,6 @@ pill and animation smoothness (screenshots are settled frames).
    focused when it closed.
 6. Inside a column (and on a split screen) "previous pane" is the previous pane in layout
    order, not the split sibling that takes the space: in `H(A, V(B, C))` closing B
-   focuses A, not C. Alternative: the sibling subtree's nearest pane (tmux-like).
+   focuses A, not C. Alternative: the sibling subtree's nearest pane.
 7. A sidebar row that is wholly in view never scrolls, even when it is closer to the edge
    than the 8 point reveal padding (no movement under a click or double-click).

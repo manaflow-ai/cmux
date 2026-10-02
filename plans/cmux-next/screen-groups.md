@@ -33,7 +33,7 @@ command layers still copied, and what this change shares or fixes:
 | Rule | Before | Now |
 | --- | --- | --- |
 | New group color | tab groups grey; screen groups first unused | `TabGroupOrdering.nextColor` for both (first unused, never auto-picks blue) |
-| Selection when a group collapses over it | first item outside the group (both) | `TabGroupOrdering.selectionAfterCollapsing` for both (Chrome: nearest visible to the right, else left), as the strip reducer |
+| Selection when a group collapses over it | first item outside the group (both) | `TabGroupOrdering.selectionAfterCollapsing` for both (nearest visible to the right, else left), as the strip reducer |
 | Owning daemon | `TabGroupMoves` local daemon; `TabGroupHandlers` the active window's | `GroupOwnership` (the daemon whose tree holds the group) for both; a target on another machine is refused |
 | Idempotency | screen group commands had none | v2 `screen_group.*` with a per-intent key where `state-resources-v1` is served |
 
