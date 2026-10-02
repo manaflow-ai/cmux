@@ -35,7 +35,7 @@ struct MiscActionBindingCoverageTests {
         #expect(reasons.allSatisfy { $0.value != MiscHandlerStrings.cloud })
         let unported: [ActionID: String] = ["palette.mobileConnect": CloudStrings.mobilePairing]
         for (id, reason) in unported { #expect(reasons[id]! == reason) }
-        for id: ActionID in ["newCloudMachine", "cloudKillMachine", "palette.cloud.status", "palette.cloud.tools", "palette.cloud.handoff",
+        for id: ActionID in ["newCloudMachine", "cloudKillMachine", "cloudPauseMachine", "cloudResumeMachine", "palette.cloud.deleteSnapshot", "palette.cloud.status", "palette.cloud.tools", "palette.cloud.handoff",
                              "palette.cloud.promoteTemplate"] {
             #expect([CloudStrings.noClient, CloudStrings.signInFirst, CloudStrings.localBackend].contains(reasons[id]!))
         }
@@ -64,5 +64,14 @@ struct MiscActionBindingCoverageTests {
         #expect(AgentHandlers.forkCommand(agent: "claude", session: "ab-12_c") == "claude --resume ab-12_c --fork-session")
         #expect(AgentHandlers.forkCommand(agent: "codex", session: "ab") == nil)
         #expect(AgentHandlers.forkCommand(agent: "claude", session: "a; rm -rf ~") == nil)
+    }
+
+    @Test func continueInIsAUserChooserBackedByTheSharedFrontendFlow() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "agentPane.continueIn" })
+        #expect(descriptor.requires.contains(.agentPaneFocused))
+        #expect(descriptor.targets == [.pane])
+        #expect(descriptor.surfacePlan.cli == .exempt(.guiOnly))
+        #expect(descriptor.surfacePlan.contextMenu == .exempt(.guiOnly))
+        #expect(ActionBindingCoverageTests.boundServices().registry.isBound("agentPane.continueIn"))
     }
 }

@@ -149,11 +149,11 @@ as a cache):
 A "place" (workspace, cwd, optional command) does not fit the bookmark
 tree cleanly. Bookmarks are scoped per browser profile (the extension model,
 Netscape HTML, `chrome.bookmarks`), while a place belongs to a machine and
-a room; a place in the tree would break the HTML export and show to
+a space; a place in the tree would break the HTML export and show to
 extensions as a non-URL node. A command in a bookmark is also a code path
 that imported files could carry. The location trail (history.md 4.2), Go to
 Workspace and the proposed workspace templates (`layout-templates-v1`) cover
-the need with the right owner. Revisit as a room-scoped "Saved Places" list
+the need with the right owner. Revisit as a space-scoped "Saved Places" list
 if dogfood asks.
 
 ## 6. Status (2026-09-30, branch feat-cmux-next-bookmarks)

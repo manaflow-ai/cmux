@@ -563,7 +563,7 @@ the user."):
 - `appearance.tabBarBackground`: `window` (default) paints no strip fill, so the space
   around and between the tabs is the window's own background (the titlebar and pane gaps,
   whatever the backdrop: opaque, translucent or glass); where the sheet shows another color
-  (a workspace theme of the other lightness than its room) the strip paints the pane's
+  (a workspace theme of the other lightness than its space) the strip paints the pane's
   window color instead (`TabBarBackground.paintsStripFill`). `darker` is the previous
   shaded strip (`Palette.stripBackground`). The sidebar has its own vibrancy backdrop, so in
   a translucent or glass window it differs from the sheet (as before this change).

@@ -64,20 +64,20 @@ import Testing
         guard let raw = ProcessInfo.processInfo.environment["CMUX_STATUS_GALLERY"], let seconds = Double(raw) else { return }
         Motion.reduceMotionOverride = false
         let screen = NSScreen.screens.last ?? NSScreen.main!
-        let size = NSSize(width: 1380, height: 640)
+        let size = NSSize(width: 1600, height: 680)
         let origin = NSPoint(x: screen.visibleFrame.minX + 40, y: screen.visibleFrame.maxY - size.height - 40)
         let window = NSWindow(contentRect: NSRect(origin: origin, size: size), styleMask: [.titled], backing: .buffered, defer: false)
         window.title = "cmux status indicator gallery"
         window.isReleasedWhenClosed = false
         let content = Flipped(frame: NSRect(origin: .zero, size: size))
         window.contentView = content
-        content.addSubview(panel(dark: true, slot: 12, frame: NSRect(x: 0, y: 0, width: 480, height: 160)))
-        content.addSubview(panel(dark: false, slot: 12, frame: NSRect(x: 0, y: 160, width: 480, height: 160)))
-        content.addSubview(panel(dark: true, slot: 32, frame: NSRect(x: 0, y: 320, width: 480, height: 320)))
+        content.addSubview(panel(dark: true, slot: 12, frame: NSRect(x: 0, y: 0, width: 480, height: 180)))
+        content.addSubview(panel(dark: false, slot: 12, frame: NSRect(x: 0, y: 180, width: 480, height: 180)))
+        content.addSubview(panel(dark: true, slot: 32, frame: NSRect(x: 0, y: 360, width: 480, height: 320)))
         // The demo sidebar once per style (the real rows and group headers).
         for (i, style) in StatusIndicatorStyle.allCases.enumerated() {
             let sidebar = SidebarView(model: SidebarDemoMock.makeModel())
-            sidebar.frame = NSRect(x: 490 + CGFloat(i) * 222, y: 24, width: 216, height: 610)
+            sidebar.frame = NSRect(x: 490 + CGFloat(i) * 222, y: 24, width: 216, height: 650)
             content.addSubview(sidebar)
             let l = label("sidebar · \(style.rawValue)", .secondaryLabelColor)
             l.frame = NSRect(x: 490 + CGFloat(i) * 222, y: 4, width: 216, height: 16)

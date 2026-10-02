@@ -19,6 +19,10 @@ const en = {
   "host.retry": "Retry",
   "host.retryQueued": "Retrying…",
   "host.retrying": "cmux tries again on its own. Your prompt stays here until acpmux connects.",
+  "project.label": "Project",
+  "project.choose": "Choose project",
+  "project.search": "Search projects",
+  "project.none": "No matching projects",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -40,6 +44,10 @@ const ja: Record<StringKey, string> = {
   "host.retry": "再試行",
   "host.retryQueued": "再試行中…",
   "host.retrying": "cmux は自動で再試行します。acpmux に接続するまで、プロンプトはここに残ります。",
+  "project.label": "プロジェクト",
+  "project.choose": "プロジェクトを選択",
+  "project.search": "プロジェクトを検索",
+  "project.none": "一致するプロジェクトはありません",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };
