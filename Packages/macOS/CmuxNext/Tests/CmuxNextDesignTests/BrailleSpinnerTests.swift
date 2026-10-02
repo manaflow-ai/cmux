@@ -31,6 +31,24 @@ struct BrailleSpinnerTests {
         #expect(Set(images.map(Self.bytes)).count == images.count)
     }
 
+    /// The frames fill the slot like the other styles' glyphs (the six-dot
+    /// cell spans most of its height) and their strongest pixel is opaque,
+    /// so the tint reads at full color even at 1x.
+    @Test(arguments: [1, 2] as [CGFloat])
+    func framesFillTheSlotAtFullStrength(scale: CGFloat) {
+        let images = BrailleSpinnerImage.images(side: 12, scale: scale, family: nil)
+        let side = Int(12 * scale)
+        var rows = Set<Int>()
+        for image in images {
+            let bytes = Array(Self.bytes(image))
+            #expect(bytes.max() == 255)
+            let stride = image.bytesPerRow
+            for row in 0..<side where bytes[(row * stride)..<(row * stride + side)].contains(where: { $0 > 0 }) { rows.insert(row) }
+        }
+        let inked = (rows.max() ?? 0) - (rows.min() ?? 0) + 1
+        #expect(Double(inked) >= Double(side) * 0.7, "ink spans \(inked) of \(side) rows")
+    }
+
     @Test func theLoadingTintColorsTheMask() throws {
         let indicator = make()
         indicator.apply(.make(.busy, style: .braille, animates: false), config: StatusIndicatorConfig())
