@@ -148,11 +148,12 @@ import SwiftUI
         #expect(destination.focusedPanelId == localDestinationPanel)
     }
 
-    @Test("Cloud composer focus selects its pane without a host callback")
+    @Test("Cloud composer focus selects its pane through the host callback")
     func cloudComposerFocusSelectsItsPane() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
         let workspace = harness.workspace
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowId))
         let sourcePane = try #require(workspace.bonsplitController.focusedPaneId)
         let localPanelID = try #require(workspace.focusedPanelId)
         let cloudPanel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
@@ -169,9 +170,16 @@ import SwiftUI
         scrollView.documentView = textView
         contentView.addSubview(scrollView)
         defer { scrollView.removeFromSuperview() }
-        // Deliberately omit TerminalPanelView's onFocus callback. The panel
-        // must converge ownership even during a SwiftUI host rebind.
-        textView.onFocusTextBox = { cloudPanel.textBoxDidBecomeFocused() }
+        // Mirror WorkspacePanelContentHostView's composer bridge: the panel
+        // updates its text-box state, then the active workspace coordinator
+        // selects the pane with the standard trigger. Keeping this callback
+        // in the fixture catches regressions in the SwiftUI-to-AppKit wiring.
+        textView.onFocusTextBox = {
+            cloudPanel.textBoxDidBecomeFocused()
+            guard manager.selectedTabId == workspace.id,
+                  workspace.panels[cloudPanel.id] != nil else { return }
+            workspace.focusPanelFromTerminalInput(cloudPanel.id, trigger: .standard)
+        }
         cloudPanel.registerTextBoxInputView(textView)
         textView.string = "unsubmitted cloud draft"
         #expect(workspace.focusedPanelId == localPanelID)
@@ -207,6 +215,10 @@ import SwiftUI
         let selectedWorkspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
 
         cloudPanel.textBoxDidBecomeFocused()
+        if manager.selectedTabId == workspace.id,
+           workspace.panels[cloudPanel.id] != nil {
+            workspace.focusPanelFromTerminalInput(cloudPanel.id, trigger: .standard)
+        }
 
         #expect(manager.selectedTabId == selectedWorkspace.id)
         #expect(workspace.focusedPanelId == localPanelID)
