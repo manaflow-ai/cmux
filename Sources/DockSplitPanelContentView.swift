@@ -108,6 +108,12 @@ struct DockSplitPanelContentView: View, Equatable {
                     window: NSApp.keyWindow ?? NSApp.mainWindow
                 )
             },
+            onFocusTextBox: {
+                store.focusPanelFromDockInteraction(
+                    panel.id,
+                    window: NSApp.keyWindow ?? NSApp.mainWindow
+                )
+            },
             onRequestPanelFocus: {
                 store.focusPanelFromDockInteraction(
                     panel.id,

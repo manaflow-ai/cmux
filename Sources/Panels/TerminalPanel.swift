@@ -357,14 +357,6 @@ final class TerminalPanel: Panel, ObservableObject {
         shouldHideTextBoxOnNextEscape = false
         isTextBoxActive = true
         textBoxInputFocusIntent = .textBox
-        // A Cloud composer can take AppKit focus while its SwiftUI host's
-        // focus callback is being rebound. Resolve the live owner here so
-        // the pane ring follows the composer without losing its focus intent.
-        if surface.focusPlacement == .workspace {
-            // Composer focus must not schedule the terminal first-responder
-            // follow-up, which would move the responder back to Ghostty.
-            surface.owningWorkspace()?.focusPanelFromTerminalInput(id, trigger: .standard)
-        }
         surface.setFocus(false)
         hostedView.setActive(false)
     }

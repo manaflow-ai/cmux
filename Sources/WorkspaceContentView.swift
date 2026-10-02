@@ -92,6 +92,14 @@ private struct WorkspacePanelContentHostView: View {
                 return workspace.bonsplitController.selectedTabId(inPane: paneId) == tabId
             },
             onFocus: onFocus,
+            onFocusTextBox: {
+                guard isWorkspaceInputActive else { return }
+                guard workspace.panels[panel.id] != nil else { return }
+                // Composer focus must select the pane without scheduling the
+                // terminal first-responder follow-up that would steal focus
+                // back from the text box.
+                workspace.focusPanelFromTerminalInput(panel.id, trigger: .standard)
+            },
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: onResumeAgentHibernation,
             onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
