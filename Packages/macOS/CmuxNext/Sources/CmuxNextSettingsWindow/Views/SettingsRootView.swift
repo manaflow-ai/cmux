@@ -2,39 +2,23 @@ import CmuxNextDesign
 import CmuxNextSettings
 import SwiftUI
 
-/// Sidebar of sections (with search) and the selected section, or the
-/// search results across every section.
+/// Sidebar of sections (with search) and the detail. The Debug Settings
+/// tunable `settings.layout` (DEV and NIGHTLY) picks pages (one section at a
+/// time, search lists results that jump) or one page (every section, the
+/// sidebar follows the scroll, search filters in place); read here, so a
+/// change switches live.
 struct SettingsRootView: View {
     @Bindable var model: SettingsWindowModel
 
     var body: some View {
         // Reading the tokens re-renders on a theme change of the window's scope.
         let _ = SettingsTheme.shared.tokens
+        let layout = SettingsWindowTunables.layout.value
         HStack(spacing: 0) {
-            SettingsSidebar(model: model)
+            SettingsSidebar(model: model, layout: layout)
                 .frame(width: Metrics.sidebarWidth - Metrics.space6 * 2)
             Rectangle().fill(SettingsStyle.separator).frame(width: Metrics.dividerThickness)
-            ScrollView {
-                VStack(alignment: .leading, spacing: Metrics.space6) {
-                    if let error = model.writeError {
-                        Text(error).font(SettingsStyle.caption).foregroundStyle(SettingsStyle.danger)
-                    }
-                    if model.query.isEmpty {
-                        Text(model.selection.title).font(SettingsStyle.title).foregroundStyle(SettingsStyle.text)
-                        SettingsSectionView(model: model, section: model.selection)
-                    } else {
-                        SettingsSearchResultsView(model: model)
-                    }
-                }
-                .padding(.horizontal, Metrics.space6 + Metrics.space4)
-                .padding(.top, Metrics.titlebarHeight)
-                .padding(.bottom, Metrics.space6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .scrollIndicators(.automatic)
-            // No rubber band while the page fits.
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollEdgeFade()
+            SettingsDetailView(model: model, layout: layout)
         }
         .background(SettingsStyle.background)
         .tint(SettingsStyle.tint)
@@ -46,6 +30,7 @@ struct SettingsRootView: View {
 
 struct SettingsSidebar: View {
     @Bindable var model: SettingsWindowModel
+    let layout: SettingsWindowLayout
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.space1) {
@@ -53,6 +38,8 @@ struct SettingsSidebar: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(SettingsStyle.tertiary)
                 TextField(SettingsWindowStrings.searchPlaceholder, text: $model.query)
                     .textFieldStyle(.plain)
+                    // Return opens the first result on its page.
+                    .onSubmit { _ = model.openFirstResult() }
                     .accessibilityIdentifier("cmux.settings.search")
                 if !model.query.isEmpty {
                     Button { model.query = "" } label: { Image(systemName: "xmark.circle.fill") }
@@ -63,10 +50,11 @@ struct SettingsSidebar: View {
             .frame(height: SettingsStyle.rowHeight)
             .background(SettingsStyle.hover, in: RoundedRectangle(cornerRadius: SettingsStyle.corner, style: .continuous))
             .padding(.bottom, Metrics.space4)
+            // The one page keeps its section selected while search filters it.
+            let showsSelection = layout == .onePage || model.query.isEmpty
             ForEach(SettingsSection.allCases) { section in
-                SidebarRow(section: section, isSelected: model.query.isEmpty && model.selection == section) {
-                    model.query = ""
-                    model.selection = section
+                SidebarRow(section: section, isSelected: showsSelection && model.selection == section) {
+                    model.select(section, layout: layout)
                 }
             }
             Spacer()
