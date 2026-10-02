@@ -2,6 +2,7 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 mod agent_hook_errors;
+mod conversations;
 mod host_close;
 mod idle_close;
 pub(crate) mod layout_invariants;
@@ -13,6 +14,7 @@ mod resource_content;
 mod resource_topology;
 mod screen_changed;
 mod screen_groups;
+mod session_paths;
 mod sticky_columns;
 mod tab_drag;
 mod tab_groups;
@@ -991,6 +993,7 @@ pub enum MuxEvent {
         personal_revision: u64,
     },
     BookmarksChanged(personal::BookmarksChange),
+    Conversation(Arc<crate::conversation_store::ConversationEvent>),
     /// A durable terminal-registry mutation committed. Consumers use this as
     /// a barrier, then fetch `terminal-events` or a fresh snapshot.
     TerminalRegistryChanged {
@@ -2559,6 +2562,7 @@ pub struct Mux {
     /// per-client memory; they never move the live shared focus, so other
     /// attached clients stay where they are.
     last_reported_focus: Mutex<Option<(PaneId, Option<usize>)>>,
+    conversations: crate::conversation_store::ConversationHost,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -3009,6 +3013,7 @@ impl Mux {
             client_sizing: Mutex::new(ClientSizingState::default()),
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
+            conversations: Default::default(),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]
@@ -10933,19 +10938,6 @@ impl Mux {
     /// Events that can change the launch snapshot.
     pub(crate) fn subscribe_launch_snapshot(&self) -> MuxEventReceiver {
         self.subscribers.subscribe_launch_snapshot()
-    }
-
-    /// The directory of this session's durable registry, or none for an
-    /// in-memory session.
-    pub(crate) fn session_state_directory(&self) -> Option<std::path::PathBuf> {
-        let database = self.workspace_registry.lock().unwrap().session_journal_database_path()?;
-        database.parent().map(Path::to_path_buf)
-    }
-
-    pub(crate) fn launch_snapshot_frontend_projections(
-        &self,
-    ) -> anyhow::Result<Vec<FrontendProjection>> {
-        self.workspace_registry.lock().unwrap().native_frontend_projections()
     }
 
     /// Post a notification from the legacy `notify` verb. This is the same

@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import CmuxNextBrowser
 
-/// Chrome's selection rules through the real AppKit field and field editor.
+/// The omnibar selection rules through the real AppKit field and field editor.
 /// A click is replayed in AppKit's order (the field becomes first responder,
 /// the field editor reports the press, its tracking loop sets the selection,
 /// then the release): a test process has no running event loop for the

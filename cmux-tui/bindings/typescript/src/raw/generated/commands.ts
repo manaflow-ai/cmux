@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a. */
+/* cmux-tui mux protocol 12, IR 7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d. */
 
 
 import type * as T from "./types.js";
@@ -303,6 +303,74 @@ export interface CloseWorkspaceRequest extends CmuxRequestBase {
   "workspace"?: (T.Id) | null;
 }
 export type CloseWorkspaceResult = T.WorkspaceMutationResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationAgentTokenRequest extends CmuxRequestBase {
+  cmd: "conversation-agent-token";
+  "participant": string;
+}
+export type ConversationAgentTokenResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationBindRequest extends CmuxRequestBase {
+  cmd: "conversation-bind";
+  "participant": string;
+  "token": string;
+}
+export type ConversationBindResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationCreateRequest extends CmuxRequestBase {
+  cmd: "conversation-create";
+  "actor"?: (string) | null;
+  "idempotency_key": string;
+  "participants": (T.JsonValue) | null;
+  "title": string;
+}
+export type ConversationCreateResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationHistoryRequest extends CmuxRequestBase {
+  cmd: "conversation-history";
+  "before_seq": bigint;
+  "conversation": string;
+  "limit": number;
+}
+export type ConversationHistoryResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationListRequest extends CmuxRequestBase {
+  cmd: "conversation-list";
+}
+export type ConversationListResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationOpRequest extends CmuxRequestBase {
+  cmd: "conversation-op";
+  "actor"?: (string) | null;
+  "conversation": string;
+  "idempotency_key": string;
+  "op": (T.JsonValue) | null;
+  "transaction"?: (string) | null;
+}
+export type ConversationOpResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationSnapshotRequest extends CmuxRequestBase {
+  cmd: "conversation-snapshot";
+  "conversation": string;
+  "tail": number;
+}
+export type ConversationSnapshotResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationTypingRequest extends CmuxRequestBase {
+  cmd: "conversation-typing";
+  "actor"?: (string) | null;
+  "conversation": string;
+  "on": boolean;
+}
+export type ConversationTypingResult = T.JsonValue;
 
 /** Protocol v6; authority: control. */
 export interface CopyRequest extends CmuxRequestBase {
@@ -1862,6 +1930,14 @@ export type CmuxRequest =
   | CloseTabsRequest
   | CloseTerminalRequest
   | CloseWorkspaceRequest
+  | ConversationAgentTokenRequest
+  | ConversationBindRequest
+  | ConversationCreateRequest
+  | ConversationHistoryRequest
+  | ConversationListRequest
+  | ConversationOpRequest
+  | ConversationSnapshotRequest
+  | ConversationTypingRequest
   | CopyRequest
   | CreateBookmarkRequest
   | CreateBrowserProfileRequest
@@ -2269,6 +2345,70 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "conversation-agent-token": {
+    request: ConversationAgentTokenRequest;
+    result: ConversationAgentTokenResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-bind": {
+    request: ConversationBindRequest;
+    result: ConversationBindResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-create": {
+    request: ConversationCreateRequest;
+    result: ConversationCreateResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-history": {
+    request: ConversationHistoryRequest;
+    result: ConversationHistoryResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-list": {
+    request: ConversationListRequest;
+    result: ConversationListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-op": {
+    request: ConversationOpRequest;
+    result: ConversationOpResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-snapshot": {
+    request: ConversationSnapshotRequest;
+    result: ConversationSnapshotResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-typing": {
+    request: ConversationTypingRequest;
+    result: ConversationTypingResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-conversations-v1";
     stream: null;
   };
   "copy": {

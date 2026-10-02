@@ -82,12 +82,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Once the first terminal frame is drawn, the palette panel is made
         // at the next idle moment, so the first open costs what later opens
-        // cost (Spotlight and Chrome's omnibox open in one frame), without
+        // cost (a launcher panel opens in one frame), without
         // delaying that frame.
         launchSettle.whenSettled { [palette = services.palette] in Self.preparePalette(palette, step: 0) }
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
         services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                       importStore: services.onboarding.importStore)
+        services.home.start()
         services.bookmarks.start(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                  importStore: services.onboarding.importStore)
         services.history.start(supportDirectory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)

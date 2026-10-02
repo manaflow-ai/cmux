@@ -24,6 +24,25 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
                 category: .settings, symbol: "bag.badge.checkmark", surfaces: [.palette, .keyboard],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // Hide is a per-user view preference (app-platform.md V9): the app keeps running
+            // and answering granted calls; it only leaves the sidebar, palette and menus.
+            // The sidebar's own `sidebar.item.hideApp` forwards here; the App Store has buttons.
+            ActionDescriptor(
+                id: "app.hide", title: t("action.app.hide", "Hide App"),
+                keywords: ["apps", "hide", "remove from sidebar", "declutter"],
+                category: .settings, symbol: "eye.slash", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string)],
+                cliName: "apps hide",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "app.unhide", title: t("action.app.unhide", "Show Hidden App"),
+                keywords: ["apps", "unhide", "show", "hidden", "restore"],
+                category: .settings, symbol: "eye", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string)],
+                cliName: "apps unhide",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
         ]
     }
 

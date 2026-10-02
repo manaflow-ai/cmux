@@ -1,24 +1,23 @@
 {
   "grant": [
-    "usage:read",
-    "usage:write",
+    "account:read",
+    "account:write",
     "notification:write",
-    "coderouter:read",
     "mcp:expose",
     "actions:run"
   ],
   "scopes": {
-    "usage.get": {
-      "scope": "usage:read",
+    "account.list": {
+      "scope": "account:read",
       "class": "read"
     },
-    "usage.refresh": {
-      "scope": "usage:write",
+    "account.usage": {
+      "scope": "account:read",
+      "class": "read"
+    },
+    "account.refresh": {
+      "scope": "account:write",
       "class": "mutation"
-    },
-    "coderouter.usage.get": {
-      "scope": "coderouter:read",
-      "class": "read"
     },
     "app.settings.set": {
       "scope": "settings:write",
@@ -26,10 +25,10 @@
     }
   },
   "ops": {
-    "usage.get": {
+    "account.list": {
       "$error": {
         "code": "operation.unsupported",
-        "message": "usage.get is not supported by this host yet"
+        "message": "account.list is not supported by this host yet"
       }
     }
   }

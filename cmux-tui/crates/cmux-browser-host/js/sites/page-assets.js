@@ -1,6 +1,6 @@
 // sites.pageAssets: the file assets a rendered page uses (images, fonts,
 // stylesheets, video, scripts) and its inline SVGs, and a bundle of them
-// downloaded through the signed-in session (ChatGPT for Chrome's pageAssets).
+// downloaded through the signed-in session.
 (function (root) {
   "use strict";
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;

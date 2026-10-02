@@ -2,7 +2,7 @@ public import AppKit
 
 /// Records a chord for one action and decides, with the registry's
 /// `assessShortcut`, whether it is saved at once, asks first (a conflict
-/// with another action, a Chrome chord, a Ghostty keybind) or is refused
+/// with another action, a browser chord, a Ghostty keybind) or is refused
 /// (no Command or Control, a macOS chord, a system action's chord, a
 /// numbered family). The palette's Cmd-K editor and the Settings window's
 /// Keyboard section both run this one recorder; each keeps the state where

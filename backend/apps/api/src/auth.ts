@@ -34,6 +34,8 @@ const sessionPrincipal = async (env: Env, token: string): Promise<Principal | un
     if (typeof payload.sub !== "string" || !payload.sub || payload.is_anonymous === true) return undefined
     const user = userIdFor(env.STACK_PROJECT_ID, payload.sub)
     const email = typeof payload.email === "string" ? payload.email : null
+    // Only an explicit `true` counts: absent, false or any other value means unverified.
+    const emailVerified = email !== null && payload.email_verified === true
     const name = typeof payload.name === "string" && payload.name ? payload.name : undefined
     return {
       kind: "session",
@@ -42,6 +44,7 @@ const sessionPrincipal = async (env: Env, token: string): Promise<Principal | un
       team: personalTeamIdFor(user),
       stack_user_id: payload.sub,
       email,
+      email_verified: emailVerified,
       ...(typeof payload.exp === "number" ? { expires_at: payload.exp * 1000 } : {}),
       ...(name ? { display_name: name } : {})
     }
@@ -113,8 +116,10 @@ export const withGrantClasses = async (env: Env, p: Principal): Promise<Principa
   if (p.kind === "session") return p
   if (!p.user || !p.install || !p.grant) return undefined
   const stub = env.USER_DO.get(env.USER_DO.idFromName(p.user))
-  const r = (await stub.installGrant(p.user, p.install, p.grant)) as { ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null } | { ok: false }
-  return r.ok ? { ...p, grant_classes: [...r.op_classes], install_kind: r.kind, email: r.email } : undefined
+  const r = (await stub.installGrant(p.user, p.install, p.grant)) as
+    | { ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean }
+    | { ok: false }
+  return r.ok ? { ...p, grant_classes: [...r.op_classes], install_kind: r.kind, email: r.email, email_verified: r.email_verified } : undefined
 }
 
 /** Resolves the bearer token: our install JWT, else a Stack session token. */

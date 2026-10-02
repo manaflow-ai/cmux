@@ -73,7 +73,7 @@ public nonisolated enum MetricTunables {
 
     // MARK: Panes
 
-    public static let columnGap = MetricTunable.make("columnGap", .panes, "Column gap", help: "Gap between niri columns.",
+    public static let columnGap = MetricTunable.make("columnGap", .panes, "Column gap", help: "Gap between strip columns.",
                                                      compact: 6, comfortable: 8, key: .columnGap)
     public static let densityPaneCornerRadius = MetricTunable.make(
         "densityPaneCornerRadius", .panes, "Pane corner radius", help: "Rounded pane corners when padding or a border shows and layout.paneCornerRadius is unset.",

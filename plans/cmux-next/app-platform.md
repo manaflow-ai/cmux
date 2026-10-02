@@ -183,7 +183,7 @@ Debt removed on the way: in-app JSC engine (after 3), `registry.json` (after 3),
 | Monaco editor, CodeMirror editor | `cmux.editor/1`, documents, web pane, open-with, language ids, decorations |
 | Notes | native pane (first-party), documents owned by the notes server (`instances: user`) |
 | Finder with SSH | `cmux.fs.provider/1`, root/host/credential handles, streaming listings, `cmux.viewer/1` previews, typed drag and drop |
-| Feed email, Integrations | `cmux.feed.source/1`, integration connections, credential handles, `cmux.viewer/1` for bodies |
+| Feed email, Integrations | email is a feed source, not a separate inbox: threads are feed items through `cmux.feed.source/1`, a reply is a feed response kind, sending is a `send-external` op that needs approval for agents; bodies render through `cmux.viewer/1`; mailbox access is an integration connection with a credential handle (Gmail read through the browser until CASA completes) |
 | Tasks | team server (`instances: team`), catalog fragment, native pane |
 | Usage (all agent accounts) | per-machine server, `account.list`/`account.usage` ops, status item, pane |
 | Caffeinate | host capability `power.assertion.create/release/list` (IOKit, no process spawn, bound to a terminal or task handle), status item |

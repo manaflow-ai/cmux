@@ -93,7 +93,7 @@ final class PromptBarView: NSView {
             case .microphone: Strings.permissionMicrophone(prompt.origin)
             case .cameraAndMicrophone: Strings.permissionCameraAndMicrophone(prompt.origin)
             }
-            // Chrome's permission prompt: never, this time, while visiting.
+            // Permission prompt answers: never, this time, while visiting.
             addButton(PageInfoStrings.promptNeverAllow, prominent: false, response: .deny)
             addButton(PageInfoStrings.promptAllowThisTime, prominent: false, response: .allowOnce)
             addButton(PageInfoStrings.promptAllowWhileVisiting, prominent: true, response: .allow)

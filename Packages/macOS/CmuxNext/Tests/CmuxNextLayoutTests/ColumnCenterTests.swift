@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import CmuxNextLayout
 
-/// niri `center-column`: the model records a one-shot request and the root
+/// Center column: the model records a one-shot request and the root
 /// view scrolls that column to the viewport center.
 @MainActor
 struct ColumnCenterTests {

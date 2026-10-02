@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a. */
+/* cmux-tui mux protocol 12, IR 7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a" as const;
+export const SDK_IR_SHA256 = "7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -444,6 +444,86 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Provider-managed workspaces reject this ordinary mutation."
+    ]
+  },
+  "conversation-agent-token": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections bound to the local user only. Mints a new token; the old one stops working. See spec/commands.md."
+    ]
+  },
+  "conversation-bind": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Binds the connection to an agent participant for its lifetime. See spec/commands.md."
+    ]
+  },
+  "conversation-create": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. A replay of the same idempotency key and request returns the created conversation with replayed:true. See spec/commands.md."
+    ]
+  },
+  "conversation-history": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. limit is 1-500. See spec/commands.md for the result object."
+    ]
+  },
+  "conversation-list": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. See spec/commands.md for the result object."
+    ]
+  },
+  "conversation-op": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Rejects use error_code conversation_rejected with the reason as the error text. See spec/commands.md."
+    ]
+  },
+  "conversation-snapshot": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. tail is 1-500. See spec/commands.md for the result object."
+    ]
+  },
+  "conversation-typing": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Ephemeral: never stored. See spec/commands.md."
     ]
   },
   "copy": {
@@ -2494,6 +2574,22 @@ export const EVENT_METADATA = {
   "config-reload-requested": {
     "since": 6,
     "capability": null,
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "conversation-changed": {
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "conversation-typing": {
+    "since": 12,
+    "capability": "local-conversations-v1",
     "streams": [
       "subscribe"
     ],
@@ -10248,6 +10344,262 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "WorkspaceMutationResult"
+    }
+  },
+  "conversation-agent-token": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "participant": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "conversation-bind": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "participant": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "conversation-create": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "actor": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "participants": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "title": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "conversation-history": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "before_seq": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "limit": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "conversation-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "conversation-op": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "actor": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "op": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "conversation-snapshot": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "tail": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "conversation-typing": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "actor": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "on": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "copy": {
@@ -18106,6 +18458,90 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": "config-reload-requested"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "conversation-changed": {
+    "additional_properties": false,
+    "fields": {
+      "change": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "conversation-changed"
+        }
+      },
+      "rev": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "transaction": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "conversation-typing": {
+    "additional_properties": false,
+    "fields": {
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "conversation-typing"
+        }
+      },
+      "on": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "participant": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

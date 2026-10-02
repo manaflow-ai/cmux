@@ -1,6 +1,6 @@
-// Snapshot performance and output size on large pages, per tool.
+// Snapshot performance and output size on large pages, per backend.
 //
-//   node tests/browser-parity/perf/bench.mjs [--backend cmux-dev|cmux|aside|chrome]
+//   node tests/browser-parity/perf/bench.mjs [--backend cmux-dev|cmux]
 //        [--pages stress|corpus|live|all|name,name] [--runs 5] [--label before]
 //
 // Backends:
@@ -8,10 +8,6 @@
 //             WebKit (lib/dev-driver.mjs).
 //   cmux      a tagged app through its CLI: PARITY_CMUX_CLI and
 //             CMUX_SOCKET_PATH, as run.mjs --backend cmux.
-//   aside     `aside repl`, one one-shot call per page (never `aside exec`).
-//   chrome    headless Google Chrome with a throwaway profile: Playwright's
-//             `_snapshotForAI()` (Playwright MCP's snapshot) and the ChatGPT
-//             for Chrome AX renderer from git history (compare/adapters.mjs).
 //
 // Every page gets one program: navigate, take `runs` full snapshots, change
 // one element and take one more (the diff), resolve a ref, and for cmux read
@@ -24,7 +20,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
 import { createDevBrowser, createNodeHost, createHostedRepl, loadRuntime } from "../lib/dev-driver.mjs";
-import { tokens } from "../compare/metrics.mjs";
+import { tokens } from "./tokens.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MARK = "@@PERF@@";
@@ -285,61 +281,6 @@ function cmuxAppBackend() {
   };
 }
 
-// Aside: one one-shot `aside repl` call per page, in its own tab.
-function asideBackend() {
-  const program = (p) => `
-const __out = { name: ${JSON.stringify(p.name)}, runs: [] };
-const __tab = await openTab(${JSON.stringify(p.url)});
-try {
-  await sleep(${p.settle});
-  for (let i = 0; i < ${runs}; i++) {
-    const t = Date.now();
-    const s = await snapshot(page);
-    __out.runs.push({ snapMs: Date.now() - t, treeChars: s.tree.length });
-    if (i === 0) __out.tree = s.tree;
-  }
-  await page.evaluate(${JSON.stringify(MUTATE)});
-  {
-    const t = Date.now();
-    const s = await snapshot(page);
-    __out.diff = { snapMs: Date.now() - t, diffChars: (s.diff || "").length, printed: String(s.diff || "").slice(0, 4000) };
-  }
-  const refs = [...__out.tree.matchAll(/\\[ref=(\\w+)\\]/g)].map((m) => m[1]).filter((r) => !r.startsWith("f"));
-  __out.refCount = refs.length;
-  const last = refs.pop();
-  if (last) {
-    const t = Date.now();
-    await page.locator(last).textContent({ timeout: 10000 }).catch(() => null);
-    __out.locatorMs = Date.now() - t;
-  }
-} catch (e) { __out.error = String(e && (e.message + " | " + e.stack) || e); }
-finally { await closeTab(__tab).catch(() => {}); }
-console.log(${JSON.stringify(MARK)} + JSON.stringify(__out));`;
-  return {
-    async page(p) {
-      const r = await runProcess("aside", ["repl", program(p)], { timeoutMs: 900_000 });
-      if (!r.out.includes(MARK)) throw new Error(`aside exit ${r.code} after ${r.ms}ms: ${(r.err || r.out).slice(-400)}`);
-      return parseMarked(r.out);
-    },
-    async overhead() {
-      const times = [];
-      for (let i = 0; i < 10; i++) times.push((await runProcess("aside", ["repl", "1"])).ms);
-      return times;
-    },
-    async leak() {
-      return null;
-    },
-    close: async () => {},
-  };
-}
-
-// Headless Chrome: Playwright's AI snapshot (Playwright MCP) and the ChatGPT
-// for Chrome AX renderer, each timed in this process.
-async function chromeBackend() {
-  const { createChromeReferences } = await import("./chrome-refs.mjs");
-  return createChromeReferences({ runs, mutate: MUTATE });
-}
-
 // ---------------------------------------------------------------------------
 
 function summarize(result) {
@@ -365,7 +306,7 @@ function summarize(result) {
 
 async function main() {
   const servers = await startFixtureServers();
-  const make = { "cmux-dev": cmuxDevBackend, cmux: cmuxAppBackend, aside: asideBackend, chrome: chromeBackend }[backend];
+  const make = { "cmux-dev": cmuxDevBackend, cmux: cmuxAppBackend }[backend];
   if (!make) throw new Error(`unknown backend ${backend}`);
   const b = await make();
   const pages = selectPages(servers.origins);

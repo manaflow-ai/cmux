@@ -1,7 +1,7 @@
 public import Foundation
 
-/// Writes a profile's tree in the Netscape bookmark format the way Chrome
-/// exports it: the Bookmarks Bar as a folder marked
+/// Writes a profile's tree in the Netscape bookmark format other browsers
+/// import: the Bookmarks Bar as a folder marked
 /// `PERSONAL_TOOLBAR_FOLDER="true"`, then Other Bookmarks' children at the
 /// top level. `NetscapeBookmarkReader.read` returns the same tree.
 public nonisolated enum NetscapeBookmarkWriter {

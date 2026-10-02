@@ -23,7 +23,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 id: "agentPane.searchChats",
                 title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
                 keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],
-                // Cmd-K as in Codex and Claude; only while an agent chat has the keyboard,
+                // Cmd-K searches chats only while an agent chat has the keyboard,
                 // so the simulator's Cmd-K keeps its meaning.
                 defaultShortcut: Shortcut("k", modifiers: [.command]),
                 category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard],

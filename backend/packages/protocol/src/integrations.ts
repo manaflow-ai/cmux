@@ -320,5 +320,7 @@ export const connectionInternalOps: ReadonlyArray<CloudOpDef> = [
     "Internal: a pending connection outlived PENDING_CONNECTION_TTL_MS."
   ),
   internal("connection.forget", Schema.Struct({ connection: ConnectionId, at: Schema.Int }), "Internal: drop an expired connection from owner state after EXPIRED_CONNECTION_RETENTION_MS."),
-  internal("integration.policy.apply_managed", PolicyApplyManagedParams, "Internal: an SSO-provisioned or MDM-managed policy replaces and locks the team policy.")
+  internal("integration.policy.apply_managed", PolicyApplyManagedParams, "Internal: an SSO-provisioned or MDM-managed policy replaces and locks the team policy."),
+  internal("integration.policy.release_managed", Schema.Struct({ requested_by: Schema.String.check(Schema.isMaxLength(200)) }), "Internal: a team admin released the SSO or MDM lock (TeamDO team.integration.release_lock); the values stay, unlocked."),
+  internal("integration.policy.lock_acked", Schema.Struct({ version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)) }), "Internal: TeamDO recorded this lock change.")
 ]

@@ -23,7 +23,7 @@ nonisolated extension OmnibarStep {
     }
 
     /// Up/Down clamp at both ends. Tab/Shift-Tab past either end are not
-    /// handled, so focus leaves the field (Chrome).
+    /// handled, so focus leaves the field.
     private mutating func move(_ delta: Int, clamp: Bool) {
         guard state.isPopupOpen, !state.isComposing else {
             handled = false
@@ -68,7 +68,7 @@ nonisolated extension OmnibarStep {
         commit(destination, disposition)
     }
 
-    /// Chrome `OmniboxEditModel::OnEscapeKeyPressed`, one step per press:
+    /// Chromium `OmniboxEditModel::OnEscapeKeyPressed`, one step per press:
     /// an arrowed row reverts to the typed text; else an open card closes;
     /// else the text reverts to the page URL (display text, all selected;
     /// Cmd-Z brings typed text back), and when the user had not typed,
@@ -90,7 +90,7 @@ nonisolated extension OmnibarStep {
             effects.append(.cancelQuery)
             return
         }
-        // Escape ends a keyword session and reverts, like Chrome.
+        // Escape ends a keyword session and reverts.
         leaveKeyword(restoreText: false)
         let wasEditing = state.phase == .editing
         if wasEditing { pushUndo() }
@@ -178,7 +178,7 @@ nonisolated extension OmnibarStep {
 
     /// Hover highlights a row only after the pointer actually moved, so a
     /// card opening under a resting pointer never steals the keyboard
-    /// highlight (Chrome).
+    /// highlight.
     mutating func rowHover(_ row: Int?, pointer: CGPoint) {
         guard state.isPopupOpen, state.popup.pointer != pointer else { return }
         let first = state.popup.pointer == nil

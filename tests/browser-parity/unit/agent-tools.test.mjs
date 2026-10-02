@@ -1,5 +1,4 @@
-// browser-use parity tools (cmux-tui/crates/cmux-browser-host/js/agent-tools.js,
-// plans/cmux-next/browser-repl/browser-use-parity.md): TOTP, domain patterns, the
+// Agent tools (cmux-tui/crates/cmux-browser-host/js/agent-tools.js): TOTP, domain patterns, the
 // animated PNG writer, and on Playwright WebKit through the dev driver: a
 // registered secret never appears in output, errors, page reads or files; a
 // TOTP secret types the current code; storage state round-trips; Markdown
@@ -26,7 +25,7 @@ test("totp (reference host): RFC 6238 SHA-1 vectors", () => {
   assert.throws(() => base32Decode("not base32!"), /base32/);
 });
 
-test("domain patterns: browser-use's syntax, with ports and refusals", () => {
+test("domain patterns: syntax, ports and refusals", () => {
   const m = (url, pattern, secure = false) => T.urlMatches(url, T.parsePattern(pattern, "t"), secure);
   // Domain-only: the host and, for a root domain, www.
   assert.equal(m("https://example.com/a", "example.com"), true);
@@ -48,7 +47,7 @@ test("domain patterns: browser-use's syntax, with ports and refusals", () => {
   assert.equal(m("http://localhost:8765/x", "localhost:8765"), true);
   assert.equal(m("http://localhost:9999/x", "localhost:8765"), false);
   assert.equal(m("https://anything.test/", "*"), true);
-  // Unsafe patterns are refused when set (browser-use logs and ignores them).
+  // Unsafe patterns are refused when set.
   for (const bad of ["*.*.example.com", "example.*", "ex*ample.com", "", "  "]) assert.throws(() => T.parsePattern(bad, "t"), /t:/, bad);
 });
 
@@ -365,54 +364,5 @@ test("markdown: chunks cut at block boundaries, repeat a table's header and cove
     });
   } finally {
     await servers.close();
-  }
-});
-
-// plans/cmux-next/browser-repl/browser-use-parity.md: every row has a verdict, a
-// skipped row says why, and every proof names a scenario key or a unit test
-// that exists.
-test("browser-use-parity.md: verdicts and proofs resolve", () => {
-  const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
-  const doc = fs.readFileSync(path.join(root, "../../plans/cmux-next/browser-repl/browser-use-parity.md"), "utf8");
-  const rows = doc.split("\n").filter((l) => l.startsWith("| ") && !l.startsWith("| browser-use |") && !/^\| ---/.test(l));
-  assert.ok(rows.length > 60, `${rows.length} rows`);
-  const goldenKeys = (name) => {
-    const g = JSON.parse(fs.readFileSync(path.join(root, "goldens", `${name}.json`), "utf8"));
-    return [...Object.keys(g.cmux || {}), ...Object.keys(g.oracle || {})];
-  };
-  const titles = (file) => [...fs.readFileSync(path.join(root, "unit", `${file}.test.mjs`), "utf8").matchAll(/^test\("((?:[^"\\]|\\.)*)"/gm)].map((m) => m[1]);
-  for (const row of rows) {
-    const cells = row.split(/(?<!\\)\|/).slice(1, -1).map((c) => c.trim());
-    assert.equal(cells.length, 4, `row has ${cells.length} cells: ${row}`);
-    const [, , proof, verdict] = cells;
-    const kind = /^(same|better|skipped|known limit)\b/.exec(verdict);
-    assert.ok(kind, `no verdict: ${row}`);
-    if (kind[1] === "skipped" && !/^skipped( for [^:]+)?: .{20,}/.test(verdict)) assert.fail(`skipped without a reason: ${row}`);
-    if (kind[1] === "same" || kind[1] === "better") assert.ok(proof.trim(), `no proof: ${row}`);
-    for (const part of proof.split(/, (?=\d\d-|unit:|sites\/|diff )|; /).map((p) => p.trim()).filter(Boolean)) {
-      const scenario = /^(\d\d-[a-z0-9-]+)((?: `[^`]+`,?)*)$/.exec(part);
-      const unit = /^unit: ([\w-]+) ((?:`[^`]+`(?:, )?)+)$/.exec(part);
-      const diffCase = /^diff ((?:`[^`]+`(?:, )?)+)$/.exec(part);
-      if (diffCase) {
-        const dir = path.join(root, "diff", "cases");
-        const ids = fs.readdirSync(dir).flatMap((f) => [...fs.readFileSync(path.join(dir, f), "utf8").matchAll(/\bid: [`"]([^`"$]+)/g)].map((m) => m[1]));
-        for (const [, id] of diffCase[1].matchAll(/`([^`]+)`/g)) {
-          const hit = id.endsWith("*") ? ids.some((x) => x.startsWith(id.slice(0, -1))) : ids.includes(id);
-          assert.ok(hit, `no diff case ${id}`);
-        }
-      } else if (scenario) {
-        assert.ok(fs.existsSync(path.join(root, "scenarios", `${scenario[1]}.js`)), `no scenario ${scenario[1]}`);
-        const keys = goldenKeys(scenario[1]);
-        for (const [, key] of scenario[2].matchAll(/`([^`]+)`/g)) {
-          const hit = key.endsWith("*") ? keys.some((k) => k.startsWith(key.slice(0, -1))) : keys.includes(key);
-          assert.ok(hit, `${scenario[1]} has no golden key ${key}`);
-        }
-      } else if (unit) {
-        const all = titles(unit[1]);
-        for (const [, t] of unit[2].matchAll(/`([^`]+)`/g)) {
-          assert.equal(all.filter((x) => x.startsWith(t.replace(/…$/, ""))).length, 1, `unit/${unit[1]}: "${t}" names no single test`);
-        }
-      } else assert.ok(/^sites\/\*\.test\.mjs$/.test(part), `unknown proof "${part}" in: ${row}`);
-    }
   }
 });

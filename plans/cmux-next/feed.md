@@ -2,6 +2,19 @@
 
 Status: proposal 1, feed lead (lane 9), 2026-10-02. This file is the "spec proposal: feed"; only the coordinator writes the spec. Binding inputs: cmux-next-spec decisions N10 to N13, SV1 to SV3, B10, D20, D48, U4, U5; spec/passkeys.md, app-platform.md, identity-and-permissions.md, sync-and-transport.md, operation-catalog.md, acp-ui.md, tasks-design.md, backend.md; OWNERSHIP-PRINCIPLES.md, architecture.md, notifications.md, status-indicators.md, app-platform.md, browser-host.md, browser-isolation.md, skills/cmux-next-feature.
 
+## 0. Decided (Lawrence, 2026-10-02, through the coordinator)
+
+| # | Decision |
+| --- | --- |
+| FD1 | Email items are id-only: connection, account, thread, message and history ids and labels; headers and snippets are fetched live and cached only in client memory (S2 holds). |
+| FD2 | Plain `codex` in a terminal gets no feed answers; Codex answers flow only through an app-server cmux owns (acpmux through codex-acp, or a launch wrapper). Its hooks stay telemetry. |
+| FD3 | HttpOnly cookies set during a user sign-in (the duplicate tab D, section 10) are hidden from agent cookie reads (`browser.cookies.get`, `Storage.getCookies`). |
+| FD4 | N12 duplication replaces passkeys.md 3.5 rules 1 and 2 (hand over, reload, seal) for feed-driven sign-in and passkey requests. |
+| FD5 | sessionStorage copy-back covers the top origin only; no swap fallback. |
+| FD6 | App manifest `server.scope: team \| device` and catalog `fallback_owner` (app platform lead). The per-user feed stays on `cloud:FeedDO`. |
+| FD7 | No `cmux feed answer` CLI verb until the actor stamp lands. |
+| FD8 | Default views: list on Cmd-I, inbox as the wide mode, menu bar opt-in. |
+
 ## 1. Summary for agents
 
 - The feed is one per-user list of **items**. An item is a **notice** (no answer) or a **request** (it needs an answer). Agents, harnesses, apps, servers, VMs, automations, integrations and cmux itself post items through one op family, `feed.*`.
@@ -331,9 +344,9 @@ What the agent can read after: the page in A as the signed-in site shows it, and
 
 ### 10.3 Open points
 
-- DECISION (in the report): hide HttpOnly cookies set during a user sign-in from agent cookie reads.
-- passkeys.md 3.5 rules 1 and 2 describe option (b) (hand the tab over, reload, seal). This section replaces them for feed-driven sign-in; the passkeys lead must agree.
-- Sites that keep tokens in sessionStorage of other-origin iframes need a fallback (the agent continues in D after a prune and reload). DECISION in the report.
+- Decided (FD3): HttpOnly cookies set during a user sign-in are hidden from agent cookie reads.
+- Decided (FD4): this section replaces passkeys.md 3.5 rules 1 and 2 for feed-driven sign-in.
+- Decided (FD5): copy-back covers the top origin only; sites that keep tokens in other-origin iframes are not covered.
 - UNVERIFIED (live prototype, step F7): history restore into a new BrowsingInstance with sessionStorage at creation on CEF 154; `setBypassServiceWorker` covering D's navigations; `DOMStorage.setDOMStorageItem` into an origin A has not loaded; WebKit document-start ordering; a POST entry restored in D; the passkey sheet over D on a signed build; automatic "done" detection.
 
 ## 11. Boundaries with the inbox app, email and Tasks
