@@ -25,6 +25,7 @@ final class HomePresenter {
         root.show(view)
         root.titlebar.title = HomeStrings.title
         isShown = true
+        services.home.homeDidOpen()
         if let window = view.window, window.isKeyWindow { view.focusComposer() }
     }
 

@@ -17,6 +17,8 @@ final class HomeService {
     @ObservationIgnored unowned let services: AppServices
     @ObservationIgnored private var availability: Task<Void, Never>?
     @ObservationIgnored private var listing: Task<Void, Never>?
+    /// The brain host was started on this app launch (it outlives the app).
+    @ObservationIgnored private var startedBrainHost = false
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
     /// The local user's participant id in local conversations.
     let actor = ConversationParticipant.localUserID
@@ -47,6 +49,19 @@ final class HomeService {
     }
 
     var connection: DaemonConnection? { isAvailable ? services.machines.local.connection : nil }
+
+    /// Home opened in a window: start the local mux's brain host once per launch.
+    func homeDidOpen() {
+        guard !startedBrainHost, let connection else { return }
+        // task-owner: reads the endpoint, then spawns the detached host once
+        Task { [weak self] in
+            guard let self, let socket = await connection.endpoint?.socketPath,
+                  let host = HomeBrainHost.resolve(daemonSocket: socket, tag: services.environment.tag) else { return }
+            guard !startedBrainHost else { return }
+            startedBrainHost = true
+            await host.launch()
+        }
+    }
 
     /// The open session for `conversation`, loaded on first use.
     func session(_ conversation: String) -> HomeConversationSession {
