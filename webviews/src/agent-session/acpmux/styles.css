@@ -84,6 +84,9 @@
 .acpmux-empty-project{text-decoration:underline;text-decoration-color:var(--acpmux-composer-placeholder);text-underline-offset:4px;text-decoration-thickness:1px}
 /* Context (ComposerContext.tsx): Codex's tray behind the composer, the project and machine at the left and the branch at the right, tucked under the field. */
 .acpmux-composer-context{display:flex;align-items:center;gap:6px;min-width:0;height:42px;margin:0 14px -12px;padding:0 10px 12px;box-sizing:content-box;border-radius:18px 18px 0 0;background:linear-gradient(var(--acpmux-composer-tray) calc(100% - 12px),transparent 0);box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge);color:var(--agent-text);font-size:13px}
+/* Under queued prompts the tray continues the queue's tab: one stack, rounded only at its top. */
+.acpmux-composer-queue:has(+.acpmux-composer-context){margin-bottom:0;padding-bottom:4px}
+.acpmux-composer-queue+.acpmux-composer-context{border-radius:0}
 .acpmux-context-chip{display:flex;align-items:center;gap:6px;min-width:0;height:26px;padding:0 10px 0 8px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);white-space:nowrap}
 .acpmux-context-chip>span{overflow:hidden;text-overflow:ellipsis}
 .acpmux-context-chip .acpmux-icon{color:var(--agent-muted)}

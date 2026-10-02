@@ -437,4 +437,29 @@ describe("acpmux composer queue", () => {
       await act(async () => root.unmount());
     }
   });
+
+  test("with a session's place shown, the queue sits on the context tray and the tray on the box", async () => {
+    const root = createRoot(doc.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: {
+              ...snapshot({ cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local", branch: "main" }, true),
+              queue: [{ id: "p1", prompt: "next" }],
+            },
+            chips: () => null,
+            onSend: () => {},
+            onStop: () => {},
+          }),
+        ),
+      );
+      const queue = doc.querySelector("ol.acpmux-composer-queue")!;
+      const tray = queue.nextElementSibling!;
+      expect(tray.classList.contains("acpmux-composer-context")).toBe(true);
+      expect(tray.nextElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
 });
