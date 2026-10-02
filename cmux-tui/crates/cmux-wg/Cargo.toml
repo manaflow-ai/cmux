@@ -25,5 +25,9 @@ tokio-util.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+# ENOBUFS, which UDP sends answer on macOS when the interface queue is full.
+libc.workspace = true
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

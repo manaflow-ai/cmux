@@ -1003,6 +1003,7 @@ dependencies = [
  "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",
+ "libc",
  "smoltcp",
  "tokio",
  "tokio-util",

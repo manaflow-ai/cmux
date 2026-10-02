@@ -280,3 +280,78 @@ pub(crate) fn is_transient(error: &io::Error) -> bool {
             | io::ErrorKind::WouldBlock
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use std::time::Duration;
+
+    use super::*;
+
+    /// A socket that refuses the first sends with a chosen error.
+    struct Refusing {
+        refusals: VecDeque<io::Error>,
+        sent: Arc<Mutex<Vec<Vec<u8>>>>,
+    }
+
+    impl DatagramSocket for Refusing {
+        fn poll_recv_from(
+            &mut self,
+            _cx: &mut Context<'_>,
+            _buffer: &mut [u8],
+        ) -> Poll<io::Result<(usize, SocketAddr)>> {
+            Poll::Pending
+        }
+
+        /// Like a real socket after ENOBUFS: its own buffer has room.
+        fn poll_send_ready(&mut self, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn try_send_to(&mut self, datagram: &[u8], _target: SocketAddr) -> io::Result<usize> {
+            if let Some(error) = self.refusals.pop_front() {
+                return Err(error);
+            }
+            self.sent.lock().unwrap().push(datagram.to_vec());
+            Ok(datagram.len())
+        }
+
+        fn local_addr(&self) -> io::Result<SocketAddr> {
+            Ok("127.0.0.1:1".parse().unwrap())
+        }
+    }
+
+    #[cfg(unix)]
+    fn enobufs() -> io::Error {
+        io::Error::from_raw_os_error(libc::ENOBUFS)
+    }
+
+    async fn refused_sends_are_kept_and_retried(refusals: Vec<io::Error>) {
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let socket = Refusing { refusals: refusals.into(), sent: Arc::clone(&sent) };
+        let mut path = SocketPath::new(socket, Some("127.0.0.1:2".parse().unwrap()));
+        path.send(b"one");
+        path.send(b"two");
+        assert!(path.backlogged(), "a refused datagram is queued, not dropped");
+        std::future::poll_fn(|cx| path.poll_flush(cx)).await;
+        assert!(!path.backlogged());
+        assert_eq!(*sent.lock().unwrap(), vec![b"one".to_vec(), b"two".to_vec()]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(start_paused = true)]
+    async fn enobufs_is_backpressure_not_a_drop() {
+        let started = Instant::now();
+        refused_sends_are_kept_and_retried((0..5).map(|_| enobufs()).collect()).await;
+        // The two sends meet two refusals; the flush meets three more and
+        // retries after 1, 2 and 4 ms.
+        assert_eq!(started.elapsed(), Duration::from_millis(7));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn would_block_is_backpressure_not_a_drop() {
+        let refusals = (0..3).map(|_| io::Error::from(io::ErrorKind::WouldBlock)).collect();
+        refused_sends_are_kept_and_retried(refusals).await;
+    }
+}
