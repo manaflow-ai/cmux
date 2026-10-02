@@ -673,6 +673,8 @@ extension TerminalController {
         // socket worker like every other vm verb and await the main-actor catalog.
         case "vm.tree":
             return socketWorkerVMTreeResponse(id: id, params: params)
+        case "vm.agent_fan_out", "vm.agent_fan_out_status", "vm.agent_fan_out_wait":
+            return socketWorkerSurfaceResponse(method: method, id: id, params: params)
         case "vm.terminal_open":
             return socketWorkerVMTerminalOpenResponse(id: id, params: params)
         case "vm.terminal_new":

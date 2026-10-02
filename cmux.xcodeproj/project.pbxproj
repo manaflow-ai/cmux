@@ -57,6 +57,10 @@
 		A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000001 /* AgentExecutableResolver.swift */; };
 		A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000002 /* AgentExecutableResolverError.swift */; };
 		A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000005 /* AgentExecutableResolverTests.swift */; };
+		FANOUTTEST000000000001 /* AgentFanOutOperation.swift in cmuxTests */ = {isa = PBXBuildFile; fileRef = FANOUTREF00000000000001 /* AgentFanOutOperation.swift */; };
+		FANOUTSRC000000000000001 /* AgentFanOutOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FANOUTREF00000000000001 /* AgentFanOutOperation.swift */; };
+		9209713CE86CA29E979B579E /* AgentFanOutOperationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEC49836A7D6BBF5B6B5DA43 /* AgentFanOutOperationTests.swift */; };
+		FANOUTSRC000000000000002 /* AgentFanOutSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = FANOUTREF00000000000002 /* AgentFanOutSocketCommands.swift */; };
 		95E8A230263D43FC4643B904 /* AgentFeedSemanticInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B17F904F7764F1CA16D27F3 /* AgentFeedSemanticInput.swift */; };
 		C0DEF0C30000000000000001 /* AgentForkCapabilityProbeCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C30000000000000002 /* AgentForkCapabilityProbeCache.swift */; };
 		C0DEF0D20000000000000001 /* AgentForkCommandOutputDrain.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0D20000000000000002 /* AgentForkCommandOutputDrain.swift */; };
@@ -4533,6 +4537,9 @@
 		A9F100000000000000000001 /* AgentExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolver.swift; sourceTree = "<group>"; };
 		A9F100000000000000000002 /* AgentExecutableResolverError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverError.swift; sourceTree = "<group>"; };
 		A9E010000000000000000005 /* AgentExecutableResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverTests.swift; sourceTree = "<group>"; };
+		FANOUTREF00000000000001 /* AgentFanOutOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFanOutOperation.swift; sourceTree = "<group>"; };
+		FEC49836A7D6BBF5B6B5DA43 /* AgentFanOutOperationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentFanOutOperationTests.swift"; sourceTree = "<group>"; };
+		FANOUTREF00000000000002 /* AgentFanOutSocketCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFanOutSocketCommands.swift; sourceTree = "<group>"; };
 		2B17F904F7764F1CA16D27F3 /* AgentFeedSemanticInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedSemanticInput.swift; sourceTree = "<group>"; };
 		C0DEF0C30000000000000002 /* AgentForkCapabilityProbeCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkCapabilityProbeCache.swift; sourceTree = "<group>"; };
 		C0DEF0D20000000000000002 /* AgentForkCommandOutputDrain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkCommandOutputDrain.swift; sourceTree = "<group>"; };
@@ -9222,6 +9229,8 @@
 				C860B4F547303C9178D9AE11 /* CurrentWorkReducer.swift */,
 				D01324400000000000000005 /* SurfaceProjectionIdentity+Workspace.swift */,
 				278BEFB3583AED9627966DFF /* SurfaceSocketCommands.swift */,
+				FANOUTREF00000000000001 /* AgentFanOutOperation.swift */,
+				FANOUTREF00000000000002 /* AgentFanOutSocketCommands.swift */,
 				47BBA1A8703756FDDFD53CF3 /* Workspace+SurfaceCatalog.swift */,
 				F3C1A7B40000000000000006 /* CloudWorkspaceRenameService+Directory.swift */,
 				7B2248ED1422420F90E0D71D /* SurfaceCatalog+CloudDirectoryMetadata.swift */,
@@ -13131,6 +13140,7 @@
 				34A1987FFA112D2457B20A9C /* LocalTerminalSizingHostLifecycleTests.swift */,
 				78F253D557E6B9613AC4DB5C /* CloudLinkFailureMessageTests.swift */,
 				C7A99CD111C8F6166A22186B /* SidebarBoundedDisplayStringTests.swift */,
+				FEC49836A7D6BBF5B6B5DA43 /* AgentFanOutOperationTests.swift */,
 				1BB6ECEBC1833C9D1E53FCF5 /* AgentAutoResumeScreenTests.swift */,
 				433D21021D6AFA724DAC5574 /* KernelPortProcessTableTests.swift */,
 				FDBA44492C11EA6B5FBBB74F /* MachinesPanelZeroCapPlanTests.swift */,
@@ -13971,6 +13981,8 @@
 				79390005AA11BB22CC33DD05 /* AgentDeliveryTargetResolution.swift in Sources */,
 				A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */,
 				A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */,
+				FANOUTSRC000000000000001 /* AgentFanOutOperation.swift in Sources */,
+				FANOUTSRC000000000000002 /* AgentFanOutSocketCommands.swift in Sources */,
 				95E8A230263D43FC4643B904 /* AgentFeedSemanticInput.swift in Sources */,
 				C0DEF0C30000000000000001 /* AgentForkCapabilityProbeCache.swift in Sources */,
 				C0DEF0D20000000000000001 /* AgentForkCommandOutputDrain.swift in Sources */,
@@ -16885,6 +16897,8 @@
 				88A8F9C77DFA3ECF80805D22 /* AgentChatTranscriptServiceLifetimeTests.swift in Sources */,
 				93800001AA11BB22CC33EE01 /* AgentDeliveryTTYBindingTests.swift in Sources */,
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
+				FANOUTTEST000000000001 /* AgentFanOutOperation.swift in cmuxTests */,
+				9209713CE86CA29E979B579E /* AgentFanOutOperationTests.swift in Sources */,
 				D686A8C1DBD4EABD91766211 /* AgentHibernationBackgroundWorkTests.swift in Sources */,
 				8740E0018740E0018740E001 /* AgentHibernationEvaluationSchedulingTests.swift in Sources */,
 				FFBC336B2DCB6EB7AAAE0212 /* AgentHibernationLaunchFidelityTests.swift in Sources */,

@@ -36,6 +36,41 @@ struct CloudTerminalCreationRequestTests {
         #expect(await runner.commands == [CloudTuiRequest("session.creation.resolve", ["correlation_key": request.correlationKey])])
     }
 
+    @Test("A restarted fan-out child resolves its persisted key in the shared workspace")
+    func fanOutCorrelationRecoversWithoutAnotherMutation() async throws {
+        let correlationKey = "cmux-agent-fan-out-fixture-child-0"
+        let request = CloudTerminalCreationRequest(
+            correlationKey: correlationKey, remoteWorkspaceID: "ws_shared", restoring: true
+        )
+        let receipt = try resolution(request, state: "created", recovery: "none", extra: [
+            "idempotency_key": "attempt-before-restart",
+            "generation": "fixture", "revision": "42",
+            "created_path": [
+                "kind": "terminal", "terminal_id": "term_existing", "workspace_id": "ws_shared",
+                "screen_id": "screen_shared", "pane_id": "pane_shared", "tab_id": "tab_existing"
+            ]
+        ])
+        let runner = CreationReceiptRunner(responses: [.success(receipt)])
+        let created = try #require(try await request.prepare(using: runner, socketPath: socketPath))
+        #expect(created.terminalID == "term_existing")
+        #expect(created.workspaceID == "ws_shared")
+        #expect(request.attemptKey == "attempt-before-restart")
+        #expect(await runner.commands == [CloudTuiRequest("session.creation.resolve", ["correlation_key": correlationKey])])
+    }
+
+    @Test(arguments: [("pending", "wait"), ("indeterminate", "do_not_retry")])
+    func restoredFanOutCannotRecreateAnUncertainChild(state: String, recovery: String) async throws {
+        let request = CloudTerminalCreationRequest(
+            correlationKey: "cmux-agent-fan-out-uncertain-child", remoteWorkspaceID: "ws_shared", restoring: true
+        )
+        let runner = CreationReceiptRunner(responses: [.success(try resolution(request, state: state, recovery: recovery))])
+        await #expect(throws: CloudDiagnosticFailure.self) {
+            try await request.prepare(using: runner, socketPath: socketPath)
+        }
+        #expect(request.attemptKey == request.correlationKey)
+        #expect(await runner.commands.count == 1)
+    }
+
     @Test
     func lostCreateReplyResolvesToTheExistingTerminal() async throws {
         let request = CloudTerminalCreationRequest()

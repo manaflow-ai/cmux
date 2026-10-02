@@ -29,6 +29,18 @@ public final class CloudTerminalCreationRequest {
         adoptsDurableAttempt = restoring
     }
 
+    /// Creates a request whose correlation identity is supplied by a durable
+    /// operation rather than generated for one UI intent.
+    public init(correlationKey: String, remoteWorkspaceID: String? = nil, commandOverride: [String]? = nil, restoring: Bool = false) {
+        self.id = UUID()
+        self.commandOverride = commandOverride
+        self.remoteWorkspaceID = remoteWorkspaceID
+        self.correlationKey = correlationKey
+        self.attemptKey = correlationKey
+        self.submitted = restoring
+        self.adoptsDurableAttempt = restoring
+    }
+
     /// Binds the immutable Cloud workspace before the first daemon mutation.
     public func bind(remoteWorkspaceID: String) {
         guard !submitted else { return }

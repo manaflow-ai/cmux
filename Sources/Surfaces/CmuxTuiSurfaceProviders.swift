@@ -1099,6 +1099,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         try await createRemoteWorkspaceReceipt(name: name, expectedRevision: nil)
     }
 
+    /// Agent fan-out supplies the only terminal command itself. Request an
+    /// empty workspace so there is no transient starter shell or extra pane.
+    func createEmptyRemoteWorkspaceReceipt(name: String?) async throws -> SurfaceWorkspaceCreationReceipt {
+        try await createRemoteWorkspaceReceipt(name: name, expectedRevision: nil, empty: true)
+    }
+
     /// Uses the daemon's revision fence for the name lookup/create, including
     /// races with another Mac or a guest CLI, without serializing unrelated I/O.
     func getOrCreateRemoteWorkspace(name: String) async throws -> (workspace: SurfaceRemoteWorkspace, existing: Bool) {
@@ -1126,13 +1132,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         throw ProviderError.invalidSnapshot(machineID)
     }
 
-    private func createRemoteWorkspaceReceipt(name: String?, expectedRevision: UInt64?) async throws -> SurfaceWorkspaceCreationReceipt {
+    private func createRemoteWorkspaceReceipt(name: String?, expectedRevision: UInt64?, empty: Bool = false) async throws -> SurfaceWorkspaceCreationReceipt {
         let generation = lifecycleGeneration
         try Task.checkCancellation()
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let workspaceName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        var arguments = CloudTuiRequests.createWorkspaceArguments(socketPath: connected.socketPath, name: workspaceName)
+        var arguments = CloudTuiRequests.createWorkspaceArguments(socketPath: connected.socketPath, name: workspaceName, empty: empty)
         if let expectedRevision { arguments = arguments.adding(["expected_revision": String(expectedRevision)]) }
         try Task.checkCancellation()
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { throw CancellationError() }

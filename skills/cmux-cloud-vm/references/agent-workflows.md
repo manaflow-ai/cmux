@@ -86,7 +86,9 @@ When you need the result, not the terminal, block until the agent is done and ta
 
 ```bash
 cmux vm agent --agent claude --machine <id> --sync --wait --output --timeout 1800 -- "run the suite, fix failures, commit on a branch" > agent.log; echo "exit=$?"
-# fan-out: start each without --wait, then wait on the terminals
+# fan-out starts independent child workspaces by default, so each child remains
+# visible and independently actionable in the cmux sidebar. Use
+# --remote-workspace only when intentionally sharing one remote workspace.
 for t in $t1 $t2 $t3; do cmux vm terminal wait-exit <id> "$t" --timeout 1800; cmux vm terminal output <id> "$t" > "$t.log"; done
 ```
 
