@@ -96,7 +96,7 @@ final class ImportStepView: NSView {
             box.state = model.kinds.contains(kind) ? .on : .off
             box.isEnabled = editable
         }
-        access.isHidden = !model.needsFullDiskAccess
+        access.isHidden = !model.needsFullDiskAccess || model.isImporting
         status.stringValue = statusText(profiles)
     }
 
