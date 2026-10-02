@@ -132,9 +132,12 @@ public struct DaemonCapabilities: Sendable {
     /// `screen.move`, `screen_group.*`, ...) with idempotency keys, one commit
     /// path shared with the raw commands (PR #16174, cmux-tui 52103e740).
     public let stateResources = "state-resources-v1"
+    /// `sidebar_layout.get|update` (plans/cmux-next/sidebar-sections.md 5;
+    /// cmux-tui PR #16842).
+    public let sidebarLayout = "sidebar-layout-v1"
     public var awaitingPin: [String] {
         [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns,
-         endTerminalsKeepLayout, stateResources, localConversations]
+         endTerminalsKeepLayout, stateResources, localConversations, sidebarLayout]
     }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.

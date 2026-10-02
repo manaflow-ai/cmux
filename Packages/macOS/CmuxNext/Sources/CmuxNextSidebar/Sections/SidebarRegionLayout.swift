@@ -155,3 +155,16 @@ extension SidebarLayoutDocument {
         return (Array(ordered[..<split]), Array(ordered[(split + 1)...]))
     }
 }
+
+extension Array where Element == LayoutSection {
+    /// These sections without the items in `hidden` (items that draw
+    /// nothing, such as a hidden app's); the layout keeps them.
+    public func hidingItems(_ hidden: Set<LayoutItemID>) -> [LayoutSection] {
+        guard !hidden.isEmpty else { return self }
+        return map { section in
+            var section = section
+            section.items.removeAll { hidden.contains($0.id) }
+            return section
+        }
+    }
+}
