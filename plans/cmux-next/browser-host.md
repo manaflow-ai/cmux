@@ -10,7 +10,8 @@ Design note, 2026-10-01. Owner: the cmux-next browser-use lead. Binding inputs: 
 4. See 2.
 5. **No host|inapp switch (decided).** cmux-next uses only the Rust host for Chromium and WebKit.
 
-Open for Lawrence: the WebKit driver language (section 2a). Recommended: Swift now, behind the driver protocol, so a Rust replacement later does not change the host or the bridge.
+6. **WebKit driver in Swift (decided, no Rust spike).** `CmuxNextBrowserAutomation` behind `DriverCallHandler`, built by the mover agent.
+7. **Engines (decided).** Chrome and WebKit are both first class in the host, CLI, MCP and code mode: same API, same conformance goldens. Chrome is the default engine: `browser.repl.open {engine: "auto"}` resolves to in-app Chromium (CEF) on the Mac and headless Chromium on Linux. WebKit is reachable only through the CLI (`--engine webkit`), MCP (`engine: "webkit"`) and the Cmd-Shift-P palette; no menu, right-click or new-tab-page entry.
 
 ## 1. Process model
 
