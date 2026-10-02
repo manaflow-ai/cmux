@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43.
+// cmux-tui mux protocol 12, IR 813ecf93e56fd007de1dc8654da3403126c62fd638d3ab1937e9d421200d92d1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2062,6 +2062,15 @@ pub struct SetTabPinnedRequest {
 pub type SetTabPinnedResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetTerminalCommandHistoryRequest {
+    pub enabled: bool,
+}
+
+#[rustfmt::skip]
+pub type SetTerminalCommandHistoryResult = T::TerminalCommandHistoryResult;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SetTerminalIdlePolicyRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3344,6 +3353,10 @@ impl CmuxClient {
 
     pub fn set_tab_pinned(&mut self, request: SetTabPinnedRequest) -> Result<SetTabPinnedResult> {
         self.execute(&SET_TAB_PINNED_METADATA, &request)
+    }
+
+    pub fn set_terminal_command_history(&mut self, request: SetTerminalCommandHistoryRequest) -> Result<SetTerminalCommandHistoryResult> {
+        self.execute(&SET_TERMINAL_COMMAND_HISTORY_METADATA, &request)
     }
 
     pub fn set_terminal_idle_policy(&mut self, request: SetTerminalIdlePolicyRequest) -> Result<T::SetTerminalIdlePolicyResult> {

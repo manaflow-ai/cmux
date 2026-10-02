@@ -776,10 +776,10 @@ impl ClientConnection {
                             biased;
                             _ = close_state.changed() => return Err(ConnectionError::Closed),
                             next = async {
-                                if let Some(deadline) = recovery_deadline {
-                                    if tokio::time::Instant::now() >= deadline {
-                                        return None;
-                                    }
+                                if let Some(deadline) = recovery_deadline
+                                    && tokio::time::Instant::now() >= deadline
+                                {
+                                    return None;
                                 }
                                 let timeout = recovery_deadline
                                     .map(|deadline| self.config.reconnect.attempt_timeout.min(deadline.saturating_duration_since(tokio::time::Instant::now())))
@@ -1985,6 +1985,7 @@ mod tests {
                     initial_delay: Duration::from_millis(1),
                     maximum_delay: Duration::from_millis(10),
                     maximum_attempts: Some(3),
+                    maximum_duration: None,
                     ..ReconnectPolicy::default()
                 },
             },
@@ -2062,6 +2063,7 @@ mod tests {
                     heartbeat_interval: Some(Duration::from_millis(20)),
                     heartbeat_timeout: Duration::from_millis(40),
                     maximum_attempts: Some(2),
+                    maximum_duration: None,
                 },
             },
         )
@@ -2121,6 +2123,7 @@ mod tests {
                     heartbeat_interval: Some(Duration::from_millis(10)),
                     heartbeat_timeout: Duration::from_millis(30),
                     maximum_attempts: Some(2),
+                    maximum_duration: None,
                 },
             },
         )
@@ -2179,6 +2182,7 @@ mod tests {
                     heartbeat_interval: None,
                     heartbeat_timeout: Duration::from_secs(1),
                     maximum_attempts: None,
+                    maximum_duration: None,
                 },
             },
         )
@@ -2511,6 +2515,7 @@ mod tests {
                     initial_delay: Duration::from_millis(1),
                     maximum_delay: Duration::from_millis(1),
                     maximum_attempts: Some(1),
+                    maximum_duration: None,
                     heartbeat_interval: None,
                     ..ReconnectPolicy::default()
                 },
@@ -2687,6 +2692,7 @@ mod tests {
                     initial_delay: Duration::from_millis(1),
                     maximum_delay: Duration::from_millis(10),
                     maximum_attempts: Some(3),
+                    maximum_duration: None,
                     ..ReconnectPolicy::default()
                 },
             },

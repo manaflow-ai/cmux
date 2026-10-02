@@ -2673,6 +2673,11 @@ pub struct Mux {
     /// one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     terminal_notifications: Mutex<HashMap<TerminalPublicId, SurfaceNotification>>,
+    /// Records finished shell commands in the journal
+    /// (`terminal-command-journal-v1`). Off until a trusted client turns it
+    /// on (`set-terminal-command-history`); never persisted, so a restarted
+    /// daemon records nothing until asked again.
+    terminal_command_history: AtomicBool,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does
     /// this terminal need attention on the shared console"; this map answers
@@ -3120,6 +3125,7 @@ impl Mux {
             agent_roster_fold: Mutex::new(()),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
+            terminal_command_history: AtomicBool::new(false),
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
@@ -10978,6 +10984,46 @@ impl Mux {
     /// Post what a program in `surface`'s terminal asked for with OSC 9,
     /// OSC 777 or OSC 99. Called by the terminal's output reader after it
     /// released the terminal lock; the reader already applied the rate limit.
+    pub(crate) fn terminal_command_history_enabled(&self) -> bool {
+        self.terminal_command_history.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn set_terminal_command_history(&self, enabled: bool) {
+        self.terminal_command_history.store(enabled, Ordering::Release);
+    }
+
+    /// Journals finished shell commands of `terminal` as
+    /// `shell.command.finished`. Runs on its own short thread: the caller is
+    /// a PTY reader, which never waits for the journal writer (commands
+    /// finish at human pace, so these threads are rare and brief).
+    pub(crate) fn append_shell_commands(
+        self: &Arc<Self>,
+        terminal: TerminalPublicId,
+        commands: Vec<crate::shell_history::FinishedCommand>,
+    ) {
+        if !self.terminal_command_history_enabled() {
+            return;
+        }
+        let mux = Arc::clone(self);
+        let spawned =
+            std::thread::Builder::new().name("shell-command-journal".into()).spawn(move || {
+                for command in commands {
+                    let ingress =
+                        crate::shell_history::command_journal_ingress(&terminal, &command);
+                    let key = format!("shell-command-{}", crate::workspace_registry::new_uuid_v4());
+                    if let Err(error) = mux.append_journal_ingress(&ingress, "shell-command", &key)
+                    {
+                        eprintln!(
+                            "cmux-tui: journaling a shell command for {terminal} failed: {error}"
+                        );
+                    }
+                }
+            });
+        if spawned.is_err() {
+            self.report_internal_diagnostic("shell command journal thread not started");
+        }
+    }
+
     pub(crate) fn post_terminal_notifications(
         &self,
         surface: SurfaceId,

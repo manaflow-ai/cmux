@@ -96,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = SettingsController(registry: registry)
         self.settings = settings
         services.settings = settings
+        services.history.commands.start(settings: settings)
         let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
         services.paletteShortcutEditor = shortcutEditor
         services.palette.shortcutRecorder.editor = shortcutEditor

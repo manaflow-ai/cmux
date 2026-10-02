@@ -75,7 +75,10 @@ struct HistoryPageMenu: View {
             Button(HistoryStrings.resume) { model.open(entry) }
             Button(HistoryStrings.copySessionID) { model.copy(session.sessionID) }
         case .command(let command):
-            if let text = command.command { Button(HistoryStrings.copyCommand) { model.copy(text) } }
+            if let text = command.command {
+                Button(HistoryStrings.runAgain) { model.open(entry) }
+                Button(HistoryStrings.copyCommand) { model.copy(text) }
+            }
         }
         Button(HistoryStrings.remove, role: .destructive) { model.remove(entry) }
     }

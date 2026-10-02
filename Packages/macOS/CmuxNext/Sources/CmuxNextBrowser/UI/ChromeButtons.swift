@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import CmuxNextDesign
 
 /// Borderless icon button with gray hover and press fills (no accent color).
@@ -12,6 +13,10 @@ final class ChromeIconButton: NSButton {
     /// Toolbar buttons use Helium's geometry (`OmnibarStyle`); others the
     /// compact overlay size.
     private let isToolbar: Bool
+    /// A menu for right-click and long-press (Back / Forward entries).
+    var menuProvider: (() -> NSMenu?)?
+    private let holdTimer = DemandTimer(owner: "ChromeIconButton.hold")
+    private var showedHoldMenu = false
 
     init(symbol: String, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false) {
         isToolbar = toolbar
@@ -77,6 +82,32 @@ final class ChromeIconButton: NSButton {
 
     override func mouseEntered(with event: NSEvent) { isHovering = true }
     override func mouseExited(with event: NSEvent) { isHovering = false }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        menuProvider?() ?? super.menu(for: event)
+    }
+
+    /// A press held for 0.4 s shows the menu under the button instead of
+    /// clicking (Chrome's long-press Back and Forward).
+    override func mouseDown(with event: NSEvent) {
+        showedHoldMenu = false
+        if menuProvider != nil, isEnabled {
+            holdTimer.schedule(after: .milliseconds(400)) { @MainActor [weak self] in self?.showHoldMenu() }
+        }
+        super.mouseDown(with: event)
+        holdTimer.cancel()
+    }
+
+    override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
+        guard !showedHoldMenu else { return false }
+        return super.sendAction(action, to: target)
+    }
+
+    private func showHoldMenu() {
+        guard let menu = menuProvider?() else { return }
+        showedHoldMenu = true
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self)
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
