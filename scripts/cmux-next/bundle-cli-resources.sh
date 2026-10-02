@@ -83,4 +83,14 @@ sync_dir "$src/Resources/markdown-viewer" "$dest/markdown-viewer"
 "$src/scripts/compress-markdown-viewer-assets.sh" "$dest/markdown-viewer"
 rsync -a "$src/Resources/opencode-plugin.js" "$dest/opencode-plugin.js"
 
+# 4. Bun code-mode prototype resources. Keep these beside the CLI so
+# `cmux run` can locate the runner from current_exe without relying on PATH.
+code_mode="$dest/code-mode"
+mkdir -p "$code_mode/sdk"
+rsync -a --delete "$src/cmux-tui/bindings/typescript/src/" "$code_mode/sdk/src/"
+rsync -a "$src/cmux-tui/bindings/typescript/code-mode/" "$code_mode/sdk/code-mode/"
+cp "$src/cmux-tui/bindings/typescript/code-mode/mcp.mjs" "$code_mode/mcp.mjs"
+cp "$src/cmux-tui/spec/resource-operations-v2.json" "$code_mode/resource-operations-v2.json"
+install -m 755 "$src/scripts/cmux-next/cmux-code-mode-runner" "$bin/cmux-code-mode-runner"
+
 echo "bundled CLI resources into $dest (resource bundles: ${bundles[*]:-none})"

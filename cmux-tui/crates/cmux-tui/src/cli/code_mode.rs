@@ -1,6 +1,7 @@
 //! Runs a catalog-gated TypeScript code-mode script through the bundled runner.
 
 use std::env;
+use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
 
 use super::{GlobalArgs, UsageError};
@@ -16,7 +17,13 @@ pub(super) fn parse(args: &[String], global: GlobalArgs) -> Result<Plan, UsageEr
     let Some(script) = args.first() else {
         return Err(UsageError::new("cmux run needs a TypeScript script path"));
     };
-    Ok(Plan { script: script.clone(), args: args[1..].to_vec(), global })
+    if global.machine.is_some() {
+        return Err(UsageError::new(
+            "cmux run does not support --machine; use a machine-scoped socket",
+        ));
+    }
+    let args = args[1..].strip_prefix(&["--".to_owned()]).unwrap_or(&args[1..]).to_vec();
+    Ok(Plan { script: script.clone(), args, global })
 }
 
 pub(super) fn help() -> &'static str {
@@ -24,7 +31,11 @@ pub(super) fn help() -> &'static str {
 }
 
 pub(super) fn run(plan: Plan) -> i32 {
-    let runner = env::var("CMUX_CODE_MODE_RUNNER").unwrap_or_else(|_| "cmux-code-mode-run".into());
+    let runner = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|dir| dir.join("cmux-code-mode-run")))
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from("cmux-code-mode-run"));
     let mut command = Command::new(runner);
     command.arg(&plan.script).args(&plan.args);
     command.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());

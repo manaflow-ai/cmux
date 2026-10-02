@@ -1,9 +1,13 @@
 #!/bin/sh
 set -eu
-root=${CMUX_CODE_MODE_ROOT:-}
-if [ -z "$root" ]; then
-  root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-fi
-bun=${BUN_BIN:-$(command -v bun || true)}
+bun=$(command -v bun || true)
 [ -n "$bun" ] || { echo 'cmux code mode MCP: bun is required' >&2; exit 2; }
-exec "$bun" "$root/cmux-tui/bindings/typescript/code-mode/mcp.mjs"
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+if [ -f "$root/cmux-tui/bindings/typescript/code-mode/mcp.mjs" ]; then
+  script="$root/cmux-tui/bindings/typescript/code-mode/mcp.mjs"
+elif [ -f "$root/Resources/code-mode/mcp.mjs" ]; then
+  script="$root/Resources/code-mode/mcp.mjs"
+else
+  script="$root/code-mode/mcp.mjs"
+fi
+exec "$bun" "$script"

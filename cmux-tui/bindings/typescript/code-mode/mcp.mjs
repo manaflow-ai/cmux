@@ -2,11 +2,20 @@ import { randomUUID } from "node:crypto";
 import { unlink } from "node:fs/promises";
 import { join } from "node:path";
 
-const root = join(import.meta.dir, "../../../..");
-const catalogPath = join(root, "cmux-tui/spec/resource-operations-v2.json");
+const sourceRoot = join(import.meta.dir, "../../../..");
+const bundledRoot = join(import.meta.dir, "..");
+const sourceCatalog = join(sourceRoot, "cmux-tui/spec/resource-operations-v2.json");
+const bundledCatalog = join(bundledRoot, "code-mode/resource-operations-v2.json");
+const root = await Bun.file(sourceCatalog).exists() ? sourceRoot : bundledRoot;
+const catalogPath = root === sourceRoot ? sourceCatalog : bundledCatalog;
 const catalog = await Bun.file(catalogPath).json();
-const runner = process.env.CMUX_CODE_MODE_RUNNER
-  || join(root, "scripts/cmux-next/cmux-code-mode-runner");
+const runner = root === sourceRoot
+  ? join(root, "scripts/cmux-next/cmux-code-mode-runner")
+  : join(root, "bin/cmux-code-mode-runner");
+const MAX_FRAME_BYTES = 1024 * 1024;
+const MAX_OUTPUT_BYTES = 1024 * 1024;
+const EXEC_TIMEOUT_MS = 30_000;
+const encoder = new TextEncoder();
 
 const tools = [
   {
@@ -61,12 +70,33 @@ async function execute(script) {
       stdout: "pipe",
       stderr: "pipe",
     });
-    const [stdout, stderr] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-    ]);
-    const exitCode = await child.exited;
-    return JSON.stringify({ exitCode, stdout, stderr });
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; child.kill(); }, EXEC_TIMEOUT_MS);
+    const read = async (stream) => {
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let text = "";
+      let bytes = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        text += decoder.decode(value, { stream: true });
+        if (bytes >= MAX_OUTPUT_BYTES) {
+          child.kill();
+          text += "\n[output truncated]";
+          break;
+        }
+      }
+      return text;
+    };
+    try {
+      const [stdout, stderr] = await Promise.all([read(child.stdout), read(child.stderr)]);
+      const exitCode = await child.exited;
+      return { exitCode, stdout, stderr, timedOut };
+    } finally {
+      clearTimeout(timer);
+    }
   } finally {
     await unlink(path).catch(() => {});
   }
@@ -86,28 +116,37 @@ async function handle(message) {
       serverInfo: { name: "cmux-code-mode", version: "0.1.0" },
     } });
   }
-  if (message.method === "notifications/initialized") return;
+  if (message.method?.startsWith("notifications/")) return;
   if (message.method === "tools/list") return send({ jsonrpc: "2.0", id, result: { tools } });
   if (message.method !== "tools/call") {
     return send({ jsonrpc: "2.0", id, error: { code: -32601, message: "method not found" } });
   }
   const name = message.params?.name;
   const args = message.params?.arguments ?? {};
+  if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("arguments must be an object");
   let text;
   if (name === "cmux_docs") {
-    if (typeof args.query !== "string" || !args.query.trim() || args.query.length > 256) {
-      throw new Error("query must be a non-empty string of at most 256 characters");
+    if (Object.keys(args).some((key) => key !== "query")
+      || typeof args.query !== "string" || !args.query.trim()
+      || encoder.encode(args.query).byteLength > 256) {
+      throw new Error("query must be a non-empty UTF-8 string of at most 256 bytes");
     }
     text = docs(args.query);
   } else if (name === "cmux_exec") {
-    if (typeof args.script !== "string" || !args.script || args.script.length > 262144) {
-      throw new Error("script must be a non-empty string of at most 262144 characters");
+    if (Object.keys(args).some((key) => key !== "script")
+      || typeof args.script !== "string" || !args.script
+      || encoder.encode(args.script).byteLength > 262144) {
+      throw new Error("script must be a non-empty UTF-8 string of at most 262144 bytes");
     }
     text = await execute(args.script);
   } else {
     throw new Error(`unknown tool: ${name}`);
   }
-  send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } });
+  const result = typeof text === "string" ? JSON.parse(text) : text;
+  send({ jsonrpc: "2.0", id, result: {
+    content: [{ type: "text", text: JSON.stringify(result) }],
+    ...(name === "cmux_exec" && result.exitCode !== 0 ? { isError: true } : {}),
+  } });
 }
 
 let pending = Buffer.alloc(0);
@@ -118,6 +157,10 @@ for await (const chunk of process.stdin) {
     if (marker < 0) break;
     const headers = pending.subarray(0, marker).toString();
     const length = Number(headers.match(/content-length:\s*(\d+)/i)?.[1]);
+    if (!Number.isSafeInteger(length) || length < 0 || length > MAX_FRAME_BYTES) {
+      send({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid or oversized Content-Length" } });
+      process.exit(1);
+    }
     if (!Number.isSafeInteger(length) || pending.length < marker + 4 + length) break;
     const body = pending.subarray(marker + 4, marker + 4 + length).toString();
     pending = pending.subarray(marker + 4 + length);

@@ -3,11 +3,29 @@ set -eu
 
 script=${1:?cmux run needs a TypeScript script path}
 shift
-socket=${CMUX_TUI_SOCKET:?CMUX_TUI_SOCKET is required}
-root=${CMUX_CODE_MODE_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}
-bun=${BUN_BIN:-$(command -v bun || true)}
+if [ "${1:-}" = "--" ]; then shift; fi
+session=${CMUX_TUI_SESSION:-main}
+case "$session" in
+  ""|.|..|*/*|*\\*) echo 'cmux run: invalid session name' >&2; exit 2 ;;
+esac
+socket=${CMUX_TUI_SOCKET:-}
+if [ -z "$socket" ]; then
+  uid=$(id -u)
+  base=${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}
+  socket="$base/cmux-tui-$uid/$session.sock"
+fi
+[ -S "$socket" ] || { echo "cmux run: cmux socket not found: $socket" >&2; exit 2; }
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+bun=$(command -v bun || true)
 [ -n "$bun" ] || { echo 'cmux run: bun is required' >&2; exit 2; }
 [ -f "$script" ] || { echo "cmux run: script not found: $script" >&2; exit 2; }
+if [ -d "$root/cmux-tui/bindings/typescript" ]; then
+  sdk="$root/cmux-tui/bindings/typescript"
+elif [ -d "$root/Resources/code-mode/sdk" ]; then
+  sdk="$root/Resources/code-mode/sdk"
+else
+  sdk="$root/code-mode/sdk"
+fi
 
 script=$(CDPATH= cd -- "$(dirname -- "$script")" && pwd)/$(basename -- "$script")
 
@@ -18,14 +36,15 @@ if command -v bwrap >/dev/null 2>&1; then
   exec bwrap \
     --die-with-parent --new-session --unshare-all --clearenv \
     --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib \
-    --ro-bind /lib64 /lib64 --ro-bind /etc /etc \
+    --ro-bind /lib64 /lib64 \
     --ro-bind "$bun" /run/cmux-bun \
-    --ro-bind "$root" /run/cmux-source \
+    --ro-bind "$sdk" /run/cmux-sdk \
     --ro-bind "$script" /run/cmux-script.ts \
     --ro-bind "$socket" /run/cmux.sock \
     --proc /proc --dev /dev --tmpfs /tmp --chdir /run \
     --setenv HOME /tmp --setenv CMUX_TUI_SOCKET /run/cmux.sock \
-    /run/cmux-bun /run/cmux-source/cmux-tui/bindings/typescript/code-mode/run.ts \
+    --setenv CMUX_TUI_SESSION "$session" \
+    /run/cmux-bun /run/cmux-sdk/code-mode/run.ts \
     /run/cmux-script.ts "$@"
 fi
 

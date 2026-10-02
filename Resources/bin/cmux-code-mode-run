@@ -1,7 +1,9 @@
 #!/bin/sh
 set -eu
-root=${CMUX_CODE_MODE_ROOT:-}
-if [ -z "$root" ]; then
-  root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+if [ -x "$root/scripts/cmux-next/cmux-code-mode-runner" ]; then
+  runner="$root/scripts/cmux-next/cmux-code-mode-runner"
+else
+  runner="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/cmux-code-mode-runner"
 fi
-exec "$root/scripts/cmux-next/cmux-code-mode-runner" "$@"
+exec "$runner" "$@"

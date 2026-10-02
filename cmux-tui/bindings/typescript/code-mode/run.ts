@@ -5,9 +5,10 @@ const script = Bun.argv[2];
 if (!script) throw new Error("cmux run needs a script path");
 
 const socketPath = process.env.CMUX_TUI_SOCKET;
-if (!socketPath) throw new Error("CMUX_TUI_SOCKET is required");
+const session = process.env.CMUX_TUI_SESSION;
+if (!socketPath && !session) throw new Error("CMUX_TUI_SOCKET or CMUX_TUI_SESSION is required");
 
-const client = new NodeClient({ socketPath });
+const client = new NodeClient(socketPath ? { socketPath } : { session });
 Object.defineProperty(globalThis, "cmux", {
   configurable: false,
   enumerable: true,
