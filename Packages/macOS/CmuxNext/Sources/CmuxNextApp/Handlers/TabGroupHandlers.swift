@@ -66,7 +66,9 @@ enum TabGroupHandlers {
             guard !tab.pinned else { return ctx.refuse(RefusalStrings.pinnedCannotGroup) }
             let surface = tab.surface, handle = pane.handle
             let name = invocation["name"]?.stringValue
-            let color = invocation["color"]?.stringValue ?? GroupColor.grey.rawValue
+            // The same color rule as screen groups (`TabGroupOrdering.nextColor`).
+            let color = invocation["color"]?.stringValue
+                ?? TabGroupOrdering.nextColor(used: pane.tabGroups.compactMap { $0.color.flatMap(GroupColor.init(rawValue:)) }).rawValue
             run("create-tab-group", pane: pane, ctx) { c, t in
                 _ = try await c.createTabGroup(in: handle, tabs: [surface], name: name, color: color, transaction: t)
             }
@@ -141,10 +143,14 @@ enum TabGroupHandlers {
         let collapsed = value ?? !current
         guard collapsed != current else { return }
         if collapsed, let controller = ctx.services.paneController(for: pane) {
+            // Chrome's rule (`TabGroupOrdering`), shared with screen groups.
+            let strip = controller.stripModel
             let stripGroup = CmuxNextTabs.TabGroupID(group.rawValue)
-            if let selected = controller.stripModel.selectedID, controller.stripModel.tab(selected)?.groupID == stripGroup,
-               let outside = controller.stripModel.orderedTabs.first(where: { $0.groupID != stripGroup }) {
-                controller.select(outside.id)
+            let collapsedGroups = Set(strip.groups.filter(\.isCollapsed).map(\.id))
+            if let next = TabGroupOrdering.selectionAfterCollapsing(stripGroup, in: strip.orderedTabs, collapsed: collapsedGroups,
+                                                                   selected: strip.selectedID),
+               next != strip.selectedID {
+                controller.select(next)
             }
         }
         run("update-tab-group", pane: pane, patch: .setTabGroupCollapsed(group, collapsed: collapsed), ctx) { c, t in

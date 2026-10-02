@@ -1,7 +1,10 @@
+public import CmuxNextDesign
 public import CoreGraphics
 
-/// Pure ordering rules for groups: pinned tabs first and never grouped,
-/// group members contiguous, one chip before each group's members.
+/// Pure rules for groups, shared by every strip that groups items (pane
+/// tab strips and the screen bar): pinned items first and never grouped,
+/// group members contiguous, one chip before each group's members, the
+/// selection leaving a collapsing group, and the color a new group gets.
 public struct TabGroupOrdering {
     public init() {}
     /// Pinned tabs first (group cleared), then unpinned tabs in order with
@@ -58,6 +61,15 @@ public struct TabGroupOrdering {
             previousGroup = group?.id
         }
         return items
+    }
+
+    /// The color a new group gets: the first of the nine group colors no
+    /// group in the same strip uses yet (Chrome), skipping blue (no blue in
+    /// what cmux picks itself; a user may still choose it); grey when every
+    /// color is taken.
+    public static func nextColor(used: some Sequence<GroupColor>) -> GroupColor {
+        let taken = Set(used)
+        return GroupColor.allCases.first { $0 != .blue && !taken.contains($0) } ?? .grey
     }
 
     /// Chrome's rule when a group collapses over the selection: select the

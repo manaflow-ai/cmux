@@ -1,39 +1,60 @@
+import Foundation
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextTabs
 
 /// The one mutation path for screen groups (`screen-groups-v1`), shared by
 /// the screen bar's chips and editor bubble, the palette, context menus,
-/// shortcuts, and the CLI. Each change is one daemon command.
+/// shortcuts, and the CLI. Each change is one command to the daemon that
+/// owns the workspace (`ScreenGroupRef.daemon`, `GroupOwnership`): a
+/// protocol-v2 state operation with an idempotency key where the daemon
+/// serves `state-resources-v1` (workspace-store ops, OWNERSHIP-PRINCIPLES),
+/// else the raw command. Collapse state is shared store state (the daemon's
+/// group record), like tab groups and Chrome's synced groups.
 @MainActor
 enum ScreenGroupCommands {
     static func create(_ screens: [ScreenModel], in workspace: WorkspaceModel, name: String?, color: GroupColor?, daemon: DaemonService) {
         let handles = screens.map(\.handle), color = (color ?? nextColor(in: workspace)).rawValue
-        daemon.send("create-screen-group") { _ = try await $0.createScreenGroup(handles, name: name, color: color) }
+        change("create-screen-group", .create(screens: screens.map(\.id), name: name, color: color), daemon: daemon) {
+            _ = try await $0.createScreenGroup(handles, name: name, color: color)
+        }
     }
 
     static func add(_ screens: [ScreenModel], to group: ScreenGroupID, index: Int? = nil, daemon: DaemonService) {
         let handles = screens.map(\.handle)
-        daemon.send("add-screens-to-screen-group") { _ = try await $0.addScreens(handles, toGroup: group, index: index) }
+        // The v2 operation has no index: a placed add stays on the raw command.
+        let state: DaemonConnection.ScreenGroupOperation? = index == nil ? .addScreens(group: group.rawValue, screens: screens.map(\.id)) : nil
+        change("add-screens-to-screen-group", state, daemon: daemon) { _ = try await $0.addScreens(handles, toGroup: group, index: index) }
     }
 
     static func remove(_ screens: [ScreenModel], daemon: DaemonService) {
         let handles = screens.map(\.handle)
-        daemon.send("remove-screens-from-screen-group") { _ = try await $0.removeScreensFromGroup(handles) }
+        change("remove-screens-from-screen-group", .removeScreens(screens.map(\.id)), daemon: daemon) {
+            _ = try await $0.removeScreensFromGroup(handles)
+        }
     }
 
     static func update(_ group: ScreenGroupID, name: String? = nil, color: GroupColor? = nil, collapsed: Bool? = nil, daemon: DaemonService) {
         let color = color?.rawValue
-        daemon.send("update-screen-group") { _ = try await $0.updateScreenGroup(group, name: name, color: color, collapsed: collapsed) }
+        change("update-screen-group", .update(group: group.rawValue, name: name, color: color, collapsed: collapsed), daemon: daemon) {
+            _ = try await $0.updateScreenGroup(group, name: name, color: color, collapsed: collapsed)
+        }
     }
 
     /// Collapses or expands. Collapsing a group that holds the shown screen
-    /// first shows the nearest screen outside it (Chrome's rule).
+    /// first shows the nearest visible screen to its right, else its left
+    /// (Chrome's rule, `TabGroupOrdering`, the same one pane tab strips use).
     static func setCollapsed(_ ref: ScreenGroupRef, _ collapsed: Bool) {
         if collapsed, let content = ref.content, let active = content.layoutModel.activeScreenID?.rawValue,
-           ref.members.contains(where: { $0.id == active }),
-           let outside = ref.workspace.screens.first(where: { $0.group != ref.group.id }) {
-            ScreenCommands.select(LayoutScreenID(outside.id), in: content)
+           ref.members.contains(where: { $0.id == active }) {
+            let bar = content.screenBar.model
+            let collapsedGroups = Set(bar.groups.filter(\.isCollapsed).map(\.id))
+            if let next = TabGroupOrdering.selectionAfterCollapsing(CmuxNextTabs.TabGroupID(ref.group.id.rawValue), in: bar.orderedTabs,
+                                                                   collapsed: collapsedGroups, selected: StripTabID(active)),
+               next.rawValue != active {
+                ScreenCommands.select(LayoutScreenID(next.rawValue), in: content)
+            }
         }
         update(ref.group.id, collapsed: collapsed, daemon: ref.daemon)
     }
@@ -67,7 +88,22 @@ enum ScreenGroupCommands {
     }
 
     static func ungroup(_ group: ScreenGroupID, daemon: DaemonService) {
-        daemon.send("ungroup-screen-group") { _ = try await $0.ungroupScreenGroup(group) }
+        change("ungroup-screen-group", .ungroup(group: group.rawValue), daemon: daemon) { _ = try await $0.ungroupScreenGroup(group) }
+    }
+
+    /// Sends one screen group change: the v2 state operation `state` with a
+    /// fresh idempotency key when the daemon serves `state-resources-v1`,
+    /// else the raw command `raw`.
+    static func change(_ label: String, _ state: DaemonConnection.ScreenGroupOperation?, daemon: DaemonService,
+                       raw: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+        guard let state, daemon.supports(DaemonCapabilities.shared.stateResources) else { return daemon.send(label, raw) }
+        let key = idempotencyKey(label)
+        daemon.send(label) { _ = try await $0.screenGroupState(state, idempotencyKey: key) }
+    }
+
+    /// `cmux-next-<label>-<uuid>`: unique per user intent, under 128 bytes.
+    static func idempotencyKey(_ label: String) -> String {
+        "cmux-next-\(label)-\(UUID().uuidString.lowercased())"
     }
 
     static func close(_ ref: ScreenGroupRef, services: AppServices) {
@@ -91,9 +127,8 @@ enum ScreenGroupCommands {
                               spec: ScreenSpec(index: last.map { $0 + 1 }, group: ref.group.id))
     }
 
-    /// The first of Chrome's colors no group in `workspace` uses yet.
+    /// The color a new screen group gets (`TabGroupOrdering.nextColor`).
     static func nextColor(in workspace: WorkspaceModel?) -> GroupColor {
-        let used = Set(workspace?.screenGroups.compactMap(\.color) ?? [])
-        return GroupColor.allCases.first { !used.contains($0.rawValue) } ?? .grey
+        TabGroupOrdering.nextColor(used: workspace?.screenGroups.compactMap { $0.color.flatMap(GroupColor.init(rawValue:)) } ?? [])
     }
 }
