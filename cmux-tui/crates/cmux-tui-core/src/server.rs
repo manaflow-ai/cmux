@@ -424,6 +424,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         WINDOW_RECORDS_CAPABILITY,
         FRONTEND_BROWSER_OWNER_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
+        crate::git_ops::CHECKPOINTS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);

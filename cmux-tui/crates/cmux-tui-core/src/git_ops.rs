@@ -11,6 +11,7 @@ mod run;
 mod target;
 #[cfg(test)]
 mod tests;
+mod write_run;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -28,7 +29,6 @@ const MAX_STATUS_BYTES: usize = 256 * 1024;
 
 /// Advertised in identify: the session host owns `git.checkpoint.create`,
 /// `get`, `list`, `pin` and `unpin`.
-#[allow(dead_code)]
 pub(crate) const CHECKPOINTS_CAPABILITY: &str = "git-checkpoints-v1";
 
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
