@@ -20,6 +20,24 @@ import Testing
         #expect(value["newSession"] as? Bool == true)
     }
 
+    /// An agent chat started from the page runs in the page's folder, like a
+    /// terminal picked there, on the first handshake and after a reconnect.
+    @Test func aChatFromTheNewTabPageStartsInItsFolder() async throws {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
+        for request in [AgentPaneRequest.ready, .reconnect] {
+            let value = try #require(await model.respond(to: request)["value"] as? [String: Any])
+            #expect(value["cwd"] as? String == "~/code/cmux")
+        }
+    }
+
+    /// A seed's folder (the tab it was opened from) still wins over the page's.
+    @Test func aSeedsFolderWinsOverThePages() async throws {
+        let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: "/tmp/worktree"))
+        let model = AgentPaneModel(host: MockAgentPaneHost(), seed: seed, newTab: page)
+        let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(value["cwd"] as? String == "/tmp/worktree")
+    }
+
     @Test func aPlainChatHasNoNewTabPage() async throws {
         let reply = await AgentPaneModel(host: MockAgentPaneHost()).respond(to: .ready)
         let value = try #require(reply["value"] as? [String: Any])
