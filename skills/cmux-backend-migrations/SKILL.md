@@ -57,8 +57,10 @@ Also run `bun run test` in `backend/apps/api` when the drain or a read changes.
 
 1. Open the PR (same-repo branch; fork PRs cannot reach the databases). `backend.yml` runs
    the tests, every migration from zero on a scratch Postgres, applies to `development` and
-   deploys the preview Worker. `backend-migrations.yml` (`pull_request_target`, runs from the
-   base branch and reads only your SQL) runs the guard and the parsed-SQL lint.
+   deploys the preview Worker. `backend-migrations.yml` (`pull_request_target`; GitHub runs it
+   from `main`, uses the PR base branch's `migrate.ts`, and reads only your SQL as flat regular
+   files) runs the guard and the parsed-SQL lint. Edits to that workflow take effect only once
+   they reach `main`.
 2. Review the migration with a review subagent (correctness: expand rules, locks on large
    tables, idempotent backfill).
 3. Add the label `backend:apply-migrations` (no human step). It applies to `staging`, then to
@@ -83,6 +85,6 @@ bun migrate.ts --env production --confirm-production
 
 The runner refuses credentials for any other PlanetScale branch (it checks the branch id in
 the role name), so a `cmux-prod` URL cannot be used by mistake. Secrets: GitHub environments
-`cmux-next-staging` and `cmux-next-production` (deployment branches: `main`, `feat-cmux-next`
-and their merge-queue refs) hold `CMUX_NEXT_PG_MIGRATOR_URL` and `JWT_PRIVATE_JWK`;
+`cmux-next-staging` and `cmux-next-production` (deployment branches: `main` and
+`feat-cmux-next` only; merge-queue runs get no secrets) hold `CMUX_NEXT_PG_MIGRATOR_URL` and `JWT_PRIVATE_JWK`;
 `cmux-next-production` also holds `CMUX_NEXT_STAGING_MIGRATOR_URL` for the gate.

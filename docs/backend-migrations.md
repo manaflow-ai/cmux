@@ -29,5 +29,6 @@ How to write one: [skills/cmux-backend-migrations/SKILL.md](../skills/cmux-backe
 Runner: `backend/db/migrate.ts` (`--lint`, `--env <env> [--verify]`).
 Credentials: GitHub environments `cmux-next-development`, `cmux-next-staging`,
 `cmux-next-production` (`CMUX_NEXT_PG_MIGRATOR_URL`; production also `CMUX_NEXT_STAGING_MIGRATOR_URL`).
-Staging and production only release secrets to `main`, `feat-cmux-next` and their merge-queue
-refs, so a PR's own workflow cannot read them. Locally `~/.secrets/cmux-next-planetscale-<env>.env`.
+Staging and production only release secrets to `main` and `feat-cmux-next`, so neither a PR's
+own workflow nor a merge-queue run can read them. GitHub runs `backend-migrations.yml` from
+`main`; changes to it take effect when they reach `main`. Locally `~/.secrets/cmux-next-planetscale-<env>.env`.
