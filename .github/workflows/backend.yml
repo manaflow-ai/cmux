@@ -20,11 +20,12 @@
 name: backend
 
 on:
+  # No path filter on pull_request: `backend migrations applied` is a required check on
+  # protected branches, so it must report on every PR. The `changes` job skips the heavy
+  # jobs for PRs that do not touch the backend.
   pull_request:
     types: [opened, synchronize, reopened, labeled, closed]
-    paths:
-      - backend/**
-      - .github/workflows/backend.yml
+  merge_group:
   push:
     branches: [feat-cmux-next, main]
     paths:
@@ -51,8 +52,45 @@ env:
   DASHBOARD_PROJECT_PRODUCTION: prj_O6kHxZ4Etl6QWUVEoiJyGCPoS2Fh
 
 jobs:
-  test:
+  changes:
     if: github.event.action != 'closed'
+    runs-on: ubuntu-24.04
+    outputs:
+      backend: ${{ steps.diff.outputs.backend }}
+      migrations: ${{ steps.diff.outputs.migrations }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MQ_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in
+            pull_request) base="$PR_BASE"; range="$base...HEAD" ;;
+            merge_group) base="$MQ_BASE"; range="$base..HEAD" ;;
+            push) base="$PUSH_BEFORE"; range="$base..HEAD" ;;
+            *) base=""; range="" ;;
+          esac
+          if [ -z "$range" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            backend=true; migrations=true
+          else
+            files=$(git diff --name-only "$range")
+            backend=false; migrations=false
+            echo "$files" | grep -qE '^(backend/|\.github/workflows/backend\.yml$)' && backend=true
+            echo "$files" | grep -qE '^backend/db/migrations/' && migrations=true
+          fi
+          echo "backend=$backend" >> "$GITHUB_OUTPUT"
+          echo "migrations=$migrations" >> "$GITHUB_OUTPUT"
+          echo "backend=$backend migrations=$migrations"
+
+  test:
+    needs: changes
+    if: github.event.action != 'closed' && github.event_name != 'merge_group' && needs.changes.outputs.backend == 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     services:
       postgres:
@@ -102,7 +140,8 @@ jobs:
         run: ./node_modules/.bin/wrangler deploy --env production --dry-run --outdir dist
 
   migrations-guard:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    needs: changes
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -132,7 +171,7 @@ jobs:
 
   migrations-development:
     needs: [test, migrations-guard]
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && needs.test.result == 'success'
     runs-on: ubuntu-24.04
     environment: cmux-next-development
     defaults:
@@ -186,7 +225,7 @@ jobs:
   # Pre-merge: apply the reviewed migrations. Staging first; production only if staging succeeded.
   migrations-apply-staging:
     needs: [test, migrations-guard]
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'backend:apply-migrations')
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'backend:apply-migrations') && needs.test.result == 'success' && needs.migrations-guard.result == 'success'
     runs-on: ubuntu-24.04
     environment: cmux-next-staging
     concurrency:
@@ -231,28 +270,41 @@ jobs:
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
         run: bun migrate.ts --env production --confirm-production && bun migrate.ts --env production --verify
 
-  # The merge gate. Name is stable so it can be a required check.
+  # The merge gate: required on feat-cmux-next and main. Passes at once when the PR or
+  # merge group adds no migration; otherwise every migration in the tree must already be
+  # on staging and production (the label backend:apply-migrations applies them).
   migrations-applied:
     name: backend migrations applied
-    needs: [migrations-apply-production]
-    if: always() && github.event_name == 'pull_request' && github.event.action != 'closed'
+    needs: [changes, migrations-apply-production]
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && github.event.action != 'closed'
     runs-on: ubuntu-24.04
-    environment: cmux-next-production
+    environment: ${{ needs.changes.outputs.migrations == 'true' && 'cmux-next-production' || '' }}
     steps:
+      - name: Change detection succeeded
+        env:
+          RESULT: ${{ needs.changes.result }}
+        run: '[ "$RESULT" = success ] || { echo "::error::change detection $RESULT"; exit 1; }'
+      - name: No migrations in this change
+        if: needs.changes.outputs.migrations != 'true'
+        run: echo "no backend migrations added; nothing to verify"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: needs.changes.outputs.migrations == 'true'
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: needs.changes.outputs.migrations == 'true'
         with:
           bun-version: "1.4.2"
-      - run: bun install --frozen-lockfile
+      - if: needs.changes.outputs.migrations == 'true'
+        run: bun install --frozen-lockfile
         working-directory: backend
-      - name: Every migration in this PR is on staging and production
+      - name: Every migration is on staging and production
+        if: needs.changes.outputs.migrations == 'true'
         working-directory: backend/db
         env:
           PROD_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
           STAGING_URL: ${{ secrets.CMUX_NEXT_STAGING_MIGRATOR_URL }}
         run: |
           if [ -z "$PROD_URL" ] || [ -z "$STAGING_URL" ]; then
-            echo "::error::fork PRs cannot reach the databases; a maintainer must re-run this from a same-repo branch"; exit 1
+            echo "::error::fork PRs cannot reach the databases; a maintainer must carry the migration on a same-repo branch"; exit 1
           fi
           ok=1
           bun migrate.ts --url-env STAGING_URL --verify || ok=0
