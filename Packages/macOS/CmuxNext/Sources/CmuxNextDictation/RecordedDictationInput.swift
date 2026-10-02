@@ -74,7 +74,11 @@ private final class RecordedFileReader: @unchecked Sendable {
 extension DictationSession {
     /// A session that hears the clip `CMUX_NEXT_DICTATION_AUDIO_FILE` names
     /// through the on-device engine, or nil when it names none.
-    public static func recorded(in environment: [String: String] = ProcessInfo.processInfo.environment) -> DictationSession? {
+    public static func recorded() -> DictationSession? {
+        recorded(in: ProcessInfo.processInfo.environment)
+    }
+
+    static func recorded(in environment: [String: String]) -> DictationSession? {
         guard let clip = RecordedDictationInput.url(in: environment) else { return nil }
         return DictationSession(authorizer: RecordedInputAuthorizer(), makeTranscriber: { meter in
             OnDeviceDictationTranscriber(levelMeter: meter, recordedInput: clip)

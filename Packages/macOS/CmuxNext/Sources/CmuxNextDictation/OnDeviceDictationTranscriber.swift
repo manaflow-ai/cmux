@@ -37,12 +37,12 @@ public actor OnDeviceDictationTranscriber: SpeechTranscribing {
         do {
             return try await analyzer.transcribe(locale: locale)
         } catch DictationFailure.onDeviceRecognitionUnavailable {
+            guard !isFinishing else { throw CancellationError() }
             #if DEBUG
             // The fallback engine listens to the live microphone: a recorded
             // clip fails here instead of quietly dictating from the mic.
             if recordedInput != nil { throw DictationFailure.onDeviceRecognitionUnavailable(localeIdentifier: locale.identifier) }
             #endif
-            guard !isFinishing else { throw CancellationError() }
             try await authorizeSpeechRecognition()
             guard !isFinishing else { throw CancellationError() }
             let fallback = SFSpeechDictationTranscriber(levelMeter: levelMeter)
