@@ -13,7 +13,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "newSurface",
                 title: String(localized: "action.newSurface", defaultValue: "New Terminal Tab", bundle: .module),
-                keywords: ["tab", "terminal", "create"],
+                keywords: ["tab", "terminal", "create"], defaultShortcut: Shortcut("t", modifiers: [.control, .shift, .command]),
                 category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.tab], cliName: "tab new-terminal", startsTerminal: true
             ),
