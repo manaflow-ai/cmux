@@ -106,10 +106,8 @@ the same budget.
 Dispatches of iroh-release-gate.yml are watched the same way. Its `runner`
 job runs e2e_runner_pool.py for the Tailscale version-skew job alone, and
 only takes an owned pool with a machine free now (no queue rounds), so that
-job rarely waits. Its simulator-e2e jobs stay on Blacksmith, but they run in
-the same run: a stuck owned job's rescue cancels them with it, and a refused
-one's waits for them until the watch ends. The re-run of failed and
-cancelled jobs keeps the modes that passed and puts everything on Blacksmith.
+job rarely waits. The re-run of failed and cancelled jobs puts everything on
+Blacksmith.
 
 Side-lane workflows (SIDE_WORKFLOW_PATHS) have no picker. On attempt 1 of a
 trusted run (a same-repository pull request, or a push, schedule or

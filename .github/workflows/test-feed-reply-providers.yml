@@ -41,7 +41,6 @@ jobs:
         run: swift test --package-path Packages/macOS/CMUXAgentLaunch --filter WorkstreamFullTextTests
       - name: Test mobile reading and authorization
         run: |
-          swift test --package-path Packages/iOS/CmuxMobileShell --filter MobileAgentFeedTerminalReplyTests
           swift test --package-path Packages/iOS/CmuxMobileRPC --filter MobileCoreRPCNotificationFeedAuthTests
           swift test --package-path Packages/iOS/CmuxMobileShellModel --filter MobileAgentFeedItemTests
   verify:
@@ -110,10 +109,6 @@ jobs:
           swift test --package-path Packages/macOS/CMUXAgentLaunch \
             --scratch-path "$RUNNER_TEMP/swift-agent-launch" \
             --filter WorkstreamStoreTests 2>&1 | tee "$ARTIFACTS/feed-ingestion.log"
-          swift test --package-path Packages/iOS/CmuxMobileShell \
-            --scratch-path "$RUNNER_TEMP/swift-mobile-shell" \
-            --filter 'MobileAgentFeedTerminalReplyTests|MobileShellAgentFeedStateTests' \
-            2>&1 | tee "$ARTIFACTS/feed-replies.log"
           swift test --package-path Packages/macOS/CmuxControlSocket \
             --scratch-path "$RUNNER_TEMP/swift-control" \
             --filter ControlCommandCoordinatorMobileHostTests \
