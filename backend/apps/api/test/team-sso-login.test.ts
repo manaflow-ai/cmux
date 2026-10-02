@@ -38,7 +38,7 @@ const setup = async () => {
   const team = claim.stream.replace("team:", "") as string
   const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)) as unknown as DurableObjectStub
   const idp = { nextIdToken: async (_code: string): Promise<string> => "", tokenRequests: [] as Array<URLSearchParams> }
-  const stack = { users: new Map<string, string>(), unverified: new Set<string>(), sessions: [] as Array<{ user: string; ttl?: number }> }
+  const stack = { users: new Map<string, string>(), unverified: new Set<string>(), created: 0, sessions: [] as Array<{ user: string; ttl?: number }> }
   await inDO(stub, async (instance) => {
     instance.http = async (req: Request) => {
       const url = new URL(req.url)
@@ -56,6 +56,9 @@ const setup = async () => {
     instance.stack = {
       findUserByEmail: async (email: string) => (stack.users.has(email) ? { id: stack.users.get(email)!, email_verified: !stack.unverified.has(email) } : undefined),
       createUser: async (email: string) => {
+        // Slow, so two concurrent first sign-ins interleave here.
+        await new Promise((r) => setTimeout(r, 30))
+        stack.created += 1
         const id = `stack_${stack.users.size + 1}`
         stack.users.set(email, id)
         return { id }
@@ -191,5 +194,17 @@ describe("OIDC sign-in (workerd)", () => {
     const auth2 = authFrom(await start(`dave@${DOMAIN}`))
     const p = pathByState.get(auth2.searchParams.get("state")!)!
     expect((await worker.fetch(`https://api.test${p}?state=${encodeURIComponent(auth2.searchParams.get("state")!)}&code=c&iss=${encodeURIComponent("https://evil.example")}`, { redirect: "manual" })).status).toBe(400)
+  })
+
+  it("two concurrent first sign-ins of one person create one Stack user (idempotent link by issuer and subject)", async () => {
+    const s = await setup()
+    const a1 = authFrom(await start(`erin@${DOMAIN}`))
+    const a2 = authFrom(await start(`erin@${DOMAIN}`))
+    const nonces = new Map([["c1", a1.searchParams.get("nonce")!], ["c2", a2.searchParams.get("nonce")!]])
+    s.idp.nextIdToken = async (code) => s.signIdToken({ sub: "idp-erin", email: `erin@${DOMAIN}`, nonce: nonces.get(code)! })
+    const [r1, r2] = await Promise.all([callback(a1.searchParams.get("state")!, "c1"), callback(a2.searchParams.get("state")!, "c2")])
+    expect([r1.status, r2.status]).toEqual([302, 302])
+    expect(s.stack.created).toBe(1)
+    expect(new Set(s.stack.sessions.map((x) => x.user)).size).toBe(1)
   })
 })
