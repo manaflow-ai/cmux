@@ -1,6 +1,6 @@
 # Tool and folder permission rules v1
 
-Status: Proposed. Implementation follows the grouped permission panel and checkpoint recovery; agree the handoff contract update before enabling the editor. acpmux owns Allow / Ask / Deny for permission requests delivered through ACP; the pane and CLI share that decision path. Coverage is `acp_requests_only`, isolation `unverified`. Session/handoff `enforcement.policy` remains the existing named policy id; rule coverage is separate.
+Status: Agreed on 2026-10-02. Implementation follows the grouped permission panel and checkpoint recovery; the handoff boundary is pinned in handoff contract v1.1. acpmux owns Allow / Ask / Deny for permission requests delivered through ACP; the pane and CLI share that decision path. Coverage is `acp_requests_only`, isolation `unverified`. Session/handoff `enforcement.policy` remains the existing named policy id; rule coverage is separate.
 
 ## Rules and matching
 
@@ -31,7 +31,7 @@ Advertise both methods in initialize `_meta.acpmux.operations`, include `permiss
 
 ## Fork, handoff and pane
 
-On the same daemon, fork transfers the whole rule set for the requested harness/cwd, revalidating absolute scope identities without rebasing roots to a different cwd; it never copies chat allowance or mutation keys. Handoff transfers compatible kind rules, on the same daemon/cwd with revalidated canonical roots. Drop and list unmappable exact-name or legacy Allow rules; this narrows the target. Only an unmappable Deny or Ask refuses prepare with `rules_unmappable` and `data.ruleIds`, keeping the source intact. The capsule review shows dropped rule ids before start. Check source/target rule revision and fingerprint freshness only while the handoff remains draft; `rules_changed` carries the current handoff and requires discard plus fresh prepare. A start retry with the same promptId on a starting/started record returns its first outcome before any freshness check, even after rules change. Neither refusal belongs to capsule draft edits. Agree that boundary with the handoff owner and bump its contract before implementation. Never silently omit Deny/Ask rules or relabel named policy as proof they transferred.
+On the same daemon, fork transfers the whole rule set for the requested harness/cwd, revalidating absolute scope identities without rebasing roots to a different cwd; it never copies chat allowance or mutation keys. Handoff transfers compatible kind rules, on the same daemon/cwd with revalidated canonical roots. Drop and list unmappable exact-name or legacy Allow rules; this narrows the target. Only an unmappable Deny or Ask refuses prepare with `rules_unmappable` and `data.ruleIds`, keeping the source intact. The capsule review shows dropped rule ids before start. Check source/target rule revision and fingerprint freshness only while the handoff remains draft; `rules_changed` carries the current handoff and requires discard plus fresh prepare. A start retry with the same promptId on a starting/started record returns its first outcome before any freshness check, even after rules change. Neither refusal belongs to capsule draft edits. This boundary is agreed with the handoff owner in contract v1.1. Never silently omit Deny/Ask rules or relabel named policy as proof they transferred.
 
 Pin `Handoff.rules` as:
 
