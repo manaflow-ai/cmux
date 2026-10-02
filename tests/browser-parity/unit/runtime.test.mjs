@@ -255,6 +255,76 @@ test("cancel: output a cancelled cell prints later does not reach the next cell"
   assert.deepEqual(printed, ["cell 2"]);
 });
 
+// A Session over a driver that records calls, with a host whose timers fire
+// only when the test says so.
+function fakeSession() {
+  const timers = [];
+  const calls = [];
+  const host = {
+    setTimeout: (fn) => (timers.push(fn), timers.length),
+    clearTimeout: () => {},
+    now: Date.now,
+    print: () => {},
+  };
+  const driver = {
+    call: async (method, params) => {
+      calls.push({ method, params });
+      return method === "tab.info" ? { url: "https://example.com/", title: "T", viewport: { width: 1, height: 1 } } : null;
+    },
+    on: () => () => {},
+    capabilities: () => [],
+  };
+  const session = new ns.core.Session({ driver, host });
+  const fire = () => timers.splice(0).forEach((fn) => fn());
+  return { session, calls, fire };
+}
+
+test("handled events: a tab update that never settles holds later calls at most until the bound", async () => {
+  const { session, calls, fire } = fakeSession();
+  const page = session.pageFor("t1");
+  page._handledSync = new Promise(() => {});
+  const first = session.call("tab.info", { targetId: "t1" });
+  await new Promise((r) => setImmediate(r));
+  fire();
+  const r = await Promise.race([first.then(() => "answered", (e) => "failed: " + e.message), new Promise((res) => setTimeout(() => res("still waiting"), 500))]);
+  assert.equal(r, "answered");
+  // The tab is not locked: the next call goes straight through.
+  const second = await Promise.race([session.call("tab.info", { targetId: "t1" }).then(() => "answered", (e) => "failed: " + e.message), new Promise((res) => setTimeout(() => res("still waiting"), 500))]);
+  assert.equal(second, "answered");
+  assert.equal(calls.filter((c) => c.method === "tab.info").length, 2);
+});
+
+test("handled events: after a dropped update removing the last listener, the empty set is sent again", async () => {
+  const { session, calls, fire } = fakeSession();
+  const page = session.pageFor("t1");
+  const handler = () => {};
+  page.on("dialog", handler);
+  await page._handledSync;
+  // The update that removes the listener is lost (its job never runs).
+  page._handledSync = new Promise(() => {});
+  page.off("dialog", handler);
+  const call = session.call("tab.info", { targetId: "t1" });
+  await new Promise((r) => setImmediate(r));
+  fire();
+  await Promise.race([call, new Promise((res) => setTimeout(res, 500))]).catch(() => {});
+  await new Promise((r) => setTimeout(r, 20));
+  const updates = calls.filter((c) => c.method === "tab.handleEvents").map((c) => c.params.events);
+  assert.deepEqual(updates.at(-1), [], JSON.stringify(updates));
+});
+
+test("cancel: a function a cancelled cell defined still prints when a later cell calls it", async () => {
+  const printed = [];
+  const host = { setTimeout, clearTimeout, now: Date.now };
+  const console = { log: (...a) => printed.push(a.join(" ")) };
+  const repl = createReplSession({ host, globals: [{ console, setTimeout }] });
+  const hung = repl.evaluate("function hello() { console.log('hello'); } setTimeout(() => console.log('late from cell 1'), 30); await new Promise(() => {})", { id: 1 });
+  repl.cancel("timed out", 1);
+  await hung;
+  const next = await repl.evaluate("hello(); await new Promise((r) => setTimeout(r, 80)); console.log('cell 2')", { id: 2 });
+  assert.equal(next.ok, true, next.error);
+  assert.deepEqual(printed, ["hello", "cell 2"]);
+});
+
 test("inspect: Node-like formatting; strings print raw at the top level", () => {
   assert.equal(inspect("plain"), "plain");
   assert.equal(inspect({ a: 1, b: ["s", null], c: { d: true } }), "{ a: 1, b: [ 's', null ], c: { d: true } }");

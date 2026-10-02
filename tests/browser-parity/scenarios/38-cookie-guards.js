@@ -34,3 +34,10 @@ emitCmux("named-site-ignored", await peerCookies());
 emitCmux("clear-all-profile", await outcome(() => page.context().clearCookies({ all: true })));
 emitCmux("profile-kept-after-clear-all", await peerCookies());
 await peerTab.close();
+// A cookie set on a parent domain reaches every subdomain, so with one host
+// allowed a cookie for its parent (and so its siblings) is refused; one for
+// the allowed host itself is not.
+session.allowedDomains(["https://www.parent.test"]);
+emitCmux("set-parent-of-allowed", await outcome(() => page.context().addCookies([{ name: "wide", value: "1", domain: ".parent.test", path: "/" }])));
+emitCmux("set-allowed-host", await outcome(() => page.context().addCookies([{ name: "narrow", value: "1", domain: "www.parent.test", path: "/" }])));
+session.allowedDomains(null);

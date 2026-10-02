@@ -14,6 +14,8 @@
     "clear-all-profile": "refused: profile",
     "profile-kept-after-clear-all": [
       "parity"
-    ]
+    ],
+    "set-parent-of-allowed": "blocked",
+    "set-allowed-host": "done"
   }
 }
