@@ -67,7 +67,7 @@ enum CloudTreeRowToolTip {
                 toolTip: joined([title, row.resource.url, CloudTreeBrowserDetail.text(for: row)], beyond: title),
                 accessibilityLabel: title
             )
-        case .port(let resource, let url, _):
+        case .port(let resource, _, _):
             let presentation = CloudTreePortPresentation(resource: resource)
             return .init(
                 toolTip: presentation.toolTip,
