@@ -1579,9 +1579,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(self)
     }
     /// Shared native auth callback entrypoint for LaunchServices and embedded
-    /// browser handoffs. The returned value reflects completed sign-in.
+    /// browser handoffs. `delivery` must be `.trustedEmbeddedBrowser` only for
+    /// the embedded browser's policy-checked handoff; LaunchServices callbacks
+    /// are `.external`, so unsolicited stateless ones need user approval.
+    /// The returned value reflects completed sign-in.
     @MainActor
-    func handleAuthCallbackURLInProcess(_ url: URL) async -> Bool {
+    func handleAuthCallbackURLInProcess(
+        _ url: URL,
+        delivery: AuthCallbackDelivery = .external
+    ) async -> Bool {
         let callbackRouter = auth?.callbackRouter ?? AuthCallbackRouter()
         guard callbackRouter.isAuthCallbackURL(url) else {
             AuthDebugLog().log("auth.callback rejected: URL is not an accepted callback")
@@ -1591,7 +1597,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             AuthDebugLog().log("auth.callback dropped: auth graph not configured yet")
             return false
         }
-        let signedIn = await accountFlow.handleCallbackURL(url)
+        let signedIn = await accountFlow.handleCallbackURL(url, delivery: delivery)
         guard signedIn else {
             AuthDebugLog().log("auth.callback did not complete sign-in")
             return false
@@ -1620,7 +1626,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
         for url in authCallbacks {
             Task { @MainActor in
-                _ = await handleAuthCallbackURLInProcess(url)
+                _ = await handleAuthCallbackURLInProcess(url, delivery: .external)
             }
         }
         let externalFileURLs = externalOpenFileURLs(from: urls)
