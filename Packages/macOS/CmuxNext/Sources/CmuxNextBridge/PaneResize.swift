@@ -34,7 +34,8 @@ public nonisolated enum PaneResize {
 
     /// The column before (`forward == false`) or after the pane's column.
     public static func adjacentColumn(of pane: LayoutPaneID, forward: Bool, in layout: ScreenLayout) -> LayoutColumn? {
-        let columns = layout.columns
+        // Visual order: a sticky column sits at its edge whatever its daemon index.
+        let columns = layout.visualColumns
         guard let index = columns.firstIndex(where: { $0.root.contains(pane) }) else { return nil }
         let next = index + (forward ? 1 : -1)
         return columns.indices.contains(next) ? columns[next] : nil

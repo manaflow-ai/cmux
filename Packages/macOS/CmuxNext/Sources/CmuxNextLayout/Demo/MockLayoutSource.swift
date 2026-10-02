@@ -50,6 +50,11 @@ public final class MockLayoutSource {
             mutateLayouts { $0.settingRatio(ratio, for: split) }
         case let .setColumnWidth(column, _, width, _, _):
             mutateLayouts { $0.settingWidth(width, for: column) }
+        case let .setColumnSticky(column, _, sticky, transaction):
+            mutateLayouts { $0.settingSticky(sticky, for: column) }
+            push()
+            model.settleTransaction(transaction)
+            return
         case let .newColumn(after, width):
             let pane = PaneID(makeID("p"))
             insertColumn(LayoutColumn(id: ColumnID(makeID("c")), width: width, root: .leaf(pane)), afterColumnContaining: after)
@@ -88,7 +93,9 @@ public final class MockLayoutSource {
                 screens[index].layout = .columns(columns.compactMap { column in
                     guard column.root.contains(pane) else { return column }
                     guard let root = Self.removing(pane, from: column.root) else { return nil }
-                    return LayoutColumn(id: column.id, width: column.width, root: root)
+                    var column = column
+                    column.root = root
+                    return column
                 })
             }
         }
@@ -115,7 +122,11 @@ public final class MockLayoutSource {
         mutateLayouts { layout in
             switch layout {
             case let .splits(root): .splits(replace(root))
-            case let .columns(columns): .columns(columns.map { LayoutColumn(id: $0.id, width: $0.width, root: replace($0.root)) })
+            case let .columns(columns): .columns(columns.map { column in
+                var column = column
+                column.root = replace(column.root)
+                return column
+            })
             }
         }
     }
