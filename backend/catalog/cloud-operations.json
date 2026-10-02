@@ -5998,6 +5998,172 @@
         }
       }
     },
+    "automation.webhook.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "automation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "automation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationId"
+            }
+          },
+          "trigger": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TriggerId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "automation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationId"
+            }
+          },
+          "trigger": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TriggerId"
+            }
+          },
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "secret": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "scheme": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "selector.not_found"
+      ],
+      "owner": "cloud:SchedulerDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "automation webhook",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "automation"
+      },
+      "docs": "Read a webhook trigger's endpoint path and signing secret (HMAC-SHA256 over '<x-cmux-timestamp>.<body>', header x-cmux-signature: v1=<hex>).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          },
+          "trigger": {
+            "$ref": "#/$defs/TriggerId"
+          }
+        },
+        "required": [
+          "automation",
+          "trigger"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "TriggerId": {
+            "type": "string",
+            "pattern": "^trg_[a-z0-9]{20}$",
+            "description": "One trigger of an automation; assigned by the owner."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          },
+          "trigger": {
+            "$ref": "#/$defs/TriggerId"
+          },
+          "path": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          },
+          "scheme": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "automation",
+          "trigger",
+          "path",
+          "secret",
+          "scheme"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "TriggerId": {
+            "type": "string",
+            "pattern": "^trg_[a-z0-9]{20}$",
+            "description": "One trigger of an automation; assigned by the owner."
+          }
+        }
+      }
+    },
     "host.enroll": {
       "class": "mutation",
       "idempotency": "required",

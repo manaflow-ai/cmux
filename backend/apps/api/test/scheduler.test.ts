@@ -152,3 +152,87 @@ describe("automations end to end (workerd)", () => {
     expect(run.json).toMatchObject({ ok: false, error: { code: "selector.not_found" } })
   })
 })
+
+const hmac = async (secret: string, msg: string) => {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+  return [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)))].map((b) => b.toString(16).padStart(2, "0")).join("")
+}
+
+const postHook = async (path: string, secret: string, body: string, opts: { ts?: number; delivery?: string; sig?: string } = {}) => {
+  const ts = String(opts.ts ?? Math.floor(Date.now() / 1000))
+  const headers: Record<string, string> = { "content-type": "application/json", "x-cmux-timestamp": ts, "x-cmux-signature": opts.sig ?? `v1=${await hmac(secret, `${ts}.${body}`)}` }
+  if (opts.delivery) headers["x-cmux-delivery"] = opts.delivery
+  const res = await worker.fetch(`https://api.test${path}`, { method: "POST", headers, body })
+  return { status: res.status, json: (await res.json()) as any }
+}
+
+describe("webhook triggers (workerd)", () => {
+  it("verifies, dedupes and turns a signed delivery into one run with its input", async () => {
+    const { token, team } = await signedIn("hook-user-1")
+    const create = await op(token, "automation.create", {
+      name: "on deploy",
+      triggers: [{ type: "webhook" }],
+      body: { type: "steps", steps: [{ type: "note", text: "deployed" }] }
+    })
+    expect(create.json.value.triggers[0].status).toBe("active")
+    const automation = create.json.value.id as string
+    const trigger = create.json.value.triggers[0].id as string
+    const hook = await read(token, "automation.webhook.get", { automation, trigger })
+    expect(hook.status).toBe(200)
+    const { path, secret } = hook.json.value as { path: string; secret: string }
+    expect(path).toBe(`/v1/hooks/automation/${team}/${trigger}`)
+    expect(secret).toMatch(/^whsec_[0-9a-f]{64}$/)
+    // Another team cannot read this trigger's secret.
+    const other = await signedIn("hook-user-2")
+    expect((await read(other.token, "automation.webhook.get", { automation, trigger })).status).toBe(400)
+
+    const body = JSON.stringify({ service: "web", sha: "abc123" })
+    expect((await postHook(path, secret, body, { sig: "v1=" + "0".repeat(64) })).status).toBe(401)
+    expect((await postHook(path, secret, body, { ts: Math.floor(Date.now() / 1000) - 3600 })).status).toBe(401)
+    expect((await postHook(path, `${secret}x`, body)).status).toBe(401)
+    const big = JSON.stringify({ blob: "x".repeat(300 * 1024) })
+    expect((await postHook(path, secret, big)).status).toBe(413)
+
+    const first = await postHook(path, secret, body, { delivery: "deploy-1" })
+    expect(first.status).toBe(202)
+    expect(first.json).toMatchObject({ ok: true, status: "accepted", delivery: "deploy-1" })
+    const again = await postHook(path, secret, body, { delivery: "deploy-1" })
+    expect(again.json).toMatchObject({ status: "duplicate", run: first.json.run })
+
+    const runId = first.json.run as string
+    // The input waits outside entity state until dispatch (checked in one DO turn, before any alarm can run).
+    await runInDurableObject(scheduler(team) as never, async (instance: any, state: DurableObjectState) => {
+      const r = await instance.deliverWebhook(team, trigger, "direct-1", { body: { probe: true } })
+      expect(r.status).toBe("accepted")
+      const rows = state.storage.sql.exec("SELECT json FROM run_inputs WHERE run = ?", r.run).toArray()
+      expect(JSON.parse(rows[0]!.json as string)).toEqual({ body: { probe: true } })
+      expect(JSON.stringify(state.storage.sql.exec("SELECT json FROM own_state").toArray())).not.toContain("probe")
+    })
+    const instance = await introspectWorkflowInstance(testEnv.AUTOMATION_RUN, runId)
+    try {
+      await runDurableObjectAlarm(scheduler(team))
+      await instance.waitForStatus("complete")
+    } finally {
+      await instance[Symbol.asyncDispose]()
+    }
+    await runDurableObjectAlarm(scheduler(team))
+    const runs = await read(token, "automation.runs.list", { automation })
+    expect(runs.json.value.runs).toHaveLength(2)
+    expect(runs.json.value.runs.find((r: any) => r.id === runId)).toMatchObject({ state: "succeeded", trigger: { type: "webhook", delivery_id: "deploy-1" } })
+    await runInDurableObject(scheduler(team) as never, async (_i: unknown, state: DurableObjectState) => {
+      expect(state.storage.sql.exec("SELECT run FROM run_inputs").toArray()).toHaveLength(0)
+    })
+  })
+
+  it("answers 404 for an unknown trigger and 409 for a disabled automation", async () => {
+    const { token, team } = await signedIn("hook-user-3")
+    const create = await op(token, "automation.create", { name: "x", triggers: [{ type: "webhook" }], body: { type: "steps", steps: [{ type: "note", text: "x" }] } })
+    const automation = create.json.value.id as string
+    const trigger = create.json.value.triggers[0].id as string
+    const { path, secret } = (await read(token, "automation.webhook.get", { automation, trigger })).json.value
+    await op(token, "automation.update", { automation, enabled: false })
+    expect((await postHook(path, secret, "{}")).status).toBe(409)
+    expect((await worker.fetch(`https://api.test/v1/hooks/automation/${team}/not-an-id`, { method: "POST", body: "{}" })).status).toBe(404)
+    expect((await worker.fetch(`https://api.test/v1/hooks/automation/team_00000000000000000000/trg_00000000000000000000`, { method: "POST", body: "{}" })).status).toBe(401)
+  })
+})
