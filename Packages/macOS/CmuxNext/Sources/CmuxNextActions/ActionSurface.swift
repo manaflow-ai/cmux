@@ -53,6 +53,9 @@ public nonisolated enum SurfaceExemption: String, CaseIterable, Sendable, Hashab
     /// The gesture is a drag (reorder to an index); the menu offers the
     /// discrete moves.
     case dragGesture
+    /// The App binds it as unavailable in every build today (no handler
+    /// yet); offer it when it works.
+    case unimplemented
     /// Sign-in, accounts and secrets: a person does it (MCP).
     case credentials
     /// Quits the app the user works in (MCP).

@@ -29,14 +29,12 @@ nonisolated enum ActionSurfaceCatalog {
         ContextMenuPlacement(context, group, rank, style: style, parent: parent)
     }
 
-    /// Inverts a reason-to-actions table.
+    /// Inverts a reason-to-actions table. An id listed under two reasons
+    /// keeps one of them; `ActionSurfaceParityTests` rejects such a table.
     static func byReason(_ table: [SurfaceExemption: [ActionID]]) -> [ActionID: SurfaceExemption] {
         var result: [ActionID: SurfaceExemption] = [:]
-        for (reason, ids) in table {
-            for id in ids {
-                precondition(result[id] == nil, "\(id) has two exemptions")
-                result[id] = reason
-            }
+        for reason in SurfaceExemption.allCases {
+            for id in table[reason] ?? [] where result[id] == nil { result[id] = reason }
         }
         return result
     }

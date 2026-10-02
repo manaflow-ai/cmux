@@ -137,16 +137,52 @@ import Testing
     /// the Rust CLI and MCP parity tests read matches the catalog.
     /// `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter ActionSurfaceParityTests` rewrites it.
     @Test func exportIsFresh() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("plans/cmux-next/action-surfaces.json")
+        let url = Self.planURL("action-surfaces.json")
         let current = ActionSurfaceExport.json(catalog)
         if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
             try current.write(to: url, atomically: true, encoding: .utf8)
         }
         let stored = try String(contentsOf: url, encoding: .utf8)
         #expect(stored == current, "action-surfaces.json is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
+    }
+
+    /// The generated block of plans/cmux-next/actions.md (counts, every
+    /// menu in order, every exemption) matches the catalog, so menu order
+    /// changes and new exemptions are reviewed as text.
+    @Test func reportIsFresh() throws {
+        let url = Self.planURL("actions.md")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let current = ActionSurfaceReport.markdown(catalog, menus: .shared)
+        let start = try #require(text.range(of: ActionSurfaceReport.begin), "actions.md has no generated block")
+        let end = try #require(text.range(of: ActionSurfaceReport.end), "actions.md has no generated block end")
+        if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
+            try (String(text[..<start.lowerBound]) + current + String(text[end.upperBound...])).write(to: url, atomically: true, encoding: .utf8)
+            return
+        }
+        #expect(String(text[start.lowerBound..<end.upperBound]) == current, "actions.md is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
+    }
+
+    /// Every id in the surface tables names a catalog action, and no id is
+    /// listed under two reasons (a typo would otherwise be ignored).
+    @Test func surfaceTablesNameOnlyCatalogActions() {
+        let ids = Set(catalog.map(\.id))
+        var tableIDs = Array(ActionSurfaceCatalog.placements.keys) + Array(ActionSurfaceCatalog.cliNamed)
+        for table in [ActionSurfaceCatalog.cliExemptionsByReason, ActionSurfaceCatalog.contextMenuExemptionsByReason,
+                      ActionSurfaceCatalog.mcpExemptionsByReason] {
+            let listed = table.values.flatMap { $0 }
+            #expect(Set(listed).count == listed.count, "an id listed under two reasons")
+            tableIDs += listed
+        }
+        let unknown = Set(tableIDs).subtracting(ids)
+        #expect(unknown.isEmpty, "unknown ids: \(unknown.map(\.rawValue).sorted())")
+        #expect(ActionSurfaceCatalog.cliNamed.isDisjoint(with: ActionSurfaceCatalog.cliExemption.keys), "named and exempt")
+    }
+
+    static func planURL(_ name: String) -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("plans/cmux-next/\(name)")
     }
 
     static func leafItems(_ menu: NSMenu) -> [NSMenuItem] {

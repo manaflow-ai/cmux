@@ -23,9 +23,10 @@ public nonisolated enum ActionTargetKind: String, CaseIterable, Sendable, Hashab
 }
 
 extension ActionTargetKind {
-    /// The kinds an object of this kind names by containment: a tab names
-    /// its pane, column, screen and workspace. A right-click on a tab
-    /// therefore reaches actions on its pane.
+    /// The kinds an object of this kind lies inside: a tab is in a pane, a
+    /// column, a screen and a workspace. Surface coverage counts a tab
+    /// menu row for a pane action, because the pane handlers resolve a tab
+    /// target to its pane (`ActionSurfaceParityTests`).
     public nonisolated var containers: [ActionTargetKind] {
         switch self {
         case .tab: [.pane, .column, .screen, .workspace]
@@ -71,13 +72,11 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     /// A screen group chip in the screen bar.
     case screenGroup
     case pane
-    case column
     case workspaceRow
     case workspaceGroup
     case sidebarBackground
     case terminalSelection
     case browserPage
-    case link
     /// A Cloud machine's sidebar section header.
     case cloudMachine
     /// An SSH machine's sidebar section header.
@@ -106,9 +105,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .screenGroup: .screenGroup
         // A terminal or page right-click targets its tab (the App passes the
         // tab; a tab names its pane).
-        case .terminalSelection, .browserPage, .link: .tab
+        case .terminalSelection, .browserPage: .tab
         case .pane, .newTab: .pane
-        case .column: .column
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
         case .sidebarBackground: nil

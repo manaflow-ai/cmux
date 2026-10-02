@@ -206,7 +206,7 @@
 
       ],
       "id" : "keepMacAwake",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -1813,8 +1813,7 @@
       "cli_name" : "pane new-column",
       "context_menu" : "offered",
       "context_menus" : [
-        "pane",
-        "column"
+        "pane"
       ],
       "id" : "newColumn",
       "mcp" : "offered",
@@ -1826,7 +1825,6 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane",
-        "column",
         "terminalSelection"
       ],
       "id" : "splitDown",
@@ -1838,7 +1836,6 @@
       "cli_name" : "pane new-auto-layout",
       "context_menu" : "offered",
       "context_menus" : [
-        "column",
         "pane"
       ],
       "id" : "newPaneAutoLayout",
@@ -1851,7 +1848,6 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane",
-        "column",
         "terminalSelection"
       ],
       "id" : "toggleSplitZoom",
@@ -1863,8 +1859,7 @@
       "cli_name" : "pane equalize-splits",
       "context_menu" : "offered",
       "context_menus" : [
-        "pane",
-        "column"
+        "pane"
       ],
       "id" : "equalizeSplits",
       "mcp" : "offered",
@@ -2267,47 +2262,47 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "unimplemented",
       "cli_name" : "pane open-files-as",
-      "context_menu" : "offered",
+      "context_menu" : "unimplemented",
       "context_menus" : [
-        "newTab"
+
       ],
       "id" : "palette.openFilesPane",
-      "mcp" : "offered",
+      "mcp" : "unimplemented",
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "unimplemented",
       "cli_name" : "pane open-find-as",
-      "context_menu" : "offered",
+      "context_menu" : "unimplemented",
       "context_menus" : [
-        "newTab"
+
       ],
       "id" : "palette.openFindPane",
-      "mcp" : "offered",
+      "mcp" : "unimplemented",
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "unimplemented",
       "cli_name" : "pane open-vault-as",
-      "context_menu" : "offered",
+      "context_menu" : "unimplemented",
       "context_menus" : [
-        "newTab"
+
       ],
       "id" : "palette.openVaultPane",
-      "mcp" : "offered",
+      "mcp" : "unimplemented",
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "unimplemented",
       "cli_name" : "pane open-cloud-as",
-      "context_menu" : "offered",
+      "context_menu" : "unimplemented",
       "context_menus" : [
-        "newTab"
+
       ],
       "id" : "palette.openCloudPane",
-      "mcp" : "offered",
+      "mcp" : "unimplemented",
       "palette" : "offered"
     },
     {
@@ -2633,25 +2628,25 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "unimplemented",
       "cli_name" : "tab mute-unmute",
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
       ],
       "id" : "toggleTabAudioMute",
-      "mcp" : "offered",
+      "mcp" : "unimplemented",
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "unimplemented",
       "cli_name" : "tab disconnect-ssh",
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
       ],
       "id" : "disconnectRemoteTab",
-      "mcp" : "offered",
+      "mcp" : "unimplemented",
       "palette" : "offered"
     },
     {
@@ -2945,9 +2940,9 @@
     {
       "cli" : "offered",
       "cli_name" : "tab-group delete-saved",
-      "context_menu" : "offered",
+      "context_menu" : "noTargetSurface",
       "context_menus" : [
-        "tabGroup"
+
       ],
       "id" : "tabGroup.deleteSaved",
       "mcp" : "offered",
@@ -2956,9 +2951,9 @@
     {
       "cli" : "offered",
       "cli_name" : "tab-group reopen-saved",
-      "context_menu" : "offered",
+      "context_menu" : "noTargetSurface",
       "context_menus" : [
-        "tabGroup"
+
       ],
       "id" : "tabGroup.reopenSaved",
       "mcp" : "offered",
@@ -3917,8 +3912,7 @@
       "cli_name" : "terminal copy",
       "context_menu" : "offered",
       "context_menus" : [
-        "terminalSelection",
-        "link"
+        "terminalSelection"
       ],
       "id" : "terminalCopy",
       "mcp" : "liveInput",
@@ -4202,9 +4196,9 @@
     {
       "cli" : "guiOnly",
       "cli_name" : "browser toggle-react-grab",
-      "context_menu" : "offered",
+      "context_menu" : "unimplemented",
       "context_menus" : [
-        "browserPage"
+
       ],
       "id" : "toggleReactGrab",
       "mcp" : "guiOnly",
@@ -4246,9 +4240,9 @@
     {
       "cli" : "guiOnly",
       "cli_name" : "browser toggle-omnibar",
-      "context_menu" : "offered",
+      "context_menu" : "unimplemented",
       "context_menus" : [
-        "browserPage"
+
       ],
       "id" : "palette.browserToggleOmnibar",
       "mcp" : "guiOnly",
@@ -4277,33 +4271,33 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "unimplemented",
       "cli_name" : "browser enable",
       "context_menu" : "noObject",
       "context_menus" : [
 
       ],
       "id" : "palette.enableBrowser",
-      "mcp" : "offered",
+      "mcp" : "unimplemented",
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "unimplemented",
       "cli_name" : "browser disable",
       "context_menu" : "noObject",
       "context_menus" : [
 
       ],
       "id" : "palette.disableBrowser",
-      "mcp" : "offered",
+      "mcp" : "unimplemented",
       "palette" : "offered"
     },
     {
       "cli" : "liveInput",
       "cli_name" : "browser open-link-in-new-tab",
-      "context_menu" : "offered",
+      "context_menu" : "noTargetSurface",
       "context_menus" : [
-        "link"
+
       ],
       "id" : "openLinkInNewTab",
       "mcp" : "liveInput",
@@ -4312,9 +4306,9 @@
     {
       "cli" : "guiOnly",
       "cli_name" : "browser open-link-in-default",
-      "context_menu" : "offered",
+      "context_menu" : "noTargetSurface",
       "context_menus" : [
-        "link"
+
       ],
       "id" : "openLinkInDefaultBrowser",
       "mcp" : "guiOnly",
@@ -4409,25 +4403,25 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "unimplemented",
       "cli_name" : "browser open-diff-viewer",
-      "context_menu" : "offered",
+      "context_menu" : "unimplemented",
       "context_menus" : [
-        "pane"
+
       ],
       "id" : "openDiffViewer",
-      "mcp" : "offered",
+      "mcp" : "unimplemented",
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "unimplemented",
       "cli_name" : "browser open-directory-diff-viewer",
-      "context_menu" : "offered",
+      "context_menu" : "unimplemented",
       "context_menus" : [
-        "pane"
+
       ],
       "id" : "palette.openDirectoryDiffViewer",
-      "mcp" : "offered",
+      "mcp" : "unimplemented",
       "palette" : "offered"
     },
     {
@@ -4951,9 +4945,9 @@
     {
       "cli" : "offered",
       "cli_name" : "browser-profile open-link",
-      "context_menu" : "offered",
+      "context_menu" : "noTargetSurface",
       "context_menus" : [
-        "link"
+
       ],
       "id" : "browserProfile.openLink",
       "mcp" : "offered",
@@ -5341,7 +5335,7 @@
 
       ],
       "id" : "palette.toggleMatchTerminalBackground",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -5352,7 +5346,7 @@
 
       ],
       "id" : "palette.enableMinimalMode",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -5363,7 +5357,7 @@
 
       ],
       "id" : "palette.disableMinimalMode",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -5495,7 +5489,7 @@
 
       ],
       "id" : "notifications.toggleBanners",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -5506,7 +5500,7 @@
 
       ],
       "id" : "notifications.dismissal.keystroke",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -5517,7 +5511,7 @@
 
       ],
       "id" : "notifications.dismissal.focus",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -5528,7 +5522,7 @@
 
       ],
       "id" : "notifications.dismissal.click",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -5539,7 +5533,7 @@
 
       ],
       "id" : "notifications.dismissal.explicit",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -5550,7 +5544,7 @@
 
       ],
       "id" : "notifications.dismissal.timeout",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -5561,7 +5555,7 @@
 
       ],
       "id" : "notifications.dismissal.never",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -5573,6 +5567,17 @@
       ],
       "id" : "palette.newAgentChat",
       "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "agent toggle-dictation",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "id" : "palette.toggleDictation",
+      "mcp" : "liveInput",
       "palette" : "offered"
     },
     {
@@ -6199,7 +6204,7 @@
 
       ],
       "id" : "palette.shortcutKeymap",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6375,7 +6380,7 @@
 
       ],
       "id" : "appearance.density.compact",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6386,7 +6391,7 @@
 
       ],
       "id" : "appearance.density.comfortable",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6397,7 +6402,7 @@
 
       ],
       "id" : "appearance.animationSpeed.fast",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6408,7 +6413,7 @@
 
       ],
       "id" : "appearance.animationSpeed.normal",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6419,7 +6424,7 @@
 
       ],
       "id" : "appearance.animationSpeed.off",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6430,7 +6435,7 @@
 
       ],
       "id" : "browser.defaultEngine.chromium",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6441,7 +6446,7 @@
 
       ],
       "id" : "browser.defaultEngine.webkit",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6452,7 +6457,7 @@
 
       ],
       "id" : "appearance.paneBorder.toggle",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6463,7 +6468,7 @@
 
       ],
       "id" : "appearance.panePadding.toggle",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6474,7 +6479,7 @@
 
       ],
       "id" : "appearance.paneCorners.toggle",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6485,7 +6490,7 @@
 
       ],
       "id" : "layout.centerFocusedColumn.never",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6496,7 +6501,7 @@
 
       ],
       "id" : "layout.centerFocusedColumn.always",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6507,7 +6512,7 @@
 
       ],
       "id" : "layout.centerFocusedColumn.onOverflow",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6518,7 +6523,7 @@
 
       ],
       "id" : "focusRing.toggle",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6529,7 +6534,7 @@
 
       ],
       "id" : "focusRing.style.ring",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6540,7 +6545,7 @@
 
       ],
       "id" : "focusRing.style.glow",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6551,7 +6556,7 @@
 
       ],
       "id" : "focusRing.singlePane.toggle",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6562,7 +6567,7 @@
 
       ],
       "id" : "appearance.paneBorderWidth.toggle",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6573,7 +6578,7 @@
 
       ],
       "id" : "appearance.paneBorderColor.reset",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6584,7 +6589,7 @@
 
       ],
       "id" : "appearance.titlebar.minimal",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6595,7 +6600,7 @@
 
       ],
       "id" : "appearance.titlebar.standard",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6639,7 +6644,7 @@
 
       ],
       "id" : "browser.hibernation.off",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6650,7 +6655,7 @@
 
       ],
       "id" : "browser.hibernation.moderate",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6661,7 +6666,7 @@
 
       ],
       "id" : "browser.hibernation.aggressive",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {
@@ -6869,7 +6874,6 @@
       "cli_name" : "column move-left",
       "context_menu" : "offered",
       "context_menus" : [
-        "column",
         "pane"
       ],
       "id" : "column.moveLeft",
@@ -6881,7 +6885,6 @@
       "cli_name" : "column move-right",
       "context_menu" : "offered",
       "context_menus" : [
-        "column",
         "pane"
       ],
       "id" : "column.moveRight",
@@ -6893,7 +6896,6 @@
       "cli_name" : "column center",
       "context_menu" : "offered",
       "context_menus" : [
-        "column",
         "pane"
       ],
       "id" : "column.center",
@@ -6905,7 +6907,6 @@
       "cli_name" : "column width-one-third",
       "context_menu" : "offered",
       "context_menus" : [
-        "column",
         "pane"
       ],
       "id" : "column.widthOneThird",
@@ -6917,7 +6918,6 @@
       "cli_name" : "column width-half",
       "context_menu" : "offered",
       "context_menus" : [
-        "column",
         "pane"
       ],
       "id" : "column.widthHalf",
@@ -6929,7 +6929,6 @@
       "cli_name" : "column width-two-thirds",
       "context_menu" : "offered",
       "context_menus" : [
-        "column",
         "pane"
       ],
       "id" : "column.widthTwoThirds",
@@ -6941,7 +6940,6 @@
       "cli_name" : "column width-full",
       "context_menu" : "offered",
       "context_menus" : [
-        "column",
         "pane"
       ],
       "id" : "column.widthFull",
@@ -6975,8 +6973,7 @@
       "cli_name" : "column make-sticky",
       "context_menu" : "offered",
       "context_menus" : [
-        "pane",
-        "column"
+        "pane"
       ],
       "id" : "column.makeSticky",
       "mcp" : "offered",
@@ -6987,7 +6984,6 @@
       "cli_name" : "column make-sticky-left",
       "context_menu" : "offered",
       "context_menus" : [
-        "column",
         "pane"
       ],
       "id" : "column.makeStickyLeft",
@@ -6999,8 +6995,7 @@
       "cli_name" : "column unstick",
       "context_menu" : "offered",
       "context_menus" : [
-        "pane",
-        "column"
+        "pane"
       ],
       "id" : "column.unstick",
       "mcp" : "offered",
@@ -7011,8 +7006,7 @@
       "cli_name" : "column toggle-sticky-overlay",
       "context_menu" : "offered",
       "context_menus" : [
-        "pane",
-        "column"
+        "pane"
       ],
       "id" : "column.toggleStickyOverlay",
       "mcp" : "offered",
@@ -7026,7 +7020,7 @@
 
       ],
       "id" : "layout.toggleStripScrollbar",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered"
     },
     {

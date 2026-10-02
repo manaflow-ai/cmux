@@ -8,7 +8,9 @@ nonisolated extension ActionSurfaceCatalog {
     /// moving and pinning objects, opening pages, headless settings, agent
     /// and Cloud work (plans/cmux-next/state-ownership.md 5). The `cmux` CLI
     /// offers them by `cliName`; every other action runs by id with
-    /// `cmux action run`. Seeded from the Rust CLI's `cliActionIDs` (#16174).
+    /// `cmux action run`. A superset of the Rust CLI's `cliActionIDs`
+    /// (#16174): screen, screen group, pane, column, tab move, extension,
+    /// terminal and headless appearance verbs were added here.
     static let cliNamed: Set<ActionID> = [
         "newWindow", "newIncognitoWindow", "closeWindow", "quit", "quitKeepSessions", "quitEndSessions",
         "quitEndEverything", "keepMacAwake", "newTab", "newBrowserWorkspace", "openFolder",
@@ -38,13 +40,13 @@ nonisolated extension ActionSurfaceCatalog {
         "room.clearTheme", "workspace.setTheme", "workspace.clearTheme", "terminal.setTheme", "terminal.clearTheme",
         "splitRight", "newColumn", "splitDown", "newPaneAutoLayout", "equalizeSplits", "triggerFlash",
         "palette.swapWithSession", "toggleCanvasLayout", "canvasTidy", "palette.newSimulatorPane",
-        "palette.openFilesPane", "palette.openFindPane", "palette.openVaultPane", "palette.openCloudPane",
+        
         "newTab.sameKind", "newSurface", "openBrowser", "openBrowser.webkit", "openBrowser.chromium", "closeTab",
         "closeOtherTabsInPane", "closeTabsToLeft", "closeTabsToRight", "renameTab", "palette.clearTabName",
         "moveSurfaceLeft", "moveSurfaceRight", "moveSurfaceToPreviousPane", "moveSurfaceToNextPane",
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
         "palette.moveTabToNewWorkspace", "palette.toggleTabPin", "palette.toggleTabUnread", "duplicateTab",
-        "reloadTab", "toggleTabAudioMute", "disconnectRemoteTab", "reopenClosedBrowserPanel", "tabGroup.create",
+        "reloadTab", "reopenClosedBrowserPanel", "tabGroup.create",
         "tabGroup.addTab", "tabGroup.removeTab", "tabGroup.rename", "tabGroup.setColor", "tabGroup.collapse",
         "tabGroup.expand", "tabGroup.ungroup", "tabGroup.close", "tabGroup.moveToNewSplit", "tabGroup.moveToNewColumn",
         "tabGroup.moveToNewWorkspace", "tabGroup.moveToWorkspace", "tabGroup.moveToNewWindow", "tabGroup.newTab",
@@ -61,8 +63,8 @@ nonisolated extension ActionSurfaceCatalog {
         "terminal.keep", "clearScreenKeepScrollback", "resetTerminal", "reconnectPane", "resumeCommandSet",
         "resumeCommandClear", "palette.terminalOpenDirectory", "browserBack", "browserForward", "browserReload",
         "browserHardReload", "browser.openInChromium", "browser.openInWebKit", "splitBrowserRight", "splitBrowserDown",
-        "palette.browserOpenDefault", "palette.browserClearHistory", "palette.enableBrowser", "palette.disableBrowser",
-        "browserScreenshotPage", "browserTheme", "openDiffViewer", "palette.openDirectoryDiffViewer",
+        "palette.browserOpenDefault", "palette.browserClearHistory", 
+        "browserScreenshotPage", "browserTheme", 
         "browser.pageInfo.deleteSiteData", "browser.pageInfo.setPermission", "browser.pageInfo.resetPermissions",
         "browser.extensions.loadUnpacked", "browser.extension.run", "browser.extension.pin", "browser.extension.unpin",
         "browser.extension.enable", "browser.extension.disable", "browser.extension.move", "browser.extension.reload",
@@ -108,7 +110,20 @@ nonisolated extension ActionSurfaceCatalog {
     ]
 
     /// Why the CLI has no verb for an action (`cmux action run <id>` still runs it).
-    static let cliExemption: [ActionID: SurfaceExemption] = byReason([
+    static let cliExemption: [ActionID: SurfaceExemption] = byReason(cliExemptionsByReason)
+    static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
+        .unimplemented: [
+            "palette.openDirectoryDiffViewer",
+            "openDiffViewer",
+            "palette.disableBrowser",
+            "palette.enableBrowser",
+            "disconnectRemoteTab",
+            "toggleTabAudioMute",
+            "palette.openCloudPane",
+            "palette.openVaultPane",
+            "palette.openFindPane",
+            "palette.openFilesPane",
+        ],
         .guiOnly: [
             "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette",
             "palette.openTaskManager", "palette.sleepyMode", "about", "palette.workspaceCustomColor",
@@ -202,10 +217,21 @@ nonisolated extension ActionSurfaceCatalog {
         .devOnly: [
             "openDebugSettings", "palette.onboardingGallery",
         ],
-    ])
+    ]
 
     /// Why no right-click menu offers an action.
-    static let contextMenuExemption: [ActionID: SurfaceExemption] = byReason([
+    static let contextMenuExemption: [ActionID: SurfaceExemption] = byReason(contextMenuExemptionsByReason)
+    static let contextMenuExemptionsByReason: [SurfaceExemption: [ActionID]] = [
+        .unimplemented: [
+            "palette.openDirectoryDiffViewer",
+            "openDiffViewer",
+            "palette.browserToggleOmnibar",
+            "toggleReactGrab",
+            "palette.openCloudPane",
+            "palette.openVaultPane",
+            "palette.openFindPane",
+            "palette.openFilesPane",
+        ],
         .noObject: [
             "openSettings", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
@@ -241,6 +267,11 @@ nonisolated extension ActionSurfaceCatalog {
             "layout.undo", "bookmark.add", "bookmark.import", "bookmark.export",
         ],
         .noTargetSurface: [
+            "browserProfile.openLink",
+            "openLinkInDefaultBrowser",
+            "openLinkInNewTab",
+            "tabGroup.deleteSaved",
+            "tabGroup.reopenSaved",
             "taskManager.killProcess", "toggleChecklistItemComplete", "canvasOverview", "canvasTidy",
             "canvasAlignLeft", "canvasAlignRight", "canvasAlignTop", "canvasAlignBottom", "canvasEqualizeWidths",
             "canvasEqualizeHeights", "canvasDistributeHorizontally", "canvasDistributeVertically", "simulatorHome",
@@ -301,11 +332,49 @@ nonisolated extension ActionSurfaceCatalog {
         .devOnly: [
             "openDebugSettings", "palette.onboardingGallery",
         ],
-    ])
+    ]
 
     /// CLI verbs `cmux mcp serve` leaves out (plans/cmux-next/mcp.md).
-    static let mcpExemption: [ActionID: SurfaceExemption] = byReason([
+    static let mcpExemption: [ActionID: SurfaceExemption] = byReason(mcpExemptionsByReason)
+    static let mcpExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .systemChange: [
+            "notifications.dismissal.keystroke",
+            "notifications.dismissal.focus",
+            "notifications.dismissal.click",
+            "notifications.dismissal.explicit",
+            "notifications.dismissal.timeout",
+            "notifications.dismissal.never",
+            "appearance.density.compact",
+            "appearance.density.comfortable",
+            "appearance.animationSpeed.fast",
+            "appearance.animationSpeed.normal",
+            "appearance.animationSpeed.off",
+            "browser.defaultEngine.chromium",
+            "browser.defaultEngine.webkit",
+            "appearance.paneBorder.toggle",
+            "appearance.panePadding.toggle",
+            "appearance.paneCorners.toggle",
+            "layout.centerFocusedColumn.never",
+            "layout.centerFocusedColumn.always",
+            "layout.centerFocusedColumn.onOverflow",
+            "focusRing.toggle",
+            "focusRing.style.ring",
+            "focusRing.style.glow",
+            "focusRing.singlePane.toggle",
+            "appearance.paneBorderWidth.toggle",
+            "appearance.paneBorderColor.reset",
+            "appearance.titlebar.minimal",
+            "appearance.titlebar.standard",
+            "browser.hibernation.off",
+            "browser.hibernation.moderate",
+            "browser.hibernation.aggressive",
+            "notifications.toggleBanners",
+            "palette.enableMinimalMode",
+            "palette.disableMinimalMode",
+            "palette.toggleMatchTerminalBackground",
+            "layout.toggleStripScrollbar",
+            "keepMacAwake",
+            "palette.shortcutKeymap",
             "palette.makeDefaultBrowser", "palette.makeDefaultTerminal", "palette.toggleSetting", "palette.installCLI",
             "palette.uninstallCLI", "palette.restartSocketListener", "palette.applyUpdateIfAvailable",
             "palette.switchAppChannel",
@@ -317,5 +386,5 @@ nonisolated extension ActionSurfaceCatalog {
         .endsApp: [
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything",
         ],
-    ])
+    ]
 }
