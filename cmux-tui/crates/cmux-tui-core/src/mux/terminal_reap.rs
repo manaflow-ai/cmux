@@ -359,6 +359,15 @@ impl Mux {
         // Every host was asked to exit in parallel; wait for them so the
         // caller can rely on no host outliving this call.
         let drained = self.wait_for_terminal_host_closes(Instant::now() + TERMINAL_HOST_CLOSE_WAIT);
+        if !failures.is_empty() && !kept.is_empty() {
+            // The handoff is cancelled and the daemon keeps serving: a
+            // terminal that did not end must not keep a keep-layout record,
+            // or its later normal exit would keep its tab.
+            let alive = kept.iter().filter(|id| !ended.contains(*id)).cloned().collect::<Vec<_>>();
+            if let Err(error) = self.forget_kept_tabs_of(&alive) {
+                eprintln!("cmux-tui: could not forget keep-layout records: {error:#}");
+            }
+        }
         anyhow::ensure!(
             failures.is_empty(),
             "could not end {} terminal(s): {}",
@@ -392,8 +401,8 @@ impl Mux {
     /// host's fact: the foreground process's directory, else the OSC 7 or
     /// launch directory). Returns the host ids of those terminals.
     fn record_kept_tabs(&self, terminals: &[RegistryTerminal]) -> anyhow::Result<HashSet<String>> {
-        let mut rows = Vec::new();
-        let mut kept = HashSet::new();
+        // Tab ids and process ids under the locks; directories after.
+        let mut placed = Vec::new();
         {
             let registry = self.workspace_registry.lock().unwrap();
             let state = self.state.lock().unwrap();
@@ -404,21 +413,25 @@ impl Mux {
                 let Some(public_id) = registry.terminal_resource_id(&terminal.terminal_id)? else {
                     continue;
                 };
-                let runtime = state.terminal_catalog.get(&public_id).cloned();
-                let cwd = runtime.as_ref().and_then(|surface| {
-                    surface
-                        .process_id()
-                        .and_then(crate::platform::foreground_cwd)
-                        .or_else(|| surface.local_cwd())
-                });
-                let slots = state.placements_of_content(&ContentPublicId::Terminal(public_id));
-                for slot in slots {
-                    if let Some(tab_id) = state.resource_indexes.tab_ids.get(slot) {
-                        rows.push((tab_id.to_string(), cwd.clone()));
-                        kept.insert(terminal.terminal_id.clone());
-                    }
+                let tab_ids = Self::terminal_tab_ids(&state, &public_id);
+                if tab_ids.is_empty() {
+                    continue;
                 }
+                let runtime = state.terminal_catalog.get(&public_id).cloned();
+                placed.push((terminal.terminal_id.clone(), tab_ids, runtime));
             }
+        }
+        let mut rows = Vec::new();
+        let mut kept = HashSet::new();
+        for (terminal_id, tab_ids, runtime) in placed {
+            let cwd = runtime.as_ref().and_then(|surface| {
+                surface
+                    .process_id()
+                    .and_then(crate::platform::foreground_cwd)
+                    .or_else(|| surface.local_cwd())
+            });
+            rows.extend(tab_ids.into_iter().map(|tab_id| (tab_id, cwd.clone())));
+            kept.insert(terminal_id);
         }
         let mut registry = self.workspace_registry.lock().unwrap();
         registry.put_kept_tabs(&rows)?;
@@ -426,17 +439,36 @@ impl Mux {
         Ok(kept)
     }
 
-    /// Records the terminal's end (reason [`KEPT_LAYOUT_EXIT_REASON`], a
-    /// fact about the terminal only; its tabs stay because the store keeps
-    /// them), then asks its host to exit.
+    /// Removes the keep-layout records of the tabs of `terminal_ids`.
+    fn forget_kept_tabs_of(&self, terminal_ids: &[String]) -> anyhow::Result<()> {
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let tab_ids = {
+            let state = self.state.lock().unwrap();
+            let mut tab_ids = Vec::new();
+            for terminal_id in terminal_ids {
+                if let Some(public_id) = registry.terminal_resource_id(terminal_id)? {
+                    tab_ids.extend(Self::terminal_tab_ids(&state, &public_id));
+                }
+            }
+            tab_ids
+        };
+        registry.forget_kept_tabs(&tab_ids)?;
+        self.reload_presentation(&registry)
+    }
+
+    /// Public ids of the tabs that show `public_id`.
+    fn terminal_tab_ids(state: &State, public_id: &TerminalPublicId) -> Vec<String> {
+        state
+            .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+            .iter()
+            .filter_map(|slot| state.resource_indexes.tab_ids.get(slot).map(|id| id.to_string()))
+            .collect()
+    }
+
+    /// Asks the host of a terminal whose tabs the store keeps to exit. The
+    /// host's own exit event records the terminal's outcome (a session-host
+    /// fact); the store's records keep its tabs.
     fn end_terminal_keeping_tabs(&self, terminal: &RegistryTerminal) -> anyhow::Result<()> {
-        if terminal.lifecycle != TerminalLifecycle::Exited {
-            self.persist_terminal_exit(
-                &terminal.terminal_id,
-                terminal.incarnation.as_deref(),
-                &TerminalExit::unknown(KEPT_LAYOUT_EXIT_REASON),
-            )?;
-        }
         let runtime = {
             let registry = self.workspace_registry.lock().unwrap();
             let public_id = registry.terminal_resource_id(&terminal.terminal_id)?;
@@ -461,21 +493,13 @@ impl Mux {
         state: &State,
         public_id: &TerminalPublicId,
     ) -> anyhow::Result<bool> {
-        let tab_ids = state
-            .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
-            .iter()
-            .filter_map(|slot| state.resource_indexes.tab_ids.get(slot).map(|id| id.to_string()))
-            .collect::<Vec<_>>();
+        let tab_ids = Self::terminal_tab_ids(state, public_id);
         if tab_ids.is_empty() {
             return Ok(false);
         }
         registry.any_kept_tab(&tab_ids)
     }
 }
-
-/// Exit reason `end_all_terminals_keeping_layout` records: a fact about the
-/// terminal. No layout decision reads it; the store's `kept_tabs` does.
-pub(crate) const KEPT_LAYOUT_EXIT_REASON: &str = "ended-keep-layout";
 
 /// How long `end_all_terminals` waits for hosts that outlived their close
 /// deadline to die after `SIGKILL`.

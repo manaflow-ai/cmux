@@ -102,7 +102,35 @@ impl WorkspaceRegistry {
 
     /// Whether any of `tab_ids` is a kept tab.
     pub fn any_kept_tab(&self, tab_ids: &[String]) -> anyhow::Result<bool> {
-        let kept = read_kept_tabs(&self.connection)?;
-        Ok(tab_ids.iter().any(|id| kept.contains_key(id)))
+        let mut statement = self.connection.prepare("SELECT 1 FROM kept_tabs WHERE tab_id = ?1")?;
+        for tab_id in tab_ids {
+            if statement.exists([tab_id])? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Removes the records of `tab_ids` (a cancelled keep-layout handoff).
+    pub fn forget_kept_tabs(&mut self, tab_ids: &[String]) -> anyhow::Result<()> {
+        if tab_ids.is_empty() {
+            return Ok(());
+        }
+        let tx = self.connection.transaction()?;
+        for tab_id in tab_ids {
+            tx.execute("DELETE FROM kept_tabs WHERE tab_id = ?1", [tab_id])?;
+        }
+        let subjects = tab_ids
+            .iter()
+            .map(|id| JournalSubject { kind: "tab".into(), id: id.clone() })
+            .collect();
+        append_presentation_record(
+            &tx,
+            "tab.kept_layout.forgotten",
+            subjects,
+            &json!({"tabs": tab_ids}),
+        )?;
+        tx.commit()?;
+        Ok(())
     }
 }

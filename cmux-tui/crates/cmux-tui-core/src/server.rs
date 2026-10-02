@@ -11590,11 +11590,13 @@ fn pane_json(
             let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
                 notifications.presentation.pinned_tabs.contains(tab.as_str())
             });
-            // `end-terminals-keep-layout-v1`: a kept tab to restart a shell in.
+            // `end-terminals-keep-layout-v1`: a kept tab whose terminal has
+            // ended, to restart a shell in.
             let relaunch = state
                 .resource_indexes
                 .tab_ids
                 .get(sid)
+                .filter(|_| surface.is_none_or(|surface| surface.is_dead()))
                 .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()))
                 .map(|kept| json!({"cwd": kept.cwd}));
             json!({
