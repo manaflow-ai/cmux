@@ -13,15 +13,18 @@ import Foundation
 /// tolerate a dim yellow on white that code text can't.
 enum AgentPaneTheme {
     static func values(_ tokens: ThemeTokens) -> [String: any Sendable] {
-        let page = tokens.contentBackground
-        var opaquePage = page
+        let page = pageColor(tokens)
+        var opaquePage = tokens.contentBackground
         opaquePage.alpha = 1
         return [
             "isDark": tokens.isDark,
             "pageBackground": css(page),
             "surfaceBackground": css(page),
             "surfaceElevatedBackground": css(tokens.elevatedBackground),
-            "inputBackground": css(tokens.hoverFill.composited(over: page)),
+            // The field sits on the page; it adds only the hover tint, so a
+            // translucent window's backdrop shows through it as much as
+            // through the terminal.
+            "inputBackground": css(tokens.hoverFill),
             "border": css(tokens.separator),
             "borderStrong": css(tokens.paneBorder),
             "text": css(tokens.textPrimary),
@@ -39,6 +42,19 @@ enum AgentPaneTheme {
                 css(ThemeTokens.readable(color, over: tokens.elevatedBackground, minimum: ThemeTokens.minimumTextContrast))
             },
         ]
+    }
+
+    /// The page's background: the content background where panes paint it
+    /// (an opaque window), clear where the window root paints the one
+    /// translucent sheet (`WindowBackdrop`), as the terminal leaves it.
+    static func pageColor(_ tokens: ThemeTokens) -> ThemeRGB {
+        WindowBackdrop(tokens).panesPaintBackground ? tokens.contentBackground : tokens.contentBackground.withAlpha(0)
+    }
+
+    /// The color WebKit shows behind and around the page, the same as the
+    /// page's own (`WebKitTab` leaves it clear in a translucent window too).
+    static func underPageColor(_ tokens: ThemeTokens) -> ThemeRGB {
+        pageColor(tokens)
     }
 
     /// `rgba(r, g, b, a)` with 0-255 channels.
