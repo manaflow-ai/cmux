@@ -83,6 +83,26 @@ import Testing
         #expect(store.messages.last?.delivery == .delivered)
     }
 
+    @Test func rapidSendsReachTheBackendOneAtATimeInSendOrder() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let ids = ClientIDSequence(prefix: "rapid")
+        let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { ids.next() })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        backend.holdSend = true
+        store.send(text: "one")
+        store.send(text: "two")
+        store.send(text: "three")
+        try await Task.sleep(for: .milliseconds(50))
+        // The server numbers messages in arrival order, so a later send must not
+        // be dispatched while an earlier one is still in flight.
+        #expect(backend.sentClientIDs == ["rapid-1"])
+        backend.releaseSend()
+        try await waitUntil { backend.sendCount == 3 }
+        #expect(backend.sentClientIDs == ["rapid-1", "rapid-2", "rapid-3"])
+    }
+
     @Test func failedSendStaysVisibleAndRetryReusesClientID() async throws {
         let backend = ScriptedBackend(total: 5)
         let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { "client-2" })
@@ -172,6 +192,14 @@ struct ImmediateClock: Clock {
     func sleep(until deadline: Instant, tolerance: Duration?) async throws {
         await Task.yield()
     }
+}
+
+final class ClientIDSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private let prefix: String
+    private var count = 0
+    init(prefix: String) { self.prefix = prefix }
+    func next() -> String { lock.withLock { count += 1; return "\(prefix)-\(count)" } }
 }
 
 final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
