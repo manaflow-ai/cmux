@@ -103,5 +103,7 @@ element is found by its path and `fixtures/corpus/gt.js` decides there whether
 a user can see it (70 GitHub links an overflow box clips out are not shown in
 Chrome either); no element is exempt otherwise.
 
-Playwright loads from `PARITY_PLAYWRIGHT_DIR` or `node_modules`; WebKit comes from `~/.cache/cmux-parity-browsers`.
+Playwright loads from `PARITY_PLAYWRIGHT_DIR` or `node_modules`; `package.json`
+pins the version the oracle and the corpus scripts need (`npm ci` in
+`tests/browser-parity`); WebKit comes from `~/.cache/cmux-parity-browsers`.
 A record refuses a scenario with an uncaught error, so goldens never hold one.
