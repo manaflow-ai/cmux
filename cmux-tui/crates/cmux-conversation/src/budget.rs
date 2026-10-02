@@ -201,8 +201,7 @@ mod tests {
         }
         assert_eq!(check_agent_budget(&head, "agent_mux", &card, &recent, base + 100), Ok(()));
         assert_eq!(check_agent_budget(&head, "agent_mux", &text(), &recent, base + 100), Ok(()));
-        let replied =
-            vec![message(9, "agent_mux", base + 60_000), message(1, "user_local", base)];
+        let replied = vec![message(9, "agent_mux", base + 60_000), message(1, "user_local", base)];
         assert_eq!(check_agent_budget(&head, "agent_mux", &text(), &replied, base + 1_000), Ok(()));
     }
 }

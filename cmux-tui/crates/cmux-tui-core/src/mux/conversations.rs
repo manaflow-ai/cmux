@@ -61,4 +61,3 @@ impl Mux {
         self.conversations.bindings.lock().unwrap().retain(|_, bound| bound != participant);
     }
 }
-
