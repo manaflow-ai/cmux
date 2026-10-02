@@ -1,4 +1,5 @@
 import { idFactory } from "./ids.ts"
+import { MemoryRows, OverlayRows } from "./rows.ts"
 import type { Domain, EventFrame, OpFrame, Origin, OwnerFrame, Principal, SettledFrame, SnapshotFrame } from "./types.ts"
 
 export interface Intent<P = unknown> {
@@ -41,6 +42,8 @@ export class OwnerUnreachable extends Error {
  */
 export class ProjectionClient<S, P = unknown> {
   confirmed: { state: S; seq: number }
+  /** Rows of a row-backed domain the mirror holds (snapshot tail plus applied effects). */
+  readonly rows = new MemoryRows()
   pending: Array<Intent<P>> = []
   /** `ok` settles that arrived before the mirror reached their sequence (client memory). */
   held: Array<SettledFrame> = []
@@ -87,17 +90,31 @@ export class ProjectionClient<S, P = unknown> {
   }
 
   view(): S {
+    return this.visible().state
+  }
+
+  /** Visible rows (row-backed domains): the mirror's loaded rows with the intents' writes on top. */
+  viewRows(): OverlayRows {
+    return this.visible().rows
+  }
+
+  private visible(): { state: S; rows: OverlayRows } {
     let s = this.confirmed.state
+    const rows = new OverlayRows(this.rows)
     for (const i of this.pending) {
       const r = this.domain.reduce(s, i.op, i.params, {
         principal: this.principal,
         now: Date.now(),
         tx: i.idempotency_key,
-        newId: (prefix) => `${prefix}_pending`
+        newId: (prefix) => `${prefix}_pending`,
+        rows
       })
-      if (r.ok) s = r.state
+      if (r.ok) {
+        s = r.state
+        rows.apply(r.writes ?? [])
+      }
     }
-    return s
+    return { state: s, rows }
   }
 
   receive(frame: OwnerFrame): void {
@@ -167,11 +184,18 @@ export class ProjectionClient<S, P = unknown> {
   }
 
   private applyEvent(e: EventFrame): void {
+    // Row-mode owners send the effects: apply them (the mirror holds only some rows).
+    if (e.effects) {
+      this.rows.apply(e.effects.writes)
+      this.confirmed = { state: e.effects.state as S, seq: e.seq }
+      return
+    }
     const r = this.domain.reduce(this.confirmed.state, e.op, e.params as P, {
       principal: e.actor,
       now: e.at,
       tx: e.tx,
-      newId: idFactory(e.tx)
+      newId: idFactory(e.tx),
+      rows: this.rows
     })
     // The owner committed this op with the same pure reducer, so it applies. If it does
     // not (version skew), resync from a snapshot instead of diverging.
@@ -206,6 +230,11 @@ export class ProjectionClient<S, P = unknown> {
     this.awaiting = false
     if (snap.seq >= this.confirmed.seq) {
       this.confirmed = { state: snap.state, seq: snap.seq }
+      // Rows held from before may be stale; keep only what the snapshot sends.
+      if (snap.rows) {
+        this.rows.clear()
+        this.rows.load(snap.rows.table, snap.rows.rows)
+      }
       const decided = new Map(snap.decided.map((d) => [d.idempotency_key, d]))
       this.pending = this.pending.filter((i) => !decided.has(i.idempotency_key))
       this.expired = this.expired.filter((i) => !decided.has(i.idempotency_key))

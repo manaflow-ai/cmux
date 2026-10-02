@@ -1,4 +1,7 @@
 export * from "./types.ts"
+export * from "./sql.ts"
+export * from "./schema.ts"
+export * from "./rows.ts"
 export * from "./engine.ts"
 export * from "./client.ts"
 export * from "./ids.ts"

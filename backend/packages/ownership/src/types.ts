@@ -1,3 +1,4 @@
+import type { RowReader, RowWrite, StoredRow } from "./rows.ts"
 /**
  * Wire shapes of the ownership protocol (spec/sync-and-transport.md section 3,
  * ownership.md section 3). Plain data: these cross the network as JSON.
@@ -50,6 +51,12 @@ export interface EventFrame {
   readonly actor: Principal
   readonly origin: Origin
   readonly at: number
+  /**
+   * Row-mode owners (row-backed domains) send the op's effects: the new head state and
+   * the row writes. A mirror applies them instead of replaying the reducer, so it needs
+   * no rows it was never sent (the delta form of OwnershipConvergence.tla Apply).
+   */
+  readonly effects?: { readonly state: unknown; readonly writes: ReadonlyArray<RowWrite> }
 }
 
 /** Owner to requester. `replayed` is true when the key was already decided. */
@@ -100,6 +107,8 @@ export interface SnapshotFrame<S = unknown> {
   readonly seq: number
   readonly state: S
   readonly decided: ReadonlyArray<DecidedKey>
+  /** Row-mode owners: the newest rows of the snapshot table (for example the message tail). */
+  readonly rows?: { readonly table: string; readonly rows: ReadonlyArray<StoredRow> }
 }
 
 export type OwnerFrame = EventFrame | ResultFrame | RejectFrame | SettledFrame | SnapshotFrame
@@ -117,6 +126,16 @@ export interface OutboxItem {
   /** Entity key in PlanetScale, for example the install id. */
   readonly entity: string
   readonly payload: unknown
+  /**
+   * DO-to-DO item (E4): drained by RPC to this object, at least once, as the op `kind` with
+   * params `payload` and idempotency key `entity`. Absent = a PlanetScale projection row.
+   */
+  readonly target?: {
+    readonly class: string
+    readonly name: string
+    /** Items with the same coalesce key and target collapse to the newest in one drain (for example one inbox bump per conversation). */
+    readonly coalesce?: string
+  }
 }
 
 export interface ReduceContext {
@@ -125,6 +144,8 @@ export interface ReduceContext {
   readonly tx: string
   /** Deterministic id from the transaction, so mirror replay reproduces it. */
   readonly newId: (prefix: string) => string
+  /** Read-only rows of a row-backed domain (empty for JSON-only domains). */
+  readonly rows: RowReader
 }
 
 export type ReduceResult<S> =
@@ -135,6 +156,8 @@ export type ReduceResult<S> =
       /** False for a valid op that changes nothing: no event, sequence 0. */
       readonly changed?: boolean
       readonly outbox?: ReadonlyArray<OutboxItem>
+      /** Row writes, committed with the op (row-backed domains). */
+      readonly writes?: ReadonlyArray<RowWrite>
     }
   | ({ readonly ok: false } & Reject)
 

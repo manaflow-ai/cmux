@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers"
-import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
+import { EVENT_RETENTION_MS, LEDGER_RETENTION_MS, OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
+import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.ts"
 import { drainOutbox } from "./projection.ts"
 
 /** DO SQLite as the engine's synchronous store. Output gates hold every outgoing message until writes are durable. */
@@ -121,7 +122,42 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const oldest = this.engine.oldestLedgerAt()
     // One hour of slack so one wake prunes a batch instead of one wake per expiring key.
     const prune = oldest === null ? null : oldest + LEDGER_RETENTION_MS + PRUNE_SLACK_MS
-    return wake === null ? prune : prune === null ? wake : Math.min(wake, prune)
+    const events = this.engine.nextEventPruneAt()
+    const eventPrune = events === null ? null : events + PRUNE_SLACK_MS
+    const times = [wake, prune, eventPrune].filter((t): t is number => t !== null)
+    return times.length ? Math.min(...times) : null
+  }
+
+  /**
+   * Binding of another owner class for DO-to-DO delivery. Convention: class `FooBarDO`
+   * is bound as `FOO_BAR_DO`.
+   */
+  protected targetNamespace(className: string): DurableObjectNamespace | undefined {
+    const binding = `${className.replace(/DO$/, "").replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()}_DO`
+    return (this.env as unknown as Record<string, DurableObjectNamespace | undefined>)[binding]
+  }
+
+  /**
+   * RPC from another owner's outbox drain (E4). Each item is committed as a system op with its
+   * own idempotency key, so a redelivery replays from the ledger. Returns the ids decided
+   * (applied, replayed or refused for good); a throw stops the batch and the rest is retried.
+   */
+  async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
+    const engine = this.bind(entity)
+    const principal: Principal = { identity: `system:${source}`, kind: "system" }
+    const done: Array<number> = []
+    for (const item of items) {
+      const frames: Array<OwnerFrame> = []
+      engine.submit(principal, { t: "op", op: item.op, params: item.params, idempotency_key: item.key, origin: "script" }, (target, f) =>
+        target === "all" ? this.broadcast(f) : frames.push(f)
+      )
+      const reject = frames.find((f) => f.t === "reject")
+      if (reject && reject.t === "reject") console.warn(JSON.stringify({ msg: "system op refused", target: engine.stream, source, op: item.op, code: reject.code }))
+      this.afterOp(principal, item.op, frames)
+      done.push(item.id)
+    }
+    this.afterCommit()
+    return { done }
   }
 
   /** Runs in the alarm after the outbox drain. A throw is logged and the alarm is rescheduled. */
@@ -223,7 +259,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         const pending = frame.pending ?? []
         // Resume by replaying the gap when the client holds no unconfirmed intents and the gap is
         // small; otherwise a snapshot, which carries the decided keys that settle those intents.
-        const gap = after !== undefined && after <= engine.currentSeq && engine.currentSeq - after <= 1000 && pending.length === 0
+        const gap = after !== undefined && after <= engine.currentSeq && engine.currentSeq - after <= 1000 && pending.length === 0 && engine.canReplayFrom(after)
         if (gap) for (const e of engine.eventsAfter(after)) safeSend(ws, JSON.stringify(e))
         else safeSend(ws, JSON.stringify(engine.snapshot(a.principal.identity, pending)))
         return
@@ -264,18 +300,43 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     let outboxAt: number | null = null
     const rows = this.engine.outboxPending(100)
     if (rows.length > 0) {
-      try {
-        await drainOutbox(this.env, this.engine.stream, rows)
-        this.engine.outboxMarkSent(rows.map((r) => r.id))
-        this.store.exec(`UPDATE do_entity SET attempts = 0 WHERE id = 1`)
-        if (this.engine.outboxPending(1).length > 0) outboxAt = Date.now()
-      } catch (e) {
+      let failed = false
+      // PlanetScale projections (no target).
+      const projection = rows.filter((r) => !r.target)
+      if (projection.length > 0) {
+        try {
+          await drainOutbox(this.env, this.engine.stream, projection)
+          this.engine.outboxMarkSent(projection.map((r) => r.id))
+        } catch (e) {
+          failed = true
+          console.error(JSON.stringify({ msg: "outbox drain failed", stream: this.engine.stream, error: String(e) }))
+        }
+      }
+      // DO-to-DO items (E4): one RPC per target object, in order; a failing target does not block others.
+      for (const batch of groupTargets(rows)) {
+        this.engine.outboxMarkSent(batch.superseded)
+        try {
+          const ns = this.targetNamespace(batch.class)
+          if (!ns) throw new Error(`no binding for ${batch.class}`)
+          const stub = ns.get(ns.idFromName(batch.name)) as unknown as { systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> }
+          const res = await stub.systemDeliver(batch.name, this.engine.stream, batch.items)
+          this.engine.outboxMarkSent(res.done)
+          if (res.done.length < batch.items.length) failed = true
+        } catch (e) {
+          failed = true
+          console.error(JSON.stringify({ msg: "outbox delivery failed", stream: this.engine.stream, target: batch.class, error: String(e) }))
+        }
+      }
+      if (failed) {
         const attempts = (this.store.exec<{ attempts: number }>(`SELECT attempts FROM do_entity WHERE id = 1`)[0]?.attempts ?? 0) + 1
         this.store.exec(`UPDATE do_entity SET attempts = ? WHERE id = 1`, attempts)
-        console.error(JSON.stringify({ msg: "outbox drain failed", stream: this.engine.stream, attempts, error: String(e) }))
         outboxAt = Date.now() + Math.min(MAX_BACKOFF_MS, 1000 * 2 ** attempts)
+      } else {
+        this.store.exec(`UPDATE do_entity SET attempts = 0 WHERE id = 1`)
+        if (this.engine.outboxPending(1).length > 0) outboxAt = Date.now()
       }
     }
+    this.engine.pruneEvents(Date.now() - EVENT_RETENTION_MS)
     // Bounded prune; if more remain, the oldest is still past the window and the alarm comes back at once.
     this.engine.pruneLedger(Date.now() - LEDGER_RETENTION_MS)
     this.onPrune(Date.now() - LEDGER_RETENTION_MS)
