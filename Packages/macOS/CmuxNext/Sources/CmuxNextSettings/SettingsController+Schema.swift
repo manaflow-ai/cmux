@@ -22,10 +22,11 @@ extension SettingsController {
 
     /// Advanced > Reset All Settings: removes every key the schema lists and
     /// every shortcut override. Custom actions, tab bar buttons, keys the
-    /// schema does not know, and managed keys (edits refused) stay.
+    /// schema does not know, `SettingsSchema.keptOnResetAll` (the theme and
+    /// terminal font) and managed keys (edits refused) stay.
     public func resetAllSettings() async throws {
         let managed = file.managedGuard.managedKeys
-        for descriptor in SettingsSchema.all where managed[descriptor.id] == nil {
+        for descriptor in SettingsSchema.all where managed[descriptor.id] == nil && !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
             try await removePruning(descriptor.path)
         }
         try await file.remove(["shortcuts", "bindings"])
