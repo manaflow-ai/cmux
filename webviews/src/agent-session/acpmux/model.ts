@@ -195,6 +195,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
       const files = new Set(edits.flatMap((item) => item.tool?.diffs?.map((diff) => diff.path) ?? [])).size;
       return 14 + editedCardHeight(files, plainEditLabels(edits).length);
     }
+    // A settled run of two or more calls draws one summary line until opened (toolRunSummary.ts).
+    if (row.items && isFoldedRun(row.items)) return 36;
     return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
   }
   // The 27px disclosure line.
@@ -387,6 +389,7 @@ export function visibleLayoutRange(
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
+import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isFoldedCopy, WORKED } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";

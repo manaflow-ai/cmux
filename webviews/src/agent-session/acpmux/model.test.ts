@@ -174,10 +174,10 @@ describe("acpmux pane header", () => {
 });
 
 describe("turn row estimates", () => {
-  const tool = (id: string, kind: string) => ({
+  const tool = (id: string, kind: string, status = "completed") => ({
     kind: "tool",
     text: id,
-    tool: { id, title: id, kind, status: "completed" },
+    tool: { id, title: id, kind, status },
   });
   const estimate = (row: AcpmuxRow) => layoutConversation([row], 720).heights[0]!;
   test("the fold line and tool rows estimate their drawn heights", () => {
@@ -188,13 +188,24 @@ describe("turn row estimates", () => {
         version: 1,
         at: 0,
         kind: "activity",
-        items: [1, 2, 3, 4, 5].map((n) => tool(`r${n}`, "read")),
+        items: [1, 2, 3, 4, 5].map((n) => tool(`r${n}`, "read", n === 5 ? "in_progress" : "completed")),
       }),
     ).toBe(140);
+    // Settled, the same run folds under one "Read files" line (conversation/toolRunSummary.ts).
+    expect(
+      estimate({
+        id: "t",
+        version: 1,
+        at: 0,
+        kind: "activity",
+        items: [1, 2, 3, 4, 5].map((n) => tool(`r${n}`, "read")),
+      }),
+    ).toBe(36);
   });
   test("an edit copied into an open fold estimates as tool rows, not the edited-files card", () => {
     const items = [tool("e1", "edit"), tool("e2", "edit")];
-    expect(estimate({ id: "e:fold", version: 1, at: 0, kind: "activity", items })).toBe(62);
+    // Inside the fold the two edits are a settled run: one "Edited files" line.
+    expect(estimate({ id: "e:fold", version: 1, at: 0, kind: "activity", items })).toBe(36);
     // Outside the fold it is the edited-files card: two diffless files listed under its head.
     expect(estimate({ id: "e", version: 1, at: 0, kind: "activity", items })).toBe(14 + editedCardHeight(0, 2));
   });

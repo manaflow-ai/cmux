@@ -1414,3 +1414,63 @@ describe("acpmux new chat", () => {
     expect(projectName(undefined)).toBeUndefined();
   });
 });
+
+describe("acpmux tool runs", () => {
+  const call = (id: string, kind: string, status = "completed") => ({
+    kind: "tool",
+    text: id,
+    tool: { id, title: id, kind, status },
+  });
+
+  /// Codex folds a settled run of calls under one summary line that opens to the calls.
+  test("a settled run shows one summary line and opens to its calls", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const items = [call("Read upload.ts", "read"), call("Search for retry", "search"), call("Run bun test", "execute")];
+    const texts = () => [...dom.window.document.querySelectorAll(".cv-tool")].map((node) => node.textContent);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [{ id: "a", version: 1, at: 1, kind: "activity", items }],
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      const summary = dom.window.document.querySelector<HTMLButtonElement>(".cv-tool.is-toggle")!;
+      expect(texts()).toEqual(["Read files, ran a command"]);
+      expect(summary.getAttribute("aria-expanded")).toBe("false");
+      await act(async () => summary.click());
+      expect(summary.getAttribute("aria-expanded")).toBe("true");
+      expect(texts()).toEqual(["Read files, ran a command", "Read upload.ts", "Search for retry", "Run bun test"]);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  test("a live run lists each call", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const items = [call("Read upload.ts", "read"), call("Run bun test", "execute", "in_progress")];
+    try {
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [{ id: "a", version: 1, at: 1, kind: "activity", items }],
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      expect([...dom.window.document.querySelectorAll(".cv-tool")].map((node) => node.textContent)).toEqual([
+        "Read upload.ts",
+        "Run bun test",
+      ]);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+});

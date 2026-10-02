@@ -4,6 +4,8 @@
 import { useState, type ReactNode } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
+import { ToolRun } from "./ToolRun";
+import { isFoldedRun } from "./toolRunSummary";
 import { workedLabel } from "./turns";
 import { ChevronRight, Copy, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
@@ -83,19 +85,22 @@ function ToolRow({ item }: { item: AcpmuxActivity }) {
   );
 }
 
-/// A run of tool calls and thoughts between two pieces of text.
+const toolItem = (item: AcpmuxActivity, index: number) =>
+  item.tool ? (
+    <ToolRow key={item.tool.id || index} item={item} />
+  ) : (
+    <div className="cv-tool cv-thought" key={index}>
+      <span className="cv-tool__text">{item.text}</span>
+    </div>
+  );
+
+/// A run of tool calls and thoughts between two pieces of text. Once it settles, a run of two or
+/// more calls folds under one summary line (toolRunSummary.ts); a live run lists each call.
 export function ToolRows({ row }: { row: AcpmuxRow }) {
+  const items = row.items ?? [];
   return (
     <div className="cv-tools">
-      {(row.items ?? []).map((item, index) =>
-        item.tool ? (
-          <ToolRow key={item.tool.id || index} item={item} />
-        ) : (
-          <div className="cv-tool cv-thought" key={index}>
-            <span className="cv-tool__text">{item.text}</span>
-          </div>
-        ),
-      )}
+      {isFoldedRun(items) ? <ToolRun items={items} renderItem={toolItem} /> : items.map(toolItem)}
     </div>
   );
 }
