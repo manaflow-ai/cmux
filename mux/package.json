@@ -6,7 +6,8 @@
   "bin": { "mux": "host/src/main.ts" },
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "build": "bun build --compile --outfile dist/mux host/src/main.ts"
   },
   "devDependencies": {
     "@types/bun": "1.2.23",

@@ -60,6 +60,8 @@ export interface HostOptions {
   /** Env baked into the mux's hooks and tools (MUX_HOME, ACPMUX_SOCKET, ...). */
   sessionEnv: Record<string, string>;
   mcpServers: McpServer[];
+  /** Makes the acpmux socket reachable before each connect (starts the daemon from ACPMUX_BIN). */
+  startAcpmux?: () => Promise<void>;
   log?: (line: string) => void;
   /** Reconnect backoff after a failed or lost connection. */
   backoff?: { initialMs: number; maxMs: number };
@@ -371,6 +373,7 @@ export class MuxHost {
   // MARK: acpmux
 
   private async runAcpmux(): Promise<void> {
+    await this.options.startAcpmux?.();
     const acpmux = await AcpmuxClient.connect(this.options.acpmuxSocket, "mux-host");
     const closed = new Promise<void>((resolve) => acpmux.onClose(() => resolve()));
     try {
