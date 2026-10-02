@@ -117,21 +117,41 @@ function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
   return [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
 }
 
-/** Sessions under one header per folder and machine. Groups follow their most recent session; sessions stay newest first. */
+/** Sessions under one header per folder. Groups follow their most recent session; sessions stay newest first. */
 export function groupByProject(sessions: AcpmuxSessionEntry[]): SessionGroup[] {
   const groups = new Map<string, SessionGroup>();
   for (const session of byRecency(sessions)) {
     const cwd = (session.cwd ?? "").replace(/\/+$/, "");
-    // The same folder on two machines is two projects.
-    const key = session.host ? `${session.host}:${cwd}` : cwd;
-    let group = groups.get(key);
+    // One repo is one project, wherever its sessions run; cloud rows carry their own glyph.
+    let group = groups.get(cwd);
     if (!group) {
-      group = { key, label: projectLabel(cwd), cwd: cwd || undefined, host: session.host, sessions: [] };
-      groups.set(key, group);
+      group = { key: cwd, label: projectLabel(cwd), cwd: cwd || undefined, sessions: [] };
+      groups.set(cwd, group);
     }
     group.sessions.push(session);
   }
+  for (const group of groups.values()) group.host = sharedCloudHost(group.sessions);
   return [...groups.values()];
+}
+
+/** The cloud machine a session runs on; this Mac is never named. */
+export const cloudHost = (session: AcpmuxSessionEntry) => (session.hostKind === "cloud" ? session.host : undefined);
+
+/** The one cloud machine every session in a group runs on, else undefined. */
+function sharedCloudHost(sessions: AcpmuxSessionEntry[]) {
+  const host = cloudHost(sessions[0]!);
+  return host && sessions.every((session) => cloudHost(session) === host) ? host : undefined;
+}
+
+/** Where a row says it runs, beyond its project: a cloud machine, then a worktree, then a branch. */
+export type SessionPlace = { kind: "cloud" | "worktree" | "branch"; label: string } | undefined;
+
+export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string): SessionPlace {
+  const host = cloudHost(session);
+  if (host && host !== groupHost) return { kind: "cloud", label: host };
+  if (session.worktree) return { kind: "worktree", label: session.branch ?? session.worktree };
+  if (session.branch) return { kind: "branch", label: session.branch };
+  return undefined;
 }
 
 /** The list's two sections: pinned sessions, newest first, then every other session grouped by project. */

@@ -167,10 +167,12 @@ describe("summary entries", () => {
 });
 
 describe("sections", () => {
-  test("pinned sessions leave their project, and one folder on two machines is two projects", () => {
+  test("pinned sessions leave their project, and one folder on two machines is one project", () => {
     const { pinned, groups } = sidebarSections([
-      { sessionId: "a", cwd: "/src/acpmux", updatedAt: 5 },
-      { sessionId: "b", cwd: "/src/acpmux", host: "cobalt-butte", updatedAt: 4 },
+      { sessionId: "a", cwd: "/src/acpmux", host: "This Mac", hostKind: "local", updatedAt: 5 },
+      { sessionId: "b", cwd: "/src/acpmux", host: "cobalt-butte", hostKind: "cloud", updatedAt: 4 },
+      { sessionId: "e", cwd: "/src/cloud", host: "cobalt-butte", hostKind: "cloud", updatedAt: 2 },
+      { sessionId: "f", cwd: "/src/cloud/", host: "cobalt-butte", hostKind: "cloud", updatedAt: 1 },
       { sessionId: "c", cwd: "/src/acpmux", pinned: true, updatedAt: 3 },
       { sessionId: "d", cwd: "/src/web", pinned: true, updatedAt: 9 },
     ]);
@@ -178,8 +180,8 @@ describe("sections", () => {
     expect(
       groups.map((group) => [group.label, group.host, group.sessions.map((session) => session.sessionId)]),
     ).toEqual([
-      ["acpmux", undefined, ["a"]],
-      ["acpmux", "cobalt-butte", ["b"]],
+      ["acpmux", undefined, ["a", "b"]],
+      ["cloud", "cobalt-butte", ["e", "f"]],
     ]);
   });
 });
