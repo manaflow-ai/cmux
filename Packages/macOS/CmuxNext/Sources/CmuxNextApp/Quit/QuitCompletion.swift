@@ -8,7 +8,7 @@ import CmuxNextSettings
 struct QuitSteps {
     var remember: @MainActor (QuitBehavior) async -> Void
     var prepareWindows: @MainActor () async -> Void
-    var endLocalSessions: @MainActor (_ deleteWorkspaces: Bool) async -> Void
+    var endLocalSessions: @MainActor (QuitSessionsChoice) async -> Void
 }
 
 enum QuitCompletion {
@@ -16,6 +16,6 @@ enum QuitCompletion {
     static func run(_ choice: QuitSessionsChoice, remember: Bool, _ steps: QuitSteps) async {
         if remember { await steps.remember(QuitPolicy.remembered(choice)) }
         await steps.prepareWindows()
-        if choice.ends { await steps.endLocalSessions(choice == .endEverything) }
+        if choice.ends { await steps.endLocalSessions(choice) }
     }
 }

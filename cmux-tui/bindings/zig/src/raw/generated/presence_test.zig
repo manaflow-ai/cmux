@@ -45,6 +45,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SetDefaultColorsRequest, "complete");
     try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "force");
+    try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "keep_layout");
     try expectExplicitNullRejected(protocol.SidebarPluginRequest, "relaunch");
     try expectExplicitNullRejected(protocol.SplitRequest, "keep");
     try expectExplicitNullRejected(protocol.TerminalEventsRequest, "after_revision");

@@ -55,6 +55,8 @@ export type AcpmuxSnapshot = {
   sessions: AcpmuxSessionEntry[];
   summary?: {
     sessionId: string;
+    cwd?: string;
+    turnCount?: number;
     title?: string;
     name?: string;
     harness?: string;

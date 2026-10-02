@@ -62,6 +62,11 @@
 .acpmux-slash-hint{flex:none;color:var(--acpmux-composer-dim);font-style:italic}
 .acpmux-slash-description{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
 .acpmux-slash-empty{padding:0 14px;height:40px;display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:20px}
+/* New chat (EmptyState.tsx): Codex's centered hero, smaller and muted, in place of the empty transcript. */
+.acpmux-empty{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:0 24px 6%;box-sizing:border-box;text-align:center;font-family:system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+.acpmux-empty-glyph{color:var(--acpmux-composer-placeholder)}
+.acpmux-empty-title{margin:0;max-width:560px;font-size:20px;line-height:28px;font-weight:400;color:var(--agent-text);overflow-wrap:anywhere}
+.acpmux-empty-project{text-decoration:underline;text-decoration-color:var(--acpmux-composer-placeholder);text-underline-offset:4px;text-decoration-thickness:1px}
 :root{--acpmux-add:var(--agent-diff-add,#90b345);--acpmux-del:var(--agent-diff-del,#b4365e)}
 .acpmux-diff-panel{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;color:var(--agent-text);font:13px/20px system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
 .acpmux-diff-header{display:flex;align-items:center;gap:8px;height:48px;box-sizing:border-box;padding:0 8px;border-bottom:1px solid var(--agent-border)}
