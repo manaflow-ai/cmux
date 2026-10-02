@@ -20,7 +20,7 @@ public protocol CloudTuiCommandRunning: Sendable {
 /// line discipline. The request is written on the link's persistent channel;
 /// no retry is attempted after the bytes have been handed to that channel.
 public protocol CloudTuiUntrackedCommandSending: Sendable {
-    func sendUntrackedTuiCommand(arguments: CloudTuiRequest) async throws
+    nonisolated func sendUntrackedTuiCommand(arguments: CloudTuiRequest) async throws
 }
 
 extension CloudMachineLink: CloudTuiCommandRunning {
