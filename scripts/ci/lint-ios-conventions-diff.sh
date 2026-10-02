@@ -77,6 +77,25 @@ git worktree add --detach "$base_tree" "$BASE_SHA" >/dev/null 2>&1 || {
       print rule "\t" parts[1] "\t" $0
     }' | sort -u ) > "$base_list"
 
+# Shrink-only lists hide their entries from both sides of the comparison
+# above, so an entry added to one would pass as "no new violations". Fail
+# on any entry the base did not have. A list the base lacks is being seeded.
+grown=0
+for list in scripts/lint-namespace-types-baseline.txt scripts/lint-namespace-types-ratchet.txt; do
+  [ -f "$list" ] || continue
+  git cat-file -e "$BASE_SHA:$list" 2>/dev/null || continue
+  while IFS= read -r entry; do
+    printf 'GREW %s  %s\n' "$list" "$entry"
+    grown=$((grown + 1))
+  done < <(comm -13 <(git show "$BASE_SHA:$list" | grep -v '^#' | grep -v '^[[:space:]]*$' | sort -u) \
+                    <(grep -v '^#' "$list" | grep -v '^[[:space:]]*$' | sort -u))
+done
+if [ "$grown" -gt 0 ]; then
+  echo
+  echo "FAIL: $grown entry/entries added to a shrink-only list. Fix the type instead."
+  exit 1
+fi
+
 new_count=0
 while IFS=$'\t' read -r rule file text; do
   [ -z "$rule" ] && continue
