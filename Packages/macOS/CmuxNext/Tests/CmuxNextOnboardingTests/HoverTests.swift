@@ -39,6 +39,15 @@ import Testing
         }
     }
 
+    final class Sink: NSObject {
+        @objc func hit() {}
+    }
+
+    /// The fill's alpha as drawn now; 0 when there is none.
+    func fillAlpha(_ hover: OnboardingHover) -> CGFloat {
+        hover.shownFill?.alpha ?? 0
+    }
+
     func profile() -> BrowserSourceProfile {
         BrowserSourceProfile(browser: .edge, directoryName: "Default", displayName: "Work", path: URL(fileURLWithPath: "/tmp/Default"),
                              availability: [.bookmarks: .available])
@@ -57,25 +66,25 @@ import Testing
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness()
         defer { h.window.close() }
-        let button = OnboardingTextButton("Skip", target: nil, action: #selector(NSView.display))
+        let button = OnboardingTextButton("Skip", target: nil, action: #selector(Sink.hit))
         h.window.contentView!.addSubview(button)
         button.setFrameOrigin(NSPoint(x: 20, y: 20))
         button.setFrameSize(button.intrinsicContentSize)
         button.layoutSubtreeIfNeeded()
         let frame = button.frame
         let size = button.intrinsicContentSize
-        #expect(button.hover.shownFill?.alpha ?? 0 == 0)
+        #expect(fillAlpha(button.hover) == 0)
 
         button.mouseEntered(with: h.event(.mouseEntered, at: NSPoint(x: 2, y: 2), in: button))
         button.layoutSubtreeIfNeeded()
         #expect(button.hover.state.hovering)
-        #expect((button.hover.shownFill?.alpha ?? 0) > 0)
+        #expect(fillAlpha(button.hover) > 0)
         #expect(button.frame == frame && button.intrinsicContentSize == size)
         #expect(button.hover.fillFrame.width > button.bounds.width, "the fill reaches past the text, the text does not move")
 
         button.mouseExited(with: h.event(.mouseExited, at: NSPoint(x: -50, y: -50), in: button))
         #expect(!button.hover.state.hovering)
-        #expect(button.hover.shownFill?.alpha ?? 0 == 0)
+        #expect(fillAlpha(button.hover) == 0)
     }
 
     @Test func aDisabledTextButtonShowsNoHover() {
@@ -83,7 +92,7 @@ import Testing
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness()
         defer { h.window.close() }
-        let button = OnboardingTextButton("Back", target: nil, action: #selector(NSView.display))
+        let button = OnboardingTextButton("Back", target: nil, action: #selector(Sink.hit))
         h.window.contentView!.addSubview(button)
         button.isEnabled = false
         button.mouseEntered(with: h.event(.mouseEntered, at: .zero, in: button))
