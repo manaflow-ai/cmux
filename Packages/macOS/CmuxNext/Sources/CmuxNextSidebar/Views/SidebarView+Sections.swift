@@ -35,7 +35,9 @@ extension SidebarView {
         // Sticky item sections above and below the list, each capped at
         // its share of the height (then it scrolls inside).
         let available = max(0, b.height - y - footerHeight)
-        let bands = model.layout.bands(room: model.activeProfileID?.rawValue)
+        let hidden = Set(model.itemInfo.filter(\.value.isHidden).keys)
+        let (above, below) = model.layout.bands(room: model.activeProfileID?.rawValue)
+        let bands = (above: above.hidingItems(hidden), below: below.hidingItems(hidden))
         let look = SidebarSectionTunables.currentLook
         let metrics = SidebarRegionMetrics.standard
         func content(_ sections: [LayoutSection]) -> SidebarRegionView.Content {
