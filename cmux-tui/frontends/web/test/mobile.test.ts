@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { drawerReducer, encodeCtrlKey } from "../src/lib/mobile";
 
 describe("sticky Ctrl encoding", () => {

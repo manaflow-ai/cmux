@@ -189,3 +189,34 @@ describe("mock transport", () => {
     client.close();
   });
 });
+
+describe("mock seeded sessions", () => {
+  test("the sidebar gets a populated list, and opening a running one settles it", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    (globalThis as any).window ??= globalThis;
+    const client = await AcpmuxDirectClient.connect(
+      mockHost,
+      (snapshot) => snapshots.push(snapshot),
+      undefined,
+      () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket,
+    );
+    client.snapshot();
+    const sessions = snapshots.at(-1)!.sessions;
+    expect(sessions.length).toBeGreaterThanOrEqual(15);
+    expect(sessions.some((session) => session.pinned)).toBe(true);
+    expect(sessions.some((session) => session.host)).toBe(true);
+    // The mock's own session is newest, so it opens selected.
+    expect(snapshots.at(-1)?.sessionId).toBe(mockHost.sessionId);
+
+    await client.select("mock-cmux-ci");
+    for (
+      let tries = 0;
+      tries < 20 &&
+      snapshots.at(-1)?.sessions.find((session) => session.sessionId === "mock-cmux-ci")?.status !== "idle";
+      tries += 1
+    )
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(snapshots.at(-1)?.sessions.find((session) => session.sessionId === "mock-cmux-ci")?.status).toBe("idle");
+    expect(snapshots.at(-1)?.isWorking).toBe(false);
+  });
+});
