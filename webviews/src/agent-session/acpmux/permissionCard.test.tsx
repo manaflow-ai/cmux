@@ -91,13 +91,14 @@ test("each button shows its key", async () => {
 });
 
 test("a key answers the ask it is focused in", async () => {
-  const answers = await render(ask);
-  await press("n");
-  await press("a");
-  await press("y");
-  // Digits pick by position too.
-  await press("3");
-  expect(answers).toEqual(["reject_once", "allow_always", "allow_once", "reject_once"]);
+  // Each key against a fresh ask: the keyboard answers an ask once.
+  const picked: string[] = [];
+  for (const key of ["n", "a", "y", "3"]) {
+    const answers = await render({ ...ask, permissionId: `p-${key}` });
+    await press(key);
+    picked.push(...answers);
+  }
+  expect(picked).toEqual(["reject_once", "allow_always", "allow_once", "reject_once"]);
 });
 
 test("a key with a modifier, while composing, or for no option does nothing", async () => {
