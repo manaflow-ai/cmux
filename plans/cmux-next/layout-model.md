@@ -1,6 +1,6 @@
 # cmux next: layout model (proposal)
 
-Status: proposal 2026-10-02 by the layout model lead (rows work continues inside this lane).
+Status: decided 2026-10-02 (section "Decisions"); was a proposal by the layout model lead (rows work continues inside this lane).
 Not the spec: the coordinator writes the spec from this ("spec proposal: layout model").
 Builds on rows.md (columns of rows, approved), sticky-column.md (left and right sticky columns,
 implemented), column-sizing.md and OWNERSHIP-PRINCIPLES.md (binding).
@@ -32,8 +32,8 @@ columns, rows, all four edges and both orientations.
 | column | a vertical band of the strip; a vertical stack of rows (rows.md) |
 | row | a horizontal band of a column; holds one split tree |
 | dock | a column pinned to a screen edge: left, right, top or bottom; at most one per edge |
-| pinned | dock mode that takes space from the strip (code and wire name today: `docked`) |
-| overlay | dock mode that floats over the strip; the strip gets an inset at that edge |
+| docked | dock mode that takes space from the strip (UI "Docked"; wire `docked`) |
+| floating | dock mode that floats over the strip; the strip gets an inset at that edge (UI "Floating"; wire `overlay`) |
 | frame | the four docks around the strip |
 | orientation | per screen: `column_major` (side docks own the corners) or `row_major` (top/bottom docks own the corners) |
 
@@ -287,13 +287,15 @@ Screenshots and recordings are listed in "Evidence".
 4. App: four-edge geometry, top/bottom bands, reveal under overlays, drop bands.
 5. Surfaces: actions above.
 
-## Decisions for Lawrence
+## Decisions (Lawrence, 2026-10-02, through the coordinator)
 
-1. Model A, the frame (recommended), against B, the grid, or C, stacked strips.
-2. Decided (L2): both orientations exist, per screen. Open: the default for new screens,
-   column-major (recommended: left/right, the excellent pair, never shrink) or row-major; and
-   whether Settings offers a default orientation (recommended: yes, `layout.frameOrientation`).
-3. Top/bottom docks hold one split tree that fits (recommended for v1), or a horizontally
-   scrolling strip of their own.
-4. UI names "Pinned" and "Overlay" (recommended; the wire keeps `docked`), or keep "Docked".
-5. Per-column sticky rows (a header pinned above its own column) later, or never.
+1. Design A, the frame with four docks.
+2. Default orientation for new screens: column-major; Settings and cmux.json offer the default
+   as `layout.frameOrientation` (`columnMajor` | `rowMajor`).
+3. Top and bottom docks hold one split tree in v1 (E3).
+4. UI names: "Docked" (takes space) and "Floating" (floats over the strip). "Pinned" stays
+   reserved for pinned tabs in panes, so this note's "pinned" mode is shown as Docked; the wire
+   keeps `docked` and `overlay`.
+5. Per-column sticky rows: later.
+6. The layout model lead also owns the app four-edge geometry (F1 to F6), coordinated with the
+   sticky column lane and the close-focus rules; live rendering with recordings is the evidence.

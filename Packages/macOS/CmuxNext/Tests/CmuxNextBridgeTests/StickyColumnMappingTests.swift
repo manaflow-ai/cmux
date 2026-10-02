@@ -27,8 +27,10 @@ struct StickyColumnMappingTests {
         #expect(sticky == StickySnapshot(edge: .right, mode: .docked))
     }
 
+    /// Left and right travel in `sticky`; top and bottom docks wait for the
+    /// daemon's `dock` field (`edge-docks-v1`) and never reach this mapping.
     @Test func roundTripsThroughTheLayout() {
-        for edge in StickyEdge.allCases {
+        for edge in StickyEdge.allCases where !edge.isBand {
             for mode in StickyMode.allCases {
                 let sticky = StickyColumn(edge: edge, mode: mode)
                 #expect(LayoutMapping.sticky(LayoutMapping.snapshot(sticky)) == sticky)

@@ -55,7 +55,9 @@ public struct LayoutMapping {
         StickyColumn(edge: snapshot.edge == .left ? .left : .right, mode: snapshot.mode == .overlay ? .overlay : .docked)
     }
 
-    /// The layout's sticky column as the daemon's.
+    /// The layout's sticky column as the daemon's. Only left and right reach
+    /// here: `StickyColumnHandlers.apply` refuses top and bottom docks until
+    /// the daemon serves `edge-docks-v1` (they will travel in `dock`).
     public nonisolated static func snapshot(_ sticky: StickyColumn) -> StickySnapshot {
         StickySnapshot(edge: sticky.edge == .left ? .left : .right, mode: sticky.mode == .overlay ? .overlay : .docked)
     }
