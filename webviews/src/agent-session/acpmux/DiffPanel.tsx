@@ -50,11 +50,15 @@ export function DiffPanel({
   initialPath,
   onClose,
   source,
+  checkpointAction,
+  checkpointReview,
 }: {
   files: TurnFile[];
   initialPath?: string;
   onClose: () => void;
   source?: ChangesSource;
+  checkpointAction?: React.ReactNode;
+  checkpointReview?: React.ReactNode;
 }) {
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
@@ -245,6 +249,7 @@ export function DiffPanel({
           {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
         </ScopeMenu>
         <div className="acpmux-diff-tools" role="toolbar" aria-label="Changes view">
+          {checkpointAction}
           <OptionsMenu rows={options} />
           {tools.map((tool) => (
             <button
@@ -268,6 +273,7 @@ export function DiffPanel({
           {skipped > 0 && <TrackedOnlyBanner skipped={skipped} onRefresh={refresh} />}
         </div>
       )}
+      {checkpointReview}
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">
           {scopeState ? (
