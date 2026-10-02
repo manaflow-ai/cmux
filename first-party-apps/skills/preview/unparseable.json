@@ -1,0 +1,369 @@
+{
+  "grant": [
+    "workspace:read",
+    "workspace:write",
+    "skill:read",
+    "skill:write",
+    "mcp_server:read",
+    "mcp_server:write"
+  ],
+  "scopes": {
+    "skill.list": {
+      "scope": "skill:read",
+      "class": "read"
+    },
+    "mcp_server.list": {
+      "scope": "mcp_server:read",
+      "class": "read"
+    },
+    "skill.enable": {
+      "scope": "skill:write",
+      "class": "mutation"
+    },
+    "skill.disable": {
+      "scope": "skill:write",
+      "class": "mutation"
+    },
+    "skill.remove": {
+      "scope": "skill:write",
+      "class": "mutation"
+    },
+    "skill.install": {
+      "scope": "skill:write",
+      "class": "mutation"
+    },
+    "mcp_server.add": {
+      "scope": "mcp_server:write",
+      "class": "mutation"
+    },
+    "mcp_server.enable": {
+      "scope": "mcp_server:write",
+      "class": "mutation"
+    },
+    "mcp_server.disable": {
+      "scope": "mcp_server:write",
+      "class": "mutation"
+    },
+    "mcp_server.remove": {
+      "scope": "mcp_server:write",
+      "class": "mutation"
+    },
+    "diff.decide": {
+      "scope": "mcp_server:write",
+      "class": "mutation"
+    },
+    "workspace.root": {
+      "scope": "workspace:read",
+      "class": "read"
+    },
+    "ui.open": {
+      "scope": "workspace:read",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "workspace.list": [
+      {
+        "id": "workspace_1",
+        "session_id": "session_1",
+        "name": "notes",
+        "index": 0,
+        "focused": false
+      },
+      {
+        "id": "workspace_2",
+        "session_id": "session_1",
+        "name": "api-server",
+        "index": 1,
+        "focused": true
+      }
+    ],
+    "workspace.root": {
+      "root": "root_proj01",
+      "label": "api-server"
+    },
+    "skill.list": {
+      "skills": [
+        {
+          "id": "skl_01",
+          "name": "release-notes",
+          "agent": "claude",
+          "scope": "user",
+          "root": null,
+          "enabled": true,
+          "sandbox": "standard",
+          "requests": [
+            "fs:read:project",
+            "process:execute"
+          ],
+          "source": {
+            "kind": "git",
+            "label": "acme/agent-skills/release-notes",
+            "url": "https://github.com/acme/agent-skills.git",
+            "ref": "v1.4.0"
+          },
+          "description": "Drafts release notes from merged pull requests and the changelog.",
+          "path_label": "~/.claude/skills/release-notes"
+        },
+        {
+          "id": "skl_02",
+          "name": "release-notes",
+          "agent": "codex",
+          "scope": "user",
+          "root": null,
+          "enabled": true,
+          "sandbox": "standard",
+          "requests": [
+            "fs:read:project",
+            "process:execute"
+          ],
+          "source": {
+            "kind": "git",
+            "label": "acme/agent-skills/release-notes",
+            "url": "https://github.com/acme/agent-skills.git",
+            "ref": "v1.4.0"
+          },
+          "description": "Drafts release notes from merged pull requests and the changelog.",
+          "path_label": "~/.codex/skills/release-notes"
+        },
+        {
+          "id": "skl_03",
+          "name": "pdf-tools",
+          "agent": "claude",
+          "scope": "project",
+          "root": "root_proj01",
+          "enabled": true,
+          "sandbox": "contained",
+          "requests": [
+            "fs:read:project"
+          ],
+          "source": {
+            "kind": "store",
+            "label": "acme/pdf-tools"
+          },
+          "description": "Reads, fills and merges PDF forms.",
+          "path_label": ".claude/skills/pdf-tools"
+        },
+        {
+          "id": "skl_04",
+          "name": "db-migrations",
+          "agent": "codex",
+          "scope": "project",
+          "root": "root_proj01",
+          "enabled": false,
+          "sandbox": "none",
+          "requests": [
+            "process:execute",
+            "net:db.internal.example"
+          ],
+          "source": {
+            "kind": "local",
+            "label": ""
+          },
+          "description": "Writes and checks database migrations for this service.",
+          "path_label": ".codex/skills/db-migrations"
+        }
+      ]
+    },
+    "mcp_server.list": {
+      "servers": [
+        {
+          "id": "mcp_01",
+          "name": "linear",
+          "agent": "claude",
+          "scope": "user",
+          "root": null,
+          "enabled": true,
+          "sandbox": "standard",
+          "transport": "http",
+          "env_keys": [],
+          "requests": [
+            "net:mcp.linear.app"
+          ],
+          "source": {
+            "kind": "agent",
+            "label": "Claude Code"
+          },
+          "url": "https://mcp.linear.app/mcp",
+          "path_label": "~/.claude.json"
+        },
+        {
+          "id": "mcp_02",
+          "name": "linear",
+          "agent": "codex",
+          "scope": "user",
+          "root": null,
+          "enabled": true,
+          "sandbox": "standard",
+          "transport": "http",
+          "env_keys": [],
+          "requests": [
+            "net:mcp.linear.app"
+          ],
+          "source": {
+            "kind": "local",
+            "label": ""
+          },
+          "url": "https://mcp.linear.app/mcp",
+          "path_label": "~/.codex/config.toml"
+        },
+        {
+          "id": "mcp_03",
+          "name": "github",
+          "agent": "codex",
+          "scope": "user",
+          "root": null,
+          "enabled": true,
+          "sandbox": "none",
+          "transport": "stdio",
+          "env_keys": [
+            "GITHUB_TOKEN"
+          ],
+          "requests": [
+            "process:execute",
+            "net:api.github.com"
+          ],
+          "source": {
+            "kind": "local",
+            "label": ""
+          },
+          "command_label": "docker run -i --rm ghcr.io/github/github-mcp-server",
+          "path_label": "~/.codex/config.toml"
+        },
+        {
+          "id": "mcp_04",
+          "name": "postgres",
+          "agent": "claude",
+          "scope": "project",
+          "root": "root_proj01",
+          "enabled": true,
+          "sandbox": "contained",
+          "transport": "stdio",
+          "env_keys": [
+            "DATABASE_URL"
+          ],
+          "requests": [
+            "process:execute",
+            "net:db.internal.example"
+          ],
+          "source": {
+            "kind": "local",
+            "label": ""
+          },
+          "command_label": "npx -y @acme/postgres-mcp",
+          "path_label": ".mcp.json"
+        },
+        {
+          "id": "mcp_05",
+          "name": "browser",
+          "agent": "opencode",
+          "scope": "user",
+          "root": null,
+          "enabled": false,
+          "sandbox": "none",
+          "transport": "stdio",
+          "env_keys": [],
+          "requests": [
+            "process:execute"
+          ],
+          "source": {
+            "kind": "local",
+            "label": ""
+          },
+          "command_label": "npx -y @acme/browser-mcp",
+          "path_label": "~/.config/opencode/opencode.json"
+        }
+      ]
+    },
+    "mcp_server.add": {
+      "$error": {
+        "code": "config.unparseable",
+        "message": "opencode.json has comments"
+      }
+    },
+    "mcp_server.disable": {
+      "diff": "diff_cfg01",
+      "title": "Turn off github for Codex everywhere",
+      "files": [
+        {
+          "path_label": "~/.codex/config.toml",
+          "kind": "modify",
+          "patch": "--- a/~/.codex/config.toml\n+++ b/~/.codex/config.toml\n@@ -6,4 +6,5 @@\n \n [mcp_servers.github]\n+enabled = false\n command = \"docker\"\n args = [\"run\", \"-i\", \"--rm\", \"ghcr.io/github/github-mcp-server\"]\n"
+        }
+      ],
+      "requests": [
+        "net:docs.example.com"
+      ],
+      "sandbox": "standard"
+    },
+    "mcp_server.enable": {
+      "diff": "diff_cfg01",
+      "title": "Turn off github for Codex everywhere",
+      "files": [
+        {
+          "path_label": "~/.codex/config.toml",
+          "kind": "modify",
+          "patch": "--- a/~/.codex/config.toml\n+++ b/~/.codex/config.toml\n@@ -6,4 +6,5 @@\n \n [mcp_servers.github]\n+enabled = false\n command = \"docker\"\n args = [\"run\", \"-i\", \"--rm\", \"ghcr.io/github/github-mcp-server\"]\n"
+        }
+      ],
+      "requests": [
+        "net:docs.example.com"
+      ],
+      "sandbox": "standard"
+    },
+    "mcp_server.remove": {
+      "diff": "diff_cfg01",
+      "title": "Turn off github for Codex everywhere",
+      "files": [
+        {
+          "path_label": "~/.codex/config.toml",
+          "kind": "modify",
+          "patch": "--- a/~/.codex/config.toml\n+++ b/~/.codex/config.toml\n@@ -6,4 +6,5 @@\n \n [mcp_servers.github]\n+enabled = false\n command = \"docker\"\n args = [\"run\", \"-i\", \"--rm\", \"ghcr.io/github/github-mcp-server\"]\n"
+        }
+      ],
+      "requests": [
+        "net:docs.example.com"
+      ],
+      "sandbox": "standard"
+    },
+    "skill.disable": {
+      "diff": "diff_cfg01",
+      "title": "Turn off github for Codex everywhere",
+      "files": [
+        {
+          "path_label": "~/.codex/config.toml",
+          "kind": "modify",
+          "patch": "--- a/~/.codex/config.toml\n+++ b/~/.codex/config.toml\n@@ -6,4 +6,5 @@\n \n [mcp_servers.github]\n+enabled = false\n command = \"docker\"\n args = [\"run\", \"-i\", \"--rm\", \"ghcr.io/github/github-mcp-server\"]\n"
+        }
+      ],
+      "requests": [
+        "net:docs.example.com"
+      ],
+      "sandbox": "standard"
+    },
+    "skill.enable": {
+      "diff": "diff_cfg01",
+      "title": "Turn off github for Codex everywhere",
+      "files": [
+        {
+          "path_label": "~/.codex/config.toml",
+          "kind": "modify",
+          "patch": "--- a/~/.codex/config.toml\n+++ b/~/.codex/config.toml\n@@ -6,4 +6,5 @@\n \n [mcp_servers.github]\n+enabled = false\n command = \"docker\"\n args = [\"run\", \"-i\", \"--rm\", \"ghcr.io/github/github-mcp-server\"]\n"
+        }
+      ],
+      "requests": [
+        "net:docs.example.com"
+      ],
+      "sandbox": "standard"
+    },
+    "diff.decide": {
+      "applied": true
+    },
+    "ui.open": {},
+    "app.pane.open": {}
+  }
+}
