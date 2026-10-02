@@ -95,10 +95,9 @@ function requestError(error: unknown): CheckpointRpcError {
   });
 }
 function targetParams(target: CheckpointTarget): Record<string, unknown> {
-  const params = { ...target } as Record<string, unknown>;
-  if (typeof params.cwd !== "string" || params.cwd.length === 0)
+  if (typeof target.cwd !== "string" || target.cwd.length === 0)
     throw new CheckpointRpcError("validation.invalid", "A working directory is required.");
-  return params;
+  return { cwd: target.cwd };
 }
 function isNotFound(error: unknown): boolean {
   return requestError(error).code === "resource.not_found";

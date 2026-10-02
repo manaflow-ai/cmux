@@ -70,9 +70,14 @@ function harness() {
 describe("CheckpointClient", () => {
   test("sends only cwd and contract parameters to the native Git owner", async () => {
     const h = harness();
-    const client = new CheckpointClient(h.request, new MemoryPersistence(), () => "wire-key", async () => ({
-      checkpoints: true,
-    }));
+    const client = new CheckpointClient(
+      h.request,
+      new MemoryPersistence(),
+      () => "wire-key",
+      async () => ({
+        checkpoints: true,
+      }),
+    );
     await client.refreshCapabilities();
     client.select({ ...target, hostKind: "local" });
     await client.list({ include_candidates: true });
@@ -84,7 +89,13 @@ describe("CheckpointClient", () => {
       { method: CHECKPOINT_OPS.get, params: { cwd: "/repo", checkpoint_id: "cp-1" } },
       {
         method: CHECKPOINT_OPS.pin,
-        params: { cwd: "/repo", checkpoint_id: "cp-1", pin_id: "user:keep", reason: "Keep", idempotency_key: "wire-key" },
+        params: {
+          cwd: "/repo",
+          checkpoint_id: "cp-1",
+          pin_id: "user:keep",
+          reason: "Keep",
+          idempotency_key: "wire-key",
+        },
       },
       {
         method: CHECKPOINT_OPS.unpin,
