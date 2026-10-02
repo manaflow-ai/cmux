@@ -15,7 +15,11 @@ pub(crate) fn run(args: Vec<OsString>) -> i32 {
         return open(&words);
     }
     let home = std::env::var("HOME").ok().map(PathBuf::from);
-    let tag = std::env::var("CMUX_TAG").ok();
+    let identity = crate::app_identity::AppIdentity::detect(
+        |name| std::env::var(name).ok(),
+        std::env::current_exe().ok().as_deref(),
+    );
+    let tag = acpmux_tag(std::env::var("CMUX_TAG").ok(), identity);
     finish(entry::main(
         args,
         Invocation {
@@ -88,6 +92,17 @@ fn finish(result: anyhow::Result<()>) -> i32 {
 /// A tagged dev build keeps its own acpmux daemon and sessions, so it never
 /// shares state with the user's cmux or with another tag. Untagged builds use
 /// the acpmux default (`~/.acpmux`), shared with a standalone `acpmux`.
+/// The tag whose acpmux home `cmux acp` uses: `CMUX_TAG` (set in the
+/// app's terminals), else the tag of the app bundle around this executable,
+/// so a tagged build started from Finder or a script keeps its acpmux apart
+/// from the user's, as its daemon session does (`AppIdentity`).
+pub(crate) fn acpmux_tag(
+    env_tag: Option<String>,
+    identity: Option<crate::app_identity::AppIdentity>,
+) -> Option<String> {
+    env_tag.filter(|tag| !tag.trim().is_empty()).or_else(|| identity?.tag)
+}
+
 pub(crate) fn tagged_home(tag: Option<&str>, home: &Path) -> Option<PathBuf> {
     let slug = sanitize_tag(tag?)?;
     Some(home.join(".acpmux").join("tags").join(slug))
@@ -124,6 +139,25 @@ mod tests {
             words(&["pane", "pane_01", "run", "--", "/b/cmux", "acp", "attach", "review"])
         );
         assert!(open_command(&words(&[]), "/b/cmux").is_err());
+    }
+
+    #[test]
+    fn a_tagged_bundle_without_cmux_tag_uses_its_own_acpmux_home() {
+        let bundle = crate::app_identity::AppIdentity {
+            bundle_id: Some("com.cmuxterm.app.debug.acpx-v2".into()),
+            tag: Some("acpx-v2".into()),
+            socket_override: None,
+        };
+        assert_eq!(acpmux_tag(None, Some(bundle.clone())).as_deref(), Some("acpx-v2"));
+        assert_eq!(acpmux_tag(Some(" ".into()), Some(bundle.clone())).as_deref(), Some("acpx-v2"));
+        assert_eq!(acpmux_tag(Some("own".into()), Some(bundle)).as_deref(), Some("own"));
+        let untagged = crate::app_identity::AppIdentity {
+            bundle_id: Some("com.cmuxterm.app".into()),
+            tag: None,
+            socket_override: None,
+        };
+        assert_eq!(acpmux_tag(None, Some(untagged)), None);
+        assert_eq!(acpmux_tag(None, None), None);
     }
 
     #[test]
