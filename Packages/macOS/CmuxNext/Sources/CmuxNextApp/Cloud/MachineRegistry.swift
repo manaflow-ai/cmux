@@ -139,6 +139,8 @@ final class CloudMachineSession {
     var machine: CloudMachine
     let daemon: DaemonService
     @ObservationIgnored let link: CloudMachineLink
+    @ObservationIgnored private var linkTransition: Task<Void, Never>?
+    @ObservationIgnored private var disconnected = false
     /// Repairs an empty workspace on this machine (never on another).
     @ObservationIgnored private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
 
@@ -150,25 +152,42 @@ final class CloudMachineSession {
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
     }
 
-    /// Connects when the machine is live; the link restarts as needed.
+    /// Serializes lifecycle hops so a late pause cannot kill a resumed link.
     func connect() {
-        guard machine.status.isLive else { return }
-        let link = link
-        daemon.start(remote: { try await link.socketPath() })
+        guard !disconnected, machine.status.isLive else { return }
+        let previous = linkTransition
+        // task-owner: one lifecycle hop; each later hop waits for this one
+        linkTransition = Task {
+            await previous?.value
+            await link.resume()
+            guard !disconnected, machine.status.isLive else { return }
+            let link = link
+            daemon.start(remote: { try await link.socketPath() })
+        }
     }
 
     func disconnect() {
+        disconnected = true
         daemon.shutdownConnection()
+        let previous = linkTransition
         let link = link
-        // task-owner: teardown hop; link.stop() is terminal and re-checked after every await in start
-        Task { await link.stop() }
+        // task-owner: terminal teardown after earlier lifecycle hops
+        linkTransition = Task {
+            await previous?.value
+            await link.stop()
+        }
     }
 
     /// Drops the daemon connection while keeping the link reusable after a
     /// provider pause/resume transition.
     func suspend() {
         daemon.shutdownConnection()
+        let previous = linkTransition
         let link = link
-        Task { await link.suspend() }
+        // task-owner: reversible teardown; resume waits for this hop
+        linkTransition = Task {
+            await previous?.value
+            await link.suspend()
+        }
     }
 }

@@ -22,6 +22,8 @@ public actor CloudMachineLink {
     private var socket: String?
     private var starting: Task<String, any Error>?
     private var stopped = false
+    private var suspended = false
+    private var generation = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.link")
 
     public init(machineID: String, api: CloudAPIClient, hub: CloudTunnelHub, paths: CloudPaths, binary: URL, deviceName: String) {
@@ -34,18 +36,26 @@ public actor CloudMachineLink {
     }
 
     public func socketPath() async throws -> String {
-        guard !stopped else { throw CancellationError() }
+        try checkGeneration(generation)
         if let socket, child?.isRunning == true, FileManager.default.fileExists(atPath: socket) { return socket }
         if let starting { return try await starting.value }
-        let task = Task { try await self.start() }
+        let generation = generation
+        let task = Task { try await self.start(generation: generation) }
         starting = task
-        defer { starting = nil }
+        defer { if self.generation == generation { starting = nil } }
         return try await task.value
     }
 
     /// Ends the link for good (machine removed, sign-out, quit).
     public func stop() {
         stopped = true
+        invalidate()
+    }
+
+    private func invalidate() {
+        generation += 1
+        starting?.cancel()
+        starting = nil
         child?.terminate()
         child = nil
         socket = nil
@@ -56,24 +66,35 @@ public actor CloudMachineLink {
     /// on the same session.
     public func suspend() {
         guard !stopped else { return }
-        child?.terminate()
-        child = nil
-        socket = nil
+        suspended = true
+        invalidate()
+    }
+
+    /// Allows a new connection after the provider reports the machine live.
+    public func resume() {
+        guard !stopped else { return }
+        suspended = false
+    }
+
+    private func checkGeneration(_ generation: Int) throws {
+        try Task.checkCancellation()
+        guard !stopped, !suspended, self.generation == generation else { throw CancellationError() }
     }
 
     /// PID of the running link process, for diagnostics.
     public var pid: Int32? { child?.pid }
 
-    private func start() async throws -> String {
+    private func start(generation: Int) async throws -> String {
+        try checkGeneration(generation)
         child?.terminate()
         child = nil
         socket = nil
-        // `stop()` can run during every await; never start the hub or spawn
-        // a link for a machine that was removed or signed out meanwhile.
+        // Lifecycle transitions can run during every await. A stale start
+        // must never publish a socket or replace a newer link.
         let endpoint = try await api.attachEndpoint(machineID)
-        guard !stopped else { throw CancellationError() }
+        try checkGeneration(generation)
         let hubSocket = try await hub.socketPath()
-        guard !stopped else { throw CancellationError() }
+        try checkGeneration(generation)
         try paths.prepare()
         unlink(paths.linkSocket(machineID: machineID))
         var arguments = [
@@ -97,17 +118,13 @@ public actor CloudMachineLink {
                 if case .connected(let socket) = CloudLinkEvent.parse(line) { return socket }
                 return nil
             }
-            guard !stopped else {
-                child.terminate()
-                if self.child === child { self.child = nil }
-                throw CancellationError()
-            }
+            try checkGeneration(generation)
             socket = path
             logger.info("link up for \(self.machineID, privacy: .public) pid \(child.pid ?? 0)")
             return path
         } catch {
             child.terminate()
-            self.child = nil
+            if self.child === child { self.child = nil }
             logger.error("link for \(self.machineID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             throw error
         }

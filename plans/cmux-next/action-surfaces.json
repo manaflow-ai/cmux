@@ -5943,6 +5943,28 @@
       "palette" : "offered"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "cloud pause-machine",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudPauseMachine",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud resume-machine",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudResumeMachine",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
       "cli" : "clipboard",
       "cli_name" : "cloud copy-machine-link",
       "context_menu" : "offered",
