@@ -428,6 +428,12 @@ export const AtIcon = () => (
     <path d="M10.4 8v.9a1.8 1.8 0 0 0 3.6 0V8A6 6 0 1 0 11 13.2" />
   </Icon>
 );
+export const SearchIcon = () => (
+  <Icon>
+    <circle cx="7.2" cy="7.2" r="4.3" />
+    <path d="m10.4 10.4 3.1 3.1" />
+  </Icon>
+);
 export const SlashIcon = () => (
   <Icon>
     <path d="M10.5 2.5 5.5 13.5" />

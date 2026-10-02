@@ -11,6 +11,7 @@ import {
   type SeedStep,
 } from "./mockFixture";
 
+import { mockFileSearch } from "./mockFiles";
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
 // acpmux daemon is wanted (demos, screenshots, tests). The page then runs the
 // real acpmux client against this in-page daemon, which speaks the daemon's
@@ -293,6 +294,12 @@ export class MockAcpmuxSocket {
         this.queue = turn.catch(() => undefined);
         return turn;
       }
+      case "git.files.search":
+        return mockFileSearch(
+          this.sessions.find((entry) => entry.sessionId === target)?.cwd,
+          params.query,
+          params.limit,
+        );
       default:
         return {};
     }

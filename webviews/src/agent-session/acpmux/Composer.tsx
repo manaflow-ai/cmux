@@ -1,7 +1,18 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerContext } from "./ComposerContext";
-import { ArrowUpIcon, AtIcon, PaperclipIcon, Picker, PlusIcon, SlashIcon, StopIcon } from "./ComposerPickers";
+import {
+  ArrowUpIcon,
+  AtIcon,
+  PaperclipIcon,
+  Picker,
+  PlusIcon,
+  SearchIcon,
+  SlashIcon,
+  StopIcon,
+} from "./ComposerPickers";
+import { FileSearch } from "./FileSearch";
+import type { FileSearchSource } from "./fileSearchModel";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -12,6 +23,7 @@ export const COMPOSER_LABELS = {
   placeholder: "Ask anything, @ for context, / for commands",
   add: "Add",
   mention: "Mention a file or folder",
+  searchFiles: "Search files",
   attach: "Attach files or images",
   prompt: "Prompt",
   send: "Send",
@@ -34,6 +46,8 @@ type Props = {
   accessory?: React.ReactNode;
   /// Opens the host's file and image picker; the + menu offers it only when set.
   onAttach?(): void;
+  /// Searches the session's files; the + menu offers Search files only when set.
+  searchFiles?: FileSearchSource;
 };
 
 /// The prompt box with the agent's `/` command menu, drawn as Codex's composer:
@@ -43,7 +57,8 @@ type Props = {
 /// Shift+Enter breaks the line. The menu opens while the prompt is a single
 /// leading `/word`, filters as it grows, and picking a command writes `/name `
 /// so its arguments can follow.
-export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, accessory, onAttach }: Props) {
+export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, accessory, onAttach, searchFiles }: Props) {
+  const [findingFiles, setFindingFiles] = useState(false);
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
@@ -111,11 +126,12 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     onSend(prompt);
   };
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
-  const mention = () => {
+  // Writes "@" at the caret, or "@path " for a file picked in Search files.
+  const mention = (path?: string) => {
     if (composing.current) return;
     const at = textarea.current?.selectionStart ?? text.length;
     const before = text.slice(0, at);
-    const insert = before && !/\s$/.test(before) ? " @" : "@";
+    const insert = (before && !/\s$/.test(before) ? " @" : "@") + (path ? `${path} ` : "");
     plusDraft.current = undefined;
     pendingCaret.current = at + insert.length;
     edit(before + insert + text.slice(at), at + insert.length);
@@ -200,6 +216,19 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
         </ol>
       )}
       <ComposerContext summary={snapshot.summary} />
+      {findingFiles && searchFiles && (
+        <FileSearch
+          search={searchFiles}
+          onClose={() => {
+            setFindingFiles(false);
+            textarea.current?.focus();
+          }}
+          onPick={(path) => {
+            setFindingFiles(false);
+            mention(path);
+          }}
+        />
+      )}
       <div className="acpmux-composer-box">
         {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
         {open && (
@@ -251,11 +280,19 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
                   choices: [
                     ...(onAttach ? [{ id: "attach", name: COMPOSER_LABELS.attach, icon: <PaperclipIcon /> }] : []),
                     { id: "mention", name: COMPOSER_LABELS.mention, icon: <AtIcon />, hint: "@" },
+                    ...(searchFiles ? [{ id: "files", name: COMPOSER_LABELS.searchFiles, icon: <SearchIcon /> }] : []),
                     ...(commands?.length
                       ? [{ id: "commands", name: COMPOSER_LABELS.commands, icon: <SlashIcon />, hint: "/" }]
                       : []),
                   ],
-                  onPick: (id) => (id === "attach" ? onAttach?.() : id === "mention" ? mention() : openCommands()),
+                  onPick: (id) =>
+                    id === "attach"
+                      ? onAttach?.()
+                      : id === "mention"
+                        ? mention()
+                        : id === "files"
+                          ? setFindingFiles(true)
+                          : openCommands(),
                 },
               ]}
             />

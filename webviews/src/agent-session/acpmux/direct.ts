@@ -466,6 +466,11 @@ export class AcpmuxDirectClient {
     );
   }
 
+  /// Files under the selected session's folder whose path matches `query`, best first (fileSearch.ts).
+  filesSearch(query: string, limit: number): Promise<unknown> {
+    return this.request("git.files.search", { sessionId: this.selectedSessionId, query, limit });
+  }
+
   private request(method: string, params: Record<string, unknown>): Promise<any> {
     if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("acpmux WebSocket is not open"));
     const id = this.nextRequest++;

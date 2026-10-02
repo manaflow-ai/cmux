@@ -25,6 +25,7 @@ import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
+import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
 import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
@@ -92,6 +93,10 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
     },
   );
 }
+
+/// Search files reads the session's files from whoever runs the session: the acpmux client
+/// (or the mock daemon), else the native host.
+const searchFiles: FileSearchSource = (query) => callNative("git.files.search", { query, limit: FILE_SEARCH_LIMIT });
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
@@ -875,6 +880,8 @@ function AcpmuxPane() {
           "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
           "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
           "chat.history": () => client.loadOlder(),
+          "git.files.search": ({ query, limit }) =>
+            client.filesSearch(String(query ?? ""), typeof limit === "number" ? limit : FILE_SEARCH_LIMIT),
         };
         client.snapshot();
       } catch (error) {
@@ -970,6 +977,7 @@ function AcpmuxPane() {
           chips={ComposerChips}
           onSend={(text) => void callNative("chat.send", { text })}
           onStop={() => void callNative("chat.cancel")}
+          searchFiles={searchFiles}
         />
       </div>
     </section>
