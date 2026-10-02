@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// How long creating a terminal waits for existing terminals to shrink their
+/// Kitty quota before the new terminal starts with graphics disabled (the
+/// budget worker promotes it once the shrink completes). A shrink takes a few
+/// milliseconds; waiting the 2 s control timeout here held every creation
+/// that changed the budget bucket for 2 s when a host was slow to answer.
+/// Above 250 ms so a shrink already in flight is still awaited
+/// (kitty_quota_updates_delay_terminal_creation_until_startup_is_safe).
+const KITTY_RESERVATION_WAIT: Duration = Duration::from_millis(500);
+
 impl Mux {
     pub(crate) fn reserve_kitty_image_surface(
         self: &Arc<Self>,
@@ -31,7 +40,7 @@ impl Mux {
             );
         }
         self.start_kitty_image_budget_worker();
-        let deadline = Instant::now() + crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT;
+        let deadline = Instant::now() + KITTY_RESERVATION_WAIT;
         let initial_limits =
             loop {
                 let mut budget = self.kitty_image_budget.lock().unwrap();
