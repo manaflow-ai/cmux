@@ -249,11 +249,8 @@ fn branch_without_a_base_branch_says_so() {
     git(&repository, &["checkout", "-q", "-b", "topic"]);
     write(&repository, "a.txt", b"one\n");
     commit_all(&repository, "first");
-    let envelope = call(
-        &mux,
-        "git.diff",
-        json!({"path":repository.to_string_lossy(),"scope":"branch"}),
-    );
+    let envelope =
+        call(&mux, "git.diff", json!({"path":repository.to_string_lossy(),"scope":"branch"}));
     let (code, details) = failure(&envelope);
     assert_eq!(code, "operation.failed");
     assert_eq!(details["extra"]["code"], "no_base_branch");
@@ -427,10 +424,7 @@ fn a_selector_reads_its_terminals_working_directory() {
         let status = ok(call(&mux, "git.status", selector.clone()));
         assert_eq!(status["root"], repository.to_string_lossy().as_ref(), "{selector}");
     }
-    let both = call(
-        &mux,
-        "git.status",
-        json!({"terminal":terminal,"path":repository.to_string_lossy()}),
-    );
+    let both =
+        call(&mux, "git.status", json!({"terminal":terminal,"path":repository.to_string_lossy()}));
     assert_eq!(failure(&both).0, "validation.invalid");
 }
