@@ -124,8 +124,6 @@ struct StickyColumnViewTests {
         defer { window.close() }
         let screen = view.screenViews["s"]!
         #expect(screen.scrollbar?.isShown == false)
-        // A loaded CI runner can take longer than the 1.2 s fade-out to rest.
-        screen.scrollbar?.idleDelay = .seconds(3600)
         view.model.focus("c")
         await settle { screen.scroll.target > 0 }
         runToRest(view)
