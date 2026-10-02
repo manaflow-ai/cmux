@@ -73,7 +73,7 @@ func runConnect(_ o: ConnectOptions) throws {
     let helloBytes = try JSONSerialization.data(withJSONObject: hello, options: [.sortedKeys])
     try sock.writeAll(frame(.hello, Array(helloBytes)))
     guard session.ackReady.wait(timeout: .now() + 15) == .success, session.withLock({ session.helloAck }) != nil else {
-        throw ConnectError.timeout("HELLO_ACK (\(session.withLock { session.readerError ?? "no error" }))")
+        throw ConnectError.timeout("HELLO_ACK (\(session.withLock { "error=\(session.readerError ?? "-") bye=\(session.byeReason ?? "-")" }))")
     }
     log("hello_ack \(session.withLock { session.helloAck ?? [:] })")
 
@@ -120,9 +120,14 @@ func runConnect(_ o: ConnectOptions) throws {
     let w1 = nowNs()
     let cpu1 = CPUTimes.now()
     session.markClosing()
+    // Send BYE and half-close, then keep reading until the host closes, so the host sees the BYE
+    // and the tunnel hop never holds unread data for a session that looks alive.
     try? sock.writeAll(frame(.bye, Array("done".utf8)))
-    sock.shutdown()
-    _ = session.readerExited.wait(timeout: .now() + 5)
+    sock.shutdownWrite()
+    if session.readerExited.wait(timeout: .now() + 5) == .timedOut {
+        sock.shutdown()
+        _ = session.readerExited.wait(timeout: .now() + 5)
+    }
 
     let report = buildConnectReport(o, session: session, window: (w0, w1), cpu: cpu0.delta(to: cpu1),
                                      connectMs: connectMs, losses: losses, sent: Int(seq), sockKind: sock.kind,

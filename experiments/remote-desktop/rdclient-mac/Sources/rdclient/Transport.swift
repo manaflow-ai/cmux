@@ -31,6 +31,7 @@ final class StreamSocket: @unchecked Sendable {
     deinit { Darwin.close(fd) }
 
     func shutdown() { Darwin.shutdown(fd, SHUT_RDWR) }
+    func shutdownWrite() { Darwin.shutdown(fd, SHUT_WR) }
 
     /// Direct TCP with TCP_NODELAY.
     static func tcp(host: String, port: UInt16) throws -> StreamSocket {

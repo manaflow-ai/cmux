@@ -96,6 +96,11 @@ func buildConnectReport(_ o: ConnectOptions, session: Session, window: (UInt64, 
             ],
         ]
         report["frames_total_session"] = session.frames.count
+        // Per-sample raw values in send order: [input_seq, g2g_ms, input_to_host_damage_est_ms or -1, recv_to_decoded_ms].
+        report["samples_raw"] = s.map { r -> [Double] in
+            [Double(r.inputSeq), round3(ms(r.t0Ns, r.tDecodedNs)),
+             round3(hostToClientMs(r.header.tDamageNs, minus: r.t0Ns) ?? -1), round3(ms(r.tRecvNs, r.tDecodedNs))]
+        }
         return report
     }
 }
