@@ -51,6 +51,8 @@ if arguments.count > 3 {
                             reply = "ok"
                         } else if line == "window" {
                             reply = "window \(NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.conversationLab" })?.windowNumber ?? 0)"
+                        } else if line.hasPrefix("search") {
+                            reply = "visible " + MacConversationLab.search(String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)).joined(separator: ",")
                         } else if line == "deactivate" {
                             app.deactivate()
                             reply = "ok"

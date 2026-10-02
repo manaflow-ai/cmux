@@ -21,7 +21,7 @@ final class MacConversationEntry {
 @MainActor
 final class MacConversationSplitController: NSSplitViewController, NSToolbarDelegate {
     let entries: [MacConversationEntry]
-    private let sidebar: MacConversationListViewController
+    let sidebar: MacConversationListViewController
     private let content = MacConversationContainerController()
     /// The bottom accessory hosting the composer (macOS 26); earlier systems pin it in the content view.
     private var composerAccessory: NSViewController?
@@ -303,8 +303,11 @@ final class MacTitleNameAccessoryView: MacFlippedView {
 
 /// Sidebar conversation list, like the left column of Messages.
 @MainActor
-final class MacConversationListViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
+final class MacConversationListViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
     private let entries: [MacConversationEntry]
+    /// Rows as shown: newest conversation first, narrowed by the search query.
+    private var visible: [MacConversationEntry] = []
+    private var selectedID: String?
     private let table = NSTableView()
     private let search = NSSearchField()
     private let searchPill = MacFlippedView()
@@ -325,6 +328,8 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         search.drawsBackground = false
         search.focusRingType = .none
         search.font = .systemFont(ofSize: 13)
+        search.delegate = self
+        search.setAccessibilityIdentifier("conversation.sidebar.search")
         search.translatesAutoresizingMaskIntoConstraints = false
         // Measured: a 36 pt inset pill, 15% darker than the sidebar glass.
         searchPill.wantsLayer = true
@@ -364,15 +369,54 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         ])
         view = root
         updateColors()
+        visible = ordered()
         for entry in entries {
             entry.store.addObserver { [weak self] change in
                 guard let self, change != .typing else { return }
-                if let index = self.entries.firstIndex(where: { $0 === entry }) {
-                    self.table.reloadData(forRowIndexes: IndexSet(integer: index), columnIndexes: IndexSet(integer: 0))
-                }
+                self.refresh(changed: entry)
             }
         }
     }
+
+    private func lastActivity(_ entry: MacConversationEntry) -> Date {
+        entry.store.messages.last?.sentAt ?? .distantPast
+    }
+
+    private func ordered() -> [MacConversationEntry] {
+        let query = search.stringValue.trimmingCharacters(in: .whitespaces)
+        let matching = query.isEmpty ? entries : entries.filter { entry in
+            let store = entry.store
+            if store.info?.title.localizedCaseInsensitiveContains(query) == true { return true }
+            if store.info?.participants.contains(where: { !$0.isMe && $0.name.localizedCaseInsensitiveContains(query) }) == true { return true }
+            return store.messages.contains { $0.text.localizedCaseInsensitiveContains(query) }
+        }
+        return matching.sorted { lastActivity($0) > lastActivity($1) }
+    }
+
+    private func refresh(changed entry: MacConversationEntry? = nil) {
+        let next = ordered()
+        if next.map(\.id) == visible.map(\.id), let entry, let index = visible.firstIndex(where: { $0 === entry }) {
+            table.reloadData(forRowIndexes: IndexSet(integer: index), columnIndexes: IndexSet(integer: 0))
+            return
+        }
+        visible = next
+        table.reloadData()
+        if let selectedID, let index = visible.firstIndex(where: { $0.id == selectedID }) {
+            table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+        }
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        refresh()
+    }
+
+    /// Lab hook: types into the search field as a person would.
+    func setSearch(_ query: String) {
+        search.stringValue = query
+        refresh()
+    }
+
+    var visibleIDs: [String] { visible.map(\.id) }
 
     override func viewDidLayout() {
         super.viewDidLayout()
@@ -388,27 +432,29 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     }
 
     func markSelected(_ id: String) {
-        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        selectedID = id
+        guard let index = visible.firstIndex(where: { $0.id == id }) else { return }
         table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
     }
 
-    func numberOfRows(in tableView: NSTableView) -> Int { entries.count }
+    func numberOfRows(in tableView: NSTableView) -> Int { visible.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let view = tableView.makeView(withIdentifier: .init("r"), owner: nil) as? MacConversationListRow ?? MacConversationListRow()
         view.identifier = .init("r")
-        view.configure(store: entries[row].store)
-        view.hidesSeparator = tableView.selectedRow == row || tableView.selectedRow == row + 1
+        view.configure(store: visible[row].store)
+        view.hidesSeparator = tableView.selectedRow == row || tableView.selectedRow == row + 1 || row == visible.count - 1
         return view
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         let row = table.selectedRow
         table.enumerateAvailableRowViews { rowView, index in
-            (rowView.view(atColumn: 0) as? MacConversationListRow)?.hidesSeparator = index == row || index == row - 1
+            (rowView.view(atColumn: 0) as? MacConversationListRow)?.hidesSeparator = index == row || index == row - 1 || index == self.visible.count - 1
         }
-        guard row >= 0, row < entries.count else { return }
-        onSelect?(entries[row])
+        guard row >= 0, row < visible.count, visible[row].id != selectedID else { return }
+        selectedID = visible[row].id
+        onSelect?(visible[row])
     }
 }
 
@@ -569,6 +615,13 @@ public enum MacConversationLab {
     /// The selected conversation's controller in the frontmost lab window.
     public static var selectedController: MacConversationViewController? {
         (windows.last?.window?.contentViewController as? MacConversationSplitController)?.selected?.controller
+    }
+
+    /// Filters the sidebar; returns the visible conversation ids in order.
+    public static func search(_ query: String) -> [String] {
+        guard let split = windows.last?.window?.contentViewController as? MacConversationSplitController else { return [] }
+        split.sidebar.setSearch(query)
+        return split.sidebar.visibleIDs
     }
 
     /// Selects a conversation (`group` / `direct`) in the frontmost lab window.
