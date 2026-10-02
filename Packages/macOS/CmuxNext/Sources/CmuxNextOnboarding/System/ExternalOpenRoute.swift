@@ -10,6 +10,9 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
     /// A terminal tab in the current window's focused pane, started in
     /// `cwd`, then `command` typed into its shell (already shell-quoted).
     case terminal(cwd: String?, command: String?)
+    /// A link in this build's scheme (`cmux://tab/…`): the caller runs the
+    /// `link.open` action with it, which only navigates.
+    case deepLink(URL)
     /// Not something cmux opens; the caller refuses it.
     case unsupported
 }
@@ -19,14 +22,22 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
 public nonisolated struct ExternalOpenRouter: Sendable {
     public var isDirectory: @Sendable (String) -> Bool
     public var isExecutable: @Sendable (String) -> Bool
+    /// This build's URL scheme (`cmux`, `cmux-dev`, `cmux-dev-<tag>`), the
+    /// one sign-in calls back on; nil routes no links.
+    public var linkScheme: String?
+
+    /// The host of the sign-in callback, which goes to auth, never to a link.
+    static let authCallbackHost = "auth-callback"
 
     public init(
+        linkScheme: String? = nil,
         isDirectory: @escaping @Sendable (String) -> Bool = { path in
             var directory: ObjCBool = false
             return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
         },
         isExecutable: @escaping @Sendable (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) {
+        self.linkScheme = linkScheme
         self.isDirectory = isDirectory
         self.isExecutable = isExecutable
     }

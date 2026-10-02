@@ -38,6 +38,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// A new chat's first prompt, sent by the page once it connects.
     /// Pages that predate it ignore it (the chat just stays empty).
     public var prompt: String?
+    /// This build's URL scheme (`cmux`, `cmux-dev`, `cmux-dev-<tag>`), for
+    /// the links the page copies (`links.ts` `sessionLink`). Pages that
+    /// predate it ignore it.
+    public var linkScheme: String?
 
     public init(transport: Transport, endpoint: String? = nil, token: String? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

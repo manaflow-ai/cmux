@@ -34,4 +34,20 @@ import Testing
         view.showContinueIn()
         #expect(scripts == ["window.cmuxAcpmuxBridge?.command?.(\"continueIn\");"])
     }
+
+    /// A `#turn-<turnId>` link asks the page to scroll to that turn; the id
+    /// reaches the page as a JSON string, never as script text.
+    @Test func revealTurnAsksThePageToScrollToTheTurn() throws {
+        let page = FileManager.default.temporaryDirectory.appendingPathComponent("agent-pane-reveal-turn-test.html")
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page)))
+        defer { view.close() }
+        var scripts: [String] = []
+        view.evaluateScript = { scripts.append($0) }
+        view.revealTurn("turn-1")
+        view.revealTurn("a\");alert(1);//")
+        #expect(scripts == [
+            "window.cmuxAcpmuxBridge?.revealTurn?.(\"turn-1\");",
+            "window.cmuxAcpmuxBridge?.revealTurn?.(\"a\\\");alert(1);//\");",
+        ])
+    }
 }

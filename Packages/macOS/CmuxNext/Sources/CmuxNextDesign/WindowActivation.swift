@@ -20,6 +20,9 @@ public struct WindowActivation {
         /// The user or a CLI verb brings a window forward, focuses it and
         /// activates the app.
         case focus
+        /// Brings a window forward without making it key or activating the
+        /// app: a link opened in the background (Cmd held) or by a script.
+        case bringForward
     }
 
     /// How a window is ordered in, and whether the app activates.
@@ -27,6 +30,8 @@ public struct WindowActivation {
         public enum Order: Sendable, Equatable {
             case makeKeyAndOrderFront
             case orderFrontRegardless
+            /// In front of the app's other windows, without the keys.
+            case orderFront
             case orderBack
         }
 
@@ -45,7 +50,7 @@ public struct WindowActivation {
         guard noActivate else { return Plan(order: .makeKeyAndOrderFront, activatesApp: intent == .focus) }
         switch intent {
         case .present, .presentBehind: return Plan(order: testScreen ? .orderFrontRegardless : .orderBack, activatesApp: false)
-        case .raise, .focus: return Plan(order: .orderFrontRegardless, activatesApp: false)
+        case .raise, .focus, .bringForward: return Plan(order: .orderFrontRegardless, activatesApp: false)
         }
     }
 
@@ -56,6 +61,7 @@ public struct WindowActivation {
         switch plan.order {
         case .makeKeyAndOrderFront: window.makeKeyAndOrderFront(nil)
         case .orderFrontRegardless: window.orderFrontRegardless()
+        case .orderFront: window.orderFront(nil)
         case .orderBack: window.orderBack(nil)
         }
         if plan.activatesApp { NSApp.activate() }

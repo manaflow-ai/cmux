@@ -29,6 +29,19 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect(value["transport"] as? String == "mock")
     }
 
+    /// The page formats its links in this build's scheme, handed over with
+    /// the handshake next to the other bootstrap values.
+    @Test func theHandshakeCarriesTheLinkScheme() async throws {
+        let model = AgentPaneModel(host: RecordingHost())
+        model.linkScheme = "cmux-dev-mytag"
+        let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(value["linkScheme"] as? String == "cmux-dev-mytag")
+        let reconnect = try #require(await model.respond(to: .reconnect)["value"] as? [String: Any])
+        #expect(reconnect["linkScheme"] as? String == "cmux-dev-mytag")
+        let unset = try #require(await AgentPaneModel(host: MockAgentPaneHost()).respond(to: .ready)["value"] as? [String: Any])
+        #expect(unset["linkScheme"] == nil)
+    }
+
     /// Reloading the page reattaches the session it reported, not a new one.
     @Test func thePersistedSessionIsHandedBackOnTheNextReady() async throws {
         let host = RecordingHost()

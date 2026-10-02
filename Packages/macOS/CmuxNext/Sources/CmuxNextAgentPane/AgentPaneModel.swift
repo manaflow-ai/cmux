@@ -24,6 +24,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
+    /// This build's URL scheme, handed to the page with every handshake so
+    /// the links it copies open in this build; nil leaves it out.
+    @ObservationIgnored public var linkScheme: String?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.

@@ -50,9 +50,13 @@ final class AgentTabStore {
     private var shortcutObservation: Task<Void, Never>?
     private weak var actionRegistry: ActionRegistry?
     private var checkpointFocusTab: String?
+    /// This build's URL scheme, handed to every page for the links it copies.
+    private let linkScheme: String?
 
-    init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
+         linkScheme: String? = nil) {
         actionRegistry = registry
+        self.linkScheme = linkScheme
         if environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
             host = MockAgentPaneHost()
         } else {
@@ -129,6 +133,16 @@ final class AgentTabStore {
     }
 
     func tabIDs(in paneKey: String) -> [String] { tabsByPane[paneKey] ?? [] }
+
+    /// The tab showing acpmux session `session` (`cmux://session/<id>`), if any.
+    func tab(showing session: String) -> String? {
+        nil
+    }
+
+    /// The pane (`PaneModel.id`) whose strip lists agent tab `key`.
+    func paneKey(listing key: String) -> String? {
+        nil
+    }
 
     func stripItem(_ key: String) -> StripTabItem {
         StripTabItem(id: StripTabID(key), title: AgentPaneModel.tabTitle, subtitle: nil,

@@ -70,7 +70,7 @@ final class ExternalOpenController {
         switch route {
         case .browserTab(let url): pane.newBrowserTab(url: url)
         case .terminal(let cwd, let command): pane.newTerminalTab(cwd: cwd, typing: command.map { $0 + "\n" })
-        case .unsupported: return
+        case .deepLink, .unsupported: return
         }
     }
 }
