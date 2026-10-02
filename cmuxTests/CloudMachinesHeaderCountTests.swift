@@ -51,7 +51,7 @@ struct CloudMachinesHeaderCountTests {
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
             agentMenu: { Image(systemName: "sparkles").frame(width: 22, height: 20) },
             status: { EmptyView() }
-        ))
+        ).environment(\.accessibilityEnabled, true))
         host.frame = NSRect(x: 0, y: 0, width: 220, height: 40)
         host.autoresizingMask = [.width, .height]
         let window = NSWindow(
@@ -67,8 +67,14 @@ struct CloudMachinesHeaderCountTests {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         host.layoutSubtreeIfNeeded()
 
-        // SwiftUI buttons are not NSButtons, so read what an assistive client sees.
-        #expect(Self.element("CloudMachinesActionsMenu", in: host) != nil)
+        // SwiftUI buttons are not NSButtons, so read what an assistive client
+        // sees; SwiftUI publishes its accessibility tree asynchronously.
+        let published = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            return Self.element("CloudMachinesActionsMenu", in: host) != nil
+        }
+        #expect(published, "Narrow headers must expose the overflow menu")
         #expect(Self.element("CloudHeaderRefreshButton", in: host) == nil)
         #expect(Self.element("CloudHeaderNewMachineButton", in: host) == nil)
     }
@@ -85,7 +91,7 @@ struct CloudMachinesHeaderCountTests {
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
             agentMenu: { Image(systemName: "sparkles").frame(width: 22, height: 20) },
             status: { EmptyView() }
-        ))
+        ).environment(\.accessibilityEnabled, true))
         host.frame = NSRect(x: 0, y: 0, width: 420, height: 40)
         host.autoresizingMask = [.width, .height]
         let window = NSWindow(
@@ -101,9 +107,19 @@ struct CloudMachinesHeaderCountTests {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         host.layoutSubtreeIfNeeded()
 
-        // SwiftUI buttons are not NSButtons, so read what an assistive client sees.
-        let refresh = try #require(Self.element("CloudHeaderRefreshButton", in: host))
-        let newMachine = try #require(Self.element("CloudHeaderNewMachineButton", in: host))
+        // SwiftUI buttons are not NSButtons, so read what an assistive client
+        // sees; SwiftUI publishes its accessibility tree asynchronously.
+        var refreshElement: NSObject?
+        var newMachineElement: NSObject?
+        _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            refreshElement = Self.element("CloudHeaderRefreshButton", in: host)
+            newMachineElement = Self.element("CloudHeaderNewMachineButton", in: host)
+            return refreshElement != nil && newMachineElement != nil
+        }
+        let refresh = try #require(refreshElement)
+        let newMachine = try #require(newMachineElement)
         #expect(Self.label(of: refresh) == "Refresh Machines")
         #expect(Self.label(of: newMachine) == "New Machine")
         #expect(Self.element("CloudMachinesActionsMenu", in: host) == nil)
