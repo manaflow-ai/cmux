@@ -243,4 +243,33 @@ describe("team policy over the API (workerd)", () => {
     const direct = await call("/v1/ops", session, { op: "integration.policy.set", params: { github: { scope: "linking_user_repos" } }, idempotency_key: crypto.randomUUID() })
     expect(direct.json.error.code).toBe("policy.locked")
   })
+
+  it("a first TeamPolicy version never widens an admin-set integration policy (review HIGH 1)", async () => {
+    const session = await sessionToken("stack-policy-seed")
+    expect((await call("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID() })).json.ok).toBe(true)
+    const team = (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.team as string
+    const narrowed = await call("/v1/ops", session, {
+      op: "integration.policy.set",
+      params: { github: { require_org_admin: true, repo_allowlist: ["acme/api"] } },
+      idempotency_key: crypto.randomUUID()
+    })
+    expect(narrowed.json.ok).toBe(true)
+    // An unrelated key: the integration slice must keep the admin's narrowing.
+    const upd = await call("/v1/ops", session, {
+      op: "team.policy.update",
+      params: { changes: [set("telemetry.level", "off")], expected_version: 0 },
+      idempotency_key: crypto.randomUUID(),
+      origin: "user"
+    })
+    expect(upd.json.ok).toBe(true)
+    const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
+    await runDurableObjectAlarm(stub)
+    await runDurableObjectAlarm(stub)
+    const after = await call("/v1/read", session, { op: "integration.policy.get", params: {} })
+    expect(after.json.value.github).toMatchObject({ require_org_admin: true, repo_allowlist: ["acme/api"] })
+    // TeamPolicy took over the admin's values (copied before the first push).
+    const policy = (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.policy
+    expect(policy.values["github.requireOrgAdmin"]).toEqual({ value: true, mode: "enforced" })
+    expect(policy.values["github.repoAllowList"]).toEqual({ value: ["acme/api"], mode: "enforced" })
+  })
 })
