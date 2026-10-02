@@ -1,9 +1,9 @@
 /**
- * Paid plans include 50 independent machines per seat. CPU, memory, and disk
+ * Paid plans include 5 independent machines per seat. CPU, memory, and disk
  * describe each machine; there is no aggregate resource quota. This module is
  * dependency-free so provider sizing does not import the billing graph.
  */
-export const PAID_MAX_ACTIVE_VMS_DEFAULT = 50;
+export const PAID_MAX_ACTIVE_VMS_DEFAULT = 5;
 export const PLAN_MACHINE_MEMORY_MB = 8192;
 export const VM_MEMORY_MB_PER_VCPU = 4096;
 

@@ -61,6 +61,7 @@ export function DashboardAccountMenuFallback() {
  */
 export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | null }) {
   const t = useTranslations("dashboard.accountMenu");
+  const states = useTranslations("dashboard.states");
   const locale = useLocale();
   const stackApp = useStackApp();
   const teamScope = useDashboardTeamScope(user?.id ?? null);
@@ -136,11 +137,25 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
               </Menu.Item>
               <UpgradeItem />
               {teamScope.status === "ready" ? (
-                <TeamSubmenu
-                  teams={teamScope.teams}
-                  selected={teamScope.selected}
-                  onSelect={teamScope.switchTeam}
-                />
+                <>
+                  <TeamSubmenu
+                    teams={teamScope.teams}
+                    selected={teamScope.selected}
+                    onSelect={teamScope.switchTeam}
+                  />
+                  {teamScope.refreshError ? (
+                    <div role="alert" className="px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400">
+                      <p>{states("reason.unavailable")}</p>
+                      <button
+                        type="button"
+                        className="mt-1 underline underline-offset-2"
+                        onClick={teamScope.retryRefresh}
+                      >
+                        {states("retry")}
+                      </button>
+                    </div>
+                  ) : null}
+                </>
               ) : null}
               <Menu.Separator className="mx-1 my-1 h-px bg-border" />
               {/* A document load into the sign-in page's chooser: picking a
