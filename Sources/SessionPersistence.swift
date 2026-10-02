@@ -1929,9 +1929,28 @@ enum SessionScrollbackReplayStore {
     ) {
         let fileManager = FileManager.default
         let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
+        guard let directoryValues = try? directory.resourceValues(
+            forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        ),
+        directoryValues.isDirectory == true,
+        directoryValues.isSymbolicLink != true else {
+            return
+        }
+
+        // Existing replay directories may predate the private-permission write path.
+        // Harden the directory before reading retained entries.
+        try? fileManager.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: directory.path
+        )
+
         guard let fileURLs = try? fileManager.contentsOfDirectory(
             at: directory,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            includingPropertiesForKeys: [
+                .contentModificationDateKey,
+                .isRegularFileKey,
+                .isSymbolicLinkKey,
+            ],
             options: [.skipsHiddenFiles]
         ) else {
             return
@@ -1939,11 +1958,26 @@ enum SessionScrollbackReplayStore {
 
         for fileURL in fileURLs where fileURL.pathExtension == "txt" {
             guard let values = try? fileURL.resourceValues(
-                forKeys: [.contentModificationDateKey, .isRegularFileKey]
+                forKeys: [
+                    .contentModificationDateKey,
+                    .isRegularFileKey,
+                    .isSymbolicLinkKey,
+                ]
             ),
             values.isRegularFile == true,
-            let modifiedAt = values.contentModificationDate,
-            modifiedAt < cutoff else {
+            values.isSymbolicLink != true else {
+                continue
+            }
+
+            // Fresh legacy replay files survive the sweep, but must not retain
+            // pre-upgrade world/group-readable permissions.
+            try? fileManager.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: fileURL.path
+            )
+
+            guard let modifiedAt = values.contentModificationDate,
+                  modifiedAt < cutoff else {
                 continue
             }
             try? fileManager.removeItem(at: fileURL)
