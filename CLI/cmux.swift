@@ -5404,6 +5404,9 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
+        if ["notify", "list-notifications", "dismiss-notification", "mark-notification-read", "open-notification", "clear-notifications"].contains(command) {
+            try validateNotificationCommandArguments(command: command, args: commandArgs)
+        }
         try prepareStandardInputBeforeSocket(command: command, commandArgs: commandArgs)
         var client = SocketClient(path: resolvedSocketPath)
         let defersSocketConnection = Self.commandDefersSocketConnectionUntilRequest(
@@ -7825,7 +7828,6 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
 
         case "notify":
-            try validateNotificationCommandArguments(command: command, args: commandArgs)
             let title = optionValue(commandArgs, name: "--title") ?? "Notification"
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
             let body = optionValue(commandArgs, name: "--body") ?? ""
@@ -7943,7 +7945,6 @@ struct CMUXCLI {
                 )
             }
         case "list-notifications":
-            try validateNotificationCommandArguments(command: command, args: commandArgs)
             let response = try sendV1Command("list_notifications", client: client)
             if jsonOutput {
                 let notifications = parseNotifications(response)
@@ -7967,7 +7968,6 @@ struct CMUXCLI {
             }
 
         case "dismiss-notification":
-            try validateNotificationCommandArguments(command: command, args: commandArgs)
             let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument)
             let allRead = hasFlag(commandArgs, name: "--all-read")
             let okText = String(localized: "common.ok", defaultValue: "OK")
@@ -7982,7 +7982,6 @@ struct CMUXCLI {
                 printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
             }
         case "mark-notification-read":
-            try validateNotificationCommandArguments(command: command, args: commandArgs)
             let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument)
             let workspaceArg = optionValue(commandArgs, name: "--workspace")
             let surfaceArg = optionValue(commandArgs, name: "--surface")
@@ -8012,7 +8011,6 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "notification.mark_read", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
         case "open-notification":
-            try validateNotificationCommandArguments(command: command, args: commandArgs)
             guard let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument) else {
                 throw CLIError(message: String(localized: "cli.error.openNotificationRequiresId", defaultValue: "open-notification requires --id"))
             }
@@ -8022,7 +8020,6 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "notification.jump_to_unread")
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
         case "clear-notifications":
-            try validateNotificationCommandArguments(command: command, args: commandArgs)
             var socketCmd = "clear_notifications"
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
             let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
