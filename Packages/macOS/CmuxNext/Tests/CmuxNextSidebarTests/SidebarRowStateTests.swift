@@ -52,6 +52,32 @@ import Testing
         #expect(row.isShowingPlaceholder)
     }
 
+    /// A live section above a connecting one that shows placeholders.
+    func mixed() -> [SidebarSection] {
+        let live = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "Local", kind: .local)),
+                                  nodes: [.workspace(SidebarWorkspace(id: id("w0"), title: "w0"))])
+        let cloud = MachineID("cloud-1")
+        let placeholders = (0..<3).map { SidebarWorkspace(id: id("placeholder:cloud-1:\($0)"), machineID: cloud, title: "", rowState: .placeholder) }
+        return [live, SidebarSection(kind: .machine(SidebarMachine(id: cloud, name: "Cloud", kind: .cloud, status: .connecting)),
+                                     nodes: placeholders.map(SidebarNode.workspace))]
+    }
+
+    @Test func arrowKeysNeverLandOnAPlaceholder() {
+        let view = makeSidebar(mixed())
+        let model = view.model
+        var selected: [WorkspaceID] = []
+        model.onIntent = { if case let .select(id) = $0 { selected.append(id) } }
+        #expect(view.list.visibleWorkspaceOrder == [id("w0")])
+        model.click(id("w0"))
+        model.moveActive(by: 1, extending: false, visibleOrder: view.list.visibleWorkspaceOrder)
+        model.moveActive(by: 1, extending: true, visibleOrder: view.list.visibleWorkspaceOrder)
+        // Even given an order that lists placeholders, Shift+Down stays put.
+        model.moveActive(by: 1, extending: true, visibleOrder: [id("w0"), id("placeholder:cloud-1:0")])
+        #expect(model.selection == [id("w0")])
+        #expect(model.activeWorkspaceID == id("w0"))
+        #expect(selected.allSatisfy { !$0.rawValue.hasPrefix("placeholder:") })
+    }
+
     @Test func clickingAPlaceholderSendsNothing() {
         let model = SidebarModel(sections: sections(.placeholder))
         var intents: [SidebarIntent] = []

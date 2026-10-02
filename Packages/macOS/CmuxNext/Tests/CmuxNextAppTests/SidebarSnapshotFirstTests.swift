@@ -161,6 +161,52 @@ import Testing
         #expect(controller.sidebar.contextMenu(for: .workspaces([placeholder.id])) == nil)
         Self.closeAll(services)
     }
+
+    /// A select intent for a placeholder (from any entry point) never
+    /// reaches the window: no member, no shown workspace.
+    @Test func aPlaceholderIdNeverBecomesAWindowMember() throws {
+        let services = Self.services(file: nil)
+        services.windows.restoreWhenLoaded()
+        let controller = try #require(services.windows.controllers.first)
+        let placeholder = try #require(Self.rows(controller).first)
+        #expect(placeholder.rowState == .placeholder)
+        controller.sidebar.model.onIntent?(.select(placeholder.id))
+        #expect(!services.windows.registry.members(of: controller.state.id).contains(placeholder.id.rawValue))
+        #expect(controller.state.workspaceID != placeholder.id.rawValue)
+        Self.closeAll(services)
+    }
+
+    /// After a crash left incognito workspaces (the ledger lists them), the
+    /// launch snapshot without window records never shows every workspace:
+    /// that would put incognito workspaces in a normal window.
+    @Test func theEveryWorkspaceFallbackNeverShowsLeftoverIncognitoWorkspaces() throws {
+        let services = Self.services(file: nil)
+        let ledgerURL = FileManager.default.temporaryDirectory
+            .appending(path: "incognito-ledger-tests-\(UUID().uuidString).json")
+        try Data(#"{"workspaces":["\#(Self.id(2))"]}"#.utf8).write(to: ledgerURL)
+        services.windows.incognitoLedger = IncognitoWorkspaceLedger(url: ledgerURL)
+        services.daemon.store.applyProvisional(snapshot: Self.tree([1, 2, 3]))
+        services.windows.restoreWhenLoaded()
+        let controller = try #require(services.windows.controllers.first)
+        #expect(!services.windows.registry.members(of: controller.state.id).contains(Self.id(2)))
+        #expect(!Self.rows(controller).contains { $0.id.rawValue == Self.id(2) })
+        Self.closeAll(services)
+    }
+
+    /// An incognito window's sidebar is never saved.
+    @Test func anIncognitoWindowIsNeverRecorded() async throws {
+        let services = Self.services(file: Self.tempFile())
+        services.windows.restoreWhenLoaded()
+        let controller = try #require(services.windows.controllers.first)
+        let window = controller.state.id
+        services.windows.registry.apply { $0.markIncognito(window); return WindowRegistry.Changes() }
+        services.daemon.store.apply(snapshot: Self.tree([1, 2, 3]))
+        await Self.settle { !services.windows.registry.isLaunching }
+        for _ in 0..<200 { await Task.yield() }
+        await services.sidebarSnapshots.flush()
+        #expect(await services.sidebarSnapshots.document.snapshot(for: window, fallback: false) == nil)
+        Self.closeAll(services)
+    }
 }
 
 /// Every row list one sidebar model went through.

@@ -81,7 +81,7 @@ final class WindowManager {
     var incognitoSession: BrowserProfileID?
     /// Workspaces of open incognito windows, closed at the next launch when
     /// this run ends without closing them.
-    private(set) lazy var incognitoLedger = IncognitoWorkspaceLedger.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
+    lazy var incognitoLedger = IncognitoWorkspaceLedger.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     /// Incognito window of each tab it lists (`rememberIncognitoTabs`).
     var incognitoTabHomes: [String: String] = [:]
     /// Clears what the incognito session kept in memory (omnibar history).
