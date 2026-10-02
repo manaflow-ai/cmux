@@ -24,6 +24,13 @@ public final class AgentPaneView: NSView {
             if customization != oldValue { applyCustomization() }
         }
     }
+    /// The app shortcuts the page shows (``AgentPaneShortcuts``), pushed
+    /// when a rebind changes them, after each load, and on the handshake.
+    public var shortcuts = AgentPaneShortcuts() {
+        didSet {
+            if shortcuts != oldValue { applyShortcuts() }
+        }
+    }
     private let navigation = AgentPaneNavigation()
     /// The composer's mic; nothing runs until the user starts it.
     let dictation: AgentPaneDictation
@@ -182,6 +189,13 @@ public final class AgentPaneView: NSView {
         webView.evaluateJavaScript("window.cmuxAcpmuxBridge?.command?.(\"searchChats\");", completionHandler: nil)
     }
 
+    /// Opens the frontend's Continue in… chooser. The chooser owns target
+    /// selection and preparation; native actions do not create a second
+    /// handoff pipeline.
+    public func showContinueIn() {
+        evaluateScript("window.cmuxAcpmuxBridge?.command?.(\"continueIn\");")
+    }
+
     /// Stops whichever agent pane is dictating, keeping its words, so the
     /// shortcut ends a session started in a tab that is no longer in front.
     /// False when none is.
@@ -289,6 +303,12 @@ public final class AgentPaneView: NSView {
     func replayCustomization() {
         guard !customization.isEmpty else { return }
         applyCustomization()
+    }
+
+    /// Pushes ``shortcuts`` to the page.
+    func applyShortcuts() {
+        guard let script = shortcuts.script() else { return }
+        evaluateScript(script)
     }
 
     /// Pushes this view's scope tokens to the page (and to the area WebKit

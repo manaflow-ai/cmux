@@ -147,9 +147,9 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan(menus: [p(.sidebarSection, .identity, 220, folder: .appearance)])
             ),
             ActionDescriptor(
-                id: "sidebar.section.toggleRoomScope", title: t("action.sidebar.section.toggleRoomScope", "Show Only in This Room"),
+                id: "sidebar.section.toggleSpaceScope", title: t("action.sidebar.section.toggleSpaceScope", "Show Only in This Space"),
                 keywords: ["sidebar", "section", "room", "scope", "all rooms"], category: .sidebar, symbol: "circle.grid.2x2",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar toggle-section-room",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar toggle-section-space",
                 surfacePlan: plan(menus: [p(.sidebarSection, .identity, 300, folder: .options)])
             ),
             ActionDescriptor(
@@ -191,6 +191,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ("history", t("argument.sidebar.builtin.history", "History")),
             ("bookmarks", t("argument.sidebar.builtin.bookmarks", "Bookmarks")),
             ("app_store", t("argument.sidebar.builtin.appStore", "App Store")),
+            ("customize", t("argument.sidebar.builtin.customize", "Customize Appearance")),
         ]
         return ActionArgument(name: "item", title: t("argument.sidebar.item", "Item"),
                               kind: .enumeration(cases.map { ActionEnumCase(value: $0.0, title: $0.1) }))

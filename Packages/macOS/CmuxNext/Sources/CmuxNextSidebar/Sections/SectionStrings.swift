@@ -9,6 +9,7 @@ enum SectionStrings {
     static var history: String { String(localized: "sidebar.builtin.history", defaultValue: "History", bundle: .module) }
     static var bookmarks: String { String(localized: "sidebar.builtin.bookmarks", defaultValue: "Bookmarks", bundle: .module) }
     static var appStore: String { String(localized: "sidebar.builtin.appStore", defaultValue: "App Store", bundle: .module) }
+    static var customize: String { String(localized: "sidebar.builtin.customize", defaultValue: "Customize Appearance", bundle: .module) }
     static var collapse: String { String(localized: "sidebar.sections.collapse", defaultValue: "Collapse", bundle: .module) }
     static var expand: String { String(localized: "sidebar.sections.expand", defaultValue: "Expand", bundle: .module) }
 }

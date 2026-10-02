@@ -82,9 +82,9 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     public static let bottomSectionID = LayoutSectionID("sec_bottom")
 
     /// Top: Home, then the App Store. Middle: workspaces. Bottom: one line with Settings (icon
-    /// and label) at the leading edge and the account avatar (icon only) at
-    /// the trailing edge. Sticky sections use the built-in look and draw no
-    /// header.
+    /// and label) at the leading edge, and Customize Appearance and the
+    /// account avatar (icons only) at the trailing edge. Sticky sections use
+    /// the built-in look and draw no header.
     public static let defaults = SidebarLayoutDocument(sections: [
         LayoutSection(id: topSectionID, region: .top, look: .builtIn,
                       items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .builtIn(.home)),
@@ -92,6 +92,7 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn, arrangement: SectionArrangement(layout: .inline, align: .fill), items: [
             LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings)),
+            LayoutItem(id: LayoutItemID("itm_customize"), ref: .builtIn(.customize), showsLabel: false),
             LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
         ]),
     ])
