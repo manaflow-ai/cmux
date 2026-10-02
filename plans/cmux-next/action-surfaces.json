@@ -5922,6 +5922,26 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud ssh",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudSSH",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud exec",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [],
+      "id" : "cloudExec",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud new-terminal-on-machine",
       "context_menu" : "offered",
       "context_menus" : [
