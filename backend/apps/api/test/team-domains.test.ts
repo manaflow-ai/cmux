@@ -114,4 +114,46 @@ describe("domain verification over the API (workerd)", () => {
     })
     void owner
   })
+
+  it("a release during a verify leaves no orphaned DomainDO owner; verify re-checks DomainDO (review P1)", async () => {
+    const a = await sessionToken("stack-domain-race")
+    await op(a, "user.ensure", {})
+    const claim = await op(a, "domain.claim", { domain: "race-acme.dev" })
+    const team = claim.stream.replace("team:", "")
+    const value = claim.value.record_value as string
+    const teamStub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)) as unknown as DurableObjectStub
+    let released = false
+    await inDO(teamStub, async (instance) => {
+      // While verify waits on DNS, the admin releases the claim.
+      instance.http = async (req: Request) => {
+        if (!released) {
+          released = true
+          expect((await op(a, "domain.release", { domain: "race-acme.dev" })).ok).toBe(true)
+        }
+        return fakeDns(() => [value])(req)
+      }
+    })
+    const verify = await op(a, "domain.verify", { domain: "race-acme.dev" })
+    expect(verify.ok).toBe(false)
+    // DomainDO must not keep an owner that TeamDO no longer knows.
+    await inDO(testEnv.DOMAIN_DO.get(testEnv.DOMAIN_DO.idFromName("race-acme.dev")) as unknown as DurableObjectStub, async (instance) => {
+      expect(await instance.owner()).toBe(null)
+    })
+  })
+
+  it("ignores TXT answers reached through a CNAME and verifies only the exact record name (review P2)", async () => {
+    const a = await sessionToken("stack-domain-cname")
+    await op(a, "user.ensure", {})
+    const claim = await op(a, "domain.claim", { domain: "cname-acme.dev" })
+    const team = claim.stream.replace("team:", "")
+    const value = claim.value.record_value as string
+    await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)) as unknown as DurableObjectStub, async (instance) => {
+      instance.http = async () =>
+        new Response(JSON.stringify({ Status: 0, Answer: [
+          { name: "_cmux-challenge.cname-acme.dev.", type: 5, data: "attacker.example." },
+          { name: "attacker.example.", type: 16, data: `"${value}"` }
+        ] }))
+    })
+    expect(await op(a, "domain.verify", { domain: "cname-acme.dev" })).toMatchObject({ ok: false, error: { code: "domain.not_verified" } })
+  })
 })
