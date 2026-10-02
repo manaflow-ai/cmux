@@ -13,6 +13,9 @@ import Testing
 @Suite(.serialized)
 struct CLIWorkspaceEnvPositionalTests {
     private static let timeout: TimeInterval = 60
+    private static let callerWorkspaceID = "11111111-1111-1111-1111-111111111111"
+    private static let explicitWorkspaceID = "22222222-2222-2222-2222-222222222222"
+    private static let windowID = "33333333-3333-3333-3333-333333333333"
 
     // MARK: - Cases
 
@@ -43,7 +46,7 @@ struct CLIWorkspaceEnvPositionalTests {
         #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
         let request = try #require(workspaceEnvRequest(run))
         let params = try #require(request["params"] as? [String: Any])
-        #expect(params["workspace_id"] != nil)
+        #expect(params["workspace_id"] as? String == Self.explicitWorkspaceID)
     }
 
     @Test func workspaceFlagAloneStillQueriesThatWorkspace() throws {
@@ -53,28 +56,70 @@ struct CLIWorkspaceEnvPositionalTests {
         #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
         let request = try #require(workspaceEnvRequest(run))
         let params = try #require(request["params"] as? [String: Any])
-        #expect(params["workspace_id"] != nil)
+        #expect(params["workspace_id"] as? String == Self.explicitWorkspaceID)
     }
 
     @Test func noHandleDefaultsToTheCallerWorkspace() throws {
         let run = try runWorkspaceEnv(arguments: ["workspace", "env"])
 
         #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
-        #expect(workspaceEnvRequest(run) != nil)
+        let request = try #require(workspaceEnvRequest(run))
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.callerWorkspaceID)
+    }
+
+    @Test func windowOptionValueIsNotTreatedAsPositional() throws {
+        let run = try runWorkspaceEnv(
+            arguments: ["workspace", "env", "--window", "1", "workspace:1"])
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
+        let request = try #require(workspaceEnvRequest(run))
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["window_id"] as? String == Self.windowID)
+        #expect(params["workspace_id"] as? String == Self.explicitWorkspaceID)
+    }
+
+    @Test func maskOptionValueIsNotTreatedAsPositional() throws {
+        let run = try runWorkspaceEnv(
+            arguments: ["workspace", "env", "workspace:1", "--mask"])
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
+        let request = try #require(workspaceEnvRequest(run))
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.explicitWorkspaceID)
+        #expect(!run.result.stdout.contains("supersecret"))
+    }
+
+    @Test func unknownFlagIsRefusedBeforeAnyRequest() throws {
+        let run = try runWorkspaceEnv(arguments: ["workspace", "env", "workspace:1", "--unknown"])
+
+        #expect(run.result.status != 0)
+        #expect(
+            run.result.stderr.contains("unknown flag"),
+            Comment(rawValue: run.result.stderr + run.result.stdout))
+        #expect(workspaceEnvRequest(run) == nil, "no workspace.env request may be sent")
     }
 
     // MARK: - Harness
 
+    /// Captures the CLI result and every socket request emitted by one invocation.
     private struct Run {
         let result: CLIHookProcessRunner.Result
         let requests: [[String: Any]]
     }
 
+    /// Returns the first `workspace.env` request, if parsing and resolution reached the socket.
     private func workspaceEnvRequest(_ run: Run) -> [String: Any]? {
         run.requests.first { $0["method"] as? String == "workspace.env" }
     }
 
     private func runWorkspaceEnv(arguments: [String]) throws -> Run {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-workspace-env-\(UUID().uuidString)", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
         let socketPath = makeCodexHookSocketPath("workspace-env")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         let recorder = RequestRecorder()
@@ -93,7 +138,9 @@ struct CLIWorkspaceEnvPositionalTests {
                 "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_SOCKET_PASSWORD": "",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
-                "HOME": NSHomeDirectory(),
+                "CMUX_WORKSPACE_ID": Self.callerWorkspaceID,
+                "CFFIXED_USER_HOME": home.path,
+                "HOME": home.path,
                 "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
             ],
             timeout: Self.timeout
@@ -187,10 +234,23 @@ struct CLIWorkspaceEnvPositionalTests {
                 guard let line = String(data: lineData, encoding: .utf8) else { continue }
                 recorder.record(line)
                 let id = (codexHookJSONObject(line)?["id"] as? String) ?? "unknown"
+                let method = codexHookJSONObject(line)?["method"] as? String
+                var result: [String: Any] = ["deviceId": "33333333-3333-3333-3333-333333333333"]
+                if method == "window.list" {
+                    result["windows"] = [["id": Self.windowID, "ref": "window:1", "index": 1]]
+                } else if method == "workspace.list" {
+                    result["workspaces"] = [[
+                        "id": Self.explicitWorkspaceID,
+                        "ref": "workspace:1",
+                        "index": 1,
+                    ]]
+                } else if method == "workspace.env" {
+                    result["env"] = ["API_TOKEN": "supersecret"]
+                }
                 let response = codexHookV2Response(
                     id: id,
                     ok: true,
-                    result: ["deviceId": "33333333-3333-3333-3333-333333333333"]
+                    result: result
                 )
                 guard writeAllToFixtureSocket(response + "\n", fd: clientFD) else { return }
             }
