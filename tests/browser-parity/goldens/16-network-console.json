@@ -1,0 +1,42 @@
+{
+  "oracle": {
+    "events": [
+      "console:error:parity error",
+      "console:log:parity log 42",
+      "console:warning:parity warn",
+      "pageerror:parity rejection",
+      "request:GET:/api/data",
+      "response:200"
+    ],
+    "history": [
+      "log:parity log 42",
+      "warning:parity warn",
+      "error:parity error"
+    ],
+    "history-level": [
+      "parity warn"
+    ],
+    "history-warn-alias": [
+      "parity warn"
+    ],
+    "history-filter": [
+      "parity error"
+    ],
+    "history-limit": 1,
+    "errors": [
+      "parity rejection"
+    ],
+    "fetch-json": {
+      "ok": true,
+      "q": "repl"
+    },
+    "fetch-status": [
+      true,
+      200,
+      "application/json"
+    ],
+    "cookie-set": true,
+    "fetch-sends-cookies": "parity=1"
+  },
+  "cmux": {}
+}

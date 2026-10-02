@@ -1,20 +1,27 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
-import { ArrowUpIcon, PlusIcon, StopIcon } from "./ComposerPickers";
+import { ComposerContext } from "./ComposerContext";
+import { ArrowUpIcon, AtIcon, PaperclipIcon, Picker, PlusIcon, SlashIcon, StopIcon } from "./ComposerPickers";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
+import { seededText } from "./composerDraft";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
 const STOP_GUARD_MS = 600;
 
 export const COMPOSER_LABELS = {
-  placeholder: "Ask anything",
+  placeholder: "Ask anything, @ for context, / for commands",
+  add: "Add",
+  mention: "Mention a file or folder",
+  attach: "Attach files or images",
   prompt: "Prompt",
   send: "Send",
   stop: "Stop",
   commands: "Commands",
   noCommands: "No commands",
   noMatchingCommands: "No matching commands",
+  queue: "Queued prompts",
+  queued: "Queued",
 };
 
 type Props = {
@@ -22,10 +29,15 @@ type Props = {
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   onSend(text: string): void;
   onStop(): void;
+  /// Text the prompt starts with, such as what a chat opened from another tab inherited.
+  /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
+  draft?: string;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
+  /// Opens the host's file and image picker; the + menu offers it only when set.
+  onAttach?(): void;
 };
 
 /// The prompt box with the agent's `/` command menu, drawn as Codex's composer:
@@ -35,7 +47,7 @@ type Props = {
 /// Shift+Enter breaks the line. The menu opens while the prompt is a single
 /// leading `/word`, filters as it grows, and picking a command writes `/name `
 /// so its arguments can follow.
-export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, accessory }: Props) {
+export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leading, accessory, onAttach }: Props) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
@@ -62,6 +74,13 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     sendButton.current?.focus();
     if (snapshot.isWorking) refocusSend.current = false;
   });
+  useEffect(() => {
+    // The prompt's DOM value is the typed text; a draft never replaces it.
+    if (!draft || textarea.current?.value) return;
+    setText((current) => seededText(current, draft));
+    setCaret(draft.length);
+    pendingCaret.current = draft.length;
+  }, [draft]);
   const commands = snapshot.commands;
   const query = slashQuery(text, caret);
   const open = query !== undefined && dismissed !== text;
@@ -102,7 +121,18 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     refocusSend.current = document.activeElement?.classList.contains("acpmux-send") ?? false;
     onSend(prompt);
   };
-  // Until attachments land, + opens the agent's commands: the menu reads the
+  /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
+  const mention = () => {
+    if (composing.current) return;
+    const at = textarea.current?.selectionStart ?? text.length;
+    const before = text.slice(0, at);
+    const insert = before && !/\s$/.test(before) ? " @" : "@";
+    plusDraft.current = undefined;
+    pendingCaret.current = at + insert.length;
+    edit(before + insert + text.slice(at), at + insert.length);
+    textarea.current?.focus();
+  };
+  // + then Commands opens the agent's commands: the menu reads the
   // text before the caret, so "/" ahead of the draft opens it and a pick keeps
   // the draft as arguments. A draft that already starts a command keeps its "/",
   // so a pick replaces that command; anything else (a pasted path) is kept whole.
@@ -168,16 +198,30 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   };
   return (
     <form className="acpmux-composer" onSubmit={submit} onBlur={blur}>
-      {open && (
-        <SlashMenu
-          matches={matches}
-          active={selected}
-          empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands}
-          onHover={setActive}
-          onPick={pick}
-        />
+      {snapshot.queue.length > 0 && (
+        <ol className="acpmux-composer-queue" aria-label={COMPOSER_LABELS.queue}>
+          {snapshot.queue.map((entry) => (
+            <li className="acpmux-queued" key={entry.id} title={entry.prompt}>
+              <span className="acpmux-queued-label" aria-hidden="true">
+                {COMPOSER_LABELS.queued}
+              </span>
+              <span className="acpmux-queued-text">{entry.prompt}</span>
+            </li>
+          ))}
+        </ol>
       )}
+      <ComposerContext summary={snapshot.summary} />
       <div className="acpmux-composer-box">
+        {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
+        {open && (
+          <SlashMenu
+            matches={matches}
+            active={selected}
+            empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands}
+            onHover={setActive}
+            onPick={pick}
+          />
+        )}
         {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
         <textarea
           ref={textarea}
@@ -207,17 +251,27 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
           {leading !== undefined ? (
             leading
           ) : (
-            <button
-              type="button"
+            <Picker
+              label={COMPOSER_LABELS.add}
               className="acpmux-composer-plus"
-              aria-label={COMPOSER_LABELS.commands}
-              title={COMPOSER_LABELS.commands}
-              disabled={!commands?.length}
-              onClick={openCommands}
-            >
-              <PlusIcon />
-            </button>
+              button={<PlusIcon />}
+              align="start"
+              returnFocus={false}
+              sections={[
+                {
+                  choices: [
+                    ...(onAttach ? [{ id: "attach", name: COMPOSER_LABELS.attach, icon: <PaperclipIcon /> }] : []),
+                    { id: "mention", name: COMPOSER_LABELS.mention, icon: <AtIcon />, hint: "@" },
+                    ...(commands?.length
+                      ? [{ id: "commands", name: COMPOSER_LABELS.commands, icon: <SlashIcon />, hint: "/" }]
+                      : []),
+                  ],
+                  onPick: (id) => (id === "attach" ? onAttach?.() : id === "mention" ? mention() : openCommands()),
+                },
+              ]}
+            />
           )}
+          <span className="acpmux-separator" aria-hidden="true" />
           <Chips snapshot={snapshot} />
           <span className="acpmux-composer-actions">
             {accessory}

@@ -111,7 +111,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 
 | id | title | default | src | file |
 |---|---|---|---|---|
-| newSurface | New Tab (Terminal) | none in cmux-next (⌘T is `newTab.sameKind`) | PKC | KSS:152, CV:7596, TIV |
+| newSurface | New Tab (Terminal) | ⌃⇧⌘T in cmux-next (⌘T is `newTab.sameKind`; #16620) | PKC | KSS:152, CV:7596, TIV |
 | newTab.sameKind (cmux-next) | New Tab: same kind as the focused pane (browser pane: browser tab on its engine; else terminal) | ⌘T | PKMC, CLI `tab new` | user decision 2026-09-30 |
 | openBrowser | New Tab (Browser) | ⇧⌘L | PKC | KSS:202, CV:7605, TIV |
 | closeTab | Close Tab | ⌘W | PKM | KSS:144, CV:7618 |
@@ -168,7 +168,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | (more menu) | Screenshot Page/Section, Browser Theme, New/Rename Profile | — | C | BrowserPanelView:1567 |
 | saveFilePreview / toggleFileEditorWordWrap | Save File / Word Wrap | ⌘S / ⌥Z | K(M) | KSS:201 |
 | (file preview) | Open With ▸, Open Externally, Reveal in Finder | — | C | FilePreviewPanel:131 |
-| openDiffViewer / palette.openDirectoryDiffViewer | Diff Viewer / Directory Diff | ⌃⇧⌘D | PK | KSS:223 |
+| openDiffViewer / palette.openDirectoryDiffViewer | Diff Viewer / Directory Diff | ⌃⇧⌘G (was ⌃⇧⌘D; that is New Row now) | PK | KSS:223 |
 | diffViewer* (11) | j/k, ⌃D/⌃U, ⌃N/⌃P, G/gg, /, ]f/[f | vim-style | K | KSS:224-233 |
 | palette.vscodeServeWebStop / Restart | VS Code Inline Server | — | P | CV:8356 |
 
@@ -202,7 +202,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 
 | id | title | default | src | file |
 |---|---|---|---|---|
-| palette.newAgentChat | New agent chat | — | P | ContentView+AgentChatCommandPalette:31 |
+| palette.newAgentChat | New agent chat | ⇧⌘I (#16620) | P | ContentView+AgentChatCommandPalette:31 |
 | palette.openTerminalChatView | Open terminal as chat | — | P | :37 |
 | palette.launchClaudeTeams / launchCodexTeams | Claude / Codex Teams | — | P | :88 |
 | palette.forkAgentConversation{Right,Left,Top,Bottom,NewTab,NewWorkspace} | Fork Conversation To ▸ | — | PC | CV:8509, GhosttyNSView+ForkConversationContextMenu:288 |

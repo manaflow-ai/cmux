@@ -3,10 +3,12 @@ import Testing
 @testable import CmuxNextDaemon
 
 /// Finds a real cmux-tui: `CMUX_NEXT_TUI_BIN`, else the pinned hosted
-/// artifact (scripts/cmux-next/cmux-tui.pin, fetched by
-/// scripts/cmux-next/pin-cmux-tui.sh), else the newest client that
-/// scripts/install-cmux-tui-client.sh cached. Cached slices are not
-/// executable, so they are copied into a temp dir first.
+/// artifact (scripts/cmux-next/cmux-tui.pin; fetched and sha256-checked
+/// with `scripts/cmux-next/pin-cmux-tui.sh fetch` on first use, as
+/// scripts/reload.sh does, so a fresh worktree tests the pinned daemon),
+/// else the newest client that scripts/install-cmux-tui-client.sh cached.
+/// Cached slices are not executable, so they are copied into a temp dir
+/// first.
 enum RealBinary {
     static let url: URL? = locate()
 
@@ -17,7 +19,8 @@ enum RealBinary {
         return url == pinned || ProcessInfo.processInfo.environment[DaemonLauncher.binaryOverrideKey] == url.path
     }
 
-    /// `cmux-tui/target/hosted/<pinned commit>/cmux-tui`, when downloaded.
+    /// `cmux-tui/target/hosted/<pinned commit>/cmux-tui`, fetched when
+    /// missing; nil when the pin is absent or the fetch failed (offline).
     static let pinned: URL? = {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -26,8 +29,24 @@ enum RealBinary {
             return nil
         }
         let binary = root.appendingPathComponent("cmux-tui/target/hosted/\(commit)/cmux-tui")
+        if !FileManager.default.isExecutableFile(atPath: binary.path) { fetchPinned(root: root) }
         return FileManager.default.isExecutableFile(atPath: binary.path) ? binary : nil
     }()
+
+    /// Runs `pin-cmux-tui.sh fetch` (public URL, no credentials; it keeps
+    /// the download only when its sha256 matches the pin).
+    private static func fetchPinned(root: URL) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [root.appendingPathComponent("scripts/cmux-next/pin-cmux-tui.sh").path, "fetch"]
+        process.standardOutput = FileHandle.standardError
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return
+        }
+    }
 
     private static func locate() -> URL? {
         let fileManager = FileManager.default
@@ -161,25 +180,42 @@ struct IntegrationTests {
     }
 
     /// A Finder launch hands the app launchd's minimal PATH. The launcher
-    /// captures the login-shell env and starts the daemon with it, so shells
-    /// in daemon terminals see the user's PATH.
+    /// starts the daemon with the login-shell env and the connection sends
+    /// the same env with each terminal, so shells in daemon terminals see
+    /// the user's PATH.
+    ///
+    /// The login env is injected (`LauncherTests` covers the real capture),
+    /// and its shell is `/bin/sh`, which reads no rc file here. A zsh would
+    /// read the runner's `~/.zshenv`, which can set PATH outright (the
+    /// cmuxs-mac-mini-3 runner's does), and print that instead of the PATH
+    /// the daemon gave it. The `HOME` below has such a `.zshenv`.
     @Test func finderLaunchedDaemonGivesTerminalsTheLoginPath() async throws {
         let binary = try #require(RealBinary.url)
         let root = URL(fileURLWithPath: "/tmp/cnd-it-\(UUID().uuidString.prefix(8).lowercased())")
         let session = "cnd-it-\(UUID().uuidString.prefix(8).lowercased())"
         defer { try? FileManager.default.removeItem(at: root) }
         let process = ProcessInfo.processInfo.environment
-        var finder: [String: String] = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
-        for key in ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR"] { finder[key] = process[key] }
-        let login = try #require(await LoginEnvironment.shared.capture(base: finder, timeout: .seconds(15)))
-        let loginPath = try #require(login["PATH"])
-        try #require(loginPath != finder["PATH"], "login PATH equals launchd PATH; nothing to verify on this machine")
+        var finder: [String: String] = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/zsh"]
+        for key in ["USER", "LOGNAME", "TMPDIR"] { finder[key] = process[key] }
+        let home = root.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try Data("export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\n".utf8)
+            .write(to: home.appendingPathComponent(".zshenv"))
+        finder["HOME"] = home.path
+        // The first entry exists only in the login env, so seeing it proves
+        // the terminal got that env rather than the Finder launch's.
+        let loginPath = "\(root.appendingPathComponent("login-bin").path):/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        let login = ["PATH": loginPath, "SHELL": "/bin/sh", "HOME": home.path]
         let environment = LoginEnvironment.shared.daemonEnvironment(login: login, base: finder, overrides: [:])
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { environment })
         let ensured = try await launcher.ensure()
-        let connection = DaemonConnection(endpointProvider: launcher.endpointProvider)
+        // The app's provider, fed the same login env as the launcher (the
+        // default one reads the process-wide capture of the test runner's env).
+        let connection = DaemonConnection(
+            configuration: .init(terminalEnvironment: TerminalEnvironment.instance.shared(base: finder, login: { login })),
+            endpointProvider: launcher.endpointProvider)
         do {
             let identity = try await connection.start()
             let workspace = try await connection.createWorkspace(name: "path")
@@ -209,7 +245,7 @@ struct IntegrationTests {
             let entries = Set((seen ?? "").split(separator: ":").map(String.init))
             let missing = loginPath.split(separator: ":").map(String.init).filter { !entries.contains($0) }
             #expect(seen != nil)
-            #expect(missing.isEmpty, "missing from terminal PATH: \(missing)")
+            #expect(missing.isEmpty, "missing from terminal PATH: \(missing); login PATH: \(loginPath); seen: \(seen ?? "<none>")")
         } catch {
             await BranchDaemonHarness.shutDown(connection)
             throw error

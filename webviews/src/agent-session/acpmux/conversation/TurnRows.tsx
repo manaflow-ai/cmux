@@ -4,6 +4,9 @@
 import { useState, type ReactNode } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
+import { ShellBlock } from "./ShellBlock";
+import { ToolRun } from "./ToolRun";
+import { isFoldedRun } from "./toolRunSummary";
 import { workedLabel } from "./turns";
 import { ChevronRight, Copy, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
@@ -42,7 +45,8 @@ function toolIcon(kind?: string): ReactNode {
   }
 }
 
-/// One tool call. A call with output opens it below, as Codex's command and tool rows do.
+/// One tool call. A call with output opens it below, as Codex's command and tool rows do; a
+/// shell call opens to its Shell block, with the command line even before any output.
 function ToolRow({ item }: { item: AcpmuxActivity }) {
   const [open, setOpen] = useState(false);
   const tool = item.tool!;
@@ -50,6 +54,8 @@ function ToolRow({ item }: { item: AcpmuxActivity }) {
   const running = tool.status === "pending" || tool.status === "in_progress";
   const failed = tool.status === "failed";
   const body = tool.output?.replace(/\n$/, "");
+  // Only a call with a command line is a shell; an MCP call can also say "execute".
+  const shell = tool.kind === "execute" && Boolean(tool.command);
   const content = (
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
@@ -61,7 +67,7 @@ function ToolRow({ item }: { item: AcpmuxActivity }) {
   );
   return (
     <>
-      {body ? (
+      {body || shell ? (
         <button
           type="button"
           className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
@@ -78,24 +84,28 @@ function ToolRow({ item }: { item: AcpmuxActivity }) {
       ) : (
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
       )}
-      {open && body && <pre className="cv-tool-output">{body}</pre>}
+      {open && shell && <ShellBlock command={tool.command} output={body} exitCode={tool.exitCode} />}
+      {open && !shell && body && <pre className="cv-tool-output">{body}</pre>}
     </>
   );
 }
 
-/// A run of tool calls and thoughts between two pieces of text.
+const toolItem = (item: AcpmuxActivity, index: number) =>
+  item.tool ? (
+    <ToolRow key={item.tool.id || index} item={item} />
+  ) : (
+    <div className="cv-tool cv-thought" key={index}>
+      <span className="cv-tool__text">{item.text}</span>
+    </div>
+  );
+
+/// A run of tool calls and thoughts between two pieces of text. In an ended turn's open "Worked
+/// for", two or more calls fold under one summary line (toolRunSummary.ts); a live turn lists each.
 export function ToolRows({ row }: { row: AcpmuxRow }) {
+  const items = row.items ?? [];
   return (
     <div className="cv-tools">
-      {(row.items ?? []).map((item, index) =>
-        item.tool ? (
-          <ToolRow key={item.tool.id || index} item={item} />
-        ) : (
-          <div className="cv-tool cv-thought" key={index}>
-            <span className="cv-tool__text">{item.text}</span>
-          </div>
-        ),
-      )}
+      {row.settled && isFoldedRun(items) ? <ToolRun items={items} renderItem={toolItem} /> : items.map(toolItem)}
     </div>
   );
 }

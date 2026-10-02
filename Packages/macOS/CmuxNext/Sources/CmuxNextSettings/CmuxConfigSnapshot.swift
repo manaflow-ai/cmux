@@ -69,14 +69,28 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var centerFocusedColumn: CenterFocusedColumn = CenterFocusedColumnSetting.fallback
     /// `layout.stripScrollbar`; "auto" when unset or invalid.
     public var stripScrollbar: StripScrollbarMode = StripScrollbarSetting.fallback
+    /// `layout.splitSizing`, `layout.newColumnWidth`, sticky defaults and the
+    /// minimum pane size (`ColumnLayoutSettings`).
+    public var splitSizing: SplitSizing = ColumnLayoutSettings.splitSizingFallback
+    public var newColumnWidth: NewColumnWidthMode = ColumnLayoutSettings.newColumnWidthFallback
+    public var stickyColumnEdge: StickyDefaultEdge = ColumnLayoutSettings.stickyEdgeFallback
+    public var stickyColumnMode: StickyDefaultMode = ColumnLayoutSettings.stickyModeFallback
+    public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
+                                               height: ColumnLayoutSettings.minimumPaneHeightFallback)
+    /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
+    public var closeFocus: CloseFocusPolicy = CloseFocusSetting.fallback
     /// `layout.defaultColumnWidth`; 0.5 when unset or invalid.
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback
     /// `focusRing.*`.
     public var focusRing = FocusRingSettings()
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()
+    /// `appearance.borders`; "default" when unset or invalid.
+    public var borders: BorderMode = BordersSetting.fallback
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
+    /// `window.rail`; "off" when unset or invalid.
+    public var rail: WindowRailPlacement = WindowRailSetting.fallback
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `history.terminalCommands` (opt-in terminal command history).
@@ -134,12 +148,22 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (scrollbar, scrollbarDiagnostic) = StripScrollbarSetting.parse(root)
         snapshot.stripScrollbar = scrollbar
         if let scrollbarDiagnostic { snapshot.diagnostics.append(scrollbarDiagnostic) }
+        let (closeFocus, closeFocusDiagnostic) = CloseFocusSetting.parse(root)
+        snapshot.closeFocus = closeFocus
+        if let closeFocusDiagnostic { snapshot.diagnostics.append(closeFocusDiagnostic) }
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        ColumnLayoutSettings.parse(root, into: &snapshot)
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
+        let (borders, bordersDiagnostic) = BordersSetting.parse(root)
+        snapshot.borders = borders
+        if let bordersDiagnostic { snapshot.diagnostics.append(bordersDiagnostic) }
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
+        let (rail, railDiagnostic) = WindowRailSetting.parse(root)
+        snapshot.rail = rail
+        if let railDiagnostic { snapshot.diagnostics.append(railDiagnostic) }
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }

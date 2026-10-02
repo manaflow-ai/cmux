@@ -13,12 +13,13 @@ import Speech
 /// finalized runs as ``DictationTranscriptionEvent/final(_:)``; recognition
 /// stays on device.
 public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
-    private let inputBox = AnalyzerInputBox()
+    let inputBox = AnalyzerInputBox()
     private var analyzer: SpeechAnalyzer?
     private var transcriber: SpeechTranscriber?
     private var audioEngine: AVAudioEngine?
     private var analyzerFormat: AVAudioFormat?
     private var converter: AVAudioConverter?
+    private var timeline = AnalyzerTimeline()
     private var convertedInputContinuation:
         AsyncThrowingStream<AnalyzerInput, any Error>.Continuation?
     private var conversionTask: Task<Void, Never>?
@@ -28,15 +29,16 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     private var ownedReservedLocale: Locale?
     private var analyzerStarted = false
     private var isFinishing = false
-    private let levelMeter: DictationAudioLevelMeter?
+    let levelMeter: DictationAudioLevelMeter?
+    #if DEBUG
+    var recordedInput: URL?, recordedPlayback: Task<Void, Never>? // RecordedDictationInput
+    #endif
 
-    /// Caps queued audio to roughly a third of a second at the 4096-frame
-    /// tap size. Dropping the oldest buffer lets the analyzer catch up after
-    /// a temporary model stall without retaining an unbounded recording.
+    /// Caps queued audio to about a third of a second of 4096-frame taps; dropping the
+    /// oldest lets the analyzer catch up after a model stall without an unbounded recording.
     private static let inputBufferCapacity = 8
 
-    /// Keeps transcription callbacks bounded when insertion briefly stalls.
-    /// A dropped event fails the session rather than silently losing a final.
+    /// Bounds callbacks when insertion stalls; a dropped event fails the session, never loses a final.
     private static let eventBufferCapacity = 32
 
     /// Creates an engine for one session; `levelMeter` feeds the dictation meter.
@@ -230,6 +232,9 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     }
 
     private func startAudioEngine() throws {
+        #if DEBUG
+        if let recordedInput { return try playRecordedInput(recordedInput) }
+        #endif
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
@@ -255,7 +260,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         guard buffer.frameLength > 0 else { return }
         if buffer.format == analyzerFormat {
             let result = continuation.yield(
-                AnalyzerInput(buffer: buffer, bufferStartTime: input.bufferStartTime)
+                timeline.input(buffer, capturedAt: input.bufferStartTime)
             )
             if case .dropped = result {
                 throw DictationFailure.audioCaptureFailed("converted audio backlog")
@@ -276,7 +281,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         }
         let converted = try converter.convertOne(buffer, to: analyzerFormat)
         let result = continuation.yield(
-            AnalyzerInput(buffer: converted, bufferStartTime: input.bufferStartTime)
+            timeline.input(converted, capturedAt: input.bufferStartTime)
         )
         if case .dropped = result {
             throw DictationFailure.audioCaptureFailed("converted audio backlog")
@@ -337,6 +342,9 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     }
 
     private func stopAudioEngine() {
+        #if DEBUG
+        recordedPlayback?.cancel()
+        #endif
         configurationChangeTask?.cancel()
         configurationChangeTask = nil
         guard let engine = audioEngine else { return }

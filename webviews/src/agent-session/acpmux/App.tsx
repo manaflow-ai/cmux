@@ -15,6 +15,8 @@ import {
   type AcpmuxSnapshot,
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
+import { composerDraft } from "./composerDraft";
+import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -23,13 +25,17 @@ import { ScrollPacing } from "./pacing";
 import { Composer } from "./Composer";
 import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
-import { SessionSidebar } from "./SessionSidebar";
+import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
-import { Counts, DiffPanel } from "./DiffPanel";
+import { DiffPanel } from "./DiffPanel";
+import type { ChangesSource } from "./changes/model";
+import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
-import { WORKED, isFoldedCopy, turnView } from "./conversation/turns";
+import { THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { Thinking } from "./conversation/Thinking";
+import { WorkingFor } from "./conversation/WorkingFor";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -69,6 +75,16 @@ declare global {
   }
 }
 
+/** Who mock mode is signed in as, for the sidebar's account row. */
+const MOCK_ACCOUNT: SidebarAccount = { name: "Leo", detail: "Max" };
+
+/** The host's `account`, kept only when its fields are strings. */
+function hostAccount(value: unknown): SidebarAccount | undefined {
+  const account = value as { name?: unknown; detail?: unknown } | undefined;
+  if (typeof account?.name !== "string" || !account.name) return undefined;
+  return { name: account.name, detail: typeof account.detail === "string" ? account.detail : undefined };
+}
+
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
@@ -81,6 +97,10 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
     },
   );
 }
+
+/// The changes view reads git scopes from whoever runs the session: the acpmux client
+/// (or the mock daemon), else the native host.
+const changesSource: ChangesSource = { scopeDiff: (scope) => callNative("git.scope.diff", { scope }) };
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
@@ -114,6 +134,20 @@ const WorkedRow = memo(
     a.row.version === b.row.version &&
     a.expanded === b.expanded &&
     a.onToggleActivity === b.onToggleActivity,
+);
+
+/// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
+const ThinkingRow = memo(
+  function ThinkingRow(_: RowProps) {
+    return <Thinking />;
+  },
+  (a, b) => a.row.id === b.row.id,
+);
+const WorkingRow = memo(
+  function WorkingRow({ row }: RowProps) {
+    return <WorkingFor row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.durationMs === b.row.durationMs,
 );
 
 const SummaryRow = memo(
@@ -247,6 +281,8 @@ const defaultRegistry: NativeRegistry = {
   assistant: MessageRow,
   activity: ToolActivityRow,
   [WORKED]: WorkedRow,
+  [THINKING]: ThinkingRow,
+  [WORKING]: WorkingRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
@@ -617,6 +653,8 @@ export function AcpmuxApp() {
 }
 
 function AcpmuxPane() {
+  /// What a chat opened from another tab inherited (#16620); the composer starts with it.
+  const [draft, setDraft] = useState<string | undefined>();
   const [snapshot, setSnapshot] = useState<AcpmuxSnapshot>({
     type: "snapshot",
     protocolVersion: 1,
@@ -629,8 +667,13 @@ function AcpmuxPane() {
     canLoadOlder: false,
   });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // A new chat centers its composer under the hero, as Codex's home does.
+  const freshChat = isNewChat(snapshot);
   // Codex's turn shape: work folds under "Worked for" until opened.
-  const transcriptRows = useMemo(() => turnView(snapshot.rows, expanded), [snapshot.rows, expanded]);
+  const transcriptRows = useMemo(
+    () => turnView(snapshot.rows, expanded, snapshot.isWorking),
+    [snapshot.rows, expanded, snapshot.isWorking],
+  );
   // The open changes view: a turn of one session, and the control that opened it.
   const [diffView, setDiffView] = useState<{
     sessionId?: string;
@@ -685,6 +728,8 @@ function AcpmuxPane() {
     return diffActivity.current.files;
   }, [diffView, diffOpen, snapshot.rows]);
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
+  /// Who is signed in, when the host says: the sidebar's account row.
+  const [account, setAccount] = useState<SidebarAccount>();
   /// The session list shows beside the transcript in a wide pane and on demand in a narrow one.
   const [sidebar, setSidebar] = useState<"auto" | "open" | "closed">("auto");
   const sidebarToggle = useRef<HTMLButtonElement>(null);
@@ -712,11 +757,17 @@ function AcpmuxPane() {
     setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
     void callNative("chat.select", { sessionId });
   }, []);
+  const newChat = useCallback(() => {
+    setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
+    void callNative("chat.new").catch(() => undefined);
+  }, []);
   // While the narrow-pane overlay is open, Escape closes it and focus moves into it.
   useEffect(() => {
     if (sidebar !== "open" || wide) return;
     const list = document.getElementById("acpmux-sidebar");
-    (list?.querySelector<HTMLElement>(".is-selected") ?? list?.querySelector<HTMLElement>("button"))?.focus();
+    (
+      list?.querySelector<HTMLElement>(".is-selected") ?? list?.querySelector<HTMLElement>("[aria-current=page]")
+    )?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") closeOverlay();
     };
@@ -724,6 +775,8 @@ function AcpmuxPane() {
     return () => document.removeEventListener("keydown", onKey);
   }, [sidebar, wide, closeOverlay]);
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
+  /// The newest snapshot, for host requests that read it (pane.context).
+  const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   // The pane keeps the last client's catalog until the next client's arrives;
   // ids only grow, so a new client never reads an older client's cache entry.
@@ -803,15 +856,24 @@ function AcpmuxPane() {
           token?: string;
           sessionId?: string;
           newSession?: boolean;
+          cwd?: string;
+          draft?: string;
+          account?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
+        // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
+        // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
+        const seeded = composerDraft(host.draft);
+        if (seeded) setDraft(seeded);
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
+        setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
         if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) return;
         const client = await AcpmuxDirectClient.connect(
           mock ? mockHost : (host as AcpmuxHostConfig),
           (next) => {
             rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
+            snapshotRef.current = next;
             setSnapshot(next);
           },
           () => {
@@ -852,6 +914,10 @@ function AcpmuxPane() {
           "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
           "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
           "chat.history": () => client.loadOlder(),
+          "git.scope.diff": ({ scope }) => client.gitScopeDiff(String(scope)),
+          "git.status": () => client.gitStatus(),
+          // What the agent works on, for a terminal or browser opened from this chat (#16620).
+          "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
         client.snapshot();
       } catch (error) {
@@ -882,7 +948,13 @@ function AcpmuxPane() {
   const header = paneHeader(composerSnapshot);
   return (
     <section className="acpmux-shell" data-sidebar={sidebar}>
-      <SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />
+      <SessionSidebar
+        sessions={snapshot.sessions}
+        selectedId={snapshot.sessionId}
+        onSelect={selectSession}
+        onNewChat={newChat}
+        account={account}
+      />
       {sidebar === "open" && (
         <button
           type="button"
@@ -892,7 +964,7 @@ function AcpmuxPane() {
           onClick={closeOverlay}
         />
       )}
-      <div className="acpmux-main">
+      <div className="acpmux-main" data-new-chat={freshChat ? "" : undefined}>
         <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
           <header className="acpmux-header">
             <div>
@@ -910,7 +982,7 @@ function AcpmuxPane() {
               {header.status && <span className="acpmux-status">{header.status}</span>}
             </div>
           </header>
-          {isNewChat(snapshot) ? (
+          {freshChat ? (
             <EmptyState project={projectName(snapshot.summary?.cwd)} />
           ) : (
             <VirtualTranscript
@@ -929,17 +1001,10 @@ function AcpmuxPane() {
               }
             />
           )}
-          {diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}
+          {diffView && diffFiles && (
+            <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} source={changesSource} />
+          )}
         </div>
-        {snapshot.queue.length > 0 && (
-          <div className="acpmux-queue">
-            {snapshot.queue.map((entry) => (
-              <span className="acpmux-queued" key={entry.id}>
-                Queued: {entry.prompt}
-              </span>
-            ))}
-          </div>
-        )}
         {snapshot.permission?.pending && (
           <div className="acpmux-permission">
             <PermissionCard permission={snapshot.permission} />
@@ -948,6 +1013,7 @@ function AcpmuxPane() {
         <Composer
           snapshot={composerSnapshot}
           chips={ComposerChips}
+          draft={draft}
           onSend={(text) => void callNative("chat.send", { text })}
           onStop={() => void callNative("chat.cancel")}
         />

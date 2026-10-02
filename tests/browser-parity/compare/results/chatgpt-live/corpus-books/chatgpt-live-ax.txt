@@ -1,0 +1,449 @@
+Browser tab: 370922480, Title: "All products | Books to Scrape - Sandbox", URL: "http://127.0.0.1:18911/corpus/books.html".
+1 AXWebArea All products | Books to Scrape - Sandbox, URL: 127.0.0.1:18911/corpus/books.html
+	2 container default
+		3 container
+			4 link Description: Books to Scrape, Value: books.toscrape.com/index.html
+			5 text  We love being scraped!
+		6 content list
+			7 link Description: Home, Value: books.toscrape.com/index.html
+			8 container
+				9 text /  All products
+		10 container
+			11 content list
+				12 container
+					13 link Description: Books, Value: books.toscrape.com/catalogue/category/books_1/index.html
+					14 content list
+						15 container
+							16 AXListMarker ◦ 
+							17 link Description: Travel, Value: books.toscrape.com/catalogue/category/books/travel_2/index.html
+						18 container
+							19 AXListMarker ◦ 
+							20 link Description: Mystery, Value: books.toscrape.com/catalogue/category/books/mystery_3/index.html
+						21 container
+							22 AXListMarker ◦ 
+							23 link Description: Historical Fiction, Value: books.toscrape.com/catalogue/category/books/historical-fiction_4/index.html
+						24 container
+							25 AXListMarker ◦ 
+							26 link Description: Sequential Art, Value: books.toscrape.com/catalogue/category/books/sequential-art_5/index.html
+						27 container
+							28 AXListMarker ◦ 
+							29 link Description: Classics, Value: books.toscrape.com/catalogue/category/books/classics_6/index.html
+						30 container
+							31 AXListMarker ◦ 
+							32 link Description: Philosophy, Value: books.toscrape.com/catalogue/category/books/philosophy_7/index.html
+						33 container
+							34 AXListMarker ◦ 
+							35 link Description: Romance, Value: books.toscrape.com/catalogue/category/books/romance_8/index.html
+						36 container
+							37 AXListMarker ◦ 
+							38 link Description: Womens Fiction, Value: books.toscrape.com/catalogue/category/books/womens-fiction_9/index.html
+						39 container
+							40 AXListMarker ◦ 
+							41 link Description: Fiction, Value: books.toscrape.com/catalogue/category/books/fiction_10/index.html
+						42 container
+							43 AXListMarker ◦ 
+							44 link Description: Childrens, Value: books.toscrape.com/catalogue/category/books/childrens_11/index.html
+						45 container
+							46 AXListMarker ◦ 
+							47 link Description: Religion, Value: books.toscrape.com/catalogue/category/books/religion_12/index.html
+						48 container
+							49 AXListMarker ◦ 
+							50 link Description: Nonfiction, Value: books.toscrape.com/catalogue/category/books/nonfiction_13/index.html
+						51 container
+							52 AXListMarker ◦ 
+							53 link Description: Music, Value: books.toscrape.com/catalogue/category/books/music_14/index.html
+						54 container
+							55 AXListMarker ◦ 
+							56 link Description: Default, Value: books.toscrape.com/catalogue/category/books/default_15/index.html
+						57 container
+							58 AXListMarker ◦ 
+							59 link Description: Science Fiction, Value: books.toscrape.com/catalogue/category/books/science-fiction_16/index.html
+						60 container
+							61 AXListMarker ◦ 
+							62 link Description: Sports and Games, Value: books.toscrape.com/catalogue/category/books/sports-and-games_17/index.html
+						63 container
+							64 AXListMarker ◦ 
+							65 link Description: Add a comment, Value: books.toscrape.com/catalogue/category/books/add-a-comment_18/index.html
+						66 container
+							67 AXListMarker ◦ 
+							68 link Description: Fantasy, Value: books.toscrape.com/catalogue/category/books/fantasy_19/index.html
+						69 container
+							70 AXListMarker ◦ 
+							71 link Description: New Adult, Value: books.toscrape.com/catalogue/category/books/new-adult_20/index.html
+						72 container
+							73 AXListMarker ◦ 
+							74 link Description: Young Adult, Value: books.toscrape.com/catalogue/category/books/young-adult_21/index.html
+						75 container
+							76 AXListMarker ◦ 
+							77 link Description: Science, Value: books.toscrape.com/catalogue/category/books/science_22/index.html
+						78 container
+							79 AXListMarker ◦ 
+							80 link Description: Poetry, Value: books.toscrape.com/catalogue/category/books/poetry_23/index.html
+						81 container
+							82 AXListMarker ◦ 
+							83 link Description: Paranormal, Value: books.toscrape.com/catalogue/category/books/paranormal_24/index.html
+						84 container
+							85 AXListMarker ◦ 
+							86 link Description: Art, Value: books.toscrape.com/catalogue/category/books/art_25/index.html
+						87 container
+							88 AXListMarker ◦ 
+							89 link Description: Psychology, Value: books.toscrape.com/catalogue/category/books/psychology_26/index.html
+						90 container
+							91 AXListMarker ◦ 
+							92 link Description: Autobiography, Value: books.toscrape.com/catalogue/category/books/autobiography_27/index.html
+						93 container
+							94 AXListMarker ◦ 
+							95 link Description: Parenting, Value: books.toscrape.com/catalogue/category/books/parenting_28/index.html
+						96 container
+							97 AXListMarker ◦ 
+							98 link Description: Adult Fiction, Value: books.toscrape.com/catalogue/category/books/adult-fiction_29/index.html
+						99 container
+							100 AXListMarker ◦ 
+							101 link Description: Humor, Value: books.toscrape.com/catalogue/category/books/humor_30/index.html
+						102 container
+							103 AXListMarker ◦ 
+							104 link Description: Horror, Value: books.toscrape.com/catalogue/category/books/horror_31/index.html
+						105 container
+							106 AXListMarker ◦ 
+							107 link Description: History, Value: books.toscrape.com/catalogue/category/books/history_32/index.html
+						108 container
+							109 AXListMarker ◦ 
+							110 link Description: Food and Drink, Value: books.toscrape.com/catalogue/category/books/food-and-drink_33/index.html
+						111 container
+							112 AXListMarker ◦ 
+							113 link Description: Christian Fiction, Value: books.toscrape.com/catalogue/category/books/christian-fiction_34/index.html
+						114 container
+							115 AXListMarker ◦ 
+							116 link Description: Business, Value: books.toscrape.com/catalogue/category/books/business_35/index.html
+						117 container
+							118 AXListMarker ◦ 
+							119 link Description: Biography, Value: books.toscrape.com/catalogue/category/books/biography_36/index.html
+						120 container
+							121 AXListMarker ◦ 
+							122 link Description: Thriller, Value: books.toscrape.com/catalogue/category/books/thriller_37/index.html
+						123 container
+							124 AXListMarker ◦ 
+							125 link Description: Contemporary, Value: books.toscrape.com/catalogue/category/books/contemporary_38/index.html
+						126 container
+							127 AXListMarker ◦ 
+							128 link Description: Spirituality, Value: books.toscrape.com/catalogue/category/books/spirituality_39/index.html
+						129 container
+							130 AXListMarker ◦ 
+							131 link Description: Academic, Value: books.toscrape.com/catalogue/category/books/academic_40/index.html
+						132 container
+							133 AXListMarker ◦ 
+							134 link Description: Self Help, Value: books.toscrape.com/catalogue/category/books/self-help_41/index.html
+						135 container
+							136 AXListMarker ◦ 
+							137 link Description: Historical, Value: books.toscrape.com/catalogue/category/books/historical_42/index.html
+						138 container
+							139 AXListMarker ◦ 
+							140 link Description: Christian, Value: books.toscrape.com/catalogue/category/books/christian_43/index.html
+						141 container
+							142 AXListMarker ◦ 
+							143 link Description: Suspense, Value: books.toscrape.com/catalogue/category/books/suspense_44/index.html
+						144 container
+							145 AXListMarker ◦ 
+							146 link Description: Short Stories, Value: books.toscrape.com/catalogue/category/books/short-stories_45/index.html
+						147 container
+							148 AXListMarker ◦ 
+							149 link Description: Novels, Value: books.toscrape.com/catalogue/category/books/novels_46/index.html
+						150 container
+							151 AXListMarker ◦ 
+							152 link Description: Health, Value: books.toscrape.com/catalogue/category/books/health_47/index.html
+						153 container
+							154 AXListMarker ◦ 
+							155 link Description: Politics, Value: books.toscrape.com/catalogue/category/books/politics_48/index.html
+						156 container
+							157 AXListMarker ◦ 
+							158 link Description: Cultural, Value: books.toscrape.com/catalogue/category/books/cultural_49/index.html
+						159 container
+							160 AXListMarker ◦ 
+							161 link Description: Erotica, Value: books.toscrape.com/catalogue/category/books/erotica_50/index.html
+						162 container
+							163 AXListMarker ◦ 
+							164 link Description: Crime, Value: books.toscrape.com/catalogue/category/books/crime_51/index.html
+		165 container
+			166 heading All products, Value: 1
+				167 text All products
+			168 text 1000
+			169 text  results - showing 
+			170 text 1
+			171 text  to 
+			172 text 20
+			173 text .
+			174 container
+				175 text Warning!  This is a demo website for web scraping purposes. Prices and ratings here were randomly assigned and have no real meaning.
+			176 content list
+				177 container
+					178 link Description: A Light in the Attic, Value: books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html
+					179 text 
+					180 text 
+					181 text 
+					182 text 
+					183 text 
+					184 heading A Light in the ..., Value: 3
+						185 link Description: A Light in the ..., Help: A Light in the Attic, Value: books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html
+					186 text £51.77
+					187 container
+						188 text   In stock
+					189 button Add to basket
+				190 container
+					191 link Description: Tipping the Velvet, Value: books.toscrape.com/catalogue/tipping-the-velvet_999/index.html
+					192 text 
+					193 text 
+					194 text 
+					195 text 
+					196 text 
+					197 heading Tipping the Velvet, Value: 3
+						198 link Description: Tipping the Velvet, Value: books.toscrape.com/catalogue/tipping-the-velvet_999/index.html
+					199 text £53.74
+					200 container
+						201 text   In stock
+					202 button Add to basket
+				203 container
+					204 link Description: Soumission, Value: books.toscrape.com/catalogue/soumission_998/index.html
+					205 text 
+					206 text 
+					207 text 
+					208 text 
+					209 text 
+					210 heading Soumission, Value: 3
+						211 link Description: Soumission, Value: books.toscrape.com/catalogue/soumission_998/index.html
+					212 text £50.10
+					213 container
+						214 text   In stock
+					215 button Add to basket
+				216 container
+					217 link Description: Sharp Objects, Value: books.toscrape.com/catalogue/sharp-objects_997/index.html
+					218 text 
+					219 text 
+					220 text 
+					221 text 
+					222 text 
+					223 heading Sharp Objects, Value: 3
+						224 link Description: Sharp Objects, Value: books.toscrape.com/catalogue/sharp-objects_997/index.html
+					225 text £47.82
+					226 container
+						227 text   In stock
+					228 button Add to basket
+				229 container
+					230 link Description: Sapiens: A Brief History of Humankind, Value: …
+					231 text 
+					232 text 
+					233 text 
+					234 text 
+					235 text 
+					236 heading Sapiens: A Brief History ..., Value: 3
+						237 link Description: Sapiens: A Brief History ..., Help: Sapiens: A Brief History of Humankind, Value: …
+					238 text £54.23
+					239 container
+						240 text   In stock
+					241 button Add to basket
+				242 container
+					243 link Description: The Requiem Red, Value: …
+					244 text 
+					245 text 
+					246 text 
+					247 text 
+					248 text 
+					249 heading The Requiem Red, Value: 3
+						250 link Description: The Requiem Red, Value: …
+					251 text £22.65
+					252 container
+						253 text   In stock
+					254 button Add to basket
+				255 container
+					256 link Description: The Dirty Little Secrets of Getting Your Dream Job, Value: …
+					257 text 
+					258 text 
+					259 text 
+					260 text 
+					261 text 
+					262 heading The Dirty Little Secrets ..., Value: 3
+						263 link Description: The Dirty Little Secrets ..., Help: The Dirty Little Secrets of Getting Your Dream Job, Value: …
+					264 text £33.34
+					265 container
+						266 text   In stock
+					267 button Add to basket
+				268 container
+					269 link Description: The Coming Woman: A Novel Based on the Life of the Infamous Feminist, Victoria Woodhull, Value: …
+					270 text 
+					271 text 
+					272 text 
+					273 text 
+					274 text 
+					275 heading The Coming Woman: A ..., Value: 3
+						276 link Description: The Coming Woman: A ..., Help: The Coming Woman: A Novel Based on the Life of the Infamous Feminist, Victoria Woodhull, Value: …
+					277 text £17.93
+					278 container
+						279 text   In stock
+					280 button Add to basket
+				281 container
+					282 link Description: The Boys in the Boat: Nine Americans and Their Epic Quest for Gold at the 1936 Berlin Olympics, Value: …
+					283 text 
+					284 text 
+					285 text 
+					286 text 
+					287 text 
+					288 heading The Boys in the ..., Value: 3
+						289 link Description: The Boys in the ..., Help: The Boys in the Boat: Nine Americans and Their Epic Quest for Gold at the 1936 Berlin Olympics, Value: …
+					290 text £22.60
+					291 container
+						292 text   In stock
+					293 button Add to basket
+				294 container
+					295 link Description: The Black Maria, Value: …
+					296 text 
+					297 text 
+					298 text 
+					299 text 
+					300 text 
+					301 heading The Black Maria, Value: 3
+						302 link Description: The Black Maria, Value: …
+					303 text £52.15
+					304 container
+						305 text   In stock
+					306 button Add to basket
+				307 container
+					308 link Description: Starving Hearts (Triangular Trade Trilogy, #1), Value: …
+					309 text 
+					310 text 
+					311 text 
+					312 text 
+					313 text 
+					314 heading Starving Hearts (Triangular Trade ..., Value: 3
+						315 link Description: Starving Hearts (Triangular Trade ..., Help: Starving Hearts (Triangular Trade Trilogy, #1), Value: …
+					316 text £13.99
+					317 container
+						318 text   In stock
+					319 button Add to basket
+				320 container
+					321 link Description: Shakespeare's Sonnets, Value: …
+					322 text 
+					323 text 
+					324 text 
+					325 text 
+					326 text 
+					327 heading Shakespeare's Sonnets, Value: 3
+						328 link Description: Shakespeare's Sonnets, Value: …
+					329 text £20.66
+					330 container
+						331 text   In stock
+					332 button Add to basket
+				333 container
+					334 link Description: Set Me Free, Value: …
+					335 text 
+					336 text 
+					337 text 
+					338 text 
+					339 text 
+					340 heading Set Me Free, Value: 3
+						341 link Description: Set Me Free, Value: …
+					342 text £17.46
+					343 container
+						344 text   In stock
+					345 button Add to basket
+				346 container
+					347 link Description: Scott Pilgrim's Precious Little Life (Scott Pilgrim #1), Value: …
+					348 text 
+					349 text 
+					350 text 
+					351 text 
+					352 text 
+					353 heading Scott Pilgrim's Precious Little ..., Value: 3
+						354 link Description: Scott Pilgrim's Precious Little ..., Help: Scott Pilgrim's Precious Little Life (Scott Pilgrim #1), Value: …
+					355 text £52.29
+					356 container
+						357 text   In stock
+					358 button Add to basket
+				359 container
+					360 link Description: Rip it Up and Start Again, Value: …
+					361 text 
+					362 text 
+					363 text 
+					364 text 
+					365 text 
+					366 heading Rip it Up and ..., Value: 3
+						367 link Description: Rip it Up and ..., Help: Rip it Up and Start Again, Value: …
+					368 text £35.02
+					369 container
+						370 text   In stock
+					371 button Add to basket
+				372 container
+					373 link Description: Our Band Could Be Your Life: Scenes from the American Indie Underground, 1981-1991, Value: …
+					374 text 
+					375 text 
+					376 text 
+					377 text 
+					378 text 
+					379 heading Our Band Could Be ..., Value: 3
+						380 link Description: Our Band Could Be ..., Help: Our Band Could Be Your Life: Scenes from the American Indie Underground, 1981-1991, Value: …
+					381 text £57.25
+					382 container
+						383 text   In stock
+					384 button Add to basket
+				385 container
+					386 link Description: Olio, Value: …
+					387 text 
+					388 text 
+					389 text 
+					390 text 
+					391 text 
+					392 heading Olio, Value: 3
+						393 link Description: Olio, Value: …
+					394 text £23.88
+					395 container
+						396 text   In stock
+					397 button Add to basket
+				398 container
+					399 link Description: Mesaerion: The Best Science Fiction Stories 1800-1849, Value: …
+					400 text 
+					401 text 
+					402 text 
+					403 text 
+					404 text 
+					405 heading Mesaerion: The Best Science ..., Value: 3
+						406 link Description: Mesaerion: The Best Science ..., Help: Mesaerion: The Best Science Fiction Stories 1800-1849, Value: …
+					407 text £37.59
+					408 container
+						409 text   In stock
+					410 button Add to basket
+				411 container
+					412 link Description: Libertarianism for Beginners, Value: …
+					413 text 
+					414 text 
+					415 text 
+					416 text 
+					417 text 
+					418 heading Libertarianism for Beginners, Value: 3
+						419 link Description: Libertarianism for Beginners, Value: …
+					420 text £51.33
+					421 container
+						422 text   In stock
+					423 button Add to basket
+				424 container
+					425 link Description: It's Only the Himalayas, Value: …
+					426 text 
+					427 text 
+					428 text 
+					429 text 
+					430 text 
+					431 heading It's Only the Himalayas, Value: 3
+						432 link Description: It's Only the Himalayas, Value: …
+					433 text £45.17
+					434 container
+						435 text   In stock
+					436 button Add to basket
+			437 content list
+				438 text Page 1 of 50
+				439 link Description: next, Value: …
+	440 container react-scan-toast
+		441 container react-scan-toast-title
+			442 text ⚛️ React Not Detected
+		443 text React is not detected on this page.
+Please ensure you're visiting a React application.
+		444 button react-scan-toast-close-button
+			445 image
+
+The focused UI element is 1 AXWebArea All products | Books to Scrape - Sandbox, URL: 127.0.0.1:18911/corpus/books.html

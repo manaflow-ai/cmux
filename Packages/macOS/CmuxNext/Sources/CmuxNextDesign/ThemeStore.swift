@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxTheme
 public import Observation
 import Synchronization
 
@@ -67,6 +68,16 @@ public final class ThemeStore {
             (responder as? any ThemeResponsive)?.themeDidChange()
         }
         return true
+    }
+
+    /// Repaints every window and responder as a theme change does, for a
+    /// change that moves resolved colors or widths without a new theme
+    /// (`appearance.borders`).
+    public func repaintAll() {
+        for window in NSApp?.windows ?? [] { refresh(window) }
+        for responder in responders.allObjects {
+            (responder as? any ThemeResponsive)?.themeDidChange()
+        }
     }
 
     /// Calls `responder.themeDidChange()` after every change while it lives.

@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
+  filterSessions,
+  shortAge,
+  groupMark,
   GROUP_ROWS,
   groupByProject,
   projectLabel,
   sessionEntry,
   sessionMark,
+  sessionPlace,
   sessionTitle,
   sidebarSections,
   visibleSessions,
@@ -167,10 +171,12 @@ describe("summary entries", () => {
 });
 
 describe("sections", () => {
-  test("pinned sessions leave their project, and one folder on two machines is two projects", () => {
+  test("pinned sessions leave their project, and one folder on two machines is one project", () => {
     const { pinned, groups } = sidebarSections([
-      { sessionId: "a", cwd: "/src/acpmux", updatedAt: 5 },
-      { sessionId: "b", cwd: "/src/acpmux", host: "cobalt-butte", updatedAt: 4 },
+      { sessionId: "a", cwd: "/src/acpmux", host: "This Mac", hostKind: "local", updatedAt: 5 },
+      { sessionId: "b", cwd: "/src/acpmux", host: "cobalt-butte", hostKind: "cloud", updatedAt: 4 },
+      { sessionId: "e", cwd: "/src/cloud", host: "cobalt-butte", hostKind: "cloud", updatedAt: 2 },
+      { sessionId: "f", cwd: "/src/cloud/", host: "cobalt-butte", hostKind: "cloud", updatedAt: 1 },
       { sessionId: "c", cwd: "/src/acpmux", pinned: true, updatedAt: 3 },
       { sessionId: "d", cwd: "/src/web", pinned: true, updatedAt: 9 },
     ]);
@@ -178,8 +184,107 @@ describe("sections", () => {
     expect(
       groups.map((group) => [group.label, group.host, group.sessions.map((session) => session.sessionId)]),
     ).toEqual([
-      ["acpmux", undefined, ["a"]],
-      ["acpmux", "cobalt-butte", ["b"]],
+      ["acpmux", undefined, ["a", "b"]],
+      ["cloud", "cobalt-butte", ["e", "f"]],
     ]);
+  });
+  test("a cloud-only folder is one project per machine, and a bare host counts as remote", () => {
+    const groups = groupByProject([
+      { sessionId: "a", cwd: "/workspace", host: "elk", hostKind: "cloud", updatedAt: 3 },
+      { sessionId: "b", cwd: "/workspace", host: "butte", updatedAt: 2 },
+      { sessionId: "c", cwd: "/src/web", host: "elk", hostKind: "cloud", updatedAt: 1 },
+      { sessionId: "d", cwd: "/src/web", host: "butte", hostKind: "cloud", updatedAt: 0 },
+      { sessionId: "e", cwd: "/src/web", hostKind: "local", updatedAt: -1 },
+    ]);
+    expect(
+      groups.map((group) => [group.label, group.host, group.sessions.map((session) => session.sessionId)]),
+    ).toEqual([
+      ["workspace", "elk", ["a"]],
+      ["workspace", "butte", ["b"]],
+      ["web", undefined, ["c", "d", "e"]],
+    ]);
+  });
+
+  test("a row's place: the cloud machine with its branch, a worktree's folder, a branch, never this Mac", () => {
+    expect(sessionPlace({ sessionId: "a", host: "elk", hostKind: "cloud", branch: "ci" })).toEqual({
+      kind: "cloud",
+      label: "elk",
+      branch: "ci",
+    });
+    expect(sessionPlace({ sessionId: "a", host: "elk", hostKind: "cloud", branch: "ci" }, "elk")).toEqual({
+      kind: "branch",
+      label: "ci",
+    });
+    expect(sessionPlace({ sessionId: "b", worktree: "~/code/web-worktrees/home/" })).toEqual({
+      kind: "worktree",
+      label: "home",
+    });
+    expect(sessionPlace({ sessionId: "c", host: "This Mac", hostKind: "local" })).toBeUndefined();
+  });
+  test("pinning the local session at a folder keeps its cloud sessions in one project", () => {
+    const { groups } = sidebarSections([
+      { sessionId: "l", cwd: "/src/web", hostKind: "local", pinned: true, updatedAt: 3 },
+      { sessionId: "e", cwd: "/src/web/", host: "elk", hostKind: "cloud", updatedAt: 2 },
+      { sessionId: "b", cwd: "/src/web", host: "butte", hostKind: "cloud", updatedAt: 1 },
+    ]);
+    expect(
+      groups.map((group) => [group.label, group.host, group.sessions.map((session) => session.sessionId)]),
+    ).toEqual([["web", undefined, ["e", "b"]]]);
+  });
+  test("a search matches every word in title, folder, branch or cloud machine, and never splits a project", () => {
+    const list: AcpmuxSessionEntry[] = [
+      { sessionId: "l", displayTitle: "Lint", cwd: "/src/web", hostKind: "local", updatedAt: 3 },
+      { sessionId: "e", displayTitle: "Flaky CI", cwd: "/src/web", host: "elk", hostKind: "cloud", updatedAt: 2 },
+      {
+        sessionId: "b",
+        displayTitle: "CI cache",
+        cwd: "/src/web",
+        host: "butte",
+        hostKind: "cloud",
+        branch: "ci-keys",
+        updatedAt: 1,
+      },
+      { sessionId: "m", displayTitle: "Notes", cwd: "/src/docs", host: "This Mac", hostKind: "local", updatedAt: 0 },
+    ];
+    const ids = (query: string) => filterSessions(list, query).map((session) => session.sessionId);
+    expect(ids("ci")).toEqual(["e", "b"]);
+    expect(ids("CI  KEYS")).toEqual(["b"]);
+    expect(ids("elk")).toEqual(["e"]);
+    expect(ids("this mac")).toEqual([]);
+    expect(ids("src")).toEqual([]);
+    expect(ids("docs")).toEqual(["m"]);
+    expect(ids("  ")).toEqual(["l", "e", "b", "m"]);
+    // The local session that anchors /src/web is filtered out, but the cloud matches stay in its project.
+    expect(sidebarSections(list, "ci").groups.map((group) => [group.label, group.host])).toEqual([["web", undefined]]);
+    // A header keeps the machine it shows unsearched: matching only elk's session doesn't name elk.
+    expect(sidebarSections(list, "flaky").groups.map((group) => [group.label, group.host])).toEqual([
+      ["web", undefined],
+    ]);
+  });
+});
+
+describe("rail helpers", () => {
+  test("a project's mark is its most urgent session: needs input over a lost agent", () => {
+    const [group] = groupByProject([
+      { sessionId: "lost", cwd: "/p", status: "disconnected", updatedAt: 2 },
+      { sessionId: "ask", cwd: "/p", status: "waiting", updatedAt: 1 },
+    ]);
+    expect(groupMark(group)).toBe("input");
+    expect(groupMark({ ...group, sessions: group.sessions.slice(0, 1) })).toBe("error");
+    expect(groupMark({ ...group, sessions: [{ sessionId: "x", status: "running" }] })).toBeUndefined();
+  });
+
+  test("history ages are compact", () => {
+    const now = 100 * 86_400_000;
+    const ages = [
+      now,
+      now - 30_000,
+      now - 5 * 60_000,
+      now - 3 * 3_600_000,
+      now - 2 * 86_400_000,
+      now - 42 * 86_400_000,
+    ];
+    expect(ages.map((at) => shortAge(at, now))).toEqual(["now", "now", "5m", "3h", "2d", "6w"]);
+    expect(shortAge(undefined, now)).toBe("");
   });
 });

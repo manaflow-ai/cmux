@@ -40,7 +40,7 @@ extension ActionRegistry {
     static func impliedContext(for context: ActionMenuContext) -> ActionContext {
         switch context {
         case .browserPage: .browserFocused
-        case .terminalSelection, .link: .terminalFocused
+        case .terminalSelection: .terminalFocused
         default: []
         }
     }
@@ -68,6 +68,14 @@ extension ActionRegistry {
                 guard !childItems.isEmpty, let title = title(for: id) else { continue }
                 let item = NSMenuItem(title: title.hasSuffix("…") ? String(title.dropLast()) : title, action: nil, keyEquivalent: "")
                 let submenu = NSMenu(title: item.title)
+                childItems.forEach(submenu.addItem)
+                item.submenu = submenu
+                items.append(item)
+            case .folder(let folder, let children):
+                let childItems = menuItems(children, target: target, context: context)
+                guard childItems.contains(where: { !$0.isSeparatorItem }) else { continue }
+                let item = NSMenuItem(title: folder.title, action: nil, keyEquivalent: "")
+                let submenu = NSMenu(title: folder.title)
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu
                 items.append(item)

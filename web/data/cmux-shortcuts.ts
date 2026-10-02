@@ -596,7 +596,7 @@ export const shortcutCategories: ShortcutCategory[] = [
     shortcuts: [
       {
         id: "openDiffViewer",
-        combos: [["⌃", "⌘", "⇧", "D"]],
+        combos: [["⌃", "⌘", "⇧", "G"]],
         description: { en: "Open diff viewer", ja: "差分ビューアを開く" },
       },
       {

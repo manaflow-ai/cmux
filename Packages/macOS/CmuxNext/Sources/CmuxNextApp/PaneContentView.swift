@@ -9,6 +9,8 @@ import Observation
 /// border and rounded corners trace only the content below it.
 final class PaneContentView: NSView, PaneContentChrome {
     let stripView: TabStripView
+    /// Vibrancy under the strip, a shade darker than the content.
+    private let stripBackdrop = ChromeBackdropView(material: .headerView, tint: PaneContentView.stripTint)
     private let contentHost = NSView()
     private(set) weak var content: NSView?
     private var tokenObservation: Task<Void, Never>?
@@ -24,6 +26,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         wantsLayer = true
         contentHost.wantsLayer = true
         contentHost.layer?.masksToBounds = true
+        addSubview(stripBackdrop)
         addSubview(contentHost)
         addSubview(stripView)
         themeDidChange()
@@ -39,12 +42,17 @@ final class PaneContentView: NSView, PaneContentChrome {
         tokenObservation?.cancel()
     }
 
+    /// The strip backdrop's tint. theme-scoped: ChromeBackdropView calls it
+    /// inside its performWithTheme.
+    private static func stripTint() -> NSColor { Palette.stripBackground }
+
     override var isFlipped: Bool { true }
 
     override func layout() {
         super.layout()
         let stripHeight = self.stripHeight
         stripView.frame = NSRect(x: 0, y: 0, width: bounds.width, height: stripHeight)
+        stripBackdrop.frame = stripView.frame
         let hostFrame = NSRect(x: 0, y: stripHeight, width: bounds.width, height: max(0, bounds.height - stripHeight))
         reportHeaderIfChanged()
         guard contentHost.frame != hostFrame else { return }
@@ -160,13 +168,14 @@ final class PaneContentView: NSView, PaneContentChrome {
         themeDidChange()
     }
 
-    /// The content background, or nothing in a translucent window, where
-    /// the window root paints the one sheet (`WindowBackdrop`).
+    /// The content background under the content only (the strip has its
+    /// own backdrop), or nothing in a translucent window, where the window
+    /// root paints the one sheet (`WindowBackdrop`).
     func themeDidChange() {
         let tokens = themeTokens
-        let paints = WindowBackdrop(backgroundOpacity: tokens.backgroundOpacity, backgroundBlur: tokens.backgroundBlur).panesPaintBackground
+        let paints = WindowBackdrop(tokens).panesPaintBackground
         performWithTheme {
-            layer?.backgroundColor = paints ? Palette.contentBackground.cgColor : nil
+            contentHost.layer?.backgroundColor = paints ? Palette.contentBackground.cgColor : nil
         }
     }
 }

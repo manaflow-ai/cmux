@@ -12,14 +12,18 @@ import os
 extension AppActionContext {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
-    /// Logs every refusal; keyboard and menu runs also beep. Control-socket
-    /// runs get the reason back, and the palette shows it on the command's
-    /// row (`ActionRegistry.reportingRefusal`), so neither beeps.
+    /// Logs every refusal; keyboard and menu runs also show the reason in
+    /// a short HUD at the bottom of the active window (`RefusalHUD`).
+    /// Control-socket runs get the reason back, and the palette shows it on
+    /// the command's row (`ActionRegistry.reportingRefusal`), so neither
+    /// shows the HUD.
     func observeRefusals() {
         let registry = registry
+        let services = services
         registry.refusalObserver = { reason in
             Self.logger.notice("action refused: \(reason, privacy: .public)")
-            if !registry.refusalHasCaller { NSSound.beep() }
+            guard !registry.refusalHasCaller else { return }
+            services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
         }
     }
 
