@@ -56,6 +56,10 @@ pub(super) fn parse(args: &[String], output: OutputMode) -> Result<Plan, UsageEr
     }
 }
 
+pub(super) fn help() -> &'static str {
+    "USAGE\n  cmux docs search <query> [--json]\n\nSearch the catalog without connecting to a cmux session.\n"
+}
+
 pub(super) fn run(plan: Plan) -> i32 {
     let results = search(&plan.query);
     let response = SearchResponse { query: plan.query, results };

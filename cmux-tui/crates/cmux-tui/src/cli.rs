@@ -228,7 +228,7 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => {
+            Some(scope) if matches!(scope.as_str(), "start" | "shorthands" | "docs") => {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
@@ -238,6 +238,9 @@ fn parse_command(
         };
     }
     if command_args[0] == "docs" {
+        if command_args[1..].iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
+            return Ok(ParsedCommand::Help(Some("docs".to_owned())));
+        }
         return Ok(ParsedCommand::Docs(docs::parse(&command_args[1..], global.output)?));
     }
     if has_help_option(&command_args) {
@@ -456,6 +459,7 @@ fn scope_help_for(
 ) -> Cow<'static, str> {
     let text = match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
+        "docs" => Cow::Borrowed(docs::help()),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
@@ -935,6 +939,22 @@ mod tests {
         };
         assert_eq!(plan.query, "browser navigate");
         assert_eq!(plan.output, OutputMode::Json);
+    }
+
+    #[test]
+    fn docs_help_routes_before_search_parsing() {
+        assert!(matches!(
+            parse(&strings(&["docs", "--help"])).unwrap(),
+            ParsedCommand::Help(Some(topic)) if topic == "docs"
+        ));
+        assert!(matches!(
+            parse(&strings(&["docs", "search", "--help"])).unwrap(),
+            ParsedCommand::Help(Some(topic)) if topic == "docs"
+        ));
+        assert!(matches!(
+            parse(&strings(&["help", "docs"])).unwrap(),
+            ParsedCommand::Help(Some(topic)) if topic == "docs"
+        ));
     }
 
     #[test]
