@@ -32,6 +32,7 @@ extension WebKitDriver {
         let session = session(for: tab)
         if let url {
             let generation = session.waits.beginNavigation()
+            session.watcher?.navigationStarted(to: url)
             tab.load(url)
             do {
                 try await session.waits.reach(.commit, after: generation, timeout: try params.timeout(), what: "tabs.open")
@@ -101,8 +102,7 @@ extension WebKitDriver {
         // not reliably report its URL change through KVO. Drive it in the
         // page instead, then let the watcher satisfy the pending wait and
         // emit the same-document event deterministically.
-        if let current = tab.webView.url, !tab.webView.isLoading,
-           TabWatcher.differOnlyInFragment(current, url) {
+        if let current = tab.webView.url, TabWatcher.differOnlyInFragment(current, url) {
             let literal = try Self.javaScriptString(url.absoluteString)
             do {
                 _ = try await tab.evaluate("location.href = \(literal)", world: .page)
@@ -114,6 +114,7 @@ extension WebKitDriver {
             return .object(["url": .string(url.absoluteString)])
         }
 
+        session.watcher?.navigationStarted(to: url)
         tab.load(url)
         try await session.waits.reach(until, after: generation, timeout: try params.timeout(), what: "page.goto")
         return .object(["url": .string(tab.webView.url?.absoluteString ?? raw)])
@@ -137,6 +138,9 @@ extension WebKitDriver {
         if delta < 0, list.backList.count == 1, item.url.absoluteString == "about:blank" { return .null }
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
         let generation = session.waits.beginNavigation()
+        if let item = delta < 0 ? list.backItem : list.forwardItem {
+            session.watcher?.navigationStarted(to: item.url)
+        }
         if delta < 0 { tab.goBack() } else { tab.goForward() }
         try await session.waits.reach(until, after: generation, timeout: try params.timeout(), what: delta < 0 ? "page.goBack" : "page.goForward")
         return .object(["url": .string(tab.webView.url?.absoluteString ?? "")])
@@ -146,6 +150,7 @@ extension WebKitDriver {
         let (tab, session) = try target(params)
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
         let generation = session.waits.beginNavigation()
+        if let url = tab.webView.url { session.watcher?.navigationStarted(to: url) }
         tab.reload()
         try await session.waits.reach(until, after: generation, timeout: try params.timeout(), what: "page.reload")
         return .object([:])
