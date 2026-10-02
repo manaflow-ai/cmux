@@ -31,8 +31,8 @@ public struct ClaudeTranscriptForkSeeder: Sendable {
     }
 
     private static func seedSynchronously(_ request: ClaudeTranscriptForkSeedRequest) throws {
-        guard !request.sessionID.isEmpty,
-              request.sessionID.range(of: #"[\\/]"#, options: .regularExpression) == nil,
+        guard request.sessionID.range(of: #"^[A-Za-z0-9_-]+$"#, options: .regularExpression) != nil,
+              request.configDirectory.hasPrefix("/"),
               !request.targetWorkingDirectory.isEmpty else { return }
 
         let fileManager = FileManager.default
@@ -84,7 +84,7 @@ public struct ClaudeTranscriptForkSeeder: Sendable {
             ) { return location }
         }
         guard let projectNames = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else { return nil }
-        for projectName in projectNames {
+        for projectName in projectNames.sorted() {
             let projectPath = (projectsRoot as NSString).appendingPathComponent(projectName)
             if let location = transcriptLocation(
                 projectPath: projectPath, sessionID: sessionID, fileManager: fileManager

@@ -191,7 +191,8 @@ extension CMUXCLI {
             }
         try await seedClaudeTranscriptForForkIfNeeded(
             record: record,
-            targetWorkingDirectory: effectiveWorkingDirectory
+            targetWorkingDirectory: effectiveWorkingDirectory,
+            processEnvironment: processEnvironment
         )
         let request = AgentRestoreRequest(
             mode: .forkAgent,
@@ -296,7 +297,8 @@ extension CMUXCLI {
     /// Prepares provider state required for a Claude fork without exposing filesystem details to users.
     private func seedClaudeTranscriptForForkIfNeeded(
         record: RestoreRecord,
-        targetWorkingDirectory: String?
+        targetWorkingDirectory: String?,
+        processEnvironment: [String: String]
     ) async throws {
         guard record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "claude",
               let sessionID = record.checkpointID?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -307,6 +309,7 @@ extension CMUXCLI {
         let launchEnvironment = record.launchCommand?.environment ?? [:]
         let rawConfigRoot = record.environment["CLAUDE_CONFIG_DIR"]
             ?? launchEnvironment["CLAUDE_CONFIG_DIR"]
+            ?? processEnvironment["CLAUDE_CONFIG_DIR"]
             ?? ((NSHomeDirectory() as NSString).appendingPathComponent(".claude"))
         let configRoot = ClaudeConfigDirectoryPath.preferredPath(rawConfigRoot)
         let request = ClaudeTranscriptForkSeedRequest(
