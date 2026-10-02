@@ -30,6 +30,32 @@ struct CodePuppyAgentRegistrationTests {
         )["XDG_CACHE_HOME"] == "/tmp/puppy-cache")
     }
 
+    @Test("hook identities require durable autosaves and resolve legacy suffixes")
+    func durableIdentity() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("puppy-identity-\(UUID())")
+        defer { try? fm.removeItem(at: root) }
+        let registration = CodePuppyAgentRegistration.standard
+        let environment = ["XDG_CACHE_HOME": root.path]
+        let directory = registration.autosaveDirectory(homeDirectory: "/unused", environment: environment)
+        #expect(directory.path == root.appendingPathComponent("code_puppy/autosaves").path)
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        for name in ["auto_session_20260501_120000", "named-session"] {
+            try Data().write(to: directory.appendingPathComponent(name + ".pkl"))
+            #expect(registration.resumableHookSessionID(
+                name, homeDirectory: "/unused", environment: environment, fileManager: fm
+            ) == name)
+        }
+        #expect(registration.resumableHookSessionID(
+            "20260501_120000", homeDirectory: "/unused", environment: environment, fileManager: fm
+        ) == "auto_session_20260501_120000")
+        for invalid in ["codepuppy-session", "11111111-2222-3333-4444-555555555555", "../named-session"] {
+            #expect(registration.resumableHookSessionID(
+                invalid, homeDirectory: "/unused", environment: environment, fileManager: fm
+            ) == nil)
+        }
+    }
+
     @Test("exposes the shared detection, hook, and resume contract")
     func standardContract() {
         let registration = CodePuppyAgentRegistration.standard

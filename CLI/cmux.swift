@@ -35263,6 +35263,14 @@ export default {
         env: [String: String],
         cwd: String?
     ) -> String {
+        if def.name == CodePuppyAgentRegistration.standard.id {
+            // Native Code Puppy hooks may carry a per-run UUID rather than
+            // the autosave name. Never persist that UUID or its startup placeholder.
+            return CodePuppyAgentRegistration.standard.resumableHookSessionID(
+                input.sessionId, homeDirectory: env["HOME"] ?? NSHomeDirectory(),
+                environment: env, fileManager: .default
+            ) ?? ""
+        }
         if let sessionId = normalizedHookValue(input.sessionId) {
             return sessionId
         }

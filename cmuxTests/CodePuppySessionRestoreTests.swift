@@ -13,8 +13,12 @@ struct CodePuppySessionRestoreTests {
     func plainLaunch() throws {
         let fixture = try makeIndex(sessionID: "auto_session_20260501_120000", persisted: true)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        #expect(fixture.index.snapshot(workspaceId: fixture.workspace, panelId: fixture.panel)?.sessionId
-            == "auto_session_20260501_120000")
+        let snapshot = try #require(fixture.index.snapshot(workspaceId: fixture.workspace, panelId: fixture.panel))
+        #expect(snapshot.sessionId == "auto_session_20260501_120000")
+        #expect(snapshot.preparedResumeArguments(
+            launchCommand: snapshot.launchCommand, workingDirectory: snapshot.workingDirectory,
+            observedPermissionMode: nil
+        ) == ["code-puppy", "--resume", "auto_session_20260501_120000"])
     }
 
     @Test("placeholder and per-run UUID never become restorable checkpoints", arguments: [
@@ -23,7 +27,7 @@ struct CodePuppySessionRestoreTests {
     func invalidHookIdentity(sessionID: String) throws {
         let fixture = try makeIndex(sessionID: sessionID, persisted: false)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        #expect(fixture.index.snapshot(workspaceId: fixture.workspace, panelId: fixture.panel) == nil)
+        #expect(fixture.index.snapshot(workspaceId: fixture.workspace, panelId: fixture.panel)?.sessionId == nil)
     }
 
     private func makeIndex(sessionID: String, persisted: Bool) throws -> (
@@ -45,7 +49,7 @@ struct CodePuppySessionRestoreTests {
             "surfaceId": panel.uuidString, "cwd": root.path, "updatedAt": 10,
             "launchCommand": ["launcher": "code-puppy", "arguments": ["code-puppy"], "source": "process"],
         ]
-        try JSONSerialization.data(withJSONObject: ["sessions": [sessionID: record]])
+        try JSONSerialization.data(withJSONObject: ["version": 1, "sessions": [sessionID: record]])
             .write(to: store.appendingPathComponent("code-puppy-hook-sessions.json"))
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path, fileManager: fm,
