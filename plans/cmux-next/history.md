@@ -279,25 +279,26 @@ Commands (this terminal), Resume Agent Session (this terminal).
 - A per-workspace trail filter as a second pair of keys: the palette's
   Location History for This Workspace covers it until dogfood asks.
 
-## 9. Status (2026-09-30, branch feat-cmux-next-history)
+## 9. Status (2026-10-01)
 
-Built and verified on tag nxhist (no-activate launch, control socket):
-the location trail with Go Back / Go Forward (Ctrl-Cmd-Left/Right through
-`debug.key`, and `cmux history back|forward`) across panes, restored after
-relaunch from `history.trail`; Cmd-[ in a Chromium page is page Back;
-durable page visits per browser profile (a restored tab's reload is not a
-visit); agent sessions from the session journal with resume commands;
-`cmux://history` (screenshot checked); palette pages; `cmux history
-list|search`.
+Built: the location trail with Go Back / Go Forward (Ctrl-Cmd-Left/Right)
+and its app wiring test; Cmd-[ / Cmd-] only in browser contexts, consumed
+elsewhere (focus.md section 5); durable page visits per browser profile
+(a reload of a tab its connection found already there, or of a tab this
+process already made a page for, is not a visit; every tab created later
+records its first visit); agent sessions from the session journal with
+Resume; closed tabs, screens and workspaces; `cmux://history`; palette
+pages (Search History, Location History, Recently Closed, Command History,
+Resume Agent Session); `cmux history list|search` and the action verbs;
+Clear History hides of journal entries persisted in `history.hidden`, per
+kind; Back/Forward button entry menus (right-click, long press) for WebKit,
+and for Chromium from fork API 14.
 
-Not built yet:
+Terminal command history (user decision 2026-09-30: off by default):
+cmux-tui `terminal-command-journal-v1` (`set-terminal-command-history`,
+`shell.command.finished` from producer `cmux_shell`) and the app setting
+`history.terminalCommands`. The capability is `awaitingPin` in the app
+until a cmux-tui pin carries it.
 
-- Long-press / right-click entry menus on the toolbar Back and Forward
-  buttons (needs `backForwardList` for WebKit and a fork call for Chromium).
-- Terminal command history: needs the daemon capability
-  `terminal-command-journal-v1` (section 6); it has no owner yet.
-- Agent-session and command "clear" tombstones are in memory for the app
-  run; they are not yet written to the `history.hidden` projection.
-- Closed screens and workspaces are not listed (screens stay on Reopen
-  Closed Screen; workspaces need `closed-history-v1`).
-- Mouse side buttons and swipe for either axis.
+Not built: mouse side buttons and swipe for either axis; a daemon list of
+closed workspaces (`closed-history-v1`; the app lists what it saw close).

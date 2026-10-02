@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43";
+inline constexpr std::string_view kProtocolIrSha256 = "813ecf93e56fd007de1dc8654da3403126c62fd638d3ab1937e9d421200d92d1";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -137,6 +137,7 @@ struct Tab;
 struct TabRef;
 struct TerminalColorOverrides;
 struct TerminalColors;
+struct TerminalCommandHistoryResult;
 struct TerminalEventsResult;
 struct TerminalExit;
 struct TerminalExitOutcome;
@@ -319,6 +320,7 @@ struct SetSizeCountsRequest;
 struct SetSizePolicyRequest;
 struct SetSplitRatioRequest;
 struct SetTabPinnedRequest;
+struct SetTerminalCommandHistoryRequest;
 struct SetTerminalIdlePolicyRequest;
 struct SetTerminalKeepRequest;
 struct SetViewportPaneWidthRequest;
@@ -3139,6 +3141,11 @@ struct SetTabPinnedRequest {
     friend bool operator==(const SetTabPinnedRequest&, const SetTabPinnedRequest&) = default;
 };
 
+struct SetTerminalCommandHistoryRequest {
+    bool enabled{};
+    friend bool operator==(const SetTerminalCommandHistoryRequest&, const SetTerminalCommandHistoryRequest&) = default;
+};
+
 struct SetTerminalIdlePolicyRequest {
     Field<std::uint64_t> idle_close_seconds{};
     Field<Id> surface{};
@@ -3337,6 +3344,11 @@ struct TabRenamedEvent {
     Id surface{};
     Id workspace{};
     friend bool operator==(const TabRenamedEvent&, const TabRenamedEvent&) = default;
+};
+
+struct TerminalCommandHistoryResult {
+    bool enabled{};
+    friend bool operator==(const TerminalCommandHistoryResult&, const TerminalCommandHistoryResult&) = default;
 };
 
 struct TerminalEventsRequest {
@@ -4450,6 +4462,12 @@ struct Codec<TerminalColors> {
 };
 
 template <>
+struct Codec<TerminalCommandHistoryResult> {
+    static Result<Json> encode(const TerminalCommandHistoryResult& value);
+    static Result<TerminalCommandHistoryResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalEventsResult> {
     static Result<Json> encode(const TerminalEventsResult& value);
     static Result<TerminalEventsResult> decode(const Json& value);
@@ -5539,6 +5557,12 @@ template <>
 struct Codec<SetTabPinnedRequest> {
     static Result<Json> encode(const SetTabPinnedRequest& value);
     static Result<SetTabPinnedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetTerminalCommandHistoryRequest> {
+    static Result<Json> encode(const SetTerminalCommandHistoryRequest& value);
+    static Result<SetTerminalCommandHistoryRequest> decode(const Json& value);
 };
 
 template <>

@@ -13,7 +13,9 @@ final class HistoryService {
     /// history in memory only (tests).
     var supportDirectory: URL?
     private var sinks: [BrowserProfileID: BrowserVisitSink] = [:]
+    let hidden: HiddenHistoryStore
     let agents: AgentHistory
+    let commands: CommandHistory
     /// Tabs this process made a page for (a later page for the same tab is
     /// a reload, not a visit).
     var installedPageKeys: Set<String> = []
@@ -22,7 +24,9 @@ final class HistoryService {
 
     init(services: AppServices) {
         self.services = services
-        agents = AgentHistory(services: services)
+        hidden = HiddenHistoryStore(services: services)
+        agents = AgentHistory(services: services, hidden: hidden)
+        commands = CommandHistory(services: services, hidden: hidden)
     }
 
     /// Launch: page history becomes durable in `supportDirectory`.
@@ -84,6 +88,10 @@ final class HistoryService {
         if wants(.agent) {
             await agents.refresh()
             all += agents.entries()
+        }
+        if wants(.command) {
+            await commands.refresh()
+            all += commands.entries()
         }
         if wants(.page) {
             let since = query.range.start(now: Date())
@@ -190,6 +198,7 @@ final class HistoryService {
             services.closedWorkspaces.clear(since: since)
         }
         if wants(.agent) { agents.hide(since: since) }
+        if wants(.command) { commands.hide(since: since) }
         onChange?()
     }
 
@@ -219,8 +228,8 @@ final class HistoryService {
             }
         case .agent(let session):
             agents.hide(session)
-        case .command:
-            break
+        case .command(let command):
+            commands.hide(command)
         }
         onChange?()
     }

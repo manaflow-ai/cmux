@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import WebKit
@@ -38,6 +39,54 @@ import WebKit
         _ = await full.model.respond(to: .framePacing(missed))
         #expect(!adaptive.rendersAtFullRate)
         #expect(full.rendersAtFullRate)
+    }
+
+    /// WebKit reads the rate only when the page's visibility changes, so
+    /// setting it on a live page did nothing until the pane was hidden and
+    /// shown. The pane now re-shows the web view itself, under a snapshot
+    /// of the page so nothing visibly blinks.
+    @Test func aLiveRateChangeReShowsThePageUnderASnapshot() async throws {
+        let pane = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page)))
+        defer { pane.close() }
+        guard pane.webView.configuration.preferences.isWebKitFeatureEnabled(key) != nil else { return }
+        pane.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        pane.snapshotPage = { NSImage(size: NSSize(width: 400, height: 300)) }
+        var steps: [(hidden: Bool, covered: Bool)] = []
+        pane.pause = { [unowned pane] _ in
+            steps.append((pane.webView.isHidden, pane.subviews.contains { $0 is NSImageView }))
+        }
+        pane.rendersAtFullRate = true
+        await pane.rateReapply?.value
+        #expect(steps.first?.hidden == true)
+        let coveredThroughout = steps.allSatisfy { $0.covered }
+        #expect(coveredThroughout)
+        #expect(!pane.webView.isHidden)
+        #expect(!pane.subviews.contains { $0 is NSImageView })
+        // Setting the rate it already has changes nothing.
+        steps = []
+        pane.rendersAtFullRate = true
+        await pane.rateReapply?.value
+        #expect(steps.isEmpty)
+    }
+
+    /// Hiding a view that holds keyboard focus hands focus to the next key
+    /// view, and showing it again does not take it back. A rate change
+    /// after a settled scroll left the composer without focus, so the next
+    /// keystrokes went elsewhere.
+    @Test func aLiveRateChangeKeepsKeyboardFocusOnThePage() async throws {
+        let pane = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page)))
+        defer { pane.close() }
+        guard pane.webView.configuration.preferences.isWebKitFeatureEnabled(key) != nil else { return }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        defer { window.close() }
+        window.isReleasedWhenClosed = false
+        window.contentView = pane
+        pane.snapshotPage = { NSImage(size: NSSize(width: 400, height: 300)) }
+        pane.pause = { _ in }
+        #expect(window.makeFirstResponder(pane.webView))
+        pane.rendersAtFullRate = true
+        await pane.rateReapply?.value
+        #expect(window.firstResponder === pane.webView)
     }
 
     @Test func anUnknownFeatureIsLeftAlone() {

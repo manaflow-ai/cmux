@@ -90,26 +90,22 @@ public struct Metrics {
         DesignSettings.shared.paneChrome.padding ?? (density == .compact ? 2 : 4)
     }
 
-    // MARK: Pane alignment grid
+    // MARK: Pane alignment
 
-    // Every pane lines up on two vertical lines measured from its content
-    // edge (the rounded border's left side, which the tab strip shares):
-    // the chrome line, where tab pills and toolbar button shapes start, and
-    // the content line, where the tab icon, the terminal's first text
-    // column and the first toolbar glyph start (dogfood nxdog12: "need
-    // proper left alignment here").
+    // A pane's tab pills and toolbar button shapes start on its content
+    // border's left edge (the chrome line), and the terminal's first cell
+    // sits `PaneChromeMetrics.terminalTextInset` inside it (dogfood
+    // 2026-10-01, replacing nxdog12's separate content line).
 
-    /// Horizontal padding inside a pane's tab strip (its vertical inset, so
-    /// tabs sit in an even frame).
-    public static var tabStripEdgeInset: CGFloat { max(0, (tabStripHeight - tabHeight) / 2) }
-    /// Inset of a tab's rounded background inside its slot.
+    /// Half the gap between neighboring tab pills. Each pill leaves the
+    /// whole gap at its trailing side, so the first pill starts on the
+    /// chrome line.
     public static let tabBackgroundInset: CGFloat = space1 / 2
-    /// Inset of a tab's icon from its slot's leading edge.
+    /// Inset of a tab's icon from its pill's leading edge.
     public static let tabContentLeadingInset: CGFloat = space4
-    /// The chrome line: tab pills and toolbar button shapes.
-    public static var paneChromeInset: CGFloat { tabStripEdgeInset + tabBackgroundInset }
-    /// The content line: tab icons, the terminal's first column, glyphs.
-    public static var paneContentInset: CGFloat { tabStripEdgeInset + tabContentLeadingInset }
+    /// The chrome line: tab pills and toolbar button shapes, from the
+    /// content border's left edge.
+    public static var paneChromeInset: CGFloat { PaneChromeMetrics.pillLeading }
 
     // MARK: Shape
 

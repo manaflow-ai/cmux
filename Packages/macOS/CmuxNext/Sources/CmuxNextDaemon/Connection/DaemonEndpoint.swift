@@ -118,13 +118,16 @@ public struct DaemonCapabilities: Sendable {
                                             terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, launchSnapshot, workspacePin, notificationMarkUnread,
-                                            stateResources] }
+                                            stateResources, terminalCommandJournal] }
 
     /// Capabilities the app already speaks but the pinned cmux-tui does not
     /// serve yet. They are advertised, so a daemon that has them enables them,
     /// but they are not in `optional` (the pinned daemon must serve every
     /// `optional` capability, BranchDaemonTests). The pin commit that brings
     /// one moves it into `optional`.
+    /// Finished shell commands (OSC 133) journaled as `shell.command.finished`
+    /// once `set-terminal-command-history` turns it on (plans/cmux-next/history.md 6).
+    public let terminalCommandJournal = "terminal-command-journal-v1"
     public var awaitingPin: [String] { [remoteTerminalTabs, detachedTerminals, bookmarks] }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.

@@ -470,6 +470,8 @@ pub(crate) struct TerminalMetadata {
     kitty: KittyPending,
     notifications: Vec<TerminalNotification>,
     gate: NotificationGate,
+    /// OSC 133 prompt marks since the last take (shell command history).
+    shell_marks: Vec<crate::shell_history::ShellMark>,
 }
 
 impl TerminalMetadata {
@@ -490,6 +492,7 @@ impl TerminalMetadata {
         let progress = &mut self.progress;
         let kitty = &mut self.kitty;
         let notifications = &mut self.notifications;
+        let shell_marks = &mut self.shell_marks;
         self.osc.observe(bytes, |body| {
             let Some(separator) = body.iter().position(|byte| *byte == b';') else {
                 return;
@@ -514,6 +517,15 @@ impl TerminalMetadata {
                     TerminalNotification::new(&rest[..title_end], &rest[title_end + 1..])
                 }
                 b"99" => observe_kitty_notification(kitty, data),
+                b"133" => {
+                    if let Some(mark) = crate::shell_history::ShellMark::parse(data) {
+                        if shell_marks.len() == crate::shell_history::MAX_PENDING_MARKS {
+                            shell_marks.remove(0);
+                        }
+                        shell_marks.push(mark);
+                    }
+                    None
+                }
                 _ => None,
             };
             if let Some(notification) = notification {
@@ -523,6 +535,11 @@ impl TerminalMetadata {
                 notifications.push(notification);
             }
         });
+    }
+
+    /// OSC 133 marks parsed since the last call, oldest first.
+    pub(crate) fn take_shell_marks(&mut self) -> Vec<crate::shell_history::ShellMark> {
+        std::mem::take(&mut self.shell_marks)
     }
 
     /// Desktop notifications parsed since the last call, oldest first.
@@ -606,6 +623,27 @@ mod tests {
         assert_eq!(metadata.take_progress_change(), None);
         metadata.observe_output(b"\x1b]9;4;0\x1b\\");
         assert_eq!(metadata.take_progress_change(), Some(None));
+    }
+
+    #[test]
+    fn shell_history_osc_133_marks_cross_chunks_and_stay_bounded() {
+        use crate::shell_history::{MAX_PENDING_MARKS, ShellMark};
+        let mut metadata = TerminalMetadata::default();
+        metadata.observe_output(b"prompt \x1b]133;B\x07ls\r\n\x1b]13");
+        metadata.observe_output(b"3;C\x1b\\output\x1b]133;D;1\x07");
+        assert_eq!(
+            metadata.take_shell_marks(),
+            vec![
+                ShellMark::InputStart,
+                ShellMark::CommandStart,
+                ShellMark::CommandEnd { exit_code: Some(1) }
+            ]
+        );
+        assert!(metadata.take_shell_marks().is_empty());
+        for _ in 0..(MAX_PENDING_MARKS + 5) {
+            metadata.observe_output(b"\x1b]133;A\x07");
+        }
+        assert_eq!(metadata.take_shell_marks().len(), MAX_PENDING_MARKS);
     }
 
     #[test]

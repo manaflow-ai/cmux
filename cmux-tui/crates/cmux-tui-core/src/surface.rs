@@ -1584,6 +1584,28 @@ impl PtyTerminalRuntime {
         metadata.take_admitted_notifications(Instant::now())
     }
 
+    /// Applies the OSC 133 marks of the output just written to `term`. With
+    /// `recording` false (the default) marks are dropped and the tracker is
+    /// reset, so nothing is read from the screen.
+    fn observe_shell_marks(
+        &self,
+        term: &mut Terminal,
+        recording: impl FnOnce() -> bool,
+    ) -> Vec<crate::shell_history::FinishedCommand> {
+        let marks = self.terminal_metadata.lock().unwrap().take_shell_marks();
+        if marks.is_empty() {
+            return Vec::new();
+        }
+        let mut tracker = self.command_tracker.lock().unwrap();
+        if !recording() {
+            *tracker = crate::shell_history::CommandTracker::default();
+            return Vec::new();
+        }
+        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+        let mut screen = crate::shell_history::TerminalCommandScreen(term);
+        marks.into_iter().filter_map(|mark| tracker.apply(mark, now_ms, &mut screen)).collect()
+    }
+
     fn terminal_osc_progress(&self) -> String {
         self.terminal_metadata.lock().unwrap().osc_progress().to_string()
     }
@@ -1677,6 +1699,9 @@ pub struct PtyTerminalRuntime {
     /// or roster knowledge, so userland plugins can consume it through the
     /// resource API without moving detection policy into core.
     terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
+    /// OSC 133 command tracking (`terminal-command-journal-v1`); idle unless
+    /// the daemon records terminal commands.
+    command_tracker: Mutex<crate::shell_history::CommandTracker>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
     runtime: Mutex<PtyRuntime>,
     /// Explicit lifecycle authority for this process. Session content may
@@ -2746,6 +2771,7 @@ impl Surface {
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(Default::default()),
+                command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Local { writer, master: Some(master), killer }),
                 lifetime,
@@ -2860,6 +2886,7 @@ impl Surface {
                         };
                         let mut scroll_changed = None;
                         let terminal_notifications;
+                        let finished_commands;
                         let generation = {
                             let mut term = pty.term.lock().unwrap();
                             if let Some(update) = journal_update.as_mut()
@@ -2876,6 +2903,10 @@ impl Surface {
                                 .expect("valid local terminals expose cursor activity");
                             let normalized = term.vt_write_with_normalized(&buf[..n]);
                             terminal_notifications = pty.observe_terminal_output(&buf[..n]);
+                            finished_commands = pty.observe_shell_marks(&mut term, || {
+                                mux.upgrade()
+                                    .is_some_and(|mux| mux.terminal_command_history_enabled())
+                            });
                             let cursor_changed = term
                                 .cursor_activity()
                                 .expect("valid local terminals expose cursor activity")
@@ -2939,6 +2970,12 @@ impl Surface {
                             && let Some(mux) = mux.upgrade()
                         {
                             mux.post_terminal_notifications(surface.id, terminal_notifications);
+                        }
+                        if !finished_commands.is_empty()
+                            && let Some(mux) = mux.upgrade()
+                            && let Some(terminal) = surface.terminal_public_id()
+                        {
+                            mux.append_shell_commands(terminal.clone(), finished_commands);
                         }
                         let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
                         if !responses.is_empty() {
@@ -3273,6 +3310,7 @@ impl Surface {
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
+                command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
                 lifetime,
@@ -3465,6 +3503,7 @@ impl Surface {
                                 let mut scroll_changed = None;
                                 let mut title_update = None;
                                 let terminal_notifications;
+                                let finished_commands;
                                 let defaults = mux
                                     .upgrade()
                                     .map(|mux| mux.default_colors())
@@ -3480,6 +3519,10 @@ impl Surface {
                                     let before = terminal_scroll_position(&term);
                                     let normalized = term.vt_write_with_normalized(&output);
                                     terminal_notifications = pty.observe_terminal_output(&output);
+                                    finished_commands = pty.observe_shell_marks(&mut term, || {
+                                        mux.upgrade()
+                                            .is_some_and(|mux| mux.terminal_command_history_enabled())
+                                    });
                                     let output = match normalized {
                                         Cow::Borrowed(_) => output,
                                         Cow::Owned(normalized) => normalized,
@@ -3580,6 +3623,12 @@ impl Surface {
                                         surface.id,
                                         terminal_notifications,
                                     );
+                                }
+                                if !finished_commands.is_empty()
+                                    && let Some(mux) = mux.upgrade()
+                                    && let Some(terminal) = surface.terminal_public_id()
+                                {
+                                    mux.append_shell_commands(terminal.clone(), finished_commands);
                                 }
                             }
                             HostedTransition::Resized { cols, rows, cell_pixels } => {
@@ -4393,6 +4442,7 @@ impl Surface {
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(Default::default()),
+                command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::ExitedHosted),
                 lifetime: PtyLifetime::SessionOwned,
@@ -4625,6 +4675,7 @@ impl Surface {
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(Default::default()),
+                command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Local {
                     writer: Box::new(std::io::sink()),

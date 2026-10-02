@@ -44,6 +44,8 @@ public final class MockBrowserEngine: BrowserEngine {
 /// hand with `simulate` to reproduce engine callback orders.
 @Observable
 public final class MockBrowserTab: BrowserTab {
+    /// The back/forward list `navigationList()` reports (tests set it).
+    @ObservationIgnored public var navigation: BrowserNavigationList?
     public enum Command: Hashable, Sendable {
         case load(URL)
         case goBack
@@ -58,6 +60,7 @@ public final class MockBrowserTab: BrowserTab {
         case occlude(Bool)
         case exitContentFullscreen
         case showDevTools
+        case goToEntry(Int)
         case close
         case runExtensionAction(String, anchor: CGRect)
         case hideExtensionPopups
@@ -286,4 +289,15 @@ final class MockPageView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+}
+
+extension MockBrowserTab: BrowserBackForwardListing {
+    /// The list a test set with `navigation`.
+    public func navigationList() -> BrowserNavigationList? { navigation }
+
+    @discardableResult
+    public func goToEntry(offset: Int) -> Bool {
+        commands.append(.goToEntry(offset))
+        return navigation != nil
+    }
 }

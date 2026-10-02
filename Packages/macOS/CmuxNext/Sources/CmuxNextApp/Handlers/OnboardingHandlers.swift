@@ -4,14 +4,24 @@ import CmuxNextOnboarding
 
 /// Onboarding and default-app actions. The palette, the app menu and the
 /// CLI open the same window (`OnboardingService`); Import Browser Data and
-/// Make cmux the Default Terminal open it at their step. Make cmux the
+/// Make cmux the Default Terminal asks macOS directly for each handler. Make cmux the
 /// Default Browser asks macOS directly (macOS shows its confirmation).
 enum OnboardingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("palette.welcomeChecklist", run: { _ in services.onboarding.show() })
         registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
-        registry.bind("palette.makeDefaultTerminal", run: { _ in services.onboarding.show(step: .defaultTerminal) })
+        registry.bind("palette.makeDefaultTerminal", run: { _ in
+            let apps = services.onboarding.defaultApps
+            registry.track(Task { @MainActor in
+                do {
+                    for claim in DefaultHandlerClaim.terminalClaims where !apps.isClaimed(claim) { try await apps.claim(claim) }
+                    return nil
+                } catch {
+                    return (error as? CocoaError)?.code == .userCancelled ? nil : ActionWorkFailure("make-default-terminal", error)
+                }
+            })
+        })
         registry.bind("palette.makeDefaultBrowser", run: { _ in
             let apps = services.onboarding.defaultApps
             registry.track(Task { @MainActor in

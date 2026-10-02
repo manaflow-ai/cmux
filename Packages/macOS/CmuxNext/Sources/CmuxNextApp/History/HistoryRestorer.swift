@@ -18,8 +18,7 @@ struct HistoryRestorer {
             if !services.locationTrail.goTo(location) { services.registry.refuse(HistoryAppStrings.entryGone) }
         case .closed(let item): reopen(item)
         case .agent(let session): resume(session)
-        case .command(let command):
-            if let text = command.command { copy(text) }
+        case .command(let command): runAgain(command)
         }
     }
 
@@ -94,6 +93,21 @@ struct HistoryRestorer {
         }
         guard let pane = old ?? focused else { return services.registry.refuse(HistoryAppStrings.noPane) }
         pane.newTerminalTab(cwd: session.cwd, typing: command + "\n")
+    }
+
+    /// Runs a command again in a new terminal tab, in its directory, on its
+    /// machine (the focused pane when it is there, else its machine's first
+    /// shown pane).
+    func runAgain(_ command: TerminalCommand) {
+        guard let text = command.command else { return services.registry.refuse(HistoryAppStrings.entryGone) }
+        guard services.machines.daemons.contains(where: { $0.machineID == command.machine }) else {
+            return services.registry.refuse(HistoryAppStrings.machineOffline)
+        }
+        let onMachine = { (pane: PaneController) in services.daemon(for: pane.pane).machineID == command.machine }
+        let focused = services.windows.active?.focusedPane.flatMap { onMachine($0) ? $0 : nil }
+        let shown = services.windows.controllers.lazy.compactMap { $0.content?.panes.values.first(where: onMachine) }.first
+        guard let pane = focused ?? shown else { return services.registry.refuse(HistoryAppStrings.noPane) }
+        pane.newTerminalTab(cwd: command.cwd, typing: text + "\n")
     }
 
     func copy(_ text: String) {

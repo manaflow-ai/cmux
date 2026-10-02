@@ -788,6 +788,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final TerminalCommandHistoryResult setTerminalCommandHistory(SetTerminalCommandHistoryRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_TERMINAL_COMMAND_HISTORY, request.toWire());
+        return TerminalCommandHistoryResult.fromWire(result);
+    }
+
     public final SetTerminalIdlePolicyResult setTerminalIdlePolicy(SetTerminalIdlePolicyRequest request) throws CmuxException {
         Object result = execute(Commands.SET_TERMINAL_IDLE_POLICY, request.toWire());
         return SetTerminalIdlePolicyResult.fromWire(result);

@@ -1985,6 +1985,7 @@ mod tests {
                     initial_delay: Duration::from_millis(1),
                     maximum_delay: Duration::from_millis(10),
                     maximum_attempts: Some(3),
+                    maximum_duration: None,
                     ..ReconnectPolicy::default()
                 },
             },
@@ -2514,6 +2515,7 @@ mod tests {
                     initial_delay: Duration::from_millis(1),
                     maximum_delay: Duration::from_millis(1),
                     maximum_attempts: Some(1),
+                    maximum_duration: None,
                     heartbeat_interval: None,
                     ..ReconnectPolicy::default()
                 },
@@ -2690,6 +2692,7 @@ mod tests {
                     initial_delay: Duration::from_millis(1),
                     maximum_delay: Duration::from_millis(10),
                     maximum_attempts: Some(3),
+                    maximum_duration: None,
                     ..ReconnectPolicy::default()
                 },
             },

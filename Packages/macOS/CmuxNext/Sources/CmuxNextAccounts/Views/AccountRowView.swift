@@ -88,10 +88,7 @@ struct AccountRowView: View {
         .buttonStyle(AccountsButtonStyle(palette: palette))
     }
 
-    private var reauthTitle: String {
-        if case .page = row.provider.reauthPlan { return AccountsStrings.getKey }
-        return row.status == .missing ? AccountsStrings.signIn : AccountsStrings.reauthenticate
-    }
+    private var reauthTitle: String { AccountsStrings.reauthTitle(row) }
 
     private var outcome: Text? {
         switch row.outcome {
@@ -125,7 +122,7 @@ private struct LinkedAccountLine: View {
 }
 
 /// Connect confirmation with the Codex refresh-token note.
-private struct ConnectConfirmation: View {
+struct ConnectConfirmation: View {
     let model: AccountsModel
     let provider: AIProvider
     let palette: AccountsPalette

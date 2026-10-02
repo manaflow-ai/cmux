@@ -392,6 +392,34 @@ Example:
 {"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":12}}
 ```
 
+### set-terminal-command-history
+
+| Field | Value |
+| --- | --- |
+| name | `set-terminal-command-history` |
+| status | implemented |
+| since | protocol 12, capability `terminal-command-journal-v1` |
+
+Turns terminal command history on or off for this daemon. Off by default, and
+off again after every daemon start (the setting is never persisted), so a
+client that wants history turns it on after each connect. Trusted local
+(Unix-classified) connections only.
+
+While on, the daemon tracks OSC 133 shell-integration marks in each terminal's
+output (`A` prompt start, `B` input start, `C` command start, `D[;exit]`
+command end) and appends one `shell.command.finished` journal record per
+finished command, from the reserved producer `cmux_shell` (class observation,
+sensitivity sensitive, subject the terminal and its ancestors):
+`{command, cwd, exit_code, started_at_ms, duration_ms}`. `command` is the
+screen text of the `B` row from the `B` column, read at `C`, trimmed, without
+control characters and cut at 1 KiB (null when the shell sends no `B`);
+multi-row command lines keep their first row. `cwd` is the OSC 7 directory at
+`C`; times are decimal strings. A `D` without a `C` (an empty Enter) records
+nothing; an `A` while a command runs ends it with a null `exit_code`. While off,
+marks are dropped and the screen is never read.
+
+Params: `{enabled: bool}`. Result: `{enabled: bool}`.
+
 ### server-stats
 
 | Field | Value |

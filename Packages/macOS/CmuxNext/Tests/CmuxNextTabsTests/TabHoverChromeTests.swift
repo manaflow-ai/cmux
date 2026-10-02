@@ -56,7 +56,7 @@ import Testing
         let h = Harness(titles: [Self.longTitle, "Two"])
         let cell = h.strip.cells[TabID("t0")]!
         let metrics = h.strip.metrics
-        #expect(cell.titleLayer.frame.maxX == cell.bounds.width - metrics.contentTrailingInset)
+        #expect(cell.titleLayer.frame.maxX == cell.pillFrameInCell.maxX - metrics.contentTrailingInset)
     }
 
     @Test func titleFadesOutBeforeTheOverlayingCloseButton() throws {

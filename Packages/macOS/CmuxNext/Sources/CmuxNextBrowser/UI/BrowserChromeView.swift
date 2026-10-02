@@ -263,10 +263,9 @@ public final class BrowserChromeView: NSView {
     }
 
     private func wireActions() {
-        backButton.target = self
         backButton.action = #selector(goBack)
-        forwardButton.target = self
         forwardButton.action = #selector(goForward)
+        installBackForwardMenus()
         reloadButton.target = self
         reloadButton.action = #selector(reloadOrStop)
         addressBar.onEvent = { [weak self] event in self?.omnibarEvent(event) }

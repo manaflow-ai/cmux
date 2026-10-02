@@ -1,9 +1,11 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
 import type { Token } from "marked";
 import { applyAgentTheme } from "../shared/theme";
 import { diffRows, layoutConversation, markdownBlocks, placeRows, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
+import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { startMockHost } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpmuxPerf } from "./perf";
@@ -262,11 +264,22 @@ function PermissionCard({ permission }: { permission: AcpmuxPermission }) { retu
 function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) { const modelOptions = snapshot.catalog.find((harness) => harness.id === snapshot.summary?.harness)?.models ?? []; const modeOptions = snapshot.summary?.modes?.availableModes ?? []; const effort = snapshot.summary?.configOptions?.find((option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort"); return <div className="acpmux-chips"><select className="acpmux-model" aria-label="Model" value={snapshot.summary?.model ?? ""} onChange={(event) => void callNative("chat.model", { modelId: event.target.value })}>{modelOptions.map((model) => <option key={model.id} value={model.id}>{model.name || model.id}</option>)}</select><select className="acpmux-mode" aria-label="Mode" value={snapshot.summary?.modes?.currentModeId ?? ""} onChange={(event) => void callNative("chat.mode", { modeId: event.target.value })}>{modeOptions.map((mode) => <option key={mode.id} value={mode.id}>{mode.name || mode.id}</option>)}</select>{effort && <select className="acpmux-effort" aria-label="Effort" value={effort.currentValue ?? ""} onChange={(event) => void callNative("chat.effort", { configId: effort.id, value: event.target.value })}>{effort.options.map((option) => <option key={option.value} value={option.value}>{option.name || option.value}</option>)}</select>}</div>; }
 
 export function AcpmuxApp() {
+  const [queryClient] = useState(createPaneQueryClient);
+  return <QueryClientProvider client={queryClient}><AcpmuxPane /></QueryClientProvider>;
+}
+
+function AcpmuxPane() {
   const [snapshot, setSnapshot] = useState<AcpmuxSnapshot>({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connecting", isWorking: false, queue: [], catalog: [], canLoadOlder: false });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  // The pane keeps the last client's catalog until the next client's arrives;
+  // ids only grow, so a new client never reads an older client's cache entry.
+  const catalogClientId = useRef(0);
+  const [catalogSource, setCatalogSource] = useState<{ id: number; client: HarnessCatalogSource }>();
+  const catalog = useHarnessCatalog(catalogSource, snapshot.catalog);
+  const composerSnapshot = useMemo(() => catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog }, [snapshot, catalog]);
   useEffect(() => {
     window.React = React;
     window.cmuxAcpmuxRegistry = { register(kind, renderer, options) { const registered = window.cmuxAcpmuxRegistry as unknown as Record<string, unknown>; if (registered[kind] === renderer && (!options?.measure || options.measure === renderer.measure)) return; if (options?.measure) renderer.measure = options.measure; registered[kind] = renderer; setRegistry(currentRegistry()); }, configure() { setRegistry(currentRegistry()); } };
@@ -312,6 +325,8 @@ export function AcpmuxApp() {
         });
         if (cancelled) { client.close(); return; }
         directClient.current = client;
+        catalogClientId.current += 1;
+        setCatalogSource({ id: catalogClientId.current, client });
         retryDelay = 250;
         const persistSession = (sessionId?: string) => sessionId ? callNative("chat.persistSession", { sessionId }).catch(() => undefined) : Promise.resolve();
         window.cmuxAcpmuxActions = {
@@ -340,5 +355,5 @@ export function AcpmuxApp() {
   }, []);
   const send = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = event.currentTarget; const textarea = form.elements.namedItem("prompt") as HTMLTextAreaElement; const text = textarea.value.trim(); if (!text) return; textarea.value = ""; void callNative("chat.send", { text }); };
   const ComposerChips = ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as React.ComponentType<{ snapshot: AcpmuxSnapshot }> | undefined) ?? DefaultComposerChips;
-  return <section className="acpmux-shell"><header className="acpmux-header"><div><strong className="acpmux-title">{snapshot.summary?.title || snapshot.summary?.name || "Agent Chat"}</strong><span className="acpmux-status">{snapshot.isWorking ? "Working" : snapshot.connection}</span></div><select className="acpmux-session" value={snapshot.sessionId ?? ""} onChange={(event) => void callNative("chat.select", { sessionId: event.target.value })}>{snapshot.sessions.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.title || session.name || session.sessionId.slice(0, 8)}</option>)}</select></header><VirtualTranscript rows={snapshot.rows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={snapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" /><button type="submit">Send</button><button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")}>Stop</button></form></section>;
+  return <section className="acpmux-shell"><header className="acpmux-header"><div><strong className="acpmux-title">{snapshot.summary?.title || snapshot.summary?.name || "Agent Chat"}</strong><span className="acpmux-status">{snapshot.isWorking ? "Working" : snapshot.connection}</span></div><select className="acpmux-session" value={snapshot.sessionId ?? ""} onChange={(event) => void callNative("chat.select", { sessionId: event.target.value })}>{snapshot.sessions.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.title || session.name || session.sessionId.slice(0, 8)}</option>)}</select></header><VirtualTranscript rows={snapshot.rows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={composerSnapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" /><button type="submit">Send</button><button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")}>Stop</button></form></section>;
 }
