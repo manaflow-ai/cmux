@@ -101,7 +101,7 @@ extension TerminalController {
         }
         return v2VmCall(id: id, timeoutSeconds: 240) {
             guard let scope = await Self.currentFanOutScope() else { throw FanOutSocketError.unauthenticated }
-            try await Self.createFanOutOperation(
+            return try await Self.createFanOutOperation(
                 operationID: nil, machineID: machineID, scope: scope,
                 agent: agent, argv: argv, count: count, params: params, digest: digest
             )
