@@ -32,6 +32,11 @@ enum SettingsStyle {
     static var corner: CGFloat { Metrics.itemCornerRadius }
     static var cardCorner: CGFloat { Metrics.panelCornerRadius }
 
+    /// Content begins below AppKit's native full-size titlebar safe area.
+    /// Keep this inset separate from the titlebar height: the hosting view
+    /// already accounts for that area when it lays out its root view.
+    static var contentTopInset: CGFloat { Metrics.space6 }
+
     /// Settings rows reserve one visual column for their control. Keeping
     /// that column stable makes menus, toggles and sliders line up across
     /// cards while still leaving enough room for wrapped help text.
