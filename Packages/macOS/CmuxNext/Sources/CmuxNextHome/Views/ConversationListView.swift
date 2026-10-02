@@ -26,6 +26,22 @@ final class ConversationListView: NSView {
 
     override var isFlipped: Bool { true }
 
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        // a resize changes only the height: keep the drawn rows pinned to the top, redraw when taller
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        layerContentsPlacement = .topLeft
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let grew = newSize.height > frame.height || newSize.width != frame.width
+        super.setFrameSize(newSize)
+        if grew { needsDisplay = true }
+    }
+
     var headerHeight: CGFloat { Metrics.tabStripHeight }
     var rowHeight: CGFloat { ceil(Typography.bodyEmphasized.pointSize * 1.3 + Typography.caption.pointSize * 2.6) + Metrics.space4 }
 

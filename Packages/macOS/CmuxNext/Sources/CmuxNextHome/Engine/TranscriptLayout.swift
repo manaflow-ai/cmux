@@ -14,6 +14,8 @@ struct TranscriptLayout {
     private(set) var totalHeight: CGFloat = 0
     private(set) var holders = ReceiptHolders()
     private(set) var hasTyping = false
+    /// How far rows after the front moved by the last `apply` (prepend +, top eviction -).
+    private(set) var lastFrontShift = 0
     private var keyIndex: [String: Int]?
 
     var isEmpty: Bool { rows.isEmpty }
@@ -36,6 +38,7 @@ struct TranscriptLayout {
     @discardableResult
     mutating func apply(_ change: WindowChange, window: TranscriptWindow, context: RowContext) -> Int {
         let pad = context.geometry.topPadding
+        lastFrontShift = 0
         switch change {
         case .none:
             return rows.count
@@ -55,6 +58,7 @@ struct TranscriptLayout {
                 fresh += RowDerivation.rows(at: index, in: window, holders: newHolders, context: context)
             }
             let shift = fresh.count - oldEnd
+            lastFrontShift = shift
             rows.replaceSubrange(0..<oldEnd, with: fresh)
             let rest = messageStarts.dropFirst(1).map { $0 + shift }
             messageStarts = starts + rest
@@ -65,6 +69,7 @@ struct TranscriptLayout {
         case .evictTop(let count):
             removeTyping()
             let cut = count < messageStarts.count ? messageStarts[count] : rows.count
+            lastFrontShift = -cut
             rows.removeSubrange(0..<cut)
             messageStarts = messageStarts.dropFirst(count).map { $0 - cut }
             holders = ReceiptHolders.find(in: window, meID: context.meID, readThrough: context.readThrough)
@@ -172,6 +177,12 @@ struct TranscriptLayout {
     /// First row whose top is below `y`.
     func firstRow(startingBelow y: CGFloat) -> Int {
         lowerBound { tops[$0] > y }
+    }
+
+    /// `key`'s row index, checking `hint` before the (lazily rebuilt) key index.
+    mutating func rowIndex(of key: String, hint: Int) -> Int? {
+        if hint >= 0, hint < rows.count, rows[hint].key == key { return hint }
+        return rowIndex(of: key)
     }
 
     mutating func rowIndex(of key: String) -> Int? {

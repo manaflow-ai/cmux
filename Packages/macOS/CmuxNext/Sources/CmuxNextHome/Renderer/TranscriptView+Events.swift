@@ -37,7 +37,8 @@ extension TranscriptView {
             reload()
             return
         }
-        if windowChange != .none { rowLayout.apply(windowChange, window: history, context: ctx) }
+        _ = ctx
+        applyToRows(windowChange)
         planMotion(oldKeys: oldKeys, sent: sent, received: received)
         render()
     }

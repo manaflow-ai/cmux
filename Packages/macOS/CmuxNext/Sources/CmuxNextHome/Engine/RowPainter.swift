@@ -12,16 +12,23 @@ nonisolated struct DrawSignature: Hashable, Sendable {
 /// Everything a row's drawing depends on: equal keys reuse a raster.
 nonisolated struct RasterKey: Hashable, Sendable {
     var row: DrawSignature
-    var colors: TranscriptColors
+    /// Bumped whenever the resolved colors change (cheaper to hash than the colors).
+    var theme: Int
     var scale: CGFloat
     /// The geometry fields drawing reads (not the window width).
-    var style: [CGFloat]
+    var fontSize: CGFloat
+    var captionSize: CGFloat
+    var insetX: CGFloat
+    var insetY: CGFloat
 
-    init(row: TranscriptRow, geometry g: TranscriptGeometry, colors: TranscriptColors, scale: CGFloat) {
+    init(row: TranscriptRow, geometry g: TranscriptGeometry, theme: Int, scale: CGFloat) {
         self.row = row.drawSignature
-        self.colors = colors
+        self.theme = theme
         self.scale = scale
-        style = [g.fontSize, g.captionSize, g.insetX, g.insetY]
+        fontSize = g.fontSize
+        captionSize = g.captionSize
+        insetX = g.insetX
+        insetY = g.insetY
     }
 }
 

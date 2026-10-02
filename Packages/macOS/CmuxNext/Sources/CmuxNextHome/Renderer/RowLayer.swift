@@ -9,6 +9,8 @@ final class RowLayer: CALayer {
     private(set) var row: TranscriptRow?
     private(set) var rasterKey: RasterKey?
     private(set) var isPlaceholder = false
+    /// Shows the bitmap of an earlier width of the same row until the new one arrives.
+    private(set) var isStale = false
     let motionTag = MotionTag()
     private var shape: CALayer?
     private var dots: [CALayer] = []
@@ -34,21 +36,43 @@ final class RowLayer: CALayer {
     ]
 
     /// Shows `image` for `row`.
-    func show(_ image: CGImage, row: TranscriptRow, key: RasterKey, geometry: TranscriptGeometry) {
+    func show(_ image: CGImage, row: TranscriptRow, key: RasterKey, geometry: TranscriptGeometry, colors: TranscriptColors) {
         self.row = row
         rasterKey = key
         isPlaceholder = false
+        isStale = false
         shape?.isHidden = true
         contents = image
         contentsScale = key.scale
-        updateDots(row, geometry: geometry, colors: key.colors)
+        contentsGravity = .resize
+        updateDots(row, geometry: geometry, colors: colors)
+    }
+
+    /// The previous bitmap can stand in for `row` for a frame: same row, same
+    /// height (a width change only), not a placeholder.
+    func canShowStale(for row: TranscriptRow) -> Bool {
+        guard let current = self.row, contents != nil, !isPlaceholder else { return false }
+        return current.key == row.key && current.height == row.height
+    }
+
+    /// Keeps the current bitmap, aligned to the row's side, until the new one arrives.
+    func markStale(row: TranscriptRow, key: RasterKey) {
+        self.row = row
+        rasterKey = key
+        isStale = true
+        switch row.kind {
+        case .separator, .retracted: contentsGravity = .center
+        default: contentsGravity = row.isOutgoing ? .right : .left
+        }
     }
 
     /// Shows the row's plain shape until its bitmap arrives.
-    func showPlaceholder(row: TranscriptRow, key: RasterKey, pad: CGFloat, geometry g: TranscriptGeometry) {
+    func showPlaceholder(row: TranscriptRow, key: RasterKey, pad: CGFloat, geometry g: TranscriptGeometry,
+                         colors: TranscriptColors) {
         self.row = row
         rasterKey = key
         isPlaceholder = true
+        isStale = false
         contents = nil
         guard row.isBubbleLike else {
             shape?.isHidden = true
@@ -64,7 +88,7 @@ final class RowLayer: CALayer {
         layer.isHidden = false
         layer.frame = CGRect(x: pad, y: pad, width: row.width, height: row.height)
         layer.cornerRadius = min(g.bubbleRadius, row.height / 2)
-        let fill = row.isOutgoing ? key.colors.outgoingFill : key.colors.incomingFill
+        let fill = row.isOutgoing ? colors.outgoingFill : colors.incomingFill
         layer.backgroundColor = fill.cgColor
     }
 
@@ -104,6 +128,7 @@ final class RowLayer: CALayer {
         row = nil
         rasterKey = nil
         isPlaceholder = false
+        isStale = false
         contents = nil
         removeAllAnimations()
         motionTag.ids.removeAll()

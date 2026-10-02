@@ -10,6 +10,8 @@ struct TranscriptAnchor: Equatable {
     var pinned = true
     var key: String?
     var top: CGFloat = 0
+    /// Where `key` was last seen in the rows: a lookup hint, never the identity.
+    var index = 0
 }
 
 /// The virtualized conversation transcript (MessagesLab `appkit-virtual`
@@ -35,7 +37,8 @@ final class TranscriptView: NSView {
     var history = TranscriptWindow()
     var rowLayout = TranscriptLayout()
     var geometry = TranscriptGeometry.make(width: 600, fontSize: 13, captionSize: 11, space: (2, 4, 6, 8, 10, 12))
-    var colors = TranscriptColors.neutralDark
+    var colors = TranscriptColors.neutralDark { didSet { themeGeneration += 1 } }
+    var themeGeneration = 0
     var strings = RowStrings.localized()
     var meID = ""
     var typingIDs: [String] = []
@@ -49,6 +52,14 @@ final class TranscriptView: NSView {
     /// Scroll distance of the latest event (points; positive = toward older).
     var scrollVelocity: CGFloat = 0
     var lastSawNewest = 0
+    var lastScrollTime: CFTimeInterval = 0
+    /// After the last scroll event: draws rows a fast scroll left as placeholders.
+    let scrollSettle = DemandTimer(owner: "home.transcript.scrollSettle")
+    /// After the last width change: rewraps bubbles deferred during a resize.
+    let rewrap = DemandTimer(owner: "home.transcript.rewrap")
+    private(set) lazy var coalescer = RenderCoalescer { [weak self] in self?.renderNow() }
+    /// Main-thread milliseconds by area since the bench last reset them.
+    var perf = TranscriptPerf()
 
     // Layers
     let contentLayer = CALayer()
@@ -112,13 +123,29 @@ final class TranscriptView: NSView {
         render()
     }
 
-    func updateGeometry() {
-        let next = TranscriptGeometry.current(width: bounds.width)
+    /// Applies the geometry for the current width. A pure width change keeps
+    /// the bubble wrap width while the old bubbles still fit (only x moves,
+    /// cheap per resize frame) and rewraps once the width rests.
+    func updateGeometry(deferRewrap: Bool = true) {
+        var next = TranscriptGeometry.current(width: bounds.width)
         guard next != geometry else { return }
-        let rewrap = next.maxTextWidth != geometry.maxTextWidth || next.fontSize != geometry.fontSize
-            || next.captionSize != geometry.captionSize || next.insetX != geometry.insetX
+        let restyled = next.fontSize != geometry.fontSize || next.captionSize != geometry.captionSize
+            || next.insetX != geometry.insetX || next.insetY != geometry.insetY
+        let rewraps = restyled || next.maxTextWidth != geometry.maxTextWidth
+        let stillFits = geometry.maxBubbleWidth + 2 * next.sideMargin <= next.width
+        if rewraps, deferRewrap, !restyled, stillFits, !rowLayout.isEmpty {
+            next.maxTextWidth = geometry.maxTextWidth
+            next.workCardWidth = geometry.workCardWidth
+            geometry = next
+            rowLayout.reflow(to: next)
+            rewrap.schedule(after: .milliseconds(150)) { @MainActor [weak self] in
+                self?.updateGeometry(deferRewrap: false)
+                self?.render()
+            }
+            return
+        }
         geometry = next
-        if rewrap {
+        if rewraps {
             rowLayout.rebuild(history, context: context())
         } else {
             rowLayout.reflow(to: next)
@@ -186,7 +213,13 @@ final class TranscriptView: NSView {
 
     func rasterReady() {
         rasterizer.wakeHandled()
-        scrollVelocity = 0
         render()
+    }
+
+    /// Applies a window mutation to the rows and keeps the anchor's row index hint current.
+    func applyToRows(_ change: WindowChange) {
+        guard change != .none else { return }
+        rowLayout.apply(change, window: history, context: context())
+        anchor.index += rowLayout.lastFrontShift
     }
 }
