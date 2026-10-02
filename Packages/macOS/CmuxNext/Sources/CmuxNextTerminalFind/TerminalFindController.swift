@@ -4,6 +4,7 @@ public import Observation
 ///
 /// Placeholder API for the failing tests; the behavior lands with the
 /// inline find bar.
+@MainActor
 @Observable
 public final class TerminalFindController {
     public private(set) var isPresented = false

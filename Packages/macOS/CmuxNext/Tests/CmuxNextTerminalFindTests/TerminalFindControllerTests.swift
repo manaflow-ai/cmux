@@ -6,6 +6,7 @@ import Testing
 /// cleanup (daily-driver dogfood of 00d5c8a974: no count, no next or
 /// previous, no scroll to an off-screen match, a highlight left behind).
 @Suite("Terminal find controller")
+@MainActor
 struct TerminalFindControllerTests {
     private func makeFind(_ matches: [String: Int] = ["error": 12]) -> (TerminalFindController, GhosttySearchStub) {
         let stub = GhosttySearchStub(matches: matches)

@@ -4,6 +4,7 @@
 /// search bindings on its current surface. Results come back through
 /// ``TerminalFindController/receiveTotal(_:)`` and
 /// ``TerminalFindController/receiveSelected(_:)``.
+@MainActor
 public protocol TerminalFindTarget: AnyObject {
     /// Searches for `needle` and highlights every match. An empty needle
     /// stops the search.

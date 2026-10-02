@@ -6,6 +6,7 @@ import CmuxNextTerminalFind
 /// total before the real one; match 0 is the newest and selection wraps at
 /// both ends; the first `navigate` selects match 0 (next) or the oldest
 /// (previous); a needle differing only in ASCII case is ignored.
+@MainActor
 final class GhosttySearchStub: TerminalFindTarget {
     enum Call: Equatable {
         case needle(String)
