@@ -407,7 +407,7 @@ export function NewTabPage({
             type="submit"
             className={`acpmux-send${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
             aria-label={NEW_TAB_LABELS.open}
-            title={NEW_TAB_LABELS.open}
+            title={`${NEW_TAB_LABELS.open} ↵`}
           >
             <ArrowUpIcon />
           </button>
