@@ -5404,6 +5404,21 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
+        if command == "notify" {
+            let textOptions: Set<String> = ["--title", "--subtitle", "--body"]
+            for (index, arg) in commandArgs.enumerated() where textOptions.contains(arg) {
+                guard index + 1 < commandArgs.count,
+                      !commandArgs[index + 1].hasPrefix("--") else {
+                    throw CLIError(message: String(
+                        format: String(
+                            localized: "cli.error.notifyTextOptionRequiresValue",
+                            defaultValue: "notify: %@ requires a value"
+                        ),
+                        arg
+                    ))
+                }
+            }
+        }
         try prepareStandardInputBeforeSocket(command: command, commandArgs: commandArgs)
         let isAuthCommand = ["auth", "login", "logout"].contains(command)
         let authUsage = String(
