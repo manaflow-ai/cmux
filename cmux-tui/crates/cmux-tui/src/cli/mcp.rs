@@ -341,10 +341,13 @@ impl<B: Backend> Server<B> {
         };
         let page = call.page;
         match self.backend.resource(call.session.as_deref(), call.plan) {
-            Ok(value) => success(match page {
-                Some(page) => v2_tools::paginate(value, page),
-                None => value,
-            }),
+            Ok(value) => success(
+                match page {
+                    Some(page) => v2_tools::paginate(value, page),
+                    None => value,
+                },
+                tool.mutation,
+            ),
             Err(failure) => failure_result(failure),
         }
     }
@@ -358,7 +361,7 @@ impl<B: Backend> Server<B> {
             ));
         }
         match self.backend.app("snapshot.get", json!({}), super::app::READ_TIMEOUT, None) {
-            Ok(snapshot) => success(json!({ "items": snapshot["topology"]["windows"] })),
+            Ok(snapshot) => success(json!({ "items": snapshot["topology"]["windows"] }), false),
             Err(failure) => failure_result(failure),
         }
     }
@@ -370,7 +373,7 @@ impl<B: Backend> Server<B> {
         };
         let timeout = super::app::WAITING_RUN_TIMEOUT;
         match self.backend.app("action.run", params, timeout, key.as_deref()) {
-            Ok(value) => success(value),
+            Ok(value) => success(value, true),
             Err(failure) => failure_result(failure),
         }
     }
@@ -402,8 +405,10 @@ fn error_response(id: Value, code: i64, message: &str) -> Value {
 }
 
 /// A successful tool result: the owner's value as structured content (an
-/// array as `{items}`), cut to `MAX_RESULT_BYTES`.
-pub(super) fn success(value: Value) -> Value {
+/// array as `{items}`), cut to `MAX_RESULT_BYTES`. A change (`applied`)
+/// whose result does not fit still reports success, so a client never
+/// retries a change that applied.
+pub(super) fn success(value: Value, applied: bool) -> Value {
     let value = match value {
         Value::Object(_) => value,
         Value::Array(items) => json!({ "items": items }),
@@ -411,6 +416,23 @@ pub(super) fn success(value: Value) -> Value {
     };
     match fit(value) {
         Ok(value) => {
+            let text = serde_json::to_string(&value).unwrap_or_default();
+            json!({
+                "content": [{"type": "text", "text": text}],
+                "structuredContent": value,
+                "isError": false,
+            })
+        }
+        Err(_) if applied => {
+            let value = json!({
+                "applied": true,
+                "truncated": true,
+                "message": format!(
+                    "the change applied; its result is larger than {} KiB, so read the object \
+                     with a get or list tool",
+                    MAX_RESULT_BYTES >> 10
+                ),
+            });
             let text = serde_json::to_string(&value).unwrap_or_default();
             json!({
                 "content": [{"type": "text", "text": text}],
@@ -435,6 +457,7 @@ fn fit(mut value: Value) -> Result<Value, Value> {
         let keep = items.len() / 2;
         items.truncate(keep);
         value["truncated"] = json!(true);
+        value["returned"] = json!(keep);
         if let Some(offset) = value.get("offset").and_then(Value::as_u64) {
             value["next_offset"] = json!(offset + keep as u64);
         }
@@ -477,7 +500,13 @@ pub(super) fn failure_result(failure: CallFailure) -> Value {
             .and_then(Value::as_str)
             .filter(|state| matches!(*state, "not_run" | "in_progress"))
     });
-    let state = owner_state.unwrap_or(failure.kind.state()).to_owned();
+    // The app's queue deadline (`timeout`) says nothing about whether the
+    // run started; a retry with the same key is safe either way.
+    let timed_out = failure.kind == FailureKind::Rejected && failure.error["code"] == "timeout";
+    let state = owner_state
+        .or(timed_out.then_some("in_progress"))
+        .unwrap_or(failure.kind.state())
+        .to_owned();
     tool_error(envelope(failure.error, &state, failure.idempotency_key.as_deref()))
 }
 

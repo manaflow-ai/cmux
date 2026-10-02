@@ -81,13 +81,22 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
 | stream operations (`session.events`, `terminal.attach`, `browser.attach`, `sidebar_view.attach`, `session.journal.subscribe`) | tools are request and response |
 | connection control (`client.*` sizing and metadata, viewer resize and release, `request.cancel`, `stream.cancel`, renderer grants) | scoped to one socket connection |
 | `machine.*`, `session.*` (list, get, open, snapshot, ping, creation, journal, defaults, window title, shutdown, reload), `client.get/list`, `frontend_projection.*`, `pairing_request.*`, `sidebar_view.*` | cmux-tui-only scopes the curated `cmux` CLI also refuses; pairing needs a person |
-| app actions `accounts.connect`, `accounts.remove`, `accounts.reauthenticate`, `coderouter claude add` | credentials and secrets stay with a person |
+| app actions `accounts.connect`, `accounts.remove`, `accounts.reauthenticate`, `coderouter claude add`, `palette.auth.signIn`, `palette.auth.signOut` | credentials, secrets and sign-in stay with a person |
+| app actions `quit`, `quitKeepSessions`, `quitEndSessions`, `quitEndEverything` | end the app the user works in |
+| app actions `palette.toggleSetting`, `palette.installCLI`, `palette.uninstallCLI`, `palette.applyUpdateIfAvailable`, `palette.switchAppChannel`, `palette.restartSocketListener` | change preferences, the system or the running app outside the user's work |
 | GUI-only actions, `action.run` by id | only `cli: true` actions |
 | `settings.*`, `history.list`, `bookmark.list`, `accounts.list`, `browser.page.*`, `events.stream`, `system.*` | not catalog operations or CLI actions; private data, credentials or page access; later phases decide |
 
 The parity test (`cli/mcp/tests.rs`) fails when a catalog operation is neither a tool
-nor excluded, when a tool's operation has no `cmux` command, when `cmux` offers an
-excluded operation, or when a `cli: true` action is neither a tool nor excluded.
+nor excluded, when a tool's operation has no `cmux` command, or when `cmux` offers an
+excluded operation. App actions are read from the running app, so the tests check the
+rule instead (every `cli: true` action becomes a tool or an exclusion, and the tool
+sends the same `action.run` as `cmux <noun> <verb>` except `origin`); the live check
+in the PR lists the real registry.
+
+`terminal_wait` and `terminal_wait_exit` default to a 30 s timeout and take at most
+300 s, because the server answers one call at a time. A change whose result is larger
+than 256 KiB still reports success (`applied: true`), so a client never retries it.
 
 ## Later phases
 

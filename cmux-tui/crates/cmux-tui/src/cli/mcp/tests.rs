@@ -424,7 +424,7 @@ fn ids_take_a_unique_prefix_and_a_session_qualifier() {
     assert_eq!(call.plan.params["machine"], "current");
     assert_eq!(call.plan.params["session"], "current");
 
-    for whole in [WORKSPACE, "current", "name:ws_1"] {
+    for whole in [WORKSPACE, "current", "name:ws_1", "workspace:ws_1a", "prod:ws_backup"] {
         let call = tool.plan(&object(json!({"workspace": whole}))).expect("plan");
         assert!(call.plan.resolve.is_empty(), "{whole}");
         assert_eq!(call.session, None, "{whole}");
@@ -444,13 +444,41 @@ fn large_reads_page_and_fit_the_result_limit() {
 
     let big = (0..4000).map(|index| json!({"n": index, "text": "x".repeat(200)})).collect();
     let page = v2_tools::paginate(Value::Array(big), v2_tools::Page { offset: 0, limit: 4000 });
-    let result = success(page);
+    let result = success(page, false);
     assert_eq!(result["isError"], false);
     let content = &result["structuredContent"];
     assert_eq!(content["truncated"], true);
     let kept = content["items"].as_array().unwrap().len() as u64;
     assert_eq!(content["next_offset"], json!(kept));
     assert!(result["content"][0]["text"].as_str().unwrap().len() <= MAX_RESULT_BYTES);
+}
+
+#[test]
+fn a_change_whose_result_does_not_fit_still_reports_success() {
+    let big = json!({"value": "x".repeat(MAX_RESULT_BYTES + 1)});
+    let read = success(big.clone(), false);
+    assert_eq!(read["isError"], true);
+    assert_eq!(read["structuredContent"]["error"]["code"], "result.too_large");
+    let applied = success(big, true);
+    assert_eq!(applied["isError"], false, "a retry must not apply the change again");
+    assert_eq!(applied["structuredContent"]["applied"], true);
+}
+
+#[test]
+fn terminal_waits_are_bounded() {
+    let wait = v2_tools::find("terminal_wait").expect("terminal_wait");
+    let terminal = "term_0123456789abcdef0123456789abcdef";
+    let call = wait.plan(&object(json!({"terminal": terminal, "pattern": "ok"}))).expect("plan");
+    assert_eq!(call.plan.params["timeout_ms"], "30000");
+    let call = wait
+        .plan(&object(json!({"terminal": terminal, "pattern": "ok", "timeout_ms": "1500"})))
+        .expect("plan");
+    assert_eq!(call.plan.params["timeout_ms"], "1500");
+    let long = wait.plan(&object(json!({"terminal": terminal, "timeout_ms": "300001"})));
+    assert!(long.is_err());
+    let exit = v2_tools::find("terminal_wait_exit").expect("terminal_wait_exit");
+    let call = exit.plan(&object(json!({"terminal": terminal}))).expect("plan");
+    assert_eq!(call.plan.params["timeout_ms"], "30000");
 }
 
 #[test]
@@ -464,4 +492,11 @@ fn an_owner_that_says_the_run_never_started_decides_the_state() {
     assert_eq!(result["structuredContent"]["state"], "not_run");
     assert_eq!(result["structuredContent"]["idempotency_key"], "k");
     assert_eq!(result["structuredContent"]["error"]["code"], "busy");
+
+    let expired = CallFailure {
+        kind: FailureKind::Rejected,
+        error: json!({"code": "timeout", "message": "never started; retry"}),
+        idempotency_key: Some("k".into()),
+    };
+    assert_eq!(failure_result(expired)["structuredContent"]["state"], "in_progress");
 }

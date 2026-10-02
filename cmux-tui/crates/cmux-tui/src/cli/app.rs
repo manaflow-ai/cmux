@@ -562,8 +562,9 @@ pub(super) fn call_method(
     match request_with_retry(&mut stream, method, &params, timeout) {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(error)) => Err(failure(FailureKind::Rejected, error)),
+        // Once sent, a run's outcome is unknown; a read changed nothing.
         Err(message) => Err(failure(
-            FailureKind::InProgress,
+            if key.is_some() { FailureKind::InProgress } else { FailureKind::NotRun },
             json!({"code": "app.transport", "message": message, "details": {}, "retryable": true}),
         )),
     }

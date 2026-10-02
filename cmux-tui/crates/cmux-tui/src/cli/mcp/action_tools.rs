@@ -29,6 +29,24 @@ pub(super) const EXCLUDED_ACTIONS: &[(&str, &str)] = &[
     ),
     ("accounts.reauthenticate", "Starts a provider sign-in, which needs a person."),
     ("coderouter claude add", "Takes a secret; secrets never pass through tool arguments."),
+    ("palette.auth.signIn", "Signs in to a cmux account, which needs a person."),
+    ("palette.auth.signOut", "Signs the user out of their cmux account."),
+    (
+        "palette.toggleSetting",
+        "Writes cmux.json; preferences belong to the config layer (settings.* are excluded too).",
+    ),
+    ("palette.installCLI", "Changes the system outside cmux (installs the cmux command)."),
+    ("palette.uninstallCLI", "Changes the system outside cmux (removes the cmux command)."),
+    ("palette.applyUpdateIfAvailable", "Replaces and restarts the app the user works in."),
+    ("palette.switchAppChannel", "Replaces the app the user works in with another channel."),
+    (
+        "palette.restartSocketListener",
+        "Restarts the control socket that this server and every CLI use.",
+    ),
+    ("quit", "Ends the app the user works in; a person quits it."),
+    ("quitKeepSessions", "Ends the app the user works in; a person quits it."),
+    ("quitEndSessions", "Ends the app and its sessions; a person quits it."),
+    ("quitEndEverything", "Ends the app, its sessions and its daemon; a person quits it."),
 ];
 
 /// App control methods that are neither actions nor tools, with the reason.
@@ -165,7 +183,10 @@ impl ActionTool {
         if self.descriptor["focuses"] == Value::Bool(true) {
             text.push_str(" Its purpose is focus: it changes the app's focus or selection.");
         } else {
-            text.push_str(" It leaves the user's focus alone unless focus is true.");
+            text.push_str(
+                " An MCP run changes the user's focus only when focus is true or the action's \
+                 purpose is focus.",
+            );
         }
         if self.descriptor["destructive"] == Value::Bool(true) {
             text.push_str(" Destructive: the app runs it only with confirm: true.");

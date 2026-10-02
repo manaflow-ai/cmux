@@ -250,12 +250,15 @@ pub(super) fn call(global: &GlobalArgs, mut plan: RequestPlan) -> Result<Value, 
     let encoded = encode_request_bytes(&request)
         .map_err(|message| fail(NotRun, "validation.invalid", message))?;
     let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan, true));
+    // Once sent, a mutation's outcome is unknown until it answers; a read
+    // changed nothing either way.
+    let sent = if plan.operation.class() == OperationClass::Mutation { InProgress } else { NotRun };
     super::resolve::send(&mut reader, &encoded)
-        .map_err(|message| fail(InProgress, "transport.failed", message))?;
+        .map_err(|message| fail(sent, "transport.failed", message))?;
     match read_response(&mut reader, &request_id) {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(error)) => Err(CallFailure { kind: Rejected, error, idempotency_key: key.clone() }),
-        Err(message) => Err(fail(InProgress, "transport.failed", message)),
+        Err(message) => Err(fail(sent, "transport.failed", message)),
     }
 }
 

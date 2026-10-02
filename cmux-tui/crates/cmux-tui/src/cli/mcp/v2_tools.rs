@@ -11,6 +11,7 @@ use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
 use super::super::command::{RequestPlan, Resolve, WireOperation};
+use super::super::resolve;
 use super::Exclusion;
 use super::schema::{self, Generator};
 
@@ -21,6 +22,12 @@ const CATALOG_JSON: &str =
 /// `limit` items (default, maximum) from `offset`.
 pub(super) const DEFAULT_PAGE: usize = 100;
 pub(super) const MAX_PAGE: usize = 1000;
+
+/// `terminal_wait` and `terminal_wait_exit` wait at most this long: the
+/// server answers one call at a time, so an unbounded wait would stop every
+/// later call. The daemon waits forever when `timeout_ms` is absent.
+const DEFAULT_WAIT_MS: u64 = 30_000;
+const MAX_WAIT_MS: u64 = 300_000;
 
 const STREAM_REASON: &str =
     "Opens a stream; MCP tools are request and response. Read the state with a list or get tool.";
@@ -79,10 +86,6 @@ const PROJECTION_REASON: &str = "Frontend projection records the app writes; cmu
 const PAIRING_REASON: &str =
     "Device pairing approval: a person approves a pairing, never an agent; cmux-tui-only.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
-
-/// Public id prefixes a `<session>:` qualifier may precede.
-const QUALIFIABLE_PREFIXES: &[&str] =
-    &["ws_", "screen_", "pane_", "tab_", "term_", "browser_", "notification_", "agent_", "split_"];
 
 pub(super) fn catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
@@ -227,6 +230,11 @@ impl V2Tool {
             text.push(' ');
             text.push_str(&constraints);
         }
+        if self.waits() {
+            text.push_str(&format!(
+                " timeout_ms defaults to {DEFAULT_WAIT_MS} and may be at most {MAX_WAIT_MS}."
+            ));
+        }
         if self.paginated {
             text.push_str(&format!(
                 " Answers {{items, total, offset, next_offset}}; page with offset and limit \
@@ -357,6 +365,20 @@ impl V2Tool {
                 _ => return Err(invalid(format!("{} has no argument {name:?}", self.name))),
             }
         }
+        if self.waits() {
+            let timeout = match params.get("timeout_ms") {
+                None => DEFAULT_WAIT_MS,
+                Some(value) => {
+                    value.as_str().and_then(|text| text.parse().ok()).unwrap_or(u64::MAX)
+                }
+            };
+            if timeout > MAX_WAIT_MS {
+                return Err(invalid(format!(
+                    "timeout_ms must be a decimal string of at most {MAX_WAIT_MS} for an MCP call"
+                )));
+            }
+            params.insert("timeout_ms".into(), Value::String(timeout.to_string()));
+        }
         let page = self
             .paginated
             .then(|| Page { offset: offset.unwrap_or(0), limit: limit.unwrap_or(DEFAULT_PAGE) });
@@ -373,6 +395,13 @@ impl V2Tool {
         })
     }
 
+    fn waits(&self) -> bool {
+        matches!(
+            self.operation,
+            ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit
+        )
+    }
+
     /// An id argument without its `<session>:` qualifier, and the lookup
     /// that resolves it when it is a unique prefix.
     fn id_argument(
@@ -382,38 +411,16 @@ impl V2Tool {
         raw: &str,
         session: &mut Option<String>,
     ) -> Result<(String, Option<Resolve>), Value> {
-        let (qualifier, id) = split_session(raw);
+        let (qualifier, id) = resolve::split_session(raw);
         if let Some(qualifier) = qualifier {
             set_session(session, qualifier)?;
         }
         let lookup = schema::id_prefix(resource)
-            .filter(|prefix| is_partial_id(id, prefix))
+            .filter(|prefix| resolve::is_partial_id(id, prefix))
             .and_then(|_| schema::prefix_list(resource))
             .map(|list| Resolve::IdPrefix { field: field.to_owned(), list });
         Ok((id.to_owned(), lookup))
     }
-}
-
-/// `build-box:ws_…` is `(Some("build-box"), "ws_…")`; anything else is
-/// unqualified (`name:` stays the daemon's name escape).
-pub(super) fn split_session(value: &str) -> (Option<&str>, &str) {
-    if let Some((session, rest)) = value.split_once(':')
-        && !session.is_empty()
-        && session != "name"
-        && QUALIFIABLE_PREFIXES.iter().any(|prefix| rest.starts_with(prefix))
-    {
-        return (Some(session), rest);
-    }
-    (None, value)
-}
-
-/// `ws_1a2b` (fewer than 32 lowercase hex digits after the prefix).
-pub(super) fn is_partial_id(value: &str, prefix: &str) -> bool {
-    value.strip_prefix(prefix).and_then(|rest| rest.strip_prefix('_')).is_some_and(|hex| {
-        !hex.is_empty()
-            && hex.len() < 32
-            && hex.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    })
 }
 
 fn set_session(slot: &mut Option<String>, session: &str) -> Result<(), Value> {

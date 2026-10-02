@@ -146,6 +146,44 @@ fn state_id(field: &str, value: &str, records: &Value) -> Result<Option<String>,
     }
 }
 
+/// Public id prefixes a `<session>:` qualifier may precede.
+const QUALIFIABLE_PREFIXES: &[&str] =
+    &["ws", "screen", "pane", "tab", "term", "browser", "notification", "agent", "split"];
+
+/// `build-box:ws_1a2b…` is `(Some("build-box"), "ws_1a2b…")`: a session name
+/// before a whole or partial public id (cli.md, Remaining 12). Anything else
+/// is unqualified, so a name that contains a colon, the daemon's `name:`
+/// escape and a `kind:id` target (`workspace:ws_…`) never pick a session.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(super) fn split_session(value: &str) -> (Option<&str>, &str) {
+    if let Some((session, rest)) = value.split_once(':')
+        && !session.is_empty()
+        && session != "name"
+        && !cmux_tui_core::resource::is_reserved_selector_token(session)
+        && QUALIFIABLE_PREFIXES.iter().any(|prefix| is_id_or_prefix(rest, prefix))
+    {
+        return (Some(session), rest);
+    }
+    (None, value)
+}
+
+/// `ws_` followed by 1 to 32 lowercase hex digits.
+fn is_id_or_prefix(value: &str, prefix: &str) -> bool {
+    hex_after(value, prefix).is_some_and(|hex| !hex.is_empty() && hex.len() <= 32)
+}
+
+/// `ws_1a2b`: fewer than 32 lowercase hex digits after the prefix, so not a
+/// whole id but a unique prefix of one (`Resolve::IdPrefix`).
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(super) fn is_partial_id(value: &str, prefix: &str) -> bool {
+    hex_after(value, prefix).is_some_and(|hex| !hex.is_empty() && hex.len() < 32)
+}
+
+fn hex_after<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    let hex = value.strip_prefix(prefix)?.strip_prefix('_')?;
+    hex.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)).then_some(hex)
+}
+
 /// The one id in `records` that starts with `prefix`. No match is
 /// `selector.not_found`; more than one is `selector.ambiguous` with the
 /// candidates, as the daemon reports for a name.
@@ -256,6 +294,25 @@ mod tests {
             panic!("an unknown prefix resolved");
         };
         assert_eq!(error["code"], "selector.not_found");
+    }
+
+    #[test]
+    fn a_session_qualifier_needs_a_public_id_after_it() {
+        assert_eq!(split_session("build-box:ws_1a2b"), (Some("build-box"), "ws_1a2b"));
+        assert_eq!(
+            split_session("mini:term_0123456789abcdef0123456789abcdef"),
+            (Some("mini"), "term_0123456789abcdef0123456789abcdef")
+        );
+        // A kind before an id is a target form, not a session.
+        assert_eq!(split_session("workspace:ws_1a"), (None, "workspace:ws_1a"));
+        // A name that contains a colon, and the name escape, stay names.
+        assert_eq!(split_session("prod:ws_backup"), (None, "prod:ws_backup"));
+        assert_eq!(split_session("name:ws_1a"), (None, "name:ws_1a"));
+        assert_eq!(split_session(":ws_1a"), (None, ":ws_1a"));
+        assert!(is_partial_id("ws_1a", "ws"));
+        assert!(!is_partial_id("ws_0123456789abcdef0123456789abcdef", "ws"));
+        assert!(!is_partial_id("ws_", "ws"));
+        assert!(!is_partial_id("ws_XY", "ws"));
     }
 
     #[test]
