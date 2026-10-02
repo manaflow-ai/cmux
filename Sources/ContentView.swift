@@ -5084,14 +5084,11 @@ struct ContentView: View {
 
     private var commandPaletteCurrentSearchFingerprint: Int {
         let scope = commandPaletteListScope
-        let cloudWorkspaceTargets = scope == .switcher
-            ? commandPaletteCloudWorkspaceTargets()
-            : nil
         return commandPaletteEntriesFingerprint(
             for: scope,
             includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries,
             commandsContext: scope == .commands ? commandPaletteCachedCommandsContext() : nil,
-            cloudWorkspaceTargets: cloudWorkspaceTargets
+            cloudWorkspaceTargets: nil
         )
     }
 
@@ -5710,7 +5707,6 @@ struct ContentView: View {
             )
         }
         var fingerprint = CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts)
-        _ = cloudWorkspaceTargets ?? commandPaletteCloudWorkspaceTargets()
         fingerprint = fingerprint &* 31 &+ (commandPaletteCloudWorkspaceTargetsFingerprint ?? 0)
         return fingerprint
     }
@@ -5802,7 +5798,9 @@ struct ContentView: View {
             localWorkspaces: [],
             includeLocalMachine: false
         )
-        let sidebarNodes = catalog.sidebarNodes()
+        let sidebarNodes = CloudSidebarOrganizationTree(nodes: allNodes).arrange(
+            using: catalog.sidebarOrganization.state
+        )
         let sidebarWorkspaceIDs = Set(
             CloudTreeNodeBuilder.flattened(sidebarNodes).compactMap { node -> String? in
                 guard case .workspace(let machine, let workspace, _, _, _) = node.kind else { return nil }
