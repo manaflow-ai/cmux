@@ -537,6 +537,7 @@
 				<string>arc</string>
 				<string>native</string>
 				<string>dot</string>
+				<string>braille</string>
 				<string>none</string>
 			</array>
 			<key>pfm_title</key>
