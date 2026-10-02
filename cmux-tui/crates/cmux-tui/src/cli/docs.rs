@@ -8,7 +8,8 @@ use serde_json::Value;
 
 use super::{OutputMode, UsageError};
 
-const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v2.json");
+const CATALOG_JSON: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/resource-operations-v2.json"));
 
 #[derive(Clone, Debug)]
 pub(super) struct Plan {
@@ -21,7 +22,8 @@ struct SearchResult {
     name: String,
     class: String,
     target: String,
-    params: Vec<String>,
+    selectors: Vec<String>,
+    fields: Vec<String>,
     result: String,
 }
 
@@ -70,15 +72,20 @@ pub(super) fn run(plan: Plan) -> i32 {
                 let _ = writeln!(stdout, "No matching operations.");
             } else {
                 for result in response.results {
-                    let params = if result.params.is_empty() {
+                    let selectors = if result.selectors.is_empty() {
                         String::new()
                     } else {
-                        format!(" params: {}", result.params.join(", "))
+                        format!(" selectors: {}", result.selectors.join(", "))
+                    };
+                    let fields = if result.fields.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" fields: {}", result.fields.join(", "))
                     };
                     let _ = writeln!(
                         stdout,
-                        "  {} [{}] target: {}{} -> {}",
-                        result.name, result.class, result.target, params, result.result
+                        "  {} [{}] target: {}{}{} -> {}",
+                        result.name, result.class, result.target, selectors, fields, result.result
                     );
                 }
             }
@@ -121,23 +128,20 @@ fn score(name: &str, haystack: &str, terms: &[String]) -> usize {
 }
 
 fn result(name: &str, descriptor: &Value) -> SearchResult {
-    let params = descriptor["params"]
-        .as_object()
-        .into_iter()
-        .flat_map(|params| {
-            params
-                .get("selectors")
-                .into_iter()
-                .chain(params.get("fields"))
-                .flat_map(Value::as_object)
-                .flat_map(|values| values.keys().cloned())
-        })
-        .collect::<Vec<_>>();
+    let params = descriptor["params"].as_object();
+    let names = |key| {
+        params
+            .and_then(|params| params.get(key))
+            .and_then(Value::as_object)
+            .map(|values| values.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
     SearchResult {
         name: name.to_owned(),
         class: descriptor["class"].as_str().unwrap_or("unknown").to_owned(),
         target: descriptor["target"].as_str().unwrap_or("unknown").to_owned(),
-        params,
+        selectors: names("selectors"),
+        fields: names("fields"),
         result: type_name(&descriptor["result"]),
     }
 }
@@ -150,17 +154,19 @@ fn type_name(value: &Value) -> String {
 }
 
 pub(super) fn has_scope_operations(scope: &str) -> bool {
+    let target = catalog_target(scope);
     catalog()["operations"].as_object().is_some_and(|operations| {
-        operations.values().any(|descriptor| descriptor["target"] == scope)
+        operations.values().any(|descriptor| descriptor["target"] == target)
     })
 }
 
 pub(super) fn scope_help(scope: &str) -> String {
+    let target = catalog_target(scope);
     let operations = catalog()["operations"]
         .as_object()
         .expect("catalog operations object")
         .iter()
-        .filter(|(_, descriptor)| descriptor["target"] == scope)
+        .filter(|(_, descriptor)| descriptor["target"] == target)
         .map(|(name, descriptor)| (name, descriptor["class"].as_str().unwrap_or("unknown")))
         .collect::<Vec<_>>();
     let mut output = String::from("CATALOG OPERATIONS\n");
@@ -173,6 +179,15 @@ pub(super) fn scope_help(scope: &str) -> String {
     }
     output.push_str("\nRun `cmux docs search <term>` for parameter and result details.\n");
     output
+}
+
+fn catalog_target(scope: &str) -> &str {
+    match scope {
+        "sidebar" => "sidebar_view",
+        "pairing" => "pairing_request",
+        "projection" => "frontend_projection",
+        other => other,
+    }
 }
 
 #[cfg(test)]
@@ -191,5 +206,8 @@ mod tests {
         let help = scope_help("terminal");
         assert!(help.contains("terminal.screen.read [read]"));
         assert!(has_scope_operations("browser"));
+        assert!(has_scope_operations("sidebar"));
+        assert!(has_scope_operations("pairing"));
+        assert!(has_scope_operations("projection"));
     }
 }
