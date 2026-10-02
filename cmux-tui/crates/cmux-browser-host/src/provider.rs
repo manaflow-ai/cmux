@@ -365,7 +365,7 @@ mod tests {
     fn secret_is_redacted_in_debug_output() {
         let text = format!("{:?}", hello());
         assert!(!text.contains("s3cret-value"), "{text}");
-        assert!(text.contains("<redacted>"));
+        assert!(format!("{:?}", ProviderSecret::new("s3cret-value")).contains("<redacted>"));
         assert!(ProviderSecret::new("abc").matches(&ProviderSecret::new("abc")));
         assert!(!ProviderSecret::new("abc").matches(&ProviderSecret::new("abd")));
         assert!(!ProviderSecret::new("abc").matches(&ProviderSecret::new("abcd")));
