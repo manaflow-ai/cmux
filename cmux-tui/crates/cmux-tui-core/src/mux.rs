@@ -20454,6 +20454,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    mod kitty_reservation;
     mod sticky_columns;
 
     use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
