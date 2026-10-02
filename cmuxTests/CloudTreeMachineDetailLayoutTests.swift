@@ -13,21 +13,41 @@ import Testing
 @MainActor
 @Suite("Cloud machine detail tabs", .serialized)
 struct CloudTreeMachineDetailLayoutTests {
-    @Test("A machine shows its workspaces, then Displays, then one tab row and a closing gap")
+    @Test("A machine shows its workspaces, then one tab row and a closing gap")
     func machineChildrenAreRegrouped() throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         let machine = try Self.machine(in: CloudTreeMachineDetailLayout().present(fixture.nodes()))
         let tags = machine.children.map(\.structureTag)
-        #expect(tags == ["workspace", "workspace", "displaysPool", "machineDetailTabs", "machineEndSpacer"])
+        #expect(tags == ["workspace", "workspace", "machineDetailTabs", "machineEndSpacer"])
         let tabsRow = try #require(machine.children.first { $0.structureTag == "machineDetailTabs" })
         #expect(tabsRow.children.isEmpty, "No tab is open until the person picks one")
-        #expect(tabsRow.detailPools.map(\.structureTag) == ["portsGroup", "terminalsPool", "resourcesPool"])
+        #expect(tabsRow.detailPools.map(\.structureTag) == ["portsGroup", "terminalsPool", "displaysPool", "resourcesPool"])
         guard case .machineDetailTabs(let tabs) = tabsRow.kind else { Issue.record("not a tab row"); return }
-        #expect(tabs.tabs == [.ports, .terminals, .resources])
+        #expect(tabs.tabs == [.ports, .terminals, .displays, .resources])
         #expect(tabs.selected == nil)
         #expect(tabs.count(for: .terminals) == 2)
+        #expect(tabs.count(for: .displays) == 0)
         #expect(tabs.count(for: .resources) == nil)
+    }
+
+    @Test("Opening Displays shows New Display, then the pool's rows, and refreshes the machine")
+    func displaysTabShowsItsRows() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        var refreshed: [SurfaceMachineID] = []
+        fixture.coordinator.nodeActions.refreshMachine = { refreshed.append($0) }
+        fixture.coordinator.update(inputs: .init(machines: [], snapshot: fixture.snapshot(), source: .cloudWithDevicesSection))
+        fixture.coordinator.toggleMachineDetailTab(.displays, machine: fixture.machine)
+        #expect(refreshed == [fixture.machine])
+        let machine = try Self.machine(in: fixture.coordinator.nodes)
+        let tabsRow = try #require(machine.children.first { $0.structureTag == "machineDetailTabs" })
+        #expect(tabsRow.id == CloudTreeNodeBuilder.nodeID(displaysPool: fixture.machine))
+        let first = try #require(tabsRow.children.first)
+        guard case .createAction(.newDisplay(let target, _)) = first.kind else { Issue.record("New Display does not lead the tab"); return }
+        #expect(target == fixture.machine)
+        // No displays yet: the pool's own empty row follows New Display.
+        #expect(tabsRow.children.count == 2)
     }
 
     @Test("Opening Terminals shows New Terminal, then every terminal labelled with its workspace")

@@ -36,8 +36,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var showsCloudVPNWarning = false
     /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
-    /// False while the fleet read is failing or offline; see ``CloudTreeBuildInputs/cloudFleetListIsCurrent``.
-    var cloudFleetListIsCurrent: Bool = true
     var cloudMachinesUsage: CloudMachinesUsage? = nil
     var reveal: CloudTreeRevealRequest? = nil
     var creationReveal: CloudWorkspaceCreationReveal? = nil
@@ -78,7 +76,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             devicesSection: devicesSection,
             showsCloudVPNWarning: showsCloudVPNWarning,
             canCreateCloudMachine: canCreateCloudMachine,
-            cloudFleetListIsCurrent: cloudFleetListIsCurrent,
             cloudMachinesUsage: cloudMachinesUsage
         ))
         context.coordinator.reveal(reveal)
@@ -805,6 +802,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 var items: [NSMenuItem] = []
                 if tabs.machine.cloudMachineID != nil {
                     items.append(item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(tabs.machine, nil) })
+                    if case .displaysPool(_, _, let canCreate)? = node.detailPools.first(where: { $0.structureTag == "displaysPool" })?.kind {
+                        items.append(contentsOf: displayMenuItems(machine: tabs.machine, canCreate: canCreate).prefix(1))
+                    }
                 }
                 items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refreshMachine(tabs.machine) })
                 return items

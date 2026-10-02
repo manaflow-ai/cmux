@@ -13,7 +13,7 @@ import Testing
 @MainActor
 @Suite("Cloud sidebar category create rows")
 struct CloudTreeCategoryCreateActionTests {
-    @Test("Cloud Machines has no New Cloud Machine row; the panel's button owns creation", arguments: [0, 1, 3])
+    @Test("Cloud Machines has no New Cloud Machine row and ends with Refresh Cloud Machines", arguments: [0, 1, 3])
     func cloudMachinesCategoryHasNoMachineRow(machineCount: Int) throws {
         let fixture = Fixture()
         defer { fixture.close() }
@@ -23,74 +23,44 @@ struct CloudTreeCategoryCreateActionTests {
         // New Cloud Machine is `CloudNewMachineButton` above the tree, and the
         // empty fleet's double-click-only placeholder goes with the row.
         #expect(section.children.allSatisfy { $0.id != "cloud-machines-section/empty" })
-        let createRows = section.children.filter { $0.structureTag == "createAction" }
-        #expect(createRows.allSatisfy { $0.kind == .createAction(.newWorkspaceOnResolvedMachine) })
-        if machineCount == 0 { #expect(section.children.isEmpty) }
-    }
-
-    /// The section's New Workspace resolves its machine like Cmd-N, so it is
-    /// offered only while a listed machine can take the workspace.
-    @Test("Cloud Machines offers New Workspace only with a machine to receive it", arguments: FleetState.allCases)
-    func sectionWorkspaceActionNeedsADestination(state: FleetState) throws {
-        let fixture = Fixture()
-        defer { fixture.close() }
-        fixture.apply(
-            machines: state.machines(fixture),
-            pendingCreates: state.pendingCreates,
-            canCreateCloudMachine: state.canCreateCloudMachine,
-            fleetListIsCurrent: state.fleetListIsCurrent
-        )
-
-        let section = try #require(fixture.cloudSection)
-        let workspaceActions = section.children.filter { $0.kind == .createAction(.newWorkspaceOnResolvedMachine) }
-        if state.offersNewWorkspace {
-            #expect(workspaceActions.count == 1)
-            // Directly under the header, above the machines themselves.
-            #expect(section.children.first?.kind == .createAction(.newWorkspaceOnResolvedMachine))
-            let action = try #require(workspaceActions.first)
-            let cell = try fixture.cell(for: action)
-            #expect(cell.accessibilityLabel() == String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace"))
-            #expect(CloudTreeCreateAction.newWorkspaceOnResolvedMachine.accessibilityIdentifier == "CloudMachinesNewWorkspaceAction")
+        // The section's only action row is Refresh Cloud Machines, last,
+        // below the gap after the last machine and only once a machine is listed.
+        let actions = section.children.filter { $0.structureTag == "createAction" }
+        if machineCount == 0 {
+            #expect(section.children.isEmpty)
         } else {
-            #expect(workspaceActions.isEmpty, "\(state) has no machine that can receive a workspace")
-        }
-        if !state.canCreateCloudMachine {
-            #expect(section.children.allSatisfy { node in
-                if case .createAction = node.kind { return false }
-                return true
-            })
+            #expect(actions.map(\.kind) == [.createAction(.refreshCloudMachines)])
+            #expect(section.children.last?.kind == .createAction(.refreshCloudMachines))
+            #expect(section.children.dropLast().last?.structureTag == "machineEndSpacer")
         }
     }
 
-    @Test("The section's New Workspace routes to the resolved-machine flow Cmd-N uses")
-    func sectionWorkspaceActionRoutesToResolvedFlow() throws {
+    @Test("Refresh Cloud Machines runs the panel's refresh")
+    func refreshRowRefreshes() throws {
         let fixture = Fixture()
         defer { fixture.close() }
         fixture.apply(machines: fixture.machines(2))
-
         let section = try #require(fixture.cloudSection)
-        let action = try #require(section.children.first { $0.kind == .createAction(.newWorkspaceOnResolvedMachine) })
-        fixture.coordinator.open(action)
-        #expect(fixture.events.resolvedWorkspaceActionCalled)
-        #expect(fixture.events.workspaceMachine == nil, "The section row names no machine of its own")
-        #expect(!fixture.events.cloudVMActionCalled)
+        let refresh = try #require(section.children.first { $0.kind == .createAction(.refreshCloudMachines) })
+        fixture.coordinator.open(refresh)
+        #expect(fixture.events.refreshCalled)
+        #expect(try fixture.cell(for: refresh).accessibilityLabel() == CloudTreeCreateAction.refreshCloudMachines.title)
     }
 
-    @Test("Each Cloud machine's workspaces end with New Workspace")
+    @Test("Each Cloud machine's workspaces start with New Workspace")
     func workspacesCategoryHasPersistentWorkspaceAction() throws {
         let fixture = Fixture()
         defer { fixture.close() }
         fixture.apply(machines: [fixture.machine])
 
         let machine = try #require(fixture.machineNode)
-        // The sidebar shows a machine's workspaces directly under its row,
-        // followed by New Workspace (`CloudTreeMachineDetailLayout`).
+        // The sidebar shows New Workspace directly under the machine's row,
+        // then its workspaces (`CloudTreeMachineDetailLayout`).
         let action = try #require(machine.children.first { node in
             if case .createAction(.newWorkspace) = node.kind { return true }
             return false
         })
-        let actionIndex = try #require(machine.children.firstIndex(of: action))
-        #expect(machine.children.prefix(actionIndex).allSatisfy { if case .workspace = $0.kind { true } else { false } })
+        #expect(machine.children.first === action)
         #expect(action.kind == .createAction(.newWorkspace(.cloud(fixture.machineID))))
         #expect(fixture.row(for: action) >= 0)
         #expect(try fixture.cell(for: action).accessibilityLabel() == CloudTreeCreateAction.newWorkspace(.cloud(fixture.machineID)).title)
@@ -117,7 +87,7 @@ struct CloudTreeCategoryCreateActionTests {
         #expect(fixture.events.workspaceMachine == .cloud(fixture.machineID))
     }
 
-    @Test("Trusted My Device Workspaces categories end with New Workspace without adding New Device")
+    @Test("Trusted My Device Workspaces categories start with New Workspace without adding New Device")
     func deviceWorkspacesExposePersistentCreationAction() throws {
         let instance = SurfaceDeviceInstanceID(deviceID: "22222222-2222-2222-2222-222222222222", tag: "default")
         let info = SurfaceMachineInfo(
@@ -135,7 +105,7 @@ struct CloudTreeCategoryCreateActionTests {
         ))
         let device = try #require(nodes.first { if case .device = $0.kind { return true }; return false })
         let workspaces = try #require(device.children.first { if case .workspacesGroup = $0.kind { return true }; return false })
-        let action = try #require(workspaces.children.last)
+        let action = try #require(workspaces.children.first)
         #expect(action.kind == .createAction(.newWorkspace(.device(instance))))
         #expect(CloudTreeNodeBuilder.flattened(nodes).filter { $0.structureTag == "createAction" }.count == 1)
     }
@@ -153,52 +123,6 @@ struct CloudTreeCategoryCreateActionTests {
         })
         fixture.coordinator.open(newWorkspace)
         #expect(fixture.events.workspaceMachine == .cloud(fixture.machineID))
-    }
-
-    /// Every Cloud Machines state the section's New Workspace must answer for.
-    enum FleetState: String, CaseIterable, CustomTestStringConvertible {
-        case empty, unavailable, oneMachine, severalMachines, creatingOnly, creatingBesideMachine
-        case lockedOnly, lockedBesideMachine, featureGatedOff
-
-        var testDescription: String { rawValue }
-
-        var offersNewWorkspace: Bool {
-            switch self {
-            case .oneMachine, .severalMachines, .creatingBesideMachine, .lockedBesideMachine: true
-            case .empty, .unavailable, .creatingOnly, .lockedOnly, .featureGatedOff: false
-            }
-        }
-
-        var canCreateCloudMachine: Bool { self != .featureGatedOff }
-
-        /// A failed or offline fleet read leaves the last machines listed.
-        var fleetListIsCurrent: Bool { self != .unavailable }
-
-        @MainActor
-        func machines(_ fixture: Fixture) -> [MachineSnapshot] {
-            switch self {
-            case .empty, .creatingOnly: []
-            // The read failed after a good one: the old machines stay listed.
-            case .unavailable, .oneMachine, .creatingBesideMachine: fixture.machines(1)
-            case .severalMachines: fixture.machines(3)
-            case .lockedOnly: [fixture.locked("locked-machine")]
-            case .lockedBesideMachine: [fixture.locked("locked-machine")] + fixture.machines(1)
-            // Gated off with a machine still listed: the gate alone decides.
-            case .featureGatedOff: fixture.machines(1)
-            }
-        }
-
-        var pendingCreates: [MachineCreateOperation] {
-            switch self {
-            case .creatingOnly, .creatingBesideMachine:
-                let request = MachineCreateRequest(
-                    mode: .newMachine, kind: .desktop, name: "pending-machine", arguments: ["vm", "new"]
-                )
-                return [MachineCreateOperation(id: UUID(), request: request, startedAt: Date())]
-            default:
-                return []
-            }
-        }
     }
 
     @MainActor
@@ -236,9 +160,8 @@ struct CloudTreeCategoryCreateActionTests {
                 newWorkspace: { eventBox.workspaceMachine = $0 },
                 closeTerminal: { _ in }, closeWorkspace: { _, _ in },
                 renameWorkspace: { _, _ in }, renameTerminal: { _, _ in },
-                selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, copyPortLink: { _ in }, refresh: {},
-                newMachine: { eventBox.cloudVMActionCalled = true },
-                newWorkspaceOnResolvedMachine: { eventBox.resolvedWorkspaceActionCalled = true }
+                selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, copyPortLink: { _ in }, refresh: { eventBox.refreshCalled = true },
+                newMachine: { eventBox.cloudVMActionCalled = true }
             )
             coordinator = CloudTreeOutlineView.Coordinator(
                 machineActions: MachineRowActions(
@@ -256,8 +179,7 @@ struct CloudTreeCategoryCreateActionTests {
         func apply(
             machines: [MachineSnapshot],
             pendingCreates: [MachineCreateOperation] = [],
-            canCreateCloudMachine: Bool = true,
-            fleetListIsCurrent: Bool = true
+            canCreateCloudMachine: Bool = true
         ) {
             let snapshot = SurfaceCatalogSnapshot(
                 machines: machines.map { machine in
@@ -276,8 +198,7 @@ struct CloudTreeCategoryCreateActionTests {
                 localWorkspaces: [],
                 includeLocalMachine: false,
                 source: .cloudWithDevicesSection,
-                canCreateCloudMachine: canCreateCloudMachine,
-                cloudFleetListIsCurrent: fleetListIsCurrent
+                canCreateCloudMachine: canCreateCloudMachine
             ))
             coordinator.outlineView?.expandItem(nil, expandChildren: true)
             container.layoutSubtreeIfNeeded()
@@ -289,12 +210,6 @@ struct CloudTreeCategoryCreateActionTests {
                     id: "\(machineID)-\(index)", provider: "test", image: "test", isDesktop: false, activity: .ready
                 )
             }
-        }
-
-        func locked(_ id: String) -> MachineSnapshot {
-            var machine = MachineSnapshot(id: id, provider: "test", image: "test", isDesktop: false, activity: .ready)
-            machine.freeAccess = .expired
-            return machine
         }
 
         func row(for node: CloudTreeNode) -> Int {
@@ -320,7 +235,7 @@ struct CloudTreeCategoryCreateActionTests {
         final class Events {
             var workspaceMachine: SurfaceMachineID?
             var cloudVMActionCalled = false
-            var resolvedWorkspaceActionCalled = false
+            var refreshCalled = false
         }
     }
 }
