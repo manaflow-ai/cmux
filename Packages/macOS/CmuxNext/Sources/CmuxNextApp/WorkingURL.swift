@@ -23,11 +23,19 @@ enum WorkingURL {
         }
         return nil
     }
+
+    /// An agent's cwd comes from its page: use it only as an absolute path
+    /// to a directory on this Mac (a remote agent's folder is not one).
+    static func isDirectory(_ path: String, fileManager: FileManager = .default) -> Bool {
+        var directory: ObjCBool = false
+        return path.hasPrefix("/") && fileManager.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
+    }
 }
 
 extension PaneController {
     /// New Browser Tab without a URL opens what the selected tab works on
-    /// (#16620): an agent's newest dev server or pull request, a terminal's
+    /// (#16620): an agent's newest dev server or pull request (the page lists
+    /// no other URLs), a terminal's
     /// dev server, else a blank tab.
     func newBrowserTabFromSelectedTab(engine: String?) {
         switch currentContent {

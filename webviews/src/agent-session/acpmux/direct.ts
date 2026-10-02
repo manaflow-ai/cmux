@@ -204,7 +204,7 @@ export class AcpmuxDirectClient {
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
   private readonly listener: Listener;
-  private readonly host: AcpmuxHostConfig;
+  private host: AcpmuxHostConfig;
   private reconnectTimer?: number;
   private reconnectDelay = 250;
   /// Called once when an established connection drops. The host then asks Swift
@@ -842,6 +842,8 @@ export class AcpmuxDirectClient {
   }
   async create(harness?: string): Promise<string | undefined> {
     const result = await this.request("session/new", newSessionParams(this.host, harness));
+    // The inherited cwd is the first chat's; later new chats start where acpmux defaults.
+    if (result?.sessionId) this.host = { ...this.host, cwd: undefined };
     if (result?.sessionId) return this.select(String(result.sessionId));
     return undefined;
   }

@@ -90,7 +90,10 @@ One row per window keyed `(install_id, window_id)`, an `owner` field equal to
 store refuses a write whose `owner` differs. The CLI, TUI and iOS read rows and change
 what a window shows only by asking that app (`cmux tab <id> focus` is app scope). The
 daemon's shared `active*` fields stay defaults for clients with no window and are never
-written by ordinary UI focus. This replaces today's single `windows` subject that
+written by ordinary UI focus. The CLI's `current` resolves, in order: the caller's own terminal
+(`$CMUX_TUI_TERMINAL_ID`), then the attached app's published window record (its key
+window's workspace, focused pane and selected tab), and only with no app attached the
+daemon's default focus. This replaces today's single `windows` subject that
 `WindowStateStore.update` rewrites whole, which lets two Macs on one daemon overwrite
 each other. Implemented by session feat-cmux-next-99 after its catch-up.
 

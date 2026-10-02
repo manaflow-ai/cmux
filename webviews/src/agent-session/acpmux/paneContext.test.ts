@@ -12,7 +12,7 @@ const row = (id: string, text: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRo
 });
 
 describe("what an agent is working on", () => {
-  test("puts dev servers first, then pull requests, newest first within each", () => {
+  test("puts dev servers first, then pull requests, newest first within each, and nothing else", () => {
     const rows = [
       row("1", "Docs at https://example.com/a. Server on http://localhost:3000/"),
       row("2", "Opened https://github.com/manaflow-ai/cmux/pull/42, see https://example.com/b"),
@@ -22,8 +22,14 @@ describe("what an agent is working on", () => {
       "http://localhost:5173/app",
       "http://localhost:3000/",
       "https://github.com/manaflow-ai/cmux/pull/42",
-      "https://example.com/b",
-      "https://example.com/a",
+    ]);
+    expect(workingURLs([row("1", "Read https://example.com/docs")])).toEqual([]);
+  });
+
+  test("finds an older dev server behind many newer links", () => {
+    const links = Array.from({ length: 25 }, (_, index) => row(`d${index}`, `See https://example.com/doc/${index}`));
+    expect(workingURLs([row("dev", "Server on http://localhost:3000/"), ...links], 20)).toEqual([
+      "http://localhost:3000/",
     ]);
   });
 

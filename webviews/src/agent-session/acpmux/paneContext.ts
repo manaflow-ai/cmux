@@ -24,13 +24,14 @@ function rowTexts(row: AcpmuxRow): string[] {
 }
 
 /**
- * Every http(s) URL in the transcript, newest first: dev servers, then pull
- * requests, then the rest. Trailing sentence punctuation is not part of a URL.
+ * The transcript's dev servers, then its pull request links, each newest first, at most
+ * `limit`. Other URLs are left out: a browser tab opened from the chat loads one of these
+ * or nothing. Trailing sentence punctuation is not part of a URL.
  */
 export function workingURLs(rows: AcpmuxRow[], limit = 20): string[] {
   const found: { url: string; rank: number }[] = [];
   const seen = new Set<string>();
-  for (let index = rows.length - 1; index >= 0 && found.length < limit; index -= 1) {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
     const texts = rowTexts(rows[index]!);
     for (let t = texts.length - 1; t >= 0; t -= 1) {
       const matches = [...(texts[t]!.match(URL_PATTERN) ?? [])].reverse();
@@ -41,14 +42,15 @@ export function workingURLs(rows: AcpmuxRow[], limit = 20): string[] {
         } catch {
           continue;
         }
-        const local = devServer(url);
+        const rank = devServer(url) ? 0 : isPullRequest(url) ? 1 : undefined;
         const text = url.toString();
-        if (seen.has(text)) continue;
+        if (rank === undefined || seen.has(text)) continue;
         seen.add(text);
-        found.push({ url: text, rank: local ? 0 : isPullRequest(url) ? 1 : 2 });
+        found.push({ url: text, rank });
       }
     }
   }
+  // Ranked over the whole transcript, so 20 newer doc links never hide the dev server.
   return found
     .sort((a, b) => a.rank - b.rank)
     .map((entry) => entry.url)

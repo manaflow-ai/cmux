@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createCoalescedRefresh } from "../src/lib/coalescedRefresh";
 
 const nextTurn = () => new Promise<void>((resolve) => queueMicrotask(resolve));

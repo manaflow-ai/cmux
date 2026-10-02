@@ -14,7 +14,7 @@ enum TabLifecycle {
         let cwd = invocation["cwd"]?.stringValue
         // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
         let keep = invocation["keep"]?.boolValue == true ? true : nil
-        if let controller = ctx.services.paneController(for: pane) { return controller.newTerminalTab(cwd: cwd, keep: keep) }
+        if let controller = ctx.services.paneController(for: pane) { return controller.newTerminalTab(cwd: cwd, keep: keep, fromSelectedTab: true) }
         let handle = pane.handle
         let start = cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
