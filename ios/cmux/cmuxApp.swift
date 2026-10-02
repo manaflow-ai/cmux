@@ -93,6 +93,7 @@ struct cmuxApp: App {
             CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
         }
         let webRTCIceServersProvider: CmxWebRTCIceServersProvider?
+        let webRTCSignalingAccessTokenProvider: CmxWebRTITokenProvider?
         if webRTCExperimentEnabled,
            let serviceBaseURL = PresenceClient.resolvedServiceBaseURL(
                isDevelopmentAuthChannel: auth.authEnvironment == .development
@@ -110,15 +111,23 @@ struct cmuxApp: App {
                 }
             )
             webRTCIceServersProvider = { try await client.fetch() }
+            webRTCSignalingAccessTokenProvider = { [weak coordinator = auth.coordinator] in
+                guard let coordinator else {
+                    throw CmxWebRTCIceServerClientError.notAuthenticated
+                }
+                return try await coordinator.currentTokens()
+            }
         } else {
             webRTCIceServersProvider = nil
+            webRTCSignalingAccessTokenProvider = nil
         }
         let webRTCFactory = CmxWebRTCByteTransportFactory(
             configuration: CmxWebRTCConfiguration(
                 environment: ProcessInfo.processInfo.environment,
                 userDefaults: .standard
             ),
-            iceServersProvider: webRTCIceServersProvider
+            iceServersProvider: webRTCIceServersProvider,
+            signalingAccessTokenProvider: webRTCSignalingAccessTokenProvider
         )
         let registrations = [
             CmxRouteTransportFactoryRegistration(

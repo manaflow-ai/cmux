@@ -743,6 +743,12 @@ export function directoryDelta(
 
 export interface CtlAttachment {
   sessionId: string;
+  /** Socket lane. Omitted means the authenticated control-plane lane. */
+  kind?: "control" | "webrtc";
+  /** Public WebRTC relay capability fields, present only for WebRTC sockets. */
+  webrtcSession?: string;
+  webrtcRole?: "host" | "client";
+  webrtcRouteToken?: string;
   /** Optional lifecycle cutoff used by test doubles and legacy adapters. The
    * production control adapter uses a non-expiring sentinel after authenticating
    * the upgrade in the worker. */

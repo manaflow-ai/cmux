@@ -1,7 +1,8 @@
-import Foundation
+public import Foundation
 @preconcurrency import Network
 
-/// A macOS-side TCP bootstrap that exchanges SDP and ICE candidates for WebRTC peers.
+/// A macOS-side signaling bootstrap that exchanges SDP and ICE candidates for
+/// WebRTC peers over either a local TCP listener or a public WebSocket relay.
 public actor CmxWebRTCSignalingServer {
     /// Called after a peer has authenticated the route token and opened its data channel.
     public typealias TransportHandler = @Sendable (CmxWebRTCByteTransport) async -> Void
@@ -9,6 +10,8 @@ public actor CmxWebRTCSignalingServer {
     private let preferredPort: Int
     private let configuration: CmxWebRTCConfiguration
     private let iceServersProvider: CmxWebRTCIceServersProvider?
+    private let signalingRelayURL: URL?
+    private let signalingAccessTokenProvider: CmxWebRTITokenProvider?
     private let token: String
     private let transportHandler: TransportHandler
     private let callbackQueue: DispatchQueue
@@ -16,6 +19,8 @@ public actor CmxWebRTCSignalingServer {
     private var boundPort: Int?
     private var startContinuation: CheckedContinuation<Void, any Error>?
     private var activeTransports: [UUID: CmxWebRTCByteTransport] = [:]
+    private var relayConnection: CmxWebRTCSignalingConnection?
+    private var relayTask: Task<Void, Never>?
 
     /// Creates a signaling server.
     ///
@@ -27,11 +32,15 @@ public actor CmxWebRTCSignalingServer {
         preferredPort: Int,
         configuration: CmxWebRTCConfiguration,
         iceServersProvider: CmxWebRTCIceServersProvider? = nil,
+        signalingRelayURL: URL? = nil,
+        signalingAccessTokenProvider: CmxWebRTITokenProvider? = nil,
         transportHandler: @escaping TransportHandler
     ) {
         self.preferredPort = (1...65535).contains(preferredPort) ? preferredPort : 0
         self.configuration = configuration
         self.iceServersProvider = iceServersProvider
+        self.signalingRelayURL = signalingRelayURL
+        self.signalingAccessTokenProvider = signalingAccessTokenProvider
         token = UUID().uuidString
         self.transportHandler = transportHandler
         callbackQueue = DispatchQueue(
@@ -43,7 +52,11 @@ public actor CmxWebRTCSignalingServer {
     ///
     /// - Throws: A Network.framework listener error when neither port can bind.
     public func start() async throws {
-        guard listener == nil else { return }
+        guard listener == nil, relayConnection == nil, relayTask == nil else { return }
+        if signalingRelayURL != nil {
+            try await startRelay()
+            return
+        }
         do {
             try await bind(port: preferredPort)
         } catch {
@@ -77,17 +90,134 @@ public actor CmxWebRTCSignalingServer {
         return components.string
     }
 
+    /// Builds a public relay route with no private host address or port.
+    public func routeURL() -> String? {
+        guard let relayURL = relayEndpointURL() else { return nil }
+        var components = URLComponents()
+        components.scheme = "webrtc"
+        components.host = "relay"
+        components.queryItems = [
+            URLQueryItem(name: "relay", value: relayURL.absoluteString),
+            URLQueryItem(name: "token", value: token),
+        ]
+        return components.string
+    }
+
     /// Stops accepting new signaling connections and closes active WebRTC peers.
     public func stop() async {
         listener?.cancel()
         listener = nil
         boundPort = nil
+        relayTask?.cancel()
+        relayTask = nil
+        if let relayConnection {
+            await relayConnection.close()
+        }
+        relayConnection = nil
         startContinuation?.resume(throwing: CmxWebRTCSignalingError.closed)
         startContinuation = nil
         let transports = activeTransports.values
         activeTransports.removeAll()
         for transport in transports {
             await transport.close()
+        }
+    }
+
+    private func startRelay() async throws {
+        guard signalingRelayURL != nil, signalingAccessTokenProvider != nil else {
+            throw CmxWebRTCSignalingError.invalidEndpoint
+        }
+        let connection = try await connectRelay()
+        relayConnection = connection
+        relayTask = Task { [weak self, connection] in
+            await self?.relayLoop(initial: connection)
+        }
+    }
+
+    private func relayEndpointURL() -> URL? {
+        guard let signalingRelayURL,
+              var components = URLComponents(
+                  url: signalingRelayURL,
+                  resolvingAgainstBaseURL: false
+              ),
+              let scheme = components.scheme?.lowercased(),
+              ["http", "https", "ws", "wss"].contains(scheme),
+              components.host != nil else {
+            return nil
+        }
+        let basePath = components.path == "/"
+            ? ""
+            : components.path.hasSuffix("/")
+            ? String(components.path.dropLast())
+            : components.path
+        components.path = basePath + "/v1/webrtc/signal"
+        components.query = nil
+        components.fragment = nil
+        return components.url
+    }
+
+    private func connectRelay() async throws -> CmxWebRTCSignalingConnection {
+        guard let relayURL = relayEndpointURL(),
+              let signalingAccessTokenProvider else {
+            throw CmxWebRTCSignalingError.invalidEndpoint
+        }
+        let tokens = try await signalingAccessTokenProvider()
+        return try await CmxWebRTCSignalingConnection.connectWebSocket(
+            url: relayURL,
+            role: "host",
+            routeToken: token,
+            tokens: tokens
+        )
+    }
+
+    private func relayLoop(initial: CmxWebRTCSignalingConnection) async {
+        var connection = initial
+        while !Task.isCancelled {
+            await acceptRelay(connection)
+            guard !Task.isCancelled else { break }
+            do {
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+            } catch {
+                break
+            }
+            do {
+                connection = try await connectRelay()
+                relayConnection = connection
+            } catch {
+                continue
+            }
+        }
+        if relayConnection === connection {
+            relayConnection = nil
+        }
+    }
+
+    private func acceptRelay(_ connection: CmxWebRTCSignalingConnection) async {
+        do {
+            guard case let .hello(receivedToken) = try await connection.receive(),
+                  receivedToken == token else {
+                await connection.close()
+                return
+            }
+            let transport = CmxWebRTCByteTransport(
+                hostSignaling: connection,
+                configuration: configuration,
+                iceServersProvider: iceServersProvider
+            )
+            let id = UUID()
+            activeTransports[id] = transport
+            do {
+                try await transport.startHostNegotiation()
+                await transportHandler(transport)
+            } catch {
+                await transport.close()
+                activeTransports.removeValue(forKey: id)
+            }
+        } catch {
+            await connection.close()
+        }
+        if relayConnection === connection {
+            relayConnection = nil
         }
     }
 

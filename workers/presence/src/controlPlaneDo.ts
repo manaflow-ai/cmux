@@ -47,6 +47,7 @@ const PRODUCTION_WEB_BASE_URL = "https://cmux.com";
 const TURN_CACHE_KEY = "ctl:webrtc-turn";
 const TURN_CACHE_SAFETY_MS = 5 * 60 * 1_000;
 const MAX_TURN_RESPONSE_BYTES = 64 * 1024;
+const MAX_WEBRTC_SIGNAL_BYTES = 256 * 1024;
 
 type CachedTurnCredentials = TurnCredentialResponse & {
   readonly issuedAt: number;
@@ -186,6 +187,21 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
 
   private async handleFetch(request: Request): Promise<Response> {
     if (request.method === "GET"
+      && new URL(request.url).pathname === "/v1/webrtc/signal") {
+      const accountId = request.headers.get("x-control-account-id")?.trim();
+      const session = request.headers.get("x-webrtc-session")?.trim();
+      const routeToken = request.headers.get("x-webrtc-route-token")?.trim();
+      const role = request.headers.get("x-webrtc-role")?.trim();
+      if (!accountId || !session || routeToken !== session
+        || (role !== "host" && role !== "client")) {
+        return json({ error: "invalid_webrtc_relay_request" }, 400);
+      }
+      if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+        return json({ error: "websocket_required" }, 400);
+      }
+      return this.acceptWebRTCSignal(session, routeToken, role);
+    }
+    if (request.method === "GET"
       && new URL(request.url).pathname === "/v1/webrtc/ice-servers") {
       if (!request.headers.get("x-control-account-id")?.trim()) {
         return privateJSON({ error: "account_required" }, 403);
@@ -245,6 +261,71 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       ...(namespace ? { namespace } : {}),
     });
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  private acceptWebRTCSignal(
+    session: string,
+    routeToken: string,
+    role: "host" | "client",
+  ): Response {
+    const existing = this.ctx.getWebSockets().filter((ws) => {
+      const attachment = wrapSocket(ws).getAttachment();
+      return attachment?.kind === "webrtc"
+        && attachment.webrtcSession === session
+        && attachment.webrtcRole === role;
+    });
+    for (const socket of existing) {
+      try { socket.close(1012, "replaced"); } catch { /* already closed */ }
+    }
+
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    this.ctx.acceptWebSocket(server);
+    wrapSocket(server).setAttachment({
+      kind: "webrtc",
+      sessionId: crypto.randomUUID(),
+      webrtcSession: session,
+      webrtcRole: role,
+      webrtcRouteToken: routeToken,
+    });
+    console.info("webrtc.relay.accept", JSON.stringify({
+      role,
+      sessionPrefix: session.slice(0, 8),
+    }));
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  private forwardWebRTCSignal(ws: WebSocket, message: string | ArrayBuffer): void {
+    const attachment = wrapSocket(ws).getAttachment();
+    if (attachment?.kind !== "webrtc"
+      || !attachment.webrtcSession
+      || !attachment.webrtcRouteToken
+      || !attachment.webrtcRole) return;
+    const byteLength = typeof message === "string" ? message.length : message.byteLength;
+    if (byteLength > MAX_WEBRTC_SIGNAL_BYTES) {
+      try { ws.close(1009, "message too large"); } catch { /* already closed */ }
+      return;
+    }
+    const peer = this.ctx.getWebSockets().find((candidate) => {
+      if (candidate === ws) return false;
+      const peerAttachment = wrapSocket(candidate).getAttachment();
+      return peerAttachment?.kind === "webrtc"
+        && peerAttachment.webrtcSession === attachment.webrtcSession
+        && peerAttachment.webrtcRouteToken === attachment.webrtcRouteToken
+        && peerAttachment.webrtcRole !== attachment.webrtcRole;
+    });
+    if (!peer) return;
+    try {
+      peer.send(message);
+      console.info("webrtc.relay.forward", JSON.stringify({
+        role: attachment.webrtcRole,
+        bytes: byteLength,
+        sessionPrefix: attachment.webrtcSession.slice(0, 8),
+      }));
+    } catch {
+      try { peer.close(1011, "relay send failed"); } catch { /* already closed */ }
+    }
   }
 
   /**
@@ -328,6 +409,11 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    const attachment = wrapSocket(ws).getAttachment();
+    if (attachment?.kind === "webrtc") {
+      this.forwardWebRTCSignal(ws, message);
+      return;
+    }
     try {
       await this.core.handleMessage(wrapSocket(ws), message);
     } catch (error) {
@@ -340,6 +426,20 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
   }
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
+    const attachment = wrapSocket(ws).getAttachment();
+    if (attachment?.kind === "webrtc") {
+      const peer = this.ctx.getWebSockets().find((candidate) => {
+        if (candidate === ws) return false;
+        const peerAttachment = wrapSocket(candidate).getAttachment();
+        return peerAttachment?.kind === "webrtc"
+          && peerAttachment.webrtcSession === attachment.webrtcSession
+          && peerAttachment.webrtcRouteToken === attachment.webrtcRouteToken
+          && peerAttachment.webrtcRole !== attachment.webrtcRole;
+      });
+      try { peer?.close(1000, "peer closed"); } catch { /* already closed */ }
+      try { ws.close(); } catch { /* already closed */ }
+      return;
+    }
     try {
       await this.core.handleClose(wrapSocket(ws));
     } catch (error) {

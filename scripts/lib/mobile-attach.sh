@@ -696,8 +696,9 @@ cmux_attach_ensure_mac() {
 # Each path authenticates the phone to the Mac before any mobile operation.
 cmux_attach_mint_url() {
   local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}"
-  local sock slug payload cli_output url node_status cli_status _i
-  local last_reason="route_not_ready" saw_no_iroh=0
+  local sock slug payload cli_output url node_status cli_status route_kind request _i
+  route_kind="${CMUX_ATTACH_ROUTE_KIND:-}"
+  local last_reason="route_not_ready" saw_no_iroh=0 saw_route_policy_violation=0
   case "$target" in
     simulator_injection|physical_device) ;;
     *) echo "error: invalid attach target '$target'" >&2; return 1 ;;
@@ -714,8 +715,12 @@ cmux_attach_mint_url() {
       continue
     fi
     cli_status=0
+    request="{\"ttl_seconds\":${ttl},\"scope\":\"mac\",\"target\":\"${target}\"}"
+    if [[ -n "$route_kind" ]]; then
+      request="{\"ttl_seconds\":${ttl},\"scope\":\"mac\",\"target\":\"${target}\",\"route_kind\":\"${route_kind}\"}"
+    fi
     cli_output="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create \
-      "{\"ttl_seconds\":${ttl},\"scope\":\"mac\",\"target\":\"${target}\"}" 2>&1)" || cli_status=$?
+      "$request" 2>&1)" || cli_status=$?
     if [[ "$cli_status" -ne 0 ]]; then
       case "$cli_output" in
         *"Mobile host routes are not available yet"*) last_reason="host_routes_unavailable" ;;
@@ -727,14 +732,17 @@ cmux_attach_mint_url() {
       payload="$cli_output"
       node_status=0
       url="$(
-        PAYLOAD="$payload" ATTACH_TARGET="$target" node --input-type=module <<'NODE' 2>/dev/null
+        PAYLOAD="$payload" ATTACH_TARGET="$target" CMUX_ATTACH_ROUTE_KIND="$route_kind" node --input-type=module <<'NODE' 2>/dev/null
 const payload = JSON.parse(process.env.PAYLOAD);
 const routes = payload?.ticket?.routes;
+const requiredKind = String(process.env.CMUX_ATTACH_ROUTE_KIND || "").trim().toLowerCase();
 if (process.env.ATTACH_TARGET === "physical_device") {
   const hasIroh = Array.isArray(routes) && routes.some((route) => route?.kind === "iroh");
   const hasTailscale = Array.isArray(routes) && routes.some((route) => route?.kind === "tailscale");
   const hasWebRTC = Array.isArray(routes) && routes.some((route) => route?.kind === "webrtc");
-  if (!hasIroh && !hasTailscale && !hasWebRTC) process.exit(2);
+  if (requiredKind === "webrtc") {
+    if (!hasWebRTC || routes.some((route) => route?.kind !== "webrtc") || hasTailscale) process.exit(3);
+  } else if (!hasIroh && !hasTailscale && !hasWebRTC) process.exit(2);
 }
 if (typeof payload.attach_url === "string") process.stdout.write(payload.attach_url);
 NODE
@@ -746,6 +754,9 @@ NODE
         # closes.
         saw_no_iroh=1
         last_reason="iroh_route_unavailable"
+      elif [[ "$node_status" -eq 3 ]]; then
+        saw_route_policy_violation=1
+        last_reason="route_policy_violation"
       elif [[ "$node_status" -ne 0 ]]; then
         last_reason="malformed_response"
       elif [[ -z "$url" ]]; then
@@ -765,6 +776,9 @@ NODE
   printf 'warning: attach readiness exhausted: %s\n' "$last_reason" >&2
   if [[ "$saw_no_iroh" -eq 1 ]]; then
     return 2
+  fi
+  if [[ "$saw_route_policy_violation" -eq 1 ]]; then
+    return 3
   fi
   return 1
 }

@@ -9,16 +9,20 @@ public struct CmxWebRTCByteTransportFactory: CmxRouteAwareByteTransportFactory {
     public let configuration: CmxWebRTCConfiguration
     /// Optional authenticated provider for short-lived ICE credentials.
     public let iceServersProvider: CmxWebRTCIceServersProvider?
+    /// Authenticates the public signaling relay on behalf of the signed-in account.
+    public let signalingAccessTokenProvider: CmxWebRTITokenProvider?
 
     /// Creates a WebRTC transport factory.
     ///
     /// - Parameter configuration: ICE servers and deadlines for new peers.
     public init(
         configuration: CmxWebRTCConfiguration = CmxWebRTCConfiguration(),
-        iceServersProvider: CmxWebRTCIceServersProvider? = nil
+        iceServersProvider: CmxWebRTCIceServersProvider? = nil,
+        signalingAccessTokenProvider: CmxWebRTITokenProvider? = nil
     ) {
         self.configuration = configuration
         self.iceServersProvider = iceServersProvider
+        self.signalingAccessTokenProvider = signalingAccessTokenProvider
     }
 
     /// Builds a client transport from a route without extra request context.
@@ -58,10 +62,22 @@ public struct CmxWebRTCByteTransportFactory: CmxRouteAwareByteTransportFactory {
         guard case let .url(rawURL) = request.route.endpoint,
               let components = URLComponents(string: rawURL),
               components.scheme?.lowercased() == "webrtc",
-              let host = components.host,
-              let port = components.port,
               let token = components.queryItems?.first(where: { $0.name == "token" })?.value,
               !token.isEmpty else {
+            throw CmxWebRTCByteTransportError.invalidRoute
+        }
+        if components.host?.lowercased() == "relay",
+           let relayValue = components.queryItems?.first(where: { $0.name == "relay" })?.value,
+           let relayURL = URL(string: relayValue) {
+            return try CmxWebRTCByteTransport(
+                clientRelayURL: relayURL,
+                token: token,
+                configuration: configuration,
+                iceServersProvider: iceServersProvider,
+                signalingAccessTokenProvider: signalingAccessTokenProvider
+            )
+        }
+        guard let host = components.host, let port = components.port else {
             throw CmxWebRTCByteTransportError.invalidRoute
         }
         return try CmxWebRTCByteTransport(
@@ -69,7 +85,8 @@ public struct CmxWebRTCByteTransportFactory: CmxRouteAwareByteTransportFactory {
             clientPort: port,
             token: token,
             configuration: configuration,
-            iceServersProvider: iceServersProvider
+            iceServersProvider: iceServersProvider,
+            signalingAccessTokenProvider: signalingAccessTokenProvider
         )
     }
 }

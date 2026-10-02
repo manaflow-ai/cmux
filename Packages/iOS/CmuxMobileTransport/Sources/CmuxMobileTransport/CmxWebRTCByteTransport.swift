@@ -144,7 +144,9 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
     private let configuration: CmxWebRTCConfiguration
     private let clientHost: String?
     private let clientPort: Int?
+    private let clientRelayURL: URL?
     private let signalingToken: String?
+    private let signalingAccessTokenProvider: CmxWebRTITokenProvider?
     private let iceServersProvider: CmxWebRTCIceServersProvider?
     private var signaling: CmxWebRTCSignalingConnection?
     private var state: State = .idle
@@ -172,7 +174,8 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
         clientPort port: Int,
         token: String,
         configuration: CmxWebRTCConfiguration,
-        iceServersProvider: CmxWebRTCIceServersProvider? = nil
+        iceServersProvider: CmxWebRTCIceServersProvider? = nil,
+        signalingAccessTokenProvider: CmxWebRTITokenProvider? = nil
     ) throws {
         guard !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               (1...65535).contains(port),
@@ -182,7 +185,29 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
         self.configuration = configuration
         self.clientHost = host
         self.clientPort = port
+        clientRelayURL = nil
         self.signalingToken = token
+        self.signalingAccessTokenProvider = signalingAccessTokenProvider
+        self.iceServersProvider = iceServersProvider
+    }
+
+    /// Creates a client transport that uses the authenticated public signaling
+    /// relay. The route token is a per-listener capability; Stack credentials
+    /// authenticate the account at the relay before it is paired.
+    init(
+        clientRelayURL relayURL: URL,
+        token: String,
+        configuration: CmxWebRTCConfiguration,
+        iceServersProvider: CmxWebRTCIceServersProvider? = nil,
+        signalingAccessTokenProvider: CmxWebRTITokenProvider?
+    ) throws {
+        guard !token.isEmpty else { throw CmxWebRTCByteTransportError.invalidRoute }
+        self.configuration = configuration
+        clientHost = nil
+        clientPort = nil
+        clientRelayURL = relayURL
+        signalingToken = token
+        self.signalingAccessTokenProvider = signalingAccessTokenProvider
         self.iceServersProvider = iceServersProvider
     }
 
@@ -199,7 +224,9 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
         self.configuration = configuration
         clientHost = nil
         clientPort = nil
+        clientRelayURL = nil
         signalingToken = nil
+        signalingAccessTokenProvider = nil
         self.iceServersProvider = iceServersProvider
         self.signaling = signaling
     }
@@ -224,7 +251,43 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
         }
 
         state = .negotiating
-        if let clientHost, let clientPort, let signalingToken {
+        if let clientRelayURL, let signalingToken {
+            guard let signalingAccessTokenProvider else {
+                throw CmxWebRTCByteTransportError.invalidRoute
+            }
+            let tokens: (accessToken: String, refreshToken: String?)
+            do {
+                tokens = try await signalingAccessTokenProvider()
+            } catch {
+                throw CmxWebRTCByteTransportError.operationFailed("signaling authentication unavailable")
+            }
+            signaling = try await CmxWebRTCSignalingConnection.connectWebSocket(
+                url: clientRelayURL,
+                role: "client",
+                routeToken: signalingToken,
+                tokens: tokens
+            )
+            guard let signaling else { throw CmxWebRTCByteTransportError.invalidRoute }
+            try await signaling.send(.hello(token: signalingToken))
+            try await createPeerConnection()
+            startSignalReader()
+            guard let peerConnection else {
+                throw CmxWebRTCByteTransportError.peerConnectionUnavailable
+            }
+            let dataConfiguration = RTCDataChannelConfiguration()
+            dataConfiguration.isOrdered = true
+            guard let channel = peerConnection.dataChannel(
+                forLabel: Self.dataChannelLabel,
+                configuration: dataConfiguration
+            ) else {
+                throw CmxWebRTCByteTransportError.peerConnectionUnavailable
+            }
+            channel.delegate = peerDelegate
+            dataChannel = channel
+            let offer = try await createOffer()
+            try await setLocalDescription(offer)
+            try await signaling.send(.offer(sdp: offer.value.sdp))
+        } else if let clientHost, let clientPort, let signalingToken {
             signaling = try await CmxWebRTCSignalingConnection.connect(
                 host: clientHost,
                 port: clientPort,

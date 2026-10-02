@@ -12,18 +12,23 @@ import Foundation
 @MainActor
 final class MobileWebRTCExperimentalHost {
     private let defaults: UserDefaults
-    private let routeResolver = MobileRouteResolver()
     private let configuration: CmxWebRTCConfiguration
     private let iceServersProvider: CmxWebRTCIceServersProvider?
+    private let signalingRelayURL: URL?
+    private let signalingAccessTokenProvider: CmxWebRTITokenProvider?
     private var server: CmxWebRTCSignalingServer?
 
     init(
         defaults: UserDefaults = .standard,
         environment: [String: String],
-        iceServersProvider: CmxWebRTCIceServersProvider? = nil
+        iceServersProvider: CmxWebRTCIceServersProvider? = nil,
+        signalingRelayURL: URL? = nil,
+        signalingAccessTokenProvider: CmxWebRTITokenProvider? = nil
     ) {
         self.defaults = defaults
         self.iceServersProvider = iceServersProvider
+        self.signalingRelayURL = signalingRelayURL
+        self.signalingAccessTokenProvider = signalingAccessTokenProvider
         configuration = CmxWebRTCConfiguration(
             environment: environment,
             userDefaults: defaults
@@ -35,7 +40,9 @@ final class MobileWebRTCExperimentalHost {
         let nextServer = CmxWebRTCSignalingServer(
             preferredPort: MobileHostService.configuredPort(defaults: defaults),
             configuration: configuration,
-            iceServersProvider: iceServersProvider
+            iceServersProvider: iceServersProvider,
+            signalingRelayURL: signalingRelayURL,
+            signalingAccessTokenProvider: signalingAccessTokenProvider
         ) { transport in
             await MobileHostService.acceptTransport(
                 transport,
@@ -70,28 +77,17 @@ final class MobileWebRTCExperimentalHost {
     }
 
     private func publishRoutes(using server: CmxWebRTCSignalingServer) async {
-        guard let endpoint = await server.endpoint() else {
+        guard signalingRelayURL != nil, let rawURL = await server.routeURL(),
+              let route = try? CmxAttachRoute(
+                  id: CmxAttachTransportKind.webrtc.rawValue,
+                  kind: .webrtc,
+                  endpoint: .url(rawURL),
+                  priority: -20_000
+              ) else {
             MobileHostPublicStatusCache.clearWebRTCRoutes()
             return
         }
-        let snapshot = await routeResolver.routesResolvingTailscaleDNS(port: endpoint.port)
-        var routes: [CmxAttachRoute] = []
-        routes.reserveCapacity(snapshot.routes.count)
-        for route in snapshot.routes where route.kind == .tailscale {
-            guard case let .hostPort(host, _) = route.endpoint,
-                  let url = await server.routeURL(host: host),
-                  let webRTCRoute = try? CmxAttachRoute(
-                      id: routes.isEmpty ? CmxAttachTransportKind.webrtc.rawValue :
-                          "\(CmxAttachTransportKind.webrtc.rawValue)_\(routes.count + 1)",
-                      kind: .webrtc,
-                      endpoint: .url(url),
-                      priority: -20_000 + routes.count
-                  ) else {
-                continue
-            }
-            routes.append(webRTCRoute)
-        }
-        MobileHostPublicStatusCache.update(webRTCRoutes: routes)
+        MobileHostPublicStatusCache.update(webRTCRoutes: [route])
     }
 }
 #endif

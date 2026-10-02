@@ -11,6 +11,7 @@
 //   GET  /v1/control/socket               account control-plane WebSocket:
 //                                         revisioned directory/hint/pass facts
 //   GET  /v1/webrtc/ice-servers            authenticated temporary STUN/TURN set
+//   GET  /v1/webrtc/signal                 authenticated public WebSocket relay
 //   POST /v1/control/devices/revoke       flip one device's revoked flag
 //                                         ({endpointId, revoked}); the DO
 //                                         broadcasts, closes that device's
@@ -123,6 +124,34 @@ const worker = {
       if (!user) return unauthorized();
       const headers = new Headers();
       headers.set("x-control-account-id", user.id);
+      const stub = env.ACCOUNT_CONTROL_PLANE.get(
+        env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
+      );
+      return stub.fetch(new Request(request.url, { method: "GET", headers }));
+    }
+
+    if (url.pathname === "/v1/webrtc/signal") {
+      if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+      if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+        return json({ error: "websocket_required" }, 400);
+      }
+      const user = await verifyRequest(request, env, { fresh: true });
+      if (!user) return unauthorized();
+      const session = url.searchParams.get("session")?.trim() ?? "";
+      const routeToken = url.searchParams.get("route_token")?.trim() ?? "";
+      const role = url.searchParams.get("role")?.trim().toLowerCase() ?? "";
+      if (!/^[A-Za-z0-9._:-]{16,128}$/.test(session)
+        || routeToken !== session
+        || (role !== "host" && role !== "client")) {
+        return json({ error: "invalid_webrtc_relay_request" }, 400);
+      }
+      const headers = new Headers(request.headers);
+      headers.delete("authorization");
+      headers.delete("x-stack-refresh-token");
+      headers.set("x-control-account-id", user.id);
+      headers.set("x-webrtc-session", session);
+      headers.set("x-webrtc-route-token", routeToken);
+      headers.set("x-webrtc-role", role);
       const stub = env.ACCOUNT_CONTROL_PLANE.get(
         env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
       );

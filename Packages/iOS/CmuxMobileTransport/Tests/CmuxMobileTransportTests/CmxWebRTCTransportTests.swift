@@ -108,6 +108,28 @@ private actor WebRTCIceProviderProbe {
     }
 }
 
+@Test func webRTCFactoryAcceptsPublicRelayRouteWithoutPrivateHost() async throws {
+    let factory = CmxWebRTCByteTransportFactory(
+        signalingAccessTokenProvider: {
+            (accessToken: "access-token", refreshToken: nil)
+        }
+    )
+    let route = try CmxAttachRoute(
+        id: "webrtc",
+        kind: .webrtc,
+        endpoint: .url(
+            "webrtc://relay?relay=https%3A%2F%2Frelay.example%2Fv1%2Fwebrtc%2Fsignal&token=relay-token"
+        )
+    )
+
+    let transport = try factory.makeTransport(for: CmxByteTransportRequest(
+        route: route,
+        expectedPeerDeviceID: "device",
+        authorizationMode: .stackBearer
+    ))
+    await transport.close()
+}
+
 @Test(.timeLimit(.minutes(1)))
 func webRTCByteTransportExchangesDataOverLoopback() async throws {
     let probe = WebRTCExchangeProbe()

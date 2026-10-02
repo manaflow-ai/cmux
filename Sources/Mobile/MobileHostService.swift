@@ -1426,10 +1426,18 @@ final class MobileHostService {
             return
         }
         if webRTCExperimentHost == nil {
+            let relayURL = PresenceHeartbeatClient.resolvedServiceURL()
+            let tokenProvider = webRTCSignalingAccessTokenProvider()
+            guard relayURL != nil, tokenProvider != nil else {
+                MobileHostPublicStatusCache.clearWebRTCRoutes()
+                return
+            }
             let host = MobileWebRTCExperimentalHost(
                 defaults: defaults,
-            environment: environment,
-            iceServersProvider: webRTCIceServersProvider()
+                environment: environment,
+                iceServersProvider: webRTCIceServersProvider(),
+                signalingRelayURL: relayURL,
+                signalingAccessTokenProvider: tokenProvider
             )
             webRTCExperimentHost = host
             host.start()
@@ -1456,6 +1464,16 @@ final class MobileHostService {
             }
         )
         return { try await client.fetch() }
+    }
+
+    private func webRTCSignalingAccessTokenProvider() -> CmxWebRTITokenProvider? {
+        guard let auth else { return nil }
+        return { [weak auth] in
+            guard let auth else {
+                throw CmxWebRTCIceServerClientError.notAuthenticated
+            }
+            return try await auth.currentTokens()
+        }
     }
 #endif
 

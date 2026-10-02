@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 @preconcurrency import Network
 
 /// Errors raised by the short-lived TCP signaling bootstrap.
@@ -19,11 +19,13 @@ public enum CmxWebRTCSignalingError: Error, Equatable, Sendable {
     case connectionFailed(String)
 }
 
-/// A newline-delimited JSON signaling connection backed by Network.framework.
+/// A newline-delimited JSON signaling connection backed by Network.framework
+/// or an authenticated public WebSocket relay.
 public actor CmxWebRTCSignalingConnection {
     private static let maximumMessageLength = 256 * 1024
 
-    private let connection: NWConnection
+    private let connection: NWConnection?
+    private let webSocket: URLSessionWebSocketTask?
     private let callbackQueue: DispatchQueue
     private var started = false
     private var ready = false
@@ -40,6 +42,15 @@ public actor CmxWebRTCSignalingConnection {
     /// - Parameter connection: The Network.framework TCP connection.
     init(connection: NWConnection) {
         self.connection = connection
+        webSocket = nil
+        callbackQueue = DispatchQueue(
+            label: "dev.cmux.mobile.webrtc-signaling.\(UUID().uuidString)"
+        )
+    }
+
+    private init(webSocket: URLSessionWebSocketTask) {
+        connection = nil
+        self.webSocket = webSocket
         callbackQueue = DispatchQueue(
             label: "dev.cmux.mobile.webrtc-signaling.\(UUID().uuidString)"
         )
@@ -75,6 +86,48 @@ public actor CmxWebRTCSignalingConnection {
         return signaling
     }
 
+    /// Opens an authenticated public relay connection. The route token is a
+    /// short-lived capability minted by the Mac's listener and the Stack token
+    /// authenticates the account at the Worker before the Durable Object pairs
+    /// the two peers.
+    public static func connectWebSocket(
+        url: URL,
+        role: String,
+        routeToken: String,
+        tokens: (accessToken: String, refreshToken: String?)
+    ) async throws -> CmxWebRTCSignalingConnection {
+        guard !routeToken.isEmpty,
+              !tokens.accessToken.isEmpty,
+              role == "host" || role == "client",
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "ws" || scheme == "wss" || scheme == "http" || scheme == "https",
+              components.host != nil else {
+            throw CmxWebRTCSignalingError.invalidEndpoint
+        }
+        if scheme == "http" { components.scheme = "ws" }
+        if scheme == "https" { components.scheme = "wss" }
+        var queryItems = components.queryItems ?? []
+        queryItems.append(URLQueryItem(name: "role", value: role))
+        queryItems.append(URLQueryItem(name: "session", value: routeToken))
+        queryItems.append(URLQueryItem(name: "route_token", value: routeToken))
+        components.queryItems = queryItems
+        guard let relayURL = components.url else {
+            throw CmxWebRTCSignalingError.invalidEndpoint
+        }
+        var request = URLRequest(url: relayURL)
+        request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
+        if let refreshToken = tokens.refreshToken, !refreshToken.isEmpty {
+            request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        }
+        let task = URLSession.shared.webSocketTask(with: request)
+        task.maximumMessageSize = Self.maximumMessageLength
+        task.resume()
+        let signaling = CmxWebRTCSignalingConnection(webSocket: task)
+        try await signaling.start(timeoutNanoseconds: 15 * 1_000_000_000)
+        return signaling
+    }
+
     /// Starts the socket and waits until Network.framework reports ready.
     ///
     /// - Parameter timeoutNanoseconds: Connection deadline.
@@ -84,6 +137,10 @@ public actor CmxWebRTCSignalingConnection {
         if ready { return }
         guard !started else { throw CmxWebRTCSignalingError.connectionFailed("already started") }
         started = true
+        guard let connection else {
+            ready = true
+            return
+        }
         connection.stateUpdateHandler = { [weak self] state in
             Task { await self?.handle(state: state) }
         }
@@ -118,7 +175,19 @@ public actor CmxWebRTCSignalingConnection {
         guard encoded.count <= Self.maximumMessageLength else {
             throw CmxWebRTCSignalingError.messageTooLarge
         }
+        if let webSocket {
+            guard let text = String(data: encoded, encoding: .utf8) else {
+                throw CmxWebRTCSignalingError.invalidMessage
+            }
+            do {
+                try await webSocket.send(.string(text))
+            } catch {
+                throw CmxWebRTCSignalingError.connectionFailed(String(describing: error))
+            }
+            return
+        }
         let operationID = UUID()
+        guard let connection else { throw CmxWebRTCSignalingError.closed }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 sendContinuations[operationID] = continuation
@@ -167,7 +236,8 @@ public actor CmxWebRTCSignalingConnection {
         closed = true
         connectTimeoutTask?.cancel()
         connectTimeoutTask = nil
-        connection.cancel()
+        connection?.cancel()
+        webSocket?.cancel(with: .goingAway, reason: nil)
         connectContinuation?.resume(throwing: CmxWebRTCSignalingError.closed)
         connectContinuation = nil
         receiveContinuation?.resume(returning: nil)
@@ -221,7 +291,8 @@ public actor CmxWebRTCSignalingConnection {
 
     private func timeoutStart() {
         guard !ready, !closed else { return }
-        connection.cancel()
+        connection?.cancel()
+        webSocket?.cancel(with: .goingAway, reason: nil)
         connectContinuation?.resume(throwing: CmxWebRTCSignalingError.timedOut)
         connectContinuation = nil
         closed = true
@@ -229,20 +300,25 @@ public actor CmxWebRTCSignalingConnection {
 
     private func cancelStart() {
         guard !ready, !closed else { return }
-        connection.cancel()
+        connection?.cancel()
+        webSocket?.cancel(with: .goingAway, reason: nil)
         connectContinuation?.resume(throwing: CancellationError())
         connectContinuation = nil
         closed = true
     }
 
     private func receiveNextChunk() {
+        if webSocket != nil {
+            receiveNextWebSocketMessage()
+            return
+        }
         guard !closed else {
             receiveContinuation?.resume(throwing: CmxWebRTCSignalingError.closed)
             receiveContinuation = nil
             receiveInProgress = false
             return
         }
-        connection.receive(
+        connection?.receive(
             minimumIncompleteLength: 1,
             maximumLength: Self.maximumMessageLength
         ) { [weak self] data, _, isComplete, error in
@@ -254,6 +330,44 @@ public actor CmxWebRTCSignalingConnection {
                 )
             }
         }
+    }
+
+    private func receiveNextWebSocketMessage() {
+        guard let webSocket else {
+            receiveContinuation?.resume(throwing: CmxWebRTCSignalingError.closed)
+            receiveContinuation = nil
+            receiveInProgress = false
+            return
+        }
+        Task { [weak self] in
+            do {
+                let message = try await webSocket.receive()
+                await self?.handleWebSocketMessage(message)
+            } catch {
+                await self?.handleWebSocketError(error)
+            }
+        }
+    }
+
+    private func handleWebSocketMessage(_ message: URLSessionWebSocketTask.Message) {
+        switch message {
+        case let .string(text):
+            handleReceived(data: Data(text.utf8), isComplete: false, error: nil)
+        case let .data(data):
+            handleReceived(data: data, isComplete: false, error: nil)
+        @unknown default:
+            handleWebSocketError(CmxWebRTCSignalingError.invalidMessage)
+        }
+    }
+
+    private func handleWebSocketError(_ error: any Error) {
+        guard !closed else { return }
+        receiveContinuation?.resume(
+            throwing: CmxWebRTCSignalingError.connectionFailed(String(describing: error))
+        )
+        receiveContinuation = nil
+        receiveInProgress = false
+        closed = true
     }
 
     private func handleReceived(data: Data?, isComplete: Bool, error: NWError?) {
