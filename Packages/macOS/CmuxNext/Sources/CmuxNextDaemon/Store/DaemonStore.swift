@@ -73,6 +73,9 @@ public final class DaemonStore {
     @ObservationIgnored public var onWorkspaceListChanged: (() -> Void)?
     /// A browser profile's bookmarks changed (`bookmarks-changed`), on the main actor.
     @ObservationIgnored public var onBookmarksChanged: ((String) -> Void)?
+    /// Local conversation events (`conversation-changed`, `conversation-typing`)
+    /// in arrival order; the Home service owns their mirrors.
+    @ObservationIgnored public var onConversationEvent: ((DaemonEvent) -> Void)?
     /// The list last reported to `onWorkspaceListChanged`.
     @ObservationIgnored var notifiedWorkspaceList: [String]?
     /// Nesting of batch applies; the hook runs when the outermost ends.

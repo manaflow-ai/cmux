@@ -238,6 +238,9 @@ extension DaemonStore {
         case .bookmarksChanged(let profile, _):
             onBookmarksChanged?(profile)
             return .none
+        case .conversationChanged, .conversationTyping:
+            onConversationEvent?(event)
+            return .none
 
         case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client, .unknown:
             return .none

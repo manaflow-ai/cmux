@@ -83,7 +83,7 @@ Commands:
 | `message.send` | `client_msg_id, parts, reply_to?` | idempotency_key must equal client_msg_id; parts 1...16, text <= 64 KiB; reply_to names an existing message part |
 | `message.edit` | `message_id, parts` | author only; not retracted |
 | `message.retract` | `message_id` | author only; parts become empty |
-| `reaction.add` / `reaction.remove` | `message_id, part_index, kind` | one reaction per (author, part, kind); add/remove are separate records, so concurrent tapbacks never overwrite each other |
+| `reaction.add` / `reaction.remove` | `message_id, part_index, reaction` (a reaction `kind` object; named `reaction` because `kind` is the op tag) | one reaction per (author, part, kind); add/remove are separate records, so concurrent tapbacks never overwrite each other |
 | `read_cursor.set` | `seq` | the actor's own cursor only; monotonic; `<= last_seq` |
 | `participants.add` | `participant` | id unique |
 | `title.set` | `title` | 1...200 chars |
