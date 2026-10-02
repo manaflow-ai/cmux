@@ -1020,7 +1020,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, initialPanelCount, "Unmatched chord suffix must not trigger the action")
     }
 
-    func testCreateMainWindowDisallowsFullScreenTilingByDefault() {
+    func testCreateMainWindowAllowsFullScreenTilingByDefault() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -1036,9 +1036,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        XCTAssertTrue(
+        XCTAssertFalse(
             window.collectionBehavior.contains(.fullScreenDisallowsTiling),
-            "Main windows should opt out of macOS Full Screen Tile so native fullscreen does not trap Space navigation"
+            "Main windows should allow macOS Full Screen Tile unless they are spawned from a native fullscreen source"
         )
     }
 
