@@ -35,7 +35,7 @@ function validatePath(raw: string | null): string | Response {
 export async function GET(request: Request, { params }: { params: Promise<Params> }): Promise<Response> {
   const { id, operation } = await params;
   return withAuthedVmApiRoute(request, "/api/vm/[id]/fs/[operation]", { "cmux.vm.operation": `fs_${operation}` }, "/api/vm/[id]/fs GET failed", async ({ user, span }) => {
-    if (!OPERATIONS.has(operation) || !["dir", "read", "stat"].includes(operation)) return vmErrorResponse({ error: "vm_unknown_file_operation", status: 404, message: "Unknown Cloud VM file operation." });
+    if (!OPERATIONS.has(operation) || !["dir", "read", "stat"].includes(operation)) return vmErrorResponse({ error: "vm_unknown_file_operation", status: 404, message: "Unknown Cloud VM file operation.", action: "Use dir, read, or stat." });
     const path = validatePath(new URL(request.url).searchParams.get("path"));
     if (typeof path !== "string") return path;
     const account = resolveVmRouteAccountScope(user, request);
@@ -60,10 +60,10 @@ export async function GET(request: Request, { params }: { params: Promise<Params
 export async function POST(request: Request, { params }: { params: Promise<Params> }): Promise<Response> {
   const { id, operation } = await params;
   return withAuthedVmApiRoute(request, "/api/vm/[id]/fs/[operation]", { "cmux.vm.operation": `fs_${operation}` }, "/api/vm/[id]/fs POST failed", async ({ user, span }) => {
-    if (!["write", "mkdir"].includes(operation)) return vmErrorResponse({ error: "vm_unknown_file_operation", status: 404, message: "Unknown Cloud VM file operation." });
+    if (!["write", "mkdir"].includes(operation)) return vmErrorResponse({ error: "vm_unknown_file_operation", status: 404, message: "Unknown Cloud VM file operation.", action: "Use write or mkdir." });
     let body: unknown;
-    try { body = await request.json(); } catch { return vmErrorResponse({ error: "vm_invalid_json", status: 400, message: "Cloud VM file operation expected a JSON object body." }); }
-    if (!body || typeof body !== "object" || Array.isArray(body)) return vmErrorResponse({ error: "vm_invalid_request", status: 400, message: "Cloud VM file operation body must be a JSON object." });
+    try { body = await request.json(); } catch { return vmErrorResponse({ error: "vm_invalid_json", status: 400, message: "Cloud VM file operation expected a JSON object body.", action: "Send a JSON object with path and operation fields." }); }
+    if (!body || typeof body !== "object" || Array.isArray(body)) return vmErrorResponse({ error: "vm_invalid_request", status: 400, message: "Cloud VM file operation body must be a JSON object.", action: "Send a JSON object with path and operation fields." });
     const raw = body as { path?: unknown; dataBase64?: unknown; mode?: unknown };
     const path = validatePath(typeof raw.path === "string" ? raw.path : null);
     if (typeof path !== "string") return path;
@@ -82,7 +82,7 @@ export async function POST(request: Request, { params }: { params: Promise<Param
 export async function DELETE(request: Request, { params }: { params: Promise<Params> }): Promise<Response> {
   const { id, operation } = await params;
   return withAuthedVmApiRoute(request, "/api/vm/[id]/fs/[operation]", { "cmux.vm.operation": `fs_${operation}` }, "/api/vm/[id]/fs DELETE failed", async ({ user, span }) => {
-    if (operation !== "remove") return vmErrorResponse({ error: "vm_unknown_file_operation", status: 404, message: "Unknown Cloud VM file operation." });
+    if (operation !== "remove") return vmErrorResponse({ error: "vm_unknown_file_operation", status: 404, message: "Unknown Cloud VM file operation.", action: "Use remove." });
     const path = validatePath(new URL(request.url).searchParams.get("path"));
     if (typeof path !== "string") return path;
     const account = resolveVmRouteAccountScope(user, request);
@@ -95,14 +95,14 @@ export async function DELETE(request: Request, { params }: { params: Promise<Par
 }
 
 async function writeFromBody(request: Request, base: Parameters<typeof writeVmFile>[0], path: string, rawData: unknown, rawMode: unknown) {
-  if (typeof rawData !== "string") return { ok: false as const, response: vmErrorResponse({ error: "vm_invalid_file_body", status: 400, message: "Cloud file writes require dataBase64." }) };
+  if (typeof rawData !== "string") return { ok: false as const, response: vmErrorResponse({ error: "vm_invalid_file_body", status: 400, message: "Cloud file writes require dataBase64.", action: "Pass dataBase64 in the write body." }) };
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(rawData)) {
-    return { ok: false as const, response: vmErrorResponse({ error: "vm_invalid_file_body", status: 400, message: "dataBase64 must be valid base64." }) };
+    return { ok: false as const, response: vmErrorResponse({ error: "vm_invalid_file_body", status: 400, message: "dataBase64 must be valid base64.", action: "Encode the file bytes as standard base64." }) };
   }
   const data = Buffer.from(rawData, "base64");
-  if (data.length > MAX_WRITE_BYTES) return { ok: false as const, response: vmErrorResponse({ error: "vm_file_too_large", status: 413, message: "Cloud file writes are limited to 16 MiB in this route." }) };
+  if (data.length > MAX_WRITE_BYTES) return { ok: false as const, response: vmErrorResponse({ error: "vm_file_too_large", status: 413, message: "Cloud file writes are limited to 16 MiB in this route.", action: "Split the write into smaller files." }) };
   if (rawMode !== undefined && !(typeof rawMode === "number" && Number.isInteger(rawMode) && rawMode >= 0 && rawMode <= 0o7777)) {
-    return { ok: false as const, response: vmErrorResponse({ error: "vm_invalid_file_mode", status: 400, message: "mode must be an integer from 0 through 4095." }) };
+    return { ok: false as const, response: vmErrorResponse({ error: "vm_invalid_file_mode", status: 400, message: "mode must be an integer from 0 through 4095.", action: "Pass an octal file mode between 0 and 4095." }) };
   }
   const mode = rawMode as number | undefined;
   return runVmRoute(writeVmFile(base, path, data, mode), { request });
