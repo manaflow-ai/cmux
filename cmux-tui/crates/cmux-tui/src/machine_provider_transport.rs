@@ -1188,7 +1188,7 @@ mod tests {
         let connector = SshProviderConnector::cloud_with_program(
             fake_ssh,
             "edge.example.com",
-            Some("lawrence"),
+            Some("dev"),
             Some(2200),
             Some(identity.clone()),
         )
@@ -1216,7 +1216,7 @@ mod tests {
                 .any(|pair| { pair[0] == "-i" && pair[1] == identity.to_string_lossy().as_ref() })
         );
         assert!(arguments.windows(5).any(|tail| {
-            tail == ["--", "lawrence@edge.example.com", "cmux", "provider", "control"]
+            tail == ["--", "dev@edge.example.com", "cmux", "provider", "control"]
         }));
         assert!(!arguments.iter().any(|argument| argument.contains(token.expose())));
         drop(control);
