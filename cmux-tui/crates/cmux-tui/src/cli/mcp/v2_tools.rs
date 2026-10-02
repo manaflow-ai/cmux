@@ -138,7 +138,10 @@ fn build() -> Vec<V2Tool> {
         if !matches!(class, "read" | "mutation") || excluded_reason(wire).is_some() {
             continue;
         }
-        let Ok(operation) = serde_json::from_value(Value::String(wire.clone())) else { continue };
+        let Ok(operation) = serde_json::from_value::<ResourceOperation>(Value::String(wire.clone()))
+        else {
+            continue;
+        };
         let fields = &descriptor["params"]["fields"];
         tools.push(V2Tool {
             name: tool_name(wire),

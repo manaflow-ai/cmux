@@ -160,10 +160,14 @@ impl ActionTool {
         let title = self.descriptor["title"].as_str().unwrap_or(&self.id).trim_end_matches('…');
         let mut text = format!(
             "{title}. cmux app action `{}` (CLI: `cmux {}`). Runs in the cmux app and waits \
-             until its work is done. It changes the user's focus only when focus is true or \
-             the action's purpose is focus.",
+             until its work is done.",
             self.id, self.cli_name
         );
+        if self.descriptor["focuses"] == Value::Bool(true) {
+            text.push_str(" Its purpose is focus: it changes the app's focus or selection.");
+        } else {
+            text.push_str(" It leaves the user's focus alone unless focus is true.");
+        }
         if self.descriptor["destructive"] == Value::Bool(true) {
             text.push_str(" Destructive: the app runs it only with confirm: true.");
         }
