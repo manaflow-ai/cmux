@@ -220,9 +220,9 @@ describe("acpmux composer pickers", () => {
     await key(model, "l");
     await key(model, "u");
     expect(doc.querySelector(".acpmux-menu-search")!.textContent).toBe("lu");
-    expect(options()).toEqual(["6.1 Sol · Medium *", "6 Astra · High", "6 Luna"]);
+    expect(options()).toEqual(["6 Luna"]);
     await key(model, "Backspace");
-    expect(options()).toEqual(["6.1 Sol · Medium *", "6 Astra · High", "6.1 Sol *", "6 Luna"]);
+    expect(options()).toEqual(["6.1 Sol · Medium *", "6.1 Sol *", "6 Luna"]);
     await key(model, "u");
     await key(model, "ArrowUp");
     await key(model, "Enter");

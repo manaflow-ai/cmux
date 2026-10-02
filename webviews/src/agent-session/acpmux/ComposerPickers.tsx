@@ -250,9 +250,14 @@ export function modelMenu({
       recent,
       { choices: [{ id: MORE, name: PICKER_LABELS.moreModels, icon: <ChevronRightIcon /> }], onPick: onMore },
     ];
+  // A query filters the recents and the full list alike.
   const needle = query.trim().toLowerCase();
-  const found = models.filter((choice) => !needle || `${choice.name} ${choice.id}`.toLowerCase().includes(needle));
-  return [recent, { ...all, title: PICKER_LABELS.allModels, choices: found }];
+  const matches = (choice: Choice) => !needle || `${choice.name} ${choice.id}`.toLowerCase().includes(needle);
+  const sections: Section[] = [
+    { ...recent, choices: combos.filter(matches) },
+    { ...all, title: PICKER_LABELS.allModels, choices: models.filter(matches) },
+  ];
+  return sections.filter((section) => section.choices.length > 0);
 }
 
 /// Plan modes (Claude's "plan") read and propose without editing; the toggle sits apart from the permission chip.
