@@ -818,6 +818,79 @@ fn ephemeral_workspaces_are_flagged_unrecorded_and_closed_at_the_next_start() {
     assert!(read(&mux, "closed.list", json!({})).as_array().unwrap().is_empty());
 }
 
+/// `workspace.create {ephemeral: true}` commits the workspace and its flag
+/// in one transaction on both creation paths: no committed read and no
+/// `session.events` change ever shows the workspace without the flag.
+#[test]
+fn ephemeral_workspace_create_commits_the_flag_with_the_workspace() {
+    let mux = Mux::new_for_test("state-ephemeral-atomic", SurfaceOptions::default());
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let reader = {
+        let mux = Arc::clone(&mux);
+        let done = Arc::clone(&done);
+        std::thread::spawn(move || {
+            let mut observed = 0usize;
+            loop {
+                let finished = done.load(std::sync::atomic::Ordering::Acquire);
+                for value in snapshot(&mux)["workspaces"].as_array().unwrap() {
+                    if value["name"].as_str().is_some_and(|name| name.starts_with("incognito-")) {
+                        assert_eq!(
+                            value["extra"]["ephemeral"], true,
+                            "read without the flag: {value}"
+                        );
+                        observed += 1;
+                    }
+                }
+                if finished {
+                    return observed;
+                }
+            }
+        })
+    };
+    let before = revision(&mux);
+    let mut created = Vec::new();
+    for index in 0..6 {
+        let content = if index % 2 == 0 { "empty" } else { "terminal" };
+        let value = mutate(
+            &mux,
+            "workspace.create",
+            json!({"name": format!("incognito-{index}"), "initial_content": content, "ephemeral": true}),
+            &format!("atomic-ephemeral-{index}"),
+        );
+        created.push(value["workspace_id"].as_str().unwrap().to_string());
+    }
+    done.store(true, std::sync::atomic::Ordering::Release);
+    assert!(reader.join().unwrap() > 0, "the reader saw no created workspace");
+
+    let changes = changes_after(&mux, before);
+    for workspace in &created {
+        let upserts = changes
+            .iter()
+            .filter(|change| {
+                change["kind"] == "upsert"
+                    && change["resource"] == "workspace"
+                    && change["id"] == workspace.as_str()
+            })
+            .collect::<Vec<_>>();
+        assert!(!upserts.is_empty(), "no upsert for {workspace}");
+        for upsert in upserts {
+            assert_eq!(
+                upsert["value"]["extra"]["ephemeral"], true,
+                "event without the flag: {upsert}"
+            );
+        }
+    }
+    // The flag is part of the request: the same key without it is a different request.
+    let retried = send(
+        &mux,
+        "workspace.create",
+        json!({"name": "incognito-0", "initial_content": "empty"}),
+        Some("atomic-ephemeral-0"),
+    );
+    assert!(retried.is_err(), "a retry that drops the flag replayed: {retried:?}");
+    mux.shutdown();
+}
+
 #[test]
 fn workspace_status_progress_and_bounded_log() {
     let mux = Mux::new_for_test("state-status", SurfaceOptions::default());
