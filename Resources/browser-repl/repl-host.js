@@ -124,16 +124,26 @@
         Object.defineProperty(scope, key, Object.getOwnPropertyDescriptor(g, key));
       }
     }
-    // `cell.console` is the console the cell's code sees: once the cell is
-    // cancelled it prints nothing, so output its leftover callbacks print
-    // later never lands in another cell.
+    // The console a cell's code sees. Once the cell is cancelled, output its
+    // own leftover work prints later (a timer, a listener, an await that
+    // resumes) is dropped, so it never lands in another cell. A function
+    // the cancelled cell defined still prints when the running cell calls
+    // it: the running cell's body is then on the stack. Each cell body runs
+    // as a function named __cmuxCell<seq>, which the stack names in every
+    // engine, also after an await resumes it.
+    let cellSeq = 0;
     function cellConsole(cell) {
       const base = scope.console;
       if (!base || typeof base !== "object") return base;
+      const prints = () => {
+        if (!cell.cancelled) return true;
+        if (!running || running === cell || running.seq === undefined) return false;
+        return String(new Error().stack || "").includes(`__cmuxCell${running.seq}`);
+      };
       return new Proxy(base, {
         get(target, key) {
           const value = target[key];
-          return typeof value === "function" ? (...args) => (cell.cancelled ? undefined : value.apply(target, args)) : value;
+          return typeof value === "function" ? (...args) => (prints() ? value.apply(target, args) : undefined) : value;
         },
       });
     }
@@ -156,10 +166,12 @@
       let fn;
       try {
         // Function() keeps the body sloppy, which `with` requires.
-        // The cell body runs in an arrow inside `with`, so its `console`
-        // parameter shadows the scope's console and everything else
-        // resolves through the scope.
-        fn = new Function("__cmuxScope", "__cmuxConsole", `return async function () { let __cmuxLast; with (__cmuxScope) { await (async (console) => {\n${rewritten.source}\n})(__cmuxConsole); } return __cmuxLast; };`)(scope, cellConsole(cell || {}));
+        // The cell body runs in a named function inside `with`, so its
+        // `console` parameter shadows the scope's console and everything
+        // else resolves through the scope.
+        const owner = cell || {};
+        owner.seq = ++cellSeq;
+        fn = new Function("__cmuxScope", "__cmuxConsole", `return async function () { let __cmuxLast; with (__cmuxScope) { await (async function __cmuxCell${owner.seq}(console) {\n${rewritten.source}\n})(__cmuxConsole); } return __cmuxLast; };`)(scope, cellConsole(owner));
       } catch (e) {
         return { ok: false, error: `SyntaxError: ${e.message}`, ms: 0 };
       }

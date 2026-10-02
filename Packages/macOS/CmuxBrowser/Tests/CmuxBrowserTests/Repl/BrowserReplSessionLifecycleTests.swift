@@ -138,6 +138,24 @@ struct BrowserReplSessionLifecycleTests {
         #expect(next?.lines.map(\.text) == ["Login"])
     }
 
+    @Test("In JavaScriptCore, a timed-out cell's late output is dropped and its functions still print")
+    func cancelledCellOutputInJavaScriptCore() async throws {
+        let session = makeSession(driver: RecordingReplDriver(), bundle: try browserReplRepositoryBundle())
+        defer { session.close() }
+        let hung = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(
+                code: "function hello() { console.log('hello'); } setTimeout(() => console.log('late from cell 1'), 400); await new Promise(() => {})",
+                timeout: .milliseconds(200)
+            )
+        }
+        #expect(hung?.error?.contains("timed out") == true)
+        let next = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: "hello(); await sleep(800); console.log('cell 2')", timeout: .seconds(10))
+        }
+        #expect(next?.error == nil)
+        #expect(next?.lines.map(\.text) == ["hello", "cell 2"])
+    }
+
     @Test("close() cancels in-flight driver calls and the evaluation returns")
     func closeCancelsInFlightDriverCalls() async {
         let driver = GatedReplDriver()
