@@ -804,8 +804,8 @@ class OrphanDetectionTests(unittest.TestCase):
         self.assertEqual(find([run], {run["id"]: [orphan_job(age=60 * 30)]}), [])
 
     def test_sweep_lists_queued_runs_regardless_of_age(self):
-        ghost = make_run(status="queued", age=60 * 24 * 11, name="CI status fallback",
-                         path=".github/workflows/ci-status-fallback.yml")
+        ghost = make_run(status="queued", age=60 * 24 * 11, name="Legacy workflow",
+                         path=".github/workflows/legacy-workflow.yml")
         fake = FakeGitHub({ghost["id"]: ghost})
         runs = fake.in_flight_runs()
         self.assertIn(ghost["id"], [r["id"] for r in runs])
@@ -1031,6 +1031,32 @@ class OrphanExecutionTests(unittest.TestCase):
         results, _ = janitor.cancel_orphans(fake, orphan_plan(find([ghost], {})), sleep=lambda _: None)
         self.assertIn("skipped", results[ghost["id"]])
         self.assertEqual(fake.posts(), [])
+
+
+class PlannedCancellationTests(unittest.TestCase):
+    def candidate(self):
+        run = make_run(status="queued")
+        usage = janitor.macos_usage(mac_jobs(queued=1))
+        return janitor.Candidate(run, "stale-pr", "PR is merged", usage), run
+
+    def test_refused_cancel_is_force_cancelled_without_failing(self):
+        candidate, run = self.candidate()
+        fake = FakeGitHub({run["id"]: dict(run)}, refuse_cancel=[run["id"]])
+
+        results, failures = janitor.cancel_plan(fake, [candidate])
+
+        self.assertIn("force-cancelled", results[run["id"]])
+        self.assertEqual(failures, 0)
+        self.assertEqual(fake.posts(), [[str(run["id"]), "cancel"], [str(run["id"]), "force-cancel"]])
+
+    def test_run_github_will_not_cancel_is_reported_without_failing(self):
+        candidate, run = self.candidate()
+        fake = FakeGitHub({run["id"]: dict(run)}, refuse_cancel=[run["id"]], refuse_force=[run["id"]])
+
+        results, failures = janitor.cancel_plan(fake, [candidate])
+
+        self.assertIn("stuck", results[run["id"]])
+        self.assertEqual(failures, 0)
 
 
 class OrphanSweepTests(unittest.TestCase):

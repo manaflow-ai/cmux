@@ -53,6 +53,11 @@ struct CloudTreeNodeActions {
     /// caller selected the machine pool, so the explicit compatibility operation
     /// renames all views.
     let renameTerminal: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView?) -> Void
+    /// Rename a display's or a browser's remote tab via a text prompt. The view
+    /// is not optional: a row without one exact tab does not offer the verb
+    /// rather than falling back to an all-views rename the way a terminal pool
+    /// row does. A display open in two workspaces is exactly that case.
+    var renameRemoteView: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void = { _, _ in }
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.
@@ -65,23 +70,16 @@ struct CloudTreeNodeActions {
     var newDisplay: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     /// Opens the New Machine flow through the same action as Cmd-Y.
     var newMachine: @MainActor () -> Void = {}
-    /// Creates a workspace on the remembered/selected Cloud machine, falling back to the existing machine-selection flow when none is available.
-    var newWorkspaceOnResolvedMachine: @MainActor () -> Void = {}
+    /// Pops up a row's context menu from its trailing "⋯" button. The outline
+    /// coordinator binds it per cell, so the button and a right-click show the
+    /// same menu.
+    var showRowMenu: @MainActor (_ nodeID: String) -> Void = { _ in }
+    /// Opens a machine's detail tab, or closes it when it is open. Bound per
+    /// cell by the outline coordinator.
+    var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
-
-    /// Binds the existing resolved-machine Cloud workspace creation flow to a tree action.
-    @MainActor
-    static func resolvedWorkspaceCreationAction(tabManager: TabManager?) -> @MainActor () -> Void {
-        { [weak tabManager] in
-            _ = AppDelegate.shared?.performNewCloudWorkspaceOnResolvedMachineAction(
-                tabManager: tabManager,
-                preferredWindow: tabManager?.window,
-                debugSource: "cloudTree.cloudMachinesSection.newWorkspace"
-            )
-        }
-    }
 
     @MainActor
     static func bound(
@@ -89,7 +87,7 @@ struct CloudTreeNodeActions {
         catalog: @escaping @MainActor () -> SurfaceCatalog,
         selectedWorkspaceID: @escaping @MainActor () -> UUID?,
         selectLocalWorkspace: @escaping @MainActor (UUID) -> Void,
-        onWillMutate: @escaping @MainActor (String) -> Void,
+        onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
         refresh: @escaping @MainActor () -> Void,
@@ -453,19 +451,44 @@ struct CloudTreeNodeActions {
             renameTerminal: { resource, view in
                 let current = view?.name ?? (resource.title.isEmpty ? resource.id.key : resource.title)
                 guard let name = promptForName(
-                    title: String(format: String(localized: "cloudTree.renameTerminal.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
+                    title: String(format: String(localized: "cloudTree.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
                     current: current,
                     allowsClear: true
                 ) else { return }
                 let operationLabel = name.isEmpty
-                    ? String(format: String(localized: "cloudTree.operation.clearTerminal", defaultValue: "Clearing %@\u{2026}"), current)
-                    : String(format: String(localized: "cloudTree.operation.renameTerminal", defaultValue: "Renaming %@\u{2026}"), current)
+                    ? String(format: String(localized: "cloudTree.operation.clearName", defaultValue: "Clearing %@\u{2026}"), current)
+                    : String(format: String(localized: "cloudTree.operation.rename", defaultValue: "Renaming %@\u{2026}"), current)
                 run(operationLabel) { catalog in
                     if let view {
                         try await catalog.renameRemoteTab(on: resource.machine, id: view.tabID, name: name)
                     } else {
                         try await catalog.renameTerminal(on: resource.machine, id: resource.id, name: name)
                     }
+                }
+            },
+            renameRemoteView: { resource, view in
+                let resourceName = CloudTreeResourceName(resource: resource, remoteView: view)
+                let chosen = resourceName.chosenName
+                // Titled through the same helper the row renders, so the prompt
+                // names what the person clicked: an untitled browser says
+                // "browser" here too, not its daemon key. The field, separately,
+                // holds only a name someone typed: pre-filling a browser's live
+                // page title would pin it the moment they hit Return, which is
+                // the opposite of what a prompt opened by accident should do.
+                let current = resourceName.label
+                guard let name = promptForName(
+                    title: String(format: String(localized: "cloudTree.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
+                    current: chosen ?? "",
+                    // Clearing puts the row back on the generated title, which
+                    // for a browser is the live page title and is usually what
+                    // someone undoing a rename wants back.
+                    allowsClear: true
+                ) else { return }
+                let operationLabel = name.isEmpty
+                    ? String(format: String(localized: "cloudTree.operation.clearName", defaultValue: "Clearing %@\u{2026}"), current)
+                    : String(format: String(localized: "cloudTree.operation.rename", defaultValue: "Renaming %@\u{2026}"), current)
+                run(operationLabel) { catalog in
+                    try await catalog.renameRemoteTab(on: resource.machine, id: view.tabID, name: name)
                 }
             },
             selectLocalWorkspace: selectLocalWorkspace,

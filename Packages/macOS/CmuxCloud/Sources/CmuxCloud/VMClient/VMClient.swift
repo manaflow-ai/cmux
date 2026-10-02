@@ -281,7 +281,8 @@ public struct VMSummary: Sendable {
         addressIPv4: String? = nil,
         addressIPv6: String? = nil,
         cmuxTuiContract: String? = nil,
-        createdBy: VMCreator? = nil
+        createdBy: VMCreator? = nil,
+        agentUpdates: CloudAgentUpdates? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -298,6 +299,28 @@ public struct VMSummary: Sendable {
         self.addressIPv6 = addressIPv6
         self.cmuxTuiContract = cmuxTuiContract
         self.createdBy = createdBy
+        self.agentUpdates = agentUpdates
+    }
+
+    public func withStatus(_ status: String) -> VMSummary {
+        VMSummary(
+            id: id,
+            provider: provider,
+            status: status,
+            image: image,
+            createdAt: createdAt,
+            base: base,
+            kind: kind,
+            capabilities: capabilities,
+            displayName: displayName,
+            slug: slug,
+            freeAccessExpiresAt: freeAccessExpiresAt,
+            addressIPv4: addressIPv4,
+            addressIPv6: addressIPv6,
+            cmuxTuiContract: cmuxTuiContract,
+            createdBy: createdBy,
+            agentUpdates: agentUpdates
+        )
     }
 
     public let id: String
@@ -326,10 +349,13 @@ public struct VMSummary: Sendable {
     /// the WireGuard tunnel); nil for machines created before private networking.
     public var addressIPv4: String?
     public var addressIPv6: String?
-    /// The image's cmux-tui attach contract from the create receipt
+    /// The image's recorded cmux-tui attach contract
     /// (`"snapshot-v2"`: baked daemon, trusted private-network listener).
-    /// Only the create response carries it; list reads leave it nil.
+    /// This is rollout metadata from the control plane, not a live daemon probe.
     public var cmuxTuiContract: String?
+    /// Whether the machine keeps its image's coding agents or updates them on
+    /// attach; nil when the server predates the setting (treat as `.image`).
+    public var agentUpdates: CloudAgentUpdates?
 
     /// The name to show people: the label when set, else the generated slug,
     /// else the machine id.
@@ -359,6 +385,7 @@ public struct VMPlanLimits: Sendable {
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
+        vcpusByMemoryMb: [String: Int]? = nil,
         activeVmCount: Int? = nil,
         imageKinds: [VMImageKindOption] = []
     ) {
@@ -370,6 +397,7 @@ public struct VMPlanLimits: Sendable {
         self.lockedMemoryOptionsMb = lockedMemoryOptionsMb
         self.memoryUpgradePlanId = memoryUpgradePlanId
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
+        self.vcpusByMemoryMb = vcpusByMemoryMb
         self.activeVmCount = activeVmCount
         self.imageKinds = imageKinds
     }
@@ -391,6 +419,9 @@ public struct VMPlanLimits: Sendable {
     /// The plan that sells the locked sizes ("max"); nil when nothing is locked.
     public var memoryUpgradePlanId: String? = nil
     public var memoryUpgradePlansByMb: [String: String]? = nil
+    /// vCPUs per size, keyed by the size in MB as a string; nil when the
+    /// control plane predates the field and the client's ladder table decides.
+    public var vcpusByMemoryMb: [String: Int]? = nil
     var activeVmCount: Int? = nil
     /// The kinds the default provider can serve and the image each resolves to;
     /// informational (`vm.limits` echoes it): one snapshot serves every kind.
@@ -1138,6 +1169,7 @@ public actor VMClient {
                     memoryUpgradePlanId: (rawLimits["memoryUpgradePlanId"] as? String)
                         .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
                     memoryUpgradePlansByMb: rawLimits["memoryUpgradePlansByMb"] as? [String: String],
+                    vcpusByMemoryMb: Self.decodePositiveIntMap(rawLimits["vcpusByMemoryMb"]),
                     activeVmCount: rawLimits["activeVmCount"] as? Int,
                     imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
                 )
@@ -1165,10 +1197,12 @@ public actor VMClient {
                 summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 summary.createdBy = VMCreator(vmResponse: dict)
                 summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
+                summary.agentUpdates = CloudAgentUpdates(wireValue: dict["agentUpdates"])
                 if let address = dict["address"] as? [String: Any] {
                     summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                     summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 }
+                summary.cmuxTuiContract = (dict["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 return summary
             }
             machineCache.record(hasAnyMachine: !vms.isEmpty)
@@ -1523,6 +1557,13 @@ public actor VMClient {
         }
     }
 
+    /// `limits.vcpusByMemoryMb: {"8192": 4}`; entries that are not positive
+    /// integers are skipped, and an absent or non-object value is nil.
+    private static func decodePositiveIntMap(_ raw: Any?) -> [String: Int]? {
+        guard let object = raw as? [String: Any] else { return nil }
+        return object.compactMapValues { decodeIntArray([$0]).first }
+    }
+
     /// JSON numbers arrive as Int64 or Double depending on magnitude; `null`/absent → nil.
     private static func epochMilliseconds(_ raw: Any?) -> Int64? {
         if let value = raw as? Int64 { return value }
@@ -1549,7 +1590,7 @@ public actor VMClient {
         return result
     }
 
-    public func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, idempotencyKey: String) async throws -> VMSummary {
+    public func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, networkPolicy: CloudNetworkPolicy? = nil, agentUpdates: CloudAgentUpdates? = nil, idempotencyKey: String) async throws -> VMSummary {
         return try await withOperation(.create, foreground: true) {
             var body: [String: Any] = [:]
             if let image { body["image"] = image }
@@ -1559,6 +1600,10 @@ public actor VMClient {
             if perMachineHome { body["perMachineHome"] = true }
             if let memoryMb { body["memoryMb"] = memoryMb }
             if let displayName { body["displayName"] = displayName }
+            // Omitted means the server default (full internet).
+            if let networkPolicy { body["networkPolicy"] = networkPolicy.foundationObject }
+            // Omitted means the server default (the image's agent versions).
+            if let agentUpdates { body["agentUpdates"] = agentUpdates.rawValue }
             // The CLI owns key stability across command retries. VMClient only forwards the
             // key so the backend can short-circuit duplicate paid provider creates.
             let headers = ["Idempotency-Key": idempotencyKey]
@@ -1609,6 +1654,7 @@ public actor VMClient {
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             }
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
             machineCache.record(hasAnyMachine: true)
             return summary
         }
@@ -1663,10 +1709,11 @@ public actor VMClient {
         return summary
     }
 
-    public func status(id: String) async throws -> VMSummary {
+    /// Reads one machine. `teamID` names the owning team (nil: the selected team).
+    public func status(id: String, teamID: String? = nil) async throws -> VMSummary {
         return try await withOperation(.status, foreground: false) {
             let encodedID = try pathSegment(id, fieldName: "vm id")
-            let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)")
+            let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)", teamID: teamID)
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
             guard let id = obj["id"] as? String, let provider = obj["provider"] as? String, let image = obj["image"] as? String else {
@@ -1691,6 +1738,8 @@ public actor VMClient {
                 summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             }
+            summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
             return summary
         }
     }
@@ -1727,27 +1776,28 @@ public actor VMClient {
     /// `POST /api/vm/<id>/pause`: park the machine — compute stops (and stops billing), the
     /// volume, workspaces and terminal history stay. Returns the status the control plane
     /// now reports. A provider that cannot pause answers 501 `vm_pause_unsupported`.
-    public func pause(id: String) async throws -> String {
+    public func pause(id: String, teamID: String? = nil) async throws -> String {
         return try await withOperation(.pause, foreground: true) {
-            try await lifecycleTransition(id: id, action: "pause")
+            try await lifecycleTransition(id: id, action: "pause", teamID: teamID)
         }
     }
 
     /// `POST /api/vm/<id>/resume`: wake a paused machine; the daemon, its terminals and
     /// files come back. Plan limits apply exactly as they do to an implicit wake.
-    public func resume(id: String) async throws -> String {
+    public func resume(id: String, teamID: String? = nil) async throws -> String {
         return try await withOperation(.resume, foreground: true) {
-            try await lifecycleTransition(id: id, action: "resume")
+            try await lifecycleTransition(id: id, action: "resume", teamID: teamID)
         }
     }
 
-    private func lifecycleTransition(id: String, action: String) async throws -> String {
+    private func lifecycleTransition(id: String, action: String, teamID: String?) async throws -> String {
         let encodedID = try pathSegment(id, fieldName: "vm id")
         let (data, http) = try await request(
             "POST",
             path: "/api/vm/\(encodedID)/\(action)",
             jsonBody: [:],
-            timeoutSeconds: Self.createTimeoutSeconds
+            timeoutSeconds: Self.createTimeoutSeconds,
+            teamID: teamID
         )
         if http.statusCode == 501 {
             throw VMClientError.lifecycleUnsupported(action: action)
@@ -1960,7 +2010,8 @@ public actor VMClient {
         requireDaemon: Bool = false,
         sessionId: String? = nil,
         attachmentId: String? = nil,
-        title: String? = nil
+        title: String? = nil,
+        teamID: String? = nil
     ) async throws -> VMAttachEndpoint {
         return try await withOperation(.open, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "vm id")
@@ -1979,7 +2030,8 @@ public actor VMClient {
                 path: "/api/vm/\(encodedID)/attach-endpoint",
                 jsonBody: body,
                 timeoutSeconds: Self.attachTimeoutSeconds,
-                retryTransientServiceUnavailable: true
+                retryTransientServiceUnavailable: true,
+                teamID: teamID
             )
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
@@ -2007,7 +2059,8 @@ public actor VMClient {
     public func openCmuxRemote(
         id: String,
         deviceFingerprint: String? = nil,
-        clientCapabilities: [String] = []
+        clientCapabilities: [String] = [],
+        teamID: String? = nil
     ) async throws -> VMCmuxRemoteEndpoint {
         return try await withOperation(.open, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "vm id")
@@ -2026,7 +2079,8 @@ public actor VMClient {
                     "POST",
                     path: "/api/vm/\(encodedID)/attach-endpoint",
                     jsonBody: body,
-                    timeoutSeconds: 20
+                    timeoutSeconds: 20,
+                    teamID: teamID
                 )
                 try ensureOK(http, data: data)
                 return try decodeJSONObject(data)
@@ -2108,7 +2162,9 @@ public actor VMClient {
             ] where value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
                 body[key] = value
             }
-            let (data, http) = try await request("POST", path: "/api/vm/tunnel", jsonBody: body)
+            // Enrollment is user-scoped: the server attaches this peer to every
+            // team network the user belongs to, so a team switch never cancels it.
+            let (data, http) = try await request("POST", path: "/api/vm/tunnel", jsonBody: body, teamBinding: .user)
             try ensureOK(http, data: data)
             return try Self.decodeTunnelEndpoint(
                 decodeJSONObject(data),
@@ -2201,10 +2257,10 @@ public actor VMClient {
         )
     }
 
-    public func listSessions(id: String) async throws -> [VMCloudSession] {
+    public func listSessions(id: String, teamID: String? = nil) async throws -> [VMCloudSession] {
         return try await withOperation(.session, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "vm id")
-            let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/sessions")
+            let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/sessions", teamID: teamID)
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
             let rawSessions = obj["sessions"] as? [[String: Any]] ?? []
@@ -2216,7 +2272,8 @@ public actor VMClient {
         id: String,
         sessionId: String? = nil,
         attachmentId: String? = nil,
-        title: String? = nil
+        title: String? = nil,
+        teamID: String? = nil
     ) async throws -> VMCloudSessionAttach {
         return try await withOperation(.session, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "vm id")
@@ -2234,7 +2291,8 @@ public actor VMClient {
                 "POST",
                 path: "/api/vm/\(encodedID)/sessions",
                 jsonBody: body,
-                timeoutSeconds: Self.attachTimeoutSeconds
+                timeoutSeconds: Self.attachTimeoutSeconds,
+                teamID: teamID
             )
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
@@ -2303,14 +2361,15 @@ public actor VMClient {
 
 
 
-    public func openPort(id: String, port: Int) async throws -> VMOpenPortEndpoint {
+    public func openPort(id: String, port: Int, teamID: String? = nil) async throws -> VMOpenPortEndpoint {
         return try await withOperation(.port, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "vm id")
             let (data, http) = try await request(
                 "POST",
                 path: "/api/vm/\(encodedID)/open-port",
                 jsonBody: ["port": port],
-                timeoutSeconds: 120
+                timeoutSeconds: 120,
+                teamID: teamID
             )
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
@@ -2390,6 +2449,14 @@ public actor VMClient {
         return try await operations.perform(kind, foreground: foreground, work)
     }
 
+    /// Sends one control-plane request.
+    ///
+    /// - Parameter teamID: The team that owns the target resource. When set, the
+    ///   request carries it in `X-Cmux-Team-Id`, shared reads coalesce per owning
+    ///   team, and a later change of the selected team does not cancel the
+    ///   request: the server verifies membership in that team per request. When
+    ///   nil, the request is bound to the currently selected team and fails if
+    ///   the selection changes before it completes.
     public func request(
         _ method: String,
         path: String,
@@ -2397,7 +2464,26 @@ public actor VMClient {
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
         retryTransientServiceUnavailable: Bool = false,
-        allowedUnderManagedPolicy: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil
+        allowedUnderManagedPolicy: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil,
+        teamID: String? = nil
+    ) async throws -> (Data, HTTPURLResponse) {
+        try await request(
+            method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,
+            timeoutSeconds: timeoutSeconds, retryTransientServiceUnavailable: retryTransientServiceUnavailable,
+            allowedUnderManagedPolicy: allowedUnderManagedPolicy, expectedTeamScope: expectedTeamScope,
+            teamBinding: VMRequestTeamBinding(explicitTeamID: teamID)
+        )
+    }
+
+    func request(
+        _ method: String,
+        path: String,
+        jsonBody: [String: Any]? = nil,
+        extraHeaders: [String: String] = [:],
+        timeoutSeconds: TimeInterval? = nil,
+        retryTransientServiceUnavailable: Bool = false,
+        allowedUnderManagedPolicy: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil,
+        teamBinding: VMRequestTeamBinding
     ) async throws -> (Data, HTTPURLResponse) {
         let work = {
             let isSharedRead = method == "GET"
@@ -2409,7 +2495,8 @@ public actor VMClient {
             if !isSharedRead {
                 return try await self.requestMeasured(method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,
                     timeoutSeconds: timeoutSeconds, retryTransientServiceUnavailable: retryTransientServiceUnavailable,
-                    allowedUnderManagedPolicy: allowedUnderManagedPolicy, expectedTeamScope: expectedTeamScope)
+                    allowedUnderManagedPolicy: allowedUnderManagedPolicy, expectedTeamScope: expectedTeamScope,
+                    teamBinding: teamBinding)
             }
             try Task.checkCancellation()
             if let expectedTeamScope, !(await self.auth.isAuthenticatedTeamScopeCurrent(expectedTeamScope)) {
@@ -2428,7 +2515,9 @@ public actor VMClient {
                 }
                 throw VMClientError.notSignedIn
             }
-            let teamID = await self.auth.resolvedTeamID
+            let explicitTeamID = teamBinding.explicitTeamID
+            let selectedTeamID = explicitTeamID == nil ? await self.auth.resolvedTeamID : nil
+            let teamID = explicitTeamID ?? selectedTeamID
             let key = CloudReadRequestCoordinator.Key(path: path, accountID: identity.accountID,
                 generation: identity.generation, teamID: teamID)
             let value = try await self.readRequests.read(key, deadline: deadline) {
@@ -2437,14 +2526,16 @@ public actor VMClient {
                         method,
                         path: path,
                         timeoutSeconds: timeoutSeconds,
-                        expectedTeamScope: expectedTeamScope
+                        expectedTeamScope: expectedTeamScope,
+                        teamBinding: teamBinding
                     )
                     return CloudReadRequestCoordinator.Response(data: data, http: http)
                 }
             }
             try Task.checkCancellation()
-            guard await self.auth.isAuthenticatedSessionIdentityCurrent(identity),
-                  await self.auth.resolvedTeamID == teamID else { throw CancellationError() }
+            guard await self.auth.isAuthenticatedSessionIdentityCurrent(identity) else { throw CancellationError() }
+            // A read owned by an explicit team stays valid across a selection change.
+            if explicitTeamID == nil, await self.auth.resolvedTeamID != teamID { throw CancellationError() }
             if let expectedTeamScope, !(await self.auth.isAuthenticatedTeamScopeCurrent(expectedTeamScope)) {
                 throw CancellationError()
             }
@@ -2472,7 +2563,8 @@ public actor VMClient {
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
         retryTransientServiceUnavailable: Bool = false,
-        allowedUnderManagedPolicy: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil
+        allowedUnderManagedPolicy: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil,
+        teamBinding: VMRequestTeamBinding = .selected
     ) async throws -> (Data, HTTPURLResponse) {
         try checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy)
         let minted = VMRequestTraceContext.mint()
@@ -2512,6 +2604,7 @@ public actor VMClient {
                 timeoutSeconds: timeoutSeconds,
                 retryTransientServiceUnavailable: retryTransientServiceUnavailable,
                 allowedWhenCloudDisabled: allowedUnderManagedPolicy, expectedTeamScope: expectedTeamScope,
+                teamBinding: teamBinding,
                 onRetry: { retryCount += 1 }
             )
             record(.response(
@@ -2585,6 +2678,7 @@ public actor VMClient {
         timeoutSeconds: TimeInterval?,
         retryTransientServiceUnavailable: Bool,
         allowedWhenCloudDisabled: Bool, expectedTeamScope: AuthenticatedTeamScope?,
+        teamBinding: VMRequestTeamBinding,
         onRetry: () -> Void
     ) async throws -> (Data, HTTPURLResponse) {
         // Bind every control-plane request to the currently published auth
@@ -2594,7 +2688,13 @@ public actor VMClient {
         let sessionIdentity = await auth.authenticatedSessionIdentity
         let isAuthenticated = await auth.isAuthenticated
         let isRestoringSession = await auth.isRestoringSession
-        let requestedTeamID = await auth.resolvedTeamID
+        let explicitTeamID = teamBinding.explicitTeamID
+        let selectedTeamID = explicitTeamID == nil ? await auth.resolvedTeamID : nil
+        let requestedTeamID = explicitTeamID ?? selectedTeamID
+        // Only a request bound to the selected team is cancelled when the
+        // selection changes; the server authorizes an explicit owning team or
+        // a user-scoped request on its own membership check.
+        let followsSelectedTeam = teamBinding.followsSelectedTeam
         guard isAuthenticated || isRestoringSession else {
             throw VMClientError.notSignedIn
         }
@@ -2641,8 +2741,10 @@ public actor VMClient {
         while true {
             try Task.checkCancellation()
             if let expectedTeamScope, !(await auth.isAuthenticatedTeamScopeCurrent(expectedTeamScope)) { throw VMClientError.notSignedIn }
-            guard await auth.resolvedTeamID == requestedTeamID else {
-                throw VMClientError.notSignedIn
+            if followsSelectedTeam {
+                guard await auth.resolvedTeamID == requestedTeamID else {
+                    throw VMClientError.notSignedIn
+                }
             }
             if !allowedWhenCloudDisabled, !isCloudEnabled() { throw VMClientError.cloudMachinesDisabled }
             let data: Data
@@ -2727,7 +2829,7 @@ public actor VMClient {
                     throw VMClientError.notSignedIn
                 }
             }
-            if let requestedTeamID {
+            if followsSelectedTeam, let requestedTeamID {
                 guard await auth.resolvedTeamID == requestedTeamID else {
                     throw VMClientError.notSignedIn
                 }

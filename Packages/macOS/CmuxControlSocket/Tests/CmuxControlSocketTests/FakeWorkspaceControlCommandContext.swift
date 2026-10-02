@@ -12,6 +12,7 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     var listResolution: ControlWorkspaceListResolution = .tabManagerUnavailable
     var currentResolution: ControlWorkspaceCurrentResolution = .tabManagerUnavailable
     var closeResolution: ControlWorkspaceCloseResolution = .tabManagerUnavailable
+    var closeForce = false
     var reorderResolution: ControlWorkspaceReorderResolution = .notFound
     var reorderCall: (workspaceID: UUID, index: Int?, before: UUID?, after: UUID?, dryRun: Bool)?
     var addWorkspaceToGroupResolution: ControlWorkspaceGroupAddResolution = .tabManagerUnavailable
@@ -91,7 +92,7 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         .tabManagerUnavailable
     }
     func controlFocusWindow(id: UUID) -> Bool { false }
-    func controlCreateWindowAndActivate() -> UUID? { nil }
+    func controlCreateWindowAndActivate(title: String?) -> UUID? { nil }
     func controlCloseWindow(id: UUID) -> Bool { false }
     func controlAvailableDisplays() -> [ControlDisplayInfo] { [] }
     func controlWindowExists(id: UUID) -> Bool { false }
@@ -102,6 +103,7 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         ControlWorkspaceStrings(
             closeProtected: "close protected",
             closeFailed: "close failed",
+            closeConfirmationRequired: "Workspace has a running process; retry with --force",
             reorderManyMissingOrder: "missing order",
             reorderManyDuplicateWorkspace: "duplicate workspace",
             workspaceNotFound: "workspace not found",
@@ -128,9 +130,11 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
 
     func controlCloseWorkspace(
         routing: ControlRoutingSelectors,
-        workspaceID: UUID
+        workspaceID: UUID,
+        force: Bool
     ) -> ControlWorkspaceCloseResolution {
-        closeResolution
+        closeForce = force
+        return closeResolution
     }
 
     func controlAddWorkspaceToGroup(

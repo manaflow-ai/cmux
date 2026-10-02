@@ -129,20 +129,9 @@ public final class UpdateController {
         self.defaults = defaults
         self.fileManager = fileManager
         self.hostBundle = hostBundle
-        var isDevLikeBundle = isDevLikeBundle ?? Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier)
-#if DEBUG
-        // Dogfooding a real update cycle between two tagged builds: an explicit dogfood feed
-        // lets a DEV build update from that feed (never from the public appcast). It is not a
-        // `CMUX_UI_TEST_*` variable because those mark the process as a test host, which never
-        // starts the updater.
-        if isDevLikeBundle, Self.dogfoodFeedURL() != nil {
-            log.append("dev build updates from the dogfood feed")
-            isDevLikeBundle = false
-        }
-#endif
+        let isDevLikeBundle = isDevLikeBundle ?? Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier)
         self.isDevLikeBundle = isDevLikeBundle
-        let feedURL = hostBundle.object(forInfoDictionaryKey: "SUFeedURL") as? String
-        settings.apply(to: defaults, channel: UpdateFeedResolver().resolve(infoFeedURL: feedURL).channel)
+        settings.apply(to: defaults)
         if isDevLikeBundle {
             // DEV (`com.cmuxterm.app.debug[.<tag>]`) and staging (`com.cmuxterm.app.staging[.<tag>]`)
             // builds are produced from local source and are not on the public release train, so
@@ -160,32 +149,7 @@ public final class UpdateController {
         self.driver = driver
         self.updater = updaterFactory(driver, hostBundle)
         driver.eventDelegate = self
-        driver.installsAutomatically = { [weak self] in self?.installsAutomatically ?? false }
-        applyInstallAutomatically()
         startStateReactions()
-    }
-
-    /// Whether updates download in the background and install at a quiet moment: the user's
-    /// setting, except that DEV/staging builds and managed Macs never update on their own.
-    public var installsAutomatically: Bool {
-        !isDevLikeBundle && !isDisabledByPolicy() && defaults.bool(forKey: UpdateSettings.installAutomaticallyKey)
-    }
-
-    /// Applies a changed "Install updates automatically" setting to the running updater.
-    public func installAutomaticallyDidChange() {
-        applyInstallAutomatically()
-    }
-
-    /// Sparkle downloads updates in the background only while automatic installs are on; the
-    /// download is what leads to ``UpdateDriver/handleWillInstallUpdateOnQuit(immediateInstallHandler:)``.
-    private func applyInstallAutomatically() {
-        let enabled = installsAutomatically
-        if !enabled {
-            driver.relaunchGate.deferAutomaticInstall()
-        }
-        guard updater.automaticallyDownloadsUpdates != enabled else { return }
-        updater.automaticallyDownloadsUpdates = enabled
-        log.append("automatic update installs \(enabled ? "on" : "off")")
     }
 
     deinit {
@@ -360,13 +324,6 @@ public final class UpdateController {
             return
         }
 
-        // With automatic installs on, check in the background at launch so Sparkle downloads
-        // the update now instead of at its next scheduled check.
-        if installsAutomatically {
-            log.append("starting launch background check (automatic installs)")
-            updater.checkForUpdatesInBackground()
-            return
-        }
         // Probe immediately on launch so the sidebar can surface a passive update indicator
         // without waiting for Sparkle's scheduled check or opening interactive update UI.
         log.append("starting launch update probe")
@@ -439,16 +396,6 @@ extension UpdateController {
     /// `isStagingBundleIdentifier` (in the CmuxSettings package). The classification is
     /// duplicated here deliberately to avoid introducing a `CmuxUpdater → CmuxSettings` package
     /// dependency edge for a small string check.
-#if DEBUG
-    /// The feed a DEV build dogfoods updates from, set with `CMUX_UPDATE_DOGFOOD_FEED_URL`.
-    static func dogfoodFeedURL(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> String? {
-        guard let url = environment["CMUX_UPDATE_DOGFOOD_FEED_URL"], !url.isEmpty else { return nil }
-        return url
-    }
-#endif
-
     static func isDevLikeBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
         guard let bundleIdentifier else { return false }
         return bundleIdentifier == "com.cmuxterm.app.debug"

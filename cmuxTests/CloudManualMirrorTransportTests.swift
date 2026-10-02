@@ -1,6 +1,7 @@
 import CmuxCloud
 import CmuxCloudTui
 import CmuxSurfaceCatalogModel
+import Darwin
 import Foundation
 import Testing
 
@@ -15,6 +16,19 @@ import Testing
 /// it never invokes the ratatui renderer or inspects source text.
 @Suite
 struct CloudManualMirrorTransportTests {
+    @Test
+    func closingFixtureIsIdempotent() throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        fixture.close()
+        fixture.close()
+
+        let fd = Darwin.open("/dev/null", O_RDONLY)
+        #expect(fd >= 0)
+        fixture.close()
+        #expect(Darwin.fcntl(fd, F_GETFD) != -1)
+        Darwin.close(fd)
+    }
+
     @Test("Restored Cloud terminal failures render a copyable error")
     func restoredTerminalFailurePresentation() {
         let presentation = Workspace.cloudMaterializationFailurePresentation(
@@ -639,7 +653,7 @@ struct CloudManualMirrorTransportTests {
         session.inputRouter.send(.bytes(Data("first".utf8)))
         session.reconnect(socketPath: fixture.socketPath)
         let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
-        fixture.send(["id": identify.id, "ok": true, "data": ["capabilities": ["attach-identity-v1", "view-attachment-lease-v1"]]])
+        fixture.send(["id": identify.id, "ok": true, "data": ["capabilities": ["attach-identity-v1", "view-attachment-lease-v1", "terminal-pending-sequence-v1"]]])
         let registration = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         #expect(registration.cmd == "set-client-info")
         fixture.send(["id": registration.id, "ok": true, "data": [:]])
@@ -714,6 +728,7 @@ struct CloudManualMirrorTransportTests {
                     "view-attachment-lease-v1",
                     "view-attachment-detach-v1",
                     "attach-initial-size",
+                    "terminal-pending-sequence-v1",
                 ],
             ],
         ])

@@ -114,6 +114,28 @@ extension AuthCoordinator {
         }
     }
 
+    /// Captures Cloud credentials and the selected team as one coherent
+    /// request context. A team selection or session transition during the
+    /// token read is retryable, rather than allowing a request to combine
+    /// credentials from one session with routing for another.
+    public func coherentTokenContext() async throws -> (
+        accessToken: String,
+        refreshToken: String,
+        teamID: String?
+    ) {
+        let sessionGeneration = self.sessionGeneration
+        let teamScopeGeneration = self.authenticatedTeamScopeGeneration
+        let teamID = self.resolvedTeamID
+        let tokens = try await coherentTokenPair()
+        guard self.sessionGeneration == sessionGeneration,
+              self.authenticatedTeamScopeGeneration == teamScopeGeneration,
+              self.resolvedTeamID == teamID,
+              !self.sessionTokenTransitionIsActive else {
+            throw AuthError.networkError
+        }
+        return (tokens.accessToken, tokens.refreshToken, teamID)
+    }
+
     func coherentTokenPairWithoutStateClear() async throws -> (accessToken: String, refreshToken: String) {
         let storageWasAvailable = await isTokenStorageAvailable()
         for _ in 0..<3 {

@@ -12,6 +12,13 @@ extension ContentView {
 
         return [
             CommandPaletteCommandContribution(
+                commandId: "palette.browseSidebarTemplates",
+                title: constant(String(localized: "command.browseSidebarTemplates.title", defaultValue: "Browse Sidebar Templates")),
+                subtitle: constant(String(localized: "command.browseSidebarTemplates.subtitle", defaultValue: "Custom Sidebars")),
+                keywords: ["sidebar", "template", "gallery", "custom", "try", "browse"],
+                when: { _ in CmuxExtensionSidebarSelection.customSidebarsEnabled }
+            ),
+            CommandPaletteCommandContribution(
                 commandId: "palette.triggerFlash",
                 title: constant(String(localized: "command.triggerFlash.title", defaultValue: "Flash Focused Panel")),
                 subtitle: constant(String(localized: "command.triggerFlash.subtitle", defaultValue: "View")),
@@ -38,6 +45,13 @@ extension ContentView {
                 title: constant(String(localized: "command.sleepyMode.title", defaultValue: "Sleepy Mode")),
                 subtitle: constant(String(localized: "command.sleepyMode.subtitle", defaultValue: "View")),
                 keywords: ["sleepy", "screensaver", "caffeinate", "keep awake", "do not sleep", "lock", "pets", "night"]
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.showAgentInbox",
+                title: constant(String(localized: "agentInbox.command.title", defaultValue: "Show Agent Inbox")),
+                subtitle: constant(String(localized: "agentInbox.command.subtitle", defaultValue: "Agents")),
+                keywords: ["agent", "inbox", "message", "question", "permission", "feed"],
+                when: { _ in CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled }
             ),
         ]
     }
@@ -84,6 +98,45 @@ extension ContentView {
         )
     }
 
+    /// Sets the browser toggle states that palette titles reflect.
+    static func setCommandPaletteBrowserToggleContext(
+        for browserPanel: BrowserPanel,
+        in snapshot: inout CommandPaletteContextSnapshot
+    ) {
+        snapshot.setBool(CommandPaletteContextKeys.panelBrowserFocusModeActive, browserPanel.isBrowserFocusModeActive)
+        snapshot.setBool(CommandPaletteContextKeys.panelBrowserKeepsPageActive, browserPanel.keepsPageActiveWhileHidden)
+    }
+
+    static func appendBrowserKeepPageActiveCommandContribution(
+        to contributions: inout [CommandPaletteCommandContribution],
+        panelSubtitle: @escaping (CommandPaletteContextSnapshot) -> String
+    ) {
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.browserKeepPageActive",
+                title: { context in
+                    context.bool(CommandPaletteContextKeys.panelBrowserKeepsPageActive)
+                        ? String(localized: "command.browserKeepPageActive.disable.title", defaultValue: "Allow Page to Unload While Hidden")
+                        : String(localized: "command.browserKeepPageActive.enable.title", defaultValue: "Keep Page Active While Hidden")
+                },
+                subtitle: panelSubtitle,
+                keywords: ["browser", "keep", "active", "pin", "memory", "unload", "discard", "background", "hidden"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+            )
+        )
+    }
+
+    func registerBrowserKeepPageActiveCommandHandler(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        performBrowserAction: @escaping (BrowserAction) -> Bool
+    ) {
+        registry.register(commandId: "palette.browserKeepPageActive") {
+            if !performBrowserAction(.toggleKeepPageActive) {
+                NSSound.beep()
+            }
+        }
+    }
+
     func registerViewCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: "palette.triggerFlash") {
             tabManager.triggerFocusFlash()
@@ -98,6 +151,9 @@ extension ContentView {
         }
         registry.register(commandId: "palette.sleepyMode") {
             SleepyModeController.shared.activate()
+        }
+        registry.register(commandId: "palette.showAgentInbox") {
+            AppDelegate.shared?.requestAgentInbox(source: "commandPalette.showAgentInbox")
         }
     }
 }
