@@ -49,7 +49,7 @@ icon slot (the tab spinner layer), and available to sections (sidebar-sections l
 `SidebarItemInfo` items), Home and pane headers.
 
 Settings (`cmux.json`, Settings > Appearance > Loading Indicator): `appearance.statusIndicator.style`
-(`arc|native|dot|none`), `.size` (0.5...1.5 of the slot), `.thickness` (0.5...4 pt), `.color` (`#RRGGBB` or
+(`arc|native|dot|braille|none`), `.size` (0.5...1.5 of the slot), `.thickness` (0.5...4 pt), `.color` (`#RRGGBB` or
 `theme`). Debug Settings > Status Indicators: style override (compare variants live), arc length, ring track
 opacity, dot size, pulse low opacity, native steps. Style precedence: Debug override, then the reporter's
 hint (`--style`) when its source is honored (`appearance.statusIndicator.honorStatusStyle`: true by default,
@@ -113,7 +113,7 @@ CLI (noun-first; target defaults to the caller's terminal, else `current` worksp
 
 ```
 cmux status set [KEY] --label T [--target ws_|tab_|term_|current] [--state busy|success|error|waiting|info]
-                [--progress 0.4|40%] [--style arc|native|dot|none] [--ttl 30s] [--pid N | --keep] [--json]
+                [--progress 0.4|40%] [--style arc|native|dot|braille|none] [--ttl 30s] [--pid N | --keep] [--json]
 cmux status clear [KEY] [--target ...] [--all]
 cmux status list [--target ...] [--json]            # raw entries and terminal facts, merged order
 cmux status run [--label T] [--target ...] [--notify auto|always|never] [--badge-ttl 8s] -- CMD ...

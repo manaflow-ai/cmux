@@ -67,7 +67,8 @@ struct BrailleSpinnerTests {
     }
 
     @Test func switchingStylesReleasesTheBrailleLayer() {
-        guard Motion.animatesLoops else { return }
+        defer { Motion.reduceMotionOverride = nil }
+        Motion.reduceMotionOverride = false
         let indicator = make()
         let config = StatusIndicatorConfig()
         indicator.apply(.make(.busy, style: .braille, animates: true), config: config)

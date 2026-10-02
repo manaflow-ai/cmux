@@ -20,8 +20,9 @@ enum BrailleSpinnerImage {
     private static var cache: [Key: [CGImage]] = [:]
 
     /// The frames for a `side`-point square at `scale`, in `family` (the
-    /// terminal font; nil or unknown falls back to the system monospaced
-    /// font, and Core Text falls back per glyph when a font has no braille).
+    /// `terminal.fontFamily` override; nil or unknown falls back to the
+    /// system monospaced font, and Core Text falls back per glyph when a
+    /// font has no braille).
     /// Empty when nothing could be drawn.
     static func images(side: CGFloat, scale: CGFloat, family: String?) -> [CGImage] {
         let pixels = Int((side * scale).rounded())
