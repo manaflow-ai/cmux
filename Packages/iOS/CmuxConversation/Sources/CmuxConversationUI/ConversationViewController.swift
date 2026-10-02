@@ -73,6 +73,9 @@ public final class ConversationViewController: UIViewController {
     var replyHapticFired = false
     var replyTarget: ConversationMessage?
     var editingMessageID: String?
+    /// A row kept visible above the composer as insets change (the message
+    /// being edited stays in view when the keyboard rises).
+    var revealRowID: String?
     var isSelecting = false
     var selectedRowIDs: Set<String> = []
     var photoDrawer: ConversationPhotoGridView?
@@ -208,6 +211,12 @@ public final class ConversationViewController: UIViewController {
         let bottom = max(0, view.bounds.maxY - composerContainer.frame.minY) + 10
         let old = collectionView.contentInset
         guard old.top != top || old.bottom != bottom else { return }
+        // Resting on the newest message counts as following it, whatever the
+        // flag says (an interactive keyboard dismissal drags the content away
+        // from the bottom mid-gesture, then settles back onto it).
+        if !collectionView.isTracking, !collectionView.isDecelerating, hasPositionedInitially, isNearBottom(tolerance: 2) {
+            isPinnedToBottom = true
+        }
         // A reader pinned to the bottom stays pinned as the keyboard, drawer or
         // composer changes the inset; a reader scrolled up stays where they are.
         collectionView.contentInset = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
@@ -218,6 +227,9 @@ public final class ConversationViewController: UIViewController {
                 collectionView.contentOffset = bottomOffset
             } else {
                 var offset = collectionView.contentOffset
+                if let id = revealRowID, let index = rowIndex[id], let frame = layout.frame(at: index) {
+                    offset.y = max(offset.y, frame.maxY + bottom - collectionView.bounds.height)
+                }
                 offset.y = min(max(-top, offset.y), bottomOffset.y)
                 collectionView.contentOffset = offset
             }
@@ -360,7 +372,7 @@ public final class ConversationViewController: UIViewController {
                 appearances[id] = .sent
                 flyingRowIDs.insert(id)
             case let .message(model) where !model.isOutgoing && animateLive: arrivingRowIDs.append(model.rowID)
-            case .typing: appearances[id] = .incoming
+            case .typing: arrivingRowIDs.append(id)
             case .loadingOlder: appearances[id] = .fade
             default: break
             }
@@ -385,6 +397,8 @@ public final class ConversationViewController: UIViewController {
                 self.collectionView.layoutIfNeeded()
             }
         }
+        let startOffsetY = collectionView.contentOffset.y
+        var scrollShift: CGFloat = 0
         if animateLive, wasAtBottom || sentByMe {
             // Pinned: insertions and the scroll to the new bottom share one spring.
             UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
@@ -393,6 +407,7 @@ public final class ConversationViewController: UIViewController {
                 self.collectionView.layoutIfNeeded()
                 self.collectionView.contentOffset = self.bottomOffset
             }
+            scrollShift = collectionView.contentOffset.y - startOffsetY
         } else if animateLive {
             // Away from bottom: animate in place, keep the reader's anchor fixed.
             UIView.animate(withDuration: 0.3, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
@@ -410,28 +425,47 @@ public final class ConversationViewController: UIViewController {
             }
         }
         appearances = appearances.filter { flyingRowIDs.contains($0.key) }
-        popArrivals()
+        popArrivals(scrollShift: scrollShift)
     }
 
-    /// New incoming bubbles grow from their tail corner with a short spring
-    /// (Messages' arrival), driven on the cell so the scroll can't flatten it.
-    private func popArrivals() {
+    /// New incoming bubbles (and the typing indicator) appear where they will
+    /// rest and grow from their tail corner, as in Messages. The transcript
+    /// scrolls up by `scrollShift` in the same spring; the arriving cell is
+    /// counter-translated along that spring so it never slides up from behind
+    /// the composer, while the rows above move.
+    private func popArrivals(scrollShift: CGFloat) {
         let ids = arrivingRowIDs
         arrivingRowIDs = []
         for id in ids {
-            guard let indexPath = indexPath(for: id), let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
-                  let content = cell.cellLayout?.contentFrame else { continue }
-            let pivot = CGPoint(x: content.minX, y: content.maxY)
-            let center = CGPoint(x: cell.shiftable.bounds.midX, y: cell.shiftable.bounds.midY)
-            let scale: CGFloat = 0.75
+            guard let indexPath = indexPath(for: id), let cell = collectionView.cellForItem(at: indexPath) else { continue }
+            let target: UIView
+            let pivot: CGPoint
+            if let cell = cell as? MessageCell, let content = cell.cellLayout?.contentFrame {
+                target = cell.shiftable
+                pivot = CGPoint(x: content.minX, y: content.maxY)
+            } else if let cell = cell as? TypingCell {
+                target = cell.indicator
+                pivot = CGPoint(x: 0, y: cell.indicator.bounds.maxY)
+            } else {
+                continue
+            }
+            let center = CGPoint(x: target.bounds.midX, y: target.bounds.midY)
+            let scale: CGFloat = 0.6
             let start = CGAffineTransform(translationX: (pivot.x - center.x) * (1 - scale), y: (pivot.y - center.y) * (1 - scale)).scaledBy(x: scale, y: scale)
             UIView.performWithoutAnimation {
-                cell.shiftable.transform = start
-                cell.shiftable.alpha = 0
+                target.transform = start
+                target.alpha = 0
+                cell.contentView.transform = CGAffineTransform(translationX: 0, y: -scrollShift)
             }
-            UIView.animate(withDuration: 0.38, delay: 0, usingSpringWithDamping: 0.78, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
-                cell.shiftable.transform = .identity
-                cell.shiftable.alpha = 1
+            UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
+                cell.contentView.transform = .identity
+            }
+            // Measured on Messages: the pop settles in ~0.35 s.
+            UIView.animate(withDuration: 0.75, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
+                target.transform = .identity
+            }
+            UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+                target.alpha = 1
             }
         }
     }
@@ -549,6 +583,14 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         // A flight is pinned to the screen; once the reader scrolls, show the real row.
         landAllFlights()
         dismissPhotoDrawer()
+    }
+
+    public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { isPinnedToBottom = isNearBottom(tolerance: 44) }
+    }
+
+    public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        isPinnedToBottom = isNearBottom(tolerance: 44)
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {

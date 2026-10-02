@@ -95,6 +95,7 @@ final class MessageCell: UICollectionViewCell {
         shiftable.alpha = 1
         shiftable.layer.removeAllAnimations()
         shiftable.transform = .identity
+        contentView.transform = .identity
     }
 
     func configure(model: MessageRowModel, layout: MessageCellLayout, text: NSAttributedString) {
@@ -247,6 +248,11 @@ final class MessageCell: UICollectionViewCell {
         setNeedsLayout()
         applyShifts()
         accessibilityLabel = [model.senderName, message.text].compactMap { $0 }.joined(separator: ", ")
+        // VoiceOver hears what the bubble shows: "Edited" and the current status.
+        accessibilityValue = [
+            editedLabel.isHidden ? nil : editedLabel.text,
+            footerLabel.isHidden ? nil : footerLabel.text,
+        ].compactMap { $0 }.joined(separator: ", ")
         isAccessibilityElement = true
     }
 
@@ -480,6 +486,13 @@ final class TypingCell: UICollectionViewCell {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        contentView.transform = .identity
+        indicator.transform = .identity
+        indicator.alpha = 1
+    }
 
     static func height(isGroup: Bool) -> CGFloat {
         TypingIndicatorView.bubbleSize.height + 12

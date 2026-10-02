@@ -38,6 +38,10 @@ final class MessageActionOverlay: UIView {
     var topInset: CGFloat = 0
     var onReaction: ((ConversationReaction) -> Void)?
     var onDismiss: (() -> Void)?
+    /// Where the pressed bubble is now. The transcript can move under the
+    /// overlay (the keyboard leaves as it opens), so the preview returns to the
+    /// live position, not the one it lifted from.
+    var currentSourceFrame: (() -> CGRect?)?
 
     init(
         frame: CGRect,
@@ -256,10 +260,11 @@ final class MessageActionOverlay: UIView {
     }
 
     func dismiss(then completion: (() -> Void)? = nil) {
+        let home = currentSourceFrame?() ?? sourceFrame
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
             self.blur.alpha = 0
             self.dim.alpha = 0
-            self.snapshotClip.frame = self.sourceFrame
+            self.snapshotClip.frame = home
             self.snapshotClip.transform = .identity
             for view in [self.reactionBar, self.menu, self.emojiButton] + (self.detailCard.map { [$0] } ?? []) {
                 view.alpha = 0
@@ -367,7 +372,20 @@ extension ConversationViewController {
             reactors: reactors
         )
         cell.shiftable.alpha = 0
-        overlay.onDismiss = { [weak cell] in cell?.shiftable.alpha = 1 }
+        let rowID = model.rowID
+        overlay.currentSourceFrame = { [weak self] in
+            guard let self, let indexPath = self.indexPath(for: rowID),
+                  let live = self.collectionView.cellForItem(at: indexPath) as? MessageCell else { return nil }
+            self.collectionView.layoutIfNeeded()
+            return live.convert(live.liftedContentFrame, to: self.view)
+        }
+        overlay.onDismiss = { [weak self, weak cell] in
+            cell?.shiftable.alpha = 1
+            // The row may have been re-dequeued while the overlay was up.
+            if let self, let indexPath = self.indexPath(for: rowID) {
+                (self.collectionView.cellForItem(at: indexPath) as? MessageCell)?.shiftable.alpha = 1
+            }
+        }
         overlay.onReaction = { [weak self, weak overlay] reaction in
             overlay?.dismiss {
                 self?.store.react(messageID: message.id, reaction: mine == reaction ? nil : reaction)

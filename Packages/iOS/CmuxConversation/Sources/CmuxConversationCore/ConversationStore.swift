@@ -269,8 +269,17 @@ public final class ConversationStore {
                 guard !Task.isCancelled else { return }
                 self?.clearTyping(participantID)
             }
-        } else {
-            clearTyping(participantID)
+        } else if typingParticipantIDs.contains(participantID) {
+            // Services clear typing just before delivering the message. Holding
+            // the indicator briefly lets the message replace it in one update
+            // (ingestLive clears it silently) instead of collapse-then-insert.
+            typingExpiry[participantID]?.cancel()
+            let clock = clock
+            typingExpiry[participantID] = Task { [weak self] in
+                try? await clock.sleep(for: .milliseconds(700))
+                guard !Task.isCancelled else { return }
+                self?.clearTyping(participantID)
+            }
         }
     }
 

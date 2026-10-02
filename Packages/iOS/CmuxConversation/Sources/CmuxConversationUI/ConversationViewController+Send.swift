@@ -162,6 +162,7 @@ extension ConversationViewController {
     func enterEditMode(for message: ConversationMessage) {
         if replyTarget != nil { exitReplyMode() }
         editingMessageID = message.id
+        revealRowID = message.rowID
         composer.isEditMode = true
         composer.text = message.text
         header.setTrailingMode(.close, animated: true)
@@ -170,6 +171,7 @@ extension ConversationViewController {
 
     func exitEditMode() {
         editingMessageID = nil
+        revealRowID = nil
         composer.isEditMode = false
         composer.clearAfterSend()
         header.setTrailingMode(isSelecting || replyTarget != nil ? .close : .action, animated: true)
