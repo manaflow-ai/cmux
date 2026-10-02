@@ -13,6 +13,9 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         case native
         case dot
         case check
+        /// One braille spinner frame (`BrailleSpinnerImage.frames`); `frames`
+        /// steps through the rest. Still, it is the first frame.
+        case braille
     }
 
     public enum Animation: Hashable, Sendable {
@@ -23,6 +26,8 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         case step
         /// Opacity breathing (Motion `pulse` period).
         case pulse
+        /// The braille frames in turn, one cycle per Motion `spinner` period.
+        case frames
     }
 
     public enum Tint: Hashable, Sendable {
@@ -82,6 +87,7 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
             case .arc: return StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .loading)
             case .native: return StatusIndicatorPlan(glyph: .native, animation: .step, tint: .loading)
             case .dot: return StatusIndicatorPlan(glyph: .dot, animation: .pulse, tint: .loading)
+            case .braille: return StatusIndicatorPlan(glyph: .braille, animation: .frames, tint: .loading)
             }
         }
     }
