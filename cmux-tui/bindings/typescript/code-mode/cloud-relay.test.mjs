@@ -84,11 +84,15 @@ test("domain and publication operations use fixed VM routes", async () => {
     },
   });
   await broker.request("vm.domain.verify", { name: "example.test" }, "domain-key");
+  await broker.request("vm.publication.create", { vmId: "vm_fixture", port: 3000, accessMode: "personal" }, "publication-create-key");
   await broker.request("vm.publication.update", { id: "pub_fixture", accessMode: "personal" }, "publication-key");
   assert.equal(calls[0].url, "https://cloud.test/api/vm/domains/example.test/verify");
-  assert.equal(calls[1].url, "https://cloud.test/api/vm/publications/pub_fixture");
-  assert.equal(calls[1].init.method, "PATCH");
-  assert.deepEqual(JSON.parse(calls[1].init.body), { accessMode: "personal" });
+  assert.equal(calls[1].url, "https://cloud.test/api/vm/publications");
+  assert.equal(calls[1].init.method, "POST");
+  assert.deepEqual(JSON.parse(calls[1].init.body), { vmId: "vm_fixture", port: 3000, accessMode: "personal" });
+  assert.equal(calls[2].url, "https://cloud.test/api/vm/publications/pub_fixture");
+  assert.equal(calls[2].init.method, "PATCH");
+  assert.deepEqual(JSON.parse(calls[2].init.body), { accessMode: "personal" });
 });
 
 test("host relay serves typed requests over a Unix socket", async () => {

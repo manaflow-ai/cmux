@@ -65,6 +65,7 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
       if (operation === "vm.domain.list") { method = "GET"; path = "/api/vm/domains"; }
       else if (operation === "vm.domain.verify") { method = "POST"; path = `/api/vm/domains/${encodeURIComponent(routeSegment(params, "name", operation))}/verify`; payload = {}; }
       else if (operation === "vm.publication.list") { method = "GET"; path = "/api/vm/publications"; }
+      else if (operation === "vm.publication.create") { method = "POST"; path = "/api/vm/publications"; payload = { ...params }; }
       else {
         const id = routeSegment(params, "id", operation);
         path = `/api/vm/publications/${encodeURIComponent(id)}`;
