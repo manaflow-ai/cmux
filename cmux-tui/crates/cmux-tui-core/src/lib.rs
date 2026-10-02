@@ -14,6 +14,7 @@ mod browser;
 mod browser_provider;
 pub mod diagnostics;
 mod event_bus;
+mod git_ops;
 #[cfg(unix)]
 mod image_paste;
 #[cfg(unix)]

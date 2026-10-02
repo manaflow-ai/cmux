@@ -803,6 +803,7 @@ fn dispatch_resource_request(
         OperationOwner::Topology => topology::dispatch(mux, request),
         OperationOwner::Auxiliary => auxiliary::dispatch(mux, request),
         OperationOwner::State => crate::state::router::dispatch(mux, request),
+        OperationOwner::Git => crate::git_ops::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,
@@ -866,6 +867,7 @@ enum OperationOwner {
     Content,
     Auxiliary,
     State,
+    Git,
     Connection,
 }
 
@@ -967,6 +969,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::SidebarViewInput
         | ResourceOperation::SidebarViewResize
         | ResourceOperation::SidebarViewReload => OperationOwner::Auxiliary,
+        ResourceOperation::GitDiff | ResourceOperation::GitStatus => OperationOwner::Git,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::TabPin
         | ResourceOperation::TabUnpin

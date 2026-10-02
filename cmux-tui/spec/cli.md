@@ -116,7 +116,7 @@ The public resource roots are:
 
 ```text
 server   machine  session  client  workspace  screen  pane  tab
-terminal browser  notification  agent  sidebar
+terminal browser  notification  agent  sidebar  git
 pairing  projection  provider  raw
 ```
 
@@ -363,6 +363,9 @@ notification list
 notification create --title <text> --body <text> [--subtitle <text>] [--level <level>] [--terminal <term_id>]
 notification clear [--terminal <term_id>]
 notification ack --client <id> <notification-id>...
+git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
+git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
+  [--max-patch-bytes <n>] [--max-files <n>] [<path>...]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 agent list|report
 agent plugin list|install|use|update|remove
@@ -436,6 +439,19 @@ Stream cancellation and terminal/browser viewer leases remain owned by the
 long-lived attachment connection. SDK attachment objects manage those
 connection controls; one-shot CLI paths do not advertise them. `raw operation`
 remains available for transport testing.
+
+`git status` and `git diff` are read-only git reads (`git.status`, `git.diff`)
+of the repository a path is in, or the working directory of the terminal a
+selector names (a workspace, screen, pane or tab names its current terminal). Without
+a target the CLI sends the current directory. The session host runs git with
+no ambient `GIT_*` environment, no fsmonitor, external diff or textconv,
+literal pathspecs, a deadline and bounded output. `git diff` lists each file's
+status and line counts, adds patches only with `--patch` (each cut at
+`--max-patch-bytes`, 262144 by default, and marked `patch_truncated`), lists at
+most `--max-files` (500) files with the rest counted in `files_omitted`, and
+counts at most 200 untracked files, reporting the rest as `untracked_skipped`.
+A repository's filter drivers never run: every configured `filter.<driver>` is
+blanked for the read. One reply carries at most 8 MiB of patches.
 
 ## Local sidebar plugins
 

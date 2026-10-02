@@ -199,6 +199,10 @@ pub enum ResourceOperation {
     FrontendProjectionGet,
     #[serde(rename = "frontend_projection.put")]
     FrontendProjectionPut,
+    #[serde(rename = "git.diff")]
+    GitDiff,
+    #[serde(rename = "git.status")]
+    GitStatus,
     #[serde(rename = "workspace.list")]
     WorkspaceList,
     #[serde(rename = "workspace.get")]
@@ -568,6 +572,8 @@ impl ResourceOperation {
                 | Self::ClientGet
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
+                | Self::GitDiff
+                | Self::GitStatus
                 | Self::WorkspaceList
                 | Self::WorkspaceGet
                 | Self::ScreenList
@@ -661,6 +667,8 @@ impl ResourceOperation {
             Self::RequestCancel => "request.cancel",
             Self::FrontendProjectionGet => "frontend_projection.get",
             Self::FrontendProjectionPut => "frontend_projection.put",
+            Self::GitDiff => "git.diff",
+            Self::GitStatus => "git.status",
             Self::WorkspaceList => "workspace.list",
             Self::WorkspaceGet => "workspace.get",
             Self::WorkspaceCreate => "workspace.create",

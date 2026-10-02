@@ -10,9 +10,12 @@ use cmux_tui_core::resource::{
 use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
+use flags::BOOLEAN_FLAGS;
 
 #[cfg(test)]
 pub(in crate::cli) mod cases;
+mod flags;
+mod git;
 mod screen;
 mod state;
 
@@ -211,6 +214,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
         "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
+        "git" => git::parse_git(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
         "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags)?,
         "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
@@ -317,55 +321,6 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     }
     Ok(Tokens { words, flags, argv })
 }
-
-/// Metadata for flags which consume no following token.
-///
-/// Keeping this as data makes the tokenizer's grammar auditable and leaves a
-/// single place to extend when a command adds a boolean option. This is the
-/// same distinction Clap models with `ArgAction::SetTrue`, while retaining
-/// cmux's custom forwarding and error text.
-const BOOLEAN_FLAGS: &[&str] = &[
-    "collapse",
-    "expand",
-    "clear",
-    "reply",
-    "empty",
-    "ephemeral",
-    "left",
-    "right",
-    "up",
-    "down",
-    "force",
-    "end-terminals",
-    "confirm-close",
-    "complete",
-    "clear-name",
-    "clear-kind",
-    "clear-foreground",
-    "clear-background",
-    "clear-cursor",
-    "clear-selection-background",
-    "clear-selection-foreground",
-    "clear-cursor-style",
-    "clear-cursor-blink",
-    "clear-palette",
-    "read-only",
-    "relaunch",
-    "styled",
-    "builtin",
-    "mutation",
-    "stream",
-    "ignore-case",
-    "all",
-    "indeterminate",
-    "clear-title",
-    "clear-color",
-    "clear-icon",
-    "clear-theme",
-    "clear-browser-profile",
-    "clear-default-session",
-    "clear-zoom",
-];
 
 pub(super) fn is_boolean_flag(name: &str) -> bool {
     BOOLEAN_FLAGS.contains(&name)
