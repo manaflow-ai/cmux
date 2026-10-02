@@ -55,8 +55,18 @@ class CliEnvironmentTests(unittest.TestCase):
             env = cli_environment("/tmp/fake.sock", home="/tmp/fake-home")
         self.assertEqual(env["HOME"], "/tmp/fake-home")
         self.assertEqual(env["CFFIXED_USER_HOME"], "/tmp/fake-home")
+
+    def test_without_a_test_owned_home_foundation_still_gets_an_empty_one(self) -> None:
         with patch.dict(os.environ, LAUNCHED_BY_CMUX, clear=True):
-            self.assertNotIn("CFFIXED_USER_HOME", cli_environment())
+            env = cli_environment("/tmp/fake.sock")
+        self.assertEqual(env["HOME"], "/Users/me")
+        self.assertTrue(os.path.isdir(env["CFFIXED_USER_HOME"]))
+        self.assertEqual(os.listdir(env["CFFIXED_USER_HOME"]), [])
+
+    def test_a_foundation_home_the_test_runner_set_is_kept(self) -> None:
+        with patch.dict(os.environ, {**LAUNCHED_BY_CMUX, "CFFIXED_USER_HOME": "/tmp/lane.home"}, clear=True):
+            env = cli_environment("/tmp/fake.sock")
+        self.assertEqual(env["CFFIXED_USER_HOME"], "/tmp/lane.home")
 
     def test_the_caller_environment_is_not_mutated(self) -> None:
         with patch.dict(os.environ, LAUNCHED_BY_CMUX, clear=True):
