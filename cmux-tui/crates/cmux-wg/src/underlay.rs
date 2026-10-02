@@ -52,8 +52,7 @@ pub trait Underlay: Send + 'static {
     fn flush(&mut self) {}
 
     /// Receive the next datagram into `buffer`.
-    fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8])
-    -> Poll<io::Result<Received>>;
+    fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>>;
 
     /// WireGuard authenticated the datagram from `origin`. A carrier that
     /// addresses its peer follows it there (WireGuard roaming).
@@ -168,11 +167,7 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
         }
     }
 
-    fn poll_recv(
-        &mut self,
-        cx: &mut Context<'_>,
-        buffer: &mut [u8],
-    ) -> Poll<io::Result<Received>> {
+    fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
         self.socket.poll_recv_from(cx, buffer).map_ok(|(len, source)| Received {
             len,
             origin: Origin { path: PathId(0), addr: Some(source) },

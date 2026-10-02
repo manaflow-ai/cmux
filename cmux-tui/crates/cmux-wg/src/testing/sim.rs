@@ -120,7 +120,8 @@ impl SimNet {
             return;
         }
         let at = Instant::now() + profile.latency;
-        let line = inner.lines.entry((from, to)).or_insert_with(|| spawn_delay_line(self.clone(), to));
+        let line =
+            inner.lines.entry((from, to)).or_insert_with(|| spawn_delay_line(self.clone(), to));
         let _ = line.send((at, delivery));
     }
 
@@ -135,10 +136,7 @@ impl SimNet {
 /// Deliver datagrams for one direction of one link in order, each at its
 /// due time. The destination is looked up at delivery, so a datagram in
 /// flight to a socket that has gone is dropped, as UDP would.
-fn spawn_delay_line(
-    net: SimNet,
-    to: SocketAddr,
-) -> mpsc::UnboundedSender<(Instant, Delivery)> {
+fn spawn_delay_line(net: SimNet, to: SocketAddr) -> mpsc::UnboundedSender<(Instant, Delivery)> {
     let (sender, mut receiver) = mpsc::unbounded_channel::<(Instant, Delivery)>();
     tokio::spawn(async move {
         while let Some((at, delivery)) = receiver.recv().await {

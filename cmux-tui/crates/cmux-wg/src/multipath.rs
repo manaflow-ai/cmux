@@ -179,11 +179,7 @@ impl Underlay for Multipath {
         }
     }
 
-    fn poll_recv(
-        &mut self,
-        cx: &mut Context<'_>,
-        buffer: &mut [u8],
-    ) -> Poll<io::Result<Received>> {
+    fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
         let mut shared = lock(&self.shared);
         match &shared.waker {
             Some(waker) if waker.will_wake(cx.waker()) => {}
