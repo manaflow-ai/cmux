@@ -29,6 +29,7 @@ import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
+import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
 import type { ChangesSource } from "./changes/model";
 import { Counts } from "./changes/Counts";
@@ -732,6 +733,13 @@ function AcpmuxPane() {
     !snapshot.handoff?.receipt;
   const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
   const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot);
+  // Search files reads the session's folder through whoever runs the session: the acpmux
+  // client (or the mock daemon), else the native host.
+  const fileRoot = snapshot.summary?.cwd;
+  const searchFiles = useCallback<FileSearchSource>(
+    (query) => callNative("file.search", { ...(fileRoot ? { path: fileRoot } : {}), query, limit: FILE_SEARCH_LIMIT }),
+    [fileRoot],
+  );
   // Turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(
     () => turnView(snapshot.rows, expanded, { working: snapshot.isWorking }),
@@ -1032,6 +1040,12 @@ function AcpmuxPane() {
           "chat.new": async ({ harness, cwd }) =>
             persistSession(await client.create(harness ? String(harness) : undefined, cwd ? String(cwd) : undefined)),
           "chat.history": () => client.loadOlder(),
+          "file.search": ({ path, query, limit }) =>
+            client.fileSearch(
+              typeof path === "string" ? path : undefined,
+              String(query ?? ""),
+              typeof limit === "number" ? limit : FILE_SEARCH_LIMIT,
+            ),
           "chat.fork": async ({ throughSeq }) => persistSession(await client.fork(Number(throughSeq))),
           "chat.handoff.prepare": async ({ harness }) => persistSession(await client.continueIn(String(harness))),
           "chat.handoff.get": () => client.refreshHandoff(),
@@ -1255,6 +1269,8 @@ function AcpmuxPane() {
                   onSend={(text) => void callNative("chat.send", { text })}
                   onStop={() => void callNative("chat.cancel")}
                   onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
+                  // Without a folder there is nothing to search; the + menu leaves the item out.
+                  searchFiles={fileRoot ? searchFiles : undefined}
                 />
               )}
             </>

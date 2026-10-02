@@ -9,10 +9,10 @@ import Observation
 /// border and rounded corners trace only the content below it.
 final class PaneContentView: NSView, PaneContentChrome {
     let stripView: TabStripView
-    /// Vibrancy under the strip, a shade darker than the content; hidden
-    /// for `appearance.tabBarBackground` window, where the strip's negative
-    /// space is the window's own background.
-    private let stripBackdrop = ChromeBackdropView(material: .headerView, tint: PaneContentView.stripTint)
+    /// The strip's tonal step over the window backdrop, a shade darker than
+    /// the content; hidden for `appearance.tabBarBackground` window, where
+    /// the strip's negative space is the window's own background.
+    private let stripBackdrop = ChromeStepView(step: PaneContentView.stripStep)
     /// The strip's colors: its pane's scope, subtler while another pane
     /// has focus (`setChromeEmphasis`).
     private let stripScope = ThemeScope(level: .terminal)
@@ -50,10 +50,11 @@ final class PaneContentView: NSView, PaneContentChrome {
         tokenObservation?.cancel()
     }
 
-    /// The strip backdrop's tint. theme-scoped: ChromeBackdropView calls it
-    /// inside its performWithTheme.
-    private static func stripTint() -> NSColor {
-        DesignSettings.shared.effectiveTabBarBackground == .darker ? Palette.stripBackground : Palette.windowBackground
+    /// The strip's tonal step over the window's one backdrop (none for
+    /// `appearance.tabBarBackground` window). theme-scoped: ChromeStepView
+    /// calls it inside its performWithTheme.
+    private static func stripStep() -> NSColor {
+        DesignSettings.shared.effectiveTabBarBackground == .darker ? Palette.stripStep : .clear
     }
     private var appliedTabBarBackground: TabBarBackground?
 
@@ -179,7 +180,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         let mode = DesignSettings.shared.effectiveTabBarBackground
         if appliedTabBarBackground != mode {
             appliedTabBarBackground = mode
-            stripBackdrop.tint = Self.stripTint
+            stripBackdrop.step = Self.stripStep
         }
         let sheet = (window?.contentView ?? self).themeTokens.windowBackground
         stripBackdrop.isHidden = !mode.paintsStripFill(paneWindowBackground: themeTokens.windowBackground, sheet: sheet)
