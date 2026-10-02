@@ -101,7 +101,6 @@ import Testing
         #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("i", modifiers: [.control, .command, .shift]))
         #expect(!registry.shortcutConflicts().contains { $0.contains("palette.newAgentChat") || $0.contains("renameTab") })
     }
-    }
 
     @Test func appliesAndRevertsFileSettings() throws {
         let design = DesignSettings()
