@@ -10,6 +10,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[path = "hub_integration/permission_groups.rs"]
+mod permission_groups;
+
 struct TestClient {
     tx: mpsc::Sender<String>,
     rx: mpsc::Receiver<String>,

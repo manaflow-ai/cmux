@@ -1,0 +1,22 @@
+{
+  "parallel": {
+    "items": [
+      {"title":"Write a.txt","kind":"edit"},
+      {"title":"Write b.txt","kind":"edit"},
+      {"title":"Run tests","kind":"execute"}
+    ]
+  },
+  "followup": {
+    "items": [{"title":"Write first.txt","kind":"edit"}],
+    "after": [{"title":"Run next command","kind":"execute"}]
+  },
+  "unsafe-option": {
+    "items": [{"title":"Permanent grant only","kind":"execute","allowKind":"allow_always"}]
+  },
+  "interactive": {
+    "items": [{"title":"Question","kind":"other","interactive":true}]
+  },
+  "single": {
+    "items": [{"title":"Write a.txt","kind":"edit"}]
+  }
+}

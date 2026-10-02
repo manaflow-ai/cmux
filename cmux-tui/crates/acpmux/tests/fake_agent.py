@@ -44,6 +44,36 @@ def update(sid, upd):
 def handle_prompt(rid, params):
     sid = params["sessionId"]
     text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    if text.startswith("permission-batch:"):
+        with open(os.path.join(os.path.dirname(__file__), "fixtures", "permission-batches.json")) as f:
+            fixture = json.load(f)[text.split(":", 1)[1].strip()]
+        choices = []
+        for wave in [fixture["items"], fixture.get("after", [])]:
+            wave_ids = []
+            for item in wave:
+                global next_id
+                with lock:
+                    aid = next_id
+                    next_id += 1
+                ev = threading.Event()
+                pending[aid] = [ev, None]
+                wave_ids.append(aid)
+                allow_kind = item.get("allowKind", "allow_once")
+                send({"jsonrpc":"2.0", "id":aid, "method":"session/request_permission", "params":{
+                    "sessionId":sid,
+                    "toolCall":{"toolCallId":str(aid), "title":item["title"], "kind":item["kind"],
+                                "rawInput":{"fixture":item["title"]},
+                                "_meta":{"acpmux":{"interactive":item.get("interactive", False)}}},
+                    "options":[{"optionId":f"yes-{aid}", "kind":allow_kind, "name":"Allow"},
+                               {"optionId":f"no-{aid}", "kind":"reject_once", "name":"Deny"}]
+                }})
+            for aid in wave_ids:
+                pending[aid][0].wait()
+                reply = pending.pop(aid)[1] or {}
+                choices.append(reply.get("outcome", {}))
+        update(sid, {"sessionUpdate":"agent_message_chunk", "content":{"type":"text", "text":json.dumps(choices)}})
+        send({"jsonrpc":"2.0", "id":rid, "result":{"stopReason":"end_turn"}})
+        return
     if text.startswith("ask:"):
         res = request(
             "session/request_permission",
