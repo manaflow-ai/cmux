@@ -377,11 +377,15 @@ extension PortScanner {
                 completenessByWorkspace[workspaceId] = .incomplete
             }
         }
-        // Identity-validated roots, for callers that must not badge an agent
-        // root's own listeners while still tracking its general PID ownership
-        // above (e.g. completeness evidence). A stale root PID recycled by an
-        // unrelated process is excluded from this set.
-        return (identityValidation.ownershipByPID, completenessByWorkspace, Self.agentRootPIDs(in: finalRootValidation.values))
+        // Roots that passed the final root validation and whose identity also
+        // survived the revalidation above, for callers that must not badge an
+        // agent root's own listeners while still tracking its general PID
+        // ownership (e.g. completeness evidence). A PID that changed hands
+        // between those two reads, or that was recycled by an unrelated
+        // process earlier, is no longer the root and is not in this set.
+        let identityValidatedRootPIDs = Self.agentRootPIDs(in: finalRootValidation.values)
+            .intersection(identityValidation.ownershipByPID.keys)
+        return (identityValidation.ownershipByPID, completenessByWorkspace, identityValidatedRootPIDs)
     }
 
     /// The union of tracked agent root PIDs across all scanned workspaces.
