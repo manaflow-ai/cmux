@@ -31,9 +31,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 <!-- generated: action surfaces -->
 
-## Counts (708 actions)
+## Counts (709 actions)
 
-Palette 705, CLI verbs 410, right-click 402, MCP tools 356.
+Palette 706, CLI verbs 410, right-click 402, MCP tools 356.
 
 ## Menus
 

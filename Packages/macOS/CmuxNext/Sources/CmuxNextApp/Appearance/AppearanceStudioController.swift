@@ -62,7 +62,9 @@ final class AppearanceStudioController {
     func close() {
         if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
         closeObserver = nil
-        guard let panel, panel.isVisible else { return }
+        // A panel hidden with the inactive app is still its window's child;
+        // detach it anyway, or AppKit shows it again on reactivation.
+        guard let panel, panel.isVisible || panel.parent != nil else { return }
         let restore = panel.isKeyWindow
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
