@@ -74,4 +74,28 @@ import Testing
         }
         #expect(Set(ComputerUsePermissionPane.allCases.map(OnboardingStrings.computerUseName)).count == 2)
     }
+
+    /// Each row's number presses its Allow, as clicking does; a granted row's key does nothing.
+    @Test func eachRowsNumberKeyAllowsIt() throws {
+        let source = MockComputerUsePermissionSource(current: ComputerUsePermissions(accessibility: true, screenRecording: false))
+        let services = MockOnboardingServices()
+        services.computerUseSource = source
+        let model = OnboardingModel(services: services, start: .computerUse)
+        model.stepDidAppear()
+        let view = ComputerUseStepView(model: model.computerUse)
+        view.frame = NSRect(x: 0, y: 0, width: 520, height: 200)
+        view.layoutSubtreeIfNeeded()
+        #expect(ComputerUsePermissionPane.allCases.indices.map(ComputerUseStepView.key) == ["1", "2"])
+        func press(_ key: String) throws -> Bool {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                                      context: nil, characters: key, charactersIgnoringModifiers: key,
+                                                      isARepeat: false, keyCode: 0))
+            return view.performKeyEquivalent(with: event)
+        }
+        #expect(try press("2"))
+        #expect(source.opened == [.screenRecording] && model.computerUse.helping == .screenRecording)
+        _ = try press("1")
+        #expect(source.opened == [.screenRecording], "accessibility is already granted")
+        model.finish(completed: true)
+    }
 }

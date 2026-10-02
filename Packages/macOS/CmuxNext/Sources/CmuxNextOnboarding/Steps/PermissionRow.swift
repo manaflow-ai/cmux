@@ -2,15 +2,20 @@ import AppKit
 import CmuxNextDesign
 
 /// One grant: its symbol, name and one line on what it lets computer use
-/// do, then Allow, or a Done checkmark once macOS has it. The row keeps its
+/// do, then Allow with its key (pressing it is the same as clicking), or a
+/// Done checkmark once macOS has it. The row keeps its
 /// size when Allow turns into Done, so nothing moves.
 final class PermissionRow: NSView {
     static let height: CGFloat = 56
     private let allow: NSButton
     private let done = NSStackView()
+    private let keycap: OnboardingKeycap
 
-    init(symbol: String, title: String, detail: String, target: AnyObject?, action: Selector) {
+    init(symbol: String, title: String, detail: String, key: String, target: AnyObject?, action: Selector) {
         allow = OnboardingControl.button(OnboardingStrings.computerUseAllow, target: target, action: action)
+        allow.keyEquivalent = key
+        allow.keyEquivalentModifierMask = []
+        keycap = OnboardingKeycap(key)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage())
@@ -28,7 +33,7 @@ final class PermissionRow: NSView {
         done.setViews([check, OnboardingLabel.make(OnboardingStrings.computerUseDone, color: Palette.textSecondary)], in: .leading)
         done.spacing = 5
         allow.setAccessibilityLabel(OnboardingStrings.computerUseAllowNamed(title))
-        for view in [icon, names, allow, done] as [NSView] {
+        for view in [icon, names, keycap, allow, done] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -42,7 +47,8 @@ final class PermissionRow: NSView {
             icon.widthAnchor.constraint(equalToConstant: 24),
             names.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12), names.centerYAnchor.constraint(equalTo: centerYAnchor),
             names.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 6),
-            names.trailingAnchor.constraint(lessThanOrEqualTo: allow.leadingAnchor, constant: -16),
+            names.trailingAnchor.constraint(lessThanOrEqualTo: keycap.leadingAnchor, constant: -16),
+            keycap.trailingAnchor.constraint(equalTo: allow.leadingAnchor, constant: -8), keycap.centerYAnchor.constraint(equalTo: centerYAnchor),
             allow.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4), allow.centerYAnchor.constraint(equalTo: centerYAnchor),
             done.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8), done.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
@@ -53,6 +59,7 @@ final class PermissionRow: NSView {
 
     func update(granted: Bool) {
         allow.isHidden = granted
+        keycap.isHidden = granted
         done.isHidden = !granted
     }
 }

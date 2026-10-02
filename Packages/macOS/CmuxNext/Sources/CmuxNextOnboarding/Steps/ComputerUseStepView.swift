@@ -20,10 +20,11 @@ final class ComputerUseStepView: NSView {
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
-        for pane in ComputerUsePermissionPane.allCases {
+        for (index, pane) in ComputerUsePermissionPane.allCases.enumerated() {
             let action = pane == .accessibility ? #selector(allowAccessibility) : #selector(allowScreenRecording)
             let row = PermissionRow(symbol: Self.symbol(pane), title: OnboardingStrings.computerUseName(pane),
-                                    detail: OnboardingStrings.computerUseDetail(pane), target: self, action: action)
+                                    detail: OnboardingStrings.computerUseDetail(pane), key: Self.key(index),
+                                    target: self, action: action)
             rows[pane] = row
             stack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
@@ -37,6 +38,9 @@ final class ComputerUseStepView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The row's Allow key: its number, the same in every language.
+    static func key(_ index: Int) -> String { String(index + 1) }
 
     static func symbol(_ pane: ComputerUsePermissionPane) -> String {
         switch pane {
