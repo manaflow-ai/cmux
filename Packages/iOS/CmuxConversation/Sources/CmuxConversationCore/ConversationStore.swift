@@ -154,11 +154,15 @@ public final class ConversationStore {
         let isNew = upsert(incoming)
         if isNew {
             sortAndReindex()
+            // The typing bubble leaves in the same update the message arrives,
+            // so the transcript moves once.
             if incoming.senderID != meID, typingParticipantIDs.contains(incoming.senderID) {
-                clearTyping(incoming.senderID)
+                clearTyping(incoming.senderID, notify: false)
             }
         }
-        onChange?(.live(insertedRowIDs: isNew ? [incoming.rowID] : [], sentByMe: incoming.senderID == meID))
+        // Only sends from this device count as "mine" for scrolling; the same
+        // account on another device behaves like any other sender.
+        onChange?(.live(insertedRowIDs: isNew ? [incoming.rowID] : [], sentByMe: false))
     }
 
     /// Inserts or merges a message. Returns true when a new row appeared.
@@ -216,15 +220,17 @@ public final class ConversationStore {
         return deliveryRank(rhs) >= deliveryRank(lhs) ? rhs : lhs
     }
 
+    /// Acknowledged messages ascend by seq. A failed send keeps its place in
+    /// time (later arrivals go below it); sends still in flight stay last.
     private func sortAndReindex() {
-        messages.sort { lhs, rhs in
-            switch (lhs.seq, rhs.seq) {
-            case let (l?, r?): return l < r
-            case (.some, nil): return true
-            case (nil, .some): return false
-            case (nil, nil): return lhs.sentAt < rhs.sentAt
-            }
+        var acked = messages.filter { $0.seq != nil }.sorted { $0.seq! < $1.seq! }
+        let failed = messages.filter { $0.seq == nil && $0.delivery?.isFailed == true }.sorted { $0.sentAt < $1.sentAt }
+        let inFlight = messages.filter { $0.seq == nil && $0.delivery?.isFailed != true }.sorted { $0.sentAt < $1.sentAt }
+        for message in failed.reversed() {
+            let position = acked.firstIndex { $0.sentAt > message.sentAt } ?? acked.count
+            acked.insert(message, at: position)
         }
+        messages = acked + inFlight
         indexByID.removeAll(keepingCapacity: true)
         for (index, message) in messages.enumerated() {
             indexByID[message.id] = index
@@ -253,12 +259,12 @@ public final class ConversationStore {
         }
     }
 
-    private func clearTyping(_ participantID: String) {
+    private func clearTyping(_ participantID: String, notify: Bool = true) {
         typingExpiry[participantID]?.cancel()
         typingExpiry[participantID] = nil
         guard let index = typingParticipantIDs.firstIndex(of: participantID) else { return }
         typingParticipantIDs.remove(at: index)
-        onChange?(.typing)
+        if notify { onChange?(.typing) }
     }
 
     // MARK: History
@@ -488,7 +494,7 @@ public final class ConversationStore {
         let original = messages[index]
         messages[index].text = trimmed
         messages[index].editedAt = Date()
-        onChange?(.live(insertedRowIDs: [], sentByMe: true))
+        onChange?(.live(insertedRowIDs: [], sentByMe: false))
         Task { [weak self] in
             guard let self else { return }
             do {

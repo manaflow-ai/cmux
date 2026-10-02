@@ -357,3 +357,20 @@ extension ConversationStoreWindowTests {
         #expect(store.messages.compactMap(\.seq) == Array(71...101))
     }
 }
+
+extension ConversationStoreWindowTests {
+    @Test func aFailedSendKeepsItsPlaceWhenLaterMessagesArrive() async throws {
+        let backend = ScriptedBackend(total: 3)
+        let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { "client-f" })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        backend.failNextSend = true
+        let rowID = try #require(store.send(text: "nope"))
+        try await waitUntil { store.message(rowID: rowID)?.delivery?.isFailed == true }
+        var later = backend.makeMessage(seq: 4, sender: "lc")
+        later.sentAt = Date().addingTimeInterval(5)
+        store.apply(.message(later, eventSeq: 1))
+        #expect(store.messages.last?.id == "m4")
+        #expect(store.messages[store.messages.count - 2].rowID == rowID)
+    }
+}

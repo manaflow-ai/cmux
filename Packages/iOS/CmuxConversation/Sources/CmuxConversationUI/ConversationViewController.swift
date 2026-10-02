@@ -57,6 +57,8 @@ public final class ConversationViewController: UIViewController {
     var flyingRowIDs: Set<String> = []
     /// Overlay views of in-flight sends, keyed by row.
     var activeFlights: [String: UIView] = [:]
+    /// Incoming rows inserted by the current update, popped in after it applies.
+    var arrivingRowIDs: [String] = []
     private var hasPositionedInitially = false
     private var lastBottomInset: CGFloat = 0
     /// Whether the reader is following the bottom. Only the reader's own
@@ -341,8 +343,8 @@ public final class ConversationViewController: UIViewController {
         let wasAtBottom = isPinnedToBottom || isNearBottom()
         let anchor = captureAnchor()
         if sentByMeChange(change) { isPinnedToBottom = true }
-        let sentByMe: Bool
-        if case let .live(_, mine) = change { sentByMe = mine } else { sentByMe = false }
+        // Scroll-to-bottom applies only to a new row I just sent from here.
+        let sentByMe = sentByMeChange(change)
         let animateLive: Bool = {
             switch change {
             case .live, .typing: return true
@@ -357,7 +359,7 @@ public final class ConversationViewController: UIViewController {
             case let .message(model) where model.isOutgoing && pendingFlight != nil:
                 appearances[id] = .sent
                 flyingRowIDs.insert(id)
-            case let .message(model) where !model.isOutgoing && animateLive: appearances[id] = .incoming
+            case let .message(model) where !model.isOutgoing && animateLive: arrivingRowIDs.append(model.rowID)
             case .typing: appearances[id] = .incoming
             case .loadingOlder: appearances[id] = .fade
             default: break
@@ -408,6 +410,30 @@ public final class ConversationViewController: UIViewController {
             }
         }
         appearances = appearances.filter { flyingRowIDs.contains($0.key) }
+        popArrivals()
+    }
+
+    /// New incoming bubbles grow from their tail corner with a short spring
+    /// (Messages' arrival), driven on the cell so the scroll can't flatten it.
+    private func popArrivals() {
+        let ids = arrivingRowIDs
+        arrivingRowIDs = []
+        for id in ids {
+            guard let indexPath = indexPath(for: id), let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
+                  let content = cell.cellLayout?.contentFrame else { continue }
+            let pivot = CGPoint(x: content.minX, y: content.maxY)
+            let center = CGPoint(x: cell.shiftable.bounds.midX, y: cell.shiftable.bounds.midY)
+            let scale: CGFloat = 0.75
+            let start = CGAffineTransform(translationX: (pivot.x - center.x) * (1 - scale), y: (pivot.y - center.y) * (1 - scale)).scaledBy(x: scale, y: scale)
+            UIView.performWithoutAnimation {
+                cell.shiftable.transform = start
+                cell.shiftable.alpha = 0
+            }
+            UIView.animate(withDuration: 0.38, delay: 0, usingSpringWithDamping: 0.78, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
+                cell.shiftable.transform = .identity
+                cell.shiftable.alpha = 1
+            }
+        }
     }
 
     private func sentByMeChange(_ change: ConversationStoreChange) -> Bool {

@@ -117,7 +117,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             }
         }
         if animated {
-            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: apply)
+            UIView.animate(withDuration: 0.45, delay: 0, usingSpringWithDamping: 0.88, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: apply)
         } else {
             apply()
         }
@@ -215,7 +215,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         isSelecting = selecting
         selectedRowIDs = selecting ? Set([initial].compactMap { $0 }) : []
         header.setTrailingMode(selecting || replyTarget != nil ? .close : .action, animated: true)
-        UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.88, initialSpringVelocity: 0) {
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
             for case let cell as MessageCell in self.collectionView.visibleCells {
                 cell.setSelectionMode(selecting, selected: self.selectedRowIDs.contains(cell.model?.rowID ?? ""), animated: false)
             }

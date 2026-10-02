@@ -16,7 +16,7 @@ enum ConversationTheme {
     /// Width the tail adds beyond the bubble body.
     static let tailWidth: CGFloat = 5
     /// Max bubble width as a fraction of the view width.
-    static let maxBubbleWidthFraction: CGFloat = 0.705
+    static let maxBubbleWidthFraction: CGFloat = 0.715
     static let groupedSpacing: CGFloat = 6
     /// Tail bottom to the next run's first row (measured 24.7 pt).
     static let ungroupedSpacing: CGFloat = 25

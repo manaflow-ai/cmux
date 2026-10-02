@@ -92,6 +92,8 @@ final class MessageCell: UICollectionViewCell {
         timestampReveal = 0
         replyDrag = 0
         contentView.alpha = 1
+        shiftable.alpha = 1
+        shiftable.layer.removeAllAnimations()
         shiftable.transform = .identity
     }
 
@@ -181,8 +183,9 @@ final class MessageCell: UICollectionViewCell {
                 let fade = CABasicAnimation(keyPath: "opacity")
                 fade.fromValue = 0
                 fade.toValue = 1
+                // Linear: ~90% at 0.4 s, complete at 0.45 s.
                 fade.duration = 0.45
-                fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                fade.timingFunction = CAMediaTimingFunction(name: .linear)
                 footerLabel.layer.add(fade, forKey: "statusFade")
             } else if sameRow, !footerWasHidden, footerLabel.isHidden {
                 // A status leaving this row fades out over ~0.3 s instead of vanishing.
@@ -218,7 +221,8 @@ final class MessageCell: UICollectionViewCell {
             footerLabel.textColor = ConversationTheme.notDelivered
         }
         if let frame = layout.footerFrame {
-            footerLabel.frame = frame
+            // Never animate the status label's frame (that reads as a wipe).
+            UIView.performWithoutAnimation { footerLabel.frame = frame }
             footerLabel.textAlignment = model.isOutgoing ? .right : .left
         }
         failedBadge.isHidden = layout.failedBadgeFrame == nil

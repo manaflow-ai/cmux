@@ -125,8 +125,11 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         CATransaction.setCompletionBlock { [weak self] in
             self?.landFlight(rowID: rowID)
         }
-        UIView.animate(withDuration: 0.8, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
+        // Images travel farther from the card and take ~0.5 s (A20/A21).
+        UIView.animate(withDuration: 1.1, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
             for image in imageFlights { image.view.transform = .identity }
+        }
+        UIView.animate(withDuration: 0.8, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
             if let flight = bubbleFlight {
                 flight.bubble.frame = flight.to
                 flight.bubble.layoutIfNeeded()
