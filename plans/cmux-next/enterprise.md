@@ -169,9 +169,9 @@ Accepted with these changes. These changes align the proposal with spec H5: Cont
 5. The token team claim is accepted as proposed: the claim routes, and owners check the member row. The same check applies to `x-cmux-team`. TeamDO stays the source of truth. Stack teams mirror into TeamDO only through `team.member.provision` (D4: Stack is the identity source, not the membership source).
 6. Order: after Home stage B and stage C. SSO JIT membership and SCIM wait for it.
 
-Open decisions for Lawrence:
-- (a) Does a guest count as a paid seat?
-- (b) May `billing` read the audit log?
-- (c) May an `admin` remove another `admin`, or only an owner?
+Lawrence's decisions (2026-10-02):
+- (a) Guests are free: a guest is never a paid seat.
+- (b) `billing` reads only billing-related audit entries (an audit read filtered by category).
+- (c) Only an `owner` removes or suspends an `admin`. An `admin` removes `member`, `guest` and `billing` only.
 
 Pending verification (the enterprise lead's OIDC callback): the Stack server calls (user search, create user, create session) ran only against a fake. Verify them against the real Stack project on staging the next time auth code changes, before SSO sign-in is enabled for a real connection.
