@@ -2627,6 +2627,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() }
         )
         TerminalController.shared.cloudTunnel = cloudTunnel
+        // Warms the New Machine sheet's plan and network catalog per signed-in
+        // account so Cmd+Y never waits on the network.
+        NewMachineSheetDataCache.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         TeamsClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)

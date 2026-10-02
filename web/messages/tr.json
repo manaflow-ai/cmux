@@ -1126,6 +1126,80 @@
       "revokeApiKeyConfirmTitle": "Bu API anahtarı iptal edilsin mi?",
       "apiKeyUsageDetail": "Son 30 gün: {completions} tamamlama · {tokens} belirteç ({input} giriş / {output} çıkış) · API eşdeğeri {value}",
       "apiKeyUsageUnavailable": "Kullanım verisi yok",
+      "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz."
+    },
+    "cloud": {
+      "title": "Cloud makineleri ve Mac erişimi",
+      "description": "Her makinenin giden ağını ayarlayın ve özel Cloud VM ağınıza WireGuard erişimi olan Mac'leri inceleyin. iPhone ve Iroh eşleştirme kayıtları ayrı tutulur.",
+      "macAccessTitle": "Mac erişimi",
+      "machines": {
+        "title": "Makineler",
+        "empty": "Cloud makineniz yok.",
+        "personal": "kişisel",
+        "team": "ekip",
+        "status": {
+          "provisioning": "başlatılıyor",
+          "running": "çalışıyor",
+          "failed": "başarısız",
+          "paused": "duraklatıldı",
+          "destroyed": "silindi"
+        }
+      },
+      "network": {
+        "open": "Ağ",
+        "title": "{name} için giden ağ",
+        "description": "Bu makinenin nelere erişebileceğini seçin. Değişiklikler yeniden başlatmadan hemen uygulanır.",
+        "loading": "Ağ politikası yükleniyor…",
+        "loadError": "Bu makinenin ağ politikası yüklenemedi.",
+        "saveError": "Bu ağ politikası uygulanamadı.",
+        "unsupported": "Bu makine giden ağ denetimini desteklemiyor.",
+        "retry": "Tekrar dene",
+        "appliedLabel": "Durum:",
+        "applied": {
+          "applied": "uygulandı",
+          "pending": "uygulanıyor",
+          "failed": "uygulanamadı"
+        },
+        "unsaved": "kaydedilmemiş değişiklikler",
+        "refresh": "Yenile",
+        "modeLabel": "Giden erişim",
+        "mode": {
+          "full": {
+            "label": "Tam internet",
+            "description": "Herhangi bir genel adres."
+          },
+          "allowlist": {
+            "label": "İzin listesi",
+            "description": "Yalnızca belirttiğiniz ön ayarlar, alan adları ve IP aralıkları."
+          },
+          "none": {
+            "label": "İnternet yok",
+            "description": "Yalnızca aşağıda listelenen cmux ana makineleri."
+          }
+        },
+        "presetsTitle": "Ön ayarlar",
+        "presetsNote": "Her ön ayar tam ana makine adları ekler. Başka alt alan adları kullanan bir hizmet için ek alan adları gerekebilir.",
+        "domainsTitle": "Alan adları",
+        "domainsNote": "Yalnızca tam ana makine adları, yalnızca 443 numaralı bağlantı noktasında HTTPS. Joker karakterler henüz desteklenmiyor.",
+        "domainInput": "Alan adı",
+        "rangesTitle": "IP aralıkları",
+        "rangesNote": "Sağlayıcı güvenlik duvarı bunları makinenin dışında uygular. Tüm bağlantı noktalarına izin vermek için bağlantı noktasını boş bırakın. Bağlantı noktası için protokol gerekir.",
+        "cidrInput": "IP aralığı (CIDR)",
+        "portInput": "Bağlantı noktası",
+        "protocolInput": "Protokol",
+        "anyProtocol": "herhangi",
+        "noteInput": "Not (isteğe bağlı)",
+        "allPorts": "tüm bağlantı noktaları",
+        "dnsLabel": "DNS'e izin ver",
+        "dnsNote": "Araçların IP aralıklarınızın işaret ettiği adları çözümlemesini sağlar. Alan adları DNS gerektirmez. Açık DNS bir giden kanaldır: bir süreç sorguladığı adların içinde veri gönderebilir.",
+        "requiredTitle": "Her zaman izinli",
+        "requiredNote": "cmux, makinede CLI'yi yüklemek ve güncellemek için her modda bu ana makinelere ihtiyaç duyar.",
+        "add": "Ekle",
+        "remove": "Kaldır",
+        "discard": "Değişiklikleri at",
+        "close": "Kapat",
+        "apply": "Uygula"
+      },
       "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz.",
       "apiKeysEmptyTitle": "Henüz API anahtarı yok",
       "apiKeysEmptyHint": "Bir CodeRouter istemcisinin kimliğini doğrulamak için bir anahtar oluşturun.",
@@ -2845,6 +2919,12 @@
       "limitsTeam": "Ekip hesaplarında her ücretli koltuk için en fazla 5 etkin makine olabilir.",
       "limitsMax": "8 GB'tan büyük makineler için cmux Max gerekir. Max makineleri 32 GB'a ve 16 vCPU'ya kadar çıkar.",
       "limitsPricing": "Güncel fiyatlar için fiyatlandırma sayfasına bakın. Kullanım ölçümü ve aşım ücreti yoktur.",
+      "agentUpdatesTitle": "Kodlama ajanlarını güncel tut",
+      "agentUpdatesDesc": "Bu ayar açıkken makine Claude Code, Codex, OpenCode, pi ve agent-browser araçlarını günceller. Makine oluşturulduktan sonra ve her bağlandığınızda, 24 saatte en fazla bir kez denetler. Güncelleme ayrı çalışır, bu yüzden bağlantıyı asla engellemez.",
+      "agentUpdatesSource": "Her araç resmi GitHub sürümünden gelir ve sürüm dosyasının sha256 özetiyle doğrulanır. npm kullanılmaz. Bir sürüm ancak 3 gündür herkese açıksa kurulur ve bir güncelleme asla daha eski bir sürüm kurmaz. Çalışan bir ajan başladığı dosyaları korur, başarısız bir güncelleme mevcut sürümü yerinde bırakır.",
+      "agentUpdatesStatus": "Son denetimin sonucu /etc/cmux/agent-updates.state dosyasında, güncelleyicinin günlüğü /var/log/cmux-agent-updates.log dosyasındadır. Başarısız bir denetim bir sonraki bağlantıda yeniden çalışır.",
+      "agentUpdatesToggle": "New Machine sayfası bu ayarı varsayılan olarak açar. Mevcut bir makinede değiştirmek için makineye sağ tıklayıp Keep Agents Up to Date seçeneğini seçin veya cmux vm agent-updates komutunu çalıştırın. cmux vm new, --agent-updates latest geçmediğiniz sürece imajdaki sürümleri korur. Güncellemeleri kapatmak, kurulu sürümleri korur.",
+      "agentUpdatesNetwork": "Güncellemeler yalnızca github.com, api.github.com, objects.githubusercontent.com ve release-assets.githubusercontent.com kullanır. cmux bu sunuculara Allowlist ve No internet dahil her ağ modunda izin verir, bu yüzden bir ağ politikası güncellemeleri asla engellemez.",
       "resizeTitle": "Yeniden boyutlandırma",
       "resizeDesc": "Bir makineyi veri kaybı olmadan büyütebilirsiniz. Makineye sağ tıklayıp Resize machine'i seçin veya cmux vm resize kullanın. Yeniden boyutlandırma yalnızca büyütebilir. Disk 4 GB'lık adımlarla 256 GB'a, bellek 32 GB'a ve CPU 16 vCPU'ya kadar büyür. Gerçek üst sınırı planınız belirler.",
       "pauseTitle": "Duraklatma ve sürdürme",

@@ -101,6 +101,7 @@ struct CloudTreeMachineMenuTests {
             Self.title("cloudTree.menu.newWorkspace", "New Workspace"),
             Self.title("cloudTree.menu.openFullClient", "Open Full cmux-tui Client"),
             Self.title("cloud.operation.kind.resize", "Resize machine"),
+            Self.title("machines.menu.network", "Network\u{2026}"),
             Self.title("cloudTree.menu.refresh", "Refresh"),
             Self.title("machines.menu.rename", "Rename\u{2026}"),
             Self.title("machines.menu.copyIPAddress", "Copy IP Address"),
@@ -147,6 +148,8 @@ struct CloudTreeMachineMenuTests {
         let memoryResize = try #require(recorder.memoryResizes.first)
         #expect(memoryResize.0 == Self.machineID)
         #expect(memoryResize.1 == 16)
+        try Self.choose(Self.title("machines.menu.network", "Network\u{2026}"), in: menu)
+        #expect(recorder.networkEdits.map { $0.0 } == [Self.machineID])
         try Self.choose(Self.title("machines.menu.checkpoint", "Checkpoint"), in: menu)
         #expect(recorder.commands.map { $0.id } == [Self.machineID])
         #expect(recorder.commands.map { $0.verb } == [["vm", "snapshot"]])
@@ -798,7 +801,41 @@ struct CloudTreeMachineMenuTests {
         #expect(buttons.isHidden)
     }
 
-    private static func machineNode(expired: Bool = false) -> CloudTreeNode {
+    @Test("Keep Agents Up to Date shows the machine's setting and flips it")
+    func keepAgentsUpdatedIsCheckableAndWired() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-agent-updates-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+        let title = Self.title("machines.menu.keepAgentsUpdated", "Keep Agents Up to Date")
+
+        // A server that predates the setting reports none: no item to offer.
+        coordinator.apply(nodes: [Self.machineNode()])
+        #expect(try #require(coordinator.contextMenu(forRow: 0)).items.allSatisfy { $0.title != title })
+
+        for (setting, next) in [(CloudAgentUpdates.image, true), (.latest, false)] {
+            coordinator.apply(nodes: [Self.machineNode(agentUpdates: setting)])
+            let menu = try #require(coordinator.contextMenu(forRow: 0))
+            let titles = menu.items.map(\.title)
+            let item = try #require(menu.items.first { $0.title == title })
+            #expect(item.state == (setting == .latest ? .on : .off))
+            #expect(titles.firstIndex(of: title) == titles.firstIndex(of: Self.title("machines.menu.network", "Network\u{2026}")).map { $0 + 1 })
+            try Self.choose(title, in: menu)
+            #expect(recorder.agentUpdateChanges.last?.0 == Self.machineID)
+            #expect(recorder.agentUpdateChanges.last?.1 == next)
+        }
+    }
+
+    private static func machineNode(expired: Bool = false, agentUpdates: CloudAgentUpdates? = nil) -> CloudTreeNode {
         var machine = MachineSnapshot(
             id: machineID,
             provider: "freestyle",
@@ -809,6 +846,7 @@ struct CloudTreeMachineMenuTests {
             label: "Big Machine"
         )
         if expired { machine.freeAccess = .expired }
+        machine.agentUpdates = agentUpdates
         machine.privateAddress = "10.99.0.7"
         machine.stats = VMStats(
             state: .awake,
@@ -835,6 +873,8 @@ struct CloudTreeMachineMenuTests {
             resizeCPU: { id, cpu in recorder.cpuResizes.append((id, cpu)) },
             resizeMemory: { id, gib in recorder.memoryResizes.append((id, gib)) },
             promptUpgrade: {},
+            editNetwork: { id, label in recorder.networkEdits.append((id, label)) },
+            setAgentUpdates: { id, keepUpdated in recorder.agentUpdateChanges.append((id, keepUpdated)) },
             setPinned: { id, pinned in recorder.pinChanges.append((id, pinned)); return nil }
         )
     }
@@ -889,5 +929,7 @@ private final class CloudTreeMenuVerbRecorder {
     var pinChanges: [(String, Bool)] = []
     var renamedMachines: [(String, String)] = []
     var renamedWorkspaces: [(SurfaceMachineID, (String, String))] = []
+    var networkEdits: [(String, String?)] = []
+    var agentUpdateChanges: [(String, Bool)] = []
     var renamedRemoteViews: [(SurfaceResourceID, String)] = []
 }
