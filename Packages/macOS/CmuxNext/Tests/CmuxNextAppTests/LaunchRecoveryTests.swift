@@ -14,8 +14,17 @@ import Testing
         #expect(LaunchRecovery.decide(previous: nil) == .clean)
     }
 
-    @Test func sigtermIsAQuitThatWasAskedFor() {
-        #expect(LaunchRecovery.decide(previous: run(signal: SIGTERM)) == .clean)
+    /// SIGTERM, SIGINT and SIGHUP ask the app to quit (`kill`, Ctrl-C in
+    /// the launching terminal, that terminal closing): never a restart.
+    @Test(arguments: [SIGTERM, SIGINT, SIGHUP])
+    func aRequestedQuitSignalIsClean(_ signal: Int32) {
+        #expect(LaunchRecovery.decide(previous: run(signal: signal)) == .clean)
+    }
+
+    /// A fault, abort() or a bad system call is a crash: the notice shows.
+    @Test(arguments: [SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS])
+    func aFatalSignalIsARestart(_ signal: Int32) {
+        #expect(LaunchRecovery.decide(previous: run(signal: signal)) == .restarted(run(signal: signal)))
     }
 
     @Test func aCrashRestoresEverything() {
