@@ -250,6 +250,12 @@ export class PermissionGroupClient {
         if (generation !== this.generation || refreshSerial !== this.refreshSerial || sessionId !== this.sessionId)
           return;
         this.state = { ...this.state, uncertain: false, error: undefined };
+      } else if (pending) {
+        this.state = {
+          ...this.state,
+          uncertain: true,
+          error: this.state.error ?? "Another permission decision is awaiting retry.",
+        };
       }
     } catch (error) {
       const parsed = asError(error);
