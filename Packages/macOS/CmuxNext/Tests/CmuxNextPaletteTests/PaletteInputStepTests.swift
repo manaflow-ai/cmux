@@ -206,8 +206,24 @@ import Testing
             await model.settle()
             _ = controller.handleKeyDown(Self.key(36, "\r"))
             #expect(model.isTextInput)
+            // The step opens on the group's name; an emptied step is where
+            // Backspace belongs to the palette (it steps back).
+            model.query = ""
             #expect(controller.handleKeyDown(key), "key \(key.keyCode) \(key.modifierFlags.rawValue) fell through on a text step")
         }
+    }
+
+    /// Backspace on a step that holds a name edits the name (the field
+    /// editor deletes the selected text); it never steps back.
+    @Test func backspaceEditsAPrefilledName() async {
+        let (controller, _) = makeController { registry, _ in registry.bind("tabGroup.rename", invoke: { _ in }) }
+        let model = controller.model
+        model.query = "rename tab group"
+        await model.settle()
+        _ = controller.handleKeyDown(Self.key(36, "\r"))
+        #expect(model.query == "Review")
+        #expect(!controller.handleKeyDown(Self.key(51, "\u{7F}")))
+        #expect(model.isTextInput)
     }
 
     @Test func noPaletteKeyReachesTheResponderChainWithoutResults() async {
