@@ -157,7 +157,7 @@ class ShortcutActionReferenceTests(unittest.TestCase):
             / "shortcut-actions.md"
         ).read_text()
         listed = set(
-            re.findall(r"^-\s+`shortcuts\.bindings\.([A-Za-z0-9-]+)`", reference, re.M)
+            re.findall(r"^-\s+`shortcuts\.bindings\.([A-Za-z0-9.-]+)`", reference, re.M)
         )
         self.assertEqual(
             sorted(set(enum) - listed),
