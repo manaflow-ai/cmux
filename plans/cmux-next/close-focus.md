@@ -2,7 +2,7 @@
 
 User request (2026-10-01): "we need to formally verify the correct behavior for when user
 closes workspace/terminal/pane/etc. like what is the next thing to focus on, what is the
-best way to handle scroll (in both horizontal niri scroll, and workspaces left sidebar).
+best way to handle scroll (in both horizontal column scroll, and workspaces left sidebar).
 2 unrelated things, but both have buggy behavior today."
 
 Focus, selection and scroll are client view state (OWNERSHIP-PRINCIPLES.md). Every rule
@@ -32,7 +32,7 @@ Not reproducible live on this build: sticky columns (the pinned daemon lacks
 
 `FocusAfterClose` (CmuxNextDesign/CloseFocus) is the one successor function per close
 kind; `ListViewport` is the sidebar's scroll function; `ColumnScrollState.reduce` stays
-the strip's scroll function (niri.md).
+the strip's scroll function (column-scroll.md).
 
 - C1 Focus changes only when the focused item itself leaves the projected topology,
   whoever removed it (user, CLI, MCP, another client, the daemon, a process exit). So a
@@ -116,7 +116,7 @@ successor), the strip's model sync to `ColumnScrollState`, and the sidebar's
 | TLA+ strip / strip-recent / list | see formal/README.md | 23,057 / 23,229 / 93,149 distinct | | 20 s |
 
 Mutants caught: 7 pane (incl. liveness instead of column membership), 2 tab, 6 list, 4 strip, 7 TLA+ runs. The strip check found a real
-bug: niri's restore point fired on an unfocused close of the just-opened column (fixed;
+bug: the restore point fired on an unfocused close of the just-opened column (fixed;
 `ColumnScrollRestoreTests`).
 
 ## Live check after the fix (tagged no-activate build of 076a9b988a2, debug socket)
@@ -137,13 +137,13 @@ pill and animation smoothness (screenshots are settled frames).
 1. Pane successor when the closed pane was the first of a column that keeps other panes:
    the next pane in that column (stays in the column) rather than the column to the left.
 2. Entering the left column after a column closes lands on that column's most recently
-   focused pane, else its first (niri keeps an active tile per column), not the
+   focused pane, else its first (each column keeps an active tile), not the
    geometrically nearest pane.
 3. Tabs keep their own rule (right, else left) and do not follow `layout.closeFocus`.
    Workspaces keep next-below, else above.
 4. The sidebar reveals the active row only when it changed or was visible; it does not
    pull a manually scrolled list back on unrelated closes.
-5. niri's restore point stays: closing a column that was just opened right of the focused
+5. The restore point stays: closing a column that was just opened right of the focused
    one returns the strip to the offset it had before the open, only when that column was
    focused when it closed.
 6. Inside a column (and on a split screen) "previous pane" is the previous pane in layout
