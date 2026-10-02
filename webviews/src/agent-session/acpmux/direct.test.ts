@@ -430,6 +430,17 @@ describe("direct client session state", () => {
     expect(latest().commands).toEqual([]);
   });
 
+  test("a live update that lands while the fetch is in flight wins, even when it empties the list", async () => {
+    ScriptedSocket.held.add("_acpmux/events");
+    ScriptedSocket.respond = ({ method, params }) => method === "_acpmux/attach" ? { ...attachReply(params.sessionId), lastSeq: 900 } : method === "_acpmux/watch" ? { sessions: [{ sessionId: "a" }] } : {};
+    await connect();
+    await settle();
+    ScriptedSocket.current.notify("session/update", { sessionId: "a", update: { sessionUpdate: "available_commands_update", availableCommands: [] }, _meta: { acpmux: { seq: 901 } } });
+    ScriptedSocket.current.release("_acpmux/events", { events: [commandsEvent("a", 2, ["init"])] });
+    await settle();
+    expect(latest().commands).toEqual([]);
+  });
+
   test("a failed prompt row survives a lag rebuild", async () => {
     const client = await connect();
     ScriptedSocket.held.add("session/prompt");

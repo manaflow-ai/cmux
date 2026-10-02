@@ -91,6 +91,8 @@ export class AcpmuxDirectClient {
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
   private commands: SlashCommand[] = [];
+  /// Set once an update for this session is applied, so an older fetched list cannot replace it.
+  private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
   private optimisticPromptTexts = new Map<string, string>();
   private firstSeq?: number;
@@ -201,6 +203,7 @@ export class AcpmuxDirectClient {
     this.messageRows.clear();
     this.pendingPermission = undefined;
     this.commands = [];
+    this.commandsApplied = false;
   }
 
   private scheduleReconnect(): void {
@@ -322,7 +325,7 @@ export class AcpmuxDirectClient {
   /// The newest command list at or before `lastSeq`, unless a live update already arrived.
   private async fetchCommands(sessionId: string, generation: number, lastSeq: number): Promise<void> {
     const result = await this.request("_acpmux/events", { sessionId, beforeSeq: lastSeq + 1, limit: 1, kinds: [COMMANDS_KIND] });
-    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId || this.commands.length > 0) return;
+    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId || this.commandsApplied) return;
     const event: EventRecord | undefined = result?.events?.at(-1);
     const commands = event ? commandsFromUpdate(sessionUpdate(event)) : undefined;
     if (!commands) return;
@@ -422,7 +425,7 @@ export class AcpmuxDirectClient {
     }
     if (!update) return;
     const commands = commandsFromUpdate(update);
-    if (commands) { this.commands = commands; return; }
+    if (commands) { this.commands = commands; this.commandsApplied = true; return; }
     const text = textFromContent(update.content);
     if (event.kind === "agent_message_chunk" && text) {
       const messageId = typeof update.messageId === "string" ? update.messageId : undefined;

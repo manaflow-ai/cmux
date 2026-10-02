@@ -34,7 +34,7 @@ describe("acpmux composer slash menu", () => {
   });
   /// jsdom fires `select` a task after the caret moves; let it land inside act.
   const settle = async () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
-  const key = async (name: string) => act(async () => { textarea().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true })); });
+  const key = async (name: string, isComposing = false) => act(async () => { textarea().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, isComposing, bubbles: true, cancelable: true })); });
   const render = async (value: AcpmuxSnapshot) => act(async () => root.render(createElement(Composer, { snapshot: value, chips: () => null, onSend: (text: string) => { sent.push(text); }, onStop: () => {} })));
 
   beforeEach(() => { sent = []; root = createRoot(dom.window.document.getElementById("root")!); });
@@ -84,6 +84,31 @@ describe("acpmux composer slash menu", () => {
     expect(menu()).toBeNull();
     await type("/co");
     expect(menu()).not.toBeNull();
+  });
+
+  test("keys go to the input method while it composes", async () => {
+    await render(snapshot(commands));
+    await type("/に");
+    await type("/");
+    await key("ArrowDown", true);
+    expect(active()).toBe("/compact");
+    await key("Escape", true);
+    expect(menu()).not.toBeNull();
+    await key("Enter", true);
+    expect(textarea().value).toBe("/");
+  });
+
+  test("a live update that shrinks the list keeps a row selected", async () => {
+    await render(snapshot(commands));
+    await type("/");
+    await key("ArrowUp");
+    expect(active()).toBe("/pr-comments");
+    await render(snapshot(commands.slice(0, 2)));
+    expect(active()).toBe("/review");
+    expect(textarea().getAttribute("aria-activedescendant")).toBe("acpmux-slash-1");
+    await key("Enter");
+    expect(textarea().value).toBe("/review ");
+    expect(textarea().getAttribute("aria-controls")).toBeNull();
   });
 
   test("an agent with no commands, or no match, says so", async () => {
