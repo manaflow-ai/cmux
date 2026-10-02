@@ -32,6 +32,7 @@ import {
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
   type VmCapabilities,
+  type EnsureProviderNetworkOptions,
   vmCapabilitiesFor,
 } from "./drivers";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
@@ -142,7 +143,7 @@ export type VmProviderGatewayShape = {
   readonly supportsPrivateNetworking?: (provider: ProviderId) => boolean;
   readonly ensureNetwork?: (
     provider: ProviderId,
-    options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean },
+    options: EnsureProviderNetworkOptions,
   ) => Effect.Effect<ProviderNetwork, VmProviderOperationError>;
   /** Read a provider network by id or slug without creating or repairing it. */
   readonly getNetwork?: (

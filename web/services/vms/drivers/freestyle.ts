@@ -29,6 +29,7 @@ import {
   type CmuxRemoteEndpoint,
   type CreateOptions,
   type CreateProviderTunnelOptions,
+  type EnsureProviderNetworkOptions,
   type ExecOptions,
   type ExecResult,
   type ProviderNetwork,
@@ -697,7 +698,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
    * it is off the request path because a rule deleted out of band is an
    * operator event, not something every create should pay to re-check.
    */
-  async ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean }): Promise<ProviderNetwork> {
+  async ensureNetwork(options: EnsureProviderNetworkOptions): Promise<ProviderNetwork> {
     const slug = options.slug.trim();
     if (!slug) throw new ProviderError("freestyle", "ensureNetwork requires a slug");
     return withVmSpan(
@@ -714,12 +715,14 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           return existing;
         }
         try {
-          // The CIDRs are deliberately left to the platform: a derived /24 out
-          // of 10.0.0.0/8 and a unique-local /64 both sit inside a tunnel's
-          // default routes, so no cmux code has to allocate address space.
+          // Without a cidr the platform derives a /24 out of 10.0.0.0/8 (254
+          // members, fixed for the network's life). Callers that need more
+          // name a larger range inside the tunnels' default 10.0.0.0/8 route.
+          // The IPv6 /64 is always derived.
           const { data } = await fs.vpc.create({
             slug,
             displayName: options.displayName,
+            ...(options.cidr ? { cidr: options.cidr } : {}),
             firewall: { rules: options.membersRule === false ? [] : FREESTYLE_NETWORK_FIREWALL_RULES },
           });
           setSpanAttributes(span, { "cmux.vm.network.id": data.id, "cmux.vm.network.created": true });
