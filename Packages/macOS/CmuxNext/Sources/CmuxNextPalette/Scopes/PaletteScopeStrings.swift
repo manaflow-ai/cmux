@@ -31,3 +31,14 @@ nonisolated extension PaletteStrings {
         String(localized: "palette.scope.backTo", defaultValue: "Back to \(title)", bundle: .module)
     }
 }
+
+/// Refusals of `palette.open` for the App's handler.
+public nonisolated enum PaletteScopeMessages {
+    public static var needsFocus: String {
+        String(localized: "palette.scope.refusal.needsFocus",
+               defaultValue: "A palette scope opens only when focus is requested; read rows with palette.query", bundle: .module)
+    }
+    public static func unknownScope(_ id: String) -> String {
+        String(localized: "palette.scope.refusal.unknown", defaultValue: "No palette scope \(id)", bundle: .module)
+    }
+}

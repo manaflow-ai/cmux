@@ -234,6 +234,17 @@
       "title_table" : "Localizable"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "palette open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "palette.open",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "app command-palette",
       "context_menu" : "noObject",

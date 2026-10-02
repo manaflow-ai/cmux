@@ -161,10 +161,10 @@ The reducer is a pure value function with no AppKit, clock or I/O, so a TLA+ mod
 
 | Action / op | Palette | CLI | Right-click | MCP | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `palette.open {scope?, query?}` | via the scope rows | `cmux palette open [<scope>] [--query <q>]` | exempt `noObject` | exempt `guiOnly` (takes the keyboard; needs `focus: true`) | generic opener; each scope's `openAction` is an alias with its own shortcut |
+| `palette.open {scope?, query?}` | "Open Palette Scope…" (asks for the scope) and the scope rows | `cmux palette open --arg scope=<id> [--arg query=<q>] --focus` | exempt `noObject` | `palette_open`, refused without `focus: true` (it takes the keyboard), like `tab.search` | generic opener; each scope's `openAction` is an alias with its own shortcut |
 | `palette.scopes` (read) | the `?` scope | `cmux palette scopes [--json]` | — | `palette_scopes` | every scope with id, title, prefix, keywords, owner, open action |
 | `palette.query {scope, query, limit?, context?}` (read) | — | `cmux palette query <scope> [<query>] [--limit N] [--json]` | — | `palette_query` | headless results for any scope, ranked like the UI; app scopes need the app's `mcp:expose` and the caller's grant |
-| `palette.run {scope, item, action?, args?}` | — | `cmux palette run <scope> <item> [--action <id>]` | — | follows the action's own MCP decision | runs a typed `ActionRef` of a result row; the same as `action.run` with the ref's args |
+| `palette.run {scope, item, action?, args?}` | — | `cmux palette run <scope> <item> [--action <id>]` | — | follows the action's own MCP decision | runs a typed `ActionRef` of a result row; the same as `action.run` with the ref's args. Not built yet: it needs rows with typed `ActionRef`s (built-in rows still carry closures, which must not run from automation without the origin check) |
 | `tab.search` | Search Tabs… | `cmux tab search` | — | `tab_search` | lane 2; becomes `openAction` of scope `tabs` |
 
 CLI requests: `.cmux-scratch/nx-worker/cli-requests/palette-scopes.md` (Swift CLI freeze). The app side adds `palette.scopes`, `palette.query` and `palette.open` to the control socket (read-only methods answer off-main from `ControlSnapshot`, architecture.md 5a).
@@ -329,7 +329,7 @@ Screenshots come from a throwaway demo executable that links `CmuxNextPalette` w
 | 2 | `CmuxNextPalette/Scopes/`: descriptor, graph, `PaletteNavReducer`, example and property tests | PR 16824 |
 | 3 | Palette UI on the reducer: `PaletteModel` runs the reducer's effects (one page per level, the root built only when shown), chip styles, entry styles, keyword hint, footer prefix hints, scope list (`?`), item actions as a scope, Debug Settings tunables | this PR |
 | 4 | Search Tabs is scope `tabs` (`@`, `tabs` Tab); Cmd-Shift-A opens it above the root, so Backspace shows the full palette | this PR |
-| 5 | Catalog `palette.open`, `palette.scopes`, `palette.query`, `palette.run`; control socket; CLI request | next |
+| 5 | Catalog `palette.open` (CLI, MCP, keyboard, palette); socket `palette.scopes` and `palette.query`; CLI request `palette-scopes.md`; `palette.run` waits for typed ActionRefs | this PR |
 | 6 | Extension contribution: schema `contributes.paletteScopes`, runtime `palette.*`/`act`, Swift bridge from the app registry, sample app, harness with shared vectors | after 5, with the app platform lead |
 
 ## 9. Decisions
