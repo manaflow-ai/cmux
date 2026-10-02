@@ -36,8 +36,10 @@ use crate::resource::ResourceError;
 /// `reason_code` in the `operation.failed` details of a rejected operation.
 pub(crate) const LAYOUT_CONSERVATION_VIOLATION: &str = "layout-conservation-violation";
 
-/// Resource operations that must keep every tab (I1). Creation and close
-/// operations are absent: they change the tab set on purpose.
+/// Resource operations that move tabs and must keep every tab (I1).
+/// Creation and close operations are absent (they change the tab set on
+/// purpose), and so are operations that cannot move a tab (workspace
+/// reorder, screen pins, renames, focus).
 const TAB_CONSERVING_OPERATIONS: &[&str] = &[
     "tab.move",
     "tab.drag",
@@ -48,13 +50,11 @@ const TAB_CONSERVING_OPERATIONS: &[&str] = &[
     "tab.group.move",
     "pane.swap",
     "screen.move",
-    "screen.pin",
     "screen.group.create",
     "screen.group.add",
     "screen.group.remove",
     "screen.group.move",
     "terminal.move",
-    "workspace.move",
 ];
 
 /// Whether `operation` must conserve tabs, so the daemon validates its

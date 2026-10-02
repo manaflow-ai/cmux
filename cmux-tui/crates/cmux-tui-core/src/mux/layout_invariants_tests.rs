@@ -218,6 +218,30 @@ fn undo_of_a_tab_move_never_leaves_an_empty_pane() {
     assert_durable_matches_memory(&mux);
 }
 
+/// A tab-conserving operation runs its state change before the durable
+/// commit. When that commit fails, the previous state comes back exactly and
+/// no subscriber sees the tab's new session path, for a closure plan
+/// (`tab.move`) and for a plan that hands over a projected state
+/// (`tab.drag`).
+#[test]
+fn failed_commit_after_staging_restores_the_state_and_holds_back_session_paths() {
+    let (mux, [first, second, third]) = two_pane_mux("layout-invariants-failed-commit");
+    let origin = pane_of(&mux, first);
+    let other = pane_of(&mux, third);
+    let session = mux.subscribe_surface_session(second).unwrap();
+    while session.try_recv().is_ok() {}
+    let before = mux.with_state(fingerprint);
+    mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+    assert!(!mux.move_tab(second, other, 0));
+    assert_eq!(mux.with_state(fingerprint), before);
+    assert!(mux.move_tab_to_split(second, origin, TabDropEdge::Right, None, None).is_err());
+    assert_eq!(mux.with_state(fingerprint), before);
+    assert!(session.try_recv().is_err(), "a failed commit published a session path");
+    mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+    assert!(mux.move_tab(second, other, 0));
+    assert_durable_matches_memory(&mux);
+}
+
 /// Everything observable about the layout, for "unchanged" assertions.
 fn fingerprint(state: &State) -> String {
     let workspaces = state
@@ -814,14 +838,6 @@ proptest! {
             let mut before = mux.with_state(Clone::clone);
             let mut rejections = rejections_on_this_thread();
             let outcome = run(&mux, op, &mut groups, &mut before, &mut rejections);
-            {
-                let kind = format!("{op:?}");
-                let kind = kind.split([' ', '{']).next().unwrap().to_string();
-                let tag = match outcome { Outcome::Accepted => "acc", Outcome::Rejected => "rej", Outcome::Closed(_) => "closed", Outcome::Skipped => "skip" };
-                use std::io::Write;
-                let mut f = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lp-stats.txt").unwrap();
-                writeln!(f, "{kind} {tag}").unwrap();
-            }
             check_step(&mux, &before, &outcome, rejections);
         }
     }
