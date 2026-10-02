@@ -10,12 +10,20 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AutomationsRouteImport } from './routes/automations'
 import { Route as DevicesRouteImport } from './routes/devices'
 import { Route as TeamRouteImport } from './routes/team'
+import { Route as IntegrationsIndexRouteImport } from './routes/integrations/index'
+import { Route as IntegrationsCallbackRouteImport } from './routes/integrations/callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AutomationsRoute = AutomationsRouteImport.update({
+  id: '/automations',
+  path: '/automations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DevicesRoute = DevicesRouteImport.update({
@@ -28,35 +36,76 @@ const TeamRoute = TeamRouteImport.update({
   path: '/team',
   getParentRoute: () => rootRouteImport,
 } as any)
+const IntegrationsIndexRoute = IntegrationsIndexRouteImport.update({
+  id: '/integrations/',
+  path: '/integrations/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IntegrationsCallbackRoute = IntegrationsCallbackRouteImport.update({
+  id: '/integrations/callback',
+  path: '/integrations/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/automations': typeof AutomationsRoute
   '/devices': typeof DevicesRoute
   '/team': typeof TeamRoute
+  '/integrations/callback': typeof IntegrationsCallbackRoute
+  '/integrations/': typeof IntegrationsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/automations': typeof AutomationsRoute
   '/devices': typeof DevicesRoute
   '/team': typeof TeamRoute
+  '/integrations/callback': typeof IntegrationsCallbackRoute
+  '/integrations': typeof IntegrationsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/automations': typeof AutomationsRoute
   '/devices': typeof DevicesRoute
   '/team': typeof TeamRoute
+  '/integrations/callback': typeof IntegrationsCallbackRoute
+  '/integrations/': typeof IntegrationsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/devices' | '/team'
+  fullPaths:
+    | '/'
+    | '/automations'
+    | '/devices'
+    | '/team'
+    | '/integrations/callback'
+    | '/integrations/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/devices' | '/team'
-  id: '__root__' | '/' | '/devices' | '/team'
+  to:
+    | '/'
+    | '/automations'
+    | '/devices'
+    | '/team'
+    | '/integrations/callback'
+    | '/integrations'
+  id:
+    | '__root__'
+    | '/'
+    | '/automations'
+    | '/devices'
+    | '/team'
+    | '/integrations/callback'
+    | '/integrations/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AutomationsRoute: typeof AutomationsRoute
   DevicesRoute: typeof DevicesRoute
   TeamRoute: typeof TeamRoute
+  IntegrationsCallbackRoute: typeof IntegrationsCallbackRoute
+  IntegrationsIndexRoute: typeof IntegrationsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -66,6 +115,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/automations': {
+      id: '/automations'
+      path: '/automations'
+      fullPath: '/automations'
+      preLoaderRoute: typeof AutomationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/devices': {
@@ -82,13 +138,30 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/integrations/': {
+      id: '/integrations/'
+      path: '/integrations'
+      fullPath: '/integrations/'
+      preLoaderRoute: typeof IntegrationsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/integrations/callback': {
+      id: '/integrations/callback'
+      path: '/integrations/callback'
+      fullPath: '/integrations/callback'
+      preLoaderRoute: typeof IntegrationsCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AutomationsRoute: AutomationsRoute,
   DevicesRoute: DevicesRoute,
   TeamRoute: TeamRoute,
+  IntegrationsCallbackRoute: IntegrationsCallbackRoute,
+  IntegrationsIndexRoute: IntegrationsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
