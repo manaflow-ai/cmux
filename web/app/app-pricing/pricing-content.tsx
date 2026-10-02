@@ -8,7 +8,9 @@ import {
   GO_PLAN_ID,
   PRO_PLAN_ID,
   type BillingManagementKind,
+  type PersonalBillingSource,
 } from "../../services/billing/pro";
+import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "../../services/billing/apple/config";
 import enMessages from "../../messages/en.json";
 import {
   appPricingCheckoutURL,
@@ -87,9 +89,13 @@ export function AppPricingContent({
     appPricingRequest(headersList),
   );
   const appStorePaymentGated = isAppStoreDistributionMode(params);
+  // An App Store subscriber manages personal plans in the App Store, never
+  // through Stripe checkout or a portal plan switch it has no customer for.
+  const appStoreManaged = snapshot.billingSource === "apple" && !appStorePaymentGated;
   const proAction = personalPlanActionState({
     isCurrent: isProCurrent,
     appStorePaymentGated,
+    appStoreManaged,
     manageBilling: (canManageBilling && !isGo) || isMax,
   });
   // A Pro subscriber keeps the Max checkout link; the server routes an active
@@ -97,6 +103,7 @@ export function AppPricingContent({
   const maxAction = personalPlanActionState({
     isCurrent: isMax,
     appStorePaymentGated,
+    appStoreManaged,
     manageBilling: canManageBilling && !snapshot.isPro,
   });
   const portalVisible = canManageBilling && !appStorePaymentGated;
@@ -208,7 +215,9 @@ export function AppPricingContent({
             ) : null
           }
         >
-          {isGo ? (
+          {appStoreManaged ? (
+            <AppStoreManageAction portalVisible={portalVisible} />
+          ) : isGo ? (
             <div className="space-y-2">
               {portalVisible ? (
                 <SecondaryLink href="/api/billing/portal">
@@ -439,22 +448,27 @@ export type AppPlanSnapshot = {
   planId: string;
   isPro: boolean;
   billingManagement: BillingManagementKind;
+  /** An App Store subscriber manages personal plans in the App Store. */
+  billingSource?: PersonalBillingSource;
   email: string | null;
 };
 
 type PersonalPlanActionState =
-  "current" | "unavailable" | "manage" | "checkout";
+  "app_store" | "current" | "unavailable" | "manage" | "checkout";
 
 /** Which action a personal plan card (Pro, Max) offers the signed-in account. */
 function personalPlanActionState({
   isCurrent,
   appStorePaymentGated,
+  appStoreManaged,
   manageBilling,
 }: {
   isCurrent: boolean;
   appStorePaymentGated: boolean;
+  appStoreManaged: boolean;
   manageBilling: boolean;
 }): PersonalPlanActionState {
+  if (appStoreManaged) return "app_store";
   if (isCurrent) return "current";
   // Apple 3.1.1: no external billing or purchase links inside App Store builds.
   if (appStorePaymentGated) return "unavailable";
@@ -474,6 +488,8 @@ function PersonalPlanAction({
   checkout: ReactNode;
 }) {
   switch (state) {
+    case "app_store":
+      return <AppStoreManageAction portalVisible={portalVisible} />;
     case "current":
       return portalVisible ? (
         <SecondaryLink href="/api/billing/portal">
@@ -493,6 +509,22 @@ function PersonalPlanAction({
     case "checkout":
       return checkout;
   }
+}
+
+/** "Manage in the App Store", plus Stripe's portal while a Stripe subscription still bills. */
+function AppStoreManageAction({ portalVisible }: { portalVisible: boolean }) {
+  return (
+    <div className="space-y-2">
+      <SecondaryLink href={APPLE_MANAGE_SUBSCRIPTIONS_URL}>
+        {pricing.manageInAppStore}
+      </SecondaryLink>
+      {portalVisible ? (
+        <SecondaryLink href="/api/billing/portal">
+          {pricing.manageBilling}
+        </SecondaryLink>
+      ) : null}
+    </div>
+  );
 }
 
 type BillingBannerModel = {
