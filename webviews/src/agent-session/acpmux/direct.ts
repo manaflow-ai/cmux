@@ -3,7 +3,7 @@ import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
-import { postNative } from "./native";
+import { NativeError, postNative } from "./native";
 import { HandoffClient } from "./handoff/client";
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
@@ -566,14 +566,29 @@ export class AcpmuxDirectClient {
     return this.git("git.status", {});
   }
 
-  /// Whether the session host serves checkpoints: `{checkpoints}` (checkpoints/client.ts).
+  /// Whether the session host serves checkpoints: `{checkpoints}` (checkpoints/client.ts). It names
+  /// no session: the native host answers from the daemon its git link reaches.
   gitCapabilities(): Promise<unknown> {
-    return postNative("git.capabilities", {});
+    return this.gitRoute === "daemon" ? this.request("git.capabilities", {}) : postNative("git.capabilities", {});
   }
 
-  /// A checkpoint operation of the review (checkpoints/client.ts) with the page's own params.
+  /// A checkpoint operation of the review (checkpoints/client.ts) with the page's own params: its
+  /// `cwd` and, on a mutation, the `idempotency_key` it keeps across an uncertain reply. It takes the
+  /// changes view's route, so a cloud session is refused here. The refusal is definite (origin
+  /// `native`, never `native.timed_out`) and carries no message of its own, so the review shows its
+  /// localized failure text.
   gitCheckpoint(method: string, params: Record<string, unknown>): Promise<unknown> {
-    return postNative(method, params);
+    const sessionId = this.selectedSessionId;
+    const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
+    const entry = this.sessions.find((session) => session.sessionId === sessionId);
+    if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
+      return Promise.reject(
+        new NativeError(
+          { code: "operation.failed", origin: "native", details: { reason: "cloud_unsupported" } },
+          "operation.failed",
+        ),
+      );
+    return this.gitRoute === "daemon" ? this.request(method, { sessionId, ...params }) : postNative(method, params);
   }
 
   /// acpmux serves no git methods: the native host runs them on the session host in the selected

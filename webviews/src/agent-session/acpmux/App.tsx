@@ -54,6 +54,7 @@ import { handoffStrings, localizedHandoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import { useCheckpoints } from "./checkpoints/controller";
 import { checkpointStrings, localizedCheckpointStrings } from "./checkpoints/strings";
+import { CHECKPOINT_OPS } from "./checkpoints/protocol";
 
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
@@ -1061,6 +1062,14 @@ function AcpmuxPane() {
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
           "git.diff": ({ scope }) => client.gitDiff(String(scope)),
           "git.status": () => client.gitStatus(),
+          // The checkpoint review's capability read and operations take the same route (#16941).
+          "git.capabilities": () => client.gitCapabilities(),
+          ...Object.fromEntries(
+            Object.values(CHECKPOINT_OPS).map((method) => [
+              method,
+              (params: Record<string, unknown>) => client.gitCheckpoint(method, params),
+            ]),
+          ),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };

@@ -37,16 +37,26 @@ final class AgentPaneGitLink {
     /// nothing.
     func run(_ request: AgentPaneGitRequest) async throws(AgentPaneGitFailure) -> Data {
         if case .capabilities = request {
-            return Self.capabilitiesReply(nil)
+            return await capabilities()
         }
         let connection: DaemonConnection
         do {
             connection = try await self.connection()
         } catch {
+            // The link did not open, so nothing was sent.
             throw AgentPaneGitFailure.notConnected
         }
+        let client = GitResourceClient(connection: connection)
+        if let key = request.idempotencyKey {
+            do {
+                let reply = try await client.mutate(request.operation, params: request.sessionHostParams, idempotencyKey: key)
+                return try Self.pageEnvelope(reply)
+            } catch {
+                throw AgentPaneGitFailure(mutating: error)
+            }
+        }
         do {
-            let result = try await GitResourceClient(connection: connection).read(request.operation, params: request.sessionHostParams)
+            let result = try await client.read(request.operation, params: request.sessionHostParams)
             return try JSONEncoder().encode(result)
         } catch {
             throw AgentPaneGitFailure(reading: error)
@@ -64,14 +74,17 @@ final class AgentPaneGitLink {
     /// `{"checkpoints": true}` only when `identity` advertises
     /// `git-checkpoints-v1`.
     nonisolated static func capabilitiesReply(_ identity: DaemonIdentity?) -> Data {
-        Data(#"{"checkpoints":false}"#.utf8)
+        let supported = identity?.supports(DaemonCapabilities.shared.gitCheckpoints) == true
+        return Data(#"{"checkpoints":\#(supported)}"#.utf8)
     }
 
     /// The page's mutation envelope (`MutationEnvelope` in the checkpoint
     /// client): the catalog's `value` as `result`, with its `revision` and
     /// `replayed`. A missing `replayed` is a first result.
     nonisolated static func pageEnvelope(_ reply: ResourceMutationResult<JSONValue>) throws -> Data {
-        try JSONEncoder().encode(reply.value)
+        var envelope: [String: JSONValue] = ["result": reply.value, "replayed": .bool(reply.replayed ?? false)]
+        if let revision = reply.revision { envelope["revision"] = .string(revision) }
+        return try JSONEncoder().encode(JSONValue.object(envelope))
     }
 
     /// Opens the connection on the first request; afterwards it reconnects

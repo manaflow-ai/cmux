@@ -84,18 +84,22 @@ public final class AgentPaneModel {
             }
             return AgentPaneReply.success()
         case .git(let git):
-            guard let onGit else { return Self.gitFailure(.notConnected) }
+            guard let onGit else {
+                // Nothing serves checkpoints, so the review hides its actions.
+                if git == .capabilities { return AgentPaneReply.success(["checkpoints": false]) }
+                return Self.gitFailure(.notConnected, operation: git.operation)
+            }
             do {
                 let data = try await onGit(git)
                 guard let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
-                    return Self.gitFailure(.failed)
+                    return Self.gitFailure(.failed, operation: git.operation)
                 }
                 return AgentPaneReply.success(value)
             } catch {
-                return Self.gitFailure(error as? AgentPaneGitFailure ?? .failed)
+                return Self.gitFailure(error as? AgentPaneGitFailure ?? .failed, operation: git.operation)
             }
-        case .invalidGit:
-            return Self.gitFailure(.invalidRequest)
+        case .invalidGit(let method):
+            return Self.gitFailure(.invalidRequest, operation: method)
         case .unsupported(let method):
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
         }
@@ -108,12 +112,15 @@ public final class AgentPaneModel {
 }
 
 extension AgentPaneModel {
-    /// The page's reply for a failed git read: the failure's code, origin,
-    /// details and retryable under the localized text.
-    static func gitFailure(_ failure: AgentPaneGitFailure) -> [String: Any] {
+    /// The page's reply for a failed git request: the failure's code,
+    /// origin, details and retryable under the localized text, the
+    /// checkpoint review's for a checkpoint `operation`, else the changes
+    /// view's.
+    static func gitFailure(_ failure: AgentPaneGitFailure, operation: String) -> [String: Any] {
         let details = failure.details.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed]) }
+        let checkpoint = operation == "git.capabilities" || AgentPaneCheckpointRequest.methods.contains(operation)
         return AgentPaneReply.failure(
-            code: failure.code, message: gitFailedMessage, details: details,
+            code: failure.code, message: checkpoint ? checkpointFailedMessage : gitFailedMessage, details: details,
             retryable: failure.retryable, origin: failure.origin.rawValue)
     }
 }

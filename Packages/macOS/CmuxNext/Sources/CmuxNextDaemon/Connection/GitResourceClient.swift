@@ -39,7 +39,7 @@ public struct GitResourceClient: Sendable {
     public func mutate(_ operation: String, params: [String: JSONValue], idempotencyKey: String,
                        timeout: Duration = Self.mutationTimeout) async throws -> ResourceMutationResult<JSONValue> {
         try await connection.resourceRequest({ id in
-            ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: nil)
+            ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: idempotencyKey)
         }, as: ResourceMutationResult<JSONValue>.self, timeout: timeout)
     }
 }

@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// A repository checkpoint operation the page's checkpoint review asks for
 /// (cx-checkpoint-capture-contract v1.1). The App sends it to the session

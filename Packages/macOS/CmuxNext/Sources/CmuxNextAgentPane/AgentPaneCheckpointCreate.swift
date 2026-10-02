@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// What `git.checkpoint.create` captures beyond the tracked files, as the
 /// page's review sends it. A nil field is left out, and the session host

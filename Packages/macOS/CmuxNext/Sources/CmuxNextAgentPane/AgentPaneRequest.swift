@@ -26,10 +26,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// in a tab beside the agent or in the text editor.
     case openFile(path: String, target: AgentPaneFileTarget)
     /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
-    /// the session's repository, which the App runs on the session host.
+    /// the session's repository; `git.capabilities` and `git.checkpoint.*`
+    /// from the checkpoint review. The App runs them on the session host.
     case git(AgentPaneGitRequest)
-    /// `git.diff` or `git.status` whose params the bridge refused (no
-    /// absolute `cwd`, an unknown scope); answered `native.invalid_request`.
+    /// One of those methods whose params the bridge refused (no absolute
+    /// `cwd`, an unknown scope, a missing or malformed checkpoint field);
+    /// answered `native.invalid_request`.
     case invalidGit(String)
     case unsupported(String)
 
@@ -72,7 +74,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
-        case "git.diff", "git.status":
+        case _ where AgentPaneGitRequest.methods.contains(method):
             if let git = AgentPaneGitRequest(method: method, params: params) {
                 self = .git(git)
             } else {
