@@ -144,6 +144,27 @@ describe("automations end to end (workerd)", () => {
     expect(listed.json.value.next_run_at).toBeGreaterThan(slot)
   })
 
+  it("a far cron alarm never delays the outbox drain", async () => {
+    const { token, team } = await signedIn("auto-user-4")
+    await op(token, "automation.create", { name: "yearly", triggers: [{ type: "cron", expr: "0 0 1 1 *", tz: "UTC" }], body: { type: "steps", steps: [{ type: "note", text: "x" }] } })
+    // The create committed an outbox row: its drain must run now, not at the yearly cron alarm.
+    // With no database in tests the drain fails and records an attempt; wait for that (bounded).
+    const deadline = Date.now() + 10_000
+    let attempts = 0
+    while (attempts === 0 && Date.now() < deadline) {
+      await inDO(scheduler(team), async (_i, state) => {
+        attempts = state.storage.sql.exec("SELECT attempts FROM do_entity").toArray()[0]!.attempts as number
+      })
+      if (attempts === 0) await new Promise((r) => setTimeout(r, 50))
+    }
+    expect(attempts).toBeGreaterThan(0)
+    await inDO(scheduler(team), async (_i, state) => {
+      const alarm = await state.storage.getAlarm()
+      // The backoff retry is minutes away; the yearly cron slot is not what the alarm waits for.
+      expect(alarm === null || alarm < Date.now() + 10 * 60_000).toBe(true)
+    })
+  })
+
   it("isolates teams: another user cannot see or run this team's automations", async () => {
     const a = await signedIn("auto-user-a")
     const b = await signedIn("auto-user-b")

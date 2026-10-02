@@ -24,7 +24,8 @@ const b64uDecode = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").repl
 
 const keys = new Map<string, Promise<Uint8Array>>()
 const webhookKey = (env: Env): Promise<Uint8Array> => {
-  const cacheKey = `${env.ENVIRONMENT}:${env.JWT_PRIVATE_JWK.length}`
+  // Keyed by the key material itself, so a rotated signing key derives fresh secrets in a warm isolate.
+  const cacheKey = `${env.ENVIRONMENT}:${env.JWT_PRIVATE_JWK}`
   let k = keys.get(cacheKey)
   if (!k) {
     k = (async () => {

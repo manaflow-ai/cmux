@@ -136,18 +136,20 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return { frames }
   }
 
-  /** Moves the alarm earlier when needed: now for a pending outbox (unless a drain retry is set), or the owner's next wake. */
+  /**
+   * Moves the alarm earlier when needed: to now for a pending outbox (unless a
+   * failed drain is backing off; its retry alarm stays), or to the owner's next
+   * wake. Never moves it later: the alarm handler computes the next time itself.
+   */
   private afterCommit() {
     if (!this.engine) return
-    const outbox = this.engine.outboxPending(1).length > 0
-    const wake = this.nextWakeAt(this.engine.currentState, Date.now())
-    if (!outbox && wake === null) return
-    void this.ctx.storage.getAlarm().then((t) => {
-      let at: number | null = null
-      if (outbox && t === null) at = Date.now()
-      if (wake !== null && (t === null || t > wake) && (at === null || wake < at)) at = wake
-      return at === null ? undefined : this.ctx.storage.setAlarm(at)
-    })
+    const now = Date.now()
+    const backingOff = (this.store.exec<{ attempts: number }>(`SELECT attempts FROM do_entity WHERE id = 1`)[0]?.attempts ?? 0) > 0
+    const outboxAt = !backingOff && this.engine.outboxPending(1).length > 0 ? now : null
+    const wake = this.nextWakeAt(this.engine.currentState, now)
+    const want = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
+    if (want === null) return
+    void this.ctx.storage.getAlarm().then((t) => (t === null || t > want ? this.ctx.storage.setAlarm(want) : undefined))
   }
 
   /** RPC: one op from an authenticated principal. Requester frames return; events fan out to subscribers. */
