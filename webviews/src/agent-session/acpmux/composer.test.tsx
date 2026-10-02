@@ -13,6 +13,16 @@ const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
 type ComposerAttachment = import("./attachments").ComposerAttachment;
 
+/// Types into the prompt. React decides when react-dom loads whether the page has
+/// input events, and a test file that loads it before any DOM exists (the
+/// router tests do) leaves it without them, so call the change handler directly.
+function typeInto(node: HTMLTextAreaElement, value: string) {
+  node.value = value;
+  node.setSelectionRange(value.length, value.length);
+  const props = (node as unknown as Record<string, { onChange(event: { target: HTMLTextAreaElement }): void }>)[Object.keys(node).find((key) => key.startsWith("__reactProps$"))!]!;
+  props.onChange({ target: node });
+}
+
 const snapshot = (commands?: AcpmuxSnapshot["commands"]): AcpmuxSnapshot => ({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connected", isWorking: false, queue: [], catalog: [], canLoadOlder: false, commands });
 const commands = [
   { name: "compact", description: "Summarize the conversation" },
@@ -28,12 +38,7 @@ describe("acpmux composer slash menu", () => {
   const rows = () => [...dom.window.document.querySelectorAll(".acpmux-slash-row")].map((row) => row.querySelector(".acpmux-slash-name")!.textContent);
   const active = () => dom.window.document.querySelector(".acpmux-slash-active .acpmux-slash-name")?.textContent;
   const menu = () => dom.window.document.querySelector(".acpmux-slash-menu");
-  /// Types like a user: React reads the value through the native setter and an input event.
-  const type = async (value: string) => act(async () => {
-    const node = textarea();
-    Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(node, value);
-    node.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  });
+  const type = async (value: string) => act(async () => typeInto(textarea(), value));
   /// jsdom fires `select` a task after the caret moves; let it land inside act.
   const settle = async () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   const key = async (name: string, isComposing = false) => act(async () => { textarea().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, isComposing, bubbles: true, cancelable: true })); });
