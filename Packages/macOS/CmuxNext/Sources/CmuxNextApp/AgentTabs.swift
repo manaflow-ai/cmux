@@ -33,6 +33,9 @@ final class AgentTabStore {
     /// Session each tab last showed, kept across a web content crash or a
     /// view rebuilt after the tab was released.
     private var sessions: [String: String] = [:]
+    /// Tabs opened as the new tab page, and what each does with the kind
+    /// the user picks there (``PaneController/newTabPage()``).
+    private var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:]
     /// The daemon tree each pane with agent tabs belongs to. It is watched,
     /// so the tabs of a pane closed out of sight (its window showing another
     /// workspace, its daemon away) close once the live tree drops the pane.
@@ -81,7 +84,10 @@ final class AgentTabStore {
     ///   - store: The tree of the daemon that owns the pane.
     ///   - after: The tab to place it after; nil appends it.
     ///   - session: The acpmux session it shows; nil starts a new chat.
-    func open(in paneKey: String, of store: DaemonStore, after: String? = nil, session: String? = nil) -> String {
+    ///   - newTab: Shows the new tab page until it becomes a chat; the
+    ///     handler gets the terminal or browser choices and shortcut edits.
+    func open(in paneKey: String, of store: DaemonStore, after: String? = nil, session: String? = nil,
+              newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil) -> String {
         let key = LocalAgentTab.prefix + UUID().uuidString.lowercased()
         var tabs = tabsByPane[paneKey] ?? []
         if let after, let index = tabs.firstIndex(of: after) {
@@ -91,6 +97,7 @@ final class AgentTabStore {
         }
         tabsByPane[paneKey] = tabs
         sessions[key] = session
+        newTabPages[key] = newTab
         paneStores[paneKey] = store
         watch(store)
         return key
@@ -112,8 +119,13 @@ final class AgentTabStore {
     func view(for key: String) -> AgentPaneView? {
         if let view = views[key] { return view }
         guard tabsByPane.values.contains(where: { $0.contains(key) }) else { return nil }
-        let model = AgentPaneModel(host: host, sessionId: sessions[key])
-        model.onSessionChange = { [weak self] session in self?.sessions[key] = session }
+        let model = AgentPaneModel(host: host, sessionId: sessions[key], newTab: newTabPages[key]?.page)
+        model.onSessionChange = { [weak self] session in
+            self?.sessions[key] = session
+            self?.newTabPages[key] = nil
+        }
+        model.onOpenTab = { [weak self] kind, text in self?.newTabPages[key]?.handler.open(key, kind, text) }
+        model.onEditShortcut = { [weak self] kind in self?.newTabPages[key]?.handler.editShortcut(kind) }
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
         views[key] = view
@@ -129,6 +141,7 @@ final class AgentTabStore {
         tabsByPane = tabsByPane.filter { !$0.value.isEmpty }
         views.removeValue(forKey: key)?.close()
         sessions[key] = nil
+        newTabPages[key] = nil
         forgetUnusedStores()
         stopCustomizationWhenUnused()
     }
@@ -138,6 +151,7 @@ final class AgentTabStore {
         for key in tabsByPane.removeValue(forKey: paneKey) ?? [] {
             views.removeValue(forKey: key)?.close()
             sessions[key] = nil
+            newTabPages[key] = nil
         }
         forgetUnusedStores()
         stopCustomizationWhenUnused()
@@ -194,7 +208,7 @@ extension PaneController {
         showAgentTab(services.agentTabs.duplicate(key, in: paneKey, of: daemon.store))
     }
 
-    private func showAgentTab(_ key: String) {
+    func showAgentTab(_ key: String) {
         apply(snapshot())
         select(StripTabID(key))
     }

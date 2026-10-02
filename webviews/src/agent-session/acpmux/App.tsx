@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
 import { diffRows, layoutConversation, paneHeader, placeRows, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
+import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -312,6 +313,7 @@ function AcpmuxPane() {
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// The session list shows beside the transcript in a wide pane and on demand in a narrow one.
   const [sidebar, setSidebar] = useState<"auto" | "open" | "closed">("auto");
+  const [newTab, setNewTab] = useState<NewTabHost | undefined>();
   const sidebarToggle = useRef<HTMLButtonElement>(null);
   // Escape and the scrim close the narrow-pane overlay and give focus back to its toggle.
   const closeOverlay = useCallback(() => { setSidebar("auto"); sidebarToggle.current?.focus(); }, []);
@@ -369,12 +371,16 @@ function AcpmuxPane() {
     let reconnect = false;
     const connectHost = async () => {
       try {
-        const host = await callNative<{ protocolVersion: number; transport?: string; endpoint?: string; token?: string; sessionId?: string; newSession?: boolean }>("ready", reconnect ? { reconnect } : {});
+        const host = await callNative<{ protocolVersion: number; transport?: string; endpoint?: string; token?: string; sessionId?: string; newSession?: boolean; newTab?: unknown; cwd?: string }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
+        // A tab opened as a new tab page shows it until it becomes something (#16620).
+        if (!reconnect) setNewTab(newTabHost(host));
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
         if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) return;
-        const client = await AcpmuxDirectClient.connect(mock ? mockHost : host as AcpmuxHostConfig, (next) => {
+        // A new chat in mock mode starts without a session too, as against a real daemon.
+        const mockConfig: AcpmuxHostConfig = host.newSession ? { ...mockHost, sessionId: undefined, newSession: true } : mockHost;
+        const client = await AcpmuxDirectClient.connect(mock ? mockConfig : host as AcpmuxHostConfig, (next) => {
           rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
           setSnapshot(next);
         }, () => {
@@ -422,5 +428,13 @@ function AcpmuxPane() {
   const toggleSidebar = () => setSidebar(sidebarShown ? "closed" : "open");
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot);
-  return <section className="acpmux-shell" data-sidebar={sidebar}><SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />{sidebar === "open" && <button type="button" className="acpmux-sidebar-scrim" aria-label="Close sessions" tabIndex={-1} onClick={closeOverlay} />}<div className="acpmux-main"><div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}><header className="acpmux-header"><div><button type="button" className="acpmux-sidebar-toggle" ref={sidebarToggle} aria-label="Sessions" title="Sessions" aria-controls="acpmux-sidebar" aria-expanded={sidebarShown} onClick={toggleSidebar} /><strong className="acpmux-title">{header.title}</strong>{header.status && <span className="acpmux-status">{header.status}</span>}</div></header><VirtualTranscript rows={transcriptRows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onOpenDiff={openDiff} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}</div>{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<Composer snapshot={composerSnapshot} chips={ComposerChips} onSend={(text) => void callNative("chat.send", { text })} onStop={() => void callNative("chat.cancel")} /></div></section>;
+  const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
+  const openFromNewTab = (kind: TabKind, text: string) => {
+    if (kind !== "agent") { void callNative("tab.open", { kind, text }); return; }
+    setNewTab(undefined);
+    if (text) void callNative("chat.send", { text });
+  };
+  return <section className="acpmux-shell" data-sidebar={sidebar}><SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />{sidebar === "open" && <button type="button" className="acpmux-sidebar-scrim" aria-label="Close sessions" tabIndex={-1} onClick={closeOverlay} />}<div className="acpmux-main">{showNewTab ? <NewTabPage snapshot={composerSnapshot} hotkeys={newTab.hotkeys} initialKind={newTab.initialKind} cwd={newTab.cwd} host={newTab.host} chips={ComposerChips}
+    onSubmit={openFromNewTab} onOpenSession={(sessionId) => { setNewTab(undefined); selectSession(sessionId); }} onShowAll={() => setSidebar("open")}
+    onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })} /> : <><div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}><header className="acpmux-header"><div><button type="button" className="acpmux-sidebar-toggle" ref={sidebarToggle} aria-label="Sessions" title="Sessions" aria-controls="acpmux-sidebar" aria-expanded={sidebarShown} onClick={toggleSidebar} /><strong className="acpmux-title">{header.title}</strong>{header.status && <span className="acpmux-status">{header.status}</span>}</div></header><VirtualTranscript rows={transcriptRows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onOpenDiff={openDiff} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}</div>{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<Composer snapshot={composerSnapshot} chips={ComposerChips} onSend={(text) => void callNative("chat.send", { text })} onStop={() => void callNative("chat.cancel")} /></>}</div></section>;
 }

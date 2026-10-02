@@ -63,7 +63,7 @@ public struct ContextMenuCatalog {
     /// The + button: one entry per tab kind. Chromium shows disabled, with
     /// its reason, when this build has no CEF runtime.
     var newTab: [ContextMenuEntry] {
-        actions("newSurface", "openBrowser.webkit", "openBrowser.chromium", "browserProfile.newTab", "palette.newAgentChat")
+        actions("newSurface", "openBrowser.webkit", "openBrowser.chromium", "browserProfile.newTab", "palette.newAgentChat", "newTab.page")
     }
 
     var tab: [ContextMenuEntry] {
