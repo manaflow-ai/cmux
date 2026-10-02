@@ -12,10 +12,43 @@ struct ShortcutListSearchTests {
     private let bareC = ShortcutStroke(key: "c")
 
     @Test func textMatchesEveryWordIgnoringCase() {
-        #expect(ShortcutListSearch.text("", matches: ["New Surface"]))
-        #expect(ShortcutListSearch.text("new SURF", matches: ["New Surface"]))
-        #expect(ShortcutListSearch.text("surface terminal", matches: ["New Surface", "Only while a terminal pane is focused"]))
-        #expect(!ShortcutListSearch.text("new browser", matches: ["New Surface"]))
+        #expect(ShortcutListSearch.textScore("", title: "New Surface", details: []) != nil)
+        #expect(ShortcutListSearch.textScore("new SURF", title: "New Surface", details: []) != nil)
+        #expect(ShortcutListSearch.textScore(
+            "surface terminal",
+            title: "New Surface",
+            details: ["Only while a terminal pane is focused"]
+        ) != nil)
+        #expect(ShortcutListSearch.textScore("new browser", title: "New Surface", details: []) == nil)
+    }
+
+    @Test func titleMatchOutranksCaptionMatch() throws {
+        let titled = try #require(ShortcutListSearch.textScore("browser", title: "Open Browser", details: []))
+        let captioned = try #require(ShortcutListSearch.textScore(
+            "browser",
+            title: "Next Diff Hunk",
+            details: ["Only while a browser pane is focused"]
+        ))
+        #expect(titled < captioned)
+    }
+
+    @Test func titleToleratesTyposButCaptionsDoNot() {
+        #expect(ShortcutListSearch.textScore("surfce", title: "New Surface", details: []) != nil)
+        #expect(ShortcutListSearch.textScore(
+            "brwser",
+            title: "Next Diff Hunk",
+            details: ["Only while a browser pane is focused"]
+        ) == nil)
+    }
+
+    @Test func modelRanksTitleMatchesFirst() throws {
+        let model = makeModel()
+        let results = model.actions(matching: ShortcutListSearchQuery(text: "browser"))
+        let titleHits = results.map { $0.displayName.localizedCaseInsensitiveContains("browser") }
+        try #require(titleHits.contains(true))
+        // Once a caption-only match appears, no title match may follow it.
+        let firstCaptionOnly = titleHits.firstIndex(of: false) ?? titleHits.endIndex
+        #expect(!titleHits[firstCaptionOnly...].contains(true))
     }
 
     @Test func oneStrokeFindsExactBindingsAndChordsStartingWithIt() {

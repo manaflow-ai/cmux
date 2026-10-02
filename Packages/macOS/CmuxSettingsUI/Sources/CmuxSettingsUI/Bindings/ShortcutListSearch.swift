@@ -4,7 +4,7 @@ import Foundation
 /// What the Keyboard Shortcuts list is filtered by: typed text, keys pressed
 /// into the shortcut detector, or both.
 struct ShortcutListSearchQuery: Equatable {
-    /// Free text matched against each row's name, scope caption and shortcut.
+    /// Free text ranked against each row's name, then its scope caption and shortcut.
     var text = ""
     /// Keys pressed into the detector: one stroke, or both strokes of a chord.
     var keys: StoredShortcut?
@@ -19,13 +19,15 @@ struct ShortcutListSearchQuery: Equatable {
 
 /// Pure matching rules for ``ShortcutListSearchQuery``.
 enum ShortcutListSearch {
-    /// Whether every whitespace-separated word of `text` appears in one of
-    /// `fields`, ignoring case and diacritics. Empty text matches everything.
-    static func text(_ text: String, matches fields: [String]) -> Bool {
-        let words = normalized(text).split(whereSeparator: \.isWhitespace)
-        guard !words.isEmpty else { return true }
-        let haystack = normalized(fields.joined(separator: " "))
-        return words.allSatisfy { haystack.contains($0) }
+    /// Ranks `text` against a row's title and its secondary fields (scope
+    /// caption, shortcut glyphs) with the Settings sidebar's fuzzy matcher.
+    /// Lower is better; `nil` means no match. Empty text matches everything.
+    static func textScore(_ text: String, title: String, details: [String]) -> Int? {
+        SettingsSearchMatcher().matchScore(
+            query: text,
+            title: title,
+            secondaryText: details.joined(separator: " ")
+        )
     }
 
     /// Whether pressing `keys` runs `binding`.
@@ -58,31 +60,41 @@ enum ShortcutListSearch {
             return numberedAwareStrokesConflict(stroke, numbered: false, binding.first, numbered: false)
         }
     }
-
-    private static func normalized(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-    }
 }
 
 extension ShortcutListModel {
-    /// The settings-visible actions that match `query`, in display order.
+    /// The settings-visible actions that match `query`: best text match first,
+    /// display order among equal scores and for a keys-only query.
     func actions(matching query: ShortcutListSearchQuery) -> [ShortcutAction] {
         let actions = ShortcutAction.settingsVisibleActions
         guard !query.isEmpty else { return actions }
-        return actions.filter { action in
+        let scored: [(action: ShortcutAction, score: Int)] = actions.compactMap { action in
             let effective = effective(for: action)
             if let keys = query.keys,
                !ShortcutListSearch.keys(keys, match: effective, numbered: action.usesNumberedDigitMatching) {
-                return false
+                return nil
             }
             let shortcutText = effective.flatMap { binding in
                 binding.isUnbound ? nil : shortcutDisplayString(binding, numbered: action.usesNumberedDigitMatching)
             } ?? ""
-            return ShortcutListSearch.text(
+            guard let score = ShortcutListSearch.textScore(
                 query.text,
-                matches: [action.displayName, scopeCaption(for: action) ?? "", shortcutText]
-            )
+                title: action.displayName,
+                details: [scopeCaption(for: action) ?? "", shortcutText]
+            ) else {
+                return nil
+            }
+            return (action, score)
         }
+        // `sorted` is not stable, so break ties on display position explicitly.
+        let position = Dictionary(uniqueKeysWithValues: actions.enumerated().map { ($1, $0) })
+        return scored
+            .sorted { lhs, rhs in
+                lhs.score != rhs.score
+                    ? lhs.score < rhs.score
+                    : position[lhs.action, default: 0] < position[rhs.action, default: 0]
+            }
+            .map(\.action)
     }
 
     /// Whether some settings-visible binding is a chord that starts with `stroke`.
