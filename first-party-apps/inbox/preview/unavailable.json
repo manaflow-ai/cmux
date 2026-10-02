@@ -32,33 +32,16 @@
   },
   "ops": {
     "feed.list": {
-      "items": [],
-      "cursor": null,
-      "revision": "1",
-      "counts": {
-        "unseen": 0,
-        "open": 0,
-        "needsResponse": 0,
-        "urgent": 0,
-        "snoozed": 0
+      "$error": {
+        "code": "operation.unsupported",
+        "message": "feed.list is not supported by this host yet"
       }
     },
     "feed.counts": {
-      "unseen": 0,
-      "open": 0,
-      "needsResponse": 0,
-      "urgent": 0,
-      "snoozed": 0
-    },
-    "feed.get": null,
-    "feed.mark": {
-      "revision": "2"
-    },
-    "feed.snooze": {
-      "revision": "2"
-    },
-    "feed.respond": {
-      "revision": "2"
+      "$error": {
+        "code": "operation.unsupported",
+        "message": "feed.list is not supported by this host yet"
+      }
     },
     "action.run": null,
     "app.storage.get": null,

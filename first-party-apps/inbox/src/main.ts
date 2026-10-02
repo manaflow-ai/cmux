@@ -1,54 +1,58 @@
 /// <reference path="../../../cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts" />
-// Inbox: one triage list of everything that needs you: cmux notifications,
-// agents that wait for input or just finished, and GitHub work items through
-// the integration gateway. Exports: the section, status item and pane
-// renders, and the commands (palette, CLI, MCP tools).
+// Inbox: a view on the cmux feed, the one system for notifications and
+// requests. Agents, apps, runs and integrations (GitHub review requests and
+// failing checks) post feed items; this app lists, opens, marks, snoozes and
+// answers them. Exports: the section, status item and pane renders, and the
+// commands (palette, CLI, MCP tools).
 
-import { markAllRead as markAllReadItems, markDone as markItemsDone, openItem as openViewItem, snoozeItems, step } from "./actions.ts"
+import { markAllSeen as markAllSeenItems, markDone as markItemsDone, openItem as openFeedItem, snoozeItems, step } from "./actions.ts"
+import { feed, type FeedItem, type SourceKind } from "./feed.ts"
 import { t } from "./l10n.ts"
-import { itemJSON, type Source, type ViewItem } from "./model.ts"
-import { attach, current, cycleVariant as cycle, ensureData, items, refreshGithub, scheduleGithub, setSelected, variant, visible } from "./store.ts"
+import { current, cycleVariant as cycle, items, listNow, listParams, setSelected, variant } from "./store.ts"
 import { StatusItem } from "./views/status.ts"
 import { renderCard, renderFocus, renderGrouped } from "./views/variants.ts"
 
 const RENDERERS = { grouped: renderGrouped, focus: renderFocus, card: renderCard }
 
-/** Renders the chosen variant; a variant change rebuilds the subtree (its signals and reads go with it). */
-function surface(wide: boolean): CmuxView {
-  attach()
-  scheduleGithub()
-  return VStack([ForEach({ items: () => [variant()], key: (v) => v }, (v) => RENDERERS[v()](wide))])
-}
+/** Renders the chosen variant; a variant change rebuilds the subtree (its reads and signals go with it). */
+const surface = (wide: boolean): CmuxView => VStack([ForEach({ items: () => [variant()], key: (v) => v }, (v) => RENDERERS[v()](wide))])
 
 /** Sidebar section `inbox`. */
 export function renderInbox(ctx: { surface?: string } = {}) {
   return surface(ctx.surface === "pane")
 }
 
-/** Pane kind `inbox` (the platform does not mount pane kinds yet; the preview harness can). */
+/** Pane kind `pane` (the platform does not mount pane kinds yet; the preview harness can). */
 export function renderPane() {
   return surface(true)
 }
 
 /** Status item `badge`. */
 export function renderStatus() {
-  attach()
-  scheduleGithub()
   return StatusItem()
 }
 
 // Commands. Each is a palette entry and, with `mcp:expose`, an MCP tool.
+// There is deliberately no `respond` command: answering a request needs origin
+// `user`, and only the item's addressee may answer it through MCP.
 
-// The runtime's CmuxError carries a code to the caller (CLI exit, MCP error); the typings omit its constructor.
 function commandError(code: string, message: string): Error {
+  // The runtime's CmuxError carries a code to the caller (CLI exit, MCP error); the typings omit its constructor.
   const E = CmuxError as unknown as new (code: string, message: string) => Error
   return new E(code, message)
 }
 
-async function findItem(id: unknown): Promise<ViewItem> {
-  await ensureData()
-  const item = typeof id === "string" && id ? items().find((i) => i.id === id) : (current() ?? undefined)
-  if (!item) throw commandError("item.not_found", t("item.notFound", "No inbox item {id}", { id: String(id ?? "") }))
+async function findItem(id: unknown): Promise<FeedItem> {
+  if (typeof id === "string" && id) {
+    try {
+      return await feed.get(id)
+    } catch {
+      throw commandError("item.not_found", t("item.notFound", "No inbox item {id}", { id }))
+    }
+  }
+  if (items().length === 0) await listNow()
+  const item = current()
+  if (!item) throw commandError("item.not_found", t("item.noneSelected", "No inbox item is selected"))
   return item
 }
 
@@ -62,15 +66,14 @@ export async function openInbox() {
   }
 }
 
-export async function markAllRead() {
-  await ensureData()
-  return { marked: await markAllReadItems() }
+export async function markAllSeen() {
+  return { marked: await markAllSeenItems() }
 }
 
 async function move(direction: 1 | -1, args: { open?: boolean }) {
-  await ensureData()
+  if (items().length === 0) await listNow()
   const item = step(direction)
-  if (item && args.open !== false) await openViewItem(item)
+  if (item && args.open !== false) await openFeedItem(item)
   return { id: item?.id ?? null }
 }
 
@@ -80,7 +83,7 @@ export const previousItem = (args: { open?: boolean } = {}) => move(-1, args)
 export async function openItem(args: { id?: string } = {}) {
   const item = await findItem(args.id)
   setSelected(item.id)
-  await openViewItem(item)
+  await openFeedItem(item)
   return { id: item.id }
 }
 
@@ -98,19 +101,42 @@ export async function snooze(args: { id?: string; minutes?: number } = {}) {
   return { id: item.id, until: new Date(until).toISOString() }
 }
 
-/** JSON for agents: open items (or snoozed ones), most urgent first. */
-export async function list(args: { source?: Source; unreadOnly?: boolean; includeSnoozed?: boolean } = {}) {
-  await ensureData()
-  const out = items().filter(
-    (i) => (args.includeSnoozed || i.snoozedUntil === null) && (!args.source || i.source === args.source) && (!args.unreadOnly || i.unread)
-  )
-  return { items: out.map(itemJSON), visible: visible().length }
+/** The owner's items as JSON for agents. */
+export async function list(args: { source?: SourceKind; needsResponse?: boolean; unseen?: boolean; includeSnoozed?: boolean; limit?: number } = {}) {
+  const base = listParams(false)
+  const r = await feed.list({
+    filter: {
+      status: args.includeSnoozed ? ["open", "snoozed"] : ["open"],
+      ...(args.source ? { sources: [args.source] } : {}),
+      ...(args.needsResponse ? { needsResponse: true } : {}),
+      ...(args.unseen ? { unseen: true } : {})
+    },
+    limit: typeof args.limit === "number" ? Math.max(1, Math.min(args.limit, 200)) : base.limit
+  })
+  return {
+    items: r.items.map((i) => ({
+      id: i.id,
+      kind: i.kind,
+      request_kind: i.requestKind ?? null,
+      title: i.title,
+      body: i.body ?? null,
+      urgency: i.urgency,
+      needs_response: i.needsResponse,
+      source: i.source,
+      subject: i.subject,
+      status: i.status,
+      seen: i.seenAt !== null,
+      snoozed_until: i.snoozedUntil,
+      updated_at: i.updatedAt
+    })),
+    counts: r.counts,
+    revision: r.revision
+  }
 }
 
 export async function refresh() {
-  await ensureData()
-  await refreshGithub(true)
-  return { items: items().length }
+  const r = await listNow()
+  return { items: r.items.length, revision: r.revision }
 }
 
 export async function cycleVariant() {

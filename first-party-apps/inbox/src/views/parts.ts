@@ -1,207 +1,198 @@
 /// <reference path="../../../../cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts" />
 // View pieces shared by the variants: rows, menus, filter controls, notices,
-// the GitHub status row, empty states and the item context loader.
+// empty and error states. Everything renders feed items as the owner sent them.
 
-import { markAllRead, markDone, markRead, openItem, snoozeItems, unsnoozeItems } from "../actions.ts"
-import { loadChecks, type CheckSummary } from "../github.ts"
+import { markAllSeen, markDone, markSeen, openItem, reopen, respond, snoozeItems } from "../actions.ts"
+import type { FeedItem, RequestKind, SourceKind } from "../feed.ts"
 import { t } from "../l10n.ts"
-import type { Kind, Source, ViewItem } from "../model.ts"
-import {
-  attachLayout,
-  counts,
-  filters,
-  github,
-  githubRequest,
-  groupBy,
-  items,
-  loaded,
-  notice,
-  now,
-  refreshGithub,
-  setFilters,
-  setGrouping,
-  sourceErrors,
-  visible
-} from "../store.ts"
+import { counts, feedError, filters, groupBy, items, loaded, notice, setFilters, setGrouping, type SourceFilter } from "../store.ts"
 import { ago, clock, snoozePresets } from "../time.ts"
 
-const KIND_LABELS: Record<Kind, [string, string]> = {
-  agentBlocked: ["kind.agentBlocked", "Needs input"],
-  agentDone: ["kind.agentDone", "Finished"],
-  agentIdle: ["kind.agentIdle", "Idle"],
-  notification: ["kind.notification", "Notification"],
-  reviewRequested: ["kind.reviewRequested", "Review requested"],
-  checksFailing: ["kind.checksFailing", "Checks failing"],
-  mention: ["kind.mention", "Mentioned"]
+const REQUEST_LABELS: Record<RequestKind, [string, string]> = {
+  question: ["request.question", "Question"],
+  choice: ["request.choice", "Choose"],
+  approve: ["request.approve", "Approval"],
+  confirm: ["request.confirm", "Confirm"],
+  "sign-in": ["request.sign-in", "Sign-in"],
+  passkey: ["request.passkey", "Passkey"],
+  review: ["request.review", "Review"],
+  input: ["request.input", "Input"],
+  file: ["request.file", "File"],
+  handoff: ["request.handoff", "Handoff"]
 }
 
-export const kindLabel = (kind: Kind) => t(...KIND_LABELS[kind])
-
-const SOURCE_LABELS: Record<"all" | Source, [string, string]> = {
-  all: ["source.all", "All"],
+const SOURCE_LABELS: Record<SourceKind, [string, string]> = {
   agent: ["source.agent", "Agents"],
-  notification: ["source.notification", "Notifications"],
-  github: ["source.github", "GitHub"]
+  app: ["source.app", "Apps"],
+  run: ["source.run", "Runs"],
+  integration: ["source.integration", "Integrations"],
+  user: ["source.user", "People"]
 }
 
-export const sourceLabel = (s: "all" | Source) => t(...SOURCE_LABELS[s])
-
-export const SOURCE_SYMBOLS: Record<"all" | Source, string> = { all: "tray", agent: "sparkles", notification: "bell", github: "arrow.triangle.pull" }
-
-export function kindSymbol(i: Pick<ViewItem, "kind" | "level">): string {
-  switch (i.kind) {
-    case "agentBlocked":
-      return "exclamationmark.bubble"
-    case "agentDone":
-      return "checkmark.circle"
-    case "agentIdle":
-      return "moon"
-    case "reviewRequested":
-      return "eye"
-    case "checksFailing":
-      return "xmark.circle"
-    case "mention":
-      return "at"
-    case "notification":
-      return i.level === "error" ? "xmark.octagon" : i.level === "warning" ? "exclamationmark.triangle" : "bell"
-  }
+const FILTER_LABELS: Record<SourceFilter, [string, string]> = {
+  all: ["filter.all", "All"],
+  agent: ["source.agent", "Agents"],
+  integration: ["source.integration", "Integrations"],
+  other: ["filter.other", "Apps and Runs"]
 }
 
-export function kindTint(i: Pick<ViewItem, "kind" | "level">): string {
-  switch (i.kind) {
-    case "agentBlocked":
-      return "warning"
-    case "agentDone":
-      return "success"
-    case "checksFailing":
-      return "danger"
-    case "reviewRequested":
-    case "mention":
-      return "accent"
-    case "notification":
-      return i.level === "error" ? "danger" : i.level === "warning" ? "warning" : "secondary"
-    case "agentIdle":
-      return "secondary"
-  }
+export const sourceKindLabel = (k: SourceKind) => t(...SOURCE_LABELS[k])
+export const filterLabel = (f: SourceFilter) => t(...FILTER_LABELS[f])
+
+/** "Choose", "Approval", ...; notifications and watches have no kind label. */
+export function kindLabel(i: FeedItem): string {
+  if (i.kind === "request" && i.requestKind) return t(...REQUEST_LABELS[i.requestKind])
+  if (i.kind === "watch") return t("kind.watch", "In progress")
+  return ""
 }
 
-/** "Needs input · 5m · api-server #88": the age stays visible when the row truncates; snoozed items say when they come back. */
-export function subtitleOf(i: ViewItem, at: number): string {
-  const when = i.snoozedUntil !== null ? t("snooze.until", "Snoozed until {time}", { time: clock(i.snoozedUntil, at) }) : ago(i.at, at)
-  const parts = i.source === "notification" ? [when, i.detail] : [kindLabel(i.kind), when, i.detail]
-  return parts.filter(Boolean).join(" · ")
+const REQUEST_SYMBOLS: Record<RequestKind, string> = {
+  question: "questionmark.bubble",
+  choice: "list.bullet",
+  approve: "checkmark.shield",
+  confirm: "exclamationmark.bubble",
+  "sign-in": "person.badge.key",
+  passkey: "key",
+  review: "eye",
+  input: "text.cursor",
+  file: "doc",
+  handoff: "arrow.triangle.branch"
 }
 
-export function snoozeMenu(list: () => ViewItem[]): CmuxView {
+const SOURCE_SYMBOLS: Record<SourceKind, string> = { agent: "sparkles", app: "app", run: "play.circle", integration: "link", user: "person" }
+
+export function itemSymbol(i: FeedItem): string {
+  if (i.kind === "request" && i.requestKind) return REQUEST_SYMBOLS[i.requestKind]
+  if (i.kind === "watch") return "hourglass"
+  if (i.urgency === "critical" || i.urgency === "high") return "exclamationmark.triangle"
+  return SOURCE_SYMBOLS[i.source.kind]
+}
+
+export function itemTint(i: FeedItem): string {
+  if (i.urgency === "critical") return "danger"
+  if (i.needsResponse || i.urgency === "high") return "warning"
+  if (i.kind === "watch") return "accent"
+  return i.urgency === "low" ? "tertiary" : "secondary"
+}
+
+/** "Choose · 2m · Claude · api-server"; snoozed items say when they come back. */
+export function subtitleOf(i: FeedItem, now: number): string {
+  const when = i.snoozedUntil ? t("snooze.until", "Snoozed until {time}", { time: clock(Date.parse(i.snoozedUntil), now) }) : ago(Date.parse(i.updatedAt), now)
+  const place = i.subject.workspaceName ?? ""
+  return [kindLabel(i), when, i.source.name, place].filter(Boolean).join(" · ")
+}
+
+export function snoozeMenu(list: () => FeedItem[]): CmuxView {
   return Menu(
     t("action.snooze", "Snooze"),
-    snoozePresets(now()).map((p) => Button(p.label, () => snoozeItems(list(), p.until)))
+    snoozePresets(Date.now()).map((p) => Button(p.label, () => snoozeItems(list(), p.until)))
   )
 }
 
-/** The per-item actions (context menu and pull-down). */
-export function itemMenu(i: ViewItem): CmuxView[] {
-  const views: CmuxView[] = [
-    Button(t("action.open", "Open"), () => openItem(i)),
-    Button(t("action.done", "Mark as Done"), () => markDone([i])),
-    i.snoozedUntil !== null ? Button(t("action.unsnooze", "Unsnooze"), () => unsnoozeItems([i])) : snoozeMenu(() => [i])
-  ]
-  if (i.unread) views.push(Button(t("action.markRead", "Mark as Read"), () => markRead([i])))
+/** Response choices as menu entries (so a request can be answered from the row menu). */
+function respondMenu(i: FeedItem): CmuxView | null {
+  const r = i.response
+  if (!i.needsResponse || !r) return null
+  const entries: CmuxView[] =
+    r.type === "choice"
+      ? r.options.map((o) => Button(o.label, () => respond(i, { choice: o.value })))
+      : r.type === "approve"
+        ? [Button(t("respond.approve", "Approve"), () => respond(i, { approved: true })), Button(t("respond.deny", "Deny"), () => respond(i, { approved: false }))]
+        : r.type === "confirm"
+          ? [Button(t("respond.confirm", "Confirm"), () => respond(i, { confirmed: true })), Button(t("respond.cancel", "Cancel"), () => respond(i, { confirmed: false }))]
+          : []
+  return entries.length ? Menu(t("action.respond", "Respond"), entries) : null
+}
+
+/** The per-item actions (row menu). */
+export function itemMenu(i: FeedItem): CmuxView[] {
+  const views: CmuxView[] = []
+  if (i.open) views.push(Button(t("action.open", "Open"), () => openItem(i)))
+  const answer = respondMenu(i)
+  if (answer) views.push(answer)
+  views.push(Button(t("action.done", "Mark as Done"), () => markDone([i])))
+  views.push(i.snoozedUntil ? Button(t("action.unsnooze", "Unsnooze"), () => reopen([i])) : snoozeMenu(() => [i]))
+  if (i.seenAt === null) views.push(Button(t("action.markSeen", "Mark as Seen"), () => markSeen([i])))
   return views
 }
 
 /** A standard row; `tapOpens` opens on click, otherwise a click selects. */
-export function ItemRow(item: () => ViewItem, options: { tapOpens: boolean; selectedId?: () => string | null; onSelect?: (id: string) => void }): CmuxView {
+export function ItemRow(item: () => FeedItem, options: { tapOpens: boolean; selectedId?: () => string | null; onSelect?: (id: string) => void }): CmuxView {
   return Row({
     title: () => item().title,
-    subtitle: () => subtitleOf(item(), now()),
-    symbol: () => kindSymbol(item()),
-    tint: () => kindTint(item()),
-    unread: () => item().unread,
+    subtitle: () => subtitleOf(item(), Date.now()),
+    symbol: () => itemSymbol(item()),
+    tint: () => itemTint(item()),
+    unread: () => item().seenAt === null,
     selected: () => (options.selectedId ? options.selectedId() === item().id : false)
   })
-    .help(() => [kindLabel(item().kind), item().title, item().detail].filter(Boolean).join("\n"))
+    .help(() => [kindLabel(item()), item().title, item().body ?? ""].filter(Boolean).join("\n"))
     .onTap(() => (options.tapOpens || !options.onSelect ? openItem(item()) : options.onSelect(item().id)))
     .contextMenu(() => itemMenu(item()))
 }
 
-/** "All", "Agents · Unread", ... */
+/** "All", "Agents · Unseen", ... */
 export function filterSummary(): string {
   const f = filters()
-  const label = f.showSnoozed ? t("snoozed.count", "{n} snoozed", { n: counts().snoozed }) : sourceLabel(f.source)
-  return f.unreadOnly ? t("filter.unreadSuffix", "{label} · Unread", { label }) : label
+  const label = f.showSnoozed ? t("snoozed.title", "Snoozed") : filterLabel(f.source)
+  const parts = [label]
+  if (f.needsResponseOnly) parts.push(t("filter.needsResponseShort", "Needs you"))
+  if (f.unseenOnly) parts.push(t("filter.unseenShort", "Unseen"))
+  return parts.join(" · ")
 }
 
-/** The filter pull-down (grouped variant). The current source is shown disabled: menus have no checked state yet. */
+/** The filter pull-down. The current source shows disabled: menus have no checked state yet. */
 export function FilterMenu(): CmuxView {
-  return Menu(filterSummary, [])
-    .contextMenu(() => filterChoices())
+  return Menu(filterSummary, []).contextMenu(() => filterChoices())
 }
 
-export function filterChoices(): CmuxView[] {
+function filterChoices(): CmuxView[] {
   const f = filters()
-  const sources: Array<"all" | Source> = ["all", "agent", "notification", "github"]
+  const sources: SourceFilter[] = ["all", "agent", "integration", "other"]
+  const g = groupBy()
   return [
-    ...sources.map((s) => Button(sourceLabel(s), () => setFilters({ source: s, showSnoozed: false })).disabled(f.source === s && !f.showSnoozed)),
+    ...sources.map((s) => Button(filterLabel(s), () => setFilters({ source: s, showSnoozed: false })).disabled(f.source === s && !f.showSnoozed)),
     Divider(),
-    Button(f.unreadOnly ? t("filter.showAll", "Show Read Items") : t("filter.unreadOnly", "Show Unread Only"), () => setFilters({ unreadOnly: !f.unreadOnly })),
-    Button(f.mineOnly ? t("filter.includeRequests", "Include Requests from Others") : t("filter.mineOnly", "Show Only My Work"), () => setFilters({ mineOnly: !f.mineOnly })),
+    Button(f.needsResponseOnly ? t("filter.everything", "Show Everything") : t("filter.needsResponse", "Show Only What Needs a Response"), () => setFilters({ needsResponseOnly: !f.needsResponseOnly })),
+    Button(f.unseenOnly ? t("filter.showSeen", "Show Seen Items") : t("filter.unseenOnly", "Show Unseen Only"), () => setFilters({ unseenOnly: !f.unseenOnly })),
+    Button(f.showSnoozed ? t("snoozed.hide", "Hide Snoozed") : t("snoozed.show", "Show Snoozed"), () => setFilters({ showSnoozed: !f.showSnoozed })),
     Divider(),
-    groupBy() === "source"
-      ? Button(t("filter.groupByWorkspace", "Group by Workspace"), () => setGrouping("workspace"))
-      : Button(t("filter.groupBySource", "Group by Source"), () => setGrouping("source")),
+    Button(t("group.source", "Group by Source"), () => setGrouping("source")).disabled(g === "source"),
+    Button(t("group.workspace", "Group by Workspace"), () => setGrouping("workspace")).disabled(g === "workspace"),
+    Button(t("group.thread", "Group by Thread"), () => setGrouping("thread")).disabled(g === "thread"),
     Divider(),
-    Button(t("action.markAllRead", "Mark All as Read"), () => markAllRead()),
-    Button(t("action.markAllDone", "Mark All as Done"), () => markDone(visible())),
-    Button(t("action.refresh", "Refresh"), () => refreshGithub(true))
+    Button(t("action.markAllSeen", "Mark All as Seen"), () => markAllSeen()),
+    Button(t("action.markAllDone", "Mark All as Done"), () => markDone(items()))
   ]
 }
 
-/** Loads workspace names only while grouping by workspace (the reads live and die with this subtree). */
-export function LayoutProbe(): CmuxView {
-  return ForEach({ items: () => (groupBy() === "workspace" ? ["layout"] : []), key: (k: string) => k }, () => {
-    attachLayout()
-    return Group([])
-  })
-}
-
-/** Source errors and transient notices, one muted line each. */
+/** Transient notices, one muted line. */
 export function Notices(): CmuxView {
-  const line = (text: string, tone: string) =>
-    HStack({ spacing: 6 }, [Icon("exclamationmark.triangle").color(tone).font("caption"), Text(text).font("caption").color("secondary").lineLimit(2)]).paddingHorizontal(14).paddingVertical(2)
   return Group([
-    () => (sourceErrors().notification ? line(t("error.notification", "Notifications unavailable: {reason}", { reason: sourceErrors().notification! }), "warning") : null),
-    () => (sourceErrors().agent ? line(t("error.agent", "Agents unavailable: {reason}", { reason: sourceErrors().agent! }), "warning") : null),
-    () => (notice() ? line(notice()!, "secondary") : null)
+    () =>
+      notice()
+        ? HStack({ spacing: 6 }, [Icon("exclamationmark.triangle").color("secondary").font("caption"), Text(notice()!).font("caption").color("secondary").lineLimit(2)])
+            .paddingHorizontal(14)
+            .paddingVertical(2)
+        : null
   ])
 }
 
-/** A row at the end that explains a GitHub state the user can act on. */
-export function GithubStatusRow(): CmuxView {
-  return Group([
-    () => {
-      const f = filters()
-      if (f.showSnoozed || (f.source !== "all" && f.source !== "github")) return null
-      const g = github()
-      if (g.status === "notGranted")
-        return Row({ title: t("github.notGranted", "Connect GitHub"), subtitle: t("github.notGrantedHelp", "Allow GitHub read access in Settings > Apps > Inbox"), symbol: "link", tint: "secondary" }).onTap(() => refreshGithub(true))
-      if (g.status === "unavailable")
-        return Row({ title: t("github.unavailable", "GitHub through cmux is not available yet"), subtitle: t("github.unavailableHelp", "This cmux has no integration gateway"), symbol: "icloud.slash", tint: "tertiary" })
-      if (g.status === "error" || g.status === "partial")
-        return Row({ title: t("github.error", "Could not load GitHub"), subtitle: g.errors[0] ?? "", symbol: "exclamationmark.triangle", tint: "warning" }).onTap(() => refreshGithub(true))
-      return null
-    }
-  ])
-}
-
-/** Loading, all-caught-up, or nothing-matches. */
+/** Feed missing, loading, all clear, or nothing matching the filters. */
 export function Empty(): CmuxView {
   return Group([
     () => {
-      if (visible().length > 0) return null
+      const err = feedError()
+      if (err && items().length === 0) {
+        if (err.code === "operation.unsupported") return EmptyState({ title: t("feed.unavailable", "The feed is not available yet"), message: t("feed.unavailableHelp", "This version of cmux has no feed owner."), symbol: "tray" })
+        if (err.code === "scope.missing") return EmptyState({ title: t("feed.notGranted", "Feed access not granted"), message: t("feed.notGrantedHelp", "Allow it in Settings > Apps > Inbox."), symbol: "lock" })
+        return EmptyState({ title: t("feed.error", "Could not load the feed"), message: err.message, symbol: "exclamationmark.triangle" })
+      }
+      if (items().length > 0) return null
       if (!loaded()) return Text(t("loading", "Loading…")).font("caption").color("tertiary").paddingHorizontal(14).paddingVertical(6)
-      if (items().length > 0) return EmptyState({ title: t("empty.filtered", "Nothing matches these filters"), symbol: "line.3.horizontal.decrease.circle" })
-      return EmptyState({ title: t("empty.title", "Nothing needs you"), message: t("empty.message", "Agents, notifications and GitHub are all clear."), symbol: "checkmark.circle" })
+      const f = filters()
+      if (f.source !== "all" || f.unseenOnly || f.needsResponseOnly || f.showSnoozed) return EmptyState({ title: t("empty.filtered", "Nothing matches these filters"), symbol: "line.3.horizontal.decrease.circle" })
+      return EmptyState({ title: t("empty.title", "Nothing needs you"), message: t("empty.message", "Agents, apps and integrations are all clear."), symbol: "checkmark.circle" })
     }
   ])
 }
@@ -210,7 +201,7 @@ export function Empty(): CmuxView {
 export function SnoozedFooter(): CmuxView {
   return Group([
     () => {
-      const n = counts().snoozed
+      const n = counts()?.snoozed ?? 0
       const showing = filters().showSnoozed
       if (n === 0 && !showing) return null
       const title = showing ? t("snoozed.hide", "Hide Snoozed") : t("snoozed.count", "{n} snoozed", { n })
@@ -223,61 +214,11 @@ export function SnoozedFooter(): CmuxView {
   ])
 }
 
-// Item context: what the agent shows, the notification body, or the failing checks.
+const hasUnseen = computed(() => (counts()?.unseen ?? 0) > 0)
 
-const contextCache = new Map<string, string>()
-const CONTEXT_CACHE_LIMIT = 64
-
-const screenTail = (text: string, lines: number) =>
-  text
-    .split("\n")
-    .map((l) => l.replace(/\s+$/, ""))
-    .filter((l) => l.trim())
-    .slice(-lines)
-    .join("\n")
-
-export function checkText(s: CheckSummary): string {
-  if (s.state === "fail") return t("github.checks.fail", "{n} failed: {names}", { n: s.counts.fail, names: s.failed.slice(0, 4).join(", ") })
-  if (s.state === "pending") return t("github.checks.pending", "Checks running")
-  if (s.state === "pass") return t("github.checks.pass", "All checks passed")
-  return t("github.checks.neutral", "No check results")
+/** The unseen count; warning tone while something needs a response. */
+export function UnseenBadge(): CmuxView {
+  return Group([() => (hasUnseen() ? Badge(() => counts()?.unseen ?? 0, () => ((counts()?.needsResponse ?? 0) > 0 ? "warning" : "secondary")) : null)])
 }
 
-/** A signal with context text for the item; loads once per item change, cached. */
-export function itemContext(item: () => ViewItem | null): () => string | null {
-  const [text, setText] = signal<string | null>(null)
-  let key = ""
-  const remember = (k: string, value: string) => {
-    if (contextCache.size >= CONTEXT_CACHE_LIMIT) contextCache.delete(contextCache.keys().next().value!)
-    contextCache.set(k, value)
-    if (key === k) setText(value)
-  }
-  effect(() => {
-    const i = item()
-    const k = i ? `${i.id}@${i.at}` : ""
-    if (k === key) return
-    key = k
-    setText(contextCache.get(k) ?? i?.body ?? null)
-    if (!i || contextCache.has(k)) return
-    if (i.source === "agent" && i.terminal) {
-      cmux.terminal.screen
-        .read({ terminal: i.terminal })
-        .then((r) => remember(k, screenTail(r.text, 8)))
-        .catch(() => {})
-    } else if (i.kind === "checksFailing" && i.repo && i.number) {
-      loadChecks(githubRequest, i.repo, i.number)
-        .then((s) => remember(k, checkText(s)))
-        .catch(() => {})
-    } else if (i.source === "github" && i.author) {
-      setText(t("github.by", "Opened by {author}", { author: i.author }))
-    }
-  })
-  return text
-}
-
-const hasUnread = computed(() => counts().unread > 0)
-
-/** The unread count; warning tone while an agent waits for input. */
-export function UnreadBadge(): CmuxView {
-  return Group([() => (hasUnread() ? Badge(() => counts().unread, () => (counts().blocked > 0 ? "warning" : "secondary")) : null)])
-}
+export const markAll = () => markAllSeen()

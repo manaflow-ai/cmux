@@ -484,6 +484,35 @@
           }
         }
       ],
+      "groups": [
+        {
+          "key": "workspace_1",
+          "label": "api-server",
+          "itemIds": [
+            "feed_01",
+            "feed_03"
+          ]
+        },
+        {
+          "key": "workspace_2",
+          "label": "web-dashboard",
+          "itemIds": [
+            "feed_02",
+            "feed_08",
+            "feed_07"
+          ]
+        },
+        {
+          "key": "none",
+          "label": "Other",
+          "itemIds": [
+            "feed_04",
+            "feed_05",
+            "feed_06",
+            "feed_09"
+          ]
+        }
+      ],
       "cursor": null,
       "revision": "1",
       "counts": {

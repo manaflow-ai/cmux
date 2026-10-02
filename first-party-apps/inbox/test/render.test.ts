@@ -1,208 +1,217 @@
 import { describe, expect, test } from "bun:test"
-import { command, fireTimers, inboxHost, nodeWith, rows, texts, walk } from "./host.ts"
+import { command, inboxHost, nodeWith, rows, texts, walk } from "./host.ts"
 
 const section = { contribution: "cmux/inbox#inbox", surface: "sidebarSection" }
+const feedCalls = (host: ReturnType<typeof inboxHost>["host"]) => host.calls.filter((c) => c.name.startsWith("feed.") || c.name === "action.run")
 
 describe("grouped variant", () => {
-  test("rows under source headers; a click opens the agent's tab and marks it read", async () => {
-    const { host, storage } = inboxHost({ settings: { variant: "grouped" } })
+  test("renders the owner's groups and order; a click opens the target and marks it seen", async () => {
+    const { host, owner } = inboxHost({ settings: { variant: "grouped" } })
     expect(host.mount("m", "renderInbox", section)).toBe("")
     await host.settle(20)
-    expect(texts(host, "m").slice(0, 6)).toEqual(["All", "4", "Agents", "2", "Claude", "Codex"])
+    expect(host.calls.find((c) => c.name === "feed.list")!.params).toEqual({ filter: { status: ["open"] }, groupBy: "source", limit: 100 })
+    expect(texts(host, "m").slice(0, 3)).toEqual(["All", "8", "Agents"])
     expect(rows(host, "m")).toEqual([
-      "Claude",
-      "Codex",
-      "Docs build failed",
-      "Disk space low",
-      "Preview deployed",
-      "Retry webhook delivery with backoff",
+      "Which retry strategy should the webhook sender use?",
+      "Run npm install --save chart-kit?",
+      "Sign in to the staging dashboard",
+      "Finished: dark mode toggle",
       "Add idempotency keys to refunds",
-      "Button focus ring contrast"
+      "Checks failing: Retry webhook delivery with backoff",
+      "Name for the backup volume?",
+      "Deploying web-dashboard preview",
+      "Disk space low"
     ])
+    expect(texts(host, "m")).toEqual(expect.arrayContaining(["GitHub", "Runs", "Apps", "1 snoozed"]))
     const before = host.calls.length
-    host.dispatch("m", nodeWith(host, "m", "Row", "Claude")!, "tap")
-    // The focus call is issued synchronously by the tap (it runs in the user's turn).
-    expect(host.calls[before]!.name).toBe("tab.focus")
-    await host.settle(10)
-    expect(host.calls.find((c) => c.name === "tab.focus")!.params).toEqual({ tab: "tab_1" })
-    expect(host.calls.find((c) => c.name === "notification.ack")!.params).toEqual({ client_id: "app:cmux/inbox", notifications: ["notification_1"] })
-    expect((storage.get("ledger") as { seen: Record<string, number> }).seen["agent:agent_1"]).toBeGreaterThan(0)
-    const claude = walk(host, "m").find((n) => n.type === "Row" && n.props.title === "Claude")!
-    expect(claude.props.unread).toBe(false)
+    host.dispatch("m", nodeWith(host, "m", "Row", "Finished: dark mode toggle")!, "tap")
+    // The open target runs synchronously in the tap (the user's turn).
+    expect(host.calls[before]).toMatchObject({ name: "action.run", params: { id: "tab.show", args: { tab: "tab_2" } } })
+    await host.settle(20)
+    expect(owner.get("feed_07")!.seenAt).not.toBeNull()
+    expect(walk(host, "m").find((n) => n.type === "Row" && n.props.title === "Finished: dark mode toggle")!.props.unread).toBe(false)
   })
 
-  test("a pull request opens in a browser tab", async () => {
-    const { host } = inboxHost({ settings: { variant: "grouped" } })
+  test("the row menu answers a request; the owner's change removes it", async () => {
+    const { host, owner } = inboxHost({ settings: { variant: "grouped" } })
     host.mount("m", "renderInbox", section)
     await host.settle(20)
-    host.dispatch("m", nodeWith(host, "m", "Row", "Add idempotency keys to refunds")!, "tap")
-    await host.settle(5)
-    expect(host.calls.find((c) => c.name === "action.run")!.params).toEqual({ id: "openBrowser", args: { url: "https://github.com/example-org/payments/pull/412" } })
+    const row = walk(host, "m").find((n) => n.type === "Row" && n.props.title === "Run npm install --save chart-kit?")!
+    const menu = row.props.menu as Array<{ title: string; children?: Array<{ title: string }> }>
+    expect(menu.map((m) => m.title)).toEqual(["Open", "Respond", "Mark as Done", "Snooze", "Mark as Seen"])
+    expect(menu[1]!.children!.map((c) => c.title)).toEqual(["Approve", "Deny"])
+    const before = host.calls.length
+    host.dispatch("m", row.id, "menu", { path: [1, 0] })
+    expect(host.calls[before]).toMatchObject({ name: "feed.respond", params: { item: "feed_02", value: { approved: true } } })
+    await host.settle(20)
+    expect(owner.responses).toEqual([{ item: "feed_02", value: { approved: true } }])
+    expect(rows(host, "m")).not.toContain("Run npm install --save chart-kit?")
   })
 
-  test("the row menu snoozes until a preset time; the snooze timer wakes it as unread", async () => {
-    const { host } = inboxHost({ settings: { variant: "grouped" } })
+  test("snooze goes to the owner (which fires the wake-up); the app arms no timer", async () => {
+    const { host, owner } = inboxHost({ settings: { variant: "grouped" } })
     host.mount("m", "renderInbox", section)
     await host.settle(20)
-    const docs = walk(host, "m").find((n) => n.type === "Row" && n.props.title === "Docs build failed")!
-    const menu = docs.props.menu as Array<{ title: string; children?: Array<{ title: string }> }>
-    expect(menu.map((m) => m.title)).toEqual(["Open", "Mark as Done", "Snooze", "Mark as Read"])
-    expect(menu[2]!.children!.map((c) => c.title)[0]).toMatch(/^In 30 minutes \(/)
-    host.dispatch("m", docs.id, "menu", { path: [2, 0] })
-    await host.settle(10)
-    expect(rows(host, "m")).not.toContain("Docs build failed")
-    expect(texts(host, "m")).toContain("1 snoozed")
-    const wake = [...host.timers.values()].find((t) => !t.repeat && t.ms > 29 * 60_000 && t.ms <= 30 * 60_000)
-    expect(wake).toBeDefined()
-    // Fire the wake once the time has passed (the app's clock lives in its VM).
-    host.eval("Date.now = ((now) => () => now() + 31 * 60000)(Date.now)")
-    fireTimers(host, (t) => !t.repeat && t.ms > 29 * 60_000)
-    await host.settle(10)
-    expect(rows(host, "m")).toContain("Docs build failed")
-    expect(walk(host, "m").find((n) => n.type === "Row" && n.props.title === "Docs build failed")!.props.unread).toBe(true)
+    const timersBefore = host.timers.size
+    const row = walk(host, "m").find((n) => n.type === "Row" && n.props.title === "Disk space low")!
+    const titles = (row.props.menu as Array<{ title: string }>).map((m) => m.title)
+    expect(titles).toEqual(["Mark as Done", "Snooze"])
+    host.dispatch("m", row.id, "menu", { path: [1, 0] })
+    await host.settle(20)
+    const call = host.calls.find((c) => c.name === "feed.snooze")!
+    expect(call.params.item).toBe("feed_09")
+    expect(Date.parse(call.params.until) - Date.now()).toBeGreaterThan(29 * 60_000)
+    expect(owner.get("feed_09")!.status).toBe("snoozed")
+    expect(rows(host, "m")).not.toContain("Disk space low")
+    expect(texts(host, "m")).toContain("2 snoozed")
+    expect([...host.timers.values()].filter((t) => t.ms > 60_000)).toHaveLength(0)
+    expect(host.timers.size).toBeLessThanOrEqual(timersBefore + 1) // only the notice auto-dismiss, if any
   })
 
-  test("grouping by workspace loads workspace names only then", async () => {
-    const { host } = inboxHost({ settings: { variant: "grouped", groupBy: "workspace" } })
+  test("filters and grouping are passed to the owner, never applied locally", async () => {
+    const { host, storage } = inboxHost({ settings: { variant: "grouped", groupBy: "workspace" } })
     host.mount("m", "renderInbox", section)
     await host.settle(20)
-    expect(host.calls.some((c) => c.name === "workspace.list")).toBe(true)
-    expect(texts(host, "m")).toEqual(expect.arrayContaining(["api-server", "web-dashboard", "example-org/payments", "Other"]))
-    const plain = inboxHost({ settings: { variant: "grouped" } }).host
-    plain.mount("m", "renderInbox", section)
-    await plain.settle(20)
-    expect(plain.calls.some((c) => c.name === "workspace.list")).toBe(false)
+    expect(texts(host, "m")).toEqual(expect.arrayContaining(["api-server", "web-dashboard", "Other"]))
+    const filterMenu = walk(host, "m").find((n) => n.type === "Menu" && n.props.title === "All")!
+    const titles = (filterMenu.props.menu as Array<{ title?: string }>).map((m) => m.title)
+    host.dispatch("m", filterMenu.id, "menu", { path: [titles.indexOf("Show Only What Needs a Response")] })
+    await host.settle(20)
+    expect(host.calls.filter((c) => c.name === "feed.list").at(-1)!.params).toEqual({ filter: { status: ["open"], needsResponse: true }, groupBy: "workspace", limit: 100 })
+    expect(rows(host, "m")).toHaveLength(5)
+    expect((storage.get("view") as { filters: { needsResponseOnly: boolean } }).filters.needsResponseOnly).toBe(true)
   })
 
-  test("GitHub not granted, gateway missing, and the empty state", async () => {
-    const notGranted = inboxHost({ github: "notGranted" }).host
-    notGranted.mount("m", "renderInbox", section)
-    await notGranted.settle(20)
-    expect(rows(notGranted, "m")).toContain("Connect GitHub")
-    // A refused GitHub stops its refresh timer.
-    fireTimers(notGranted, (t) => t.repeat)
-    expect([...notGranted.timers.values()].some((t) => t.repeat)).toBe(false)
-
-    const unavailable = inboxHost({ github: "unavailable" }).host
-    unavailable.mount("m", "renderInbox", section)
-    await unavailable.settle(20)
-    expect(rows(unavailable, "m")).toContain("GitHub through cmux is not available yet")
-
+  test("empty feed and a cmux without a feed owner", async () => {
     const empty = inboxHost({ empty: true }).host
     empty.mount("m", "renderInbox", section)
     await empty.settle(20)
     expect(walk(empty, "m").find((n) => n.type === "EmptyState")!.props.title).toBe("Nothing needs you")
+    const missing = inboxHost({ unavailable: true }).host
+    missing.mount("m", "renderInbox", section)
+    await missing.settle(20)
+    expect(walk(missing, "m").find((n) => n.type === "EmptyState")!.props.title).toBe("The feed is not available yet")
   })
 })
 
 describe("focus variant", () => {
-  test("a click selects; the detail shows the agent's screen and its actions", async () => {
-    const { host } = inboxHost({ settings: { variant: "focus" } })
+  test("a click selects; the detail shows the request's response form", async () => {
+    const { host, owner } = inboxHost({ settings: { variant: "focus" } })
     host.mount("m", "renderInbox", section)
     await host.settle(20)
-    expect(texts(host, "m")).toEqual(expect.arrayContaining(["Needs input", "Allow running the test suite", "Open", "Done", "Snooze"]))
-    expect(texts(host, "m").some((s) => s.includes("npm test -- --runInBand"))).toBe(true)
-    host.dispatch("m", nodeWith(host, "m", "Row", "Retry webhook delivery with backoff")!, "tap")
+    expect(host.calls.find((c) => c.name === "feed.list")!.params).toEqual({ filter: { status: ["open"] }, limit: 100 })
+    expect(texts(host, "m")).toEqual(expect.arrayContaining(["Exponential backoff", "Fixed 30 s delay", "Move failures to a retry queue", "Open", "Done", "Snooze"]))
+    host.dispatch("m", nodeWith(host, "m", "Button", "Fixed 30 s delay")!, "tap")
     await host.settle(20)
-    expect(host.calls.some((c) => c.name === "action.run")).toBe(false)
-    expect(texts(host, "m")).toContain("2 failed: unit tests, integration")
-    host.dispatch("m", nodeWith(host, "m", "Button", "Done")!, "tap")
-    await host.settle(20)
-    expect(rows(host, "m")).not.toContain("Retry webhook delivery with backoff")
-    // The selection moved to the next item.
-    expect(walk(host, "m").find((n) => n.type === "Row" && n.props.selected === true)!.props.title).toBe("Add idempotency keys to refunds")
+    expect(owner.responses).toEqual([{ item: "feed_01", value: { choice: "fixed" } }])
+    // The answered request left the list; the selection moved on to the approval.
+    expect(walk(host, "m").find((n) => n.type === "Row" && n.props.selected === true)!.props.title).toBe("Run npm install --save chart-kit?")
+    expect(texts(host, "m")).toEqual(expect.arrayContaining(["Approve", "Deny"]))
+    expect(feedCalls(host).some((c) => c.name === "action.run")).toBe(false)
   })
 
-  test("quick reply types into the agent's terminal, or explains the missing scope", async () => {
-    const { host } = inboxHost({ settings: { variant: "focus" } })
+  test("a text request submits the typed answer", async () => {
+    const { host, owner } = inboxHost({ settings: { variant: "focus" } })
     host.mount("m", "renderInbox", section)
     await host.settle(20)
+    host.dispatch("m", nodeWith(host, "m", "Row", "Name for the backup volume?")!, "tap")
+    await host.settle(20)
     const field = walk(host, "m").find((n) => n.type === "TextField")!
-    host.dispatch("m", field.id, "submit", { text: "1" })
-    await host.settle(10)
-    expect(host.calls.find((c) => c.name === "terminal.input.write")!.params).toEqual({ terminal: "terminal_1", text: "1\r" })
+    expect(field.props.placeholder).toBe("volume name")
+    host.dispatch("m", field.id, "submit", { text: " backups-02 " })
+    await host.settle(20)
+    expect(owner.responses).toEqual([{ item: "feed_04", value: { text: "backups-02" } }])
+  })
 
-    const blocked = inboxHost({ settings: { variant: "focus" }, replyScope: false }).host
-    blocked.mount("m", "renderInbox", section)
-    await blocked.settle(20)
-    blocked.dispatch("m", walk(blocked, "m").find((n) => n.type === "TextField")!.id, "submit", { text: "1" })
-    await blocked.settle(10)
-    expect(texts(blocked, "m").some((s) => s.startsWith("Quick reply needs permission"))).toBe(true)
-    expect(walk(blocked, "m").some((n) => n.type === "TextField")).toBe(false)
+  test("a sign-in request opens the agent's browser tab next to this one", async () => {
+    const { host, owner } = inboxHost({ settings: { variant: "focus" } })
+    host.mount("m", "renderInbox", section)
+    await host.settle(20)
+    host.dispatch("m", nodeWith(host, "m", "Row", "Sign in to the staging dashboard")!, "tap")
+    await host.settle(20)
+    const before = host.calls.length
+    host.dispatch("m", nodeWith(host, "m", "Button", "Continue in Browser")!, "tap")
+    expect(host.calls[before]).toMatchObject({ name: "action.run", params: { id: "browser.duplicateRight", args: { browser: "browser_1" } } })
+    await host.settle(20)
+    // Opening is not an answer: the agent resumes when the owner sees the sign-in finish.
+    expect(owner.responses).toEqual([])
+    expect(owner.get("feed_03")!.status).toBe("open")
   })
 })
 
 describe("card variant", () => {
-  test("one item at a time; Skip moves on and Done finishes", async () => {
-    const { host } = inboxHost({ settings: { variant: "card" } })
+  test("one item at a time; Skip moves on, Done finishes through the owner", async () => {
+    const { host, owner } = inboxHost({ settings: { variant: "card" } })
     host.mount("m", "renderInbox", section)
     await host.settle(20)
-    expect(texts(host, "m")).toEqual(expect.arrayContaining(["1 of 8", "Claude", "Skip"]))
+    expect(texts(host, "m")).toEqual(expect.arrayContaining(["1 of 9", "Which retry strategy should the webhook sender use?", "Skip"]))
     host.dispatch("m", nodeWith(host, "m", "Button", "Skip")!, "tap")
     await host.settle(10)
-    expect(texts(host, "m")).toEqual(expect.arrayContaining(["2 of 8", "Docs build failed"]))
+    expect(texts(host, "m")).toEqual(expect.arrayContaining(["2 of 9", "Run npm install --save chart-kit?", "Approve", "Deny"]))
     host.dispatch("m", nodeWith(host, "m", "Button", "Done")!, "tap")
-    await host.settle(10)
-    expect(texts(host, "m")).toEqual(expect.arrayContaining(["2 of 7", "Retry webhook delivery with backoff"]))
+    await host.settle(20)
+    expect(owner.get("feed_02")!.status).toBe("done")
+    expect(texts(host, "m")).toEqual(expect.arrayContaining(["2 of 8", "Sign in to the staging dashboard"]))
   })
 
   test("the variant command cycles and stores the override when settings are read-only", async () => {
     const { host, storage } = inboxHost({ settings: { variant: "card" } })
     host.mount("m", "renderInbox", section)
     await host.settle(20)
-    const r = await command(host, "cycleVariant")
-    expect(r).toEqual({ ok: true, body: { value: { variant: "grouped" } } })
-    await host.settle(10)
+    expect(await command(host, "cycleVariant")).toEqual({ ok: true, body: { value: { variant: "grouped" } } })
+    await host.settle(20)
     expect(storage.get("variantOverride")).toEqual({ variant: "grouped", base: "card" })
     expect(texts(host, "m")).toContain("Agents")
   })
 })
 
 describe("status item and commands", () => {
-  test("the badge counts unread items; a click opens the most urgent one", async () => {
+  test("the badge shows the owner's counts and follows feed.changed without re-listing everything", async () => {
     const { host } = inboxHost()
     host.mount("s", "renderStatus", { contribution: "cmux/inbox#badge", surface: "statusItem" })
     await host.settle(20)
-    const nodes = walk(host, "s")
-    expect(nodes.find((n) => n.type === "Badge")!.props).toMatchObject({ text: "4", tone: "warning" })
-    host.dispatch("s", nodes[0]!.id, "tap")
-    await host.settle(10)
-    expect(host.calls.find((c) => c.name === "tab.focus")!.params).toEqual({ tab: "tab_1" })
-    expect((nodes[0]!.props.menu as Array<{ title: string }>)[0]!.title).toBe("Needs input: Claude")
+    expect(walk(host, "s").find((n) => n.type === "Badge")!.props).toMatchObject({ text: "8", tone: "warning" })
+    expect(host.calls.find((c) => c.name === "feed.list")!.params).toEqual({ filter: { status: ["open"] }, limit: 8 })
+    host.emit("feed.changed", { revision: "9", changed: ["feed_01"], counts: { unseen: 3, open: 9, needsResponse: 0, urgent: 1, snoozed: 1 } })
+    await host.settle(20)
+    expect(walk(host, "s").find((n) => n.type === "Badge")!.props).toMatchObject({ text: "3", tone: "secondary" })
+    const menu = walk(host, "s")[0]!.props.menu as Array<{ title: string }>
+    expect(menu[0]!.title).toBe("Choose: Which retry strategy should the webhook sender use?")
   })
 
-  test("list, markDone and snooze work with nothing mounted (MCP tools)", async () => {
-    const { host } = inboxHost()
-    const listed = await command(host, "list", { source: "github" })
+  test("list, markDone and snooze work with nothing mounted (MCP tools); there is no respond tool", async () => {
+    const { host, owner } = inboxHost()
+    const listed = await command(host, "list", { needsResponse: true })
     expect(listed.ok).toBe(true)
-    const value = listed.body.value as { items: Array<{ id: string; kind: string }> }
-    expect(value.items.map((i) => i.kind)).toEqual(["checksFailing", "reviewRequested", "mention"])
-    expect(await command(host, "markDone", { id: "github:example-org/payments#412" })).toEqual({ ok: true, body: { value: { id: "github:example-org/payments#412", done: true } } })
-    const snoozed = await command(host, "snooze", { id: "agent:agent_2", minutes: 90 })
+    const value = listed.body.value as { items: Array<{ id: string; request_kind: string }> }
+    expect(value.items.map((i) => i.request_kind)).toEqual(["choice", "approve", "sign-in", "input", "review"])
+    expect(await command(host, "markDone", { id: "feed_05" })).toEqual({ ok: true, body: { value: { id: "feed_05", done: true } } })
+    expect(owner.get("feed_05")!.status).toBe("done")
+    const snoozed = await command(host, "snooze", { id: "feed_07", minutes: 90 })
     expect(snoozed.ok).toBe(true)
-    const after = (await command(host, "list", {})).body.value as { items: Array<{ id: string }> }
-    expect(after.items.map((i) => i.id)).not.toContain("github:example-org/payments#412")
-    expect(after.items.map((i) => i.id)).not.toContain("agent:agent_2")
-    const missing = await command(host, "markDone", { id: "nope" })
-    expect(missing.ok).toBe(false)
-    expect(missing.body.code).toBe("item.not_found")
+    expect(owner.get("feed_07")!.status).toBe("snoozed")
+    const missing = await command(host, "markDone", { id: "feed_nope" })
+    expect(missing).toMatchObject({ ok: false, body: { code: "item.not_found" } })
+    expect((await command(host, "respond", { id: "feed_01", value: "x" })).body.code).toBe("export.missing")
   })
 
-  test("next item selects and opens in order; mark all read acks every unread notification", async () => {
-    const { host } = inboxHost()
-    expect((await command(host, "nextItem")).body.value).toEqual({ id: "agent:agent_1" })
-    expect((await command(host, "nextItem", { open: false })).body.value).toEqual({ id: "notification:notification_2" })
-    expect(host.calls.filter((c) => c.name === "tab.focus")).toHaveLength(1)
-    const r = await command(host, "markAllRead")
-    expect(r.body.value).toEqual({ marked: 3 })
-    const acked = host.calls.filter((c) => c.name === "notification.ack").flatMap((c) => c.params.notifications)
-    expect(acked.sort()).toEqual(["notification_1", "notification_2", "notification_3"])
+  test("next item selects and opens in the owner's order; mark all seen is one owner call", async () => {
+    const { host, owner } = inboxHost()
+    expect((await command(host, "nextItem")).body.value).toEqual({ id: "feed_01" })
+    expect((await command(host, "nextItem", { open: false })).body.value).toEqual({ id: "feed_02" })
+    expect(host.calls.filter((c) => c.name === "action.run")).toHaveLength(1)
+    const r = await command(host, "markAllSeen")
+    expect(r.body.value).toEqual({ marked: 7 })
+    expect(host.calls.filter((c) => c.name === "feed.mark").at(-1)!.params).toEqual({ filter: { status: ["open"], unseen: true }, state: "seen" })
+    expect(owner.counts().unseen).toBe(0)
   })
 
-  test("open inbox reports the missing pane op", async () => {
-    const { host } = inboxHost()
-    const r = await command(host, "openInbox")
-    expect(r.ok).toBe(false)
-    expect(host.calls.find((c) => c.name === "app.pane.open")!.params).toEqual({ contribution: "cmux/inbox#pane" })
+  test("the app stores only view preferences, never item state", async () => {
+    const { host, storage } = inboxHost({ settings: { variant: "focus" } })
+    host.mount("m", "renderInbox", section)
+    await host.settle(20)
+    await command(host, "markDone", {})
+    await command(host, "snooze", {})
+    for (const key of storage.keys()) expect(["view", "variantOverride"]).toContain(key)
   })
 })

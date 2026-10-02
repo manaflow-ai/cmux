@@ -12,9 +12,9 @@ function englishStrings(): Map<string, string> {
   const out = new Map<string, string>()
   for (const file of files(src)) {
     const text = readFileSync(file, "utf8")
-    for (const m of text.matchAll(/\bt\(\s*"([a-z]\w*\.[\w.]+)",\s*"((?:[^"\\]|\\.)*)"/g)) out.set(m[1]!, m[2]!)
-    // Label tables: ["kind.agentBlocked", "Needs input"] (English starts with a capital).
-    for (const m of text.matchAll(/\[\s*"([a-z]\w*\.[\w.]+)",\s*"([A-Z](?:[^"\\]|\\.)*)"/g)) out.set(m[1]!, m[2]!)
+    for (const m of text.matchAll(/\b(?:t|fail)\(\s*"([a-z]\w*(?:\.[\w-]+)*)",\s*"((?:[^"\\]|\\.)*)"/g)) out.set(m[1]!, m[2]!)
+    // Label tables: ["request.choice", "Choose"] (English starts with a capital).
+    for (const m of text.matchAll(/\[\s*"([a-z]\w*\.[\w.-]+)",\s*"([A-Z](?:[^"\\]|\\.)*)"/g)) out.set(m[1]!, m[2]!)
   }
   return out
 }
@@ -30,7 +30,7 @@ describe("localization", () => {
     // Keys built at runtime.
     for (let d = 0; d < 7; d++) english.set(`day.${d}`, "")
     for (const id of ["30m", "2h", "tomorrow", "nextWeek"]) english.set(`snooze.${id}`, "{time}")
-    expect(english.size).toBeGreaterThan(60)
+    expect(english.size).toBeGreaterThan(70)
     const missing = [...english.keys()].filter((k) => !ja.has(k))
     expect(missing).toEqual([])
     setLanguage("ja")
@@ -40,7 +40,7 @@ describe("localization", () => {
   test("falls back to English and fills placeholders", () => {
     expect(t("nope.key", "Hello {name}", { name: "Ada" })).toBe("Hello Ada")
     setLanguage("ja-JP")
-    expect(t("kind.agentBlocked", "Needs input")).toBe("入力待ち")
+    expect(t("request.choice", "Choose")).toBe("選択")
   })
 })
 
