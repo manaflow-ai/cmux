@@ -32,6 +32,15 @@ test("googleSheets.write to a shared sheet is a draft; the confirmed draft paste
   const r = await s.value(`sites.googleSheets.write(${JSON.stringify(d.id)}, { confirm: true })`);
   assert.deepEqual(r, { status: "written", range: "C1:C2", verified: true });
   assert.equal(files.get("1sheetSHARED00000000000000000000x").sheets[0].cells.get("C2"), "yes");
+  assert.deepEqual(files.get("1sheetSHARED00000000000000000000x").edits, ["paste"], "one paste wrote the whole range");
+});
+
+test("googleSheets.write types the cells when the editor drops the paste", async () => {
+  const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL paste fallback")');
+  files.get(f.id).ignorePaste = true;
+  assert.deepEqual(await s.value(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [["a", "b"]])`), { status: "written", range: "A1:B1", verified: true });
+  assert.deepEqual(files.get(f.id).edits, ["typed", "typed"]);
+  await s.value(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
 });
 
 test("googleSheets.append, write and clear on a private sheet run at once and verify", async () => {

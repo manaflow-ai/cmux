@@ -238,12 +238,21 @@ box.addEventListener("keydown", (e) => {
   cell.focus();
 });
 const saving = () => { const b = document.getElementById("save-badge"); b.textContent = "Saving…"; setTimeout(() => (b.textContent = "Saved to Drive"), 1000); };
-const commit = () => { if (buf !== "" && cur) { saving(); post("cells", { range: ref(cur.r, cur.c), tsv: buf }); } buf = ""; };
-// As live: typed keys edit the cell; a whole string inserted at once
-// (Meta+V's paste or insertText in cmux) does not reach Sheets' cell editor.
+const commit = () => { if (buf !== "" && cur) { saving(); post("cells", { range: ref(cur.r, cur.c), tsv: buf, via: "typed" }); } buf = ""; };
+// As live in WebKit: typed keys edit the cell; text inserted without a
+// keydown or a composition does not reach Sheets' cell editor; a paste is
+// read from its clipboardData as TSV at the selected cell. A file with
+// ignorePaste models an editor that drops pastes, for the typed fallback.
 cell.addEventListener("beforeinput", (e) => {
   e.preventDefault();
   if (e.inputType === "insertText" && e.data && e.data.length === 1) buf += e.data;
+});
+cell.addEventListener("paste", (e) => {
+  e.preventDefault();
+  const tsv = e.clipboardData ? e.clipboardData.getData("text/plain") : "";
+  if (${JSON.stringify(!!file.ignorePaste)} || !tsv || !cur) return;
+  saving();
+  post("cells", { range: ref(cur.r, cur.c), tsv, via: "paste" });
 });
 cell.addEventListener("keydown", (e) => {
   if (e.key === "Tab") { e.preventDefault(); commit(); cur.c++; }
@@ -356,6 +365,7 @@ nw.addEventListener("keydown", (e) => {
     const action = m[4];
     // Cell edits reach the saved file (what exports read) 800 ms later.
     if (action === "cells" || action === "clear") {
+      if (data.via) (file.edits ||= []).push(data.via);
       setTimeout(() => apply(file, action, data), 800);
       return { json: { ok: true } };
     }
