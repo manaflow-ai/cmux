@@ -62,17 +62,26 @@ import Testing
         #expect(CMTimeCompare(next.bufferStartTime ?? .invalid, CMTime(value: 2_973, timescale: 16_000)) == 0)
     }
 
-    /// The analyzer runs its first chunk on whatever audio it has when it
-    /// starts, so it hears a lead-in of silence first; captured audio
-    /// follows the lead-in on the analyzer's clock.
+    /// SpeechAnalyzer transcribes nothing in about the first 1.1 s of audio
+    /// it hears, and digital silence does not count toward that span, so the
+    /// lead-in is a faint noise floor in several buffers.
+    @Test func theLeadInIsAFaintNoiseFloor() throws {
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: false))
+        let pieces = AVAudioPCMBuffer.noiseFloor(format, seconds: 1.5, pieces: 10)
+        #expect(pieces.count == 10)
+        #expect(pieces.reduce(0) { $0 + Int($1.frameLength) } == 24_000)
+        let samples = pieces.flatMap { piece in
+            (0..<Int(piece.frameLength)).map { Int(piece.int16ChannelData?[0][$0] ?? 0) }
+        }
+        #expect(samples.contains { $0 != 0 })
+        #expect(samples.allSatisfy { abs($0) <= 128 })
+    }
+
     @Test func capturedAudioFollowsTheLeadIn() throws {
         let format = try #require(AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: false))
-        let silence = try #require(AVAudioPCMBuffer.silence(format, seconds: 1.5))
-        #expect(silence.frameLength == 24_000)
-        #expect(silence.int16ChannelData.map { (0..<24_000).allSatisfy { i in $0[0][i] == 0 } } == true)
         var timeline = AnalyzerTimeline()
-        let lead = timeline.leadIn(silence)
-        #expect(CMTimeCompare(lead.bufferStartTime ?? .invalid, .zero) == 0)
+        let lead = timeline.leadIn(AVAudioPCMBuffer.noiseFloor(format, seconds: 1.5, pieces: 10))
+        #expect(lead.map { Self.seconds($0.bufferStartTime) } == (0..<10).map { Double($0) * 0.15 })
         let first = timeline.start(at: CMTime(value: 0, timescale: 16_000), frames: 1_600, sampleRate: 16_000)
         #expect(CMTimeCompare(first ?? .invalid, CMTime(value: 24_000, timescale: 16_000)) == 0)
         let next = timeline.start(at: CMTime(value: 1_600, timescale: 16_000), frames: 1_600, sampleRate: 16_000)
