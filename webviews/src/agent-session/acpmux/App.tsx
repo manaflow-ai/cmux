@@ -702,7 +702,11 @@ function AcpmuxPane() {
   );
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
-  const reviewing = !!handoff && handoff.target.sessionId === snapshot.sessionId && ["draft", "starting"].includes(handoff.state) && !snapshot.handoff?.receipt;
+  const reviewing =
+    !!handoff &&
+    handoff.target.sessionId === snapshot.sessionId &&
+    ["draft", "starting"].includes(handoff.state) &&
+    !snapshot.handoff?.receipt;
   const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
   const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot);
   // Turn shape: work folds under "Worked for" until opened.
@@ -843,8 +847,14 @@ function AcpmuxPane() {
     window.cmuxAcpmuxBridge = {
       command(name) {
         if (name === "searchChats") setSearching((open) => !open);
-        if (name === "continueIn" && snapshotRef.current?.canHandoff && snapshotRef.current.handoff?.ready
-          && !snapshotRef.current.isWorking && !snapshotRef.current.queue.length) setContinuing(true);
+        if (
+          name === "continueIn" &&
+          snapshotRef.current?.canHandoff &&
+          snapshotRef.current.handoff?.ready &&
+          !snapshotRef.current.isWorking &&
+          !snapshotRef.current.queue.length
+        )
+          setContinuing(true);
       },
       receive(next) {
         if (next.protocolVersion !== 1) return;
@@ -922,7 +932,12 @@ function AcpmuxPane() {
             rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
             snapshotRef.current = next;
             setSnapshot((previous) => {
-              if (next.canHandoff && !next.handoff?.ready && next.sessionId === previous.sessionId && previous.handoff?.record)
+              if (
+                next.canHandoff &&
+                !next.handoff?.ready &&
+                next.sessionId === previous.sessionId &&
+                previous.handoff?.record
+              )
                 return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
               return next;
             });
@@ -1008,8 +1023,14 @@ function AcpmuxPane() {
     const family = entry.id.split(/[-_]/)[0];
     return sourceHarness === "claude" ? family === "codex" : sourceHarness === "codex" && family === "claude";
   });
-  const canContinue = !!snapshot.canHandoff && !!snapshot.handoff?.ready && !snapshot.isWorking && !snapshot.queue.length
-    && !snapshot.handoff?.busy && !reviewing && handoffTargets.length > 0;
+  const canContinue =
+    !!snapshot.canHandoff &&
+    !!snapshot.handoff?.ready &&
+    !snapshot.isWorking &&
+    !snapshot.queue.length &&
+    !snapshot.handoff?.busy &&
+    !reviewing &&
+    handoffTargets.length > 0;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   return (
     <section className="acpmux-shell" data-sidebar={sidebar}>
@@ -1047,23 +1068,44 @@ function AcpmuxPane() {
               {header.status && <span className="acpmux-status">{header.status}</span>}
             </div>
             <div className="acpmux-handoff-header-tools">
-              <span className="acpmux-session-coverage" title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}>
+              <span
+                className="acpmux-session-coverage"
+                title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}
+              >
                 {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
               </span>
-              {snapshot.canHandoff && handoffTargets.length > 0 && <ContinueMenu label={handoffLabels.continueIn}
-                targets={handoffTargets} disabled={!canContinue} open={continuing} setOpen={setContinuing}
-                onChoose={(harness) => ignoreFailure(callNative("chat.handoff.prepare", { harness }))} />}
+              {snapshot.canHandoff && handoffTargets.length > 0 && (
+                <ContinueMenu
+                  label={handoffLabels.continueIn}
+                  targets={handoffTargets}
+                  disabled={!canContinue}
+                  open={continuing}
+                  setOpen={setContinuing}
+                  onChoose={(harness) => ignoreFailure(callNative("chat.handoff.prepare", { harness }))}
+                />
+              )}
             </div>
           </header>
-          {!reviewing && snapshot.handoff?.error && <p className="acpmux-handoff-error" role="alert">{snapshot.handoff.error}</p>}
-          {reviewing && handoff && snapshot.handoff ? <HandoffReviewMessage key={`${handoff.handoffId}:${reviewReload}`}
-            record={handoff} state={snapshot.handoff} strings={handoffLabels}
-            onSave={(review) => callNative("chat.handoff.draft", { review })}
-            onStart={(review) => callNative("chat.handoff.start", { review })}
-            onReturn={() => selectSession(handoff.source.sessionId)}
-            onDiscard={() => ignoreFailure(callNative("chat.handoff.discard"))}
-            onReload={() => ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))} />
-          : freshChat ? (
+          {!reviewing && snapshot.handoff?.error && (
+            <p className="acpmux-handoff-error" role="alert">
+              {snapshot.handoff.error}
+            </p>
+          )}
+          {reviewing && handoff && snapshot.handoff ? (
+            <HandoffReviewMessage
+              key={`${handoff.handoffId}:${reviewReload}`}
+              record={handoff}
+              state={snapshot.handoff}
+              strings={handoffLabels}
+              onSave={(review) => callNative("chat.handoff.draft", { review })}
+              onStart={(review) => callNative("chat.handoff.start", { review })}
+              onReturn={() => selectSession(handoff.source.sessionId)}
+              onDiscard={() => ignoreFailure(callNative("chat.handoff.discard"))}
+              onReload={() =>
+                ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
+              }
+            />
+          ) : freshChat ? (
             <EmptyState project={projectName(snapshot.summary?.cwd)} />
           ) : (
             <TurnActionsContext.Provider value={turnActions}>
@@ -1099,13 +1141,15 @@ function AcpmuxPane() {
             <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
           </div>
         )}
-        {!reviewing && !handoffLoading && <Composer
-          snapshot={composerSnapshot}
-          chips={ComposerChips}
-          draft={draft}
-          onSend={(text) => void callNative("chat.send", { text })}
-          onStop={() => void callNative("chat.cancel")}
-        />}
+        {!reviewing && !handoffLoading && (
+          <Composer
+            snapshot={composerSnapshot}
+            chips={ComposerChips}
+            draft={draft}
+            onSend={(text) => void callNative("chat.send", { text })}
+            onStop={() => void callNative("chat.cancel")}
+          />
+        )}
       </div>
       {searching && (
         <SearchChats

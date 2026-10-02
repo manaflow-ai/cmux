@@ -22,14 +22,21 @@ export class HandoffClient {
   private ownRevisions = new Map<string, Map<number, number>>();
   private uncertainDraft?: { content: string; params: Record<string, unknown> };
   private saved: Promise<unknown> = Promise.resolve();
-  constructor(private request: Request, private changed: () => void, private key: () => string = () => crypto.randomUUID()) {}
+  constructor(
+    private request: Request,
+    private changed: () => void,
+    private key: () => string = () => crypto.randomUUID(),
+  ) {}
 
   select(sessionId?: string): void {
     this.sessionId = sessionId;
     this.selection += 1;
     this.state = {};
   }
-  disconnect(): void { this.state.ready = false; this.changed(); }
+  disconnect(): void {
+    this.state.ready = false;
+    this.changed();
+  }
   private adopt(record: Handoff): void {
     if (this.sessionId === record.source.sessionId || this.sessionId === record.target.sessionId)
       this.state.record = record;
@@ -44,11 +51,16 @@ export class HandoffClient {
     this.changed();
   }
   prepare(harness: string): Promise<Handoff | undefined> {
-    if (this.preparing && this.preparing.sessionId === this.sessionId && this.preparing.harness === harness) return this.preparing.promise;
+    if (this.preparing && this.preparing.sessionId === this.sessionId && this.preparing.harness === harness)
+      return this.preparing.promise;
     const promise = this.prepareOnce(harness);
     const attempt = { sessionId: this.sessionId, harness, promise };
     this.preparing = attempt;
-    void promise.finally(() => { if (this.preparing === attempt) this.preparing = undefined; }).catch(() => undefined);
+    void promise
+      .finally(() => {
+        if (this.preparing === attempt) this.preparing = undefined;
+      })
+      .catch(() => undefined);
     return promise;
   }
   private async prepareOnce(harness: string): Promise<Handoff | undefined> {
@@ -63,18 +75,24 @@ export class HandoffClient {
       if (current?.state === "draft" && current.source.sessionId === sessionId && current.target.harness === harness)
         return current;
       const pending = this.prepareAttempt;
-      this.prepareAttempt = pending?.sessionId === sessionId && pending.harness === harness
-        ? pending : { sessionId, harness, handoffKey: this.key() };
+      this.prepareAttempt =
+        pending?.sessionId === sessionId && pending.harness === harness
+          ? pending
+          : { sessionId, harness, handoffKey: this.key() };
       const result = handoffRecord(await this.request(HANDOFF_OPS.prepare, this.prepareAttempt));
       this.prepareAttempt = undefined;
       if (selection !== this.selection) return;
       this.adopt(result);
       return result;
     } catch (error) {
-      if (selection === this.selection) this.state.error = error instanceof Error ? error.message : "Couldn't prepare this continuation.";
+      if (selection === this.selection)
+        this.state.error = error instanceof Error ? error.message : "Couldn't prepare this continuation.";
       throw error;
     } finally {
-      if (selection === this.selection) { this.state.busy = undefined; this.changed(); }
+      if (selection === this.selection) {
+        this.state.busy = undefined;
+        this.changed();
+      }
     }
   }
 
@@ -84,24 +102,38 @@ export class HandoffClient {
     const selection = this.selection;
     const write = async () => {
       const record = this.state.record;
-      if (!record || record.handoffId !== id || selection !== this.selection || record.state !== "draft" || !this.state.ready || this.state.conflict) return;
-      if (new TextEncoder().encode(review.capsule).length > record.capsule.maxBytes) throw new Error("Capsule exceeds the advertised byte budget.");
+      if (
+        !record ||
+        record.handoffId !== id ||
+        selection !== this.selection ||
+        record.state !== "draft" ||
+        !this.state.ready ||
+        this.state.conflict
+      )
+        return;
+      if (new TextEncoder().encode(review.capsule).length > record.capsule.maxBytes)
+        throw new Error("Capsule exceeds the advertised byte budget.");
       this.state.busy = "saving";
       this.state.error = undefined;
       this.changed();
       let revision = review.revision ?? record.revision;
       const revisions = this.ownRevisions.get(record.handoffId);
       while (revisions?.has(revision) && revisions.get(revision)! > revision) revision = revisions.get(revision)!;
-      let params = { handoffId: id, revision, draftKey: this.key(),
+      let params = {
+        handoffId: id,
+        revision,
+        draftKey: this.key(),
         capsule: { text: review.capsule, memoryRefs: review.approvedMemoryReferences },
-        checkpoint: review.checkpoint?.confirmed ? { ref: review.checkpoint.reference, attest: true } : null };
+        checkpoint: review.checkpoint?.confirmed ? { ref: review.checkpoint.reference, attest: true } : null,
+      };
       const content = JSON.stringify({ id, review });
       if (this.uncertainDraft?.content === content) params = this.uncertainDraft.params as typeof params;
       this.uncertainDraft = { content, params };
       try {
         let result: unknown;
-        try { result = await this.request(HANDOFF_OPS.draft, params); }
-        catch (error) {
+        try {
+          result = await this.request(HANDOFF_OPS.draft, params);
+        } catch (error) {
           if (error instanceof AcpmuxRpcError || !this.state.ready || selection !== this.selection) throw error;
           // Recover first, then replay the exact write key. A later peer edit is never overwritten.
           await this.request(HANDOFF_OPS.get, { handoffId: id });
@@ -111,7 +143,8 @@ export class HandoffClient {
         this.uncertainDraft = undefined;
         if (accepted.revision > params.revision) {
           const own = this.ownRevisions.get(record.handoffId) ?? new Map<number, number>();
-          own.set(params.revision, accepted.revision); this.ownRevisions.set(record.handoffId, own);
+          own.set(params.revision, accepted.revision);
+          this.ownRevisions.set(record.handoffId, own);
         }
         if (selection === this.selection) this.adopt(accepted);
         return accepted;
@@ -122,7 +155,10 @@ export class HandoffClient {
         }
         throw error;
       } finally {
-        if (selection === this.selection) { this.state.busy = undefined; this.changed(); }
+        if (selection === this.selection) {
+          this.state.busy = undefined;
+          this.changed();
+        }
       }
     };
     const result = this.saved.then(write);
@@ -135,34 +171,60 @@ export class HandoffClient {
     const promise = this.startOnce(review);
     const attempt = { selection: this.selection, promise };
     this.starting = attempt;
-    void promise.finally(() => { if (this.starting === attempt) this.starting = undefined; }).catch(() => undefined);
+    void promise
+      .finally(() => {
+        if (this.starting === attempt) this.starting = undefined;
+      })
+      .catch(() => undefined);
     return promise;
   }
   private async startOnce(review: HandoffReviewInput): Promise<StartReceipt | undefined> {
     await this.saved;
     const record = this.state.record;
-    if (!record || !this.state.ready || this.sessionId !== record.target.sessionId || this.state.busy || this.state.conflict || this.state.receipt) return;
-    reviewedContinuation(review.capsule, review.checkpoint.reference, review.checkpoint.confirmed,
-      review.approvedMemoryReferences.join("\n"), record.capsule.maxBytes);
+    if (
+      !record ||
+      !this.state.ready ||
+      this.sessionId !== record.target.sessionId ||
+      this.state.busy ||
+      this.state.conflict ||
+      this.state.receipt
+    )
+      return;
+    reviewedContinuation(
+      review.capsule,
+      review.checkpoint.reference,
+      review.checkpoint.confirmed,
+      review.approvedMemoryReferences.join("\n"),
+      record.capsule.maxBytes,
+    );
     const selection = this.selection;
     // One handoff owns one prompt. Its daemon-minted UUID is stable even after a page/daemon restart.
-    const params = { handoffId: record.handoffId, revision: review.revision ?? record.revision, promptId: record.promptId ?? record.handoffId,
+    const params = {
+      handoffId: record.handoffId,
+      revision: review.revision ?? record.revision,
+      promptId: record.promptId ?? record.handoffId,
       capsule: { text: review.capsule, memoryRefs: review.approvedMemoryReferences },
-      checkpoint: { ref: review.checkpoint.reference, attest: true } };
+      checkpoint: { ref: review.checkpoint.reference, attest: true },
+    };
     this.state.busy = "starting";
     this.state.error = undefined;
     this.changed();
     try {
       let receipt: StartReceipt;
-      try { receipt = await this.request(HANDOFF_OPS.start, params); }
-      catch (error) {
+      try {
+        receipt = await this.request(HANDOFF_OPS.start, params);
+      } catch (error) {
         if (error instanceof AcpmuxRpcError || !this.state.ready || selection !== this.selection) throw error;
         const restored = handoffRecord(await this.request(HANDOFF_OPS.get, { handoffId: record.handoffId }));
         if (selection === this.selection) this.adopt(restored);
         receipt = await this.request(HANDOFF_OPS.start, params);
       }
-      if (receipt.handoffId !== record.handoffId || receipt.targetSessionId !== record.target.sessionId
-        || receipt.promptId !== params.promptId || !["started", "already_started"].includes(receipt.outcome))
+      if (
+        receipt.handoffId !== record.handoffId ||
+        receipt.targetSessionId !== record.target.sessionId ||
+        receipt.promptId !== params.promptId ||
+        !["started", "already_started"].includes(receipt.outcome)
+      )
         throw new Error("Invalid continuation acknowledgement.");
       if (selection === this.selection) {
         this.state.receipt = receipt;
@@ -177,7 +239,10 @@ export class HandoffClient {
       }
       throw error;
     } finally {
-      if (selection === this.selection) { this.state.busy = undefined; this.changed(); }
+      if (selection === this.selection) {
+        this.state.busy = undefined;
+        this.changed();
+      }
     }
   }
 
@@ -194,10 +259,14 @@ export class HandoffClient {
       if (selection === this.selection) this.state = { ready: true };
       return record;
     } catch (error) {
-      if (selection === this.selection) this.state.error = error instanceof Error ? error.message : "Couldn’t discard this continuation.";
+      if (selection === this.selection)
+        this.state.error = error instanceof Error ? error.message : "Couldn’t discard this continuation.";
       throw error;
     } finally {
-      if (selection === this.selection) { this.state.busy = undefined; this.changed(); }
+      if (selection === this.selection) {
+        this.state.busy = undefined;
+        this.changed();
+      }
     }
   }
 }

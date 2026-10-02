@@ -7,20 +7,31 @@ const contractV1 = {
   state: "draft",
   revision: 1,
   source: {
-    sessionId: "session-source", harness: "claude", cwd: "/tmp/handoff-fixture", seq: 12,
+    sessionId: "session-source",
+    harness: "claude",
+    cwd: "/tmp/handoff-fixture",
+    seq: 12,
     coverage: [{ item: "transcript", status: "included", detail: null }],
     enforcement: { policy: "native policy", label: "native_policy", isolation: "unverified", detail: null },
   },
   target: {
-    sessionId: "session-target", harness: "codex", cwd: "/tmp/handoff-fixture",
+    sessionId: "session-target",
+    harness: "codex",
+    cwd: "/tmp/handoff-fixture",
     coverage: [{ item: "transcript", status: "included", detail: null }],
     enforcement: { policy: "native policy", label: "native_policy", isolation: "unverified", detail: null },
   },
   capsule: {
-    text: "Continue from the reviewed checkpoint.", maxBytes: 64 * 1024,
-    context: { fromSeq: 0, toSeq: 12, truncated: false, bytes: 38, totalBytes: 38 }, checkpoint: null, memoryRefs: [],
+    text: "Continue from the reviewed checkpoint.",
+    maxBytes: 64 * 1024,
+    context: { fromSeq: 0, toSeq: 12, truncated: false, bytes: 38, totalBytes: 38 },
+    checkpoint: null,
+    memoryRefs: [],
   },
-  promptId: null, turnId: null, createdAt: "2026-10-02T00:00:00.000Z", updatedAt: "2026-10-02T00:00:00.000Z",
+  promptId: null,
+  turnId: null,
+  createdAt: "2026-10-02T00:00:00.000Z",
+  updatedAt: "2026-10-02T00:00:00.000Z",
 } as const;
 
 describe("acpmux handoff protocol v1", () => {
@@ -36,7 +47,13 @@ describe("acpmux handoff protocol v1", () => {
 
   test("accepts the v1 owner contract and preserves daemon fields", () => {
     const parsed = handoffRecord(contractV1);
-    expect(parsed).toMatchObject({ handoffId: "handoff-1", revision: 1, source: { seq: 12 }, promptId: null, turnId: null });
+    expect(parsed).toMatchObject({
+      handoffId: "handoff-1",
+      revision: 1,
+      source: { seq: 12 },
+      promptId: null,
+      turnId: null,
+    });
     expect(parsed.capsule.context).toEqual({ fromSeq: 0, toSeq: 12, truncated: false, bytes: 38, totalBytes: 38 });
   });
 
@@ -67,7 +84,10 @@ describe("acpmux handoff protocol v1", () => {
     const handoff = new AcpmuxRpcError({ message: "stale", data: { reason: "stale_revision", handoff: contractV1 } });
     expect(handoff.reason).toBe("stale_revision");
     expect(handoff.handoff?.handoffId).toBe("handoff-1");
-    const malformed = new AcpmuxRpcError({ message: "stale", data: { reason: "stale_revision", handoff: { nope: true } } });
+    const malformed = new AcpmuxRpcError({
+      message: "stale",
+      data: { reason: "stale_revision", handoff: { nope: true } },
+    });
     expect(malformed.reason).toBe("stale_revision");
     expect(malformed.handoff).toBeUndefined();
   });

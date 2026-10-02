@@ -16,7 +16,13 @@ export type Coverage = {
   detail: string | null;
 };
 export type Enforcement = { policy: string; label: "native_policy"; isolation: "unverified"; detail: string | null };
-export type HandoffSession = { sessionId: string; harness: string; cwd: string; coverage: Coverage[]; enforcement: Enforcement };
+export type HandoffSession = {
+  sessionId: string;
+  harness: string;
+  cwd: string;
+  coverage: Coverage[];
+  enforcement: Enforcement;
+};
 export type Handoff = {
   handoffId: string;
   handoffKey: string;
@@ -62,14 +68,24 @@ function session(value: unknown): HandoffSession {
   if (enforcement.label !== "native_policy" || enforcement.isolation !== "unverified" || !Array.isArray(item.coverage))
     throw new Error("Unsupported continuation coverage.");
   requiredText(enforcement.policy);
-  if (enforcement.detail !== null && typeof enforcement.detail !== "string") throw new Error("Invalid enforcement report.");
+  if (enforcement.detail !== null && typeof enforcement.detail !== "string")
+    throw new Error("Invalid enforcement report.");
   for (const report of item.coverage) {
-    if (!report || !["transcript", "tool_output", "plan", "files", "memory", "checkpoint", "model"].includes(report.item)
-      || !["included", "summarized", "omitted", "unavailable"].includes(report.status)
-      || (report.detail !== null && typeof report.detail !== "string")) throw new Error("Invalid continuation coverage.");
+    if (
+      !report ||
+      !["transcript", "tool_output", "plan", "files", "memory", "checkpoint", "model"].includes(report.item) ||
+      !["included", "summarized", "omitted", "unavailable"].includes(report.status) ||
+      (report.detail !== null && typeof report.detail !== "string")
+    )
+      throw new Error("Invalid continuation coverage.");
   }
-  return { sessionId: requiredText(item.sessionId), harness: requiredText(item.harness), cwd: requiredText(item.cwd),
-    coverage: item.coverage, enforcement: enforcement as Enforcement };
+  return {
+    sessionId: requiredText(item.sessionId),
+    harness: requiredText(item.harness),
+    cwd: requiredText(item.cwd),
+    coverage: item.coverage,
+    enforcement: enforcement as Enforcement,
+  };
 }
 
 /** Refuse malformed owner data before using it for selection, permission labels or startup. */
@@ -79,14 +95,27 @@ export function handoffRecord(value: unknown): Handoff {
   const target = session(record.target);
   const capsule = object(record.capsule);
   const context = object(capsule.context);
-  if (!Number.isSafeInteger(record.revision) || record.revision < 1 || source.sessionId === target.sessionId || source.cwd !== target.cwd
-    || source.harness === target.harness || !["draft", "starting", "started", "discarded"].includes(record.state)
-    || !Number.isSafeInteger(record.source.seq) || record.source.seq < 0
-    || typeof capsule.text !== "string" || capsule.maxBytes !== MAX_CAPSULE_BYTES_V1 || new TextEncoder().encode(capsule.text).length > capsule.maxBytes
-    || !Array.isArray(capsule.memoryRefs) || capsule.memoryRefs.some((ref: unknown) => typeof ref !== "string")
-    || typeof context.truncated !== "boolean"
-    || [context.fromSeq, context.toSeq, context.bytes, context.totalBytes].some((n) => !Number.isSafeInteger(n) || n < 0)
-    || context.fromSeq > context.toSeq || context.bytes > context.totalBytes)
+  if (
+    !Number.isSafeInteger(record.revision) ||
+    record.revision < 1 ||
+    source.sessionId === target.sessionId ||
+    source.cwd !== target.cwd ||
+    source.harness === target.harness ||
+    !["draft", "starting", "started", "discarded"].includes(record.state) ||
+    !Number.isSafeInteger(record.source.seq) ||
+    record.source.seq < 0 ||
+    typeof capsule.text !== "string" ||
+    capsule.maxBytes !== MAX_CAPSULE_BYTES_V1 ||
+    new TextEncoder().encode(capsule.text).length > capsule.maxBytes ||
+    !Array.isArray(capsule.memoryRefs) ||
+    capsule.memoryRefs.some((ref: unknown) => typeof ref !== "string") ||
+    typeof context.truncated !== "boolean" ||
+    [context.fromSeq, context.toSeq, context.bytes, context.totalBytes].some(
+      (n) => !Number.isSafeInteger(n) || n < 0,
+    ) ||
+    context.fromSeq > context.toSeq ||
+    context.bytes > context.totalBytes
+  )
     throw new Error("Invalid continuation response.");
   if (capsule.checkpoint !== null) {
     const checkpoint = object(capsule.checkpoint);
@@ -108,10 +137,14 @@ export class AcpmuxRpcError extends Error {
   readonly handoff?: Handoff;
   constructor(error: { message?: string; data?: unknown }) {
     super(error.message ?? "acpmux request failed");
-    const data = error.data && typeof error.data === "object" ? error.data as Record<string, unknown> : undefined;
+    const data = error.data && typeof error.data === "object" ? (error.data as Record<string, unknown>) : undefined;
     this.reason = typeof data?.reason === "string" ? data.reason : undefined;
     if (data?.handoff) {
-      try { this.handoff = handoffRecord(data.handoff); } catch { /* Malformed recovery data cannot replace the review. */ }
+      try {
+        this.handoff = handoffRecord(data.handoff);
+      } catch {
+        /* Malformed recovery data cannot replace the review. */
+      }
     }
   }
 }

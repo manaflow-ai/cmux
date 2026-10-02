@@ -40,7 +40,7 @@ import Testing
         let reply = AgentPaneReply.handshake(.mock)
         let value = try #require(reply["value"] as? [String: Any])
         let labels = try #require(value["handoffStrings"] as? [String: String])
-        #expect(Set(labels.keys) == Set(AgentPaneHandoffStrings.values.keys))
+        #expect(Set(labels.keys) == Set(AgentPaneHandoffStrings().values.keys))
         #expect(labels.count == 36)
         #expect(labels["continueIn"] == "Continue in…")
         #expect(labels["fromTo"]?.contains("%@") == true)

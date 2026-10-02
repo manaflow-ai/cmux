@@ -5,13 +5,20 @@ import type { AcpmuxSnapshot } from "../model";
 import { HANDOFF_OPS } from "./protocol";
 class RecordingSocket extends MockAcpmuxSocket {
   calls: { method: string; params: any }[] = [];
-  override send(raw: string) { this.calls.push(JSON.parse(raw)); super.send(raw); }
+  override send(raw: string) {
+    this.calls.push(JSON.parse(raw));
+    super.send(raw);
+  }
 }
 const connect = async (socket = new RecordingSocket(() => Promise.resolve())) => {
   (globalThis as any).window ??= globalThis;
   const snapshots: AcpmuxSnapshot[] = [];
-  const client = await AcpmuxDirectClient.connect(mockHost, (s) => snapshots.push(s), undefined,
-    () => socket as unknown as WebSocket);
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (s) => snapshots.push(s),
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
   return { client, socket, current: () => snapshots.at(-1)! };
 };
 test("Claude to Codex and back require review, preserve cwd and leave source intact", async () => {
@@ -31,7 +38,11 @@ test("Claude to Codex and back require review, preserve cwd and leave source int
     expect(current().rows).toHaveLength(0);
     expect(socket.calls.some((call) => call.method === "session/prompt")).toBe(false);
     await expect(client.send("bypass review")).rejects.toThrow("Review");
-    const review = { capsule: "Reviewed task and preserved edits", checkpoint: { reference: "backup-1", confirmed: true }, approvedMemoryReferences: ["project/rules"] };
+    const review = {
+      capsule: "Reviewed task and preserved edits",
+      checkpoint: { reference: "backup-1", confirmed: true },
+      approvedMemoryReferences: ["project/rules"],
+    };
     await client.startHandoff(review);
     expect(current().handoff?.record?.state).toBe("started");
     expect(socket.calls.filter((call) => call.method === HANDOFF_OPS.start)).toHaveLength(1);
@@ -47,7 +58,9 @@ test("Claude to Codex and back require review, preserve cwd and leave source int
     expect(returned).toBe(record.target.sessionId);
     expect(current().sessions.some((s) => s.sessionId === unusedTarget)).toBe(false);
     expect(current().sessions.some((s) => s.sessionId === sourceId)).toBe(true);
-  } finally { client.close(); }
+  } finally {
+    client.close();
+  }
 });
 class UnsupportedSocket extends RecordingSocket {
   override send(raw: string) {
@@ -66,5 +79,7 @@ test("unsupported daemons are never asked for handoffs", async () => {
     expect(current().canHandoff).toBe(false);
     await client.continueIn("codex");
     expect(socket.calls.some((call) => call.method.startsWith("_acpmux/handoff_"))).toBe(false);
-  } finally { client.close(); }
+  } finally {
+    client.close();
+  }
 });

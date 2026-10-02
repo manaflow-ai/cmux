@@ -50,7 +50,10 @@ const review: HandoffReviewInput = {
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
   return { promise, resolve, reject };
 }
 
@@ -65,28 +68,49 @@ function harness(initial: Handoff | null = record()) {
       return current;
     }
     if (method === HANDOFF_OPS.draft) {
-      current = { ...current!, revision: current!.revision + 1, capsule: { ...current!.capsule, text: String((params.capsule as any).text) } };
+      current = {
+        ...current!,
+        revision: current!.revision + 1,
+        capsule: { ...current!.capsule, text: String((params.capsule as any).text) },
+      };
       return current;
     }
     if (method === HANDOFF_OPS.start) {
       current = { ...current!, state: "started", revision: current!.revision + 1, promptId: String(params.promptId) };
-      return { handoffId: current.handoffId, targetSessionId: current.target.sessionId, promptId: String(params.promptId), turnId: "turn-1", outcome: "started" };
+      return {
+        handoffId: current.handoffId,
+        targetSessionId: current.target.sessionId,
+        promptId: String(params.promptId),
+        turnId: "turn-1",
+        outcome: "started",
+      };
     }
     if (method === HANDOFF_OPS.discard) return { discarded: true };
     throw new Error(`unexpected ${method}`);
   };
-  const request = async (method: string, params: Record<string, unknown>): Promise<any> => implementation(method, params);
+  const request = async (method: string, params: Record<string, unknown>): Promise<any> =>
+    implementation(method, params);
   return {
     calls,
     request,
-    setRequest(next: (method: string, params: Record<string, unknown>) => Promise<any>) { implementation = next; },
-    get current() { return current; },
-    set current(value: Handoff | null) { current = value; },
+    setRequest(next: (method: string, params: Record<string, unknown>) => Promise<any>) {
+      implementation = next;
+    },
+    get current() {
+      return current;
+    },
+    set current(value: Handoff | null) {
+      current = value;
+    },
   };
 }
 
 async function selectedClient(h = harness()) {
-  const client = new HandoffClient(h.request, () => {}, () => "stable-client-key");
+  const client = new HandoffClient(
+    h.request,
+    () => {},
+    () => "stable-client-key",
+  );
   client.select((h.current ?? record()).source.sessionId);
   await client.refresh();
   return { client, h };
@@ -107,7 +131,11 @@ describe("HandoffClient", () => {
       }
       throw new Error(`unexpected ${method}`);
     });
-    const client = new HandoffClient(h.request, () => {}, () => "stable-client-key");
+    const client = new HandoffClient(
+      h.request,
+      () => {},
+      () => "stable-client-key",
+    );
     client.select(sourceSession.sessionId);
     await client.refresh();
     const first = client.prepare(targetSession.harness);
@@ -135,7 +163,11 @@ describe("HandoffClient", () => {
     await client.start(review);
     const start = h.calls.find((call) => call.method === HANDOFF_OPS.start);
     expect(start?.params.promptId).toBe("handoff-1");
-    expect(start?.params).toMatchObject({ handoffId: "handoff-1", promptId: "handoff-1", checkpoint: { ref: "git:abc123", attest: true } });
+    expect(start?.params).toMatchObject({
+      handoffId: "handoff-1",
+      promptId: "handoff-1",
+      checkpoint: { ref: "git:abc123", attest: true },
+    });
   });
 
   test("replays a lost draft acknowledgement after get with exactly the same write key", async () => {
@@ -147,7 +179,10 @@ describe("HandoffClient", () => {
       h.h.calls.push({ method, params: structuredClone(params) });
       if (method === HANDOFF_OPS.draft) {
         draftParams.push(structuredClone(params));
-        if (first) { first = false; throw new Error("connection lost"); }
+        if (first) {
+          first = false;
+          throw new Error("connection lost");
+        }
         return h.h.current;
       }
       if (method === HANDOFF_OPS.get) return h.h.current;
@@ -164,7 +199,9 @@ describe("HandoffClient", () => {
     const { client, h } = await selectedClient();
     client.select(targetSession.sessionId);
     await client.refresh();
-    await expect(client.start({ ...review, checkpoint: { reference: "git:abc123", confirmed: false } })).rejects.toThrow();
+    await expect(
+      client.start({ ...review, checkpoint: { reference: "git:abc123", confirmed: false } }),
+    ).rejects.toThrow();
     expect(h.calls.some((call) => call.method === HANDOFF_OPS.start)).toBe(false);
   });
 
@@ -201,7 +238,13 @@ describe("HandoffClient", () => {
         attempts += 1;
         startParams.push(structuredClone(params));
         if (attempts === 1) throw new Error("connection lost");
-        return { handoffId: "handoff-1", targetSessionId: targetSession.sessionId, promptId: String(params.promptId), turnId: "turn-1", outcome: "already_started" };
+        return {
+          handoffId: "handoff-1",
+          targetSessionId: targetSession.sessionId,
+          promptId: String(params.promptId),
+          turnId: "turn-1",
+          outcome: "already_started",
+        };
       }
       if (method === HANDOFF_OPS.get) return h.current;
       throw new Error(`unexpected ${method}`);
@@ -233,7 +276,13 @@ describe("HandoffClient", () => {
     const second = client.start(review);
     await Promise.resolve();
     expect(starts).toBe(1);
-    gate.resolve({ handoffId: "handoff-1", targetSessionId: targetSession.sessionId, promptId: "handoff-1", turnId: "turn-1", outcome: "started" });
+    gate.resolve({
+      handoffId: "handoff-1",
+      targetSessionId: targetSession.sessionId,
+      promptId: "handoff-1",
+      turnId: "turn-1",
+      outcome: "started",
+    });
     const [a, b] = await Promise.all([first, second]);
     expect(a).toEqual(b);
     expect(starts).toBe(1);
@@ -245,7 +294,8 @@ describe("HandoffClient", () => {
     await client.refresh();
     h.setRequest(async (method, params) => {
       h.calls.push({ method, params: structuredClone(params) });
-      if (method === HANDOFF_OPS.draft) throw new AcpmuxRpcError({ message: "stale", data: { reason: "stale_revision" } });
+      if (method === HANDOFF_OPS.draft)
+        throw new AcpmuxRpcError({ message: "stale", data: { reason: "stale_revision" } });
       if (method === HANDOFF_OPS.get) return h.current;
       throw new Error(`unexpected ${method}`);
     });

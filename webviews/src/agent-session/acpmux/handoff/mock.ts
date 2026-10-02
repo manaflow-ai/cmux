@@ -4,9 +4,13 @@ import { HANDOFF_OPS, type Handoff, type StartReceipt } from "./protocol";
 export class MockHandoffs {
   private records = new Map<string, Handoff>();
   private writes = new Map<string, Handoff>();
-  constructor(private sessions: () => Record<string, any>[], private create: (source: Record<string, any>, harness: string) => string,
+  constructor(
+    private sessions: () => Record<string, any>[],
+    private create: (source: Record<string, any>, harness: string) => string,
     private context: (id: string) => { text: string; seq: number },
-    private prompt: (id: string, text: string, promptId: string) => Promise<unknown>, private remove: (id: string) => void) {}
+    private prompt: (id: string, text: string, promptId: string) => Promise<unknown>,
+    private remove: (id: string) => void,
+  ) {}
   private fail(reason: string, handoff?: Handoff): never {
     throw Object.assign(new Error(reason), { data: { reason, handoff } });
   }
@@ -17,8 +21,13 @@ export class MockHandoffs {
   async answer(method: string, params: Record<string, any>): Promise<unknown> {
     if (method === HANDOFF_OPS.get) {
       if (params.handoffId) return structuredClone(this.records.get(params.handoffId) ?? this.fail("not_found"));
-      return structuredClone([...this.records.values()].reverse().find((r) => r.state !== "discarded"
-        && [r.source.sessionId, r.target.sessionId].includes(params.sessionId)) ?? null);
+      return structuredClone(
+        [...this.records.values()]
+          .reverse()
+          .find(
+            (r) => r.state !== "discarded" && [r.source.sessionId, r.target.sessionId].includes(params.sessionId),
+          ) ?? null,
+      );
     }
     if (method === HANDOFF_OPS.prepare) {
       const replay = [...this.records.values()].find((r) => r.handoffKey === params.handoffKey);
@@ -32,27 +41,64 @@ export class MockHandoffs {
       let text = captured.text;
       while (new TextEncoder().encode(text).length > 65536) text = text.slice(1);
       const contextBytes = new TextEncoder().encode(text).length;
-      const enforcement = source.enforcement ?? { policy: "default", label: "native_policy", isolation: "unverified", detail: null };
+      const enforcement = source.enforcement ?? {
+        policy: "default",
+        label: "native_policy",
+        isolation: "unverified",
+        detail: null,
+      };
       const coverage = [{ item: "transcript" as const, status: "summarized" as const, detail: null }];
       const now = new Date().toISOString();
-      const record: Handoff = { handoffId: crypto.randomUUID(), handoffKey: params.handoffKey, state: "draft", revision: 1,
-        source: { sessionId: source.sessionId, cwd: source.cwd, harness: source.harness, seq: captured.seq, coverage, enforcement },
+      const record: Handoff = {
+        handoffId: crypto.randomUUID(),
+        handoffKey: params.handoffKey,
+        state: "draft",
+        revision: 1,
+        source: {
+          sessionId: source.sessionId,
+          cwd: source.cwd,
+          harness: source.harness,
+          seq: captured.seq,
+          coverage,
+          enforcement,
+        },
         target: { sessionId: targetId, cwd: source.cwd, harness: params.harness, coverage, enforcement },
-        capsule: { text, maxBytes: 65536, context: { fromSeq: 0, toSeq: captured.seq, truncated: text !== captured.text,
-          bytes: contextBytes, totalBytes: new TextEncoder().encode(captured.text).length }, checkpoint, memoryRefs: params.memoryRefs ?? [] },
-        promptId: null, turnId: null, createdAt: now, updatedAt: now };
+        capsule: {
+          text,
+          maxBytes: 65536,
+          context: {
+            fromSeq: 0,
+            toSeq: captured.seq,
+            truncated: text !== captured.text,
+            bytes: contextBytes,
+            totalBytes: new TextEncoder().encode(captured.text).length,
+          },
+          checkpoint,
+          memoryRefs: params.memoryRefs ?? [],
+        },
+        promptId: null,
+        turnId: null,
+        createdAt: now,
+        updatedAt: now,
+      };
       this.records.set(record.handoffId, record);
       return structuredClone(record);
     }
     const record = this.records.get(params.handoffId) ?? this.fail("not_found");
     if (method === HANDOFF_OPS.discard) {
       if (["starting", "started"].includes(record.state)) this.fail("already_started", record);
-      record.state = "discarded"; this.remove(record.target.sessionId);
+      record.state = "discarded";
+      this.remove(record.target.sessionId);
       return { handoffId: record.handoffId, discarded: true };
     }
     const promptId = params.promptId ?? record.handoffId;
-    const receipt = (outcome: StartReceipt["outcome"]): StartReceipt => ({ handoffId: record.handoffId,
-      targetSessionId: record.target.sessionId, promptId, turnId: record.turnId, outcome });
+    const receipt = (outcome: StartReceipt["outcome"]): StartReceipt => ({
+      handoffId: record.handoffId,
+      targetSessionId: record.target.sessionId,
+      promptId,
+      turnId: record.turnId,
+      outcome,
+    });
     if (method === HANDOFF_OPS.start && record.promptId) {
       if (promptId !== record.promptId) this.fail("already_started", record);
       return receipt("already_started");
@@ -63,19 +109,33 @@ export class MockHandoffs {
     const text = params.capsule.text;
     if (new TextEncoder().encode(text).length > record.capsule.maxBytes) this.fail("capsule_too_large");
     const refs = params.capsule.memoryRefs ?? record.capsule.memoryRefs;
-    const checkpoint = params.checkpoint === null ? null : params.checkpoint ? this.checkpoint(params.checkpoint) : record.capsule.checkpoint;
-    if (params.revision !== record.revision && (text !== record.capsule.text || JSON.stringify(refs) !== JSON.stringify(record.capsule.memoryRefs)
-      || checkpoint?.ref !== record.capsule.checkpoint?.ref)) this.fail("stale_revision", record);
+    const checkpoint =
+      params.checkpoint === null
+        ? null
+        : params.checkpoint
+          ? this.checkpoint(params.checkpoint)
+          : record.capsule.checkpoint;
+    if (
+      params.revision !== record.revision &&
+      (text !== record.capsule.text ||
+        JSON.stringify(refs) !== JSON.stringify(record.capsule.memoryRefs) ||
+        checkpoint?.ref !== record.capsule.checkpoint?.ref)
+    )
+      this.fail("stale_revision", record);
     record.capsule = { ...record.capsule, text, memoryRefs: refs, checkpoint };
     if (method === HANDOFF_OPS.draft) {
-      record.revision += 1; record.updatedAt = new Date().toISOString();
-      this.writes.set(writeId, structuredClone(record)); return structuredClone(record);
+      record.revision += 1;
+      record.updatedAt = new Date().toISOString();
+      this.writes.set(writeId, structuredClone(record));
+      return structuredClone(record);
     }
     if (!checkpoint) this.fail("checkpoint_required");
-    record.promptId = promptId; record.state = "starting";
+    record.promptId = promptId;
+    record.state = "starting";
     // The daemon start acknowledgment does not wait for the entire agent turn.
     void this.prompt(record.target.sessionId, text, promptId);
-    record.state = "started"; record.turnId = `mock-turn-${promptId}`;
+    record.state = "started";
+    record.turnId = `mock-turn-${promptId}`;
     return receipt("started");
   }
 }

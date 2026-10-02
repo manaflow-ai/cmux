@@ -215,7 +215,10 @@ export type OpenSocket = (url: URL) => WebSocket;
 export class AcpmuxDirectClient {
   private socket?: WebSocket;
   private nextRequest = 1;
-  private pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void; timer?: ReturnType<typeof setTimeout> }>();
+  private pending = new Map<
+    number,
+    { resolve: (value: any) => void; reject: (error: Error) => void; timer?: ReturnType<typeof setTimeout> }
+  >();
   private events: EventRecord[] = [];
   private rows = new Map<string, AcpmuxRow>();
   private sessions: Session[] = [];
@@ -240,7 +243,10 @@ export class AcpmuxDirectClient {
   /// acpmux lists `acp.session.fork` among the operations it serves.
   private canFork = false;
   private handoffSupported = false;
-  readonly handoff = new HandoffClient((method, params) => this.request(method, params, 15000), () => this.emit());
+  readonly handoff = new HandoffClient(
+    (method, params) => this.request(method, params, 15000),
+    () => this.emit(),
+  );
   private forking = false;
   private streamingAssistant?: string;
   private streamingAssistantMessageId?: string;
@@ -535,9 +541,12 @@ export class AcpmuxDirectClient {
     if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("acpmux WebSocket is not open"));
     const id = this.nextRequest++;
     return new Promise((resolve, reject) => {
-      const timer = deadline ? setTimeout(() => {
-        this.pending.delete(id); reject(new Error("Continuation request timed out. Read its saved state before retrying."));
-      }, deadline) : undefined;
+      const timer = deadline
+        ? setTimeout(() => {
+            this.pending.delete(id);
+            reject(new Error("Continuation request timed out. Read its saved state before retrying."));
+          }, deadline)
+        : undefined;
       this.pending.set(id, { resolve, reject, timer });
       this.socket!.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
     });
@@ -572,7 +581,11 @@ export class AcpmuxDirectClient {
     this.attachedGeneration = generation;
     if (this.handoffSupported) {
       this.handoff.select(sessionId);
-      try { await this.handoff.refresh(); } catch { /* No mutation until a recovery read succeeds. */ }
+      try {
+        await this.handoff.refresh();
+      } catch {
+        /* No mutation until a recovery read succeeds. */
+      }
     }
     if (generation !== this.selectionGeneration) return [];
     this.emit("attached");
@@ -600,7 +613,8 @@ export class AcpmuxDirectClient {
     if (params?.kind === "purged" && session?.sessionId) {
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
       this.unseen.delete(session.sessionId);
-      if (session.sessionId === this.selectedSessionId && this.handoff.state.busy !== "discarding") this.selectFallbackSession("session purged");
+      if (session.sessionId === this.selectedSessionId && this.handoff.state.busy !== "discarding")
+        this.selectFallbackSession("session purged");
       else this.emit("session purged");
       return;
     }
@@ -921,8 +935,16 @@ export class AcpmuxDirectClient {
   }
   async send(text: string): Promise<string | undefined> {
     const record = this.handoff.state.record;
-    if (this.handoffSupported && this.selectedSessionId && (!this.handoff.state.ready || (record?.target.sessionId === this.selectedSessionId
-      && record.state !== "started" && record.state !== "discarded" && !this.handoff.state.receipt))) throw new Error("Review the continuation before sending a prompt.");
+    if (
+      this.handoffSupported &&
+      this.selectedSessionId &&
+      (!this.handoff.state.ready ||
+        (record?.target.sessionId === this.selectedSessionId &&
+          record.state !== "started" &&
+          record.state !== "discarded" &&
+          !this.handoff.state.receipt))
+    )
+      throw new Error("Review the continuation before sending a prompt.");
     const sessionId = await this.ensureSession();
     if (!sessionId) return undefined;
     const promptId = crypto.randomUUID();
@@ -959,15 +981,21 @@ export class AcpmuxDirectClient {
     if (!record || generation !== this.selectionGeneration) return;
     return this.select(record.target.sessionId);
   }
-  saveHandoff(review: HandoffReviewInput) { return this.handoff.save(review); }
-  startHandoff(review: HandoffReviewInput) { return this.handoff.start(review); }
+  saveHandoff(review: HandoffReviewInput) {
+    return this.handoff.save(review);
+  }
+  startHandoff(review: HandoffReviewInput) {
+    return this.handoff.start(review);
+  }
   async discardHandoff(): Promise<string | undefined> {
     const generation = this.selectionGeneration;
     const record = await this.handoff.discard();
     if (!record || generation !== this.selectionGeneration) return;
     return this.select(record.source.sessionId);
   }
-  refreshHandoff() { return this.handoff.refresh(); }
+  refreshHandoff() {
+    return this.handoff.refresh();
+  }
   async cancel(): Promise<void> {
     if (this.selectedSessionId)
       this.socket?.send(
