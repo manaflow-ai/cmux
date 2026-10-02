@@ -62,8 +62,8 @@
 .acpmux-slash-hint{flex:none;color:var(--acpmux-composer-dim);font-style:italic}
 .acpmux-slash-description{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
 .acpmux-slash-empty{padding:0 14px;height:40px;display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:20px}
-/* Queue (Composer.tsx): prompts waiting for the running turn, as quiet rows tucked above the bar. */
-.acpmux-queue{display:flex;flex-direction:column;gap:1px;max-height:96px;overflow:auto;margin:0 14px;padding:4px 0 10px;border-radius:12px 12px 0 0;background:var(--acpmux-menu-bg);box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge);margin-bottom:-6px;font-size:12px;line-height:18px}
+/* Queue (Composer.tsx, named apart from the old strip's .acpmux-queue): prompts waiting for the running turn, as quiet rows tucked above the bar. */
+.acpmux-composer-queue{display:flex;flex-direction:column;gap:1px;max-height:96px;overflow:auto;margin:0 14px;padding:4px 0 10px;border-radius:12px 12px 0 0;background:var(--acpmux-menu-bg);box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge);margin-bottom:-6px;font-size:12px;line-height:18px}
 .acpmux-queued{display:flex;align-items:center;gap:8px;min-width:0;padding:2px 12px;color:var(--agent-text)}
 .acpmux-queued-label{flex:none;color:var(--acpmux-composer-dim)}
 .acpmux-queued-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

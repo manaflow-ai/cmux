@@ -197,7 +197,7 @@ describe("acpmux composer queue", () => {
     const render = async (queue: AcpmuxSnapshot["queue"]) => act(async () => root.render(createElement(Composer, { snapshot: { ...snapshot({}, true), queue }, chips: () => null, onSend: () => {}, onStop: () => {} })));
     try {
       await render([{ id: "p1", prompt: "first" }, { id: "p2", prompt: "second\nline" }]);
-      const list = doc.querySelector("ol.acpmux-queue")!;
+      const list = doc.querySelector("ol.acpmux-composer-queue")!;
       expect(list.getAttribute("aria-label")).toBe("Queued prompts");
       expect([...list.querySelectorAll(".acpmux-queued-text")].map((node) => node.textContent)).toEqual(["first", "second\nline"]);
       expect(list.nextElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
@@ -206,7 +206,7 @@ describe("acpmux composer queue", () => {
       expect(doc.querySelector(".acpmux-composer-box > .acpmux-slash-menu")).not.toBeNull();
       await act(async () => typeInto(doc.querySelector("textarea")!, ""));
       await render([]);
-      expect(doc.querySelector(".acpmux-queue")).toBeNull();
+      expect(doc.querySelector(".acpmux-composer-queue")).toBeNull();
     } finally {
       await act(async () => root.unmount());
     }

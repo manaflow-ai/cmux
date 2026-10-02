@@ -153,7 +153,7 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     else if (open) setDismissed(text);
   };
   return <form className="acpmux-composer" onSubmit={submit} onBlur={blur}>
-    {snapshot.queue.length > 0 && <ol className="acpmux-queue" aria-label={COMPOSER_LABELS.queue}>
+    {snapshot.queue.length > 0 && <ol className="acpmux-composer-queue" aria-label={COMPOSER_LABELS.queue}>
       {snapshot.queue.map((entry) => <li className="acpmux-queued" key={entry.id} title={entry.prompt}><span className="acpmux-queued-label" aria-hidden="true">{COMPOSER_LABELS.queued}</span><span className="acpmux-queued-text">{entry.prompt}</span></li>)}
     </ol>}
     <div className="acpmux-composer-box">
