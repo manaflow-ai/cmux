@@ -1,5 +1,6 @@
 import type { AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
+import { promptBlocks, promptText, type ComposerAttachment } from "./attachments";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -447,7 +448,7 @@ export class AcpmuxDirectClient {
   private emit(connection = "connected"): void {
     const summary = this.summary;
     const effort = (summary?.configOptions ?? []).find((option: any) => option.category === "thought_level" || option.id === "reasoning_effort");
-    this.listener({ type: "snapshot", protocolVersion: 1, rows: [...this.rows.values()].sort((a, b) => a.at - b.at), sessions: this.sessions.map((session) => ({ sessionId: session.sessionId, displayTitle: session.title ?? session.name, title: session.title, name: session.name, status: session.status, model: session.model })), summary: summary ? { sessionId: summary.sessionId, title: summary.title, name: summary.name, harness: summary.harness, model: summary.model, effort: effort?.currentValue, status: summary.status, modes: summary.modes, configOptions: summary.configOptions } : undefined, connection, sessionId: this.selectedSessionId, isWorking: this.turnOpen || summary?.status === "running", queue: this.queue, permission: this.pendingPermission, catalog: this.catalog, commands: this.commands, canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1 });
+    this.listener({ type: "snapshot", protocolVersion: 1, rows: [...this.rows.values()].sort((a, b) => a.at - b.at), sessions: this.sessions.map((session) => ({ sessionId: session.sessionId, displayTitle: session.title ?? session.name, title: session.title, name: session.name, status: session.status, model: session.model })), summary: summary ? { sessionId: summary.sessionId, title: summary.title, name: summary.name, harness: summary.harness, model: summary.model, effort: effort?.currentValue, status: summary.status, modes: summary.modes, configOptions: summary.configOptions, promptCapabilities: summary.agentCapabilities?.promptCapabilities } : undefined, connection, sessionId: this.selectedSessionId, isWorking: this.turnOpen || summary?.status === "running", queue: this.queue, permission: this.pendingPermission, catalog: this.catalog, commands: this.commands, canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1 });
   }
 
   snapshot(): void { this.emit(); }
@@ -455,14 +456,16 @@ export class AcpmuxDirectClient {
     if (!this.selectedSessionId) await this.create();
     return this.selectedSessionId;
   }
-  async send(text: string): Promise<string | undefined> {
+  async send(input: string, attachments: ComposerAttachment[] = []): Promise<string | undefined> {
     const sessionId = await this.ensureSession();
     if (!sessionId) return undefined;
+    // The daemon records the prompt's text blocks, which is what the optimistic row shows.
+    const text = promptText(input, attachments);
     const promptId = crypto.randomUUID(); const rowId = `local-${promptId}`; const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId); this.optimisticPromptTexts.set(promptId, text);
     this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true }); this.emit();
     try {
-      await this.request("session/prompt", { sessionId, prompt: [{ type: "text", text }], _meta: { acpmux: { promptId } } });
+      await this.request("session/prompt", { sessionId, prompt: promptBlocks(input, attachments), _meta: { acpmux: { promptId } } });
     } catch (error) {
       const row = this.rows.get(rowId);
       if (row) { row.pending = false; row.failed = true; row.version += 1; }

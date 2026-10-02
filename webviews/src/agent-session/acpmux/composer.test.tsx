@@ -11,6 +11,7 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
+type ComposerAttachment = import("./attachments").ComposerAttachment;
 
 const snapshot = (commands?: AcpmuxSnapshot["commands"]): AcpmuxSnapshot => ({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connected", isWorking: false, queue: [], catalog: [], canLoadOlder: false, commands });
 const commands = [
@@ -22,6 +23,7 @@ const commands = [
 describe("acpmux composer slash menu", () => {
   let root: ReturnType<typeof createRoot>;
   let sent: string[];
+  let sentAttachments: ComposerAttachment[][];
   const textarea = () => dom.window.document.querySelector("textarea")!;
   const rows = () => [...dom.window.document.querySelectorAll(".acpmux-slash-row")].map((row) => row.querySelector(".acpmux-slash-name")!.textContent);
   const active = () => dom.window.document.querySelector(".acpmux-slash-active .acpmux-slash-name")?.textContent;
@@ -35,9 +37,9 @@ describe("acpmux composer slash menu", () => {
   /// jsdom fires `select` a task after the caret moves; let it land inside act.
   const settle = async () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   const key = async (name: string, isComposing = false) => act(async () => { textarea().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, isComposing, bubbles: true, cancelable: true })); });
-  const render = async (value: AcpmuxSnapshot) => act(async () => root.render(createElement(Composer, { snapshot: value, chips: () => null, onSend: (text: string) => { sent.push(text); }, onStop: () => {} })));
+  const render = async (value: AcpmuxSnapshot) => act(async () => root.render(createElement(Composer, { snapshot: value, chips: () => null, onSend: (text: string, attachments: ComposerAttachment[]) => { sent.push(text); sentAttachments.push(attachments); }, onStop: () => {} })));
 
-  beforeEach(() => { sent = []; root = createRoot(dom.window.document.getElementById("root")!); });
+  beforeEach(() => { sent = []; sentAttachments = []; root = createRoot(dom.window.document.getElementById("root")!); });
   afterEach(async () => { await act(async () => root.unmount()); });
 
   test("a leading slash lists the agent's commands and narrows as the word grows", async () => {
@@ -128,5 +130,85 @@ describe("acpmux composer slash menu", () => {
     await act(async () => { dom.window.document.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
     expect(sent).toEqual(["/review main"]);
     expect(textarea().value).toBe("");
+  });
+});
+
+describe("acpmux composer attachments", () => {
+  let root: ReturnType<typeof createRoot>;
+  let sent: { text: string; attachments: ComposerAttachment[] }[];
+  const document = dom.window.document;
+  const chips = () => [...document.querySelectorAll(".acpmux-attachment")].map((chip) => chip.getAttribute("title"));
+  const note = () => document.querySelector(".acpmux-attachment-note")?.textContent;
+  /// File reads resolve on later tasks; let them land inside act.
+  const settle = async () => act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+  /// jsdom has no DataTransfer, so an event carries a stand-in with the fields the composer reads.
+  const transfer = (files: File[]) => ({ files, types: files.length ? ["Files"] : ["text/plain"] });
+  const paste = async (files: File[]) => {
+    const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: transfer(files) });
+    await act(async () => { document.querySelector("textarea")!.dispatchEvent(event); });
+    await settle();
+    return event;
+  };
+  const drag = async (type: string, files: File[]) => {
+    const event = new dom.window.Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", { value: transfer(files) });
+    await act(async () => { document.body.dispatchEvent(event); });
+    await settle();
+    return event;
+  };
+  const render = async (image?: boolean) => act(async () => root.render(createElement(Composer, {
+    snapshot: { ...snapshot(), summary: { sessionId: "s", promptCapabilities: image === undefined ? undefined : { image } } },
+    chips: () => null,
+    onSend: (text: string, attachments: ComposerAttachment[]) => { sent.push({ text, attachments }); },
+    onStop: () => {},
+  })));
+  const submit = async () => act(async () => { document.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+  const png = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "shot.png", { type: "image/png" });
+
+  beforeEach(() => { sent = []; root = createRoot(document.getElementById("root")!); });
+  afterEach(async () => { await act(async () => root.unmount()); });
+
+  test("pasted files wait as chips, a chip can be removed, and send carries the rest", async () => {
+    await render();
+    const event = await paste([png(), new File(["hello\n"], "notes.md")]);
+    expect(event.defaultPrevented).toBe(true);
+    expect(chips()).toEqual(["shot.png", "notes.md"]);
+    expect(document.querySelector<HTMLImageElement>(".acpmux-attachment-image img")!.src).toBe("data:image/png;base64,iVBORw==");
+    await act(async () => { document.querySelector<HTMLButtonElement>('[aria-label="Remove notes.md"]')!.click(); });
+    expect(chips()).toEqual(["shot.png"]);
+    await submit();
+    expect(sent.map((entry) => [entry.text, entry.attachments.map((attachment) => attachment.name)])).toEqual([["", ["shot.png"]]]);
+    expect(chips()).toEqual([]);
+  });
+
+  test("pasting text alone is left to the textarea", async () => {
+    await render();
+    expect((await paste([])).defaultPrevented).toBe(false);
+    expect(document.querySelector(".acpmux-attachments")).toBeNull();
+  });
+
+  test("a file dropped anywhere on the pane attaches instead of opening, with a hint while it hovers", async () => {
+    await render();
+    const over = await drag("dragover", [png()]);
+    expect(over.defaultPrevented).toBe(true);
+    expect(note()).toBe("Drop images or text files to attach");
+    const drop = await drag("drop", [png()]);
+    expect(drop.defaultPrevented).toBe(true);
+    expect(chips()).toEqual(["shot.png"]);
+    expect(note()).toBeUndefined();
+    expect((await drag("dragover", [])).defaultPrevented).toBe(false);
+  });
+
+  test("refused files say why, and the note clears on send", async () => {
+    await render(false);
+    await paste([png()]);
+    expect(note()).toBe("This agent does not take images");
+    await paste([new File([new Uint8Array([0, 1])], "a.bin")]);
+    expect(note()).toBe("a.bin is not an image or a text file");
+    await act(async () => { const node = document.querySelector("textarea")!; Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(node, "hi"); node.dispatchEvent(new dom.window.Event("input", { bubbles: true })); });
+    await submit();
+    expect(sent.map((entry) => entry.text)).toEqual(["hi"]);
+    expect(document.querySelector(".acpmux-attachments")).toBeNull();
   });
 });

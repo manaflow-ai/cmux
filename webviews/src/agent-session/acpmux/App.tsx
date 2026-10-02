@@ -9,6 +9,7 @@ import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
 import { Composer } from "./Composer";
+import type { ComposerAttachment } from "./attachments";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -316,7 +317,7 @@ export function AcpmuxApp() {
         retryDelay = 250;
         const persistSession = (sessionId?: string) => sessionId ? callNative("chat.persistSession", { sessionId }).catch(() => undefined) : Promise.resolve();
         window.cmuxAcpmuxActions = {
-          "chat.send": async ({ text }) => { const sessionId = await client.ensureSession(); await persistSession(sessionId); return client.send(String(text ?? "")); },
+          "chat.send": async ({ text, attachments }) => { const sessionId = await client.ensureSession(); await persistSession(sessionId); return client.send(String(text ?? ""), Array.isArray(attachments) ? attachments as ComposerAttachment[] : []); },
           "chat.cancel": () => client.cancel(),
           "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
           "chat.model": ({ modelId }) => client.setModel(String(modelId)),
@@ -340,5 +341,5 @@ export function AcpmuxApp() {
     return () => { cancelled = true; if (retryTimer !== undefined) window.clearTimeout(retryTimer); directClient.current?.close(); directClient.current = undefined; delete window.cmuxAcpmuxActions; };
   }, []);
   const ComposerChips = ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as React.ComponentType<{ snapshot: AcpmuxSnapshot }> | undefined) ?? DefaultComposerChips;
-  return <section className="acpmux-shell"><header className="acpmux-header"><div><strong className="acpmux-title">{snapshot.summary?.title || snapshot.summary?.name || "Agent Chat"}</strong><span className="acpmux-status">{snapshot.isWorking ? "Working" : snapshot.connection}</span></div><select className="acpmux-session" value={snapshot.sessionId ?? ""} onChange={(event) => void callNative("chat.select", { sessionId: event.target.value })}>{snapshot.sessions.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.title || session.name || session.sessionId.slice(0, 8)}</option>)}</select></header><VirtualTranscript rows={snapshot.rows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<Composer snapshot={snapshot} chips={ComposerChips} onSend={(text) => void callNative("chat.send", { text })} onStop={() => void callNative("chat.cancel")} /></section>;
+  return <section className="acpmux-shell"><header className="acpmux-header"><div><strong className="acpmux-title">{snapshot.summary?.title || snapshot.summary?.name || "Agent Chat"}</strong><span className="acpmux-status">{snapshot.isWorking ? "Working" : snapshot.connection}</span></div><select className="acpmux-session" value={snapshot.sessionId ?? ""} onChange={(event) => void callNative("chat.select", { sessionId: event.target.value })}>{snapshot.sessions.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.title || session.name || session.sessionId.slice(0, 8)}</option>)}</select></header><VirtualTranscript rows={snapshot.rows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<Composer snapshot={snapshot} chips={ComposerChips} onSend={(text, attachments) => void callNative("chat.send", { text, attachments })} onStop={() => void callNative("chat.cancel")} /></section>;
 }

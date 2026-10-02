@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
+import { dragHasFiles, filesFrom, readAttachments, type AttachmentError, type ComposerAttachment } from "./attachments";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -11,23 +12,38 @@ export const COMPOSER_LABELS = {
   commands: "Commands",
   noCommands: "No commands",
   noMatchingCommands: "No matching commands",
+  attachments: "Attachments",
+  removeAttachment: "Remove {name}",
+  dropFiles: "Drop images or text files to attach",
+  tooLarge: "{name} is too large to attach",
+  unsupported: "{name} is not an image or a text file",
+  imagesUnsupported: "This agent does not take images",
+  tooMany: "Up to 10 attachments per message",
 };
+
+function attachmentErrorText(error: AttachmentError): string {
+  return COMPOSER_LABELS[error.reason].replace("{name}", error.name);
+}
 
 type Props = {
   snapshot: AcpmuxSnapshot;
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
-  onSend(text: string): void;
+  onSend(text: string, attachments: ComposerAttachment[]): void;
   onStop(): void;
 };
 
 /// The prompt box with the agent's `/` command menu. The menu opens while the
 /// prompt is a single leading `/word`, filters as it grows, and picking a
-/// command writes `/name ` so its arguments can follow.
+/// command writes `/name ` so its arguments can follow. Images and text files
+/// dropped anywhere on the pane, or pasted, wait as chips above the prompt.
 export function Composer({ snapshot, chips: Chips, onSend, onStop }: Props) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [attachError, setAttachError] = useState<string | undefined>();
+  const [dropping, setDropping] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<number | undefined>(undefined);
   const commands = snapshot.commands;
@@ -44,6 +60,28 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop }: Props) {
     pendingCaret.current = undefined;
   });
 
+  const held = useRef(0);
+  held.current = attachments.length;
+  // Unknown capabilities (a new chat, an older daemon) let the agent decide.
+  const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
+  const attach = useRef<(files: File[]) => Promise<void>>(async () => {});
+  attach.current = async (files: File[]) => {
+    if (files.length === 0) return;
+    const read = await readAttachments(files, held.current, allowImages);
+    setAttachments((current) => [...current, ...read.attachments]);
+    setAttachError(read.errors[0] ? attachmentErrorText(read.errors[0]) : undefined);
+  };
+  // The whole pane takes a file drop; WebKit would otherwise open the file in place of the page.
+  useEffect(() => {
+    const over = (event: DragEvent) => { if (!dragHasFiles(event.dataTransfer)) return; event.preventDefault(); setDropping(true); };
+    const leave = (event: DragEvent) => { if (!event.relatedTarget) setDropping(false); };
+    const drop = (event: DragEvent) => { if (!dragHasFiles(event.dataTransfer)) return; event.preventDefault(); setDropping(false); void attach.current(filesFrom(event.dataTransfer)); };
+    document.addEventListener("dragover", over);
+    document.addEventListener("dragleave", leave);
+    document.addEventListener("drop", drop);
+    return () => { document.removeEventListener("dragover", over); document.removeEventListener("dragleave", leave); document.removeEventListener("drop", drop); };
+  }, []);
+
   const edit = (value: string, at: number) => { setText(value); setCaret(at); setDismissed(undefined); };
   const pick = (command: SlashCommand) => {
     const next = applyCommand(text, caret, command);
@@ -54,9 +92,11 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop }: Props) {
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     const prompt = text.trim();
-    if (!prompt) return;
+    if (!prompt && attachments.length === 0) return;
     edit("", 0);
-    onSend(prompt);
+    setAttachments([]);
+    setAttachError(undefined);
+    onSend(prompt, attachments);
   };
   const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Every key belongs to the input method while it composes, not only Enter.
@@ -75,18 +115,36 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop }: Props) {
   };
   const track = (event: React.SyntheticEvent<HTMLTextAreaElement>) => setCaret(event.currentTarget.selectionStart);
 
-  return <form className="acpmux-composer" onSubmit={submit}>
+  const paste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = filesFrom(event.clipboardData);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void attach.current(files);
+  };
+  const remove = (id: string) => { setAttachments((current) => current.filter((attachment) => attachment.id !== id)); textarea.current?.focus(); };
+
+  return <form className={dropping ? "acpmux-composer acpmux-composer-dropping" : "acpmux-composer"} onSubmit={submit}>
     {open && <SlashMenu matches={matches} active={selected} empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands} onHover={setActive} onPick={pick} />}
+    {(attachments.length > 0 || attachError || dropping) && <fieldset className="acpmux-attachments" aria-label={COMPOSER_LABELS.attachments}>
+      {attachments.map((attachment) => <AttachmentChip key={attachment.id} attachment={attachment} onRemove={remove} />)}
+      {dropping ? <span className="acpmux-attachment-note">{COMPOSER_LABELS.dropFiles}</span> : attachError && <output className="acpmux-attachment-note">{attachError}</output>}
+    </fieldset>}
     <Chips snapshot={snapshot} />
     {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
     <textarea ref={textarea} aria-label={COMPOSER_LABELS.prompt} name="prompt" rows={2} placeholder={COMPOSER_LABELS.placeholder} value={text}
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="combobox" aria-expanded={open} aria-controls={open ? "acpmux-slash-menu" : undefined} aria-autocomplete="list"
       aria-activedescendant={open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined}
-      onChange={(event) => edit(event.target.value, event.target.selectionStart)} onSelect={track} onKeyDown={keyDown} />
+      onChange={(event) => edit(event.target.value, event.target.selectionStart)} onSelect={track} onKeyDown={keyDown} onPaste={paste} />
     <button type="submit">{COMPOSER_LABELS.send}</button>
     <button type="button" className="acpmux-cancel" onClick={onStop}>{COMPOSER_LABELS.stop}</button>
   </form>;
+}
+
+function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachment; onRemove(id: string): void }) {
+  const remove = <button type="button" className="acpmux-attachment-remove" aria-label={COMPOSER_LABELS.removeAttachment.replace("{name}", attachment.name)} onClick={() => onRemove(attachment.id)}>×</button>;
+  if (attachment.kind === "image") return <div className="acpmux-attachment acpmux-attachment-image" title={attachment.name}><img alt={attachment.name} src={`data:${attachment.mimeType};base64,${attachment.data}`} />{remove}</div>;
+  return <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}><span>{attachment.name}</span>{remove}</div>;
 }
 
 function SlashMenu({ matches, active, empty, onHover, onPick }: { matches: SlashMatch[]; active: number; empty: string; onHover(index: number): void; onPick(command: SlashCommand): void }) {
