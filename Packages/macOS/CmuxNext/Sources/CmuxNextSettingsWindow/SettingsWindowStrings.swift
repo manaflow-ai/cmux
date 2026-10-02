@@ -7,6 +7,8 @@ nonisolated enum SettingsWindowStrings {
     static var searchPlaceholder: String { text("settingsWindow.search", "Search") }
     static var noResults: String { text("settingsWindow.noResults", "No settings match.") }
     static var reset: String { text("settingsWindow.reset", "Reset") }
+    static var managedByOrganization: String { text("settingsWindow.managed.device", "Managed by your organization") }
+    static func managedByTeam(_ team: String) -> String { format("settingsWindow.managed.team", "Managed by %@", team) }
     static func defaultIs(_ value: String) -> String { format("settingsWindow.defaultIs", "Default: %@", value) }
     static func writeFailed(_ reason: String) -> String { format("settingsWindow.writeFailed", "Could not write cmux.json: %@", reason) }
     static var custom: String { text("settingsWindow.custom", "Custom") }

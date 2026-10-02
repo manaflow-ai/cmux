@@ -15,6 +15,8 @@ public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
         case unsupportedChord
         /// Two actions claim the same shortcut in the same context.
         case shortcutConflict
+        /// The file sets a key an MDM profile or the team policy manages; the file's value is ignored.
+        case managedOverride
     }
 
     public let kind: Kind
