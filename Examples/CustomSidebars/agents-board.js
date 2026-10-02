@@ -1,7 +1,7 @@
 // agents-board: subagents grouped by STATUS, attention first. The question
 // this layout answers is "what needs me right now" - needs-input sessions
 // get the loudest section at the top, everything else stays quiet.
-//   cmux left-sidebar set custom agents-board
+//   cmux sidebar open agents-board
 
 const STATUS_META = {
   needs_input: { label: "NEEDS YOU", color: "#FF9F0A", strong: true },

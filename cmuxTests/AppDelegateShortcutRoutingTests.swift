@@ -4681,6 +4681,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        // French AZERTY types "$" on kVK_ANSI_RightBracket and "*" with Shift.
+        appDelegate.shortcutLayoutCharacterProvider = { keyCode, flags in
+            guard keyCode == 30 else { return nil }
+            return flags.contains(.shift) ? "*" : "$"
+        }
+        defer {
+            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
+        }
+
         withTemporaryShortcut(action: .nextSurface) {
             // Non-US layouts can report "*" (or other symbols) for kVK_ANSI_RightBracket with Shift.
             // Shortcut matching should still allow Cmd+Shift+] via keyCode fallback.
