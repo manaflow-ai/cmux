@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextSettings
+import CmuxNextSidebar
 import Testing
 
 /// The appearance studio (`appearance.customize`): one action reached from
@@ -37,5 +38,14 @@ struct AppearanceStudioTests {
         #expect(descriptor.surfaces.contains(.palette) && descriptor.surfaces.contains(.menu))
         #expect(SettingsSchema.actions(in: .appearance).first == "appearance.customize")
         withExtendedLifetime(services) {}
+    }
+
+    /// The sidebar's footer opens the studio: the default bottom band has a
+    /// Customize Appearance icon that runs the same action.
+    @Test func theSidebarFooterOpensTheStudio() throws {
+        #expect(SidebarBridge.builtInActions[.customize] == "appearance.customize")
+        let bottom = try #require(SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.bottomSectionID))
+        #expect(bottom.items.contains { $0.ref == .builtIn(.customize) && !$0.showsLabel })
+        #expect(SidebarBuiltIn.allCases.allSatisfy { SidebarBridge.builtInActions[$0] != nil })
     }
 }

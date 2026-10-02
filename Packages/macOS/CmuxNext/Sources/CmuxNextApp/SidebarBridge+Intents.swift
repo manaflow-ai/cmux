@@ -109,7 +109,7 @@ extension SidebarBridge {
         case .switchProfile(let profile):
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
         case .newProfile:
-            services.registry.perform("room.new", invocation: ActionInvocation())
+            services.registry.perform("space.new", invocation: ActionInvocation())
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)
