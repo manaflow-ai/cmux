@@ -72,6 +72,13 @@ export class SqlRows implements RowReader {
       .map((r) => ({ key: r.k, n: r.n === null ? null : Number(r.n), row: JSON.parse(r.json) as T }))
   }
 
+  /** Every row of a table in key order, at most `limit` (unordered tables such as an inbox). */
+  scan<T>(tbl: string, limit = 10_000): Array<StoredRow<T>> {
+    return this.sql
+      .exec<{ k: string; n: number | null; json: string }>(`SELECT k, n, json FROM ${this.table} WHERE tbl = ? ORDER BY k LIMIT ?`, tbl, Math.max(0, limit))
+      .map((r) => ({ key: r.k, n: r.n === null ? null : Number(r.n), row: JSON.parse(r.json) as T }))
+  }
+
   /** Called by the engine inside its commit transaction. */
   apply(writes: ReadonlyArray<RowWrite>): void {
     for (const w of writes) {
