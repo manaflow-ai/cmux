@@ -1636,6 +1636,8 @@ describe("acpmux turn diff", () => {
       const panel = document.querySelector("section.acpmux-diff-panel")!;
       const options = panel.querySelector<HTMLElement>('[data-tool="options"]')!;
       expect(options?.getAttribute("aria-label")).toBe("Changes options");
+      // Escape closes the view, so the back button's tooltip names it.
+      expect(panel.querySelector(".acpmux-diff-back")?.getAttribute("title")).toBe("Back to transcript (Esc)");
       const rows = () => [
         ...panel.querySelectorAll<HTMLButtonElement>('[aria-label="Changes options"][role="menu"] [role="menuitem"]'),
       ];
