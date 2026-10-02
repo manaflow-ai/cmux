@@ -5,12 +5,13 @@
   "type": "module",
   "scripts": {
     "migrate": "bun migrate.ts",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "e2e": "bun e2e.ts"
   },
   "devDependencies": {
-    "@types/node": "^26.6.2",
-    "@types/pg": "^8.23.1",
-    "pg": "^8.23.0",
-    "typescript": "^7.0.2"
+    "@types/node": "26.6.2",
+    "@types/pg": "8.23.1",
+    "pg": "8.23.0",
+    "typescript": "7.0.2"
   }
 }

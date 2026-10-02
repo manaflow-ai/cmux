@@ -14,13 +14,16 @@ fi
 case "$target" in
   production) echo "production deploys need the coordinator's approval; refusing" >&2; exit 2 ;;
   development|staging) env_name="$target"; extra=() ;;
-  preview-*) env_name="staging"; extra=(--name "cmux-api-${target}") ;;
+  # Previews bind the development Hyperdrive and Stack dev project (spec: previews reuse
+  # development); DO state is isolated by the Worker name.
+  preview-*) env_name="development"; extra=(--name "cmux-api-${target}") ;;
   *) echo "unknown target $target" >&2; exit 2 ;;
 esac
 umask 077
 secrets="$(mktemp "${TMPDIR:-/tmp}/cmux-api-secrets.XXXXXX")"
 trap 'rm -f "$secrets"' EXIT
 secret_file="$HOME/.secrets/cmux-next-api-${env_name}.env"
+case "$target" in preview-*) secret_file="$HOME/.secrets/cmux-next-api-preview.env" ;; esac
 if [ -n "${JWT_PRIVATE_JWK:-}" ]; then
   printf '{"JWT_PRIVATE_JWK":%s}\n' "$(python3 -c 'import json,os;print(json.dumps(os.environ["JWT_PRIVATE_JWK"]))')" > "$secrets"
 elif [ -f "$secret_file" ]; then

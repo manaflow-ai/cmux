@@ -12,6 +12,8 @@
     "test": "bun run --filter '*' test",
     "catalog:export": "bun run --cwd packages/protocol catalog:export",
     "catalog:check": "bun run --cwd packages/protocol catalog:check",
-    "db:migrate": "bun run --cwd db migrate"
+    "db:migrate": "bun run --cwd db migrate",
+    "e2e:staging": "bun run --cwd db e2e --env staging",
+    "e2e:development": "bun run --cwd db e2e --env development"
   }
 }

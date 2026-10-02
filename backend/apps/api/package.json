@@ -14,16 +14,16 @@
     "@cmux/ownership": "workspace:*",
     "@cmux/protocol": "workspace:*",
     "effect": "4.0.0-rc.117",
-    "jose": "^6.2.12",
-    "pg": "^8.23.0"
+    "jose": "6.2.12",
+    "pg": "8.23.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.22.0",
-    "@cloudflare/workers-types": "^5.20260925.1",
-    "@types/node": "^26.6.2",
-    "@types/pg": "^8.23.1",
-    "typescript": "^7.0.2",
-    "vitest": "4",
-    "wrangler": "^4.139.0"
+    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "@cloudflare/workers-types": "5.20260925.1",
+    "@types/node": "26.6.2",
+    "@types/pg": "8.23.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11",
+    "wrangler": "4.139.0"
   }
 }

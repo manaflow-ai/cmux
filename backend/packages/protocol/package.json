@@ -16,8 +16,8 @@
     "effect": "4.0.0-rc.117"
   },
   "devDependencies": {
-    "@types/node": "^26.6.2",
-    "typescript": "^7.0.2",
-    "vitest": "4"
+    "@types/node": "26.6.2",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
   }
 }
