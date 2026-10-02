@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 
 /// Pure remote catalog selector and placement resolution shared by the app and CLI.
 enum CmuxTuiRemoteRouting {
