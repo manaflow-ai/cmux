@@ -540,8 +540,8 @@ export class AcpmuxDirectClient {
   }
 
   /// The selected session's repository changes in one git scope (changes/model.ts).
-  gitScopeDiff(scope: string): Promise<unknown> {
-    return this.request("git.scope.diff", { sessionId: this.selectedSessionId, scope });
+  gitDiff(scope: string): Promise<unknown> {
+    return this.request("git.diff", { sessionId: this.selectedSessionId, scope, include_patch: true });
   }
 
   /// The selected session's branch, upstream and how far it is ahead and behind.

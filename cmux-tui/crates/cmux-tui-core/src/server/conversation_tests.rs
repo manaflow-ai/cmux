@@ -86,6 +86,8 @@ fn local_conversations_capability_is_advertised() {
             .any(|value| value == LOCAL_CONVERSATIONS_CAPABILITY)
     );
     assert_eq!(LOCAL_CONVERSATIONS_CAPABILITY, "local-conversations-v1");
+    let capabilities = identity["capabilities"].as_array().unwrap();
+    assert!(capabilities.iter().any(|value| value == "conversation-search-v1"));
 }
 
 #[test]
@@ -446,4 +448,142 @@ fn conversation_actor_is_stamped_by_the_owner() {
                           "idempotency_key":"g1","op":{"kind":"message.send","client_msg_id":"g1",
                           "parts":[{"type":"text","text":"hi"}]}});
     assert_eq!(rejection(&mux, ghost, intruder).0, "not_participant");
+}
+
+#[test]
+fn conversation_reject_reason_and_ledger_per_actor() {
+    let (mux, client) = conversation_mux();
+    let conversation = create(&mux, client);
+    let agent = agent_client(&mux, client, "agent_mux");
+    // The same client_msg_id from two actors: each commits once (the ledger is per actor).
+    run(&mux, client, send(&conversation, "same", "from the user")).unwrap();
+    let theirs = json!({"cmd":"conversation-op","conversation":conversation,
+                        "idempotency_key":"same","op":{"kind":"message.send",
+                        "client_msg_id":"same","parts":[{"type":"text","text":"from the mux"}]}});
+    let reply = run(&mux, agent, theirs).unwrap();
+    assert_eq!(reply["replayed"], false);
+    assert_eq!(reply["change"]["message"]["author"], "agent_mux");
+
+    let again = json!({"cmd":"conversation-op","conversation":conversation,
+                       "idempotency_key":"again","op":{"kind":"message.send",
+                       "client_msg_id":"again","parts":[{"type":"text","text":"too soon"}]}});
+    let error = run(&mux, agent, again).unwrap_err();
+    assert_eq!(super::error_reason(&error).as_deref(), Some("agent_rate"));
+    assert_eq!(response_error_code(&error).as_deref(), Some("conversation_rejected"));
+}
+
+/// `conversation-search`: every word matches as a prefix over committed text;
+/// an edit re-indexes and a retraction removes the message in the same
+/// commit; FTS5 operators are literal; limits are validated.
+#[test]
+fn conversation_search_follows_edits_and_retractions() {
+    let (mux, client) = conversation_mux();
+    let conversation = create(&mux, client);
+    let search = |query: &str| {
+        run(&mux, client, json!({"cmd":"conversation-search","query":query,"limit":10}))
+            .unwrap()["hits"]
+            .as_array()
+            .unwrap()
+            .clone()
+    };
+    let deploy = run(&mux, client, send(&conversation, "s1", "The deploy failed on staging"))
+        .unwrap()["change"]["message"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    run(&mux, client, send(&conversation, "s2", "Lunch at noon?")).unwrap();
+
+    let hits = search("dep FAI");
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert_eq!(hits[0]["conversation"], conversation.as_str());
+    assert_eq!(hits[0]["title"], "mux");
+    assert_eq!(hits[0]["seq"], 1);
+    assert_eq!(hits[0]["message_id"], deploy.as_str());
+    assert_eq!(hits[0]["author"], "user_local");
+    assert!(hits[0]["snippet"].as_str().unwrap().contains("deploy failed"));
+    assert!(search("   ").is_empty());
+    assert!(search("deploy OR lunch").is_empty(), "OR must be a literal word");
+    assert!(search("\"deploy").len() == 1, "a quote must be literal");
+
+    let edit = json!({"cmd":"conversation-op","conversation":conversation,
+        "idempotency_key":"s3","actor":"user_local",
+        "op":{"kind":"message.edit","message_id":deploy,
+              "parts":[{"type":"text","text":"The rollout passed"}]}});
+    run(&mux, client, edit).unwrap();
+    assert!(search("deploy").is_empty());
+    assert_eq!(search("rollout").len(), 1);
+
+    let retract = json!({"cmd":"conversation-op","conversation":conversation,
+        "idempotency_key":"s4","actor":"user_local",
+        "op":{"kind":"message.retract","message_id":deploy}});
+    run(&mux, client, retract).unwrap();
+    assert!(search("rollout").is_empty());
+    assert_eq!(search("lunch")[0]["seq"], 2);
+
+    for limit in [0, 101] {
+        let refused =
+            run(&mux, client, json!({"cmd":"conversation-search","query":"lunch","limit":limit}));
+        assert!(refused.is_err(), "limit {limit} must be refused");
+    }
+    let long = "x".repeat(201);
+    assert!(
+        run(&mux, client, json!({"cmd":"conversation-search","query":long,"limit":1})).is_err()
+    );
+}
+
+/// A store written before the search index existed is indexed once at open.
+#[test]
+fn conversation_search_indexes_an_older_store_at_open() {
+    let unique = crate::resource::WorkspacePublicId::random().unwrap();
+    let root = std::env::temp_dir().join(format!("cmux-conversation-search-{unique}"));
+    std::fs::create_dir_all(&root).unwrap();
+    {
+        let mut store =
+            crate::conversation_store::ConversationStore::open(Some(root.as_path())).unwrap();
+        let participants: Vec<cmux_conversation::Participant> =
+            serde_json::from_value(participants()).unwrap();
+        let created = store.create("create-old", "user_local", "old", &participants).unwrap();
+        let op: cmux_conversation::Op = serde_json::from_value(json!({
+            "kind":"message.send","client_msg_id":"o1",
+            "parts":[{"type":"text","text":"archived release notes"}]}))
+        .unwrap();
+        store.apply_op(&created.summary.id, "o1", "user_local", &op).unwrap();
+    }
+    {
+        // A store from before the index: no search tables and no triggers.
+        let connection =
+            rusqlite::Connection::open(root.join(crate::conversation_store::CONVERSATIONS_FILE))
+                .unwrap();
+        connection
+            .execute_batch(
+                "DROP TRIGGER message_search_insert; DROP TRIGGER message_search_update;
+                 DROP TABLE message_search; DROP TABLE message_search_row;",
+            )
+            .unwrap();
+    }
+    let mut store =
+        crate::conversation_store::ConversationStore::open(Some(root.as_path())).unwrap();
+    let hits = store.search("release", 5).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].title, "old");
+    drop(store);
+    {
+        // A binary without search code rewrites the message: the triggers in
+        // the store file keep the index current.
+        let connection =
+            rusqlite::Connection::open(root.join(crate::conversation_store::CONVERSATIONS_FILE))
+                .unwrap();
+        connection
+            .execute(
+                "UPDATE message SET message_json =
+                   json_set(message_json, '$.parts[0].text', 'patched by an older binary')",
+                [],
+            )
+            .unwrap();
+    }
+    let mut store =
+        crate::conversation_store::ConversationStore::open(Some(root.as_path())).unwrap();
+    assert!(store.search("release", 5).unwrap().is_empty());
+    assert_eq!(store.search("patched binary", 5).unwrap().len(), 1);
+    let _ = std::fs::remove_dir_all(&root);
 }

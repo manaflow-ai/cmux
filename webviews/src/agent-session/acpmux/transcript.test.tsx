@@ -1480,7 +1480,7 @@ describe("acpmux turn diff", () => {
       () => Promise.resolve({ scope: "staged", files: [] }),
     ];
     host.cmuxAcpmuxActions = {
-      "git.scope.diff": (params) => {
+      "git.diff": (params) => {
         asked.push(params);
         return answers.shift()!();
       },
@@ -1568,7 +1568,7 @@ describe("acpmux turn diff", () => {
       expect(document.activeElement).toBe(items()[0]);
       // A scope that fails to load says so and offers Retry; Retry asks again and shows its files.
       await click(items()[1]!);
-      expect(asked).toEqual([{ scope: "uncommitted" }]);
+      expect(asked).toEqual([{ scope: "uncommitted", include_patch: true }]);
       expect(items()).toEqual([]);
       expect(document.activeElement).toBe(pill);
       expect(pill.querySelector("strong")?.textContent).toBe("Uncommitted");
@@ -1583,7 +1583,10 @@ describe("acpmux turn diff", () => {
       retryButton.focus();
       expect(document.activeElement).toBe(retryButton);
       await click(retryButton);
-      expect(asked).toEqual([{ scope: "uncommitted" }, { scope: "uncommitted" }]);
+      expect(asked).toEqual([
+        { scope: "uncommitted", include_patch: true },
+        { scope: "uncommitted", include_patch: true },
+      ]);
       // Retry leaves as the load starts; focus moves to the scope pill, not the page.
       expect(document.activeElement).toBe(pill);
       expect(panel.querySelector('[role="alert"]')).toBeNull();
@@ -1610,7 +1613,7 @@ describe("acpmux turn diff", () => {
       expect(document.activeElement?.textContent).toBe("Staged");
       await key(document.activeElement!, "Enter");
       await settle();
-      expect(asked.at(-1)).toEqual({ scope: "staged" });
+      expect(asked.at(-1)).toEqual({ scope: "staged", include_patch: true });
       expect(asked.length).toBe(4);
       expect(panel.querySelector("output strong")?.textContent).toBe("No changes");
       // Last turn is the transcript's own files again, without asking the host.
