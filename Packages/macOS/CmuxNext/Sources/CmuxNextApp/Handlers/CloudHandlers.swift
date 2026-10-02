@@ -95,10 +95,21 @@ enum CloudHandlers {
         }
         show(workspaceID, context)
         Task { @MainActor in
-            for await mounted in Observations({ context.services.paneController(for: pane) != nil }) where mounted {
-                if let controller = context.services.paneController(for: pane) { select(controller) }
-                return
+            // concurrency-allow: the observation task is cancelled by the bounded race below
+            let mounted = await withTaskGroup(of: Bool.self) { group -> Bool in
+                group.addTask {
+                    for await ready in Observations({ context.services.paneController(for: pane) != nil }) where ready { return true }
+                    return false
+                }
+                group.addTask {
+                    // wakeup-allow: one-shot mount deadline; this task is cancelled when the observation wins
+                    try? await Task.sleep(for: .seconds(10))
+                    return false
+                }
+                defer { group.cancelAll() }
+                return await group.next() ?? false
             }
+            if mounted, let controller = context.services.paneController(for: pane) { select(controller) }
         }
     }
 
