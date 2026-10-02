@@ -126,7 +126,7 @@ final class HomeSearchResultsController: UIViewController, UISearchResultsUpdati
             guard let self, let hit = self.hits[id] else { return }
             let author = self.store.participant(hit.message.author, in: hit.conversation)?.displayName ?? ""
             var content = UIListContentConfiguration.subtitleCell()
-            content.attributedText = HomeSearchHighlight.text(for: hit)
+            content.attributedText = hit.highlightedText
             content.secondaryText = author.isEmpty
                 ? self.time.rowLabel(for: hit.message.createdAt, now: Date())
                 : HomeText.searchHitDetail(author: author, time: self.time.rowLabel(for: hit.message.createdAt, now: Date()))
@@ -180,28 +180,29 @@ struct HomeSearchGroup: Hashable, Sendable {
     }
 }
 
-/// The hit's text with matched UTF-16 ranges in the primary color and
-/// semibold, the rest secondary.
-enum HomeSearchHighlight {
-    static func text(for hit: HomeSearchHit) -> NSAttributedString {
+extension HomeSearchHit {
+    /// The hit's text with matched UTF-16 ranges in the primary color and
+    /// semibold, the rest secondary.
+    var highlightedText: NSAttributedString {
         let body = UIFont.preferredFont(forTextStyle: .body)
-        let plain = hit.message.plainText
+        let plain = message.plainText
         let text = NSMutableAttributedString(string: plain, attributes: [
             .font: body, .foregroundColor: HomePalette.secondaryText,
         ])
-        let length = (plain as NSString).length
         let bold = UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 17, weight: .semibold))
-        for range in clamped(hit.highlights, length: length) {
+        for range in highlights.clampedNSRanges(length: (plain as NSString).length) {
             text.addAttributes([.font: bold, .foregroundColor: HomePalette.primaryText], range: range)
         }
         return text
     }
+}
 
+extension Array where Element == Range<Int> {
     /// Drops or trims ranges outside the text (a source bug must not crash the list).
-    static func clamped(_ ranges: [Range<Int>], length: Int) -> [NSRange] {
-        ranges.compactMap { range in
-            let lower = max(0, range.lowerBound)
-            let upper = min(length, range.upperBound)
+    func clampedNSRanges(length: Int) -> [NSRange] {
+        compactMap { range in
+            let lower = Swift.max(0, range.lowerBound)
+            let upper = Swift.min(length, range.upperBound)
             return upper > lower ? NSRange(location: lower, length: upper - lower) : nil
         }
     }

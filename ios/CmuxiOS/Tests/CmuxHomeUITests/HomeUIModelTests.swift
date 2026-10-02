@@ -19,7 +19,7 @@ import Testing
     func rows(_ summaries: [ConversationSummary]) -> [InboxRow] {
         var mirror = HomeMirror()
         mirror.apply(inbox: InboxSnapshot(me: me, conversations: summaries, rev: 1))
-        return InboxOrdering.rows(mirror: mirror, log: IntentLog())
+        return mirror.inboxRows(log: IntentLog())
     }
 
     @Test func groupPreviewCarriesTheAuthor() {
@@ -56,20 +56,20 @@ import Testing
             message(1, by: leo, in: id, "a"), message(2, by: leo, in: id, "b"),
             message(3, by: me, in: id, "c"), message(4, by: chief, in: id, "d"),
         ], reachedStart: true)
-        let items = TranscriptDerivation.items(window: window, pending: [], me: me.id)
+        let items = window.items(pending: [], me: me.id)
         let people = [leo.id: leo, chief.id: chief, me.id: me]
-        let group = TranscriptGrouping.items(items, me: me.id, isGroup: true) { people[$0] }
+        let group = items.displayItems(me: me.id, isGroup: true) { people[$0] }
         #expect(group.map(\.showsAuthorName) == [true, false, false, true])
         #expect(group.map(\.showsAvatar) == [false, true, false, true])
         #expect(group.map(\.isOutgoing) == [false, false, true, false])
         #expect(group.map(\.isLastOutgoing) == [false, false, true, false])
-        let direct = TranscriptGrouping.items(items, me: me.id, isGroup: false) { people[$0] }
+        let direct = items.displayItems(me: me.id, isGroup: false) { people[$0] }
         #expect(direct.allSatisfy { !$0.showsAuthorName && !$0.showsAvatar && !$0.reservesAvatarSpace })
 
         let fewer = Array(group.prefix(3))
-        let incoming = TranscriptGrouping.newIncoming(previous: fewer, current: group)
+        let incoming = group.newIncoming(since: fewer)
         #expect(incoming.map(\.key) == [IdempotencyKey("key_4")])
-        #expect(TranscriptGrouping.newIncoming(previous: [], current: group).isEmpty)
+        #expect(group.newIncoming(since: []).isEmpty)
     }
 
     @Test func recipientSetParsesDedupesAndResolves() {
@@ -101,7 +101,7 @@ import Testing
         let groups = HomeSearchGroup.group(hits) { $0.rawValue }
         #expect(groups.map(\.conversation) == [b, a])
         #expect(groups[0].hits.count == 2)
-        #expect(HomeSearchHighlight.clamped([-2..<3, 5..<40, 50..<60], length: 10)
+        #expect([-2..<3, 5..<40, 50..<60].clampedNSRanges(length: 10)
             == [NSRange(location: 0, length: 3), NSRange(location: 5, length: 5)])
     }
 
@@ -132,11 +132,11 @@ import Testing
     }
 
     @Test func inviteConfirmationLines() {
-        #expect(InviteConfirmation.line(for: InviteReceipt(contact: .email("a@b.co"), channel: .email, alreadyMember: false))
+        #expect(InviteReceipt(contact: .email("a@b.co"), channel: .email, alreadyMember: false).confirmationLine
             == "Emailed to a@b.co.")
-        #expect(InviteConfirmation.line(for: InviteReceipt(contact: .phone("+14155550100"), channel: .sms, alreadyMember: false))
+        #expect(InviteReceipt(contact: .phone("+14155550100"), channel: .sms, alreadyMember: false).confirmationLine
             == "Texted to +14155550100.")
-        #expect(InviteConfirmation.line(for: InviteReceipt(contact: .email("a@b.co"), channel: .email, alreadyMember: true))
+        #expect(InviteReceipt(contact: .email("a@b.co"), channel: .email, alreadyMember: true).confirmationLine
             == "a@b.co is already on cmux.")
     }
 }

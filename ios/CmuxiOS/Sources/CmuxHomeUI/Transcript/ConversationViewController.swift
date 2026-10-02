@@ -92,7 +92,7 @@ final class ConversationViewController: UIViewController, TranscriptPresenterDel
         composer.disabledReason = isOnline ? nil : HomeText.composerOffline
 
         let id = conversation
-        let items = TranscriptGrouping.items(store.transcript(for: id), me: me, isGroup: row?.kind == .group) { [store] who in
+        let items = store.transcript(for: id).displayItems(me: me, isGroup: row?.kind == .group) { [store] who in
             store.participant(who, in: id)
         }
         let typingNames = typingIDs.compactMap { store.participant($0, in: id)?.displayName }.sorted()
@@ -115,7 +115,7 @@ final class ConversationViewController: UIViewController, TranscriptPresenterDel
     /// Polite announcements: queued behind current speech, never moving focus.
     private func announceNewIncoming(previous: [TranscriptDisplayItem], current: [TranscriptDisplayItem]) {
         guard isVisible, UIAccessibility.isVoiceOverRunning else { return }
-        for item in TranscriptGrouping.newIncoming(previous: previous, current: current) {
+        for item in current.newIncoming(since: previous) {
             let name = item.author?.displayName ?? ""
             let text = HomeText.announcement(author: name, text: item.item.plainText)
             let announcement = NSAttributedString(string: text, attributes: [.accessibilitySpeechQueueAnnouncement: true])

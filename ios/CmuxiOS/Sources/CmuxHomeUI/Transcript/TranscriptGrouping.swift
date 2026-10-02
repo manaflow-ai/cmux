@@ -1,15 +1,16 @@
 import CmuxHomeCore
 
-/// Pure derivation of display items from store items.
-enum TranscriptGrouping {
-    static func items(_ items: [TranscriptItem], me: ParticipantID, isGroup: Bool,
+extension Array where Element == TranscriptItem {
+    /// Display items: author name on the first bubble of a run and the
+    /// avatar on the last, both only for incoming bubbles in groups.
+    func displayItems(me: ParticipantID, isGroup: Bool,
                       participant: (ParticipantID) -> Participant?) -> [TranscriptDisplayItem] {
-        let lastOutgoing = items.lastIndex { $0.author == me }
-        return items.indices.map { index in
-            let item = items[index]
+        let lastOutgoing = lastIndex { $0.author == me }
+        return indices.map { index in
+            let item = self[index]
             let outgoing = item.author == me
-            let previous = index > 0 ? items[index - 1].author : nil
-            let next = index + 1 < items.count ? items[index + 1].author : nil
+            let previous = index > 0 ? self[index - 1].author : nil
+            let next = index + 1 < count ? self[index + 1].author : nil
             let startsRun = previous != item.author
             let endsRun = next != item.author
             let incomingInGroup = isGroup && !outgoing
@@ -25,12 +26,14 @@ enum TranscriptGrouping {
             )
         }
     }
+}
 
-    /// Committed messages from others that appeared at the end since the
-    /// previous render, for VoiceOver announcements.
-    static func newIncoming(previous: [TranscriptDisplayItem], current: [TranscriptDisplayItem]) -> [TranscriptDisplayItem] {
+extension Array where Element == TranscriptDisplayItem {
+    /// Committed messages from others that appeared at the end since
+    /// `previous` was shown, for VoiceOver announcements.
+    func newIncoming(since previous: [TranscriptDisplayItem]) -> [TranscriptDisplayItem] {
         guard let lastPrevious = previous.last?.key,
-              let start = current.lastIndex(where: { $0.key == lastPrevious }) else { return [] }
-        return current[(start + 1)...].filter { !$0.isOutgoing && $0.item.delivery == .committed }
+              let start = lastIndex(where: { $0.key == lastPrevious }) else { return [] }
+        return self[(start + 1)...].filter { !$0.isOutgoing && $0.item.delivery == .committed }
     }
 }

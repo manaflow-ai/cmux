@@ -18,6 +18,8 @@ final class NewGroupViewController: UIViewController, ComposeScreen, UICollectio
     }
 
     var onFinish: (@MainActor (ConversationID?) -> Void)?
+    /// These screens never raise the keyboard on their own.
+    var focusesOnAppear = false
 
     private let store: HomeStore
     private var collectionView: UICollectionView?

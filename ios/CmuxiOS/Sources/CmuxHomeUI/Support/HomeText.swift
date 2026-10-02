@@ -4,6 +4,7 @@ import Foundation
 /// Resources/Localizable.xcstrings (English, Japanese and every language
 /// `scripts/cmux-next/check-l10n.sh` lists). One entry per line, so the
 /// catalog generator can read key and English value from source.
+// lint:allow namespace: the module's string table; each member is a catalog lookup with no owning type.
 enum HomeText {
     // MARK: Home list
 

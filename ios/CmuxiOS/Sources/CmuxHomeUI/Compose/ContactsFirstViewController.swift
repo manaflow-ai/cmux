@@ -12,6 +12,8 @@ import UIKit
 @MainActor
 final class ContactsFirstViewController: UIViewController, ComposeScreen, CNContactPickerDelegate, UITextFieldDelegate {
     var onFinish: (@MainActor (ConversationID?) -> Void)?
+    /// These screens never raise the keyboard on their own.
+    var focusesOnAppear = false
 
     private let store: HomeStore
     private let mode: ComposeMode
@@ -181,12 +183,12 @@ final class ContactsFirstViewController: UIViewController, ComposeScreen, CNCont
             updateState()
             let store = self.store
             Task { [weak self] in
-                let outcome = await InviteSender.send([address], store: store)
+                let outcome = await store.sendInvites([address])
                 guard let self else { return }
                 self.isSending = false
                 self.updateState()
                 let succeeded = !outcome.receipts.isEmpty
-                self.present(InviteSender.confirmation(outcome) { [weak self] in
+                self.present(outcome.confirmation { [weak self] in
                     if succeeded { self?.onFinish?(nil) }
                 }, animated: true)
             }

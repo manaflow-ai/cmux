@@ -10,15 +10,14 @@ public import UIKit
 /// `CMUX_IOS_GALLERY=1`. Each screen is installed as the window's root,
 /// laid out (no sleeps: layout passes, a transaction flush and main-actor
 /// yields), and drawn to a PNG.
+// lint:allow namespace: the DEBUG entry point the app shell calls by this agreed name; it owns no state.
 public enum HomeGallery {
     @MainActor
     public static func capture(into directory: URL, store: HomeStore, window: UIWindow) async throws -> [URL] {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let original = window.rootViewController
         let originalStyle = window.overrideUserInterfaceStyle
-        HomeFocusPolicy.suppressesAutomaticFocus = true
         defer {
-            HomeFocusPolicy.suppressesAutomaticFocus = false
             window.overrideUserInterfaceStyle = originalStyle
             window.rootViewController = original
         }
@@ -62,10 +61,13 @@ public enum HomeGallery {
         for flow in HomeComposeFlow.allCases {
             try await shot.install(sheetNavigation(await composeSample(flow, store: store)), name: "compose-\(flow.rawValue)-light")
             let invite = ComposeCoordinator.makeScreen(.invite, flow: flow, store: store)
+            invite.focusesOnAppear = false
             try await shot.install(sheetNavigation(invite), name: "invite-\(flow.rawValue)-light")
         }
         try await shot.install(sheetNavigation(NewGroupViewController(store: store)), name: "newgroup-light")
-        try await shot.install(sheetNavigation(NewChiefViewController(store: store)), name: "newchief-light")
+        let chiefForm = NewChiefViewController(store: store)
+        chiefForm.focusesOnAppear = false
+        try await shot.install(sheetNavigation(chiefForm), name: "newchief-light")
 
         // Offline: only with the mock owner, which can drop its connection.
         if let mock = store.source as? MockHomeSource {
@@ -89,10 +91,12 @@ public enum HomeGallery {
         case .inlineTo:
             let screen = NewMessageViewController(store: store, mode: .message,
                                                   prefill: [.email("austin@manaflow.com"), .email("sam.lee@example.org")])
+            screen.focusesOnAppear = false
             await screen.settled()
             return screen
         case .inviteSheet:
             let screen = InviteSheetViewController(store: store, mode: .message, prefill: "sam.lee@example.org")
+            screen.focusesOnAppear = false
             screen.loadViewIfNeeded()
             await screen.settled()
             return screen

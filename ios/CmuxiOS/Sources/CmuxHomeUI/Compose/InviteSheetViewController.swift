@@ -12,6 +12,7 @@ final class InviteSheetViewController: UIViewController, ComposeScreen, UITextFi
     static let lookupDelay: Duration = .milliseconds(300)
 
     var onFinish: (@MainActor (ConversationID?) -> Void)?
+    var focusesOnAppear = true
 
     private let store: HomeStore
     private let mode: ComposeMode
@@ -54,7 +55,7 @@ final class InviteSheetViewController: UIViewController, ComposeScreen, UITextFi
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        if (field.text ?? "").isEmpty, !HomeFocusPolicy.suppressesAutomaticFocus { field.becomeFirstResponder() }
+        if (field.text ?? "").isEmpty, focusesOnAppear { field.becomeFirstResponder() }
     }
 
     /// Waits for the pending lookup (gallery capture).
@@ -224,12 +225,12 @@ final class InviteSheetViewController: UIViewController, ComposeScreen, UITextFi
                     self?.finishWithFailure(rejection)
                 } catch {}
             case .invite:
-                let outcome = await InviteSender.send([address], store: store)
+                let outcome = await store.sendInvites([address])
                 guard let self else { return }
                 self.isSending = false
                 self.updateSendState()
                 let succeeded = !outcome.receipts.isEmpty
-                self.present(InviteSender.confirmation(outcome) { [weak self] in
+                self.present(outcome.confirmation { [weak self] in
                     if succeeded { self?.onFinish?(nil) }
                 }, animated: true)
             }
@@ -247,7 +248,7 @@ final class InviteSheetViewController: UIViewController, ComposeScreen, UITextFi
 
     /// The share sheet with the invite text and link, for any channel.
     private func shareInvite() {
-        let text = mode == .message ? preview.messageView.text ?? InviteCopy.shareText : InviteCopy.shareText
+        let text = mode == .message ? preview.messageView.text ?? HomeText.inviteFirstMessage : HomeText.inviteFirstMessage
         let sheet = UIActivityViewController(activityItems: [text], applicationActivities: nil)
         sheet.popoverPresentationController?.sourceView = shareButton
         present(sheet, animated: true)

@@ -64,6 +64,13 @@ extension HomeText {
         String(localized: "home.invite.alreadyMember", defaultValue: "\(address) is already on cmux.", bundle: .module)
     }
 
+    /// Where an invitation sends people.
+    static let inviteLink = "https://cmux.com"
+
+    /// The default first message to someone who is not on cmux yet (word of
+    /// mouth: short, warm, concrete), with the link. Also the share text.
+    static var inviteFirstMessage: String { inviteDefaultMessage(link: inviteLink) }
+
     /// The default first message to someone who is not on cmux yet.
     static func inviteDefaultMessage(link: String) -> String {
         String(localized: "home.invite.defaultMessage", defaultValue: "Hey! I'm using cmux to run my coding agents from my phone. My Chief takes a task, runs agents on my machines, and messages me here when it needs me. Join me: \(link)", bundle: .module)

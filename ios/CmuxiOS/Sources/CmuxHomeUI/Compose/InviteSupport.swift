@@ -2,20 +2,38 @@ import CmuxHomeCore
 import CmuxiOSDesign
 import UIKit
 
-/// Sends `invite` ops and words the confirmation.
-@MainActor
-enum InviteSender {
-    struct Outcome: Sendable {
-        var receipts: [InviteReceipt]
-        var failures: [HomeRejection]
-    }
+/// What a run of `invite` ops produced.
+struct InviteOutcome: Sendable {
+    var receipts: [InviteReceipt] = []
+    var failures: [HomeRejection] = []
 
+    /// The alert that confirms what happened.
+    @MainActor
+    func confirmation(onDone: @escaping @MainActor () -> Void) -> UIAlertController {
+        let title: String
+        let message: String
+        if let failure = failures.first, receipts.isEmpty {
+            title = HomeText.inviteFailedTitle
+            message = HomeText.explanation(for: failure)
+        } else {
+            title = receipts.count == 1 ? HomeText.inviteSentTitle : HomeText.invitesSentTitle(receipts.count)
+            message = receipts.map(\.confirmationLine).joined(separator: "\n")
+        }
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: HomeText.ok, style: .default) { _ in
+            MainActor.assumeIsolated { onDone() }
+        })
+        return alert
+    }
+}
+
+extension HomeStore {
     /// One `invite` per address, in order. Stops at the first offline refusal.
-    static func send(_ addresses: [ContactAddress], store: HomeStore) async -> Outcome {
-        var outcome = Outcome(receipts: [], failures: [])
+    func sendInvites(_ addresses: [ContactAddress]) async -> InviteOutcome {
+        var outcome = InviteOutcome()
         for address in addresses {
             do {
-                let result = try await store.perform(.invite(contact: address))
+                let result = try await perform(.invite(contact: address))
                 outcome.receipts.append(result.invite ?? InviteReceipt(
                     contact: address, channel: address.isEmail ? .email : .sms, alreadyMember: false))
             } catch let rejection as HomeRejection {
@@ -27,33 +45,15 @@ enum InviteSender {
         }
         return outcome
     }
-
-    /// The alert that confirms what happened.
-    static func confirmation(_ outcome: Outcome, onDone: @escaping @MainActor () -> Void) -> UIAlertController {
-        let title: String
-        let message: String
-        if let failure = outcome.failures.first, outcome.receipts.isEmpty {
-            title = HomeText.inviteFailedTitle
-            message = HomeText.explanation(for: failure)
-        } else {
-            title = outcome.receipts.count == 1 ? HomeText.inviteSentTitle : HomeText.invitesSentTitle(outcome.receipts.count)
-            message = outcome.receipts.map(InviteConfirmation.line(for:)).joined(separator: "\n")
-        }
-        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: HomeText.ok, style: .default) { _ in
-            MainActor.assumeIsolated { onDone() }
-        })
-        return alert
-    }
 }
 
-/// One confirmation line per receipt. Pure.
-enum InviteConfirmation {
-    static func line(for receipt: InviteReceipt) -> String {
-        if receipt.alreadyMember { return HomeText.inviteAlreadyMember(receipt.contact.description) }
-        switch receipt.channel {
-        case .email: return HomeText.inviteEmailed(receipt.contact.description)
-        case .sms: return HomeText.inviteTexted(receipt.contact.description)
+extension InviteReceipt {
+    /// One confirmation line ("Emailed to sam@example.com.").
+    var confirmationLine: String {
+        if alreadyMember { return HomeText.inviteAlreadyMember(contact.description) }
+        switch channel {
+        case .email: return HomeText.inviteEmailed(contact.description)
+        case .sms: return HomeText.inviteTexted(contact.description)
         }
     }
 }
@@ -83,12 +83,12 @@ final class InvitePreviewView: UIView {
         caption.translatesAutoresizingMaskIntoConstraints = false
         addSubview(caption)
 
-        titleLabel.text = InviteCopy.invitationTitle(sender: sender)
+        titleLabel.text = HomeText.invitationTitle(sender: sender)
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 0
 
-        messageView.text = editable ? InviteCopy.firstMessage : InviteCopy.invitationBody(sender: sender)
+        messageView.text = editable ? HomeText.inviteFirstMessage : HomeText.invitationBody(sender: sender)
         messageView.font = .preferredFont(forTextStyle: .body)
         messageView.adjustsFontForContentSizeCategory = true
         messageView.textColor = HomePalette.primaryText
@@ -100,7 +100,7 @@ final class InvitePreviewView: UIView {
         messageView.textContainer.lineFragmentPadding = 0
         messageView.accessibilityLabel = HomeText.invitePreviewMessageA11y
 
-        linkLabel.text = InviteCopy.link
+        linkLabel.text = HomeText.inviteLink
         linkLabel.isHidden = editable
         linkLabel.font = .preferredFont(forTextStyle: .footnote)
         linkLabel.adjustsFontForContentSizeCategory = true

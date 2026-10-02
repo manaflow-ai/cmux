@@ -27,6 +27,11 @@ final class NewChiefViewController: UIHostingController<NewChiefForm>, ComposeSc
 
     var hasUnsavedInput: Bool { !draft.name.isEmpty }
 
+    var focusesOnAppear: Bool {
+        get { draft.focusesOnAppear }
+        set { draft.focusesOnAppear = newValue }
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         navigationItem.leftBarButtonItem = UIBarButtonItem(systemItem: .cancel, primaryAction: UIAction { [weak self] _ in
@@ -54,6 +59,7 @@ final class NewChiefDraft {
     private(set) var isCreating = false
     private(set) var failure: String?
 
+    @ObservationIgnored var focusesOnAppear = true
     @ObservationIgnored var onFinish: (@MainActor (ConversationID?) -> Void)?
     @ObservationIgnored private let store: HomeStore
 
@@ -126,6 +132,6 @@ struct NewChiefForm: View {
             }
         }
         .tint(.primary)
-        .onAppear { focused = !HomeFocusPolicy.suppressesAutomaticFocus }
+        .onAppear { focused = draft.focusesOnAppear }
     }
 }

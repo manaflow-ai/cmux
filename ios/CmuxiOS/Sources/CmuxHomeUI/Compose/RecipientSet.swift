@@ -100,18 +100,3 @@ struct RecipientSet: Hashable, Sendable {
         return codes[region.uppercased()] ?? "1"
     }
 }
-
-/// The default first message for someone who is not on cmux yet, and the
-/// invitation preview. Word of mouth: short, warm, concrete.
-enum InviteCopy {
-    static let link = "https://cmux.com"
-
-    static var firstMessage: String { HomeText.inviteDefaultMessage(link: link) }
-
-    static func invitationTitle(sender: String) -> String { HomeText.invitationTitle(sender: sender) }
-
-    static func invitationBody(sender: String) -> String { HomeText.invitationBody(sender: sender) }
-
-    /// The text for the share sheet.
-    static var shareText: String { firstMessage }
-}

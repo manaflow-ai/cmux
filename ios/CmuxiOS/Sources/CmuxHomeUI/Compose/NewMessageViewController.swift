@@ -16,6 +16,9 @@ protocol ComposeScreen: UIViewController {
     var onFinish: (@MainActor (ConversationID?) -> Void)? { get set }
     /// True when dismissing would lose typed input (asks before discarding).
     var hasUnsavedInput: Bool { get }
+    /// Whether the screen focuses its first field when it appears (the
+    /// DEBUG gallery turns it off so captures have no keyboard inset).
+    var focusesOnAppear: Bool { get set }
 }
 
 /// The inline To: variant: a To: field with chips on top and the first
@@ -24,6 +27,7 @@ protocol ComposeScreen: UIViewController {
 @MainActor
 final class NewMessageViewController: UIViewController, ComposeScreen {
     var onFinish: (@MainActor (ConversationID?) -> Void)?
+    var focusesOnAppear = true
 
     private let store: HomeStore
     private let mode: ComposeMode
@@ -97,7 +101,7 @@ final class NewMessageViewController: UIViewController, ComposeScreen {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        if recipients.set.isEmpty, !HomeFocusPolicy.suppressesAutomaticFocus { field.textField.becomeFirstResponder() }
+        if recipients.set.isEmpty, focusesOnAppear { field.textField.becomeFirstResponder() }
     }
 
     /// Waits for every recipient lookup (gallery capture).
@@ -155,8 +159,8 @@ final class NewMessageViewController: UIViewController, ComposeScreen {
         let untouched = current.isEmpty || current == autoFilledMessage
         guard untouched else { return }
         if hasInvitable {
-            autoFilledMessage = InviteCopy.firstMessage
-            composer.text = InviteCopy.firstMessage
+            autoFilledMessage = HomeText.inviteFirstMessage
+            composer.text = HomeText.inviteFirstMessage
         } else if current == autoFilledMessage {
             autoFilledMessage = nil
             composer.text = ""
@@ -207,12 +211,12 @@ final class NewMessageViewController: UIViewController, ComposeScreen {
         let store = self.store
         let addresses = recipients.set.addresses
         Task { [weak self] in
-            let outcome = await InviteSender.send(addresses, store: store)
+            let outcome = await store.sendInvites(addresses)
             guard let self else { return }
             self.isSending = false
             self.updateSendState()
             let succeeded = !outcome.receipts.isEmpty
-            self.present(InviteSender.confirmation(outcome) { [weak self] in
+            self.present(outcome.confirmation { [weak self] in
                 if succeeded { self?.onFinish?(nil) }
             }, animated: true)
         }
