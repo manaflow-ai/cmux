@@ -83,6 +83,36 @@ enum CloudHandlers {
         if let state = windows.active?.state { windows.show(workspaceID: workspaceID, in: state) } else { windows.openWindow(workspaces: [workspaceID]) }
     }
 
+    @MainActor static func reveal(_ surface: SurfaceID, in pane: PaneModel, workspaceID: String, _ context: AppActionContext) {
+        let select: (PaneController) -> Void = { controller in
+            controller.pendingSelectSurface = surface
+            controller.syncStripFromStore()
+        }
+        if let controller = context.services.paneController(for: pane) {
+            select(controller)
+            show(workspaceID, context)
+            return
+        }
+        show(workspaceID, context)
+        Task { @MainActor in
+            // concurrency-allow: the observation task is cancelled by the bounded race below
+            let mounted = await withTaskGroup(of: Bool.self) { group -> Bool in
+                group.addTask {
+                    for await ready in Observations({ context.services.paneController(for: pane) != nil }) where ready { return true }
+                    return false
+                }
+                group.addTask {
+                    // wakeup-allow: one-shot mount deadline; this task is cancelled when the observation wins
+                    try? await Task.sleep(for: .seconds(10))
+                    return false
+                }
+                defer { group.cancelAll() }
+                return await group.next() ?? false
+            }
+            if mounted, let controller = context.services.paneController(for: pane) { select(controller) }
+        }
+    }
+
     /// The machine's first workspace, created (with a terminal) when it has none.
     static func firstWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {
         let daemon = session.daemon
@@ -90,5 +120,60 @@ enum CloudHandlers {
         if let first = daemon.store.workspaces.first { return first.id }
         guard let id = await context.services.windows.createWorkspace(on: daemon) else { throw ActionFailure(message: CloudStrings.notConnected) }
         return id
+    }
+
+    /// The existing workspace and pane where a Cloud terminal should land.
+    /// Keep the durable workspace key on the spawn request so terminals stay
+    /// attached to the machine after daemon handle ids are recycled.
+    @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
+        let hadWorkspace = !session.daemon.store.workspaces.isEmpty
+        let id = try await firstWorkspace(on: session, context)
+        if let anchor = anchor(id: id, on: session) { return anchor }
+        if let anchor = await mirroredAnchor(id: id, on: session) { return anchor }
+        // `firstWorkspace` already requested the first workspace when the
+        // store was empty. Do not issue a second create if that mirror is
+        // unexpectedly late.
+        guard hadWorkspace else { throw ActionFailure(message: CloudStrings.notConnected) }
+        guard let created = await context.services.windows.createWorkspace(on: session.daemon) else {
+            throw ActionFailure(message: CloudStrings.notConnected)
+        }
+        guard let anchor = await mirroredAnchor(id: created, on: session) else {
+            throw ActionFailure(message: CloudStrings.notConnected)
+        }
+        return anchor
+    }
+
+    @MainActor private static func mirroredAnchor(id: String, on session: CloudMachineSession) async -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
+        // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
+        let mirrored = await withTaskGroup(of: Bool.self) { group -> Bool in
+            group.addTask { await waitForAnchor(id: id, on: session) }
+            group.addTask {
+                // wakeup-allow: one-shot ten-second daemon mirror deadline
+                try? await Task.sleep(for: .seconds(10))
+                return false
+            }
+            defer { group.cancelAll() }
+            return await group.next() ?? false
+        }
+        return mirrored ? anchor(id: id, on: session) : nil
+    }
+
+    @MainActor private static func anchor(id: String, on session: CloudMachineSession) -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
+        guard let workspace = session.daemon.store.workspaces.first(where: { $0.id == id }),
+              let key = workspace.key,
+              let pane = workspace.screens.first?.panes.first else { return nil }
+        return (id, key, pane)
+    }
+
+    @MainActor private static func waitForAnchor(id: String, on session: CloudMachineSession) async -> Bool {
+        for await ready in Observations({ anchor(id: id, on: session) != nil }) where ready { return true }
+        return false
+    }
+
+    static func commandArgument(_ invocation: ActionInvocation) throws -> String {
+        guard let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else {
+            throw ActionFailure(message: CloudStrings.commandRequired)
+        }
+        return command
     }
 }

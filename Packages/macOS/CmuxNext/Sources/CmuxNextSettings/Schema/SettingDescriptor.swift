@@ -57,4 +57,8 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     case hostList
     /// `{"start": "HH:MM", "end": "HH:MM"}`; absent means off.
     case timeRange
+    /// A Ghostty theme: one theme name or `light:A,dark:B` (`AppThemeSetting`).
+    case theme
+    /// A font family name (`TerminalFontSetting`).
+    case fontFamily
 }

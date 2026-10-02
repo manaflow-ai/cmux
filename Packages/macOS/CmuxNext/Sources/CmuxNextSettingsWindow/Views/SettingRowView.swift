@@ -67,6 +67,8 @@ struct SettingControl: View {
         case .url: AddressControl(model: model, descriptor: descriptor)
         case .hostList: HostListControl(model: model, descriptor: descriptor)
         case .timeRange: TimeRangeControl(model: model, descriptor: descriptor)
+        case .theme: AppThemeControl(model: model, descriptor: descriptor)
+        case .fontFamily: FontFamilyControl(model: model, descriptor: descriptor)
         }
     }
 }
