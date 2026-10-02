@@ -54,6 +54,14 @@ nonisolated extension ActionCatalog {
                 keywords: ["shortcuts", "keybindings", "hotkeys", "help"], category: .settings, symbol: "keyboard",
                 surfaces: [.palette, .menu], cliName: "settings search-keyboard-shortcuts", mainMenu: .help
             ),
+            // DEV and NIGHTLY only (`DevTools`); CLI verb for the Rust CLI:
+            // `cmux debug open-settings`.
+            ActionDescriptor(
+                id: "openDebugSettings",
+                title: String(localized: "action.openDebugSettings", defaultValue: "Open Debug Settings", bundle: .module),
+                keywords: ["debug", "tunables", "tune", "developer", "overlay", "motion", "metrics"], category: .settings,
+                symbol: "slider.horizontal.3", surfaces: [.palette], cliName: "debug open-settings", isDebugOnly: true
+            ),
             ActionDescriptor(
                 id: "palette.installCLI",
                 title: String(localized: "action.palette.installCLI", defaultValue: "Install cmux CLI in PATH", bundle: .module),

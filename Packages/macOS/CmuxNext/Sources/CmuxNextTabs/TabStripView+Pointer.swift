@@ -166,12 +166,12 @@ extension TabStripView {
             updateGroupDrag(at: point, event: event)
             return
         }
-        if let press = groups.press, !press.openedEditor, hypot(point.x - press.start.x, point.y - press.start.y) > Metrics.space2 {
+        if let press = groups.press, !press.openedEditor, hypot(point.x - press.start.x, point.y - press.start.y) > TabTunables.dragStartDistance.value {
             beginGroupDrag(press)
             updateGroupDrag(at: point, event: event)
             return
         }
-        if let press, hypot(point.x - press.start.x, point.y - press.start.y) > Metrics.space2 {
+        if let press, hypot(point.x - press.start.x, point.y - press.start.y) > TabTunables.dragStartDistance.value {
             beginDrag(press)
             updateDrag(at: point, event: event)
         }

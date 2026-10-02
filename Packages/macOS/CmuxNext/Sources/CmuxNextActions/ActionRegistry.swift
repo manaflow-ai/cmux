@@ -237,7 +237,7 @@ public final class ActionRegistry {
 
     /// Whether the action applies in `context` (defaults to the current
     /// context): its required context is present and it is not debug-only
-    /// in a release build. Independent of binding and `isEnabled`.
+    /// in a build without developer tools (Release, RC; see `DevTools`). Independent of binding and `isEnabled`.
     public func isAvailable(_ id: ActionID, in context: ActionContext? = nil) -> Bool {
         guard let descriptor = descriptor(for: id) else { return isBound(id) }
         return Self.isAvailable(descriptor, in: context ?? self.context)
@@ -250,9 +250,7 @@ public final class ActionRegistry {
     }
 
     public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext) -> Bool {
-        #if !DEBUG
-        if descriptor.isDebugOnly { return false }
-        #endif
+        if descriptor.isDebugOnly && !DevTools.isEnabled { return false }
         return context.isSuperset(of: descriptor.requires)
     }
 

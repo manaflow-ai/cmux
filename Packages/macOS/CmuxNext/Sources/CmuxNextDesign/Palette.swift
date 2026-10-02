@@ -74,6 +74,12 @@ public struct Palette {
     /// Text on top of `textPrimary` fills (inverted badges).
     public static var textOnPrimary: NSColor { color(\.contentBackground, opaque: true, dynamic: PaletteDynamic.textOnPrimary) }
 
+    /// A Debug Settings color tunable's role, in the active theme scope
+    /// (the app theme outside one).
+    public static func tunable(_ color: TunableColor) -> NSColor {
+        color.resolve(in: ThemeContext.active ?? ThemeScope.app.tokens).nsColor
+    }
+
     /// Inside `performWithTheme` (or `ThemeScope.perform`) a plain color of
     /// the active scope; elsewhere the dynamic app-theme color.
     private static func color(_ keyPath: KeyPath<ThemeTokens, ThemeRGB>, opaque: Bool = false, dynamic: NSColor) -> NSColor {
