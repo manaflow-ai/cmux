@@ -93,7 +93,7 @@ extension LayoutStyle {
         style.drawsLines = Borders.drawsLines
         style.focusRing = DesignSettings.shared.focusRing
         style.focusIndicator = DesignSettings.shared.effectiveFocusIndicator
-        style.inactiveTabStyle = FocusIndicatorTunables.inactiveTabStyle.value
+        style.inactiveTabStyle = DesignSettings.shared.effectiveInactiveTabStyle
         style.inactiveTabStrength = FocusIndicatorTunables.inactiveTabStrength.value
         style.attention = DesignSettings.shared.attention
         if !style.drawsLines {
