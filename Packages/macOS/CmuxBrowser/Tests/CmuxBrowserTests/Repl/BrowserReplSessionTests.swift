@@ -99,7 +99,7 @@ struct BrowserReplSessionTests {
 
         #expect(result.error == nil)
         #expect(result.lines == [
-            BrowserReplOutputLine(level: "log", text: "1 t1"),
+            BrowserReplOutputLine(level: "log", text: "2 t1"),
             BrowserReplOutputLine(level: "error", text: "after t1"),
         ])
         #expect(driver.calls == ["tabs.list", "tab.info"])
@@ -110,12 +110,13 @@ struct BrowserReplSessionTests {
         let session = makeSession(driver: RecordingReplDriver())
         defer { session.close() }
 
+        // The options always carry the evaluation's id, so a timeout cancels only that cell.
         let capped = await session.evaluate(code: "console.log(evalArity, evalOptions);", maxOutput: 1234)
-        #expect(capped.lines == [BrowserReplOutputLine(level: "log", text: #"2 {"maxOutput":1234}"#)])
+        #expect(capped.lines == [BrowserReplOutputLine(level: "log", text: #"2 {"evalId":1,"maxOutput":1234}"#)])
         let unlimited = await session.evaluate(code: "console.log(evalOptions);", maxOutput: 0)
-        #expect(unlimited.lines == [BrowserReplOutputLine(level: "log", text: #"{"maxOutput":0}"#)])
-        let runtimeDefault = await session.evaluate(code: "console.log(evalArity);")
-        #expect(runtimeDefault.lines == [BrowserReplOutputLine(level: "log", text: "1")])
+        #expect(unlimited.lines == [BrowserReplOutputLine(level: "log", text: #"{"evalId":2,"maxOutput":0}"#)])
+        let runtimeDefault = await session.evaluate(code: "console.log(evalOptions);")
+        #expect(runtimeDefault.lines == [BrowserReplOutputLine(level: "log", text: #"{"evalId":3}"#)])
     }
 
     @Test("Uncaught errors and driver errors are reported with the runtime's formatter")

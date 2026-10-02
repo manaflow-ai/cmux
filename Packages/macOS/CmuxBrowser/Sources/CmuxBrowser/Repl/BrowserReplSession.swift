@@ -338,18 +338,19 @@ public final class BrowserReplSession: @unchecked Sendable {
         watchdog.requestTermination()
         thread.perform { [self] in
             self.watchdog.clearTermination()
-            self.cancelRunningCell(message)
+            self.cancelRunningCell(message, evalID: state.id)
         }
         finish(state, error: message)
     }
 
-    /// Asks the runtime to drop the running cell (`__cmuxReplCancel`).
-    private func cancelRunningCell(_ message: String) {
+    /// Asks the runtime to drop cell `evalID` if it is still running
+    /// (`__cmuxReplCancel`); a cell that already ended is left alone.
+    private func cancelRunningCell(_ message: String, evalID: Int) {
         guard let context else { return }
         watchdog.absorbTermination(in: context)
         guard let cancel = context.objectForKeyedSubscript("__cmuxReplCancel"),
               !cancel.isUndefined else { return }
-        cancel.call(withArguments: [message])
+        cancel.call(withArguments: [message, evalID])
         context.exception = nil
     }
 
@@ -404,9 +405,10 @@ public final class BrowserReplSession: @unchecked Sendable {
 
         watchdog.absorbTermination(in: context)
         context.exception = nil
-        // The runtime's options argument: `{ "maxOutput": characters }`.
-        var arguments: [Any] = [code]
-        if let maxOutput { arguments.append("{\"maxOutput\":\(max(0, maxOutput))}") }
+        // The runtime's options argument: `{ "evalId": id, "maxOutput": characters }`;
+        // the id lets a timeout cancel exactly this cell.
+        let options = maxOutput.map { "{\"evalId\":\(state.id),\"maxOutput\":\(max(0, $0))}" } ?? "{\"evalId\":\(state.id)}"
+        let arguments: [Any] = [code, options]
         let promise = evalFunction.call(withArguments: arguments)
         if let exception = context.exception {
             context.exception = nil

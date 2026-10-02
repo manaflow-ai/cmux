@@ -536,6 +536,8 @@
 
   // Page events whose listeners a session reports to the driver.
   const HANDLED_EVENTS = ["dialog", "filechooser", "download"];
+  // How long a call on a tab waits for that tab's pending tab.handleEvents.
+  const HANDLED_SYNC_TIMEOUT = 5000;
 
   class EventEmitter {
     constructor() {
@@ -803,7 +805,7 @@
         throw new Error(`${method}: Target page, context or browser has been closed`);
       }
       const crashed = params && typeof params.targetId === "string" && this.pages.get(params.targetId);
-      if (crashed && crashed._handledSync) await crashed._handledSync;
+      if (crashed && crashed._handledSync) await this._awaitHandledSync(crashed);
       if (crashed && crashed._crashed) {
         // A crashed page answers only what starts a new web process.
         if (["tab.navigate", "tab.reload", "tab.history"].includes(method)) crashed._crashed = false;
@@ -816,6 +818,34 @@
       if (!this.agentTools) return this.driver.call(method, params);
       await this.agentTools.beforeCall(method, params);
       return this.agentTools.afterCall(method, params, this.driver.call(method, params));
+    }
+    // Waits for a tab's pending tab.handleEvents update, at most
+    // HANDLED_SYNC_TIMEOUT: an update whose job was dropped (a cell
+    // terminated by the app's watchdog mid-drain) never settles, and no call
+    // on the tab may wait for it forever. The next listener change sends the
+    // state again.
+    async _awaitHandledSync(page) {
+      const pending = page._handledSync;
+      let timer;
+      const late = new Promise((resolve) => (timer = this.host.setTimeout(() => resolve(late), HANDLED_SYNC_TIMEOUT)));
+      const r = await Promise.race([pending, late]);
+      if (this.host.clearTimeout) this.host.clearTimeout(timer);
+      if (r === late && page._handledSync === pending) {
+        page._handledSync = null;
+        page._handledKey = null;
+        page._syncHandledEvents();
+      }
+    }
+    // After a cell is cancelled (the app's timeout, maybe a terminated
+    // script), promise jobs that were queued may never run; drop every tab's
+    // pending update and send the listener state again.
+    _resetPendingState() {
+      for (const page of this.pages.values()) {
+        if (!page._handledSync) continue;
+        page._handledSync = null;
+        page._handledKey = null;
+        page._syncHandledEvents();
+      }
     }
     lazyPage() {
       const page = new Page(this, `lazy:${++this._lazyCounter}`);

@@ -124,7 +124,21 @@
         Object.defineProperty(scope, key, Object.getOwnPropertyDescriptor(g, key));
       }
     }
-    async function run(code) {
+    // `cell.console` is the console the cell's code sees: once the cell is
+    // cancelled it prints nothing, so output its leftover callbacks print
+    // later never lands in another cell.
+    function cellConsole(cell) {
+      const base = scope.console;
+      if (!base || typeof base !== "object") return base;
+      return new Proxy(base, {
+        get(target, key) {
+          const value = target[key];
+          return typeof value === "function" ? (...args) => (cell.cancelled ? undefined : value.apply(target, args)) : value;
+        },
+      });
+    }
+
+    async function run(code, cell) {
       const started = host.now ? host.now() : Date.now();
       let rewritten;
       try {
@@ -142,7 +156,10 @@
       let fn;
       try {
         // Function() keeps the body sloppy, which `with` requires.
-        fn = new Function("__cmuxScope", `return async function () { let __cmuxLast; with (__cmuxScope) {\n${rewritten.source}\n} return __cmuxLast; };`)(scope);
+        // The cell body runs in an arrow inside `with`, so its `console`
+        // parameter shadows the scope's console and everything else
+        // resolves through the scope.
+        fn = new Function("__cmuxScope", "__cmuxConsole", `return async function () { let __cmuxLast; with (__cmuxScope) { await (async (console) => {\n${rewritten.source}\n})(__cmuxConsole); } return __cmuxLast; };`)(scope, cellConsole(cell || {}));
       } catch (e) {
         return { ok: false, error: `SyntaxError: ${e.message}`, ms: 0 };
       }
@@ -167,7 +184,7 @@
       running = cell;
       let started;
       try {
-        started = run(cell.code);
+        started = run(cell.code, cell);
       } catch (e) {
         started = Promise.resolve({ ok: false, error: formatError(e), exception: e, ms: 0 });
       }
@@ -175,11 +192,14 @@
     }
     return {
       scope,
-      evaluate(code) {
+      // `id` names the cell for cancel().
+      evaluate(code, { id } = {}) {
         return new Promise((resolve) => {
           const cell = {
             code,
+            id,
             done: false,
+            cancelled: false,
             finish(r) {
               if (cell.done) return;
               cell.done = true;
@@ -195,8 +215,11 @@
       // Ends the running cell now (the app calls this when a cell times
       // out): its evaluate() result is { ok: false, error: message } and the
       // next cell starts. Work the cell already scheduled is not undone.
-      cancel(message) {
-        if (!running) return false;
+      // With an `id`, only that cell is cancelled: a late cancel for a cell
+      // that already ended never ends the next one.
+      cancel(message, id) {
+        if (!running || (id !== undefined && running.id !== id)) return false;
+        running.cancelled = true;
         running.finish({ ok: false, error: String(message), cancelled: true, ms: 0 });
         return true;
       },
@@ -342,11 +365,11 @@
       session,
       api,
       scope: repl.scope,
-      async evaluate(code, { maxOutput } = {}) {
+      async evaluate(code, { maxOutput, id } = {}) {
         const own = createOutputGate(host, { maxOutput });
         gate = own;
         try {
-          const r = await repl.evaluate(code);
+          const r = await repl.evaluate(code, { id });
           if (r.ok) {
             try {
               api.show(r.value);
@@ -360,7 +383,11 @@
           if (gate === own) gate = null;
         }
       },
-      cancel: (message) => repl.cancel(message),
+      cancel(message, id) {
+        if (!repl.cancel(message, id)) return false;
+        session._resetPendingState();
+        return true;
+      },
       dispose: () => session.dispose(),
     };
   }
@@ -489,11 +516,11 @@
     root.__cmuxReplEval = async (code, optionsJSON) => {
       if (!repl) repl = createBrowserRepl({ host, driver });
       const options = typeof optionsJSON === "string" && optionsJSON ? JSON.parse(optionsJSON) : {};
-      const r = await repl.evaluate(code, { maxOutput: options.maxOutput });
+      const r = await repl.evaluate(code, { maxOutput: options.maxOutput, id: options.evalId });
       if (!r.ok) throw r.exception || new Error(r.error);
       return undefined;
     };
-    root.__cmuxReplCancel = (message) => (repl ? repl.cancel(message) : false);
+    root.__cmuxReplCancel = (message, evalId) => (repl ? repl.cancel(message, evalId === null ? undefined : evalId) : false);
     root.__cmuxFormatError = (e) => formatError(e);
     // The entry points the app calls stay what they are.
     for (const name of ["__cmuxHostOnResult", "__cmuxHostOnTimer", "__cmuxHostOnEvent", "__cmuxReplEval", "__cmuxReplCancel", "__cmuxFormatError"]) {
