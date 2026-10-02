@@ -36,7 +36,13 @@ public struct ChromiumPasswordCrypto: Sendable {
     public func decrypt(_ encrypted: Data) throws(Failure) -> SecretBytes {
         let prefix = Data("v10".utf8)
         guard encrypted.starts(with: prefix) else { throw .unknownPrefix }
-        return try crypt(CCOperation(kCCDecrypt), encrypted.dropFirst(prefix.count))
+        let body = encrypted.dropFirst(prefix.count)
+        // Whole AES blocks only: CommonCrypto answers a cut-off block with bytes, not an error.
+        guard !body.isEmpty, body.count % kCCBlockSizeAES128 == 0 else { throw .undecryptable }
+        let plain = try crypt(CCOperation(kCCDecrypt), body)
+        // Chromium saves passwords as UTF-8; anything else is a key that happened to leave valid padding.
+        guard plain.withUnsafeBytes(Self.isUTF8) else { throw .undecryptable }
+        return plain
     }
 
     /// The inverse, for test fixtures only (their passwords are synthetic,
@@ -63,5 +69,18 @@ public struct ChromiumPasswordCrypto: Sendable {
         }
         guard status == kCCSuccess else { throw .undecryptable }
         return output
+    }
+
+    /// Checks in place: the bytes never become a `String`.
+    static func isUTF8(_ bytes: UnsafeRawBufferPointer) -> Bool {
+        var decoder = UTF8()
+        var iterator = bytes.makeIterator()
+        while true {
+            switch decoder.decode(&iterator) {
+            case .scalarValue: continue
+            case .emptyInput: return true
+            case .error: return false
+            }
+        }
     }
 }

@@ -40,7 +40,7 @@ final class ImportConsentView: NSView {
         addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             list.widthAnchor.constraint(equalTo: stack.widthAnchor),
             keychain.widthAnchor.constraint(equalTo: stack.widthAnchor),
             store.widthAnchor.constraint(equalTo: stack.widthAnchor),

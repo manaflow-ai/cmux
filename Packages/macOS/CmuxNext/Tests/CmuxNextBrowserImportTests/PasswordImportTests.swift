@@ -81,6 +81,17 @@ import Testing
         #expect(Mirror(reflecting: login).children.isEmpty && Mirror(reflecting: login.password).children.isEmpty)
     }
 
+    /// A cut-off block, or bytes a wrong key leaves with valid padding, are
+    /// undecryptable, never a password made of garbage.
+    @Test func onlyWholeBlocksOfUTF8Decrypt() throws {
+        #expect(throws: ChromiumPasswordCrypto.Failure.undecryptable) { try crypto.decrypt(Data("v10".utf8) + Data([1, 2, 3, 4, 5])) }
+        #expect(throws: ChromiumPasswordCrypto.Failure.undecryptable) { try crypto.decrypt(Data("v10".utf8)) }
+        let notText = try crypto.encrypt(SecretBytes(copying: [0xFF, 0xFE, 0x00]))
+        #expect(throws: ChromiumPasswordCrypto.Failure.undecryptable) { try crypto.decrypt(notText) }
+        let text = try crypto.encrypt(SecretBytes(copying: Array("pässwörd".utf8)))
+        #expect(try crypto.decrypt(text).matches(SecretBytes(copying: Array("pässwörd".utf8))))
+    }
+
     @Test func zeroEmptiesTheBytesAtOnce() {
         let secret = SecretBytes(copying: Array("hunter2".utf8))
         secret.zero()
