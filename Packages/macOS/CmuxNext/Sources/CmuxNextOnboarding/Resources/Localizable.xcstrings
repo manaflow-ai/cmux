@@ -8396,7 +8396,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "استخدام الكمبيوتر"
           }
         },
@@ -8414,19 +8414,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Computernutzung"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Uso del ordenador"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Utilisation de l’ordinateur"
           }
         },
@@ -8438,7 +8438,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "コンピュータの操作"
           }
         },
@@ -8450,7 +8450,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "컴퓨터 사용"
           }
         },
@@ -8504,13 +8504,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "电脑操控"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "電腦操控"
           }
         }
@@ -8527,7 +8527,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "يمكن للوكلاء رؤية تطبيقاتك واستخدامها عندما تطلب منهم ذلك. يحتاج macOS إلى إذنين لذلك."
           }
         },
@@ -8545,19 +8545,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Agents können deine Apps sehen und bedienen, wenn du sie darum bittest. macOS braucht dafür zwei Berechtigungen."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Los agentes pueden ver y usar tus apps cuando se lo pidas. macOS necesita dos permisos para ello."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Les agents peuvent voir et utiliser vos apps quand vous le leur demandez. macOS demande deux autorisations pour cela."
           }
         },
@@ -8569,7 +8569,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "頼んだときに、エージェントがアプリを見て操作できます。そのために macOS で 2 つの許可が必要です。"
           }
         },
@@ -8581,7 +8581,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "요청하면 에이전트가 앱을 보고 사용할 수 있습니다. 이를 위해 macOS 권한 두 개가 필요합니다."
           }
         },
@@ -8635,13 +8635,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "在你提出请求时，代理可以查看并使用你的 App。为此 macOS 需要两项权限。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "在你提出要求時，代理可以檢視並使用你的 App。為此 macOS 需要兩項權限。"
           }
         }
@@ -8658,7 +8658,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "سماح"
           }
         },
@@ -8676,19 +8676,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Erlauben"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Permitir"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Autoriser"
           }
         },
@@ -8700,7 +8700,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "許可"
           }
         },
@@ -8712,7 +8712,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "허용"
           }
         },
@@ -8766,13 +8766,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "允许"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "允許"
           }
         }
@@ -8789,7 +8789,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تم"
           }
         },
@@ -8807,19 +8807,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Fertig"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Listo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Terminé"
           }
         },
@@ -8831,7 +8831,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "完了"
           }
         },
@@ -8843,7 +8843,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "완료"
           }
         },
@@ -8897,13 +8897,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "完成"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "完成"
           }
         }
@@ -8920,7 +8920,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تسهيلات الاستخدام"
           }
         },
@@ -8938,19 +8938,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Bedienungshilfen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Accesibilidad"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Accessibilité"
           }
         },
@@ -8962,7 +8962,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "アクセシビリティ"
           }
         },
@@ -8974,7 +8974,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "손쉬운 사용"
           }
         },
@@ -9028,13 +9028,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "辅助功能"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "輔助使用"
           }
         }
@@ -9051,7 +9051,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "يتيح للوكلاء النقر والكتابة والتمرير في التطبيقات الأخرى."
           }
         },
@@ -9069,19 +9069,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Agents können in anderen Apps klicken, tippen und scrollen."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Permite a los agentes hacer clic, escribir y desplazarse en otras apps."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Permet aux agents de cliquer, saisir et faire défiler dans d’autres apps."
           }
         },
@@ -9093,7 +9093,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "エージェントがほかのアプリでクリック、入力、スクロールできます。"
           }
         },
@@ -9105,7 +9105,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "에이전트가 다른 앱에서 클릭, 입력, 스크롤할 수 있습니다."
           }
         },
@@ -9159,13 +9159,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "让代理在其他 App 中点按、输入和滚动。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "讓代理在其他 App 中點按、輸入和捲動。"
           }
         }
@@ -9182,7 +9182,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تسجيل الشاشة"
           }
         },
@@ -9200,19 +9200,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Bildschirmaufnahme"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Grabación de pantalla"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Enregistrement de l’écran"
           }
         },
@@ -9224,7 +9224,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "画面収録"
           }
         },
@@ -9236,7 +9236,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "화면 기록"
           }
         },
@@ -9290,13 +9290,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "屏幕录制"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "螢幕錄製"
           }
         }
@@ -9313,7 +9313,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "يتيح للوكلاء رؤية النوافذ التي يعملون فيها."
           }
         },
@@ -9331,19 +9331,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Agents sehen die Fenster, in denen sie arbeiten."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Permite a los agentes ver las ventanas en las que trabajan."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Permet aux agents de voir les fenêtres dans lesquelles ils travaillent."
           }
         },
@@ -9355,7 +9355,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "エージェントが作業中のウインドウを見られます。"
           }
         },
@@ -9367,7 +9367,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "에이전트가 작업 중인 윈도우를 볼 수 있습니다."
           }
         },
@@ -9421,13 +9421,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "让代理看到它们正在操作的窗口。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "讓代理看到它們正在操作的視窗。"
           }
         }
@@ -9444,7 +9444,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "اسحب هذا إلى القائمة في إعدادات النظام، ثم شغّله."
           }
         },
@@ -9462,19 +9462,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Zieh das in die Liste in den Systemeinstellungen und schalte es ein."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Arrastra esto a la lista de Ajustes del Sistema y actívalo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Faites glisser ceci dans la liste des Réglages Système, puis activez-le."
           }
         },
@@ -9486,7 +9486,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "これをシステム設定のリストにドラッグして、オンにしてください。"
           }
         },
@@ -9498,7 +9498,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이 항목을 시스템 설정의 목록으로 드래그한 다음 켜세요."
           }
         },
@@ -9552,13 +9552,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "将它拖到“系统设置”的列表中，然后打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "將它拖到「系統設定」的列表中，然後開啟。"
           }
         }
@@ -9575,7 +9575,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "إغلاق"
           }
         },
@@ -9593,19 +9593,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Schließen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Cerrar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Fermer"
           }
         },
@@ -9617,7 +9617,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "閉じる"
           }
         },
@@ -9629,7 +9629,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "닫기"
           }
         },
@@ -9683,13 +9683,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "关闭"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "關閉"
           }
         }
@@ -9706,7 +9706,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "السماح بـ %@"
           }
         },
@@ -9724,19 +9724,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ erlauben"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Permitir %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Autoriser %@"
           }
         },
@@ -9748,7 +9748,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@を許可"
           }
         },
@@ -9760,7 +9760,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ 허용"
           }
         },
@@ -9814,13 +9814,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "允许%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "允許%@"
           }
         }
