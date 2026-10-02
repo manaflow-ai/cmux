@@ -58,6 +58,12 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
     public var attention: ThemeRGB
     public var danger: ThemeRGB
     public var success: ThemeRGB
+    /// The one action color (the composer's Send): the theme's ANSI blue,
+    /// at least 3:1 on the background.
+    public var highlight: ThemeRGB
+    /// Glyphs and labels on `highlight`, at least 4.5:1: the opaque
+    /// background or foreground, whichever contrasts more, else black or white.
+    public var highlightText: ThemeRGB
     /// ANSI 0...15.
     public var ansi: [ThemeRGB]
 
@@ -89,6 +95,15 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
         func status(_ index: Int) -> ThemeRGB { readable(palette[index], over: bg, minimum: minimumMarkContrast) }
 
         let surface = bg.withAlpha(input.backgroundOpacity)
+        let highlight = status(4)
+        func best(_ candidates: [ThemeRGB]) -> ThemeRGB {
+            candidates.max { $0.contrast(with: highlight) < $1.contrast(with: highlight) }!
+        }
+        // A theme color when one reads on the blue; black or white always reaches 4.5:1.
+        let themed = best([bg.withAlpha(1), primary.withAlpha(1)])
+        let highlightText = themed.contrast(with: highlight) >= minimumTextContrast
+            ? themed
+            : best([ThemeRGB(hex: 0x000000), ThemeRGB(hex: 0xFFFFFF)])
         return ThemeTokens(
             isDark: isDark,
             windowBackground: surface,
@@ -114,6 +129,8 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
             attention: status(3),
             danger: status(1),
             success: status(2),
+            highlight: highlight,
+            highlightText: highlightText,
             ansi: palette,
             backgroundOpacity: input.backgroundOpacity,
             backgroundBlur: input.backgroundBlur
