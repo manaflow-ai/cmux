@@ -8,6 +8,8 @@ export const CONTEXT_LABELS = {
   branch: "Branch",
   worktree: "Worktree",
   noWorktree: "Works in the project folder, not a git worktree",
+  on: "On",
+  off: "Off",
 };
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -48,7 +50,12 @@ export function ComposerContext({ summary }: { summary?: Summary }) {
           title={worktree ? `${CONTEXT_LABELS.worktree}: ${worktree}` : CONTEXT_LABELS.noWorktree}
         >
           <span>{CONTEXT_LABELS.worktree}</span>
-          <span className="acpmux-switch" aria-hidden="true" />
+          <span
+            className="acpmux-switch"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+            role="img"
+            aria-label={worktree ? CONTEXT_LABELS.on : CONTEXT_LABELS.off}
+          />
         </span>
       )}
     </div>

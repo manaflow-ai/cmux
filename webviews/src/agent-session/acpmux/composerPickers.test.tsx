@@ -234,7 +234,14 @@ describe("acpmux composer pickers", () => {
     expect(button("Mode")!.textContent).toBe("Ask for approval");
     await act(async () => plan().click());
     expect(calls).toEqual(["mode plan", "mode ask"]);
+    // Another session opened in Plan doesn't inherit this one's mode: leaving goes to its first permission mode.
+    await render(snapshot({ modes: { ...withPlan, currentModeId: "bypassPermissions" } }));
+    await render(snapshot({ sessionId: "t", modes: { ...withPlan, currentModeId: "plan" } }));
+    await act(async () => plan().click());
+    expect(calls.at(-1)).toBe("mode ask");
     expect(isPlan("default")).toBe(false);
+    expect(isPlan("planner")).toBe(false);
+    expect(isPlan("claude_plan")).toBe(true);
   });
 
   test("the context ring shows the share of the window used, and warns near full", async () => {
@@ -244,6 +251,9 @@ describe("acpmux composer pickers", () => {
     expect(ring().classList.contains("acpmux-context-full")).toBe(false);
     await render(snapshot({ usage: { used: 180000, size: 200000 } }));
     expect(ring().classList.contains("acpmux-context-full")).toBe(true);
+    // An empty window draws only the track, no dot from the round cap.
+    await render(snapshot({ usage: { used: 0, size: 200000 } }));
+    expect(ring().querySelectorAll("circle").length).toBe(1);
     await render(snapshot());
     expect(doc.querySelector(".acpmux-context-ring")).toBeNull();
   });
@@ -376,6 +386,7 @@ describe("acpmux composer context", () => {
       const worktree = () => doc.querySelector(".acpmux-context-worktree")!;
       expect(worktree().classList.contains("acpmux-on")).toBe(true);
       expect(worktree().getAttribute("title")).toBe("Worktree: /Users/me/code/cmux-retry");
+      expect(worktree().querySelector(".acpmux-switch")!.getAttribute("aria-label")).toBe("On");
       expect(
         doc.querySelector(".acpmux-composer-context")!.nextElementSibling!.classList.contains("acpmux-composer-box"),
       ).toBe(true);
@@ -383,6 +394,7 @@ describe("acpmux composer context", () => {
       await render({ cwd: "/Users/me", host: "This Mac", hostKind: "local", branch: "main" });
       expect(chips()).toEqual(["This Mac|", "main|Branch: main"]);
       expect(worktree().classList.contains("acpmux-on")).toBe(false);
+      expect(worktree().querySelector(".acpmux-switch")!.getAttribute("aria-label")).toBe("Off");
     } finally {
       await act(async () => root.unmount());
     }
