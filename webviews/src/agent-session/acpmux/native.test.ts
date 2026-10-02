@@ -77,13 +77,29 @@ describe("postNative", () => {
     });
   });
 
-  test("a refusal without a code or origin is a native failure with a generic message", async () => {
+  // Nothing says who refused or whether the request went out, so a checkpoint mutation stays
+  // uncertain and keeps its idempotency key for get-first recovery.
+  test("a refusal without a code or origin keeps both unknown", async () => {
     answerWith({ ok: false });
-    expect(fields(await rejection(postNative("git.status", { cwd: "/repo" })))).toMatchObject({
+    expect(fields(await rejection(postNative("git.status", { cwd: "/repo" })))).toEqual({
       name: "NativeError",
       message: "Request failed",
-      code: "native.failed",
-      origin: "native",
+      code: undefined,
+      details: undefined,
+      retryable: undefined,
+      origin: undefined,
+    });
+  });
+
+  test("fields of the wrong type are left out", async () => {
+    answerWith({ ok: false, error: { code: 7, userMessage: 3, retryable: "yes", origin: "elsewhere" } });
+    expect(fields(await rejection(postNative("git.status", { cwd: "/repo" })))).toEqual({
+      name: "NativeError",
+      message: "Request failed",
+      code: undefined,
+      details: undefined,
+      retryable: undefined,
+      origin: undefined,
     });
   });
 
