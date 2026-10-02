@@ -95,9 +95,7 @@ fn resolve_actor(mux: &Mux, client: u64, declared: Option<String>) -> anyhow::Re
 
 /// The `error_code` of a conversation reject.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
-    error
-        .downcast_ref::<crate::conversation_store::ConversationRejected>()
-        .map(|_| crate::conversation_store::ConversationRejected::CODE.to_string())
+    error.downcast_ref::<ConversationRejected>().map(|_| ConversationRejected::CODE.to_string())
 }
 
 fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
