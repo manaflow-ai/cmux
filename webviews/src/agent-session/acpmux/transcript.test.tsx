@@ -427,6 +427,57 @@ describe("acpmux host handshake", () => {
     drop() { this.readyState = 3; this.onclose?.(); }
   }
 
+  /// The model picker reads the catalog through TanStack Query and keeps the old one across a reconnect.
+  test("the model picker loads each daemon's catalog and keeps the last one while reconnecting", async () => {
+    class CatalogSocket extends FakeSocket {
+      static catalogs = [["m1"], ["m1", "m2"]];
+      static holdHarnesses = false;
+      static held: (() => void)[] = [];
+      override send(raw: string) {
+        const { id, method } = JSON.parse(raw) as { id: number; method: string };
+        const models = CatalogSocket.catalogs[FakeSocket.made.indexOf(this)] ?? [];
+        const result =
+          method === "_acpmux/watch" ? { sessions: [{ sessionId: "s" }] }
+          : method === "_acpmux/attach" ? { session: { sessionId: "s", harness: "codex", model: "m1" }, events: [] }
+          : method === "_acpmux/harnesses" ? { harnesses: [{ id: "codex", name: "Codex", models: models.map((model) => ({ id: model })) }] }
+          : {};
+        const reply = () => this.onmessage?.({ data: JSON.stringify({ id, result }) });
+        if (method === "_acpmux/harnesses" && CatalogSocket.holdHarnesses) CatalogSocket.held.push(reply);
+        else queueMicrotask(reply);
+      }
+    }
+    FakeSocket.made = [];
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    globals.WebSocket = CatalogSocket;
+    host.webkit = { messageHandlers: { agentSession: { postMessage(message: { method: string }) {
+      if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
+      return Promise.resolve({ ok: true, value: { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:4100/acp", token: "t", sessionId: "s" } });
+    } } } };
+    const models = () => [...dom.window.document.querySelectorAll(".acpmux-model option")].map((option) => option.getAttribute("value"));
+    const waitFor = async (done: () => boolean) => { for (let tries = 0; tries < 100 && !done(); tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 10))); };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await waitFor(() => models().length > 0);
+      expect(models()).toEqual(["m1"]);
+      CatalogSocket.holdHarnesses = true;
+      await act(async () => FakeSocket.made[0]!.drop());
+      await waitFor(() => CatalogSocket.held.length > 0);
+      expect(FakeSocket.made.length).toBe(2);
+      expect(models()).toEqual(["m1"]);
+      await act(async () => CatalogSocket.held.splice(0).forEach((reply) => reply()));
+      await waitFor(() => models().length === 2);
+      expect(models()).toEqual(["m1", "m2"]);
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+      FakeSocket.made = [];
+    }
+  });
+
   /// After losing the daemon the page asks Swift again; that retry restarted a daemon the user had stopped.
   test("a page that lost its daemon asks for a handshake that does not start one", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
