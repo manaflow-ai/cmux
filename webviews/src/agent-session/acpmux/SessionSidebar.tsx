@@ -36,10 +36,13 @@ const PLACE_LABELS = { cloud: "Runs on", worktree: "Worktree", branch: "Branch" 
 export function SessionSidebar({
   sessions,
   selectedId,
+  openIds,
   onSelect,
 }: {
   sessions: AcpmuxSessionEntry[];
   selectedId?: string;
+  /** Sessions already open in a tab; their rows say so, and opening one jumps to it. */
+  openIds?: ReadonlySet<string>;
   onSelect: (sessionId: string) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -97,6 +100,7 @@ export function SessionSidebar({
                 key={session.sessionId}
                 session={session}
                 selected={session.sessionId === selectedId}
+                open={openIds?.has(session.sessionId)}
                 onSelect={onSelect}
               />
             ))}
@@ -129,6 +133,7 @@ export function SessionSidebar({
                       key={session.sessionId}
                       session={session}
                       selected={session.sessionId === selectedId}
+                      open={openIds?.has(session.sessionId)}
                       groupHost={group.host}
                       onSelect={onSelect}
                     />
@@ -176,11 +181,13 @@ function FolderIcon() {
 const SessionRow = memo(function SessionRow({
   session,
   selected,
+  open,
   groupHost,
   onSelect,
 }: {
   session: AcpmuxSessionEntry;
   selected: boolean;
+  open?: boolean;
   groupHost?: string;
   onSelect: (sessionId: string) => void;
 }) {
@@ -194,10 +201,12 @@ const SessionRow = memo(function SessionRow({
     <li>
       <button
         type="button"
-        className={`acpmux-session-row${selected ? " is-selected" : ""}${session.status === "closed" ? " is-closed" : ""}`}
+        className={`acpmux-session-row${selected ? " is-selected" : ""}${open ? " is-open" : ""}${session.status === "closed" ? " is-closed" : ""}`}
         aria-current={selected ? "true" : undefined}
         aria-label={
-          mark || place ? [title, placeLabel, mark && MARK_LABELS[mark]].filter(Boolean).join(", ") : undefined
+          mark || place || open
+            ? [title, open && "Open in a tab", placeLabel, mark && MARK_LABELS[mark]].filter(Boolean).join(", ")
+            : undefined
         }
         title={placeLabel ? `${title}\n${placeLabel}` : title}
         onClick={() => onSelect(session.sessionId)}
