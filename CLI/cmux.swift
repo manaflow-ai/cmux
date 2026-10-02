@@ -31806,7 +31806,7 @@ struct CMUXCLI {
         var publishedUserInputCallIds = Set<String>()
         // Arm before every read. A write that lands after the read must wake
         // the wait below, not wait for the 30 second backstop.
-        let transcriptChanges = CodexTranscriptChangeWatcher(transcriptPath: transcriptPath, leasePath: leasePath)
+        let transcriptChanges = CodexTranscriptChangeWatcher()
         while Date() < deadline {
             if transcriptPath == nil {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
@@ -31986,40 +31986,6 @@ struct CMUXCLI {
             "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
             client: client
         )
-    }
-
-    /// Keeps monitor input watchers armed across transcript parsing and socket
-    /// notification delivery, closing the write-between-parse-and-wait gap.
-    private final class CodexTranscriptChangeWatcher {
-        private let semaphore = DispatchSemaphore(value: 0)
-        private var sources: [DispatchSourceFileSystemObject] = []
-
-        init(transcriptPath: String?, leasePath: String?) {
-            addFileSource(path: transcriptPath, eventMask: [.write, .extend, .delete, .rename])
-            addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
-        }
-
-        func wait(timeout: TimeInterval) {
-            guard timeout > 0 else { return }
-            _ = semaphore.wait(timeout: .now() + timeout)
-        }
-
-        deinit { sources.forEach { $0.cancel() } }
-
-        private func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
-            guard let path, !path.isEmpty else { return }
-            let expandedPath = NSString(string: path).expandingTildeInPath
-            let fd = open(expandedPath, O_EVTONLY)
-            guard fd >= 0 else { return }
-            let source = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: fd, eventMask: eventMask, queue: DispatchQueue.global(qos: .utility)
-            )
-            let signal = semaphore
-            source.setEventHandler { signal.signal() }
-            source.setCancelHandler { close(fd) }
-            source.resume()
-            sources.append(source)
-        }
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
