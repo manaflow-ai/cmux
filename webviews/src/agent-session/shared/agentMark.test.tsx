@@ -24,7 +24,9 @@ afterAll(() => Object.assign(globals, saved));
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { AGENT_MARKS, AgentMark, agentKey, nearBlackOrWhite } = await import("./AgentMark");
+const { AGENT_MARKS, AgentMark, agentKey } = await import("./AgentMark");
+const { applyAgentTheme } = await import("./theme");
+const { agentPaneTheme, ghosttyDefault } = await import("../../../scripts/agent-pane/theme.mjs");
 
 test("a harness id names its agent by its first word, so variants share a mark", () => {
   expect(agentKey("claude")).toBe("claude");
@@ -57,27 +59,43 @@ test("an agent with a mark draws it in currentColor; any other agent draws the g
   }
 });
 
-test("a mark its vendor allows only in black or white draws only on a near-black or near-white text color", async () => {
-  expect(nearBlackOrWhite("#ffffff")).toBe(true);
-  expect(nearBlackOrWhite("rgba(0, 0, 0, 1)")).toBe(true);
-  expect(nearBlackOrWhite("rgba(205, 214, 244, 1)")).toBe(false);
-  expect(nearBlackOrWhite("not a color")).toBe(false);
+// Catppuccin's Ghostty themes, as the terminal hands them to the pane.
+const catppuccin = (background: number, foreground: number, palette: number[]) => {
+  const rgb = (hex: number) => ({ r: hex >> 16, g: (hex >> 8) & 0xff, b: hex & 0xff, a: 1 });
+  return agentPaneTheme({
+    ...ghosttyDefault,
+    background: rgb(background),
+    foreground: rgb(foreground),
+    palette: palette.map(rgb),
+  });
+};
+// prettier-ignore
+const mocha = catppuccin(0x1e1e2e, 0xcdd6f4, [0x45475a, 0xf38ba8, 0xa6e3a1, 0xf9e2af, 0x89b4fa, 0xf5c2e7, 0x94e2d5, 0xbac2de, 0x585b70, 0xf38ba8, 0xa6e3a1, 0xf9e2af, 0x89b4fa, 0xf5c2e7, 0x94e2d5, 0xa6adc8]);
+// prettier-ignore
+const latte = catppuccin(0xeff1f5, 0x4c4f69, [0x5c5f77, 0xd20f39, 0x40a02b, 0xdf8e1d, 0x1e66f5, 0xea76cb, 0x179299, 0xacb0be, 0x6c6f85, 0xd20f39, 0x40a02b, 0xdf8e1d, 0x1e66f5, 0xea76cb, 0x179299, 0xbcc0cc]);
+
+test("a black-or-white-only mark draws pure white on Mocha and pure black on Latte; a tinted mark keeps currentColor", async () => {
   const doc = dom.window.document;
   const root = createRoot(doc.getElementById("root")!);
-  AGENT_MARKS.mono = { viewBox: "0 0 24 24", paths: ["M0 0h24v24H0z"], recolor: "black-white", source: "test" };
+  const fills = () => [...doc.querySelectorAll("svg")].map((svg) => svg.getAttribute("fill"));
   try {
-    doc.documentElement.style.setProperty("--agent-text", "rgba(205, 214, 244, 1)");
-    await act(async () => root.render(createElement(AgentMark, { agent: "mono" })));
-    expect(doc.querySelector("svg")!.classList.contains("agent-mark-generic")).toBe(true);
-    // A theme switch to near-white text redraws the mark.
+    applyAgentTheme(mocha);
+    const marks = createElement(
+      "div",
+      null,
+      createElement(AgentMark, { agent: "codex" }),
+      createElement(AgentMark, { agent: "claude" }),
+    );
+    await act(async () => root.render(marks));
+    expect(fills()).toEqual(["#fff", "currentColor"]);
+    // A live theme switch redraws the mark.
     await act(async () => {
-      doc.documentElement.style.setProperty("--agent-text", "rgba(250, 250, 250, 1)");
+      applyAgentTheme(latte);
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(doc.querySelector("svg")!.getAttribute("data-agent")).toBe("mono");
+    expect(fills()).toEqual(["#000", "currentColor"]);
   } finally {
-    delete AGENT_MARKS.mono;
-    doc.documentElement.style.removeProperty("--agent-text");
+    delete doc.documentElement.dataset.theme;
     await act(async () => root.unmount());
   }
 });
