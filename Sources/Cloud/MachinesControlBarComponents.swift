@@ -65,9 +65,6 @@ struct MachinesChromeIconButton: View {
     let symbolName: String
     let accessibilityLabel: String
     let isBusy: Bool
-    /// The hit area and hover fill width; the glyph stays centered in it.
-    var width: CGFloat = 22
-    var cornerRadius: CGFloat = RightSidebarChromeMetrics.buttonCornerRadius
     let action: () -> Void
     @State private var isHovered = false
 
@@ -83,7 +80,7 @@ struct MachinesChromeIconButton: View {
                     // leaves glyphs like `trash` a point low.
                     CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
                         source: symbolSource,
-                        size: NSSize(width: width, height: 20),
+                        size: NSSize(width: 22, height: 20),
                         tintColor: isHovered ? .labelColor : .secondaryLabelColor,
                         symbolWeight: .medium,
                         fallbackSource: symbolSource,
@@ -93,13 +90,13 @@ struct MachinesChromeIconButton: View {
                     .accessibilityHidden(true)
                 }
             }
-            .frame(width: width, height: 20)
+            .frame(width: 22, height: 20)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundColor(isHovered ? .primary : .secondary)
         .background(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                 .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
         )
         .onHover { isHovered = $0 }

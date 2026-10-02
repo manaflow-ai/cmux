@@ -301,6 +301,7 @@ struct MachinesPanelView: View {
             chromeBackgroundColor: chromeBackgroundColor,
             isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
             onRefresh: refreshMachines,
+            onNewMachine: requestNewMachine,
             status: { cloudStatus }
         )
     }
