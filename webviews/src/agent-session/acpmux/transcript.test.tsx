@@ -538,7 +538,7 @@ describe("acpmux host handshake", () => {
 });
 
 describe("acpmux turn diff", () => {
-  test("Review changes opens the turn's files, and the layout toggles between unified and split", async () => {
+  test("View changes opens the turn's files; files collapse, and the toolbar toggles split view and the tree", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const host = dom.window as unknown as Window;
     const document = dom.window.document;
@@ -550,7 +550,7 @@ describe("acpmux turn diff", () => {
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
       await act(async () => host.cmuxAcpmuxBridge!.receive({ type: "snapshot", protocolVersion: 1, rows: turn, sessions: [], connection: "connected", isWorking: false, queue: [], catalog: [], canLoadOlder: false }));
-      const review = [...document.querySelectorAll("button")].find((button) => button.textContent === "Review changes");
+      const review = [...document.querySelectorAll("button")].find((button) => button.textContent === "View changes");
       expect(review).toBeDefined();
       (review as HTMLElement).focus();
       await act(async () => review!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
@@ -561,9 +561,34 @@ describe("acpmux turn diff", () => {
       expect([...panel.querySelectorAll(".acpmux-diff-file")].map((node) => (node as HTMLElement).dataset.path)).toEqual(["/repo/src/main.ts", "/repo/notes.md"]);
       expect([...panel.querySelectorAll(".acpmux-diff-file")].map((node) => node.querySelector("diffs-container") !== null)).toEqual([true, true]);
       expect(panel.querySelector(".acpmux-diff-tree file-tree-container, .acpmux-diff-tree [class*=tree]")).not.toBeNull();
-      const split = [...panel.querySelectorAll(".acpmux-diff-layout button")].find((button) => button.textContent === "Split")!;
-      await act(async () => split.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      const click = (node: Element) => act(async () => { node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })); });
+      const diffShown = () => [...panel.querySelectorAll(".acpmux-diff-file")].map((node) => node.querySelector("diffs-container") !== null);
+      // The file name folds its diff away and back; Mark as viewed folds it too.
+      const name = () => panel.querySelector('.acpmux-diff-file[data-path="/repo/src/main.ts"] .acpmux-fh-name')!;
+      await click(name());
+      expect(diffShown()).toEqual([false, true]);
+      expect(name().getAttribute("aria-expanded")).toBe("false");
+      await click(name());
+      expect(diffShown()).toEqual([true, true]);
+      await click(panel.querySelector('[aria-label="Mark notes.md as viewed"]')!);
+      expect(diffShown()).toEqual([true, false]);
+      expect(panel.querySelector('[aria-label="Mark notes.md as not viewed"]')?.getAttribute("aria-pressed")).toBe("true");
+      // Collapse all, then expand all.
+      await click(panel.querySelector('[aria-label="Collapse all files"]')!);
+      expect(diffShown()).toEqual([false, false]);
+      await click(panel.querySelector('[aria-label="Expand all files"]')!);
+      expect(diffShown()).toEqual([true, true]);
+      const split = panel.querySelector('[aria-label="Split view"]')!;
+      await click(split);
       expect(split.getAttribute("aria-pressed")).toBe("true");
+      // The tree filters by path, and the toolbar hides it.
+      const filter = panel.querySelector<HTMLInputElement>('input[aria-label="Filter files"]')!;
+      await act(async () => { Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(filter, "zzz"); filter.dispatchEvent(new dom.window.Event("input", { bubbles: true })); });
+      expect(panel.querySelector(".acpmux-diff-tree-empty")?.textContent).toBe("No matching files");
+      await click(panel.querySelector('[aria-label="File tree"]')!);
+      expect(panel.querySelector(".acpmux-diff-tree")).toBeNull();
+      await click(panel.querySelector('[aria-label="File tree"]')!);
+      expect(panel.querySelector(".acpmux-diff-tree")).not.toBeNull();
       const back = panel.querySelector('[aria-label="Back to transcript"]')!;
       await act(async () => back.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
       expect(document.querySelector(".acpmux-diff-panel")).toBeNull();
@@ -575,16 +600,49 @@ describe("acpmux turn diff", () => {
     }
   });
 
-  test("a file in the edited-files row opens the changes at that file", async () => {
-    const opened: [string, string | undefined][] = [];
+  const editRow = (paths: string[]): AcpmuxRow => ({ id: "activity-1", version: 1, at: 1, kind: "activity", items: paths.map((path, index) => ({ kind: "tool", text: "Edit", tool: { id: `t${index}`, title: "Edit", kind: "edit", status: "completed", diffs: [{ path, oldText: "1\n", newText: "2\n3\n" }] } })) });
+  const renderCard = async (row: AcpmuxRow, opened: [string, string | undefined][]) => {
     const root = createRoot(dom.window.document.getElementById("root")!);
-    const row: AcpmuxRow = { id: "activity-1", version: 1, at: 1, kind: "activity", items: [{ kind: "tool", text: "Edit", tool: { id: "t1", title: "Edit", kind: "edit", status: "completed", diffs: [{ path: "/repo/a.ts", oldText: "1", newText: "2" }] } }] };
+    await act(async () => root.render(createElement(VirtualTranscript, { rows: [row], onToggleActivity: () => {}, onOpenDiff: (rowId: string, path?: string) => opened.push([rowId, path]), expanded: new Set<string>() })));
+    return root;
+  };
+
+  test("the edited-files card totals the turn's files, and each file opens the changes at that file", async () => {
+    const opened: [string, string | undefined][] = [];
+    const root = await renderCard(editRow(["/repo/src/a.ts", "/repo/b.ts"]), opened);
+    const document = dom.window.document;
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: [row], onToggleActivity: () => {}, onOpenDiff: (rowId: string, path?: string) => opened.push([rowId, path]), expanded: new Set<string>() })));
-      const file = dom.window.document.querySelector(".acpmux-edited-file")!;
-      expect(file.textContent).toBe("a.ts");
-      await act(async () => file.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 files+4-2");
+      const files = [...document.querySelectorAll(".acpmux-edited-file")];
+      expect(files.map((file) => file.textContent)).toEqual(["src/a.ts+2-1", "b.ts+2-1"]);
+      await act(async () => files[0]!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      expect(opened).toEqual([["activity-1", "/repo/src/a.ts"]]);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  test("one edited file is named in the card, and many show the first three", async () => {
+    const opened: [string, string | undefined][] = [];
+    const document = dom.window.document;
+    let root = await renderCard(editRow(["/repo/a.ts"]), opened);
+    try {
+      expect(document.querySelector(".acpmux-edited-title > div")?.textContent).toBe("Edited a.ts");
+      expect(document.querySelectorAll(".acpmux-edited-file")).toHaveLength(0);
+      const view = [...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!;
+      await act(async () => view.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
       expect(opened).toEqual([["activity-1", "/repo/a.ts"]]);
+    } finally {
+      await act(async () => root.unmount());
+    }
+    root = await renderCard(editRow(["/r/a.ts", "/r/b.ts", "/r/c.ts", "/r/d.ts", "/r/e.ts"]), opened);
+    try {
+      expect(document.querySelectorAll(".acpmux-edited-file")).toHaveLength(3);
+      const more = document.querySelector(".acpmux-edited-more")!;
+      expect(more.textContent).toBe("Show 2 more files");
+      await act(async () => more.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      expect(document.querySelectorAll(".acpmux-edited-file")).toHaveLength(5);
+      expect(document.querySelector(".acpmux-edited-more")?.textContent).toBe("Show fewer files");
     } finally {
       await act(async () => root.unmount());
     }

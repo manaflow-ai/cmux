@@ -112,14 +112,22 @@ export function visibleRowRange(rowCount: number, scrollTop: number, viewportHei
   return { first, last };
 }
 
+/// The edited-files card's height for `files` changed files (styles.css `.acpmux-edited`).
+export function editedCardHeight(files: number): number {
+  if (files <= 1) return 58;
+  return 58 + 34 * Math.min(files, 3) + (files > 3 ? 34 : 0);
+}
+
 /// First-layout estimates for rows not yet drawn; a drawn row places by its drawn height. Each
 /// includes the row's bottom padding (`.acpmux-row` in styles.css: 16px for messages, 8px else).
 function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
   if (row.kind === "activity") {
-    // Collapsed tool calls, or the edited-files list (a title and one line per file).
-    const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange").length ?? 0;
-    return edits ? 8 + 16 * (1 + edits) : 34;
+    // Collapsed tool calls, or the edited-files card (App.tsx EditedFilesRow): a 58px head, and
+    // 34px for each of the first three files and for "Show N more"; one file is named in the head.
+    const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
+    const files = new Set(edits.flatMap((item) => item.tool?.diffs?.length ? item.tool.diffs.map((diff) => diff.path) : [item.text])).size;
+    return edits.length ? 14 + editedCardHeight(files) : 34;
   }
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
