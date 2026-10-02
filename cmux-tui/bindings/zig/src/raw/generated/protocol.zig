@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b2d60c381f0a67c0f731fca2c28d515815f7975b05c7073ac8c08ec1f57c03d5";
+pub const ir_sha256 = "6e4b74f422c11e18d69989adcf960e8ff35ea4ae3390ed528c66f9438c5f43f9";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -3079,7 +3079,7 @@ pub fn conversationSearch(client: anytype, request: ConversationSearchRequest) !
             .name = "conversation-search",
             .authority = "local-admin",
             .since = 12,
-            .capability = "local-conversations-v1",
+            .capability = "conversation-search-v1",
         },
         request,
     );
@@ -7958,7 +7958,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "conversation-history", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-list", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-op", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
-    .{ .name = "conversation-search", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
+    .{ .name = "conversation-search", .authority = "local-admin", .since = 12, .capability = "conversation-search-v1", .stream = null },
     .{ .name = "conversation-snapshot", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-typing", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "copy", .authority = "control", .since = 6, .capability = null, .stream = null },

@@ -227,8 +227,7 @@ pub use split_respawn::TAB_SPLIT_RESPAWN_CAPABILITY;
 /// Durable notification acknowledgement decoupled from focus:
 /// `ack-tab-notifications`, `list-notifications`, and the workspace `unread_count` rollup.
 pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
-/// Tab groups: the `*-tab-group` commands, `Pane.tab_groups`,
-/// and `Tab.group`.
+/// Tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`.
 pub const TAB_GROUPS_CAPABILITY: &str = "tab-groups-v1";
 /// Saved (pinned) tab groups that outlive their placements.
 pub const SAVED_TAB_GROUPS_CAPABILITY: &str = "saved-tab-groups-v1";
@@ -412,6 +411,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         BROWSER_PROFILES_CAPABILITY,
         BOOKMARKS_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
+        conversations::CONVERSATION_SEARCH_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,

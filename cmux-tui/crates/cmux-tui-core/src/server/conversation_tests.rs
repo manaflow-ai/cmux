@@ -86,6 +86,8 @@ fn local_conversations_capability_is_advertised() {
             .any(|value| value == LOCAL_CONVERSATIONS_CAPABILITY)
     );
     assert_eq!(LOCAL_CONVERSATIONS_CAPABILITY, "local-conversations-v1");
+    let capabilities = identity["capabilities"].as_array().unwrap();
+    assert!(capabilities.iter().any(|value| value == "conversation-search-v1"));
 }
 
 #[test]
@@ -548,11 +550,15 @@ fn conversation_search_indexes_an_older_store_at_open() {
         store.apply_op(&created.summary.id, "o1", "user_local", &op).unwrap();
     }
     {
+        // A store from before the index: no search tables and no triggers.
         let connection =
             rusqlite::Connection::open(root.join(crate::conversation_store::CONVERSATIONS_FILE))
                 .unwrap();
         connection
-            .execute_batch("DROP TABLE message_search; DROP TABLE message_search_row;")
+            .execute_batch(
+                "DROP TRIGGER message_search_insert; DROP TRIGGER message_search_update;
+                 DROP TABLE message_search; DROP TABLE message_search_row;",
+            )
             .unwrap();
     }
     let mut store =
@@ -560,5 +566,24 @@ fn conversation_search_indexes_an_older_store_at_open() {
     let hits = store.search("release", 5).unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].title, "old");
+    drop(store);
+    {
+        // A binary without search code rewrites the message: the triggers in
+        // the store file keep the index current.
+        let connection =
+            rusqlite::Connection::open(root.join(crate::conversation_store::CONVERSATIONS_FILE))
+                .unwrap();
+        connection
+            .execute(
+                "UPDATE message SET message_json =
+                   json_set(message_json, '$.parts[0].text', 'patched by an older binary')",
+                [],
+            )
+            .unwrap();
+    }
+    let mut store =
+        crate::conversation_store::ConversationStore::open(Some(root.as_path())).unwrap();
+    assert!(store.search("release", 5).unwrap().is_empty());
+    assert_eq!(store.search("patched binary", 5).unwrap().len(), 1);
     let _ = std::fs::remove_dir_all(&root);
 }
