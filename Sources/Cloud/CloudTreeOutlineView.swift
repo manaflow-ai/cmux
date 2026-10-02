@@ -297,20 +297,28 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             expansionStore.reconcile(nodes: deletion.expansionNodes)
             let nextStructure = CloudTreeNodeBuilder.structureSignature(nodes)
             let nextContent = CloudTreeNodeBuilder.contentSignature(nodes)
+            let structureUnchanged = nextStructure == structureSignature
+            let contentUnchanged = nextContent == contentSignature
             #if DEBUG
             let unreadRows = CloudTreeNodeBuilder.flattened(nodes).filter {
                 if case .terminal(let row) = $0.kind { return row.hasUnreadNotification }
                 return false
             }.count
-            cmuxDebugLog("cloudTree.apply structureChanged=\(nextStructure != structureSignature) contentChanged=\(nextContent != contentSignature) unreadRows=\(unreadRows) rows=\(outlineView?.numberOfRows ?? -1)")
+            cmuxDebugLog("cloudTree.apply structureChanged=\(!structureUnchanged) contentChanged=\(!contentUnchanged) unreadRows=\(unreadRows) rows=\(outlineView?.numberOfRows ?? -1)")
             #endif
-            guard nextStructure != structureSignature || nextContent != contentSignature else { return }
-            let update = CloudTreeRowUpdate(previous: contentSignature, next: nextContent)
-            contentSignature = nextContent
-            if nextStructure == structureSignature, !self.nodes.isEmpty {
+            // Detail pools live outside the visible row/content signatures, so
+            // a closed tab can change without changing the outline. Adopt an
+            // equal-structure rebuild before the fast path or opening that tab
+            // later would reveal stale rows.
+            if structureUnchanged, !self.nodes.isEmpty {
                 for (existing, replacement) in zip(self.nodes, nodes) {
                     existing.adopt(from: replacement)
                 }
+            }
+            guard !structureUnchanged || !contentUnchanged else { return }
+            let update = CloudTreeRowUpdate(previous: contentSignature, next: nextContent)
+            contentSignature = nextContent
+            if structureUnchanged, !self.nodes.isEmpty {
                 portsDemand.update(nodes: self.nodes)
                 guard let outlineView else { return }
                 let changedRows = update.rowIndexes(in: outlineView)
