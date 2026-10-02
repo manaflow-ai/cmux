@@ -45,7 +45,7 @@ reference ([parity-report.md](parity-report.md)).
 | `fs`, `path`, `os`, `Buffer` | Node-compatible subsets. Files are limited to the session directory (the caller's cwd; `/` and the home directory are refused, and `repl mcp` started there uses a temporary directory) and the system temp directory; a symbolic link is never followed out of them, and `rm`, `rename` and `lstat` act on the link itself as in Node. `import("node:fs")` and friends return the same modules. |
 | `sleep(ms)`, `display(value)` | Wait; show a value or image to the agent. |
 | `sites` | Site tools that run through the signed-in browser session: Google Docs/Sheets/Slides/Drive, Gmail, Calendar, Search, YouTube, Slack, Notion, LinkedIn, X, GitHub, Linear, Jira, page assets, WebMCP and a secure sign-in sheet. Writes to other people are drafts until confirmed. See [site-tools.md](site-tools.md). |
-| `session` | `name(label)` labels this session's tabs in the UI; `keep(page)` keeps a tab open after a one-shot run ends; `id`; `guide()` returns the agent guide (`Resources/browser-repl/guide.md`). `configure({ userAgent, extraHTTPHeaders, permissions, proxy })` sets Playwright browser-context options for the tabs the session drives. The domain policy (`allowedDomains`, `prohibitedDomains`, `blockIPAddresses`, `blockedNavigations`, which also blocks subresources), `storageState` (the current tab's site by default, `{ all: true }` for the whole profile)/`setStorageState`, `downloads()` and `record()`: see [reference-c-parity.md](reference-c-parity.md). |
+| `session` | `name(label)` labels this session's tabs in the UI; `keep(page)` keeps a tab open after a one-shot run ends; `id`; `guide()` returns the agent guide (`Resources/browser-repl/guide.md`). `configure({ userAgent, extraHTTPHeaders, permissions, proxy })` sets Playwright browser-context options for the tabs the session created. The domain policy (`allowedDomains`, `prohibitedDomains`, `blockIPAddresses`, `blockedNavigations`, which also blocks subresources), `storageState` (the current tab's site by default, `{ all: true }` for the whole profile)/`setStorageState`, `downloads()` and `record()`: see [reference-c-parity.md](reference-c-parity.md). |
 | `secret(name)`, `secrets` | Named secrets scoped to domains, typed with `locator.fill(secret(name))` and masked as `<secret:name>` in every output, read and file. Values stay in the native session, never in the REPL's JavaScript ([reference-c-parity.md](reference-c-parity.md#secrets)). |
 | `search(query, options)` | `[{ title, url, snippet }]` from DuckDuckGo, Bing or Google. |
 | `tools` | `register(name, fn, { description, params, domains })`, `list()`, `call(name, args)`: the session's own callable tools. |
@@ -308,11 +308,16 @@ rest. Measurements: [performance.md](performance.md).
   session lasts. In them dialogs and file choosers wait for the agent,
   downloads stay in the temporary directory for `download.path()`, camera,
   microphone, geolocation and notification requests are answered from
-  `session.configure({ permissions })`, and plain-http pages load without
-  cmux's prompt. Any other tab is the user's, also one a session drives with
-  `tabs.use()` or one a finished run kept with `page.keep()`: it keeps cmux's
-  own dialogs, file panel, download location, permission prompts and
-  insecure-HTTP prompt. An event the agent registered a handler for on that
+  `session.configure({ permissions })`, the user agent and extra headers
+  from `session.configure` apply, the domain policy's content rules block
+  subresources, and plain-http pages load without cmux's prompt. Another
+  session that drives such a tab does not change these; they follow the
+  creating session. Any other tab is the user's, also one a session drives
+  with `tabs.use()` or one a finished run kept with `page.keep()`: it keeps
+  its own user agent, headers and content, and cmux's own dialogs, file
+  panel, download location, permission prompts and insecure-HTTP prompt.
+  The domain policy there only refuses the session's reads and input while
+  the tab shows a blocked page; it never navigates or filters the user's tab. An event the agent registered a handler for on that
   page (`page.on("dialog")`, `page.on("filechooser")`,
   `page.waitForEvent("download")` and the like) goes to the session instead,
   only while the handler is registered. The runtime reports these handlers

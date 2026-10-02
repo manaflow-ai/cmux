@@ -37,7 +37,7 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `tab.keep` | `{ targetId }` | |
 | `tab.handleEvents` | `{ targetId, events: ["dialog"\|"filechooser"\|"download"] }` | Replaces the events this session has a handler for in the tab. See below. |
 | `session.name` | `{ name }` | |
-| `session.configure` | `{ userAgent?, extraHTTPHeaders?, permissions?, proxy? }`, each key replacing its value (`null` clears) | `{ proxy }`: whether tabs opened from now on use the proxy. Applies to every tab the session drives and is undone when the session leaves the tab. Content rules are not accepted here: the driver builds them from the session's domain policy (see "Guards") |
+| `session.configure` | `{ userAgent?, extraHTTPHeaders?, permissions?, proxy? }`, each key replacing its value (`null` clears) | `{ proxy }`: whether tabs opened from now on use the proxy. Applies to the tabs the session created while it is attached (a user's tab it drives keeps its own user agent, headers and content), whichever session drives them; it is undone when the creating session leaves the tab. Content rules are not accepted here: the driver builds them from the session's domain policy (see "Guards") |
 | `history.search` | `{ queries?, from?, to?, limit }` (times in ms since the epoch) | `[{ url, title, dateVisited }]` newest first, from the history of the profiles the workspace's tabs use |
 
 Tabs the session opened (`tabs.open`, popups) close when the session ends;
@@ -170,7 +170,7 @@ native (`BrowserReplBoundary` in the session, and the driver):
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
   URL (`blocked`) and `session.configure` content rules, and calls the
   driver's `setDomainPolicy(policy)` (Swift only). The driver applies the
-  policy's content rules, refuses reads and input (`frame.evaluate`,
+  policy's content rules to the tabs the session created, refuses reads and input (`frame.evaluate`,
   `input.*`, captures, clipboard, file chooser answers) on a tab that shows
   a blocked page, cancels main-frame navigations to blocked URLs in tabs
   the session created (`navigation.blocked`), and never navigates a user's

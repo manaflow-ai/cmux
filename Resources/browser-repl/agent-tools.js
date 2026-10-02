@@ -1159,7 +1159,7 @@
         return policyHost("set", { blockIPs: !!on, title: "session.blockIPAddresses" }).blockIPs;
       },
       blockedNavigations: () => policyLog.map((e) => ({ ...e })),
-      // Playwright browser-context options for the tabs this session drives:
+      // Playwright browser-context options for the tabs this session created:
       // { userAgent, extraHTTPHeaders, permissions, proxy }. null clears one.
       configure,
       configuration: () => JSON.parse(JSON.stringify(contextConfig)),

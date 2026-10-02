@@ -19,6 +19,10 @@ final class BrowserReplTabAttachments {
     static let shared = BrowserReplTabAttachments()
 
     private var attachments: [UUID: BrowserReplTabAttachment] = [:]
+    /// Each session's `session.configure` options and domain-policy rule
+    /// list. A tab carries those of the session that created it
+    /// (``BrowserReplTabAttachment/contextOptions``).
+    private var sessionContexts: [String: BrowserReplContextOptions] = [:]
 
     /// The live attachment for `panelID`, if any session is attached.
     func attachment(for panelID: UUID) -> BrowserReplTabAttachment? {
@@ -39,8 +43,21 @@ final class BrowserReplTabAttachments {
         return attachment
     }
 
+    /// Sets `sessionID`'s browser-context options and puts them on the
+    /// tabs that carry them: the tabs that session created.
+    func setContext(_ options: BrowserReplContextOptions, forSession sessionID: String) {
+        sessionContexts[sessionID] = options
+        for attachment in attachments(forSession: sessionID) { attachment.applyContextToWebView() }
+    }
+
+    /// `sessionID`'s browser-context options, if it set any.
+    func context(forSession sessionID: String) -> BrowserReplContextOptions? {
+        sessionContexts[sessionID]
+    }
+
     /// Detaches `sessionID` from every tab.
     func detach(sessionID: String) {
+        sessionContexts.removeValue(forKey: sessionID)
         for (panelID, attachment) in attachments {
             attachment.removeSink(sessionID: sessionID)
             if !attachment.isAttached {
@@ -205,6 +222,7 @@ final class BrowserReplTabAttachment {
     /// a tab it created): the session's behaviors apply to it.
     func markCreated(by sessionID: String) {
         ownership.markCreated(by: sessionID)
+        applyContextToWebView()
     }
 
     /// `tab.handleEvents`: the events `sessionID` has a handler for here.
@@ -394,35 +412,44 @@ final class BrowserReplTabAttachment {
         pointerReleased(sessionID: sessionID)
         sinks.removeValue(forKey: sessionID)
         ownership.detach(sessionID: sessionID)
-        if contextSessionID == sessionID { applyContext(BrowserReplContextOptions(), sessionID: nil) }
-        if sinks.isEmpty { detachAll() }
+        if sinks.isEmpty {
+            detachAll()
+        } else {
+            // The tab carries its creator's options while the creator stays
+            // attached; once the creator leaves it is the user's again.
+            applyContextToWebView()
+        }
     }
 
     // MARK: - Browser-context options
 
-    /// `session.configure` options of the session that set them last. They
-    /// apply while that session stays attached.
-    private(set) var contextOptions = BrowserReplContextOptions()
-    private var contextSessionID: String?
+    /// The `session.configure` options and domain-policy rule list the tab
+    /// carries: those of the attached session that created it. A user's tab
+    /// (one the user opened, a kept one, or one whose creator left) carries
+    /// none, also while sessions drive it: it keeps its own user agent,
+    /// headers and content, and the domain policy only refuses the
+    /// sessions' reads and input there.
+    var contextOptions: BrowserReplContextOptions {
+        guard appliesSessionPolicies, let creator = ownership.creatorSessionID,
+              let options = BrowserReplTabAttachments.shared.context(forSession: creator) else {
+            return BrowserReplContextOptions()
+        }
+        return options
+    }
+
     /// The domain-policy rule list installed in the current web view.
     private var installedRuleList: WKContentRuleList?
     private weak var ruleListWebView: WKWebView?
 
-    func applyContext(_ options: BrowserReplContextOptions, sessionID: String?) {
-        contextOptions = options
-        contextSessionID = sessionID
-        applyContextToWebView()
-    }
-
-    /// Whether the driving session granted `permission` (`camera`,
+    /// Whether the creating session granted `permission` (`camera`,
     /// `microphone`, `geolocation`, `notifications`). Grants apply only to
     /// tabs the session created; a user's tab keeps cmux's own answer.
     func grants(_ permission: String) -> Bool {
-        appliesSessionPolicies && contextOptions.permissions.contains(permission)
+        contextOptions.permissions.contains(permission)
     }
 
-    /// Puts the user agent, headers and domain rule list on the panel's
-    /// current web view (again after WebKit replaced it).
+    /// Puts ``contextOptions`` (user agent, headers, domain rule list) on
+    /// the panel's current web view (again after WebKit replaced it).
     func applyContextToWebView() {
         guard let webView = panel?.webView else { return }
         if webView.automationUserAgentOverride != contextOptions.userAgent {
@@ -456,7 +483,7 @@ final class BrowserReplTabAttachment {
         releaseHeldInput()
         uninstrument()
         agentUserScript.release()
-        applyContext(BrowserReplContextOptions(), sessionID: nil)
+        applyContextToWebView()
         releaseRenderHost()
         if let webView = occlusionDisabledWebView {
             Self.setOcclusionDetection(true, on: webView)

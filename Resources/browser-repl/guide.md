@@ -59,14 +59,14 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   tab after a one-shot run; `id`; `guide()` returns this text.
   `allowedDomains(["example.com", "*.example.org"], { lock })`,
   `prohibitedDomains([...])` and `blockIPAddresses(true)` limit navigations,
-  new tabs, `fetch` (every redirect), site tools and a driven tab's
-  subresources. A tab this session opened never loads a blocked page (the
+  new tabs, `fetch` (every redirect), site tools and the subresources of
+  tabs this session opened. A tab this session opened never loads a blocked page (the
   navigation is cancelled and the action fails); a tab you claimed stays
   where it is, but reads and input on it fail while it shows a blocked
   page. `blockedNavigations()` lists the blocks. The policy is enforced
   outside this JavaScript context, so `{ lock: true }` cannot be undone. `configure({ userAgent, extraHTTPHeaders, permissions, proxy })`
-  sets browser-context options for the tabs this session drives (`null`
-  clears one; a proxy applies to tabs opened afterwards, in a private
+  sets browser-context options for the tabs this session opened (a tab you
+  claimed keeps its own; `null` clears one; a proxy applies to tabs opened afterwards, in a private
   profile without your cookies). `storageState({ path })`
   and `setStorageState(stateOrPath)` save and restore cookies and
   localStorage (Playwright's format); a save covers the current tab's site

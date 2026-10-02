@@ -91,7 +91,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         lock.unlock()
     }
 
-    /// Puts the policy's content rules on every tab the session drives and
+    /// Puts the policy's content rules on the tabs the session created and
     /// gives the navigation guard the policy.
     @MainActor
     private func applyDomainPolicy(_ policy: BrowserReplDomainPolicy) async {
@@ -106,9 +106,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             options.ruleList = nil
         }
         contextOptions = options
-        for attachment in BrowserReplTabAttachments.shared.attachments(forSession: sessionID) {
-            attachment.applyContext(options, sessionID: sessionID)
-        }
+        BrowserReplTabAttachments.shared.setContext(options, forSession: sessionID)
     }
 
     private var currentPolicy: BrowserReplDomainPolicy { lock.withLock { domainPolicy } }
@@ -335,18 +333,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     @discardableResult
     private func attach(_ panel: BrowserPanel) -> BrowserReplTabAttachment {
-        let attachment = BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID) { [weak self] name, payload in
+        // The tab carries this session's options only if this session
+        // created it (BrowserReplTabAttachment.contextOptions).
+        BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID) { [weak self] name, payload in
             self?.forward(name, payload)
         }
-        if let contextOptions {
-            attachment.applyContext(contextOptions, sessionID: sessionID)
-        }
-        return attachment
     }
 
     /// `session.configure`: Playwright browser-context options for the tabs
-    /// this session drives. Each given key replaces the previous value; a
-    /// `null` clears it. `{ userAgent, extraHTTPHeaders, permissions, proxy }`
+    /// this session created (a user's tab it drives keeps its own). Each
+    /// given key replaces the previous value; a `null` clears it. `{ userAgent, extraHTTPHeaders, permissions, proxy }`
     /// (the domain policy's content rules come from `setDomainPolicy`); `proxy` is
     /// `{ server: "http://host:port" | "socks5://host:port", username?,
     /// password?, bypass? }` and applies to tabs opened afterwards, which use
@@ -385,9 +381,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             proxyDataStore = try Self.proxyDataStore(params["proxy"] as? [String: Any])
         }
         contextOptions = options
-        for attachment in BrowserReplTabAttachments.shared.attachments(forSession: sessionID) {
-            attachment.applyContext(options, sessionID: sessionID)
-        }
+        BrowserReplTabAttachments.shared.setContext(options, forSession: sessionID)
         return ["proxy": proxyDataStore != nil]
     }
 
