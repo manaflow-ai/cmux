@@ -149,7 +149,8 @@ async function run(browser, name, scenario) {
       await page.waitForFunction(() => document.querySelector('.cv-worked[aria-expanded="true"]'));
       await settle(page);
     }
-    const anchor = anchorText ? { ...scenario.anchor, text: anchorText } : scenario.anchor;
+    // A scenario without its own anchor (workspace) scrolls `--anchor` text to the top of the pane.
+    const anchor = anchorText ? { top: 0, ...scenario.anchor, text: anchorText } : scenario.anchor;
     if (anchor) await scrollToAnchor(page, { ...anchor, edge: !referencePath || Boolean(anchorText) });
     await settle(page);
     const shot = PNG.sync.read(await page.screenshot({ animations: "disabled", caret: "hide" }));
