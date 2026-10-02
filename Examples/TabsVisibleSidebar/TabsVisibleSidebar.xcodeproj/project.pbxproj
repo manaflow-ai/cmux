@@ -786,7 +786,7 @@
 /* Begin XCLocalSwiftPackageReference section */
 		4C7B40C3DDA8FC4D2ECAE012 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../Packages/CmuxExtensionKit;
+			relativePath = ../../Packages/macOS/CmuxExtensionKit;
 		};
 /* End XCLocalSwiftPackageReference section */
 

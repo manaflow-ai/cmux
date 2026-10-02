@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import XCTest
 import AppKit
 
@@ -883,6 +884,14 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        // `createMainWindow` inherits the current main window's size. Earlier
+        // app-host tests can leave a 320-point window behind, which is too
+        // narrow for the minimum-width split admission check.
+        window.setContentSize(NSSize(width: 1_000, height: 700))
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: 1_000, height: 1_000)
+        )
         let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false))
         let leftTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(leftPanelId))
         let rightTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(rightPanel.id))
@@ -1737,10 +1746,14 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
         let restoredTabId = try XCTUnwrap(restored.surfaceIdFromPanelId(restoredPanelId))
         XCTAssertFalse(restored.manualUnreadPanelIds.contains(restoredPanelId))
-        XCTAssertTrue(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        // The snapshot carries the notification, so restore puts it back still unread and
+        // leaves the restored-unread indicator off. The notification drives the badge, and
+        // setting the indicator as well would count the same notification twice.
+        XCTAssertFalse(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
         XCTAssertTrue(restored.bonsplitController.tab(restoredTabId)?.showsNotificationBadge ?? false)
         XCTAssertFalse(store.hasManualUnread(forTabId: restored.id))
-        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 0)
+        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
 
         restored.markPanelRead(restoredPanelId)
 
@@ -1787,12 +1800,20 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
         XCTAssertTrue(restored.manualUnreadPanelIds.contains(restoredPanelId))
-        XCTAssertTrue(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        // Manual panel unread survives restore on its own. The restored-unread indicator
+        // stays off because the snapshot's unread notification comes back instead.
+        XCTAssertFalse(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
+        // One notification plus the manual workspace indicator: the combined badge count
+        // must be 2, or a regression in either contribution passes unnoticed.
+        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 2)
 
         restored.markPanelRead(restoredPanelId)
 
         XCTAssertFalse(restored.manualUnreadPanelIds.contains(restoredPanelId))
         XCTAssertFalse(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
+        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 0)
     }
 
     func testSessionRestorePreservesFocusedReadIndicator() throws {
@@ -1960,7 +1981,10 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         restored.restoreSessionSnapshot(snapshot)
 
         XCTAssertFalse(store.hasManualUnread(forTabId: restored.id))
-        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: restored.id))
+        // The workspace-level notification is restored unread, so it carries the unread
+        // state and the restored-unread indicator is not set on top of it.
+        XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: restored.id))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: nil))
         XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
 
         store.markRead(forTabId: restored.id)
@@ -2003,14 +2027,19 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
 
+        // Manual workspace unread and the restored workspace notification are independent,
+        // so the count is the notification (1) plus the manual indicator (1). unreadCount
+        // adds one for any workspace-level indicator on top of the per-notification count.
         XCTAssertTrue(store.hasManualUnread(forTabId: restored.id))
-        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: restored.id))
-        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
+        XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: restored.id))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: nil))
+        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 2)
 
         store.clearManualUnread(forTabId: restored.id)
 
         XCTAssertFalse(store.hasManualUnread(forTabId: restored.id))
-        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: restored.id))
+        XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: restored.id))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: nil))
         XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
 
         store.markRead(forTabId: restored.id)
@@ -2337,10 +2366,10 @@ final class CommandPaletteSwitcherSearchIndexerTests: XCTestCase {
             ports: [3000, 9222]
         )
 
-        let keywords = CommandPaletteSwitcherSearchIndexer.keywords(
+        let keywords = CommandPaletteSwitcherSearchIndexer(
             baseKeywords: ["workspace", "switch"],
             metadata: metadata
-        )
+        ).keywords
 
         XCTAssertTrue(keywords.contains("/Users/example/dev/cmuxterm-hq/worktrees/feat-cmd-palette"))
         XCTAssertTrue(keywords.contains("feat-cmd-palette"))
@@ -2357,10 +2386,10 @@ final class CommandPaletteSwitcherSearchIndexerTests: XCTestCase {
             ports: [4317]
         )
 
-        let candidates = CommandPaletteSwitcherSearchIndexer.keywords(
+        let candidates = CommandPaletteSwitcherSearchIndexer(
             baseKeywords: ["workspace"],
             metadata: metadata
-        )
+        ).keywords
 
         XCTAssertNotNil(CommandPaletteFuzzyMatcher.score(query: "switcher-search", candidates: candidates))
         XCTAssertNotNil(CommandPaletteFuzzyMatcher.score(query: "switcher-metadata", candidates: candidates))
@@ -2374,11 +2403,11 @@ final class CommandPaletteSwitcherSearchIndexerTests: XCTestCase {
             ports: [3000]
         )
 
-        let keywords = CommandPaletteSwitcherSearchIndexer.keywords(
+        let keywords = CommandPaletteSwitcherSearchIndexer(
             baseKeywords: ["workspace"],
             metadata: metadata,
             detail: .workspace
-        )
+        ).keywords
 
         XCTAssertTrue(keywords.contains("/Users/example/dev/cmuxterm-hq/worktrees/feat-cmd-palette"))
         XCTAssertTrue(keywords.contains("feature/cmd-palette-indexing"))
@@ -2394,16 +2423,16 @@ final class CommandPaletteSwitcherSearchIndexerTests: XCTestCase {
             ports: []
         )
 
-        let workspaceKeywords = CommandPaletteSwitcherSearchIndexer.keywords(
+        let workspaceKeywords = CommandPaletteSwitcherSearchIndexer(
             baseKeywords: ["workspace"],
             metadata: metadata,
             detail: .workspace
-        )
-        let surfaceKeywords = CommandPaletteSwitcherSearchIndexer.keywords(
+        ).keywords
+        let surfaceKeywords = CommandPaletteSwitcherSearchIndexer(
             baseKeywords: ["surface"],
             metadata: metadata,
             detail: .surface
-        )
+        ).keywords
 
         let workspaceScore = try XCTUnwrap(
             CommandPaletteFuzzyMatcher.score(query: "cmux", candidates: workspaceKeywords)
@@ -2452,11 +2481,9 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
             )
         )
     }
-
     func testNilRequestedWindowFallsBackToKeyWindow() {
         let key = makeWindow()
         let other = makeWindow()
-
         XCTAssertTrue(
             ContentView.shouldHandleCommandPaletteRequest(
                 observedWindow: key,
@@ -2474,11 +2501,9 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
             )
         )
     }
-
     func testNilRequestedAndKeyFallsBackToMainWindow() {
         let main = makeWindow()
         let other = makeWindow()
-
         XCTAssertTrue(
             ContentView.shouldHandleCommandPaletteRequest(
                 observedWindow: main,
@@ -2496,7 +2521,6 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
             )
         )
     }
-
     func testNoObservedWindowNeverHandlesRequest() {
         XCTAssertFalse(
             ContentView.shouldHandleCommandPaletteRequest(
@@ -2508,7 +2532,6 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
         )
     }
 }
-
 final class CommandPaletteBackNavigationTests: XCTestCase {
     func testBackspaceOnEmptyRenameInputReturnsToCommandList() {
         XCTAssertTrue(
@@ -2518,7 +2541,6 @@ final class CommandPaletteBackNavigationTests: XCTestCase {
             )
         )
     }
-
     func testBackspaceWithRenameTextDoesNotReturnToCommandList() {
         XCTAssertFalse(
             ContentView.commandPaletteShouldPopRenameInputOnDelete(
@@ -2527,7 +2549,6 @@ final class CommandPaletteBackNavigationTests: XCTestCase {
             )
         )
     }
-
     func testModifiedBackspaceDoesNotReturnToCommandList() {
         XCTAssertFalse(
             ContentView.commandPaletteShouldPopRenameInputOnDelete(

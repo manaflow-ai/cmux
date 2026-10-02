@@ -1,10 +1,13 @@
-@_spi(CmuxHostTransport) import CMUXExtensionHostSupport
+@_spi(CmuxHostTransport) import CmuxSidebar
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxFoundation
 import SwiftUI
 
 @MainActor
 final class CMUXSidebarExtensionBrowserPanel: NSObject, Panel, ObservableObject {
     let id = UUID()
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .extensionBrowser
     let browserViewController: NSViewController
 
@@ -36,12 +39,15 @@ final class CMUXSidebarExtensionBrowserPanel: NSObject, Panel, ObservableObject 
 struct CMUXSidebarExtensionBrowserPanelView: NSViewControllerRepresentable {
     let panel: CMUXSidebarExtensionBrowserPanel
     let onRequestPanelFocus: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeNSViewController(context: Context) -> NSViewController {
-        CMUXSidebarExtensionBrowserContainerViewController(
+        let controller = CMUXSidebarExtensionBrowserContainerViewController(
             browserViewController: panel.browserViewController,
             onRequestPanelFocus: onRequestPanelFocus
         )
+        controller.applyResolvedColorScheme(colorScheme)
+        return controller
     }
 
     func updateNSViewController(_ nsViewController: NSViewController, context: Context) {
@@ -50,6 +56,7 @@ struct CMUXSidebarExtensionBrowserPanelView: NSViewControllerRepresentable {
         }
         container.browserViewController.title = panel.displayTitle
         container.onRequestPanelFocus = onRequestPanelFocus
+        container.applyResolvedColorScheme(colorScheme)
         container.attachBrowserIfNeeded()
         container.updateLayoutForCurrentBounds()
     }
@@ -103,6 +110,7 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
 
     let browserViewController: NSViewController
     var onRequestPanelFocus: () -> Void
+    private var appliedColorScheme: ColorScheme = .light
 
     private let rootView = RootView(frame: .zero)
     private let cardView = FocusCardView(frame: .zero)
@@ -116,6 +124,7 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
     private var cardHorizontalSafetyConstraints: [NSLayoutConstraint] = []
     private var cardBottomConstraint: NSLayoutConstraint?
     private var browserConstraints: [NSLayoutConstraint] = []
+    private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
 
     init(
         browserViewController: NSViewController,
@@ -128,6 +137,22 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func applyResolvedColorScheme(_ colorScheme: ColorScheme) {
+        guard appliedColorScheme != colorScheme || rootView.appearance == nil else { return }
+        appliedColorScheme = colorScheme
+        rootView.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
+        if browserViewController.isViewLoaded {
+            browserViewController.view.appearance = rootView.appearance
+        }
+        cardView.layer?.backgroundColor = cardBackgroundColor.cgColor
+        cardView.layer?.borderColor = cardBorderColor.cgColor
+        compactLabel.textColor = WindowAppearanceSnapshot.resolvedColor(
+            .secondaryLabelColor,
+            for: colorScheme
+        )
+        rootView.needsDisplay = true
     }
 
     override func loadView() {
@@ -146,11 +171,11 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
 
         cardView.translatesAutoresizingMaskIntoConstraints = false
         cardView.wantsLayer = true
-        cardView.layer?.backgroundColor = Self.cardBackgroundColor.cgColor
+        cardView.layer?.backgroundColor = cardBackgroundColor.cgColor
         cardView.layer?.cornerRadius = Self.cornerRadius
         cardView.layer?.cornerCurve = .continuous
         cardView.layer?.borderWidth = 1
-        cardView.layer?.borderColor = Self.cardBorderColor.cgColor
+        cardView.layer?.borderColor = cardBorderColor.cgColor
         cardView.layer?.masksToBounds = true
         cardView.onMouseDown = { [weak self] in
             self?.onRequestPanelFocus()
@@ -162,13 +187,19 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
 
         compactLabel.translatesAutoresizingMaskIntoConstraints = false
         compactLabel.alignment = .center
-        compactLabel.font = .systemFont(ofSize: 13, weight: .medium)
-        compactLabel.textColor = .secondaryLabelColor
+        applyFonts()
+        compactLabel.textColor = WindowAppearanceSnapshot.resolvedColor(
+            .secondaryLabelColor,
+            for: appliedColorScheme
+        )
         compactLabel.maximumNumberOfLines = 0
         compactLabel.lineBreakMode = .byWordWrapping
         compactLabel.cell?.wraps = true
         compactLabel.cell?.usesSingleLineMode = false
         compactLabel.isHidden = true
+        fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyFonts()
+        }
 
         rootView.addSubview(cardView)
         cardView.addSubview(contentView)
@@ -202,6 +233,11 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
 
         view = rootView
         attachBrowserIfNeeded()
+    }
+
+    private func applyFonts() {
+        compactLabel.font = GlobalFontMagnification.systemFont(ofSize: 13, weight: .medium)
+        compactLabel.invalidateIntrinsicContentSize()
     }
 
     func attachBrowserIfNeeded() {
@@ -238,6 +274,7 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
         }
 
         browserViewController.view.wantsLayer = true
+        browserViewController.view.appearance = rootView.appearance
         browserViewController.view.layer?.cornerRadius = Self.cornerRadius
         browserViewController.view.layer?.cornerCurve = .continuous
         browserViewController.view.layer?.masksToBounds = true
@@ -263,8 +300,8 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
         cardHorizontalSafetyConstraints.first?.constant = horizontalInset
         cardHorizontalSafetyConstraints.dropFirst().first?.constant = -horizontalInset
 
-        cardView.layer?.backgroundColor = Self.cardBackgroundColor.cgColor
-        cardView.layer?.borderColor = Self.cardBorderColor.cgColor
+        cardView.layer?.backgroundColor = cardBackgroundColor.cgColor
+        cardView.layer?.borderColor = cardBorderColor.cgColor
         cardView.layer?.cornerRadius = Self.cornerRadius
         browserViewController.view.layer?.cornerRadius = Self.cornerRadius
         let isCompact = visibleBounds.width < Self.minimumUsableWidth ||
@@ -298,10 +335,16 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
     private static let minimumUsableWidth: CGFloat = 600
     private static let minimumUsableHeight: CGFloat = 420
     private static let cornerRadius: CGFloat = 8
-    private static var cardBackgroundColor: NSColor {
-        NSColor.windowBackgroundColor.withAlphaComponent(0.92)
+    private var cardBackgroundColor: NSColor {
+        return WindowAppearanceSnapshot.resolvedColor(
+            .windowBackgroundColor,
+            for: appliedColorScheme
+        ).withAlphaComponent(0.92)
     }
-    private static var cardBorderColor: NSColor {
-        NSColor.separatorColor.withAlphaComponent(0.45)
+    private var cardBorderColor: NSColor {
+        return WindowAppearanceSnapshot.resolvedColor(
+            .separatorColor,
+            for: appliedColorScheme
+        ).withAlphaComponent(0.45)
     }
 }

@@ -1,0 +1,30 @@
+{
+  "version": "0.64.25",
+  "feature": "Light Mode Terminals",
+  "slug": "light-mode-terminals",
+  "notes": "Starts in Dark, switches Settings > App > Appearance to Light at 3 s; both terminals repaint with the light palette.",
+  "window": { "width": 1200, "height": 675 },
+  "zshrc": "PROMPT='%F{blue}~/project%f %# '\nexport CLICOLOR=1 CLICOLOR_FORCE=1\npalette() { for i in {0..15}; do printf '\\e[48;5;%sm   ' $i; done; printf '\\e[0m\\n'; }\nchecks() { printf '\\e[32m%s\\e[0m build   \\e[33m%s\\e[0m lint   \\e[31m%s\\e[0m e2e\\n' pass warn fail; }\n",
+  "settings": { "app": { "appearance": "dark" } },
+  "setup": [
+    { "cmux": ["rename-workspace", "--window", "{window}", "project"] },
+    { "cmux": ["send", "--window", "{window}", "clear\\n"] },
+    { "sleep": 0.5 },
+    { "cmux": ["send", "--window", "{window}", "ls /System/Applications | head -12\\n"] },
+    { "cmux": ["new-split", "right", "--window", "{window}"], "save": "right" },
+    { "sleep": 1 },
+    { "cmux": ["send", "--surface", "{right}", "clear\\n"] },
+    { "sleep": 0.5 },
+    { "cmux": ["send", "--surface", "{right}", "palette\\n"] },
+    { "cmux": ["send", "--surface", "{right}", "checks\\n"] },
+    { "sleep": 1.5 }
+  ],
+  "capture": {
+    "type": "clip",
+    "seconds": 8,
+    "posterAt": 6,
+    "during": [
+      { "at": 3, "settings": { "app": { "appearance": "light" } } }
+    ]
+  }
+}

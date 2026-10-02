@@ -56,9 +56,16 @@ final class RovoDevSessionIndexTests: XCTestCase {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
 
+        // The fake rg touches a readiness marker as its first action, then
+        // blocks. The test waits on that marker (the real "process has started"
+        // signal) instead of guessing at a fixed sleep, so the cancellation
+        // below deterministically lands while the launched process is running
+        // and exercises the active-process SIGTERM path.
+        let startedMarker = fixture.tempDir.appendingPathComponent("rg-started")
         let fakeRipgrep = fixture.tempDir.appendingPathComponent("rg")
         try """
         #!/bin/sh
+        : > '\(startedMarker.path)'
         exec /bin/sleep 10
         """.write(to: fakeRipgrep, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
@@ -74,7 +81,7 @@ final class RovoDevSessionIndexTests: XCTestCase {
                 ripgrepPath: fakeRipgrep.path
             )
         }
-        try await Task.sleep(for: .milliseconds(50))
+        try await waitForFile(at: startedMarker)
         task.cancel()
 
         let matches = await task.value
@@ -116,8 +123,8 @@ final class RovoDevSessionIndexTests: XCTestCase {
         XCTAssertEqual(entry.cwd, "/tmp/rovo repo")
         XCTAssertEqual(entry.fileURL?.lastPathComponent, "session_context.json")
         XCTAssertEqual(
-            entry.resumeCommand,
-            "{ cd -- '/tmp/rovo repo' 2>/dev/null || [ ! -d '/tmp/rovo repo' ]; } && acli rovodev run --restore 'session with space'"
+            entry.copyResumeCommand,
+            "cd -- '/tmp/rovo repo' 2>/dev/null || [ ! -d '/tmp/rovo repo' ] && acli rovodev run --restore 'session with space'"
         )
     }
 
@@ -136,8 +143,13 @@ final class RovoDevSessionIndexTests: XCTestCase {
 
         XCTAssertEqual(outcome.entries, [])
         XCTAssertEqual(outcome.errors.count, 1)
-        XCTAssertTrue(outcome.errors[0].contains("Rovo Dev: cannot read metadata"))
-        XCTAssertTrue(outcome.errors[0].contains("metadata.json"))
+        XCTAssertEqual(
+            outcome.errors[0],
+            String(
+                localized: "sessionIndex.search.providerFailure",
+                defaultValue: "Some session history could not be searched"
+            )
+        )
     }
 
     func testRovoDevSessionIndexMissingRootIsEmptyWithoutError() throws {
@@ -151,6 +163,28 @@ final class RovoDevSessionIndexTests: XCTestCase {
 
         XCTAssertEqual(outcome.entries, [])
         XCTAssertEqual(outcome.errors, [])
+    }
+
+    /// Deadline-bounded wait on a real readiness predicate: returns the instant
+    /// `url` exists, fails only if it never appears within `timeout`. Polls
+    /// instead of sleeping a fixed duration so the caller proceeds as soon as
+    /// the watched process signals readiness, with no timing race.
+    private func waitForFile(
+        at url: URL,
+        timeout: Duration = .seconds(10),
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if FileManager.default.fileExists(atPath: url.path) { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTFail(
+            "Timed out waiting for \(url.lastPathComponent) to appear",
+            file: file,
+            line: line
+        )
     }
 
     private func makeFixture() throws -> (tempDir: URL, sessionsRoot: URL) {

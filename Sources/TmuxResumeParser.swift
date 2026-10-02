@@ -26,6 +26,15 @@ enum TmuxResumeParser {
             checkpointId: invocation.sessionName,
             source: "process-detected",
             environment: resumeEnvironment,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: nil,
+                executablePath: invocation.argv.first,
+                arguments: invocation.argv,
+                workingDirectory: cwd,
+                environment: resumeEnvironment,
+                capturedAt: capturedAt,
+                source: "process-detected"
+            ),
             autoResume: true,
             updatedAt: capturedAt
         )

@@ -1,20 +1,32 @@
 import AppKit
-import UniformTypeIdentifiers
 
 enum BrowserScreenshotError: LocalizedError {
+    case automationTimedOut
     case captureAreaTooLarge
+    case captureInProgress
     case emptySnapshot
     case invalidSelection
     case invalidImageRepresentation
     case pasteboardWriteFailed
+    case renderedContentMismatch(rect: NSRect, attempts: Int, mismatchCount: Int)
     case webContentMetricsUnavailable
 
     var errorDescription: String? {
         switch self {
+        case .automationTimedOut:
+            return String(
+                localized: "browser.screenshot.error.automationTimedOut",
+                defaultValue: "Timed out waiting for the browser screenshot."
+            )
         case .captureAreaTooLarge:
             return String(
                 localized: "browser.screenshot.error.captureAreaTooLarge",
                 defaultValue: "The page is too large to capture."
+            )
+        case .captureInProgress:
+            return String(
+                localized: "browser.screenshot.error.captureInProgress",
+                defaultValue: "Another browser screenshot is already in progress."
             )
         case .emptySnapshot:
             return String(localized: "browser.screenshot.error.emptySnapshot", defaultValue: "No screenshot was returned.")
@@ -32,6 +44,14 @@ enum BrowserScreenshotError: LocalizedError {
             return String(
                 localized: "browser.screenshot.error.pasteboardWriteFailed",
                 defaultValue: "The screenshot could not be written to the clipboard."
+            )
+        case let .renderedContentMismatch(rect, attempts, mismatchCount):
+            let probeDescription =
+                "(x=\(Int(rect.minX.rounded())), y=\(Int(rect.minY.rounded())), " +
+                "w=\(Int(rect.width.rounded())), h=\(Int(rect.height.rounded())))"
+            return String(
+                localized: "browser.screenshot.error.renderedContentMismatch",
+                defaultValue: "The browser screenshot disagreed with rendered text at \(probeDescription); \(mismatchCount) text probes were blank after \(attempts) attempts."
             )
         case .webContentMetricsUnavailable:
             return String(
@@ -55,14 +75,26 @@ struct BrowserScreenshotResult {
 final class BrowserScreenshotCaptureGate {
     private var isRunning = false
 
-    func run<T>(_ operation: @MainActor () async throws -> T) async throws -> T? {
+    func begin() -> Bool {
         guard !isRunning else {
-            return nil
+            return false
         }
 
         isRunning = true
+        return true
+    }
+
+    func end() {
+        isRunning = false
+    }
+
+    func run<T>(_ operation: @MainActor () async throws -> T) async throws -> T? {
+        guard begin() else {
+            return nil
+        }
+
         defer {
-            isRunning = false
+            end()
         }
         return try await operation()
     }
@@ -95,6 +127,7 @@ enum BrowserScreenshotCrop {
         return clamp(imageRect, to: NSRect(origin: .zero, size: imageSize))
     }
 
+    @MainActor
     static func croppedImage(
         from image: NSImage,
         selectionInView selection: NSRect,
@@ -109,15 +142,37 @@ enum BrowserScreenshotCrop {
             throw BrowserScreenshotError.invalidSelection
         }
 
-        let cropped = NSImage(size: cropRect.size)
-        cropped.lockFocus()
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(cropRect.width),
+            pixelsHigh: Int(cropRect.height),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .calibratedRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ), let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            throw BrowserScreenshotError.invalidImageRepresentation
+        }
+
+        bitmap.size = cropRect.size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        context.imageInterpolation = .high
         image.draw(
             in: NSRect(origin: .zero, size: cropRect.size),
             from: cropRect,
             operation: .copy,
-            fraction: 1.0
+            fraction: 1.0,
+            respectFlipped: false,
+            hints: nil
         )
-        cropped.unlockFocus()
+        NSGraphicsContext.restoreGraphicsState()
+
+        let cropped = NSImage(size: cropRect.size)
+        cropped.addRepresentation(bitmap)
         return cropped
     }
 
@@ -142,29 +197,6 @@ enum BrowserScreenshotCrop {
     }
 }
 
-enum BrowserScreenshotPasteboardWriter {
-    static func write(_ image: NSImage, to pasteboard: NSPasteboard = .general) throws {
-        let item = try pasteboardItem(for: image)
-        pasteboard.clearContents()
-        guard pasteboard.writeObjects([item]) else {
-            throw BrowserScreenshotError.pasteboardWriteFailed
-        }
-    }
-
-    static func pasteboardItem(for image: NSImage) throws -> NSPasteboardItem {
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else {
-            throw BrowserScreenshotError.invalidImageRepresentation
-        }
-
-        let item = NSPasteboardItem()
-        item.setData(pngData, forType: NSPasteboard.PasteboardType(UTType.png.identifier))
-        item.setData(tiffData, forType: NSPasteboard.PasteboardType(UTType.tiff.identifier))
-        return item
-    }
-}
-
 enum BrowserScreenshotPipeline {
     typealias SnapshotProvider = @MainActor () async throws -> NSImage
 
@@ -172,7 +204,8 @@ enum BrowserScreenshotPipeline {
     static func captureAndWrite(
         mode: BrowserScreenshotCaptureMode,
         snapshot: SnapshotProvider,
-        pasteboard: NSPasteboard = .general
+        pasteboard: NSPasteboard = .general,
+        pasteboardWriter: BrowserScreenshotPasteboardWriter = .init()
     ) async throws -> BrowserScreenshotResult {
         let captured = try await snapshot()
         let output: NSImage
@@ -187,7 +220,7 @@ enum BrowserScreenshotPipeline {
             )
         }
 
-        try BrowserScreenshotPasteboardWriter.write(output, to: pasteboard)
+        try await pasteboardWriter.write(output, to: pasteboard)
         return BrowserScreenshotResult(outputSize: output.size)
     }
 }

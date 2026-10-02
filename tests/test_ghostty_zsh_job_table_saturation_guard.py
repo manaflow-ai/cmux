@@ -85,7 +85,7 @@ def _capture_saturated_session(env: dict[str, str], zsh_path: str) -> bytes:
         _send(master, "print __CMUX_READY__\n")
         _read_available(master, output, time.time() + 1.0)
         _send(master, f"for i in {{1..1100}}; do sleep {BACKGROUND_SLEEP_SECONDS} & done\n")
-        _read_available(master, output, time.time() + 8.0)
+        _read_available(master, output, time.time() + 20.0)
         _send(master, "print __CMUX_AFTER_FILL__\n")
         _read_available(master, output, time.time() + 1.0)
         for _ in range(3):

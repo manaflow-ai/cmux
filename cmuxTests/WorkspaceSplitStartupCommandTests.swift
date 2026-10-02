@@ -1,4 +1,5 @@
 import XCTest
+import CmuxTerminal
 import Bonsplit
 import AppKit
 import SwiftUI
@@ -152,7 +153,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         )
     }
 
-    func testTabManagerSplitCarriesRequestedWorkingDirectoryAndStartupCommand() {
+    func testTabManagerSplitCarriesRequestedWorkingDirectoryAndStartupCommand() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let sourcePanelId = workspace.focusedPanelId else {
@@ -161,6 +162,8 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         }
 
         let requestedDirectory = "/tmp/cmux-split-startup-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: requestedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: requestedDirectory) }
         let startupCommand = "/tmp/cmux-tmux-command-\(UUID().uuidString).sh"
         let tmuxStartCommand = "node /opt/oh-my-codex/dist/omx.js hud --watch"
         let initialDividerPosition = 0.875
@@ -232,10 +235,72 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertEqual(surface.surface.debugTmuxStartCommand(), tmuxStartCommand)
     }
 
+    func testRespawnTerminalSurfacePreservesPaneTabAndSurfaceIdentity() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let placeholderCommand = "/bin/sh -c 'printf placeholder; while :; do sleep 86400; done'"
+        let attachCommand = "/bin/sh -c 'opencode attach http://127.0.0.1:4096 --session subagent --dir /tmp/omo'"
+        let requestedDirectory = "/tmp/cmux-respawn-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: requestedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: requestedDirectory) }
+        let startupEnvironment = [
+            "CMUX_OMO_SUBAGENT": "1",
+            "OMO_SUBAGENT_DESC": "test"
+        ]
+
+        let placeholderPanel = try XCTUnwrap(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            focus: true,
+            initialCommand: placeholderCommand,
+            tmuxStartCommand: placeholderCommand,
+            startupEnvironment: startupEnvironment
+        ))
+        let originalPanelId = placeholderPanel.id
+        let originalPane = try XCTUnwrap(workspace.paneId(forPanelId: originalPanelId))
+        let originalPaneId = originalPane.id
+        let originalTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(originalPanelId))
+        let originalPaneCount = workspace.bonsplitController.allPaneIds.count
+        let originalTabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
+        let originalWaitAfterCommand = placeholderPanel.surface.debugWaitAfterCommand()
+
+        let respawnedPanel = try XCTUnwrap(workspace.respawnTerminalSurface(
+            panelId: originalPanelId,
+            command: attachCommand,
+            workingDirectory: requestedDirectory,
+            tmuxStartCommand: attachCommand
+        ))
+
+        XCTAssertEqual(respawnedPanel.id, originalPanelId)
+        XCTAssertTrue(workspace.terminalPanel(for: originalPanelId) === respawnedPanel)
+        let currentPane = try XCTUnwrap(workspace.paneId(forPanelId: originalPanelId))
+        XCTAssertEqual(currentPane.id, originalPaneId)
+        XCTAssertEqual(workspace.surfaceIdFromPanelId(originalPanelId), originalTabId)
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, originalPaneCount)
+        XCTAssertTrue(workspace.bonsplitController.allPaneIds.contains(where: { $0.id == originalPaneId }))
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: currentPane).count, originalTabCount)
+        XCTAssertTrue(workspace.bonsplitController.tabs(inPane: currentPane).contains(where: { $0.id == originalTabId }))
+        XCTAssertEqual(respawnedPanel.requestedWorkingDirectory, requestedDirectory)
+        XCTAssertEqual(respawnedPanel.surface.debugInitialCommand(), attachCommand)
+        XCTAssertEqual(respawnedPanel.surface.debugTmuxStartCommand(), attachCommand)
+        XCTAssertEqual(respawnedPanel.surface.debugWaitAfterCommand(), originalWaitAfterCommand)
+        for (key, value) in startupEnvironment {
+            XCTAssertEqual(respawnedPanel.surface.startupEnvironmentValue(key), value)
+        }
+        XCTAssertTrue(
+            GhosttyApp.terminalSurfaceRegistry.surface(id: originalPanelId) === respawnedPanel.surface,
+            "Respawn should replace the registered terminal surface for the existing cmux surface id"
+        )
+    }
+
     func testSessionRestoreRelaunchesOMXHudTmuxStartCommand() throws {
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let requestedDirectory = "/tmp/cmux-hud-restore-\(UUID().uuidString)"
+        let requestedDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hud-restore-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: requestedDirectoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: requestedDirectoryURL) }
+        let requestedDirectory = requestedDirectoryURL.path
         let originalStartupScript = "/tmp/cmux-tmux-command-\(UUID().uuidString).sh"
         let tmuxStartCommand = "env OMX_SESSION_ID=omx-test node '/opt/oh-my-codex/dist/cli/omx.js' hud --watch"
         let hudPanel = try XCTUnwrap(workspace.newTerminalSplit(
@@ -267,7 +332,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             originalStartupScript,
             "Restored HUD panes must launch through a fresh script, not a deleted tmux temp script"
         )
-        XCTAssertTrue(restoredStartupScript.contains("cmux-session-terminal-command"))
+        XCTAssertTrue(restoredStartupScript.contains("/cmux-r/"))
         XCTAssertEqual(restoredHudPanel.requestedWorkingDirectory, requestedDirectory)
     }
 
