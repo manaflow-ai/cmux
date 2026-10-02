@@ -54,6 +54,7 @@ type StoredMutation = {
   body: Record<string, unknown>;
 };
 type MutationOperation = "create" | "pin" | "unpin";
+const RECONCILIATION_BLOCKED_REASON = "reconciliation_blocked";
 const defaultPersistence: CheckpointPersistence = {
   async get(key) {
     const value = globalThis.localStorage?.getItem(key);
@@ -284,7 +285,7 @@ export class CheckpointClient {
     this.changed();
     try {
       const result = pending.attempted
-        ? await this.reconcile(pending.operation, target, pending.body, pending.idempotency_key)
+        ? await this.reconcile(pending.operation, target, pending.body, pending.idempotency_key, generation)
         : undefined;
       if (result) {
         await this.persistence.delete(this.mutationStorageKey(target));
@@ -314,8 +315,19 @@ export class CheckpointClient {
     target: CheckpointTarget,
     body: Record<string, unknown>,
     key: string,
+    generation: number,
   ): Promise<MutationEnvelope<Checkpoint> | undefined> {
+    const ensureCurrent = () => {
+      if (generation !== this.generation || !this.online)
+        throw new CheckpointRpcError({
+          code: "native.not_connected",
+          userMessage: "Checkpoint retry paused until the selected session is connected.",
+          details: { reason: RECONCILIATION_BLOCKED_REASON },
+          origin: "native",
+        });
+    };
     try {
+      ensureCurrent();
       const lookup = operation === "create" ? { idempotency_key: key } : { checkpoint_id: String(body.checkpoint_id) };
       checkpointRecord(await this.call(CHECKPOINT_OPS.get, { ...targetParams(target), ...lookup }));
     } catch (error) {
@@ -323,6 +335,7 @@ export class CheckpointClient {
       return undefined;
     }
     if (operation === "create") {
+      ensureCurrent();
       // The checkpoint record revision is separate from the session mutation
       // ledger revision carried by the mutation envelope. Replay the exact
       // original write to recover that envelope instead of synthesizing one
@@ -363,7 +376,7 @@ export class CheckpointClient {
         throw new CheckpointRpcError({ code: "native.not_connected", origin: "native" });
       this.state = { ...this.state, pending: record };
       if (record.attempted) {
-        const reconciled = await this.reconcile(operation, target, body, record.idempotency_key);
+        const reconciled = await this.reconcile(operation, target, body, record.idempotency_key, generation);
         if (reconciled) {
           await this.persistence.delete(storageKey);
           if (generation === this.generation)
@@ -382,9 +395,10 @@ export class CheckpointClient {
       return { ...result, result: parsedRecord };
     } catch (error) {
       const parsed = requestError(error);
-      if (!parsed.uncertain && storageKey) await this.persistence.delete(storageKey);
+      const preservePending = parsed.uncertain || parsed.reason === RECONCILIATION_BLOCKED_REASON;
+      if (!preservePending && storageKey) await this.persistence.delete(storageKey);
       if (generation === this.generation)
-        this.state = { ...this.state, error: parsed, pending: parsed.uncertain ? this.state.pending : undefined };
+        this.state = { ...this.state, error: parsed, pending: preservePending ? this.state.pending : undefined };
       throw parsed;
     } finally {
       this.mutationActive = false;

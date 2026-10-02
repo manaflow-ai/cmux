@@ -116,6 +116,77 @@ test("reconciled receipt replays the create and preserves the ledger revision", 
   expect(client.getSnapshot().record?.revision).toBe("8");
 });
 
+test("a selection change while reconciling does not replay and preserves the original intent", async () => {
+  const persistence = new MemoryPersistence();
+  const gate = Promise.withResolvers<unknown>();
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  let first = true;
+  const request = async (method: string, params: Record<string, unknown>) => {
+    calls.push({ method, params: structuredClone(params) });
+    if (method.endsWith(".create") && first) {
+      first = false;
+      throw { code: "native.timed_out", origin: "native" };
+    }
+    if (method.endsWith(".get")) return gate.promise;
+    return { result: checkpoint, revision: "12", replayed: true };
+  };
+  const client = new CheckpointClient(request, {
+    persistence,
+    capabilities: async () => ({ checkpoints: true }),
+    key: () => "original-key",
+  });
+  client.select(target);
+  await client.refreshCapabilities();
+  await expect(client.create({ include_untracked: ["draft.txt"] })).rejects.toMatchObject({
+    code: "native.timed_out",
+  });
+  const retry = client.create({ include_untracked: ["draft.txt"] });
+  for (let attempt = 0; attempt < 10 && calls.length < 2; attempt++) await Promise.resolve();
+  expect(calls.map(({ method }) => method)).toEqual(["git.checkpoint.create", "git.checkpoint.get"]);
+  client.select({ cwd: "/other", sessionId: "other" });
+  gate.resolve(checkpoint);
+  await expect(retry).rejects.toMatchObject({ reason: "reconciliation_blocked" });
+  expect(calls.map(({ method }) => method)).toEqual(["git.checkpoint.create", "git.checkpoint.get"]);
+  expect(persistence.values.get('cmux.checkpoint.pending:{"cwd":"/repo","sessionId":"session-1"}')).toEqual({
+    idempotency_key: "original-key",
+    attempted: true,
+    operation: "create",
+    body: { include_untracked: ["draft.txt"] },
+  });
+});
+
+test("disconnect while recoverPending is reading does not replay or discard the pending intent", async () => {
+  const persistence = new MemoryPersistence();
+  const gate = Promise.withResolvers<unknown>();
+  const calls: string[] = [];
+  let first = true;
+  const request = async (method: string) => {
+    calls.push(method);
+    if (method.endsWith(".create") && first) {
+      first = false;
+      throw { code: "native.timed_out", origin: "native" };
+    }
+    if (method.endsWith(".get")) return gate.promise;
+    return { result: checkpoint, revision: "12", replayed: true };
+  };
+  const client = new CheckpointClient(request, {
+    persistence,
+    capabilities: async () => ({ checkpoints: true }),
+    key: () => "recover-key",
+  });
+  client.select(target);
+  await client.refreshCapabilities();
+  await expect(client.create()).rejects.toMatchObject({ code: "native.timed_out" });
+  const recovery = client.recoverPending();
+  await Promise.resolve();
+  client.setOnline(false);
+  gate.resolve(checkpoint);
+  await expect(recovery).rejects.toMatchObject({ reason: "reconciliation_blocked" });
+  expect(calls).toEqual(["git.checkpoint.create", "git.checkpoint.get"]);
+  expect(client.getSnapshot().pending?.idempotency_key).toBe("recover-key");
+  expect(persistence.values.size).toBe(1);
+});
+
 test("unresolved capture prevents a changed selection from creating another checkpoint", async () => {
   let calls = 0;
   const client = new CheckpointClient(
