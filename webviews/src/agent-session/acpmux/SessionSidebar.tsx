@@ -7,7 +7,15 @@ import {
   type AcpmuxSessionEntry,
   type SessionMark,
 } from "./sessionList";
-import { BranchIcon, CloudIcon, DisconnectedIcon, NeedsInputIcon, WorkingIcon, WorktreeIcon } from "./sidebarIcons";
+import {
+  BranchIcon,
+  CloudIcon,
+  DisconnectedIcon,
+  NeedsInputIcon,
+  SearchIcon,
+  WorkingIcon,
+  WorktreeIcon,
+} from "./sidebarIcons";
 
 const MARK_LABELS: Record<Exclude<SessionMark, undefined>, string> = {
   input: "Needs input",
@@ -34,7 +42,9 @@ export function SessionSidebar({
   selectedId?: string;
   onSelect: (sessionId: string) => void;
 }) {
-  const { pinned, groups } = useMemo(() => sidebarSections(sessions), [sessions]);
+  const [query, setQuery] = useState("");
+  const searching = query.trim() !== "";
+  const { pinned, groups } = useMemo(() => sidebarSections(sessions, query), [sessions, query]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   if (sessions.length === 0)
     return (
@@ -44,8 +54,29 @@ export function SessionSidebar({
     );
   // Section labels only earn their place when both sections show.
   const labelled = pinned.length > 0 && groups.length > 0;
+  // Escape clears a query first; with the field empty it reaches the overlay, which closes.
+  const onSearchKey = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape" && query) {
+      event.stopPropagation();
+      event.nativeEvent.stopImmediatePropagation();
+      setQuery("");
+    }
+  };
   return (
     <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label="Sessions">
+      <label className="acpmux-sidebar-search">
+        <SearchIcon />
+        <input
+          type="search"
+          aria-label="Search sessions"
+          placeholder="Search"
+          spellCheck={false}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={onSearchKey}
+        />
+      </label>
+      {pinned.length === 0 && groups.length === 0 && <div className="acpmux-sidebar-empty">No matching sessions</div>}
       {pinned.length > 0 && (
         <section className="acpmux-sidebar-pinned" aria-label="Pinned">
           {labelled && (
@@ -73,7 +104,8 @@ export function SessionSidebar({
             </div>
           )}
           {groups.map((group) => {
-            const { rows, hidden } = visibleSessions(group, expanded.has(group.key), selectedId);
+            // A search shows every match, so it never hides rows behind "Show more".
+            const { rows, hidden } = visibleSessions(group, searching || expanded.has(group.key), selectedId);
             return (
               <section className="acpmux-sidebar-group" key={group.key}>
                 <div

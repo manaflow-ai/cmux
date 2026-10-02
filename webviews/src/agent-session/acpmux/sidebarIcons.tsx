@@ -70,3 +70,11 @@ export const WorktreeIcon = () => (
     <path d="M7 7.5v3M7 9c1.6 0 2.5-.5 2.5-1.5" />
   </Glyph>
 );
+
+/** The search field's magnifier. */
+export const SearchIcon = () => (
+  <Glyph>
+    <circle cx="7" cy="7" r="4.25" />
+    <path d="m10.25 10.25 3 3" />
+  </Glyph>
+);

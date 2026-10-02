@@ -169,17 +169,52 @@ export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string): S
   return undefined;
 }
 
-/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. */
-export function sidebarSections(sessions: AcpmuxSessionEntry[]): {
+/** Sessions whose title, name, folder, branch, worktree or cloud machine contains every word of the query, ignoring case. */
+export function filterSessions(sessions: AcpmuxSessionEntry[], query: string): AcpmuxSessionEntry[] {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return sessions;
+  return sessions.filter((session) => {
+    const text = [
+      session.displayTitle,
+      session.title,
+      session.name,
+      session.cwd,
+      session.branch,
+      session.worktree,
+      cloudHost(session),
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .toLowerCase();
+    return terms.every((term) => text.includes(term));
+  });
+}
+
+/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. A query narrows both. */
+export function sidebarSections(
+  sessions: AcpmuxSessionEntry[],
+  query = "",
+): {
   pinned: AcpmuxSessionEntry[];
   groups: SessionGroup[];
 } {
-  return {
-    pinned: byRecency(sessions.filter((session) => session.pinned)),
-    groups: groupByProject(
-      sessions.filter((session) => !session.pinned),
-      sessions,
+  const pinned = byRecency(
+    filterSessions(
+      sessions.filter((session) => session.pinned),
+      query,
     ),
+  );
+  const groups = groupByProject(
+    sessions.filter((session) => !session.pinned),
+    sessions,
+  );
+  if (!query.trim()) return { pinned, groups };
+  // Projects and their headers come from every session, so a search only hides rows.
+  return {
+    pinned,
+    groups: groups
+      .map((group) => ({ ...group, sessions: filterSessions(group.sessions, query) }))
+      .filter((group) => group.sessions.length > 0),
   };
 }
 

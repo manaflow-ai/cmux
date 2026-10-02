@@ -161,3 +161,42 @@ test("pinned sessions get their own section, an all-cloud project names its mach
   expect(row("tree").getAttribute("aria-label")).toBe("Home, Worktree home");
   await act(async () => root.unmount());
 });
+
+test("search narrows the list, shows every match, and Escape clears it before closing anything", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  await act(async () => root.render(createElement(SessionSidebar, { sessions, onSelect: () => {} })));
+  const field = container.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
+  const type = async (value: string) =>
+    act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(field, value);
+      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+  const titles = () => [...container.querySelectorAll(".acpmux-session-row")].map((node) => node.textContent);
+
+  await type("older");
+  expect(titles()).toEqual(Array.from({ length: 8 }, (_, index) => `Older ${index}`));
+  expect(container.querySelector(".acpmux-sidebar-more")).toBeNull();
+  await type("src/web checkout");
+  expect(titles()).toEqual(["Fix the checkout page"]);
+  await type("nothing like this");
+  expect(container.querySelector(".acpmux-sidebar-empty")?.textContent).toBe("No matching sessions");
+
+  let reached = 0;
+  const onKey = () => reached++;
+  dom.window.document.addEventListener("keydown", onKey);
+  const escape = () =>
+    act(async () => {
+      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+  await escape();
+  expect(field.value).toBe("");
+  expect(reached).toBe(0);
+  // The full list folds behind "Show more" again.
+  expect(titles()).toHaveLength(1 + 6);
+  expect(container.querySelector(".acpmux-sidebar-more")).not.toBeNull();
+  await escape();
+  expect(reached).toBe(1);
+  dom.window.document.removeEventListener("keydown", onKey);
+  await act(async () => root.unmount());
+});
