@@ -70,6 +70,7 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
         addSubview(decorations)
         setAccessibilityRole(.outline)
         setAccessibilityLabel(Strings.sidebarLabel)
+        hoverCard.list = self
     }
 
     @available(*, unavailable)
@@ -88,6 +89,9 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // A move to another window (or none) ends this list's card only.
+        hoverCards.unregister(hoverCard)
+        if window != nil { hoverCards.register(hoverCard) }
         guard observedWindow !== window else { return }
         let center = NotificationCenter.default
         if let observedWindow { center.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: observedWindow) }
@@ -133,9 +137,9 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
             }
         }
         if let drag, !drag.isValid(in: model) { cancelDrag() }
-        if let shown = hoverCard.shownID {
-            if let workspace = workspaces[shown] { hoverCard.refresh(workspace) } else { hoverCard.hide() }
-        }
+        // A removed workspace's card ends on the geometry check after the
+        // rows apply (its anchor is gone); a kept one updates in place.
+        if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
         apply(SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: true)), animated: animated)
     }
 
@@ -173,6 +177,8 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     }
 
     func apply(_ layout: SidebarLayout, animated: Bool) {
+        // Rows moved, appeared or left under a possibly still pointer.
+        defer { updateHover() }
         let old = displayed
         displayed = layout
         updateDocumentHeight()
@@ -363,12 +369,22 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     override func mouseEntered(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseExited(with event: NSEvent) {
         setHovered(nil)
-        hoverCard.hide()
+        hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
     }
 
+    /// Hover after a pointer event (`windowPoint`), or after rows moved or
+    /// scrolled under a possibly still pointer (no point: the coordinator's
+    /// pointer location, and the card re-hit-tests as a geometry change).
     func updateHover(_ windowPoint: NSPoint? = nil) {
+        defer {
+            if let windowPoint, let window {
+                hoverCards.pointerMoved(to: window.convertPoint(toScreen: windowPoint))
+            } else {
+                hoverCards.geometryChanged(in: window)
+            }
+        }
         guard drag == nil, let window else { return setHovered(nil) }
-        let point = convert(windowPoint ?? window.mouseLocationOutsideOfEventStream, from: nil)
+        let point = convert(windowPoint ?? window.convertPoint(fromScreen: hoverCards.currentPointer()), from: nil)
         guard visibleRect.contains(point) else { return setHovered(nil) }
         setHovered(displayed.row(at: point.y)?.key)
     }
@@ -378,7 +394,6 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
         if let hoveredKey { rowViews[hoveredKey]?.isHovered = false }
         hoveredKey = key
         if let key { rowViews[key]?.isHovered = true }
-        updateHoverCard()
     }
 
 }

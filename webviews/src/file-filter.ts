@@ -28,21 +28,24 @@ export function isDiffFileFilterActive(filter: DiffFileFilter): boolean {
 
 export function diffFileStatus(fileDiff: any): DiffFileStatus {
   switch (fileDiff?.type) {
-  case "new":
-    return "added";
-  case "deleted":
-    return "deleted";
-  case "rename-pure":
-  case "rename-changed":
-    return "renamed";
-  default:
-    return "modified";
+    case "new":
+      return "added";
+    case "deleted":
+      return "deleted";
+    case "rename-pure":
+    case "rename-changed":
+      return "renamed";
+    default:
+      return "modified";
   }
 }
 
 /** Every whitespace-separated term must appear in the path, case-insensitively. */
 export function matchesPathQuery(path: string, query: string): boolean {
-  const terms = query.toLowerCase().split(/\s+/).filter((term) => term !== "");
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((term) => term !== "");
   if (terms.length === 0) {
     return true;
   }
@@ -69,7 +72,9 @@ export function filterDiffItems<T extends FilterableItem>(
     }
     const path = fileName(diff, "");
     const previousPath = typeof diff.prevName === "string" ? diff.prevName : "";
-    return matchesPathQuery(path, filter.query) || (previousPath !== "" && matchesPathQuery(previousPath, filter.query));
+    return (
+      matchesPathQuery(path, filter.query) || (previousPath !== "" && matchesPathQuery(previousPath, filter.query))
+    );
   });
 }
 

@@ -10,10 +10,17 @@ Build it with:
 
 The build output is committed under `Resources/markdown-viewer/webviews-app` because the macOS app serves local static files from its bundled resources. Keep source changes in this directory, then regenerate the bundled asset with the script above.
 
-React Compiler is enabled in `vite.config.mjs` with the React 19 runtime target. Verify the compiled bundle guard with:
+React Compiler is enabled in `vite.config.ts` with the React 19 runtime target. Verify the compiled bundle guard with:
 
 ```sh
 ./scripts/check-webviews-react-compiler.mjs
+```
+
+Static checks run through Vite+ (`vp check`: Oxlint, Oxfmt and a TypeScript Go type check). The rules and formatting live in `config/vite-plus/check.ts`, shared with `cmux-tui/frontends/web`:
+
+```sh
+bun run check      # what CI runs
+bun run check:fix  # format and apply lint fixes
 ```
 
 Large public stress samples are available through:

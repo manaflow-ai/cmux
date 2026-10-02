@@ -2,9 +2,7 @@ import type { AgentEvent, AgentSessionTheme } from "./types";
 import { makeClientId } from "./ids";
 import { applyAgentTheme } from "./theme";
 
-type NativeReply<T> =
-  | { ok: true; value: T }
-  | { ok: false; error?: { code?: string; userMessage?: string } };
+type NativeReply<T> = { ok: true; value: T } | { ok: false; error?: { code?: string; userMessage?: string } };
 
 type EventListener = (event: AgentEvent) => void;
 

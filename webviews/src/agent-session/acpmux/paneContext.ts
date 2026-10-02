@@ -14,7 +14,8 @@ function devServer(url: URL): URL | undefined {
   return url;
 }
 
-const isPullRequest = (url: URL) => /^(www\.)?github\.com$/i.test(url.hostname) && /^\/[^/]+\/[^/]+\/pull\/\d+/.test(url.pathname);
+const isPullRequest = (url: URL) =>
+  /^(www\.)?github\.com$/i.test(url.hostname) && /^\/[^/]+\/[^/]+\/pull\/\d+/.test(url.pathname);
 
 function rowTexts(row: AcpmuxRow): string[] {
   const texts = row.text ? [row.text] : [];
@@ -35,7 +36,11 @@ export function workingURLs(rows: AcpmuxRow[], limit = 20): string[] {
       const matches = [...(texts[t]!.match(URL_PATTERN) ?? [])].reverse();
       for (const raw of matches) {
         let url: URL;
-        try { url = new URL(raw.replace(/[.,;:!?]+$/, "")); } catch { continue; }
+        try {
+          url = new URL(raw.replace(/[.,;:!?]+$/, ""));
+        } catch {
+          continue;
+        }
         const local = devServer(url);
         const text = url.toString();
         if (seen.has(text)) continue;
@@ -44,7 +49,10 @@ export function workingURLs(rows: AcpmuxRow[], limit = 20): string[] {
       }
     }
   }
-  return found.sort((a, b) => a.rank - b.rank).map((entry) => entry.url).slice(0, limit);
+  return found
+    .sort((a, b) => a.rank - b.rank)
+    .map((entry) => entry.url)
+    .slice(0, limit);
 }
 
 /** The selected session's cwd and the transcript's working URLs. */

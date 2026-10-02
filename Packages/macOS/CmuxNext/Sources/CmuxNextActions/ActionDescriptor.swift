@@ -41,6 +41,8 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     public var cliName: String
     /// Main menu the action appears in, if any.
     public var mainMenu: ActionMainMenu?
+    /// A developer tool: available in DEV and NIGHTLY builds only, absent
+    /// from every surface in Release and RC (`DevTools`).
     public var isDebugOnly: Bool
     /// Deletes or closes something the user cannot get back (a Cloud
     /// machine, a workspace group, a workspace with running processes, a

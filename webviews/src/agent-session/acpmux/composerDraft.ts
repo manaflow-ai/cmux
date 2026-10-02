@@ -1,11 +1,12 @@
 /**
- * Puts a new chat's inherited draft (a terminal selection, a page's URL) in the
- * composer, caret at the end. It never sends, and never replaces text the user
- * already typed. Returns whether it filled the composer.
+ * A new chat's inherited draft (a terminal selection, a page's URL), or undefined when
+ * the handshake carries none. It is shown in the composer, never sent by itself.
  */
-export function seedComposer(prompt: HTMLTextAreaElement | null | undefined, draft: unknown): boolean {
-  if (!prompt || typeof draft !== "string" || !draft.trim() || prompt.value) return false;
-  prompt.value = draft;
-  prompt.setSelectionRange(draft.length, draft.length);
-  return true;
+export function composerDraft(draft: unknown): string | undefined {
+  return typeof draft === "string" && draft.trim() ? draft : undefined;
+}
+
+/** The composer text once a draft arrives: the draft, unless the user already typed something. */
+export function seededText(current: string, draft: string | undefined): string {
+  return draft && !current ? draft : current;
 }

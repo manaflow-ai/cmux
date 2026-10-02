@@ -2,7 +2,14 @@ import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "./model";
 import { paneContext, workingURLs } from "./paneContext";
 
-const row = (id: string, text: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({ id, version: 1, at: 0, kind: "assistant", text, ...extra });
+const row = (id: string, text: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+  id,
+  version: 1,
+  at: 0,
+  kind: "assistant",
+  text,
+  ...extra,
+});
 
 describe("what an agent is working on", () => {
   test("puts dev servers first, then pull requests, newest first within each", () => {
@@ -21,12 +28,31 @@ describe("what an agent is working on", () => {
   });
 
   test("reads tool output and drops duplicates and trailing punctuation", () => {
-    const rows = [row("1", "", { kind: "activity", items: [{ kind: "tool", text: "Run", tool: { id: "t", title: "npm run dev", status: "completed", output: "ready at http://127.0.0.1:8080/!" } }] }), row("2", "See http://127.0.0.1:8080/.")];
+    const rows = [
+      row("1", "", {
+        kind: "activity",
+        items: [
+          {
+            kind: "tool",
+            text: "Run",
+            tool: { id: "t", title: "npm run dev", status: "completed", output: "ready at http://127.0.0.1:8080/!" },
+          },
+        ],
+      }),
+      row("2", "See http://127.0.0.1:8080/."),
+    ];
     expect(workingURLs(rows)).toEqual(["http://127.0.0.1:8080/"]);
   });
 
   test("gives the selected session's cwd", () => {
-    const snapshot = { rows: [row("1", "no links")], sessions: [{ sessionId: "a", cwd: "/w/a" }, { sessionId: "b", cwd: "/w/b" }], sessionId: "b" };
+    const snapshot = {
+      rows: [row("1", "no links")],
+      sessions: [
+        { sessionId: "a", cwd: "/w/a" },
+        { sessionId: "b", cwd: "/w/b" },
+      ],
+      sessionId: "b",
+    };
     expect(paneContext(snapshot)).toEqual({ cwd: "/w/b", urls: [] });
     expect(paneContext({ ...snapshot, sessionId: undefined })).toEqual({ urls: [] });
   });

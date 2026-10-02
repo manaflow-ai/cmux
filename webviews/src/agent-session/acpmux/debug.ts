@@ -62,7 +62,10 @@ export function createAcpmuxDebug(host: { replaceRows(rows: AcpmuxRow[]): void; 
         const warmup: number[] = [];
         for (let frame = 0; frame < WARMUP_FRAMES; frame += 1) warmup.push(await nextFrame());
         if (run !== generation) return;
-        nominal = options.nominal_ms && options.nominal_ms > 0 ? options.nominal_ms : Math.max(1, median(warmup.slice(1).map((time, index) => time - warmup[index])));
+        nominal =
+          options.nominal_ms && options.nominal_ms > 0
+            ? options.nominal_ms
+            : Math.max(1, median(warmup.slice(1).map((time, index) => time - warmup[index])));
         scroller.scrollTop = scroller.scrollHeight;
         const from = scroller.scrollTop;
         acpmuxPerf.resetFrames();
@@ -74,7 +77,16 @@ export function createAcpmuxDebug(host: { replaceRows(rows: AcpmuxRow[]): void; 
             timestamps.push(now);
             const progress = Math.min(1, (now - start) / duration);
             scroller.scrollTop = from * (1 - progress);
-            acpmuxPerf.markFrame(now, isBlank(acpmuxPerf.mountedTop, acpmuxPerf.mountedBottom, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight));
+            acpmuxPerf.markFrame(
+              now,
+              isBlank(
+                acpmuxPerf.mountedTop,
+                acpmuxPerf.mountedBottom,
+                scroller.scrollTop,
+                scroller.clientHeight,
+                scroller.scrollHeight,
+              ),
+            );
             if (progress < 1) requestAnimationFrame(tick);
             else resolve();
           };

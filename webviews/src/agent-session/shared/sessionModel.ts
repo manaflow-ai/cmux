@@ -120,7 +120,11 @@ export function reduceSession(state: SessionState, action: Action): SessionState
         autoStartAttemptedProviderIds: [...state.autoStartAttemptedProviderIds, action.providerId],
       };
     case "starting":
-      return { ...state, status: "starting", log: appendLog(state, "info", copyText(state, "startingStatus", "Starting")) };
+      return {
+        ...state,
+        status: "starting",
+        log: appendLog(state, "info", copyText(state, "startingStatus", "Starting")),
+      };
     case "startAccepted":
       if (state.status !== "starting" || state.runningSessionId) {
         return state;
@@ -446,23 +450,27 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
           event.status === 0 ? "info" : "error",
           formatCopy(state, "providerExitedFormat", "Provider exited %d", event.status),
         ),
-        transcript: event.status === 0
-          ? markAssistantTranscriptComplete(state.transcript, event.sessionId)
-          : appendNoticeTranscript(
-              {
-                ...state,
-                transcript: markAssistantTranscriptComplete(state.transcript, event.sessionId),
-              },
-              formatCopy(state, "providerExitedFormat", "Provider exited %d", event.status),
-              "error",
-            ),
+        transcript:
+          event.status === 0
+            ? markAssistantTranscriptComplete(state.transcript, event.sessionId)
+            : appendNoticeTranscript(
+                {
+                  ...state,
+                  transcript: markAssistantTranscriptComplete(state.transcript, event.sessionId),
+                },
+                formatCopy(state, "providerExitedFormat", "Provider exited %d", event.status),
+                "error",
+              ),
       };
     default:
       return state;
   }
 }
 
-function isCurrentOrPendingStartExit(state: SessionState, event: Extract<AgentEvent, { type: "provider.exit" }>): boolean {
+function isCurrentOrPendingStartExit(
+  state: SessionState,
+  event: Extract<AgentEvent, { type: "provider.exit" }>,
+): boolean {
   if (event.sessionId === state.runningSessionId) {
     return true;
   }
@@ -576,9 +584,15 @@ function appendProviderActivityTranscript(
         detail: event.detail ?? previous.detail,
         activityKind: event.kind,
         activityStatus: event.status,
-        output: event.outputDelta === undefined
-          ? previous.output
-          : appendBoundedText(previous.output ?? "", event.outputDelta, maxActivityOutputChars, activityTruncationMarker),
+        output:
+          event.outputDelta === undefined
+            ? previous.output
+            : appendBoundedText(
+                previous.output ?? "",
+                event.outputDelta,
+                maxActivityOutputChars,
+                activityTruncationMarker,
+              ),
       },
       ...state.transcript.slice(existingIndex + 1),
     ];
@@ -593,9 +607,10 @@ function appendProviderActivityTranscript(
     activityId: event.activityId,
     activityKind: event.kind,
     activityStatus: event.status,
-    output: event.outputDelta === undefined
-      ? undefined
-      : boundedText(event.outputDelta, maxActivityOutputChars, activityTruncationMarker),
+    output:
+      event.outputDelta === undefined
+        ? undefined
+        : boundedText(event.outputDelta, maxActivityOutputChars, activityTruncationMarker),
   });
 }
 

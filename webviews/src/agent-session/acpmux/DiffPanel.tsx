@@ -8,37 +8,71 @@ import { FileTree, useFileTree } from "@pierre/trees/react";
 import type { FileTreeRowDecorationRenderer } from "@pierre/trees";
 import { editPatch, type DiffEdit, type TurnFile } from "./diff";
 import { isHighlighted } from "./shikiLanguages";
-import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffColors, diffUnsafeCSS, registerAgentDiffTheme, treeUnsafeCSS } from "./diffTheme";
+import {
+  AGENT_DIFF_THEME,
+  AGENT_DIFF_THEME_LIGHT,
+  diffColors,
+  diffUnsafeCSS,
+  registerAgentDiffTheme,
+  treeUnsafeCSS,
+} from "./diffTheme";
 
 export type DiffLayout = "unified" | "split";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
 
 function storedLayout(): DiffLayout {
-  try { return window.localStorage?.getItem(LAYOUT_KEY) === "split" ? "split" : "unified"; } catch { return "unified"; }
+  try {
+    return window.localStorage?.getItem(LAYOUT_KEY) === "split" ? "split" : "unified";
+  } catch {
+    return "unified";
+  }
 }
 
 function Counts({ additions, deletions }: { additions: number; deletions: number }) {
-  return <span className="acpmux-diff-counts"><span className="acpmux-diff-add">+{additions}</span><span className="acpmux-diff-del">-{deletions}</span></span>;
+  return (
+    <span className="acpmux-diff-counts">
+      <span className="acpmux-diff-add">+{additions}</span>
+      <span className="acpmux-diff-del">-{deletions}</span>
+    </span>
+  );
 }
 
 function FileHeader({ file, edit, index }: { file: TurnFile; edit: DiffEdit; index: number }) {
   const slash = file.displayPath.lastIndexOf("/");
   const additions = edit.hunks.reduce((sum, hunk) => sum + hunk.lines.filter((line) => line.type === "add").length, 0);
   const deletions = edit.hunks.reduce((sum, hunk) => sum + hunk.lines.filter((line) => line.type === "del").length, 0);
-  return <div className="acpmux-file-header">
-    <span className="acpmux-fh-name" title={file.path}>{slash >= 0 && <span className="acpmux-fh-dir">{file.displayPath.slice(0, slash + 1)}</span>}<span>{file.displayPath.slice(slash + 1)}</span></span>
-    {file.created && index === 0 && <span className="acpmux-fh-badge">New</span>}
-    {file.edits.length > 1 && <span className="acpmux-fh-badge">{`Edit ${index + 1} of ${file.edits.length}`}</span>}
-    <span className="acpmux-fh-spacer" />
-    <Counts additions={additions} deletions={deletions} />
-  </div>;
+  return (
+    <div className="acpmux-file-header">
+      <span className="acpmux-fh-name" title={file.path}>
+        {slash >= 0 && <span className="acpmux-fh-dir">{file.displayPath.slice(0, slash + 1)}</span>}
+        <span>{file.displayPath.slice(slash + 1)}</span>
+      </span>
+      {file.created && index === 0 && <span className="acpmux-fh-badge">New</span>}
+      {file.edits.length > 1 && <span className="acpmux-fh-badge">{`Edit ${index + 1} of ${file.edits.length}`}</span>}
+      <span className="acpmux-fh-spacer" />
+      <Counts additions={additions} deletions={deletions} />
+    </div>
+  );
 }
 
 /// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.
-const paneThemeType = () => document.documentElement.dataset.theme === "light" ? "light" as const : "dark" as const;
+const paneThemeType = () =>
+  document.documentElement.dataset.theme === "light" ? ("light" as const) : ("dark" as const);
 
-function EditBlock({ file, edit, index, layout, onPainted }: { file: TurnFile; edit: DiffEdit; index: number; layout: DiffLayout; onPainted: () => void }) {
+function EditBlock({
+  file,
+  edit,
+  index,
+  layout,
+  onPainted,
+}: {
+  file: TurnFile;
+  edit: DiffEdit;
+  index: number;
+  layout: DiffLayout;
+  onPainted: () => void;
+}) {
   // A language the bundle can't highlight shows as plain text; Pierre throws for it otherwise.
   // Each transcript update rebuilds the turn's files; the patch text is compared so an
   // unchanged edit keeps its parsed diff and does not paint again.
@@ -49,30 +83,54 @@ function EditBlock({ file, edit, index, layout, onPainted }: { file: TurnFile; e
     return highlighted ? parsed : setLanguageOverride(parsed, "text");
   }, [patch, highlighted]);
   const afterRender = useStableCallback(onPainted);
-  const options = useMemo(() => ({
-    theme: { dark: AGENT_DIFF_THEME, light: AGENT_DIFF_THEME_LIGHT },
-    themeType: paneThemeType(),
-    diffStyle: layout,
-    diffIndicators: "bars" as const,
-    hunkSeparators: "line-info" as const,
-    lineDiffType: "none" as const,
-    overflow: "scroll" as const,
-    // A fragment edit has no known place in its file, so its numbers would be made up.
-    disableLineNumbers: !edit.numbered,
-    // The bundled page allows no WebAssembly.
-    preferredHighlighter: "shiki-js" as const,
-    unsafeCSS: diffUnsafeCSS,
-    onPostRender: afterRender,
-  }), [layout, edit.numbered, afterRender]);
+  const options = useMemo(
+    () => ({
+      theme: { dark: AGENT_DIFF_THEME, light: AGENT_DIFF_THEME_LIGHT },
+      themeType: paneThemeType(),
+      diffStyle: layout,
+      diffIndicators: "bars" as const,
+      hunkSeparators: "line-info" as const,
+      lineDiffType: "none" as const,
+      overflow: "scroll" as const,
+      // A fragment edit has no known place in its file, so its numbers would be made up.
+      disableLineNumbers: !edit.numbered,
+      // The bundled page allows no WebAssembly.
+      preferredHighlighter: "shiki-js" as const,
+      unsafeCSS: diffUnsafeCSS,
+      onPostRender: afterRender,
+    }),
+    [layout, edit.numbered, afterRender],
+  );
   const header = <FileHeader file={file} edit={edit} index={index} />;
   // Only a final newline changed, or an empty file was written: no lines to show.
-  if (edit.hunks.length === 0) return <div className="acpmux-diff-file" data-path={file.path}>{header}<div className="acpmux-diff-empty-edit">No line changes</div></div>;
-  return <div className="acpmux-diff-file" data-path={file.path}>
-    <FileDiff className="acpmux-diff-pierre" fileDiff={fileDiff} options={options} renderCustomHeader={() => header} />
-  </div>;
+  if (edit.hunks.length === 0)
+    return (
+      <div className="acpmux-diff-file" data-path={file.path}>
+        {header}
+        <div className="acpmux-diff-empty-edit">No line changes</div>
+      </div>
+    );
+  return (
+    <div className="acpmux-diff-file" data-path={file.path}>
+      <FileDiff
+        className="acpmux-diff-pierre"
+        fileDiff={fileDiff}
+        options={options}
+        renderCustomHeader={() => header}
+      />
+    </div>
+  );
 }
 
-function ChangedFilesTree({ files, selected, onSelect }: { files: TurnFile[]; selected?: string; onSelect: (path: string) => void }) {
+function ChangedFilesTree({
+  files,
+  selected,
+  onSelect,
+}: {
+  files: TurnFile[];
+  selected?: string;
+  onSelect: (path: string) => void;
+}) {
   const byDisplay = useMemo(() => new Map(files.map((file) => [file.displayPath, file])), [files]);
   // The tree keeps the renderer it was built with; it reads the current files through a ref.
   const filesRef = useRef(byDisplay);
@@ -115,34 +173,65 @@ function ChangedFilesTree({ files, selected, onSelect }: { files: TurnFile[]; se
 
 /// The changes one turn's tool calls made, file by file. Read-only; Back or Escape returns
 /// to the transcript.
-export function DiffPanel({ files, initialPath, onClose }: { files: TurnFile[]; initialPath?: string; onClose: () => void }) {
+export function DiffPanel({
+  files,
+  initialPath,
+  onClose,
+}: {
+  files: TurnFile[];
+  initialPath?: string;
+  onClose: () => void;
+}) {
   registerAgentDiffTheme();
   const [layout, setLayout] = useState<DiffLayout>(storedLayout);
   const [selected, setSelected] = useState(initialPath ?? files[0]?.path);
   const body = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
-  const totals = useMemo(() => files.reduce((sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }), { additions: 0, deletions: 0 }), [files]);
+  const totals = useMemo(
+    () =>
+      files.reduce(
+        (sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }),
+        { additions: 0, deletions: 0 },
+      ),
+    [files],
+  );
   const reveal = (path: string) => {
     setSelected(path);
-    const section = [...(body.current?.querySelectorAll<HTMLElement>(".acpmux-diff-file") ?? [])].find((node) => node.dataset.path === path);
+    const section = [...(body.current?.querySelectorAll<HTMLElement>(".acpmux-diff-file") ?? [])].find(
+      (node) => node.dataset.path === path,
+    );
     section?.scrollIntoView?.({ block: "start" });
   };
   // Diffs paint after the highlighter loads, moving the file below them; the opened file is
   // revealed again after each paint until the reader scrolls, types or picks another file.
   const revealing = useRef(initialPath);
-  const stopRevealing = () => { revealing.current = undefined; };
-  const revealFromTree = (path: string) => { revealing.current = path; reveal(path); };
+  const stopRevealing = () => {
+    revealing.current = undefined;
+  };
+  const revealFromTree = (path: string) => {
+    revealing.current = path;
+    reveal(path);
+  };
   // Wheel, pointer or key input in the diffs means the reader is moving on their own.
   useEffect(() => {
     const node = body.current;
     if (!node) return;
-    const stop = () => { revealing.current = undefined; };
+    const stop = () => {
+      revealing.current = undefined;
+    };
     for (const type of ["wheel", "pointerdown", "keydown"]) node.addEventListener(type, stop, { passive: true });
-    return () => { for (const type of ["wheel", "pointerdown", "keydown"]) node.removeEventListener(type, stop); };
+    return () => {
+      for (const type of ["wheel", "pointerdown", "keydown"]) node.removeEventListener(type, stop);
+    };
   }, []);
-  const onPainted = useStableCallback(() => { if (revealing.current) reveal(revealing.current); });
+  const onPainted = useStableCallback(() => {
+    if (revealing.current) reveal(revealing.current);
+  });
   // Focus moves into the view, so keys reach it and a screen reader announces it.
-  useEffect(() => { back.current?.focus(); if (initialPath) reveal(initialPath); }, [initialPath]);
+  useEffect(() => {
+    back.current?.focus();
+    if (initialPath) reveal(initialPath);
+  }, [initialPath]);
   // Escape closes the view while focus is in it (or nowhere), not while typing in the composer.
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -153,19 +242,54 @@ export function DiffPanel({ files, initialPath, onClose }: { files: TurnFile[]; 
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [onClose]);
-  const chooseLayout = (next: DiffLayout) => { stopRevealing(); setLayout(next); try { window.localStorage?.setItem(LAYOUT_KEY, next); } catch { /* the choice lasts this pane only */ } };
-  return <section ref={panel} className="acpmux-diff-panel" aria-label="Changes">
-    <header className="acpmux-diff-header">
-      <button ref={back} type="button" className="acpmux-diff-back" aria-label="Back to transcript" onClick={onClose}>‹</button>
-      <strong>{files.length === 1 ? "1 file changed" : `${files.length} files changed`}</strong>
-      <Counts additions={totals.additions} deletions={totals.deletions} />
-      <div className="acpmux-diff-layout" aria-label="Diff layout">
-        {(["unified", "split"] as const).map((option) => <button key={option} type="button" aria-pressed={layout === option} onClick={() => chooseLayout(option)}>{option === "unified" ? "Unified" : "Split"}</button>)}
+  const chooseLayout = (next: DiffLayout) => {
+    stopRevealing();
+    setLayout(next);
+    try {
+      window.localStorage?.setItem(LAYOUT_KEY, next);
+    } catch {
+      /* the choice lasts this pane only */
+    }
+  };
+  return (
+    <section ref={panel} className="acpmux-diff-panel" aria-label="Changes">
+      <header className="acpmux-diff-header">
+        <button ref={back} type="button" className="acpmux-diff-back" aria-label="Back to transcript" onClick={onClose}>
+          ‹
+        </button>
+        <strong>{files.length === 1 ? "1 file changed" : `${files.length} files changed`}</strong>
+        <Counts additions={totals.additions} deletions={totals.deletions} />
+        <div className="acpmux-diff-layout" aria-label="Diff layout">
+          {(["unified", "split"] as const).map((option) => (
+            <button key={option} type="button" aria-pressed={layout === option} onClick={() => chooseLayout(option)}>
+              {option === "unified" ? "Unified" : "Split"}
+            </button>
+          ))}
+        </div>
+      </header>
+      <div className="acpmux-diff-main">
+        <div ref={body} className="acpmux-diff-body">
+          {files.length === 0 ? (
+            <div className="acpmux-muted">No file changes in this turn.</div>
+          ) : (
+            files.flatMap((file) =>
+              file.edits.map((edit, index) => (
+                <EditBlock
+                  key={`${file.path}\u0000${edit.toolId}\u0000${index}`}
+                  file={file}
+                  edit={edit}
+                  index={index}
+                  layout={layout}
+                  onPainted={onPainted}
+                />
+              )),
+            )
+          )}
+        </div>
+        <nav className="acpmux-diff-tree" aria-label="Changed files">
+          <ChangedFilesTree files={files} selected={selected} onSelect={revealFromTree} />
+        </nav>
       </div>
-    </header>
-    <div className="acpmux-diff-main">
-      <div ref={body} className="acpmux-diff-body">{files.length === 0 ? <div className="acpmux-muted">No file changes in this turn.</div> : files.flatMap((file) => file.edits.map((edit, index) => <EditBlock key={`${file.path}\u0000${edit.toolId}\u0000${index}`} file={file} edit={edit} index={index} layout={layout} onPainted={onPainted} />))}</div>
-      <nav className="acpmux-diff-tree" aria-label="Changed files"><ChangedFilesTree files={files} selected={selected} onSelect={revealFromTree} /></nav>
-    </div>
-  </section>;
+    </section>
+  );
 }
