@@ -288,8 +288,9 @@ fn column_update_enforces_revision_and_idempotency_conflicts() {
     assert_eq!(flags(&mux), vec![None, None]);
 
     update(&mux, serde_json::json!({"column": columns[1], "sticky": true}), "column-key").unwrap();
-    let reused = update(&mux, serde_json::json!({"column": columns[1], "width": 0.4}), "column-key")
-        .unwrap_err();
+    let reused =
+        update(&mux, serde_json::json!({"column": columns[1], "width": 0.4}), "column-key")
+            .unwrap_err();
     assert_eq!(reused.code, "idempotency.conflict", "{reused:?}");
     assert!((widths(&mux)[1] - 0.4).abs() > 1e-3, "a conflicting reuse changes nothing");
 }
@@ -335,8 +336,8 @@ fn column_update_refuses_a_column_of_another_screen() {
         },
         "idempotency_key": "column-other",
     });
-    let error = crate::resource_router::handle_resource_message(&mux, &request.to_string())
-        .unwrap_err();
+    let error =
+        crate::resource_router::handle_resource_message(&mux, &request.to_string()).unwrap_err();
     assert_eq!(error.code, "validation.invalid", "{error:?}");
     assert_eq!(flags(&mux), vec![None, None]);
 }
@@ -346,8 +347,7 @@ fn column_update_width_is_undone_by_undo_layout() {
     let (mux, panes) = column_mux(2);
     let columns = column_ids(&mux);
     let before = widths(&mux);
-    update(&mux, serde_json::json!({"column": columns[1], "width": 0.3}), "column-narrow")
-        .unwrap();
+    update(&mux, serde_json::json!({"column": columns[1], "width": 0.3}), "column-narrow").unwrap();
     assert!((widths(&mux)[1] - 0.3).abs() < 1e-6);
     assert!(matches!(
         mux.undo_layout(panes[1], None, false).unwrap(),
