@@ -356,7 +356,7 @@ actor CodeRouterHandoffClient {
             throw CodeRouterHandoffClientError.invalidResponse
         }
 
-        guard let expiry = CmuxRFC3339DateParser.date(from: expiresAt), expiry > now else {
+        guard let expiry = CmuxRFC3339DateParser().date(from: expiresAt), expiry > now else {
             throw CodeRouterHandoffClientError.expiredLease
         }
         return CodeRouterHandoffLease(teamID: teamID, lease: lease, expiresAt: expiresAt)

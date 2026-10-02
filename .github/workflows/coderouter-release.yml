@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     outputs:
@@ -55,7 +55,7 @@ jobs:
   prepare_release:
     needs: validate
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: write
     steps:
@@ -98,6 +98,8 @@ jobs:
 
   build:
     needs: validate
+    # Releases are cut only in manaflow-ai, where the Blacksmith runners exist.
+    if: github.repository_owner == 'manaflow-ai'
     strategy:
       fail-fast: false
       matrix:
@@ -137,6 +139,10 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      - name: Select the pinned Xcode
+        if: runner.os == 'macOS'
+        working-directory: .
+        run: ./scripts/select-ci-xcode.sh
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
         with:
           toolchain: 1.94.0
@@ -433,7 +439,7 @@ jobs:
   release:
     needs: [validate, prepare_release, build]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: write
     steps:

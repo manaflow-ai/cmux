@@ -404,10 +404,10 @@ struct CodeRouterHandoffArmGrantStoreTests {
         let nonce = challenge(700)
         let clientChallenge = challenge(701)
         let nonceText = try #require(
-            SocketClientCapabilityProof.encodeBase64URL32(nonce)
+            SocketClientCapabilityProof().encodeBase64URL32(nonce)
         )
         let challengeText = try #require(
-            SocketClientCapabilityProof.encodeBase64URL32(clientChallenge)
+            SocketClientCapabilityProof().encodeBase64URL32(clientChallenge)
         )
         let exact = #"{"id":"coderouter-handoff-arm","method":"coderouter.handoff.arm","params":{"protocolVersion":2,"capabilityNonce":"\#(nonceText)","clientChallenge":"\#(challengeText)","clientProcessID":42,"clientProcessStartAbsoluteTime":"0123456789abcdef","clientProof":"\#(String(repeating: "a", count: 64))"}}"#
         let parsed = try #require(

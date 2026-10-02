@@ -55,9 +55,9 @@ private final class CLICoderouterMockHandoffServer: @unchecked Sendable {
         self.teamBinding = teamBinding
         let capabilityNonce = Data(repeating: 0x41, count: 32)
         let capabilityTag = Data(repeating: 0x42, count: 32)
-        guard let capabilityNonceText = SocketClientCapabilityProof
+        guard let capabilityNonceText = SocketClientCapabilityProof()
             .encodeBase64URL32(capabilityNonce),
-              let capabilityTagText = SocketClientCapabilityProof
+              let capabilityTagText = SocketClientCapabilityProof()
                   .encodeBase64URL32(capabilityTag) else {
             throw NSError(domain: "cmux.tests", code: 1)
         }
@@ -185,21 +185,21 @@ private final class CLICoderouterMockHandoffServer: @unchecked Sendable {
                   == SocketClientCapabilityProof.method,
               let params = request["params"] as? [String: Any],
               let nonceText = params["capabilityNonce"] as? String,
-              let nonce = SocketClientCapabilityProof.decodeBase64URL32(
+              let nonce = SocketClientCapabilityProof().decodeBase64URL32(
                   nonceText
               ),
               let challengeText = params["clientChallenge"] as? String,
-              let challenge = SocketClientCapabilityProof.decodeBase64URL32(
+              let challenge = SocketClientCapabilityProof().decodeBase64URL32(
                   challengeText
               ),
               let processIDNumber = params["clientProcessID"] as? NSNumber,
               let processStartText = params[
                   "clientProcessStartAbsoluteTime"
               ] as? String,
-              let processStart = SocketClientCapabilityProof
+              let processStart = SocketClientCapabilityProof()
                   .decodeProcessStartTime(processStartText),
               let clientProof = params["clientProof"] as? String,
-              SocketClientCapabilityProof.verifiesClientProof(
+              SocketClientCapabilityProof().verifiesClientProof(
                   clientProof,
                   capability: capability,
                   nonce: nonce,
@@ -210,7 +210,7 @@ private final class CLICoderouterMockHandoffServer: @unchecked Sendable {
             return #"{"id":"\#(responseID)","ok":false,"error":{"code":"invalid_proof","message":"invalid"}}"#
         }
         if let errorCode {
-            let generatedProof = SocketClientCapabilityProof.serverErrorProof(
+            let generatedProof = SocketClientCapabilityProof().serverErrorProof(
                 capability: capability,
                 nonce: nonce,
                 challenge: challenge,
@@ -232,7 +232,7 @@ private final class CLICoderouterMockHandoffServer: @unchecked Sendable {
                 : ""
             return #"{"id":"\#(responseID)","ok":false,"error":{"code":"\#(errorCode)","message":"raw-arm-secret-must-not-leak","data":{"serverProof":"\#(serverProof)"}\#(payloadExtra)}\#(envelopeExtra)}"#
         }
-        let generatedProof = SocketClientCapabilityProof.serverProof(
+        let generatedProof = SocketClientCapabilityProof().serverProof(
             capability: capability,
             nonce: nonce,
             challenge: challenge,

@@ -23,10 +23,10 @@ struct SocketClientCapabilityProofTests {
             .issueCapability(nonce: nonce)
         #expect(capability == expectedCapability)
         #expect(capability.utf8.count == 90)
-        #expect(SocketClientCapabilityProof.capabilityNonce(from: capability)
+        #expect(SocketClientCapabilityProof().capabilityNonce(from: capability)
             == nonce)
 
-        let clientProof = try #require(SocketClientCapabilityProof.clientProof(
+        let clientProof = try #require(SocketClientCapabilityProof().clientProof(
             capability: capability,
             nonce: nonce,
             challenge: challenge,
@@ -34,7 +34,7 @@ struct SocketClientCapabilityProofTests {
             processStartAbsoluteTime: start
         ))
         #expect(clientProof == expectedClientProof)
-        #expect(SocketClientCapabilityProof.verifiesClientProof(
+        #expect(SocketClientCapabilityProof().verifiesClientProof(
             clientProof,
             capability: capability,
             nonce: nonce,
@@ -43,7 +43,7 @@ struct SocketClientCapabilityProofTests {
             processStartAbsoluteTime: start
         ))
 
-        let serverProof = try #require(SocketClientCapabilityProof.serverProof(
+        let serverProof = try #require(SocketClientCapabilityProof().serverProof(
             capability: capability,
             nonce: nonce,
             challenge: challenge,
@@ -52,7 +52,7 @@ struct SocketClientCapabilityProofTests {
             teamBinding: teamBinding
         ))
         #expect(serverProof == expectedServerProof)
-        #expect(SocketClientCapabilityProof.verifiesServerProof(
+        #expect(SocketClientCapabilityProof().verifiesServerProof(
             serverProof,
             capability: capability,
             nonce: nonce,
@@ -61,7 +61,7 @@ struct SocketClientCapabilityProofTests {
             processStartAbsoluteTime: start,
             teamBinding: teamBinding
         ))
-        #expect(!SocketClientCapabilityProof.verifiesServerProof(
+        #expect(!SocketClientCapabilityProof().verifiesServerProof(
             clientProof,
             capability: capability,
             nonce: nonce,
@@ -70,7 +70,7 @@ struct SocketClientCapabilityProofTests {
             processStartAbsoluteTime: start,
             teamBinding: teamBinding
         ))
-        #expect(!SocketClientCapabilityProof.verifiesClientProof(
+        #expect(!SocketClientCapabilityProof().verifiesClientProof(
             serverProof,
             capability: capability,
             nonce: nonce,
@@ -82,14 +82,14 @@ struct SocketClientCapabilityProofTests {
 
     @Test func everyBoundFieldMutationRejects() throws {
         let capability = expectedCapability
-        let clientProof = try #require(SocketClientCapabilityProof.clientProof(
+        let clientProof = try #require(SocketClientCapabilityProof().clientProof(
             capability: capability,
             nonce: nonce,
             challenge: challenge,
             processID: processID,
             processStartAbsoluteTime: start
         ))
-        #expect(!SocketClientCapabilityProof.verifiesClientProof(
+        #expect(!SocketClientCapabilityProof().verifiesClientProof(
             clientProof,
             capability: capability,
             nonce: nonce,
@@ -97,7 +97,7 @@ struct SocketClientCapabilityProofTests {
             processID: processID,
             processStartAbsoluteTime: start
         ))
-        #expect(!SocketClientCapabilityProof.verifiesClientProof(
+        #expect(!SocketClientCapabilityProof().verifiesClientProof(
             clientProof,
             capability: capability,
             nonce: nonce,
@@ -105,7 +105,7 @@ struct SocketClientCapabilityProofTests {
             processID: processID + 1,
             processStartAbsoluteTime: start
         ))
-        #expect(!SocketClientCapabilityProof.verifiesClientProof(
+        #expect(!SocketClientCapabilityProof().verifiesClientProof(
             clientProof,
             capability: capability,
             nonce: nonce,
@@ -114,7 +114,7 @@ struct SocketClientCapabilityProofTests {
             processStartAbsoluteTime: start + 1
         ))
 
-        let serverProof = try #require(SocketClientCapabilityProof.serverProof(
+        let serverProof = try #require(SocketClientCapabilityProof().serverProof(
             capability: capability,
             nonce: nonce,
             challenge: challenge,
@@ -122,7 +122,7 @@ struct SocketClientCapabilityProofTests {
             processStartAbsoluteTime: start,
             teamBinding: teamBinding
         ))
-        #expect(!SocketClientCapabilityProof.verifiesServerProof(
+        #expect(!SocketClientCapabilityProof().verifiesServerProof(
             serverProof,
             capability: capability,
             nonce: nonce,
@@ -134,7 +134,7 @@ struct SocketClientCapabilityProofTests {
 
         let otherCapability = authority(audience: "other.audience")
             .issueCapability(nonce: nonce)
-        #expect(!SocketClientCapabilityProof.verifiesClientProof(
+        #expect(!SocketClientCapabilityProof().verifiesClientProof(
             clientProof,
             capability: otherCapability,
             nonce: nonce,
@@ -145,34 +145,34 @@ struct SocketClientCapabilityProofTests {
     }
 
     @Test func canonicalWireParsersRejectAlternateEncodings() {
-        #expect(SocketClientCapabilityProof.encodeProcessStartTime(start)
+        #expect(SocketClientCapabilityProof().encodeProcessStartTime(start)
             == "0123456789abcdef")
-        #expect(SocketClientCapabilityProof.decodeProcessStartTime(
+        #expect(SocketClientCapabilityProof().decodeProcessStartTime(
             "0123456789abcdef"
         ) == start)
-        #expect(SocketClientCapabilityProof.decodeProcessStartTime(
+        #expect(SocketClientCapabilityProof().decodeProcessStartTime(
             "123456789abcdef"
         ) == nil)
-        #expect(SocketClientCapabilityProof.decodeProcessStartTime(
+        #expect(SocketClientCapabilityProof().decodeProcessStartTime(
             "0123456789ABCDEF"
         ) == nil)
-        #expect(SocketClientCapabilityProof.decodeProcessStartTime(
+        #expect(SocketClientCapabilityProof().decodeProcessStartTime(
             "0000000000000000"
         ) == nil)
-        let nonceText = SocketClientCapabilityProof.encodeBase64URL32(nonce)
+        let nonceText = SocketClientCapabilityProof().encodeBase64URL32(nonce)
         #expect(nonceText?.utf8.count == 43)
-        #expect(SocketClientCapabilityProof.decodeBase64URL32(nonceText ?? "")
+        #expect(SocketClientCapabilityProof().decodeBase64URL32(nonceText ?? "")
             == nonce)
-        #expect(SocketClientCapabilityProof.decodeBase64URL32(
+        #expect(SocketClientCapabilityProof().decodeBase64URL32(
             (nonceText ?? "") + "="
         ) == nil)
-        #expect(SocketClientCapabilityProof.capabilityNonce(
+        #expect(SocketClientCapabilityProof().capabilityNonce(
             from: expectedCapability + "="
         ) == nil)
     }
 
     @Test func signedErrorsAreAllowListedAndDomainSeparated() throws {
-        let proof = try #require(SocketClientCapabilityProof.serverErrorProof(
+        let proof = try #require(SocketClientCapabilityProof().serverErrorProof(
             capability: expectedCapability,
             nonce: nonce,
             challenge: challenge,
@@ -181,7 +181,7 @@ struct SocketClientCapabilityProofTests {
             code: "team_required"
         ))
         #expect(proof == expectedTeamErrorProof)
-        #expect(SocketClientCapabilityProof.verifiesServerErrorProof(
+        #expect(SocketClientCapabilityProof().verifiesServerErrorProof(
             proof,
             capability: expectedCapability,
             nonce: nonce,
@@ -190,7 +190,7 @@ struct SocketClientCapabilityProofTests {
             processStartAbsoluteTime: start,
             code: "team_required"
         ))
-        #expect(!SocketClientCapabilityProof.verifiesServerErrorProof(
+        #expect(!SocketClientCapabilityProof().verifiesServerErrorProof(
             proof,
             capability: expectedCapability,
             nonce: nonce,
@@ -199,7 +199,7 @@ struct SocketClientCapabilityProofTests {
             processStartAbsoluteTime: start,
             code: "coderouter_handoff_arm_busy"
         ))
-        #expect(SocketClientCapabilityProof.serverErrorProof(
+        #expect(SocketClientCapabilityProof().serverErrorProof(
             capability: expectedCapability,
             nonce: nonce,
             challenge: challenge,
@@ -207,7 +207,7 @@ struct SocketClientCapabilityProofTests {
             processStartAbsoluteTime: start,
             code: "access_denied"
         ) == nil)
-        #expect(!SocketClientCapabilityProof.verifiesServerProof(
+        #expect(!SocketClientCapabilityProof().verifiesServerProof(
             proof,
             capability: expectedCapability,
             nonce: nonce,

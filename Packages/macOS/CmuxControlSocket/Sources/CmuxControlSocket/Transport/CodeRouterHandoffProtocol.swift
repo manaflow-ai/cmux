@@ -106,16 +106,16 @@ public struct CodeRouterHandoffProtocol {
         processID: pid_t,
         processStartAbsoluteTime: UInt64
     ) -> ProofContext? {
-        guard let nonce = SocketClientCapabilityProof.capabilityNonce(
+        guard let nonce = SocketClientCapabilityProof().capabilityNonce(
             from: capability
         ),
-        let nonceText = SocketClientCapabilityProof.encodeBase64URL32(nonce),
-        let challengeText = SocketClientCapabilityProof.encodeBase64URL32(
+        let nonceText = SocketClientCapabilityProof().encodeBase64URL32(nonce),
+        let challengeText = SocketClientCapabilityProof().encodeBase64URL32(
             challenge
         ),
-        let processStartText = SocketClientCapabilityProof
+        let processStartText = SocketClientCapabilityProof()
             .encodeProcessStartTime(processStartAbsoluteTime),
-        let clientProof = SocketClientCapabilityProof.clientProof(
+        let clientProof = SocketClientCapabilityProof().clientProof(
             capability: capability,
             nonce: nonce,
             challenge: challenge,
@@ -172,7 +172,7 @@ public struct CodeRouterHandoffProtocol {
            result["protocolVersion"] as? Int == Self.protocolVersion,
            let teamBinding = result["teamBinding"] as? String,
            let serverProof = result["serverProof"] as? String,
-           SocketClientCapabilityProof.verifiesServerProof(
+           SocketClientCapabilityProof().verifiesServerProof(
                serverProof,
                capability: context.capability,
                nonce: context.nonce,
@@ -195,7 +195,7 @@ public struct CodeRouterHandoffProtocol {
               let errorData = responseError["data"] as? [String: Any],
               Set(errorData.keys) == ["serverProof"],
               let serverProof = errorData["serverProof"] as? String,
-              SocketClientCapabilityProof.verifiesServerErrorProof(
+              SocketClientCapabilityProof().verifiesServerErrorProof(
                   serverProof,
                   capability: context.capability,
                   nonce: context.nonce,

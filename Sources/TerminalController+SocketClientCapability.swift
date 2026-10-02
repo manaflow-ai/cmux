@@ -212,7 +212,7 @@ extension TerminalController {
                     == peerProcessStartTime.absoluteTime,
                   let capability = socketClientCapabilityAuthority
                     .issueCapability(nonce: proofRequest.nonce).nonEmpty,
-                  SocketClientCapabilityProof.verifiesClientProof(
+                  SocketClientCapabilityProof().verifiesClientProof(
                       proofRequest.proof,
                       capability: capability,
                       nonce: proofRequest.nonce,
@@ -387,7 +387,7 @@ extension TerminalController {
               rawVersion.intValue == 2,
               rawVersion.doubleValue == 2,
               let challenge = rawParams["challenge"] as? String,
-              SocketClientCapabilityProof.decodeBase64URL32(challenge) != nil,
+              SocketClientCapabilityProof().decodeBase64URL32(challenge) != nil,
               let request = ControlRequestParser().lenientRequest(
                 fromLine: command
               ),
@@ -445,11 +445,11 @@ extension TerminalController {
               rawVersion.doubleValue
                 == Double(SocketClientCapabilityProof.protocolVersion),
               let nonceText = rawParams["capabilityNonce"] as? String,
-              let nonce = SocketClientCapabilityProof.decodeBase64URL32(
+              let nonce = SocketClientCapabilityProof().decodeBase64URL32(
                   nonceText
               ),
               let challengeText = rawParams["clientChallenge"] as? String,
-              let challenge = SocketClientCapabilityProof.decodeBase64URL32(
+              let challenge = SocketClientCapabilityProof().decodeBase64URL32(
                   challengeText
               ),
               let rawProcessID = rawParams["clientProcessID"] as? NSNumber,
@@ -465,7 +465,7 @@ extension TerminalController {
               ) == Array(String(rawProcessID.int64Value).utf8),
               let startText = rawParams["clientProcessStartAbsoluteTime"]
                 as? String,
-              let start = SocketClientCapabilityProof.decodeProcessStartTime(
+              let start = SocketClientCapabilityProof().decodeProcessStartTime(
                   startText
               ),
               let proof = rawParams["clientProof"] as? String,
@@ -674,7 +674,7 @@ extension TerminalController {
             sessionBinding = binding
             teamBinding = bindingHash
         }
-        guard let serverProof = SocketClientCapabilityProof.serverProof(
+        guard let serverProof = SocketClientCapabilityProof().serverProof(
             capability: verifiedProof.capability,
             nonce: verifiedProof.nonce,
             challenge: verifiedProof.challenge,
@@ -739,7 +739,7 @@ extension TerminalController {
         message: String,
         proof: VerifiedCodeRouterHandoffArmProof
     ) -> String {
-        guard let serverProof = SocketClientCapabilityProof.serverErrorProof(
+        guard let serverProof = SocketClientCapabilityProof().serverErrorProof(
             capability: proof.capability,
             nonce: proof.nonce,
             challenge: proof.challenge,
@@ -790,7 +790,7 @@ extension TerminalController {
         guard bytes.count == SocketClientCapabilityProof.byteCount else {
             return nil
         }
-        return SocketClientCapabilityProof.encodeBase64URL32(bytes)
+        return SocketClientCapabilityProof().encodeBase64URL32(bytes)
     }
 
     private nonisolated func currentCodeRouterHandoffSessionBinding()

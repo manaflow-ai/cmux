@@ -7,7 +7,10 @@ public import Foundation
 /// The full terminal capability never crosses the socket. Both peers use it
 /// to derive separate client and server HMAC keys, then use this shared codec
 /// so field order or integer encoding cannot drift.
-public enum SocketClientCapabilityProof {
+public struct SocketClientCapabilityProof: Sendable {
+    /// A stateless codec value; create one where proofs are made or checked.
+    public init() {}
+
     public static let protocolVersion: UInt64 = 2
     public static let requestID = "coderouter-handoff-arm"
     public static let method = "coderouter.handoff.arm"
@@ -33,7 +36,7 @@ public enum SocketClientCapabilityProof {
     )
 
     /// Extracts the canonical 32-byte nonce from a complete v1 capability.
-    public static func capabilityNonce(from capability: String) -> Data? {
+    public func capabilityNonce(from capability: String) -> Data? {
         let components = capability.split(
             separator: ".",
             omittingEmptySubsequences: false
@@ -52,8 +55,8 @@ public enum SocketClientCapabilityProof {
     }
 
     /// Encodes one 32-byte nonce or challenge for JSON.
-    public static func encodeBase64URL32(_ data: Data) -> String? {
-        guard data.count == byteCount else { return nil }
+    public func encodeBase64URL32(_ data: Data) -> String? {
+        guard data.count == Self.byteCount else { return nil }
         return data.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
@@ -61,7 +64,7 @@ public enum SocketClientCapabilityProof {
     }
 
     /// Decodes only the canonical unpadded base64url representation of 32 bytes.
-    public static func decodeBase64URL32(_ value: String) -> Data? {
+    public func decodeBase64URL32(_ value: String) -> Data? {
         guard value.utf8.count == 43,
               value.unicodeScalars.allSatisfy({ scalar in
                   switch scalar.value {
@@ -78,7 +81,7 @@ public enum SocketClientCapabilityProof {
             .replacingOccurrences(of: "_", with: "/")
         base64.append("=")
         guard let data = Data(base64Encoded: base64),
-              data.count == byteCount,
+              data.count == Self.byteCount,
               encodeBase64URL32(data) == value else {
             return nil
         }
@@ -86,13 +89,13 @@ public enum SocketClientCapabilityProof {
     }
 
     /// Encodes `ri_proc_start_abstime` as exactly 16 lowercase hex digits.
-    public static func encodeProcessStartTime(_ value: UInt64) -> String? {
+    public func encodeProcessStartTime(_ value: UInt64) -> String? {
         guard value > 0 else { return nil }
         return String(format: "%016llx", value)
     }
 
     /// Decodes the exact 16-lowercase-hex process launch value.
-    public static func decodeProcessStartTime(_ value: String) -> UInt64? {
+    public func decodeProcessStartTime(_ value: String) -> UInt64? {
         guard value.utf8.count == 16,
               value.utf8.allSatisfy({
                   (48...57).contains($0) || (97...102).contains($0)
@@ -106,7 +109,7 @@ public enum SocketClientCapabilityProof {
     }
 
     /// Creates the canonical lowercase-hex client HMAC.
-    public static func clientProof(
+    public func clientProof(
         capability: String,
         nonce: Data,
         challenge: Data,
@@ -126,7 +129,7 @@ public enum SocketClientCapabilityProof {
     }
 
     /// Verifies one canonical client HMAC in constant time.
-    public static func verifiesClientProof(
+    public func verifiesClientProof(
         _ proof: String,
         capability: String,
         nonce: Data,
@@ -147,12 +150,12 @@ public enum SocketClientCapabilityProof {
         return HMAC<SHA256>.isValidAuthenticationCode(
             proofBytes,
             authenticating: transcript,
-            using: derivedKey(capability: capability, domain: clientKeyDomain)
+            using: derivedKey(capability: capability, domain: Self.clientKeyDomain)
         )
     }
 
     /// Creates the canonical lowercase-hex server result HMAC.
-    public static func serverProof(
+    public func serverProof(
         capability: String,
         nonce: Data,
         challenge: Data,
@@ -174,7 +177,7 @@ public enum SocketClientCapabilityProof {
     }
 
     /// Verifies the server proof before the launcher accepts an arm result.
-    public static func verifiesServerProof(
+    public func verifiesServerProof(
         _ proof: String,
         capability: String,
         nonce: Data,
@@ -197,12 +200,12 @@ public enum SocketClientCapabilityProof {
         return HMAC<SHA256>.isValidAuthenticationCode(
             proofBytes,
             authenticating: transcript,
-            using: derivedKey(capability: capability, domain: serverKeyDomain)
+            using: derivedKey(capability: capability, domain: Self.serverKeyDomain)
         )
     }
 
     /// Creates a signed, allow-listed error after client proof succeeds.
-    public static func serverErrorProof(
+    public func serverErrorProof(
         capability: String,
         nonce: Data,
         challenge: Data,
@@ -224,7 +227,7 @@ public enum SocketClientCapabilityProof {
     }
 
     /// Verifies a signed, allow-listed error before the CLI maps its code.
-    public static func verifiesServerErrorProof(
+    public func verifiesServerErrorProof(
         _ proof: String,
         capability: String,
         nonce: Data,
@@ -247,27 +250,27 @@ public enum SocketClientCapabilityProof {
         return HMAC<SHA256>.isValidAuthenticationCode(
             proofBytes,
             authenticating: transcript,
-            using: derivedKey(capability: capability, domain: serverKeyDomain)
+            using: derivedKey(capability: capability, domain: Self.serverKeyDomain)
         )
     }
 
-    static func clientTranscript(
+    func clientTranscript(
         nonce: Data,
         challenge: Data,
         processID: pid_t,
         processStartAbsoluteTime: UInt64
     ) -> Data? {
-        guard nonce.count == byteCount,
-              challenge.count == byteCount,
+        guard nonce.count == Self.byteCount,
+              challenge.count == Self.byteCount,
               processID > 0,
               processStartAbsoluteTime > 0 else {
             return nil
         }
-        var transcript = requestDomain
-        appendBigEndian(proofVersion, to: &transcript)
-        appendBigEndian(UInt32(protocolVersion), to: &transcript)
-        appendLengthPrefixedUTF8(requestID, to: &transcript)
-        appendLengthPrefixedUTF8(method, to: &transcript)
+        var transcript = Self.requestDomain
+        appendBigEndian(Self.proofVersion, to: &transcript)
+        appendBigEndian(UInt32(Self.protocolVersion), to: &transcript)
+        appendLengthPrefixedUTF8(Self.requestID, to: &transcript)
+        appendLengthPrefixedUTF8(Self.method, to: &transcript)
         appendBigEndian(UInt32(processID), to: &transcript)
         appendBigEndian(processStartAbsoluteTime, to: &transcript)
         transcript.append(nonce)
@@ -275,7 +278,7 @@ public enum SocketClientCapabilityProof {
         return transcript
     }
 
-    private static func serverSuccessTranscript(
+    private func serverSuccessTranscript(
         nonce: Data,
         challenge: Data,
         processID: pid_t,
@@ -290,9 +293,9 @@ public enum SocketClientCapabilityProof {
         ), let teamBindingBytes = decodeLowercaseHex32(teamBinding) else {
             return nil
         }
-        var result = resultDomain
+        var result = Self.resultDomain
         result.append(1)
-        appendBigEndian(UInt32(protocolVersion), to: &result)
+        appendBigEndian(UInt32(Self.protocolVersion), to: &result)
         result.append(1)
         result.append(teamBindingBytes)
         var transcript = clientTranscript
@@ -300,14 +303,14 @@ public enum SocketClientCapabilityProof {
         return transcript
     }
 
-    private static func serverErrorTranscript(
+    private func serverErrorTranscript(
         nonce: Data,
         challenge: Data,
         processID: pid_t,
         processStartAbsoluteTime: UInt64,
         code: String
     ) -> Data? {
-        guard signedErrorCodes.contains(code),
+        guard Self.signedErrorCodes.contains(code),
               code.utf8.allSatisfy({ $0 < 0x80 }),
               let clientTranscript = clientTranscript(
                   nonce: nonce,
@@ -317,7 +320,7 @@ public enum SocketClientCapabilityProof {
               ) else {
             return nil
         }
-        var result = resultDomain
+        var result = Self.resultDomain
         result.append(0)
         appendLengthPrefixedUTF8(code, to: &result)
         var transcript = clientTranscript
@@ -325,7 +328,7 @@ public enum SocketClientCapabilityProof {
         return transcript
     }
 
-    private static func appendLengthPrefixedUTF8(
+    private func appendLengthPrefixedUTF8(
         _ value: String,
         to data: inout Data
     ) {
@@ -334,7 +337,7 @@ public enum SocketClientCapabilityProof {
         data.append(bytes)
     }
 
-    private static func appendBigEndian<T: FixedWidthInteger>(
+    private func appendBigEndian<T: FixedWidthInteger>(
         _ value: T,
         to data: inout Data
     ) {
@@ -342,33 +345,33 @@ public enum SocketClientCapabilityProof {
         withUnsafeBytes(of: &bigEndian) { data.append(contentsOf: $0) }
     }
 
-    private static func hmacHex(
+    private func hmacHex(
         capability: String,
         message: Data
     ) -> String {
         let authenticationCode = HMAC<SHA256>.authenticationCode(
             for: message,
-            using: derivedKey(capability: capability, domain: clientKeyDomain)
+            using: derivedKey(capability: capability, domain: Self.clientKeyDomain)
         )
         return Data(authenticationCode).map {
             String(format: "%02x", $0)
         }.joined()
     }
 
-    private static func serverHMAC(
+    private func serverHMAC(
         capability: String,
         message: Data
     ) -> String {
         let authenticationCode = HMAC<SHA256>.authenticationCode(
             for: message,
-            using: derivedKey(capability: capability, domain: serverKeyDomain)
+            using: derivedKey(capability: capability, domain: Self.serverKeyDomain)
         )
         return Data(authenticationCode).map {
             String(format: "%02x", $0)
         }.joined()
     }
 
-    private static func derivedKey(
+    private func derivedKey(
         capability: String,
         domain: Data
     ) -> SymmetricKey {
@@ -379,11 +382,11 @@ public enum SocketClientCapabilityProof {
         return SymmetricKey(data: Data(authenticationCode))
     }
 
-    private static func decodeLowercaseHex32(_ value: String) -> Data? {
+    private func decodeLowercaseHex32(_ value: String) -> Data? {
         let bytes = Array(value.utf8)
-        guard bytes.count == byteCount * 2 else { return nil }
+        guard bytes.count == Self.byteCount * 2 else { return nil }
         var result = Data()
-        result.reserveCapacity(byteCount)
+        result.reserveCapacity(Self.byteCount)
         var index = 0
         while index < bytes.count {
             guard let high = hexNibble(bytes[index]),
@@ -396,7 +399,7 @@ public enum SocketClientCapabilityProof {
         return result
     }
 
-    private static func hexNibble(_ byte: UInt8) -> UInt8? {
+    private func hexNibble(_ byte: UInt8) -> UInt8? {
         switch byte {
         case 48...57: byte - 48
         case 97...102: byte - 87

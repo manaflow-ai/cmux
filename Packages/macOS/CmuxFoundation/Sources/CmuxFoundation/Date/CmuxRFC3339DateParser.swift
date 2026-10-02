@@ -6,8 +6,12 @@ public import Foundation
 /// older protocol fixtures omit them. Keep both forms valid so clients do not
 /// reject a real server response because its timestamp is more precise than a
 /// test fixture.
-public enum CmuxRFC3339DateParser {
-  public static func date(from value: String) -> Date? {
+public struct CmuxRFC3339DateParser: Sendable {
+  /// A stateless parser value.
+  public init() {}
+
+
+  public func date(from value: String) -> Date? {
     // Date.ISO8601FormatStyle is intentionally permissive. It accepts
     // offsets without a colon and ignores trailing whitespace, while the
     // handoff contract uses the canonical RFC 3339 spelling only:
@@ -104,23 +108,23 @@ public enum CmuxRFC3339DateParser {
     return localDate.addingTimeInterval(TimeInterval(-offsetSeconds))
   }
 
-  private static func isDigits(_ bytes: [UInt8], in range: Range<Int>) -> Bool {
+  private func isDigits(_ bytes: [UInt8], in range: Range<Int>) -> Bool {
     range.allSatisfy { index in
       index < bytes.count && bytes[index] >= 48 && bytes[index] <= 57
     }
   }
 
-  private static func decimal(_ bytes: [UInt8], in range: Range<Int>) -> Int {
+  private func decimal(_ bytes: [UInt8], in range: Range<Int>) -> Int {
     range.reduce(into: 0) { value, index in
       value = value * 10 + Int(bytes[index] - 48)
     }
   }
 
-  private static func powerOfTen(_ exponent: Int) -> Int {
+  private func powerOfTen(_ exponent: Int) -> Int {
     (0..<exponent).reduce(into: 1) { value, _ in value *= 10 }
   }
 
-  private static func daysInMonth(year: Int, month: Int) -> Int {
+  private func daysInMonth(year: Int, month: Int) -> Int {
     switch month {
     case 2:
       let leapYear = year.isMultiple(of: 400)

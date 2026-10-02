@@ -18,7 +18,7 @@ struct CodeRouterHandoffProtocolTests {
     init() {
         nonce = Data(repeating: 0x41, count: 32)
         let tag = Data(repeating: 0x42, count: 32)
-        capability = "v1.\(SocketClientCapabilityProof.encodeBase64URL32(nonce)!).\(SocketClientCapabilityProof.encodeBase64URL32(tag)!)"
+        capability = "v1.\(SocketClientCapabilityProof().encodeBase64URL32(nonce)!).\(SocketClientCapabilityProof().encodeBase64URL32(tag)!)"
     }
 
     @Test("validates the exact Darwin socket path limit")
@@ -53,7 +53,7 @@ struct CodeRouterHandoffProtocolTests {
                 == "0102030405060708"
         )
         #expect(
-            SocketClientCapabilityProof.verifiesClientProof(
+            SocketClientCapabilityProof().verifiesClientProof(
                 try #require(context.requestParams["clientProof"] as? String),
                 capability: capability,
                 nonce: nonce,
@@ -67,7 +67,7 @@ struct CodeRouterHandoffProtocolTests {
     @Test("accepts only a signed exact success")
     func signedSuccess() throws {
         let context = try #require(makeContext())
-        let proof = try #require(SocketClientCapabilityProof.serverProof(
+        let proof = try #require(SocketClientCapabilityProof().serverProof(
             capability: capability,
             nonce: nonce,
             challenge: challenge,
@@ -108,7 +108,7 @@ struct CodeRouterHandoffProtocolTests {
     func signedError() throws {
         let context = try #require(makeContext())
         let code = "team_required"
-        let proof = try #require(SocketClientCapabilityProof.serverErrorProof(
+        let proof = try #require(SocketClientCapabilityProof().serverErrorProof(
             capability: capability,
             nonce: nonce,
             challenge: challenge,

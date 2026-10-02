@@ -1704,7 +1704,7 @@ class TerminalController {
                   protocolVersion.intValue == 2,
                   protocolVersion.doubleValue == 2,
                   let challenge = request.params["challenge"] as? String,
-                  SocketClientCapabilityProof.decodeBase64URL32(challenge)
+                  SocketClientCapabilityProof().decodeBase64URL32(challenge)
                     != nil else {
                 return v2Error(
                     id: request.id,
@@ -1749,7 +1749,7 @@ class TerminalController {
                           }),
                           CodeRouterHandoffClient.isValidLeaseSyntax(lease.lease),
                           lease.expiresAt.utf8.count <= 128,
-                          let expiry = CmuxRFC3339DateParser.date(from: lease.expiresAt),
+                          let expiry = CmuxRFC3339DateParser().date(from: lease.expiresAt),
                           expiry > Date() else {
                         return .err(
                             code: "coderouter_handoff_invalid_response",
