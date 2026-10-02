@@ -75,6 +75,15 @@ final class CloudTreeNode: NSObject {
         case devicesEmpty(CloudTreeDevicesSection)
         /// Port discovery is demand-driven when the user opens the Ports group.
         var refreshesOnExpansion: Bool { switch self { case .portsGroup, .displaysPool: true; default: false } }
+        /// The identity glyph a top-level section header carries once for all of
+        /// its rows, so the machine and device rows under it show no repeated icon.
+        var sectionHeaderSymbol: String? {
+            switch self {
+            case .cloudMachinesSection: "cloud"
+            case .devicesSection: "desktopcomputer"
+            default: nil
+            }
+        }
     }
     let id: String
     private(set) var kind: Kind
@@ -782,9 +791,9 @@ enum CloudTreeNodeBuilder {
                     ))
                 }
             case .error:
-                children.append(placeholder(machine, text: info.linkError ?? String(localized: "cloudTree.placeholder.linkError", defaultValue: "Link failed"), style: .error))
+                children.append(placeholder(machine, text: info.linkFailureMessage, style: .error))
             case .unavailable:
-                children.append(placeholder(machine, text: info.linkError ?? String(localized: "cloudTree.placeholder.unavailable", defaultValue: "Sessions unavailable on this machine"), style: .dimmed))
+                children.append(placeholder(machine, text: info.linkFailureMessage, style: .dimmed))
             case .offline:
                 children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.deviceOffline", defaultValue: "Offline — its workspaces return when it does"), style: .dimmed))
             case .connected, .notApplicable:

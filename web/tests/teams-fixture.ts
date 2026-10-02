@@ -2,10 +2,12 @@
 // services take these as dependencies, so the tests need no module mocks.
 import type {
   LinkClaimResult,
+  StoredEmailInvitation,
   StoredInviteLink,
   StoredInviteRole,
   TeamInviteStore,
 } from "../services/teams/repository";
+import type { TeamInviteEmailInput, TeamInviteMailer } from "../services/teams/inviteEmail";
 import type {
   StackContactChannel,
   StackSentInvitation,
@@ -15,6 +17,13 @@ import type {
   TeamStackApp,
 } from "../services/teams/stack";
 import type { TeamRole } from "../services/teams/types";
+import type { TeamSeatSync } from "../services/teams/seatSync";
+import {
+  TEAM_SEATS_BUSY,
+  type DirtyTeamSeatRow,
+  type TeamSeatQueue,
+  type TeamSeatReconcileOutcome,
+} from "../services/billing/teamSeatQueue";
 
 export const TEAM_ID = "11111111-1111-4111-8111-111111111111";
 export const OTHER_TEAM_ID = "22222222-2222-4222-8222-222222222222";
@@ -62,6 +71,13 @@ export class FakeStack {
 
   addUser(seed: FakeUserSeed): this {
     this.users.set(seed.id, { ...seed, selectedTeamId: null });
+    return this;
+  }
+
+  setVerifiedEmails(userId: string, emails: readonly string[]): this {
+    const user = this.users.get(userId);
+    if (!user) throw new Error("no such user");
+    this.users.set(userId, { ...user, verifiedEmails: emails });
     return this;
   }
 
@@ -228,11 +244,23 @@ export function standardTeam(): FakeStack {
 }
 
 type MemoryLink = { -readonly [K in keyof StoredInviteLink]: StoredInviteLink[K] } & { tokenHash: string };
+type MemoryEmailInvitation = { -readonly [K in keyof StoredEmailInvitation]: StoredEmailInvitation[K] } & { tokenHash: string };
+
+/** Records what would have been emailed; `fail` makes the next send reject. */
+export class MemoryInviteMailer implements TeamInviteMailer {
+  readonly sent: TeamInviteEmailInput[] = [];
+  failFor = new Set<string>();
+  async send(input: TeamInviteEmailInput): Promise<void> {
+    if (this.failFor.has(input.to)) throw new Error("mail down");
+    this.sent.push(input);
+  }
+}
 
 /** Mirrors the SQL contract of databaseTeamInviteStore, including claim semantics. */
 export class MemoryInviteStore implements TeamInviteStore {
   readonly roles = new Map<string, { role: TeamRole; invitedByUserId: string; stackInvitationId: string | null }>();
   readonly links: MemoryLink[] = [];
+  readonly emailInvitations: MemoryEmailInvitation[] = [];
   readonly redemptions = new Set<string>();
   readonly events: string[] = [];
   now = new Date("2026-09-27T12:00:00.000Z");
@@ -265,6 +293,99 @@ export class MemoryInviteStore implements TeamInviteStore {
   async deleteTeamInviteState(stackTeamId: string) {
     for (const key of [...this.roles.keys()]) if (key.startsWith(`${stackTeamId}:`)) this.roles.delete(key);
     for (const link of this.links) if (link.stackTeamId === stackTeamId && !link.revokedAt) link.revokedAt = this.now;
+    for (const row of this.emailInvitations) if (row.stackTeamId === stackTeamId && this.pending(row)) row.revokedAt = this.now;
+  }
+
+  private pending(row: MemoryEmailInvitation): boolean {
+    return !row.revokedAt && !row.acceptedAt && !row.declinedAt && row.expiresAt > this.now;
+  }
+
+  private nextEmailInvitation = 1;
+
+  async createEmailInvitation(input: { stackTeamId: string; email: string; role: TeamRole; invitedByUserId: string; tokenHash: string; expiresAt: Date }) {
+    const row: MemoryEmailInvitation = {
+      id: `55555555-5555-4555-8555-${String(this.nextEmailInvitation++).padStart(12, "0")}`,
+      stackTeamId: input.stackTeamId,
+      email: input.email,
+      role: input.role,
+      invitedByUserId: input.invitedByUserId,
+      tokenHash: input.tokenHash,
+      createdAt: this.now,
+      lastSentAt: this.now,
+      expiresAt: input.expiresAt,
+      revokedAt: null,
+      acceptedAt: null,
+      acceptedByUserId: null,
+      declinedAt: null,
+    };
+    this.emailInvitations.push(row);
+    this.events.push(`invite:${input.email}:${input.role}`);
+    return { ...row };
+  }
+
+  async listPendingEmailInvitations(stackTeamId: string) {
+    return this.emailInvitations.filter((row) => row.stackTeamId === stackTeamId && this.pending(row)).map((row) => ({ ...row })).reverse();
+  }
+
+  async listPendingEmailInvitationsForEmails(emails: readonly string[]) {
+    return this.emailInvitations.filter((row) => emails.includes(row.email) && this.pending(row)).map((row) => ({ ...row })).reverse();
+  }
+
+  async findEmailInvitation(id: string) {
+    const row = this.emailInvitations.find((candidate) => candidate.id === id);
+    return row ? { ...row } : null;
+  }
+
+  async findPendingEmailInvitationByTokenHash(tokenHash: string) {
+    const row = this.emailInvitations.find((candidate) => candidate.tokenHash === tokenHash && this.pending(candidate));
+    return row ? { ...row } : null;
+  }
+
+  async refreshEmailInvitation(id: string, input: { tokenHash: string; expiresAt: Date }) {
+    const row = this.emailInvitations.find((candidate) => candidate.id === id);
+    if (!row || !this.pending(row)) return;
+    row.tokenHash = input.tokenHash;
+    row.expiresAt = input.expiresAt;
+    row.lastSentAt = this.now;
+    this.events.push(`resend:${row.email}`);
+  }
+
+  async revokeEmailInvitation(stackTeamId: string, id: string) {
+    const row = this.emailInvitations.find((candidate) => candidate.id === id && candidate.stackTeamId === stackTeamId);
+    if (!row) return false;
+    row.revokedAt ??= this.now;
+    this.events.push(`revoke:${row.email}`);
+    return true;
+  }
+
+  async revokeOtherPendingEmailInvitations(stackTeamId: string, email: string, keepId: string) {
+    for (const row of this.emailInvitations) {
+      if (row.stackTeamId === stackTeamId && row.email === email && row.id !== keepId && this.pending(row)) row.revokedAt = this.now;
+    }
+  }
+
+  async deleteEmailInvitation(id: string) {
+    const index = this.emailInvitations.findIndex((candidate) => candidate.id === id);
+    if (index >= 0) {
+      this.events.push(`delete:${this.emailInvitations[index]!.email}`);
+      this.emailInvitations.splice(index, 1);
+    }
+  }
+
+  async acceptEmailInvitation(id: string, userId: string) {
+    const row = this.emailInvitations.find((candidate) => candidate.id === id);
+    if (!row || !this.pending(row)) return false;
+    row.acceptedAt = this.now;
+    row.acceptedByUserId = userId;
+    this.events.push(`accept:${row.email}:${userId}`);
+    return true;
+  }
+
+  async declineEmailInvitation(id: string) {
+    const row = this.emailInvitations.find((candidate) => candidate.id === id);
+    if (!row || !this.pending(row)) return;
+    row.declinedAt = this.now;
+    this.events.push(`decline:${row.email}`);
   }
 
   async createLink(input: { stackTeamId: string; tokenHash: string; createdByUserId: string; expiresAt: Date | null; maxUses: number | null }) {
@@ -333,4 +454,65 @@ export class MemoryInviteStore implements TeamInviteStore {
 /** A no-op advisory lock for member mutations. */
 export async function noLock<T>(_teamId: string, operation: () => Promise<T>): Promise<T> {
   return operation();
+}
+
+/** Mirrors databaseTeamSeatQueue: an upsert to mark, compare-and-clear to record. */
+export class MemoryTeamSeatQueue implements TeamSeatQueue {
+  readonly rows = new Map<string, {
+    dirtyAt: Date | null;
+    lastReconciledAt: Date | null;
+    lastMemberCount: number | null;
+    lastStripeQuantity: number | null;
+    lastError: string | null;
+  }>();
+  readonly locked = new Set<string>();
+  readonly events: string[] = [];
+  failMark = false;
+  now = new Date("2026-09-29T12:00:00.000Z");
+
+  async markDirty(stackTeamId: string): Promise<void> {
+    if (this.failMark) throw new Error("queue down");
+    this.events.push(`dirty:${stackTeamId}`);
+    const row = this.rows.get(stackTeamId) ??
+      { dirtyAt: null, lastReconciledAt: null, lastMemberCount: null, lastStripeQuantity: null, lastError: null };
+    row.dirtyAt = this.now;
+    this.rows.set(stackTeamId, row);
+  }
+
+  async listDirty(limit: number, teamIds?: readonly string[]): Promise<readonly DirtyTeamSeatRow[]> {
+    return [...this.rows.entries()]
+      .filter(([id, row]) => row.dirtyAt !== null && (teamIds === undefined || teamIds.includes(id)))
+      .sort((left, right) => left[1].dirtyAt!.getTime() - right[1].dirtyAt!.getTime())
+      .slice(0, limit)
+      .map(([stackTeamId, row]) => ({ stackTeamId, dirtyAt: row.dirtyAt! }));
+  }
+
+  async withTeamLock<T>(stackTeamId: string, work: () => Promise<T>): Promise<T | typeof TEAM_SEATS_BUSY> {
+    if (this.locked.has(stackTeamId)) return TEAM_SEATS_BUSY;
+    this.locked.add(stackTeamId);
+    try {
+      return await work();
+    } finally {
+      this.locked.delete(stackTeamId);
+    }
+  }
+
+  async recordOutcome(stackTeamId: string, observedDirtyAt: Date, outcome: TeamSeatReconcileOutcome): Promise<void> {
+    const row = this.rows.get(stackTeamId);
+    if (!row) return;
+    row.lastReconciledAt = this.now;
+    row.lastMemberCount = outcome.memberCount;
+    row.lastStripeQuantity = outcome.stripeQuantity;
+    row.lastError = outcome.error;
+    this.events.push(`outcome:${stackTeamId}:${outcome.memberCount}:${outcome.stripeQuantity}:${outcome.error}`);
+    if (outcome.error === null && row.dirtyAt?.getTime() === observedDirtyAt.getTime()) row.dirtyAt = null;
+  }
+}
+
+/** Records membership facts without a queue or Stripe. */
+export class MemoryTeamSeatSync implements TeamSeatSync {
+  readonly changed: string[] = [];
+  async membershipChanged(stackTeamId: string): Promise<void> {
+    this.changed.push(stackTeamId);
+  }
 }

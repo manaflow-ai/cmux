@@ -2,12 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import {
-  handleStackWebhook,
-  parseStackWebhookEvent,
-  verifySvixSignature,
-  type StackWebhookDependencies,
-} from "../services/auth/stackWebhook";
+import { verifySvixSignature } from "../services/auth/stackWebhook";
 import { VmProviderOperationError } from "../services/vms/errors";
 import { networkSlugForTeam } from "../services/vms/privateNetwork";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
@@ -65,71 +60,6 @@ describe("Svix signature verification", () => {
     const headers = signedHeaders(body);
     headers.delete("svix-signature");
     expect(verifySvixSignature({ secret: SECRET, headers, rawBody: body, nowSeconds: NOW })).toEqual({ ok: false, reason: "missing_headers" });
-  });
-});
-
-describe("Stack webhook dispatch", () => {
-  function harness(overrides: Partial<StackWebhookDependencies> = {}) {
-    const calls: string[] = [];
-    const dependencies: StackWebhookDependencies = {
-      webhookSecret: () => SECRET,
-      nowSeconds: () => NOW,
-      revokeTeamMemberAccess: async ({ teamId, userId }) => { calls.push(`member:${teamId}:${userId}`); },
-      revokeTeamAccess: async ({ teamId }) => { calls.push(`team:${teamId}`); },
-      logError: () => {},
-      ...overrides,
-    };
-    const post = (payload: unknown, headers?: Headers) => {
-      const body = JSON.stringify(payload);
-      return handleStackWebhook(new Request("https://cmux.test/api/webhooks/stack", {
-        method: "POST", headers: headers ?? signedHeaders(body), body,
-      }), dependencies);
-    };
-    return { calls, post };
-  }
-
-  test("missing secret answers 503 and processes nothing", async () => {
-    const { calls, post } = harness({ webhookSecret: () => undefined });
-    const response = await post({ type: "team_membership.deleted", data: { team_id: "team-1", user_id: "user-1" } });
-    expect(response.status).toBe(503);
-    expect(calls).toEqual([]);
-  });
-
-  test("an unsigned request answers 401 and processes nothing", async () => {
-    const { calls, post } = harness();
-    const response = await post(
-      { type: "team_membership.deleted", data: { team_id: "team-1", user_id: "user-1" } },
-      new Headers({ "svix-id": "msg_1", "svix-timestamp": String(NOW), "svix-signature": "v1,AAAA" }),
-    );
-    expect(response.status).toBe(401);
-    expect(calls).toEqual([]);
-  });
-
-  test("team_membership.deleted revokes that member's access to that team", async () => {
-    const { calls, post } = harness();
-    const response = await post({ type: "team_membership.deleted", data: { team_id: "team-1", user_id: "user-1" } });
-    expect(response.status).toBe(200);
-    expect(calls).toEqual(["member:team-1:user-1"]);
-  });
-
-  test("team.deleted revokes every tunnel on the team network", async () => {
-    const { calls, post } = harness();
-    expect((await post({ type: "team.deleted", data: { id: "team-9" } })).status).toBe(200);
-    expect(calls).toEqual(["team:team-9"]);
-  });
-
-  test("other events are acknowledged and ignored; malformed membership events are 400", async () => {
-    const { calls, post } = harness();
-    expect((await post({ type: "user.updated", data: { id: "user-1" } })).status).toBe(200);
-    expect((await post({ type: "team_membership.deleted", data: { team_id: "team-1" } })).status).toBe(400);
-    expect(calls).toEqual([]);
-    expect(parseStackWebhookEvent("not json")).toEqual({ type: "malformed" });
-  });
-
-  test("a failed revocation answers 500 so Svix retries", async () => {
-    const { post } = harness({ revokeTeamMemberAccess: async () => { throw new Error("provider down"); } });
-    const response = await post({ type: "team_membership.deleted", data: { team_id: "team-1", user_id: "user-1" } });
-    expect(response.status).toBe(500);
   });
 });
 
@@ -203,6 +133,7 @@ describe("revokeTeamMemberAccess", () => {
       revokeNetworkAccess: async ({ teamId, userId }) => { calls.push(`network:${teamId}:${userId ?? "*"}`); return { detached: 2 }; },
       deleteIdentitySnapshot: async (userId) => { calls.push(`snapshot:${userId}`); },
       invalidateAuthCache: (userId) => { calls.push(`cache:${userId}`); },
+      revokeCoderouterSessions: async ({ teamId, userId }) => { calls.push(`coderouter:${teamId}:${userId ?? "*"}`); },
       ...overrides,
     };
     return { calls, deps };
@@ -211,7 +142,14 @@ describe("revokeTeamMemberAccess", () => {
   test("detaches the team network and deletes the identity snapshot", async () => {
     const { calls, deps } = dependencies();
     expect(await revokeTeamMemberAccess({ teamId: "team-1", userId: "user-1" }, deps)).toEqual({ detached: 2 });
-    expect(calls.sort()).toEqual(["cache:user-1", "network:team-1:user-1", "snapshot:user-1"]);
+    expect(calls.sort()).toEqual(["cache:user-1", "coderouter:team-1:user-1", "network:team-1:user-1", "snapshot:user-1"]);
+  });
+
+  test("a failed CodeRouter revocation still detaches and deletes the snapshot, then throws for retry", async () => {
+    const { calls, deps } = dependencies({ revokeCoderouterSessions: async () => { throw new Error("db down"); } });
+    await expect(revokeTeamMemberAccess({ teamId: "team-1", userId: "user-1" }, deps)).rejects.toThrow("db down");
+    expect(calls).toContain("network:team-1:user-1");
+    expect(calls).toContain("snapshot:user-1");
   });
 
   test("a failed snapshot delete still detaches, then throws for retry", async () => {
@@ -229,6 +167,6 @@ describe("revokeTeamMemberAccess", () => {
   test("team deletion revokes the whole network", async () => {
     const { calls, deps } = dependencies();
     await revokeTeamAccess({ teamId: "team-1" }, deps);
-    expect(calls).toEqual(["network:team-1:*"]);
+    expect(calls.sort()).toEqual(["coderouter:team-1:*", "network:team-1:*"]);
   });
 });

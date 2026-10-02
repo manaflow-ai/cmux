@@ -20,6 +20,7 @@ public struct AutomationSection: View {
     @State private var suppressSubagentModel: DefaultsValueModel<Bool>
     @State private var agentAutoResumeModel: DefaultsValueModel<Bool>
     @State private var canonicalAgentScratchModel: DefaultsValueModel<Bool>
+    @State private var agentMessagesModel: DefaultsValueModel<Bool>
     @State private var ampModel: DefaultsValueModel<Bool>
     @State private var cursorModel: DefaultsValueModel<Bool>
     @State private var geminiModel: DefaultsValueModel<Bool>
@@ -37,10 +38,7 @@ public struct AutomationSection: View {
     @State private var automationRulesActionMessage: String?
     @State private var automationRulesActionIsError = false
     @State private var automationRulesRefreshID = 0
-    private struct SocketPasswordStatus: Equatable {
-        let message: String
-        let isError: Bool
-    }
+    private struct SocketPasswordStatus: Equatable { let message: String; let isError: Bool }
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
@@ -78,6 +76,7 @@ public struct AutomationSection: View {
         _suppressSubagentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.suppressSubagentNotifications))
         _agentAutoResumeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.agentAutoResume))
         _canonicalAgentScratchModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.canonicalAgentScratch))
+        _agentMessagesModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.agentMessages.enabled))
         _ampModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ampHooksEnabled))
         _cursorModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.cursorHooksEnabled))
         _geminiModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.geminiHooksEnabled))
@@ -101,6 +100,7 @@ public struct AutomationSection: View {
             suppressSubagentCard
             agentAutoResumeCard
             canonicalAgentScratchCard
+            AgentMessagesSettingsCard(isEnabled: agentMessagesModel.current, setEnabled: { agentMessagesModel.set($0) })
             ampCard
             cursorCard
             geminiCard
@@ -138,7 +138,7 @@ public struct AutomationSection: View {
             ))
         }
         .task {
-            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, agentAutoResumeModel, canonicalAgentScratchModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, agentAutoResumeModel, canonicalAgentScratchModel, agentMessagesModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
         }
         .task(id: automationRulesRefreshID) {
             await refreshAutomationRulesStatus()

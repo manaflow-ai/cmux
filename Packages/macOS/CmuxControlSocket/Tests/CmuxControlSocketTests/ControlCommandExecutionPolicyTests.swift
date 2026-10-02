@@ -43,8 +43,14 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
             "auth.team.list", "auth.team.use", "auth.team.create",
+            "auth.team.members", "auth.team.invite", "auth.team.invite_link",
+            "auth.team.revoke_invite", "auth.team.remove_member", "auth.team.open_members",
+            "auth.team.invitations", "auth.team.accept_invite", "auth.team.decline_invite",
             "feed.jump", "feed.push", "agent.hook.enqueue", "agent.hook.barrier",
             "agent.restore.admit", "agent.restore.release",
+            "agent.message.send", "agent.message.list", "agent.message.claim",
+            "agent.message.ack",
+            "agent.message.mark_read", "agent.message.poll", "agent.message.settings",
             "browser.download.list", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
@@ -77,7 +83,13 @@ struct ControlCommandExecutionPolicyTests {
         ] {
             #expect(ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker, "\(method)")
         }
-        for method in ["agent.restore.admit", "agent.restore.release"] {
+        for method in [
+            "agent.restore.admit", "agent.restore.release",
+            "agent.hibernate", "agent.wake",
+            "agent.message.send", "agent.message.list", "agent.message.claim",
+            "agent.message.ack",
+            "agent.message.mark_read", "agent.message.poll", "agent.message.settings",
+        ] {
             #expect(
                 ControlCommandExecutionPolicy(forMethod: method)
                     == .socketWorker(mainThreadCallable: false),

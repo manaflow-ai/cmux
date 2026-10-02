@@ -1339,6 +1339,8 @@ jobs:
 
       - name: Download the compiled test product
         if: ${{ steps.parallel-product.outputs.hit != 'true' }}
+        # Keep a dead or crawling fallback from consuming the whole job.
+        timeout-minutes: 15
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.build.outputs.artifact_id }}

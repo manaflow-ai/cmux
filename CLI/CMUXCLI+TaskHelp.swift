@@ -201,7 +201,12 @@ extension CMUXCLI {
 
     private var agentsCommandsHelp: String {
         return """
+        \(String(localized: "cli.help.agents.message", defaultValue: "agent message <target> [--from <name>] <text|->"))
+        \(String(localized: "cli.help.agents.reply", defaultValue: "agent message --reply-to <id> [--from <name>] <text|->"))
+        \(String(localized: "cli.help.agents.inbox", defaultValue: "agent inbox [--surface <target>] [--state <state>] [--mark-read]"))
+        \(String(localized: "cli.help.agents.messages", defaultValue: "agent messages [on|off|status] [<target>] [--workspace]"))
         agent-hibernation <on|off>
+        agent-hibernation <hibernate|wake> <surface>
         claude-teams [claude-args...]
         codex-teams [codex-args...]
         omo [opencode-args...]
@@ -298,7 +303,7 @@ extension CMUXCLI {
         import [<terminal>] [--dry-run] [--yes] [--path <file>] [--json]
         reload-config
         right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud|devices> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
-        sidebar <validate|reload|select|open> [name]
+        sidebar <templates|try|new|validate|reload|select|open> [name] [options]
         help
         """
     }
@@ -318,13 +323,14 @@ extension CMUXCLI {
         paste [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--submit] [text | -]
         send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>
         send-key-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <key>
-        notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+        notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--desktop <true|false>] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
         list-notifications
         dismiss-notification (--id <uuid> | --all-read)
         mark-notification-read (--id <uuid> | --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] | --all)
         open-notification --id <uuid>
         jump-to-unread
         clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+        \(String(localized: "cli.help.command.pr", defaultValue: "pr <url|number> [flags] | pr clear [flags]"))
         set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
         clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
         list-status [--workspace <id|ref|index>] [--window <id|ref|index>]
@@ -367,7 +373,7 @@ extension CMUXCLI {
         browser find <role|text|label|placeholder|alt|title|testid|first|last|nth> ...
         browser frame <selector|main>
         browser dialog <accept|dismiss> [text]
-        browser download list [--limit <1...25>] | download [wait] [--path <path>] [--timeout-ms <ms>]
+        browser download list [--limit <1...25>] [--json] | download [wait] [--path <path>] [--timeout-ms <ms>]
         browser profiles <list|add|rename|clear|delete> [...]
         browser profiles clear <profile|--all> [--force]
         browser import [...]

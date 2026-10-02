@@ -36,6 +36,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var showsCloudVPNWarning = false
     /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
+    /// False while the fleet read is failing or offline; see ``CloudTreeBuildInputs/cloudFleetListIsCurrent``.
+    var cloudFleetListIsCurrent: Bool = true
     var cloudMachinesUsage: CloudMachinesUsage? = nil
     var reveal: CloudTreeRevealRequest? = nil
     var creationReveal: CloudWorkspaceCreationReveal? = nil
@@ -76,6 +78,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             devicesSection: devicesSection,
             showsCloudVPNWarning: showsCloudVPNWarning,
             canCreateCloudMachine: canCreateCloudMachine,
+            cloudFleetListIsCurrent: cloudFleetListIsCurrent,
             cloudMachinesUsage: cloudMachinesUsage
         ))
         context.coordinator.reveal(reveal)
@@ -546,6 +549,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .resource:
                 break
             case .placeholder(let machineID, let placeholder):
+                if placeholder.style == .createMachine {
+                    nodeActions.newMachine()
+                    return
+                }
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
                 if let status = placeholder.portStatus { performPortAction(status.action, machineID: machineID) }
                 else if placeholder.opensMachine, let machine = machine(id: machineID) { openMachine(machine) }

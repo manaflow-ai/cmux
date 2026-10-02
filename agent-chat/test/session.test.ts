@@ -3,15 +3,51 @@ Object.defineProperty(globalThis, "location", {
   value: { pathname: "/" },
 });
 
-const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, restoreComposerDraft, shouldAcceptSessionActionResponse, transcriptComposerLocked } = await import("../src/session");
+const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, readComposerDraft, restoreComposerDraft, shouldAcceptSessionActionResponse, transcriptComposerLocked, writeComposerDraft } = await import("../src/session");
 const { latestRouteStatus, normalizeRouteStatus, routeHealthForPhase } = await import("../route-status");
+const { draftStorage } = await import("../src/browser-storage");
 
 const writes: Record<string, string> = {};
 restoreComposerDraft({ setItem: (key: string, value: string) => { writes[key] = value; } }, "retry this exact prompt");
 
 if (writes[composerDraftKey] !== "retry this exact prompt") {
-  throw new Error(`pre-session start failure did not preserve composer draft: ${JSON.stringify(writes)}`);
+    throw new Error(`pre-session start failure did not preserve composer draft: ${JSON.stringify(writes)}`);
 }
+
+const originalSessionStorage = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+try {
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    get() { throw new DOMException("Storage access denied", "SecurityError"); },
+  });
+  // The failed-start path writes here before resetting the view, then the
+  // remounted composer reads and consumes the draft through the same store.
+  restoreComposerDraft(draftStorage, "recover this exact prompt after a failed start");
+  if (draftStorage.getItem(composerDraftKey) !== "recover this exact prompt after a failed start") {
+    throw new Error("a rejected session storage write lost the failed-start prompt");
+  }
+  draftStorage.removeItem(composerDraftKey);
+  if (draftStorage.getItem(composerDraftKey) !== null) {
+    throw new Error("a consumed failed-start prompt should not reappear");
+  }
+} finally {
+  if (originalSessionStorage) Object.defineProperty(globalThis, "sessionStorage", originalSessionStorage);
+  else Reflect.deleteProperty(globalThis, "sessionStorage");
+}
+
+const draftValues: Record<string, string> = {};
+const draftFixture = {
+  getItem: (key: string) => draftValues[key] ?? null,
+  setItem: (key: string, value: string) => { draftValues[key] = value; },
+  removeItem: (key: string) => { delete draftValues[key]; },
+};
+writeComposerDraft(draftFixture, "typed while Cloud was reconnecting");
+if (readComposerDraft(draftFixture) !== "typed while Cloud was reconnecting") throw new Error("live draft was not recoverable");
+writeComposerDraft(draftFixture, "");
+if (readComposerDraft(draftFixture) !== "") throw new Error("clearing draft did not remove it");
+const unavailableStorage = { getItem() { throw new Error("storage unavailable"); }, setItem() { throw new Error("storage unavailable"); }, removeItem() { throw new Error("storage unavailable"); } };
+writeComposerDraft(unavailableStorage, "still usable");
+if (readComposerDraft(unavailableStorage) !== "") throw new Error("storage failures should not break draft access");
 
 const repeated = [
   { kind: "user" as const, text: "same" },
