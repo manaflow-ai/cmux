@@ -23,6 +23,7 @@ struct NewMachineSheetPresenterTests {
         let model = CloudMenuModel(
             listMachines: {
                 attempts += 1
+                if attempts == 1 { throw URLError(.networkConnectionLost) }
                 return expected
             },
             isAvailable: { true },

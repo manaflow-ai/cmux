@@ -31795,7 +31795,7 @@ struct CMUXCLI {
         // the owner process for the child rollout and publish the child hook
         // binding. Without this, the first fork may render, but a fork of that
         // child has no durable parent association to discover.
-        monitorArgs += Self.codexForkMonitorArguments(environment: env)
+        monitorArgs += CodexForkMonitorArguments().make(environment: env)
         if let surfaceId, !surfaceId.isEmpty {
             monitorArgs += ["--surface", surfaceId]
         }
@@ -31822,10 +31822,6 @@ struct CMUXCLI {
         } catch {
             telemetry.captureError(stage: "codex-monitor-start", error: error, data: monitorTelemetry)
         }
-    }
-
-    static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
-        CodexForkMonitorArguments().make(environment: environment)
     }
 
     /// Watches the Codex rollout until the turn settles.

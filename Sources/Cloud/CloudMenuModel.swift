@@ -30,6 +30,7 @@ final class CloudMenuModel {
     private(set) var isFeatureEnabled = false
 
     static let freshness: Duration = .seconds(20)
+    private static let refreshRetryDelays: [Duration] = [.milliseconds(100), .milliseconds(250)]
     @ObservationIgnored private let listMachines: @MainActor () async throws -> VMListPage
     @ObservationIgnored private let isAvailable: @MainActor () -> Bool
     @ObservationIgnored private let pinStore: @MainActor () -> CloudMachinePinStore?
@@ -126,8 +127,18 @@ final class CloudMenuModel {
         let scope = self.scope()
         if machines.isEmpty || loadState != .loaded { publish(loadState: .loading) }
         task = Task { [weak self, listMachines] in
-            let result: Result<VMListPage, Error>
-            do { result = .success(try await listMachines()) } catch { result = .failure(error) }
+            var result: Result<VMListPage, Error> = .failure(CancellationError())
+            for attempt in 0...Self.refreshRetryDelays.count {
+                do {
+                    result = .success(try await listMachines())
+                    break
+                } catch {
+                    result = .failure(error)
+                    guard attempt < Self.refreshRetryDelays.count, !Task.isCancelled else { break }
+                    do { try await ContinuousClock().sleep(for: Self.refreshRetryDelays[attempt]) }
+                    catch { return }
+                }
+            }
             guard !Task.isCancelled, let self, self.generation == requested else { return }
             self.task = nil
             // The team was confirmed or switched while this read was in flight
@@ -150,17 +161,19 @@ final class CloudMenuModel {
             lastLoadedAt = ContinuousClock.now
             publish(machines: ordered(snapshots), loadState: .loaded)
         case .failure(let error as VMClientError):
-            let waiters = pageWaiters
-            pageWaiters.removeAll()
-            for waiter in waiters.values { waiter.resume(returning: nil) }
             if case .notSignedIn = error { reset(); return }
+            finishPageWaitersIfRetryExhausted()
             publish(loadState: .failed(MachinesPanelViewModel.classifyListFailure(error)))
         case .failure:
-            let waiters = pageWaiters
-            pageWaiters.removeAll()
-            for waiter in waiters.values { waiter.resume(returning: nil) }
+            finishPageWaitersIfRetryExhausted()
             publish(loadState: .failed(.unreachable))
         }
+    }
+
+    private func finishPageWaitersIfRetryExhausted() {
+        let waiters = pageWaiters
+        pageWaiters.removeAll()
+        for waiter in waiters.values { waiter.resume(returning: nil) }
     }
 
     /// Same order and pins as the Cloud sidebar.
