@@ -430,7 +430,8 @@ struct SSHConnectionSharingOptionsTests {
 
     @Test("An explicitly disabled master gets no sharing defaults")
     func preservesDisabledControlMaster() {
-        let supplied = ["ControlMaster=no", "ForwardAgent=yes"]
+        // ForwardAgent is route-sensitive, which also pins ControlPath=none.
+        let supplied = ["ControlMaster=no", "ServerAliveInterval=30"]
 
         #expect(options.mergingDefaults(into: supplied) == supplied)
         #expect(options.cmuxOwnedControlPath(in: [

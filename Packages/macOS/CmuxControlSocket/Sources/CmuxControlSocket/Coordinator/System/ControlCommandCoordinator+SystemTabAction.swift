@@ -34,6 +34,7 @@ extension ControlCommandCoordinator {
             rawURL: string(params, "url"),
             surfaceID: surfaceID ?? tabID,
             requestedFocus: bool(params, "focus") ?? false,
+            force: bool(params, "force") ?? false,
             moveParams: params
         )
 
@@ -86,6 +87,15 @@ extension ControlCommandCoordinator {
             return .err(code: "invalid_state", message: "Failed to toggle full-width tab mode", data: nil)
         case .tabNotFoundInPane:
             return .err(code: "not_found", message: "Tab not found in pane", data: nil)
+        case .confirmationRequired(let surfaceIDs):
+            return .err(
+                code: "confirmation_required",
+                message: context?.controlSystemCloseStrings().confirmationRequired
+                    ?? "One or more surfaces have a running process; retry with force=true",
+                data: .object([
+                    "surface_ids": .array(surfaceIDs.map { .string($0.uuidString) })
+                ])
+            )
         case .createFailed:
             return .err(code: "internal_error", message: "Failed to create tab", data: nil)
         case .duplicateFailed:

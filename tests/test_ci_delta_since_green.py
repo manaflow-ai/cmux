@@ -367,7 +367,7 @@ class VerdictTests(unittest.TestCase):
     def test_only_pull_request_runs_of_ci_yml_count_matched_by_file(self) -> None:
         self.assertEqual(delta.ci_status_runs([
             self.suite("SUCCESS", "2026-09-25T01:00:00Z", event="workflow_dispatch"),
-            self.suite("SUCCESS", "2026-09-25T01:00:00Z", path=".github/workflows/ci-status-fallback.yml"),
+            self.suite("SUCCESS", "2026-09-25T01:00:00Z", path=".github/workflows/ci-fast-guards.yml"),
             {"workflowRun": None, "checkRuns": {"nodes": [{"conclusion": "SUCCESS", "startedAt": "x"}]}},
         ]), {})
 
