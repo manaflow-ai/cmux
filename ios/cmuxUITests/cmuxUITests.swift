@@ -179,6 +179,46 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentFeedHeavyActivityScrollPacing() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_DECISION_PREVIEW": "1",
+            "CMUX_UITEST_FEED_DECISION_PREVIEW_COUNT": "400",
+            "CMUX_UITEST_FEED_DECISION_PREVIEW_SCROLL_STRESS": "1",
+        ])
+        defer { app.terminate() }
+
+        let list = app.tables.firstMatch
+        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        let metrics = app.descendants(matching: .any)["AgentFeedScrollStressMetrics"]
+        XCTAssertTrue(metrics.waitForExistence(timeout: 5))
+
+        for _ in 0..<14 {
+            list.swipeUp(velocity: .fast)
+        }
+        for _ in 0..<14 {
+            list.swipeDown(velocity: .fast)
+        }
+
+        let complete = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value CONTAINS %@", "state=complete"),
+            object: metrics
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [complete], timeout: 15), .completed)
+        let value = try XCTUnwrap(metrics.value as? String)
+        print("AgentFeedScrollStressMetrics: \(value)")
+
+        let fields = Dictionary(uniqueKeysWithValues: value.split(separator: ";").compactMap { component in
+            let pair = component.split(separator: "=", maxSplits: 1).map(String.init)
+            guard pair.count == 2 else { return nil }
+            return (pair[0], pair[1])
+        })
+        let frames = try XCTUnwrap(fields["frames"].flatMap(Int.init), value)
+        XCTAssertGreaterThan(frames, 120, value)
+        XCTAssertNotNil(fields["frame_p95_ms"], value)
+        XCTAssertNotNil(fields["hitches"], value)
+    }
+
+    @MainActor
     func testForegroundRemovesOnlyReadDeliveredNotifications() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
