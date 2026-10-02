@@ -158,6 +158,7 @@ function startServer(args, env) {
     });
   };
   const stop = () => {
+    if (child.exitCode !== null) return Promise.resolve();
     child.stdin.end();
     return new Promise((r) => child.once("exit", r));
   };
@@ -188,6 +189,10 @@ test("repl mcp: without --session each server process gets its own session", { s
       assert.ok(s.text.includes(s.eval));
     }
     assert.notEqual(sessions[0].eval, sessions[1].eval, "two clients without --session do not share a session");
+    // Nobody else can reach a server's own session, so it ends with the server.
+    const before = calls.length;
+    await Promise.all(servers.map((s) => s.stop()));
+    assert.deepEqual(calls.slice(before).filter((c) => c.method === "browser.repl.reset").map((c) => c.params.session).sort(), sessions.map((s) => s.eval).sort());
   } finally {
     await Promise.all(servers.map((s) => s.stop()));
     server.close();

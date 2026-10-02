@@ -176,7 +176,12 @@ extension CMUXCLI {
             )
             throw CLIError(message: "\(prefix): \(stray)")
         }
-        let session = sessionOption.flatMap { $0.isEmpty ? nil : $0 } ?? "mcp"
+        // Without --session each server process gets its own session, so two
+        // MCP clients never share variables and tabs by accident; a named
+        // session is how clients share one on purpose.
+        let namedSession = sessionOption.flatMap { $0.isEmpty ? nil : $0 }
+        let session = namedSession
+            ?? "mcp-\(getpid())-\(String(UInt32.random(in: .min ... .max), radix: 36))"
         let responseTimeout = TimeInterval(timeoutMilliseconds) / 1000 + 15
         let evaluate = { (code: String, maxOutput: Int?) throws -> [String: Any] in
             var params = baseParams
@@ -216,6 +221,11 @@ extension CMUXCLI {
         while let line = readLine(strippingNewline: true) {
             guard let reply = server.handle(line: line) else { continue }
             FileHandle.standardOutput.write(Data((reply + "\n").utf8))
+        }
+        // No other client can name this server's own session, so its tabs
+        // and variables end with the server instead of idling for 30 minutes.
+        if namedSession == nil {
+            _ = try? client.sendV2(method: "browser.repl.reset", params: ["session": session])
         }
     }
 
@@ -284,7 +294,7 @@ extension CMUXCLI {
         let mcpUsage = "repl mcp [--session <name>] [--workspace <id|ref>] [--timeout <ms>]"
         let mcpDescription = String(
             localized: "cli.browser.help.replMCPDescription",
-            defaultValue: "Serve the REPL as an MCP server on stdio (tools: eval, snapshot, screenshot, tabs, reset; session \"mcp\" by default)"
+            defaultValue: "Serve the REPL as an MCP server on stdio (tools: eval, snapshot, screenshot, tabs, reset; its own session unless --session names one)"
         )
         return "\(usage)\n              \(description)\n  \(mcpUsage)\n              \(mcpDescription)"
     }

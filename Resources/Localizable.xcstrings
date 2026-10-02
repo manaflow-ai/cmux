@@ -574473,55 +574473,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Serve the REPL as an MCP server on stdio (tools: eval, snapshot, screenshot, tabs, reset; session \"mcp\" by default)"
+            "value": "Serve the REPL as an MCP server on stdio (tools: eval, snapshot, screenshot, tabs, reset; its own session unless --session names one)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تشغيل REPL كخادم MCP عبر stdio (الأدوات: eval وsnapshot وscreenshot وtabs وreset؛ الجلسة \"mcp\" افتراضيًا)"
+            "value": "تشغيل REPL كخادم MCP عبر stdio (الأدوات: eval وsnapshot وscreenshot وtabs وreset؛ جلسة خاصة به ما لم يُحدِّد --session جلسة)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Den REPL als MCP-Server über stdio bereitstellen (Werkzeuge: eval, snapshot, screenshot, tabs, reset; standardmäßig Sitzung \"mcp\")"
+            "value": "Den REPL als MCP-Server über stdio bereitstellen (Werkzeuge: eval, snapshot, screenshot, tabs, reset; eigene Sitzung, sofern --session keine benennt)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sirve el REPL como servidor MCP por stdio (herramientas: eval, snapshot, screenshot, tabs, reset; sesión \"mcp\" por defecto)"
+            "value": "Sirve el REPL como servidor MCP por stdio (herramientas: eval, snapshot, screenshot, tabs, reset; una sesión propia salvo que --session indique una)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exposer le REPL comme serveur MCP sur stdio (outils : eval, snapshot, screenshot, tabs, reset ; session « mcp » par défaut)"
+            "value": "Exposer le REPL comme serveur MCP sur stdio (outils : eval, snapshot, screenshot, tabs, reset ; sa propre session sauf si --session en nomme une)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "REPL を stdio 上の MCP サーバーとして提供します（ツール: eval、snapshot、screenshot、tabs、reset。既定のセッションは \"mcp\"）"
+            "value": "REPL を stdio 上の MCP サーバーとして提供します（ツール: eval、snapshot、screenshot、tabs、reset。--session で指定しない限りサーバー専用のセッション）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "REPL을 stdio의 MCP 서버로 제공합니다(도구: eval, snapshot, screenshot, tabs, reset, 기본 세션 \"mcp\")"
+            "value": "REPL을 stdio의 MCP 서버로 제공합니다(도구: eval, snapshot, screenshot, tabs, reset, --session으로 지정하지 않으면 서버 전용 세션)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将 REPL 作为 stdio 上的 MCP 服务器提供（工具：eval、snapshot、screenshot、tabs、reset；默认会话为 \"mcp\"）"
+            "value": "将 REPL 作为 stdio 上的 MCP 服务器提供（工具：eval、snapshot、screenshot、tabs、reset；未用 --session 指定时使用专属会话）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將 REPL 作為 stdio 上的 MCP 伺服器提供（工具：eval、snapshot、screenshot、tabs、reset；預設工作階段為 \"mcp\"）"
+            "value": "將 REPL 作為 stdio 上的 MCP 伺服器提供（工具：eval、snapshot、screenshot、tabs、reset；未用 --session 指定時使用專屬工作階段）"
           }
         }
       }
