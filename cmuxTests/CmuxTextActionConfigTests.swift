@@ -181,6 +181,40 @@ struct CmuxTextActionTrustGateTests {
         return (result, gateConsulted, delivered)
     }
 
+    @MainActor @Test func changingSubmitInvalidatesProjectSnippetTrust() throws {
+        let paths = configPaths()
+        var descriptors: [CmuxActionTrustDescriptor] = []
+        var deliveries = 0
+        CmuxConfigExecutor.confirmDialogOverrideForTesting = { descriptor in
+            descriptors.append(descriptor)
+            return true
+        }
+        defer { CmuxConfigExecutor.confirmDialogOverrideForTesting = nil }
+
+        // Keep the explicit action ID, text, and source fixed, as when a
+        // project edits only its submit flag after the user trusts a snippet.
+        for submit in [false, true] {
+            let payload = try #require(CmuxTextActionPayload(text: "echo snippet-ran", submit: submit))
+            #expect(CmuxConfigExecutor.deliverTextActionIfAuthorized(
+                payload,
+                confirm: false,
+                actionID: "probe",
+                configSourcePath: paths.project,
+                globalConfigPath: paths.global
+            ) {
+                deliveries += 1
+                return true
+            })
+        }
+
+        #expect(deliveries == 2)
+        #expect(descriptors.count == 2)
+        let insertOnly = try #require(descriptors.first)
+        let submitting = try #require(descriptors.last)
+        // The trust store keys saved permission by this fingerprint.
+        #expect(insertOnly.fingerprint != submitting.fingerprint)
+    }
+
     @MainActor @Test func insertOnlyProjectSnippetConsultsTheTrustGate() throws {
         let payload = try #require(CmuxTextActionPayload(text: "echo snippet-ran\n", submit: false))
         let outcome = deliver(payload, confirm: false, fromProject: true, gateAnswer: false, deliveryResult: true)
