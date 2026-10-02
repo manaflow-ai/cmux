@@ -456,6 +456,7 @@ final class CloudTerminalPaneReservation {
     let creationReceipt = CloudTerminalCreationReceipt()
     let inputRelay: CloudOptimisticInputRelay
     private(set) var boundResourceID: SurfaceResourceID?
+    let requestID: UUID?
     /// When the pane was inserted. Adoption hands the elapsed wait to the
     /// attachment session so the connection card does not restart its grace.
     let startedAt: ContinuousClock.Instant
@@ -471,6 +472,7 @@ final class CloudTerminalPaneReservation {
         sourcePlacement: CloudTerminalSourcePlacement? = nil,
         attachmentPlacement: SurfaceResourcePlacement? = nil,
         inputRelay: CloudOptimisticInputRelay = CloudOptimisticInputRelay(),
+        requestID: UUID? = nil,
         startedAt: ContinuousClock.Instant = .now
     ) {
         self.workspaceID = workspaceID
@@ -481,8 +483,9 @@ final class CloudTerminalPaneReservation {
             remoteTabID: attachmentPlacement?.remoteTabID
         )
         self.attachmentPlacement = attachmentPlacement
-        self.boundResourceID = sourcePlacement?.resource?.id
+        self.boundResourceID = attachmentPlacement?.resource
         self.inputRelay = inputRelay
+        self.requestID = requestID
         self.startedAt = startedAt
     }
 
