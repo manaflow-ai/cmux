@@ -17,7 +17,7 @@
     "@tanstack/react-start": "1.168.58",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "satori": "0.33.5"
+    "satori": "0.32.0"
   },
   "devDependencies": {
     "@types/react": "19.3.0",
