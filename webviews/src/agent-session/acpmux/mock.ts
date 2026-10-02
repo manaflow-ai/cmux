@@ -97,7 +97,15 @@ export class MockAcpmuxSocket {
     switch (method) {
       case "_acpmux/watch": return { sessions: this.sessions };
       case "_acpmux/harnesses": return { harnesses };
-      case "_acpmux/attach": return { session: this.sessions.find((entry) => entry.sessionId === target), events: this.events.filter((event) => event.sessionId === target) };
+      case "_acpmux/attach": {
+        // A seeded session has no recorded turn or permission to show, so opening one settles it.
+        const index = this.sessions.findIndex((entry) => entry.sessionId === target);
+        if (index >= 0 && target !== sessionId && (this.sessions[index].status === "running" || this.sessions[index].status === "waiting")) {
+          this.sessions[index] = { ...this.sessions[index], status: "idle", pendingPermissions: 0 };
+          this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "updated", session: this.sessions[index] } });
+        }
+        return { session: this.sessions[index], events: this.events.filter((event) => event.sessionId === target) };
+      }
       case "_acpmux/events": return { events: this.events.filter((event) => event.sessionId === target && event.seq > Number(params.afterSeq ?? 0)) };
       case "session/new": {
         const created = { ...session, sessionId: `mock-session-${this.sessions.length + 1}`, title: "New chat" };

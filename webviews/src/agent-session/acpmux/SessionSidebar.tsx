@@ -11,10 +11,10 @@ export function SessionSidebar({ sessions, selectedId, onSelect }: { sessions: A
   if (sessions.length === 0) return <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label="Sessions"><div className="acpmux-sidebar-empty">No sessions yet</div></nav>;
   // Section labels only earn their place when both sections show.
   const labelled = pinned.length > 0 && groups.length > 0;
-  return <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label="Sessions">{pinned.length > 0 && <section className="acpmux-sidebar-pinned" aria-label="Pinned">{labelled && <div className="acpmux-sidebar-section" aria-hidden="true">Pinned</div>}<ul>{pinned.map((session) => <SessionRow key={session.sessionId} session={session} selected={session.sessionId === selectedId} onSelect={onSelect} />)}</ul></section>}{labelled && <div className="acpmux-sidebar-section" aria-hidden="true">Projects</div>}{groups.map((group) => {
+  return <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label="Sessions">{pinned.length > 0 && <section className="acpmux-sidebar-pinned" aria-label="Pinned">{labelled && <div className="acpmux-sidebar-section" aria-hidden="true">Pinned</div>}<ul>{pinned.map((session) => <SessionRow key={session.sessionId} session={session} selected={session.sessionId === selectedId} onSelect={onSelect} />)}</ul></section>}{groups.length > 0 && <section className="acpmux-sidebar-projects" aria-label="Projects">{labelled && <div className="acpmux-sidebar-section" aria-hidden="true">Projects</div>}{groups.map((group) => {
     const { rows, hidden } = visibleSessions(group, expanded.has(group.key), selectedId);
     return <section className="acpmux-sidebar-group" key={group.key}><div className="acpmux-sidebar-project" title={group.host ? `${group.cwd ?? ""} on ${group.host}` : group.cwd}><FolderIcon /><span>{group.label}</span>{group.host && <small className="acpmux-sidebar-host">{group.host}</small>}</div><ul>{rows.map((session) => <SessionRow key={session.sessionId} session={session} selected={session.sessionId === selectedId} onSelect={onSelect} />)}</ul>{hidden > 0 && <button type="button" className="acpmux-sidebar-more" onClick={() => setExpanded((current) => new Set(current).add(group.key))} aria-label={`Show more, ${hidden} hidden`}>Show more</button>}</section>;
-  })}</nav>;
+  })}</section>}</nav>;
 }
 
 /** The open-folder glyph from the Codex sidebar, drawn in the muted text colour. */
