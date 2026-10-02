@@ -67,6 +67,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
+    /// A title Chromium reported before its own navigation (Back, Forward,
+    /// a page-initiated load) committed. Back and Forward report the entry's
+    /// title first, and a page restored from the back/forward cache never
+    /// sets it again, so commit keeps it. Only navigations Chromium started
+    /// capture one (`capturesTitleBeforeCommit`); every new navigation id
+    /// and every navigation that ends without committing clears it.
+    @ObservationIgnored var titleBeforeCommit: String?
+    @ObservationIgnored var capturesTitleBeforeCommit = false
     @ObservationIgnored var findContinuation: CheckedContinuation<BrowserFindResult, Never>?
     @ObservationIgnored var nextFindID: Int32 = 1
     @ObservationIgnored var faviconTask: Task<Void, Never>?
@@ -181,14 +189,17 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         machine.apply(.failed(id, error))
     }
 
-    func browserDidClose() {
+    /// Chromium destroyed the browser. `closesTab` is false when quit
+    /// closed it (`CEFRuntime.shutdown`): the engine ends, the tab stays in
+    /// the daemon and reopens at relaunch.
+    func browserDidClose(closesTab: Bool = true) {
         browserID = nil
         findContinuation?.resume(returning: .none)
         findContinuation = nil
         host.removed(self)
         if !isClosed {
             isClosed = true
-            emit(.close)
+            if closesTab { emit(.close) }
         }
     }
 
@@ -228,6 +239,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     func makeNavigationID() -> BrowserNavigationID {
+        clearTitleBeforeCommit()
         nextNavigation += 1
         return BrowserNavigationID(rawValue: nextNavigation)
     }
@@ -292,6 +304,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     public func stop() {
+        clearTitleBeforeCommit()
         browserID.map { runtime.shim?.stop($0) }
         machine.apply(.stopped)
     }
