@@ -67,4 +67,23 @@ import Testing
         let markdown = TextFormatter.measureMarkdown("# a\n`b`\n> c", fontSize: 13, lineHeight: 18, maxWidth: 400)
         #expect(plain.height == markdown.height)
     }
+
+    /// Seeded random input over the syntax characters: never crashes, and the
+    /// rendered text never grows beyond the source plus list/quote markers.
+    @Test func randomMarkupNeverCrashes() {
+        let alphabet = Array("*_`[]()\\#->.12 ab\n")
+        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+        func next() -> UInt64 {
+            state ^= state << 13
+            state ^= state >> 7
+            state ^= state << 17
+            return state
+        }
+        for _ in 0..<3000 {
+            let length = Int(next() % 24)
+            let text = String((0..<length).map { _ in alphabet[Int(next() % UInt64(alphabet.count))] })
+            let rendered = render(text).string
+            #expect(rendered.count <= text.count * 4 + 4, "\(text)")
+        }
+    }
 }
