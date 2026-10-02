@@ -46,6 +46,7 @@ public final class Commands {
     public static final CommandMetadata CONVERSATION_HISTORY = new CommandMetadata("conversation-history", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_LIST = new CommandMetadata("conversation-list", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_OP = new CommandMetadata("conversation-op", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_SEARCH = new CommandMetadata("conversation-search", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_SNAPSHOT = new CommandMetadata("conversation-snapshot", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_TYPING = new CommandMetadata("conversation-typing", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata COPY = new CommandMetadata("copy", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -254,6 +255,7 @@ public final class Commands {
         values.put("conversation-history", CONVERSATION_HISTORY);
         values.put("conversation-list", CONVERSATION_LIST);
         values.put("conversation-op", CONVERSATION_OP);
+        values.put("conversation-search", CONVERSATION_SEARCH);
         values.put("conversation-snapshot", CONVERSATION_SNAPSHOT);
         values.put("conversation-typing", CONVERSATION_TYPING);
         values.put("copy", COPY);

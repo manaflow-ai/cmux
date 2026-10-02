@@ -213,8 +213,7 @@ pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";
 /// `set-workspace-metadata` and the `marked_unread` workspace field.
 pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
-/// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the
-/// `tab-changed` delta.
+/// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
 /// Frontend-rendered browser tabs (WebKit or CEF): `new-frontend-browser-tab`,
 /// `update-frontend-browser-tab`, and the `browser_renderer`,
@@ -226,8 +225,7 @@ pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
 pub use split_respawn::TAB_SPLIT_RESPAWN_CAPABILITY;
 /// Durable notification acknowledgement decoupled from focus:
-/// `ack-tab-notifications`, `list-notifications`, and the workspace
-/// `unread_count` rollup.
+/// `ack-tab-notifications`, `list-notifications`, and the workspace `unread_count` rollup.
 pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
 /// Tab groups: the `*-tab-group` commands, `Pane.tab_groups`,
 /// and `Tab.group`.
@@ -2055,6 +2053,7 @@ enum Command {
     ConversationCreate(conversations::CreateParams),
     ConversationSnapshot(conversations::SnapshotParams),
     ConversationHistory(conversations::HistoryParams),
+    ConversationSearch(conversations::SearchParams),
     ConversationOp(conversations::OpParams),
     ConversationTyping(conversations::TypingParams),
     ConversationBind(conversations::BindParams),
@@ -14981,6 +14980,7 @@ fn handle_command_with_cancellation(
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
         Command::ConversationHistory(params) => conversations::history(mux, client, params),
+        Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
         Command::ConversationTyping(params) => conversations::typing(mux, client, params),
         Command::ConversationBind(params) => conversations::bind(mux, client, params),
