@@ -390,13 +390,19 @@ build_helper() {
 
   echo "Building Ghostty CLI helper with $zig_bin${target:+ for $target}"
   local metal_toolchain
+  local metal_toolchain_identifier
+  local metal_toolchain_search_path
   metal_toolchain="${CMUX_METAL_TOOLCHAIN_IDENTIFIER:-}"
+  metal_toolchain_identifier=""
+  metal_toolchain_search_path=""
   if [[ -z "$metal_toolchain" ]]; then
     # Use the system shim explicitly. Xcode build phases can provide a
     # different PATH and leave the installed cryptex toolchain undiscoverable.
-    metal_toolchain="$(/usr/bin/xcodebuild -showComponent MetalToolchain -json 2>/dev/null \
-      | /usr/bin/python3 -c 'import json, sys; print(json.load(sys.stdin).get("toolchainIdentifier", ""))' \
-      2>/dev/null || true)"
+    read -r metal_toolchain_identifier metal_toolchain_search_path < <(
+      /usr/bin/xcodebuild -showComponent MetalToolchain -json 2>/dev/null \
+        | /usr/bin/python3 -c 'import json, sys; data=json.load(sys.stdin); print(data.get("toolchainIdentifier", ""), data.get("toolchainSearchPath", ""))' \
+        2>/dev/null || true
+    )
   fi
   (
     cd "$GHOSTTY_DIR"
@@ -406,8 +412,18 @@ build_helper() {
     # Xcode exports TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault, which
     # hides the separately installed Metal Toolchain from xcrun. Select the
     # installed Metal component explicitly while keeping SDKROOT unset for Zig.
-    if [[ -n "$metal_toolchain" ]] && \
-      /usr/bin/xcrun --toolchain "$metal_toolchain" --find metal >/dev/null 2>&1; then
+    if [[ -z "$metal_toolchain" ]]; then
+      for candidate in \
+        "$metal_toolchain_identifier" \
+        "${metal_toolchain_search_path:+$metal_toolchain_search_path/Metal.xctoolchain}"; do
+        if [[ -n "$candidate" ]] && \
+          /usr/bin/xcrun --toolchain "$candidate" --find metal >/dev/null 2>&1; then
+          metal_toolchain="$candidate"
+          break
+        fi
+      done
+    fi
+    if [[ -n "$metal_toolchain" ]]; then
       echo "Using Metal toolchain $metal_toolchain"
       env -u SDKROOT TOOLCHAINS="$metal_toolchain" "${args[@]}"
     else
