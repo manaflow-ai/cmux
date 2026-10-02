@@ -67210,127 +67210,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Overlay"
+            "value": "Floating"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تراكب"
+            "value": "عائم"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sloj"
+            "value": "Plutajuće"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Overlejring"
+            "value": "Flydende"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Overlay"
+            "value": "Schwebend"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Superpuesta"
+            "value": "Flotante"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Superposée"
+            "value": "Flottant"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sovrapposta"
+            "value": "Mobile"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "オーバーレイ"
+            "state": "translated",
+            "value": "フローティング"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ស្រទាប់លើ"
+            "value": "អណ្ដែត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "오버레이"
+            "value": "플로팅"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Overlegg"
+            "value": "Flytende"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nakładka"
+            "value": "Pływający"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sobreposta"
+            "value": "Flutuante"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Наложение"
+            "value": "Плавающий"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ซ้อนทับ"
+            "value": "ลอย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kaplama"
+            "value": "Yüzen"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Накладання"
+            "value": "Плаваючий"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lớp phủ"
+            "value": "Nổi"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "叠加"
+            "value": "浮动"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "疊加"
+            "value": "浮動"
           }
         }
       }

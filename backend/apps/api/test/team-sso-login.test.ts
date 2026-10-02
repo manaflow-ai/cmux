@@ -38,7 +38,7 @@ const setup = async () => {
   const team = claim.stream.replace("team:", "") as string
   const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)) as unknown as DurableObjectStub
   const idp = { nextIdToken: async (_code: string): Promise<string> => "", tokenRequests: [] as Array<URLSearchParams> }
-  const stack = { users: new Map<string, string>(), unverified: new Set<string>(), sessions: [] as Array<{ user: string; ttl?: number }> }
+  const stack = { users: new Map<string, string>(), unverified: new Set<string>(), created: 0, sessions: [] as Array<{ user: string; ttl?: number }> }
   await inDO(stub, async (instance) => {
     instance.http = async (req: Request) => {
       const url = new URL(req.url)
@@ -56,6 +56,9 @@ const setup = async () => {
     instance.stack = {
       findUserByEmail: async (email: string) => (stack.users.has(email) ? { id: stack.users.get(email)!, email_verified: !stack.unverified.has(email) } : undefined),
       createUser: async (email: string) => {
+        // Slow, so two concurrent first sign-ins interleave here.
+        await new Promise((r) => setTimeout(r, 30))
+        stack.created += 1
         const id = `stack_${stack.users.size + 1}`
         stack.users.set(email, id)
         return { id }
@@ -75,20 +78,22 @@ const setup = async () => {
   return { team, stub, idp, stack, signIdToken, admin, connection: id }
 }
 
+/** A fresh client IP per request, so the shared per-IP limiter never trips across tests. */
+const ip = () => ({ "cf-connecting-ip": `198.51.100.${Math.floor(Math.random() * 250)}-${crypto.randomUUID()}` })
 const b64u = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 const CLIENT_VERIFIER = "client-verifier-0123456789-abcdefghijklmnopqrstuvwxyz"
 const challengeOf = async (v: string) => b64u(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(v))))
 const start = async (email: string, returnTo = RETURN) =>
-  worker.fetch(`https://api.test/v1/sso/start?email=${encodeURIComponent(email)}&return_to=${encodeURIComponent(returnTo)}&client_challenge=${await challengeOf(CLIENT_VERIFIER)}`, { redirect: "manual" })
+  worker.fetch(`https://api.test/v1/sso/start?email=${encodeURIComponent(email)}&return_to=${encodeURIComponent(returnTo)}&client_challenge=${await challengeOf(CLIENT_VERIFIER)}`, { redirect: "manual", headers: ip() })
 const callback = async (state: string, code: string, path?: string) => {
   const p = path ?? (await pendingPath(state))
-  return worker.fetch(`https://api.test${p}?state=${encodeURIComponent(state)}&code=${encodeURIComponent(code)}`, { redirect: "manual" })
+  return worker.fetch(`https://api.test${p}?state=${encodeURIComponent(state)}&code=${encodeURIComponent(code)}`, { redirect: "manual", headers: ip() })
 }
 /** The callback path the start step registered (per connection). */
 const pathByState = new Map<string, string>()
 const pendingPath = async (state: string) => pathByState.get(state) ?? "/v1/sso/callback"
 const redeem = (code: string, verifier = CLIENT_VERIFIER) =>
-  worker.fetch("https://api.test/v1/sso/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, client_verifier: verifier }) })
+  worker.fetch("https://api.test/v1/sso/redeem", { method: "POST", headers: { "content-type": "application/json", ...ip() }, body: JSON.stringify({ code, client_verifier: verifier }) })
 const authFrom = (res: Response) => {
   const auth = new URL(res.headers.get("location")!)
   pathByState.set(auth.searchParams.get("state")!, new URL(auth.searchParams.get("redirect_uri")!).pathname)
@@ -166,7 +171,7 @@ describe("OIDC sign-in (workerd)", () => {
     // Only exact return addresses: no other path on the dashboard (an open redirect there would leak the code).
     expect((await start(`alice@${DOMAIN}`, "http://localhost:3010/anything")).status).toBe(400)
     // A start without a client challenge is refused.
-    expect((await worker.fetch(`https://api.test/v1/sso/start?email=alice@${DOMAIN}&return_to=${encodeURIComponent(RETURN)}`, { redirect: "manual" })).status).toBe(400)
+    expect((await worker.fetch(`https://api.test/v1/sso/start?email=alice@${DOMAIN}&return_to=${encodeURIComponent(RETURN)}`, { redirect: "manual", headers: ip() })).status).toBe(400)
     expect((await start("alice@nobody-has-this.dev")).status).toBe(404)
   })
 
@@ -187,9 +192,21 @@ describe("OIDC sign-in (workerd)", () => {
     const auth = authFrom(await start(`dave@${DOMAIN}`))
     s.idp.nextIdToken = async () => s.signIdToken({ sub: "idp-dave", email: `dave@${DOMAIN}`, nonce: auth.searchParams.get("nonce")! })
     const state = auth.searchParams.get("state")!
-    expect((await worker.fetch(`https://api.test/v1/sso/callback/ssoc_00000000000000000000?state=${encodeURIComponent(state)}&code=c`, { redirect: "manual" })).status).toBe(400)
+    expect((await worker.fetch(`https://api.test/v1/sso/callback/ssoc_00000000000000000000?state=${encodeURIComponent(state)}&code=c`, { redirect: "manual", headers: ip() })).status).toBe(400)
     const auth2 = authFrom(await start(`dave@${DOMAIN}`))
     const p = pathByState.get(auth2.searchParams.get("state")!)!
-    expect((await worker.fetch(`https://api.test${p}?state=${encodeURIComponent(auth2.searchParams.get("state")!)}&code=c&iss=${encodeURIComponent("https://evil.example")}`, { redirect: "manual" })).status).toBe(400)
+    expect((await worker.fetch(`https://api.test${p}?state=${encodeURIComponent(auth2.searchParams.get("state")!)}&code=c&iss=${encodeURIComponent("https://evil.example")}`, { redirect: "manual", headers: ip() })).status).toBe(400)
+  })
+
+  it("two concurrent first sign-ins of one person create one Stack user (idempotent link by issuer and subject)", async () => {
+    const s = await setup()
+    const a1 = authFrom(await start(`erin@${DOMAIN}`))
+    const a2 = authFrom(await start(`erin@${DOMAIN}`))
+    const nonces = new Map([["c1", a1.searchParams.get("nonce")!], ["c2", a2.searchParams.get("nonce")!]])
+    s.idp.nextIdToken = async (code) => s.signIdToken({ sub: "idp-erin", email: `erin@${DOMAIN}`, nonce: nonces.get(code)! })
+    const [r1, r2] = await Promise.all([callback(a1.searchParams.get("state")!, "c1"), callback(a2.searchParams.get("state")!, "c2")])
+    expect([r1.status, r2.status]).toEqual([302, 302])
+    expect(s.stack.created).toBe(1)
+    expect(new Set(s.stack.sessions.map((x) => x.user)).size).toBe(1)
   })
 })

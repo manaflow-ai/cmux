@@ -26,12 +26,22 @@ export const ensureLoginTables = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS sso_logins2 (state TEXT PRIMARY KEY, connection TEXT NOT NULL, nonce TEXT NOT NULL, verifier TEXT NOT NULL, client_challenge TEXT NOT NULL, redirect_uri TEXT NOT NULL, return_to TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
   // Keyed by a hash of the code; the tokens are sealed and bound to the starting client's challenge.
   sql.exec(`CREATE TABLE IF NOT EXISTS sso_redeem2 (code_hash TEXT PRIMARY KEY, client_challenge TEXT NOT NULL, sealed TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
-  sql.exec(`CREATE TABLE IF NOT EXISTS sso_identities (connection TEXT NOT NULL, subject TEXT NOT NULL, stack_user TEXT NOT NULL, email TEXT NOT NULL, linked_at INTEGER NOT NULL, PRIMARY KEY (connection, subject))`)
+  // Keyed by a hash of the IdP issuer and subject: the same person through a recreated connection stays linked.
+  sql.exec(`CREATE TABLE IF NOT EXISTS sso_identities2 (idp_key TEXT PRIMARY KEY, connection TEXT NOT NULL, stack_user TEXT NOT NULL, email TEXT NOT NULL, linked_at INTEGER NOT NULL)`)
 }
 
 const b64u = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 const random = (n = 32) => b64u(crypto.getRandomValues(new Uint8Array(n)))
 const sha256 = async (s: string) => b64u(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(s))))
+
+/**
+ * In-flight first links per IdP identity, so concurrent first sign-ins of one
+ * person (the TeamDO interleaves at each await) share one Stack lookup or
+ * creation. One TeamDO serves all sign-ins of its team, so this map sees them
+ * all; a restart only drops in-flight work, and the INSERT OR IGNORE plus
+ * re-read below keeps the first stored link.
+ */
+const inflightLinks = new Map<string, Promise<{ ok: true; stackUser: string; linked: boolean } | LoginError>>()
 
 export interface LoginDeps {
   readonly state: TeamState
@@ -140,18 +150,30 @@ export const ssoCallback = async (deps: LoginDeps, state: string, code: string, 
   if (!c.domains.includes(domain) || deps.state.domains?.[domain]?.state !== "verified") return fail("sso.domain_mismatch", "this account's email domain is not served by this SSO connection")
 
   // Account link: the IdP subject is the stable key; the first sign-in links by the verified email.
-  const subject = await sha256(`${c.id}:${claims.sub}`)
-  let stackUser = deps.sql.exec<{ stack_user: string }>(`SELECT stack_user FROM sso_identities WHERE connection = ? AND subject = ?`, c.id, subject).toArray()[0]?.stack_user
-  let linked = false
+  const subject = await sha256(`${c.oidc.issuer}\n${claims.sub}`)
+  const stored = () => deps.sql.exec<{ stack_user: string }>(`SELECT stack_user FROM sso_identities2 WHERE idp_key = ?`, subject).toArray()[0]?.stack_user
+  const stack = deps.stack
   try {
+    let stackUser = stored()
+    let linked = false
     if (!stackUser) {
-      const existing = await deps.stack.findUserByEmail(claims.email)
-      // Pre-hijacking defense: link only to an account whose email Stack verified. Linking a verified-email
-      // account is accepted: the team controls the domain's DNS, so it could already reset that account by mail.
-      if (existing && !existing.email_verified) return fail("sso.account_conflict", "an unverified cmux account already uses this email; verify that account's email or ask support")
-      stackUser = existing?.id ?? (await deps.stack.createUser(claims.email, claims.name)).id
-      deps.sql.exec(`INSERT OR IGNORE INTO sso_identities (connection, subject, stack_user, email, linked_at) VALUES (?, ?, ?, ?, ?)`, c.id, subject, stackUser, claims.email, deps.now)
-      linked = true
+      let pending = inflightLinks.get(`${deps.team}|${subject}`)
+      if (!pending) {
+        pending = (async () => {
+          const existing = await stack.findUserByEmail(claims.email)
+          // Pre-hijacking defense: link only to an account whose email Stack verified. Linking a verified-email
+          // account is accepted: the team controls the domain's DNS, so it could already reset that account by mail.
+          if (existing && !existing.email_verified) return fail("sso.account_conflict", "an unverified cmux account already uses this email; verify that account's email or ask support")
+          const id = existing?.id ?? (await stack.createUser(claims.email, claims.name)).id
+          deps.sql.exec(`INSERT OR IGNORE INTO sso_identities2 (idp_key, connection, stack_user, email, linked_at) VALUES (?, ?, ?, ?, ?)`, subject, c.id, id, claims.email, Date.now())
+          return { ok: true as const, stackUser: stored() ?? id, linked: true }
+        })().finally(() => inflightLinks.delete(`${deps.team}|${subject}`))
+        inflightLinks.set(`${deps.team}|${subject}`, pending)
+      }
+      const r = await pending
+      if (!r.ok) return r
+      stackUser = r.stackUser
+      linked = r.linked
     }
     const maxHours = deps.state.policy?.values["sso.sessionMaxAgeHours"]?.value
     const session = await deps.stack.createSession(stackUser, typeof maxHours === "number" ? maxHours * 3_600_000 : undefined)
