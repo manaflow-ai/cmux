@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileBillingUI
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -91,6 +92,12 @@ struct MobileSettingsView: View {
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
+
+                // Plan and App Store subscription, for a signed-in account.
+                // Renders nothing when the host injected no billing model.
+                if authManager.isAuthenticated {
+                    MobileSettingsPlanSection()
+                }
 
                 // Directly under the account card so release notices stay
                 // discoverable after their one-time launch sheet is

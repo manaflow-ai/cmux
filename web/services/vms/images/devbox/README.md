@@ -47,6 +47,20 @@ tags and packages the image does not bake; the chatmux devbox template
 (`chatmux:infra/sandbox-images/Dockerfile`) is bumped by hand in its own
 repo to keep the parity the header describes.
 
+A machine can instead keep its agents current: with `agentUpdates: "latest"`
+(New Machine's "Keep coding agents up to date", checked by default in the
+sheet, `cmux vm agent-updates <vm> latest`, or `PUT /api/vm/{id}/agent-updates`),
+create and each attach start a detached updater
+(`web/services/vms/guestAgentUpdates.ts`). It never uses npm: for every agent
+it reads the tool's GitHub releases (`web/services/vms/images/agents.ts`) and
+installs the newest x.y.z release that has been public for 3 days and is not
+above the latest release, after checking the download's sha256, at most once a
+day and never as a downgrade. On a machine baked with the npm pins above, the
+first update moves each agent to its standalone release and removes the npm
+copy once no process uses it. Outcome in `/etc/cmux/agent-updates.state`, log
+in `/var/log/cmux-agent-updates.log`. Moving the image recipe itself off npm
+needs a rebake and lands separately.
+
 Two invariants keep the checked-in manifest describing the machine users get
 (`devboxSourceDriftProblems` in `devbox-image-common.ts`, run by
 `devbox:manifest:check`, `vm-image-manifest.test.ts` and `promote` before it
