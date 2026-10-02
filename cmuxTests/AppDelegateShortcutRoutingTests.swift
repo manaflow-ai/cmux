@@ -207,6 +207,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
+        AppDelegate.shared?.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
         if AppDelegate.shared?.dismissNotificationsPopoverIfShown() == true {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
@@ -1039,6 +1040,40 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(
             window.collectionBehavior.contains(.fullScreenDisallowsTiling),
             "Main windows should allow macOS Full Screen Tile unless they are spawned from a native fullscreen source"
+        )
+    }
+
+    func testCreateMainWindowTemporarilyDisallowsFullScreenTilingFromFullscreenSource() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = true
+
+        let newWindowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: newWindowId)
+        }
+
+        guard let newWindow = window(withId: newWindowId) else {
+            XCTFail("Expected new window")
+            return
+        }
+
+        XCTAssertTrue(
+            newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "A window spawned from native fullscreen should opt out while it is being presented"
+        )
+
+        appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
+        waitUntil(timeout: 1.0) {
+            !newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling)
+        }
+
+        XCTAssertFalse(
+            newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "The fullscreen tiling opt-out should be cleared after initial presentation"
         )
     }
 
