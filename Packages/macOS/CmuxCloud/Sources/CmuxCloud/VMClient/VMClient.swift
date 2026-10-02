@@ -1482,6 +1482,13 @@ public actor VMClient {
         }
     }
 
+    /// `limits.vcpusByMemoryMb: {"8192": 4}`; entries that are not positive
+    /// integers are skipped, and an absent or non-object value is nil.
+    static func decodePositiveIntMap(_ raw: Any?) -> [String: Int]? {
+        guard let object = raw as? [String: Any] else { return nil }
+        return object.compactMapValues { decodeIntArray([$0]).first }
+    }
+
     /// JSON numbers arrive as Int64 or Double depending on magnitude; `null`/absent → nil.
     static func epochMilliseconds(_ raw: Any?) -> Int64? {
         if let value = raw as? Int64 { return value }
