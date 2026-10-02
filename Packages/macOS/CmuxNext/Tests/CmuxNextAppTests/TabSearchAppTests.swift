@@ -29,8 +29,9 @@ struct TabSearchAppTests {
         await ReopenClosedTabTests.settle { false }
         let source = AppTabSearchSource(services: services)
         let seen = Seen()
+        let stream = source.changes()
         let listener = Task { @MainActor in
-            for await _ in source.changes() {
+            for await _ in stream {
                 seen.entries.append(source.tabSearchEntries())
                 if seen.entries.last?.contains(where: \.isClosed) == true { return }
             }

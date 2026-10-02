@@ -44,15 +44,15 @@ final class AppTabSearchSource: TabSearchSource {
     /// list, once the list is current.
     func changes() -> AsyncStream<Void> {
         guard let changes = services.closedTabs?.changes else { return AsyncStream { $0.finish() } }
+        // The revision at subscribe time, read now: a change that lands
+        // before the observing task starts is still delivered.
+        let subscribed = changes.revision
         // A change is a signal, not data: the newest one is enough.
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task { @MainActor in
-                var first = true
-                for await _ in Observations({ changes.revision }) {
-                    if first {
-                        first = false
-                        continue
-                    }
+                var last = subscribed
+                for await revision in Observations({ changes.revision }) where revision != last {
+                    last = revision
                     continuation.yield()
                 }
                 continuation.finish()
