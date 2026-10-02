@@ -1531,6 +1531,78 @@ describe("acpmux new chat", () => {
   });
 });
 
+describe("acpmux live turn status", () => {
+  /// A running turn showed nothing until its first output, and no time while it worked.
+  test("a running turn says Thinking, then Working over its work, then folds when it ends", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const user: AcpmuxRow = { id: "u", version: 1, at: Date.now() - 42_000, kind: "user", text: "run it" };
+    const work: AcpmuxRow = {
+      id: "a",
+      version: 1,
+      at: user.at + 2_000,
+      kind: "activity",
+      toolCount: 1,
+      items: [{ kind: "tool", text: "Run total.py" }],
+    };
+    const draw = (rows: AcpmuxRow[], working: boolean) =>
+      act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: turnView(rows, new Set(), working),
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+    const status = () => dom.window.document.querySelector(".cv-worked");
+    try {
+      await draw([user, { id: "typing", version: 1, at: user.at, kind: "typing" }], true);
+      expect(status()?.textContent).toBe("Thinking");
+      expect(dom.window.document.querySelector(".cv-thinking")).not.toBeNull();
+
+      await draw([user, work], true);
+      expect(status()?.textContent).toMatch(/^Working for 4[23]s$/);
+      // A status, not a control: nothing to open until the turn ends.
+      expect(status()?.tagName).toBe("DIV");
+      expect(dom.window.document.querySelector(".cv-thinking")).toBeNull();
+
+      await draw([user, work, { id: "s", version: 1, at: user.at + 50_000, kind: "turnSummary", toolCount: 1 }], false);
+      expect(status()?.tagName).toBe("BUTTON");
+      expect(status()?.textContent).toBe("Worked for 50s · 1 tool call");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  test("the Working line ticks each second", async () => {
+    const { WorkingFor } = await import("./conversation/WorkingFor");
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    let clock = 42_000;
+    const now = () => clock;
+    try {
+      await act(async () =>
+        root.render(createElement(WorkingFor, { row: { id: "working-u", version: 1, at: 0, kind: "working" }, now })),
+      );
+      const label = () => dom.window.document.querySelector(".cv-worked__label")?.textContent;
+      expect(label()).toBe("Working for 42s");
+      clock = 61_000;
+      await act(() => new Promise((resolve) => setTimeout(resolve, 1_100)));
+      expect(label()).toBe("Working for 1m 1s");
+      // While text streams, the line holds at the text's start instead of ticking.
+      const held = { id: "working-u", version: 2, at: 0, kind: "working", durationMs: 15_000 };
+      await act(async () => root.render(createElement(WorkingFor, { row: held, now })));
+      expect(label()).toBe("Working for 15s");
+      clock = 90_000;
+      await act(() => new Promise((resolve) => setTimeout(resolve, 1_100)));
+      expect(label()).toBe("Working for 15s");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+});
+
 describe("acpmux tool runs", () => {
   const call = (id: string, kind: string, status = "completed") => ({
     kind: "tool",

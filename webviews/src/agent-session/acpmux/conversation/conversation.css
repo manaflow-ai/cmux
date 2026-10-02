@@ -407,8 +407,10 @@
   color: var(--cv-text-muted);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
-  cursor: pointer;
   user-select: none;
+}
+.cv-worked.is-toggle {
+  cursor: pointer;
 }
 .cv-worked.has-divider::after {
   content: "";
@@ -422,6 +424,30 @@
 .cv-worked__chevron {
   margin-top: 3px;
   margin-left: 2px;
+}
+/* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
+@keyframes cv-thinking-sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-thinking {
+    color: transparent;
+    background: linear-gradient(
+        90deg,
+        var(--cv-text-muted) 40%,
+        var(--cv-text) 50%,
+        var(--cv-text-muted) 60%
+      )
+      0 0 / 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: cv-thinking-sweep 2s linear infinite;
+  }
 }
 
 .cv-tools {
@@ -471,7 +497,7 @@
 .cv-thought .cv-tool__text {
   white-space: normal;
 }
-.cv-worked:hover,
+.cv-worked.is-toggle:hover,
 .cv-tool.is-toggle:hover {
   color: var(--cv-text);
 }

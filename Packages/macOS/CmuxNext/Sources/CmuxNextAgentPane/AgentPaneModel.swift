@@ -19,6 +19,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onFramePacing: (([Double]) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
+    /// Opens a changed file the page names; false when it could not.
+    @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.
@@ -62,6 +64,12 @@ public final class AgentPaneModel {
         case .dictation(let command):
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)
+            return AgentPaneReply.success()
+        case .openFile(let path, let target):
+            guard let onOpenFile, let url = AgentPaneFileOpen.resolve(path),
+                  target == .editor || AgentPaneFileOpen.showsInTab(url), await onOpenFile(url, target) else {
+                return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
+            }
             return AgentPaneReply.success()
         case .unsupported(let method):
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
