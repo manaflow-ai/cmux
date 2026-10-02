@@ -242,7 +242,6 @@
           }
         },
         "required": [
-          "id",
           "title"
         ],
         "type": "object"
@@ -589,7 +588,6 @@
         },
         "required": [
           "task",
-          "session",
           "harness"
         ],
         "type": "object"
@@ -907,7 +905,6 @@
         },
         "required": [
           "task",
-          "id",
           "body"
         ],
         "type": "object"
@@ -1052,7 +1049,6 @@
           }
         },
         "required": [
-          "id",
           "kind",
           "from",
           "to"
@@ -1170,7 +1166,6 @@
           }
         },
         "required": [
-          "id",
           "name"
         ],
         "type": "object"
@@ -1347,7 +1342,6 @@
           }
         },
         "required": [
-          "id",
           "name",
           "category"
         ],
@@ -1524,7 +1518,6 @@
           }
         },
         "required": [
-          "id",
           "name"
         ],
         "type": "object"

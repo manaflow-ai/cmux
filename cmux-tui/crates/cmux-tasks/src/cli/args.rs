@@ -1,13 +1,11 @@
 //! Catalog-driven argument parsing: flags come from the op's params
 //! (`--add-labels x` for `add_labels`), the positional param takes the first
-//! bare word, ids marked `generate` are minted when omitted.
+//! bare word, omitted generated ids are derived by the owner from the key.
 
 use std::io::Read;
 
 use cmux_tasks_core::catalog::{Entry, Param, Ty};
 use serde_json::{Map, Value, json};
-
-use crate::owner::mint;
 
 #[derive(Debug, Default)]
 pub struct Global {
@@ -161,9 +159,12 @@ pub fn params(entry: &Entry, words: &[String]) -> Result<Value, String> {
         if out.contains_key(param.name) {
             continue;
         }
-        if let Ty::Id { prefix, generate: true } = param.ty {
-            out.insert(param.name.to_owned(), json!(mint(prefix)));
-        } else if param.required {
+        // Generated ids stay omitted: the owner derives them from the
+        // idempotency key, so retrying with the printed key replays.
+        if matches!(param.ty, Ty::Id { generate: true, .. }) {
+            continue;
+        }
+        if param.required {
             let shown = if param.positional {
                 param.name.to_uppercase()
             } else {

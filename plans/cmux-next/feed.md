@@ -424,7 +424,16 @@ Screenshots and the recommendation are in section 15 when built.
 
 ## 15. Prototype screenshots and recommendation
 
-(Filled when step F3 lands.)
+Module `CmuxNextFeed` (#16829, 53b07a31f3c): model mirror + intent log (`FeedModel`, `FeedIntent` with idempotency keys), `FeedSource` protocol, `MockFeedSource`, views `FeedHostView` (list, inbox) and `FeedMenubarHostView`, tunables `feed.layout` (`list` default, `inbox`) and `feed.menubar` (`off` default, `compact`), 25 tests (intent log, a late answer shows "Answered on iPhone", no queueing while disconnected, inbox groups, menu bar filter, choice validation, a 30-seed convergence test). Not yet linked into the app: `FeedTunables.all` joins `TunableCatalog` and the app wires a `FeedSource` to `FeedDO` in step F3.
+
+Screenshots (light and dark, from a demo executable; in the hq checkout under `artifacts/feed-prototypes/`, not committed): list, inbox, compact menu bar, empty menu bar. They predate the second commit, which fixed a blank inbox row (two open requests of one session shared a row id) and a clipped menu bar height.
+
+Recommendation:
+- `list` as the default Cmd-I panel: inline answers clear most requests in one click, and it fits a side panel.
+- `inbox` as the expanded mode: the only variant that shows a full diff and a plan review with a comment.
+- `compact` menu bar as an opt-in: quick Allow/Deny while cmux is in the background; long titles truncate at 360 pt.
+
+Known issues: in light appearance the demo's glass backdrop over a dark desktop lowers label contrast in the menu bar (a real `NSPopover` draws its own material; check in the app); a single-question single-select choice answers on one tap (fast, but a wrong click answers).
 
 ## 16. Risks, gaps, shortcuts
 

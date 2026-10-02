@@ -216,7 +216,7 @@ impl Tx<'_> {
         let movers: Vec<String> =
             self.state.tasks.values().filter(|t| t.status == id).map(|t| t.id.clone()).collect();
         for task in movers {
-            self.set_status(&task, &replacement, false);
+            self.set_status(&task, &replacement, super::tasks::StatusMove::Cascade);
         }
         self.state.statuses.remove(&id);
         self.events.push(EventKind::remove(

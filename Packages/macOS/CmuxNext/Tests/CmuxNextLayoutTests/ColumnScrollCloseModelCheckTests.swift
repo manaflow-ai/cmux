@@ -19,7 +19,11 @@ import Testing
 /// the clamp forces a move, S4 a reveal is minimal, S5 a close left of
 /// the viewport does not move what the user sees, S6 a second sync of the
 /// same strip does not scroll again.
-@Suite struct ColumnScrollCloseModelCheckTests {
+/// Nonisolated and serialized: the exploration is seconds to minutes of CPU,
+/// which on the main actor (this target's default isolation) stalls every
+/// main-actor test in the process past its time limit; serialized keeps the
+/// mutant cases from filling the cooperative pool at once.
+@Suite(.serialized) nonisolated struct ColumnScrollCloseModelCheckTests {
     struct World: Hashable {
         var widths: [Int]          // percent of the viewport, by column order
         var ids: [Int]

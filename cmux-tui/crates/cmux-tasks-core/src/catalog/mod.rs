@@ -101,7 +101,9 @@ impl Entry {
                 item
             };
             properties.insert(p.name.to_owned(), schema);
-            if p.required {
+            // Generated ids may be omitted: the owner derives them from the
+            // idempotency key, so a retry converges.
+            if p.required && !matches!(p.ty, Ty::Id { generate: true, .. }) {
                 required.push(Value::from(p.name));
             }
         }

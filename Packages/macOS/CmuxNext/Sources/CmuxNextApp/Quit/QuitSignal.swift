@@ -1,39 +1,35 @@
 import AppKit
 import Darwin
 
-/// SIGTERM is "Quit, keep sessions" (coordinator decision 2026-10-02): the
-/// signal is ignored as a process signal and delivered on the main queue,
-/// where it starts a normal quit with origin `.signal`, which never shows
-/// the alert and never ends a terminal (`QuitPolicy`); windows still save.
-/// A second SIGTERM while that quit runs exits at once (`forceExit`), so a
-/// stuck quit never holds dev tooling, which sends SIGKILL after a bounded
-/// wait anyway. Before this is installed, `AppRunMarker` records SIGTERM
-/// as a requested quit and the process ends as it did before.
+/// SIGTERM, SIGINT and SIGHUP are "Quit, keep sessions" (coordinator
+/// decision 2026-10-02): `kill`, dev tooling, Ctrl-C in the terminal that
+/// launched the app, or that terminal closing. `SignalRelay` delivers them
+/// on the main queue, where the first starts a normal quit with origin
+/// `.signal`, which never shows the alert and never ends a terminal
+/// (`QuitPolicy`); windows still save and the run marker records the quit
+/// (`AppRunMarker.markQuitting`), so the next launch is clean even when the
+/// sender escalates to SIGKILL before the quit finishes. A second signal
+/// while that quit runs exits at once (`forceExit`), so a stuck quit never
+/// holds dev tooling. Before this is installed, `AppRunMarker` records these
+/// signals as requested quits and the process ends as it did before.
 @MainActor
 enum QuitSignal {
-    private static var source: (any DispatchSourceSignal)?
+    private static var relay: SignalRelay?
     private static var received = 0
 
-    static var isInstalled: Bool { source != nil }
+    static var isInstalled: Bool { relay != nil }
 
     static func install(quit: @escaping @MainActor () -> Void, forceExit: @escaping @MainActor () -> Void) {
-        guard source == nil else { return }
-        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-        source.setEventHandler {
-            MainActor.assumeIsolated {
-                received += 1
-                if received == 1 { quit() } else { forceExit() }
-            }
+        guard relay == nil else { return }
+        relay = SignalRelay(signals: LaunchRecovery.requestedQuitSignals.sorted()) { _ in
+            received += 1
+            if received == 1 { quit() } else { forceExit() }
         }
-        source.resume()
-        Self.source = source
-        ignoreProcessSignal()
     }
 
-    /// Keeps SIGTERM from ending the process so the source sees it. Called
-    /// again after Chromium starts, which resets signal actions.
-    static func ignoreProcessSignal() {
-        guard source != nil else { return }
-        _ = Darwin.signal(SIGTERM, SIG_IGN)
+    /// Takes the signals back after Chromium starts, which resets signal
+    /// actions and installs its own SIGINT and SIGHUP handlers.
+    static func reclaim() {
+        relay?.catchSignals()
     }
 }

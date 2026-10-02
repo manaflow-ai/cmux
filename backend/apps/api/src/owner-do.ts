@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers"
-import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
+import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type EventFrame, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { drainOutbox } from "./projection.ts"
 
@@ -82,11 +82,35 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   private broadcast(frame: OwnerFrame) {
     const text = JSON.stringify(frame)
+    const state = this.engine?.currentState
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null
-      if (a?.subscribed) safeSend(ws, text)
+      if (!a?.subscribed) continue
+      // A hidden event would leave the subscriber's mirror stale until its next
+      // visible event (clients repair only on a seq gap): send it a filtered snapshot instead.
+      if (frame.t === "event" && state !== undefined && this.engine && !this.mayReceive(state, frame, a.principal)) {
+        safeSend(ws, this.snapshotFor(this.engine, a.principal, []))
+        continue
+      }
+      safeSend(ws, text)
     }
   }
+
+  /** What a subscriber may see of the state in snapshots (default: all of it). */
+  protected subscriberView(state: S, _principal: Principal): unknown {
+    return state
+  }
+
+  /** Whether a subscriber receives a committed event (default: yes). */
+  protected mayReceive(_state: S, _event: EventFrame, _principal: Principal): boolean {
+    return true
+  }
+
+  private snapshotFor(engine: OwnerEngine<S>, principal: Principal, pending: ReadonlyArray<string>): string {
+    const snap = engine.snapshot(principal.identity, pending)
+    return JSON.stringify({ ...snap, state: this.subscriberView(snap.state as S, principal) })
+  }
+
 
   /** Closes every socket whose principal matches (revocation). */
   protected closeSockets(match: (p: Principal) => boolean, reason: string) {
@@ -233,12 +257,13 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         // Resume by replaying the gap when the client holds no unconfirmed intents and the gap is
         // small; otherwise a snapshot, which carries the decided keys that settle those intents.
         const gap = after !== undefined && after <= engine.currentSeq && engine.currentSeq - after <= 1000 && pending.length === 0
-        if (gap) for (const e of engine.eventsAfter(after)) safeSend(ws, JSON.stringify(e))
-        else safeSend(ws, JSON.stringify(engine.snapshot(a.principal.identity, pending)))
+        if (gap) {
+          for (const e of engine.eventsAfter(after)) if (this.mayReceive(engine.currentState, e, a.principal)) safeSend(ws, JSON.stringify(e))
+        } else safeSend(ws, this.snapshotFor(engine, a.principal, pending))
         return
       }
       case "snapshot.request":
-        safeSend(ws, JSON.stringify(engine.snapshot(a.principal.identity, frame.pending ?? [])))
+        safeSend(ws, this.snapshotFor(engine, a.principal, frame.pending ?? []))
         return
       case "unsubscribe":
         a.subscribed = false

@@ -7,7 +7,15 @@ import Testing
         let keys = Set(AgentPaneTheme.values(.fallback).keys)
         #expect(keys == ["isDark", "pageBackground", "surfaceBackground", "surfaceElevatedBackground", "inputBackground", "border",
                          "borderStrong", "text", "mutedText", "softText", "accent", "accentSoft", "accentText", "danger", "warning", "highlight", "highlightText",
-                         "shadow", "palette"])
+                         "shadow", "palette", "borders"])
+    }
+
+    /// appearance.borders reaches the page as its mode, beside the transparent
+    /// border colors, so the page's own edges follow it too.
+    @Test func sendsTheBorderMode() {
+        let values = AgentPaneTheme.values(.fallback)
+        #expect(values["borders"] as? String == Borders.current.mode.rawValue)
+        #expect((values["border"] as? String == "transparent") == !Borders.drawsLines)
     }
 
     /// The composer's full-access chip needs a caution color that is not

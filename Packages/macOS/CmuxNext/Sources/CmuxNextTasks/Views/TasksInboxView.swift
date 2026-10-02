@@ -26,7 +26,7 @@ struct TasksInboxView: View {
             .frame(minWidth: 320, idealWidth: 460)
             Rectangle().fill(colors.separator).frame(width: 1)
             Group {
-                if let id = model.selection ?? groups.first?.id, let task = model.visibleTasks.first(where: { $0.id == id }) {
+                if let id = model.selection, let task = model.visibleTasks.first(where: { $0.id == id }) {
                     TaskDetailView(task: task, model: model)
                 } else {
                     Color.clear
@@ -34,6 +34,9 @@ struct TasksInboxView: View {
             }
             .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
         }
+        // Pick the first task once; later owner events never change what the
+        // detail shows (only the user's selection does).
+        .onAppear { if model.selection == nil { model.selection = groups.first?.id } }
     }
 
     @ViewBuilder

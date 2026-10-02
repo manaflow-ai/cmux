@@ -12,6 +12,9 @@ use crate::owner::LocalOwner;
 use crate::protocol::{ErrorBody, ErrorCode, Request, ServerLine};
 use crate::store::OpenError;
 
+/// Longest wait for one request's reply.
+const CALL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
 pub enum Conn {
     #[cfg(unix)]
     Socket {
@@ -61,6 +64,14 @@ impl Conn {
         }
         #[cfg(not(unix))]
         let _ = after;
+    }
+
+    /// Wait without a deadline (unbounded `task watch`).
+    pub fn clear_deadline(&mut self) {
+        #[cfg(unix)]
+        if let Conn::Socket { reader, .. } = self {
+            let _ = reader.get_ref().set_read_timeout(None);
+        }
     }
 
     pub fn is_in_process(&self) -> bool {
@@ -121,6 +132,7 @@ impl Conn {
             Conn::Socket { next_id, .. } => {
                 *next_id += 1;
                 let id = *next_id;
+                self.set_deadline(CALL_DEADLINE);
                 let request = Request { id, op: op.to_owned(), params, key, origin: None };
                 let value = serde_json::to_value(&request)
                     .map_err(|e| ErrorBody::new(ErrorCode::Internal, e.to_string()))?;
@@ -129,9 +141,10 @@ impl Conn {
                 loop {
                     match self.read_line()? {
                         ServerLine::Ok { id: rid, ok } if rid == id => reply = Some(Ok(ok)),
-                        ServerLine::Err { id: rid, err } if rid == id || rid == 0 => {
-                            reply = Some(Err(err));
-                        }
+                        ServerLine::Err { id: rid, err } if rid == id => reply = Some(Err(err)),
+                        // A line the owner could not parse has no request id
+                        // and no settle line: fail now instead of waiting.
+                        ServerLine::Err { id: 0, err } => return Err(err),
                         ServerLine::Settled { settled } if settled.id == id => {
                             let reply = reply.unwrap_or_else(|| {
                                 Err(ErrorBody::new(ErrorCode::Internal, "settled without a reply"))

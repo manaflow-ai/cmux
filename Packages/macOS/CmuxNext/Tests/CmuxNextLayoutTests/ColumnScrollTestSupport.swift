@@ -4,7 +4,8 @@ import CmuxNextDesign
 
 /// Builds a strip by hand: columns `c<i>` (or `ids`) with one pane `p<i>`
 /// each, laid left to right with `gap` before, between and after them.
-func makeStrip(_ widths: [CGFloat], ids: [String]? = nil, viewport: CGFloat = 1000, gap: CGFloat = 8) -> ColumnStrip {
+/// Nonisolated: the model checks build strips off the main actor.
+nonisolated func makeStrip(_ widths: [CGFloat], ids: [String]? = nil, viewport: CGFloat = 1000, gap: CGFloat = 8) -> ColumnStrip {
     var x = gap
     var columns: [ColumnStrip.Column] = []
     for (index, width) in widths.enumerated() {

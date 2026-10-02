@@ -53,7 +53,7 @@ const merged = (base: TeamIntegrationPolicy, f: PolicyFields, source: TeamIntegr
   allowed_providers: f.allowed_providers !== undefined ? f.allowed_providers : base.allowed_providers,
   github: { ...base.github, ...(f.github ?? {}) },
   source,
-  locked: source === "sso" || source === "mdm",
+  locked: source === "sso" || source === "mdm" || source === "team_policy",
   updated_at: now,
   updated_by: by
 })
@@ -194,7 +194,7 @@ export const connectionsDomain: Domain<ConnectionsState> = {
       }
 
       case "integration.policy.apply_managed": {
-        const d = decodeParams<{ source: "sso" | "mdm"; policy: PolicyFields; applied_by: string }>(internalByName.get(op)!, params)
+        const d = decodeParams<{ source: "sso" | "mdm" | "team_policy"; policy: PolicyFields; applied_by: string }>(internalByName.get(op)!, params)
         if (!d.ok) return d
         // A managed policy starts from the default (not from admin edits) and locks.
         const next = merged(DEFAULT_INTEGRATION_POLICY, d.value.policy, d.value.source, d.value.applied_by, ctx.now)
