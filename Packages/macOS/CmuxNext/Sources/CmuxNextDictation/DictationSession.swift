@@ -106,9 +106,18 @@ public final class DictationSession {
         onUpdate?(DictationUpdate(phase: .idle, cancelled: true))
     }
 
+    /// Anything still held for a session: the engine, its tasks, the stop deadline.
+    /// False whenever the phase is startable (tests check nothing leaks).
+    public var holdsResources: Bool {
+        transcriber != nil || listening != nil || levels != nil || deadline.isScheduled
+    }
+
     private func listen(_ session: Int) async {
         guard await authorizeMicrophone(), session == generation else {
-            if session == generation { set(.denied(.microphone)) }
+            if session == generation {
+                listening = nil
+                set(.denied(.microphone))
+            }
             return
         }
         let meter = DictationAudioLevelMeter()
@@ -176,6 +185,8 @@ public final class DictationSession {
         endLevels()
         finishEngine()
         transcriber = nil
+        // Keep the words on screen when it fails mid-phrase.
+        if let delta = transcript.commitTrailingVolatileText() { committed += delta }
         let failure = error as? DictationFailure ?? .transcriptionFailed(String(describing: error))
         switch failure {
         case .microphoneAccessDenied: set(.denied(.microphone), text: committed)

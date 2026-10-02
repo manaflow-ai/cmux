@@ -13,18 +13,31 @@ public nonisolated enum AgentPaneDictationCommand: Equatable, Sendable {
     case openSettings(DictationPermission)
 }
 
+/// The microphone the agent panes share: at most one listens at a time.
+final class DictationMicrophone {
+    static let shared = DictationMicrophone()
+    /// The pane that listens now, if any.
+    weak var listening: AgentPaneDictation?
+
+    /// Stops whichever pane listens, keeping its words. False when none does.
+    @discardableResult
+    func stopListening() -> Bool {
+        guard let listening, !listening.phase.isStartable else { return false }
+        listening.handle(.stop)
+        return true
+    }
+}
+
 /// One agent pane's dictation. The session is made on first use and lives
 /// with the pane; between sessions nothing runs (no engine, tap, level
-/// stream or monitor). Each change goes to the page as
+/// stream, monitor or observer). Each change goes to the page as
 /// `cmuxAcpmuxBridge.dictation(update)`, which splices the text at the
 /// composer's cursor.
 ///
 /// One microphone at a time: starting in one pane stops the other pane's
 /// session, keeping its text.
 final class AgentPaneDictation {
-    /// The pane that listens now, if any.
-    private static weak var listening: AgentPaneDictation?
-
+    private let microphone: DictationMicrophone
     private let makeSession: () -> DictationSession
     private var session: DictationSession?
     /// Delivers a script to the page.
@@ -32,15 +45,28 @@ final class AgentPaneDictation {
     /// Opens a URL (System Settings).
     var open: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
-    /// The held shortcut's key while hold-to-talk may still apply: a press
-    /// that lasts longer than ``holdThreshold`` stops on release; a quick
-    /// press leaves dictation running until the next press.
-    private var held: (keyCode: UInt16, pressedAt: TimeInterval)?
+    /// The held shortcut while hold-to-talk may still apply: a press that
+    /// lasts longer than ``holdThreshold`` stops on release; a quick press
+    /// leaves dictation running until the next press.
+    private var held: (keyCode: UInt16, chord: NSEvent.ModifierFlags, pressedAt: TimeInterval)?
     private var keyUpMonitor: Any?
+    /// Ends the hold when the app loses focus: the release goes elsewhere.
+    private var resignObserver: (any NSObjectProtocol)?
+    /// Stops the session when the Mac sleeps; observed only while a session runs.
+    private var sleepObserver: (any NSObjectProtocol)?
+    /// Where sleep is announced (tests post their own).
+    var sleepNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter
+    /// The event clock (`NSEvent.timestamp`'s), for telling a fresh key press from a stale one.
+    var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     static let holdThreshold: TimeInterval = 0.35
 
-    init(evaluate: @escaping (String) -> Void, makeSession: @escaping () -> DictationSession = { DictationSession() }) {
+    init(
+        evaluate: @escaping (String) -> Void,
+        microphone: DictationMicrophone = .shared,
+        makeSession: @escaping () -> DictationSession = { DictationSession() }
+    ) {
         self.evaluate = evaluate
+        self.microphone = microphone
         self.makeSession = makeSession
     }
 
@@ -61,46 +87,82 @@ final class AgentPaneDictation {
         }
     }
 
-    /// The Toggle Dictation shortcut. A press starts or stops; holding the
-    /// key past ``holdThreshold`` makes it push-to-talk, stopping on
-    /// release. Key repeats while held do nothing.
+    /// Toggle Dictation. From its shortcut, a press starts or stops; holding
+    /// the key past ``holdThreshold`` makes it push-to-talk, stopping on
+    /// release. Key repeats while held do nothing. Any other event (the
+    /// palette's Return, a stale one behind a menu or CLI call) is a plain toggle.
     func toggle(from event: NSEvent?) {
-        if let event, event.type == .keyDown, event.isARepeat { return }
+        let press = shortcutPress(event)
+        if press?.isARepeat == true { return }
         let starting = phase.isStartable
         handle(.toggle)
-        guard starting, let event, event.type == .keyDown, !phase.isStartable else { return }
+        guard starting, let press, !phase.isStartable else { return }
         endHold()
-        held = (event.keyCode, event.timestamp)
+        held = (press.keyCode, Self.chord(press.modifierFlags), press.timestamp)
         keyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
             self?.keyUp(event)
             return event
         }
+        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.endHold() }
+        }
     }
 
-    private func keyUp(_ event: NSEvent) {
+    /// A key-down that is a modifier chord pressed just now, or nil.
+    private func shortcutPress(_ event: NSEvent?) -> NSEvent? {
+        guard let event, event.type == .keyDown, !Self.chord(event.modifierFlags).isEmpty,
+              now() - event.timestamp < 0.5 else { return nil }
+        return event
+    }
+
+    private static func chord(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+        flags.intersection([.command, .control, .option])
+    }
+
+    func keyUp(_ event: NSEvent) {
         guard let held, event.keyCode == held.keyCode else { return }
-        let duration = event.timestamp - held.pressedAt
         endHold()
-        if duration >= Self.holdThreshold { session?.stop() }
+        // The chord was let go first, or this is a later plain key (the
+        // press's release went elsewhere): not a push-to-talk release.
+        guard Self.chord(event.modifierFlags) == held.chord else { return }
+        if event.timestamp - held.pressedAt >= Self.holdThreshold { session?.stop() }
     }
 
     private func endHold() {
         held = nil
         if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor) }
         keyUpMonitor = nil
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        resignObserver = nil
     }
 
     /// The pane closed: drop any session and its text.
     func close() {
         endHold()
+        endSleepWatch()
         session?.cancel()
         session?.onUpdate = nil
     }
 
+    /// Whether anything is still armed for a session (tests check nothing leaks).
+    var holdsResources: Bool {
+        keyUpMonitor != nil || resignObserver != nil || sleepObserver != nil || session?.holdsResources == true
+    }
+
     private func start() {
-        if let other = Self.listening, other !== self { other.session?.stop() }
-        Self.listening = self
+        if let other = microphone.listening, other !== self { other.session?.stop() }
+        microphone.listening = self
         activeSession().start()
+        if !phase.isStartable, sleepObserver == nil {
+            sleepObserver = sleepNotifications.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.session?.stop() }
+            }
+        }
+    }
+
+    private func endSleepWatch() {
+        if let sleepObserver { sleepNotifications.removeObserver(sleepObserver) }
+        sleepObserver = nil
     }
 
     private func activeSession() -> DictationSession {
@@ -114,7 +176,8 @@ final class AgentPaneDictation {
     private func deliver(_ update: DictationUpdate) {
         if update.phase.isStartable {
             endHold()
-            if Self.listening === self { Self.listening = nil }
+            endSleepWatch()
+            if microphone.listening === self { microphone.listening = nil }
         }
         guard let script = Self.script(update) else { return }
         evaluate(script)

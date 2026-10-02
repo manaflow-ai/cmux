@@ -168,6 +168,14 @@ public final class AgentPaneView: NSView {
         dictation.toggle(from: event)
     }
 
+    /// Stops whichever agent pane is dictating, keeping its words, so the
+    /// shortcut ends a session started in a tab that is no longer in front.
+    /// False when none is.
+    @discardableResult
+    public static func stopDictation() -> Bool {
+        DictationMicrophone.shared.stopListening()
+    }
+
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
         dictation.close()
@@ -178,6 +186,12 @@ public final class AgentPaneView: NSView {
         removeFromSuperview()
     }
 
+    /// Another tab took the pane: stop listening, keep the words.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        dictation.handle(.stop)
+    }
+
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()
@@ -185,12 +199,16 @@ public final class AgentPaneView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
+        if window == nil { dictation.handle(.stop) }
         applyTheme()
     }
 
     /// Reloads the page after its web content process crashed, unless it
     /// keeps crashing; then the pane says so and waits for the user.
     func webContentProcessDidTerminate() {
+        // The composer that held the session's words is gone.
+        dictation.handle(.cancel)
         if crashReloads.shouldReload(at: .now) {
             source.load(into: webView)
         } else {

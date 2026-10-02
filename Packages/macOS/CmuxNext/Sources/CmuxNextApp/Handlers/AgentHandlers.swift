@@ -31,10 +31,12 @@ enum AgentHandlers {
             pane.newAgentTab()
         }
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
-        // is push-to-talk.
+        // is push-to-talk. Outside an agent chat it stops a session still
+        // running in one.
         registry.bind("palette.toggleDictation", invoke: { invocation in
             guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
                   let view = context.services.agentTabs.existingView(key) else {
+                if AgentPaneView.stopDictation() { return }
                 return context.refuse(MiscHandlerStrings.noAgentChat)
             }
             view.toggleDictation()

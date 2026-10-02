@@ -64,13 +64,9 @@ private final class Harness {
 
     var last: DictationUpdate? { updates.last }
 
-    /// Waits until `condition` holds, yielding to the session's tasks.
-    func until(_ condition: () async -> Bool) async {
-        for _ in 0..<2_000 {
-            if await condition() { return }
-            await Task.yield()
-        }
-        Issue.record("condition never held; last update \(String(describing: last))")
+    /// Waits until `condition` holds.
+    func until(_ condition: @MainActor () async -> Bool) async {
+        await eventually("last update \(String(describing: last))", condition)
     }
 
     func untilPhase(_ phase: DictationPhase) async {
@@ -217,10 +213,12 @@ struct DictationSessionTests {
         harness.session.start()
         await harness.untilPhase(.listening)
         await harness.engine.send(.final("first part"))
-        await harness.until { harness.last?.text == "first part" }
+        await harness.engine.send(.partial("and the"))
+        await harness.until { harness.last?.text == "first part and the" }
         await harness.engine.fail(.audioCaptureFailed("unplugged"))
         await harness.untilPhase(.failed(.audioCaptureFailed("unplugged")))
-        #expect(harness.last?.text == "first part")
+        // The live words stay too: the composer keeps what was on screen.
+        #expect(harness.last?.text == "first part and the")
         await harness.until { await harness.engine.finishCount == 1 }
     }
 

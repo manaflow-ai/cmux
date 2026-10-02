@@ -23,8 +23,13 @@ private actor SilentEngine: SpeechTranscribing {
         return stream
     }
 
-    func finishTranscribing() async { continuation?.finish() }
+    private(set) var finishes = 0
+    func finishTranscribing() async {
+        finishes += 1
+        continuation?.finish()
+    }
     func say(_ text: String) { continuation?.yield(.final(text)) }
+    func hear(_ text: String) { continuation?.yield(.partial(text)) }
 }
 
 @MainActor
@@ -98,14 +103,35 @@ private actor SilentEngine: SpeechTranscribing {
         #expect(opened == [AgentPaneDictation.settingsURL(.microphone)])
     }
 
+    /// A pane with its own microphone, so parallel tests never stop each other.
+    private static func pane(
+        _ engine: SilentEngine, microphone: DictationMicrophone = DictationMicrophone(), scripts: @escaping (String) -> Void = { _ in }
+    ) -> AgentPaneDictation {
+        _ = NSApplication.shared
+        let dictation = AgentPaneDictation(evaluate: scripts, microphone: microphone) {
+            DictationSession(authorizer: GrantingAuthorizer(), makeTranscriber: { _ in engine })
+        }
+        dictation.sleepNotifications = NotificationCenter()
+        dictation.now = { 100 }
+        return dictation
+    }
+
+    /// The Toggle Dictation chord (Ctrl-Cmd-V) going down or up at `time`.
+    private static func key(
+        _ type: NSEvent.EventType, at time: TimeInterval, isRepeat: Bool = false, modifiers: NSEvent.ModifierFlags = [.control, .command]
+    ) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(
+            with: type, location: .zero, modifierFlags: modifiers, timestamp: time, windowNumber: 0,
+            context: nil, characters: "v", charactersIgnoringModifiers: "v", isARepeat: isRepeat, keyCode: 9
+        ))
+    }
+
     /// Text reaches the page through the bridge hook, and a cancel tells it
     /// to drop the text.
     @Test func sessionUpdatesReachThePage() async {
         let engine = SilentEngine()
         var scripts: [String] = []
-        let dictation = AgentPaneDictation(evaluate: { scripts.append($0) }) {
-            DictationSession(authorizer: GrantingAuthorizer(), makeTranscriber: { _ in engine })
-        }
+        let dictation = Self.pane(engine) { scripts.append($0) }
         dictation.handle(.toggle)
         await until { dictation.phase == .listening }
         await engine.say("hello")
@@ -113,19 +139,17 @@ private actor SilentEngine: SpeechTranscribing {
         dictation.handle(.cancel)
         #expect(dictation.phase == .idle)
         #expect(scripts.last?.contains("\"cancelled\":true") == true)
+        await until { await engine.finishes >= 1 && !dictation.holdsResources }
     }
 
     /// One microphone at a time: starting a second pane stops the first,
     /// which keeps its text.
     @Test func startingAnotherPaneStopsTheFirst() async {
         let first = SilentEngine(), second = SilentEngine()
+        let microphone = DictationMicrophone()
         var firstScripts: [String] = []
-        let a = AgentPaneDictation(evaluate: { firstScripts.append($0) }) {
-            DictationSession(authorizer: GrantingAuthorizer(), makeTranscriber: { _ in first })
-        }
-        let b = AgentPaneDictation(evaluate: { _ in }) {
-            DictationSession(authorizer: GrantingAuthorizer(), makeTranscriber: { _ in second })
-        }
+        let a = Self.pane(first, microphone: microphone) { firstScripts.append($0) }
+        let b = Self.pane(second, microphone: microphone)
         a.handle(.start)
         await until { a.phase == .listening }
         await first.say("kept")
@@ -134,36 +158,140 @@ private actor SilentEngine: SpeechTranscribing {
         await until { a.phase == .idle && b.phase == .listening }
         #expect(firstScripts.last?.contains("\"cancelled\":false") == true)
         #expect(firstScripts.last?.contains("\"text\":\"kept\"") == true)
+        #expect(microphone.listening === b)
         b.close()
+        await until { !a.holdsResources && !b.holdsResources }
+        #expect(await first.finishes >= 1)
+        #expect(await second.finishes >= 1)
+    }
+
+    /// The shortcut pressed outside an agent chat stops the pane that still
+    /// listens; with none listening there is nothing to stop.
+    @Test func theSharedMicrophoneStopsWhicheverPaneListens() async {
+        let engine = SilentEngine()
+        let microphone = DictationMicrophone()
+        #expect(!microphone.stopListening())
+        let dictation = Self.pane(engine, microphone: microphone)
+        dictation.handle(.start)
+        await until { dictation.phase == .listening }
+        #expect(microphone.stopListening())
+        await until { dictation.phase == .idle && !dictation.holdsResources }
+        #expect(microphone.listening == nil)
+        #expect(!microphone.stopListening())
     }
 
     /// Holding the shortcut repeats its key down; only the first press
     /// toggles, so a held key keeps listening.
     @Test func keyRepeatsWhileHeldDoNotToggle() async throws {
         let engine = SilentEngine()
-        let dictation = AgentPaneDictation(evaluate: { _ in }) {
-            DictationSession(authorizer: GrantingAuthorizer(), makeTranscriber: { _ in engine })
-        }
-        func key(repeat: Bool) throws -> NSEvent {
-            try #require(NSEvent.keyEvent(
-                with: .keyDown, location: .zero, modifierFlags: [.control, .command], timestamp: 1, windowNumber: 0,
-                context: nil, characters: "v", charactersIgnoringModifiers: "v", isARepeat: repeat, keyCode: 9
-            ))
-        }
-        dictation.toggle(from: try key(repeat: false))
+        let dictation = Self.pane(engine)
+        dictation.toggle(from: try Self.key(.keyDown, at: 100))
         await until { dictation.phase == .listening }
-        dictation.toggle(from: try key(repeat: true))
-        dictation.toggle(from: try key(repeat: true))
+        dictation.toggle(from: try Self.key(.keyDown, at: 100.1, isRepeat: true))
+        dictation.toggle(from: try Self.key(.keyDown, at: 100.2, isRepeat: true))
         #expect(dictation.phase == .listening)
         dictation.close()
         #expect(dictation.phase == .idle)
+        await until { !dictation.holdsResources }
     }
 
-    private func until(_ condition: () -> Bool) async {
-        for _ in 0..<2_000 {
-            if condition() { return }
-            await Task.yield()
+    /// Push-to-talk: released after a moment, it stops mid-phrase and keeps
+    /// the words heard so far.
+    @Test func releasingAHeldShortcutStopsAndKeepsTheWords() async throws {
+        let engine = SilentEngine()
+        var scripts: [String] = []
+        let dictation = Self.pane(engine) { scripts.append($0) }
+        dictation.toggle(from: try Self.key(.keyDown, at: 100))
+        await until { dictation.phase == .listening }
+        await engine.say("open the")
+        await engine.hear("settings")
+        await until { scripts.last?.contains("open the settings") == true }
+        dictation.keyUp(try Self.key(.keyUp, at: 101))
+        await until { dictation.phase == .idle }
+        #expect(scripts.last?.contains("\"state\":\"idle\"") == true)
+        #expect(scripts.last?.contains("\"text\":\"open the settings\"") == true)
+        await until { !dictation.holdsResources }
+    }
+
+    /// A quick tap is a toggle: dictation keeps listening after the release.
+    @Test func aQuickTapKeepsListening() async throws {
+        let engine = SilentEngine()
+        let dictation = Self.pane(engine)
+        dictation.toggle(from: try Self.key(.keyDown, at: 100))
+        await until { dictation.phase == .listening }
+        dictation.keyUp(try Self.key(.keyUp, at: 100.1))
+        #expect(dictation.phase == .listening)
+        dictation.toggle(from: try Self.key(.keyDown, at: 102))
+        await until { dictation.phase == .idle && !dictation.holdsResources }
+    }
+
+    /// The press's release went elsewhere (a permission prompt, another
+    /// app): typing a plain "v" later must not stop dictation.
+    @Test func aLaterPlainKeyIsNotTheShortcutsRelease() async throws {
+        let engine = SilentEngine()
+        let dictation = Self.pane(engine)
+        dictation.toggle(from: try Self.key(.keyDown, at: 100))
+        await until { dictation.phase == .listening }
+        dictation.keyUp(try Self.key(.keyUp, at: 103, modifiers: []))
+        #expect(dictation.phase == .listening)
+        // The hold is over: a later chord release does nothing either.
+        dictation.keyUp(try Self.key(.keyUp, at: 104))
+        #expect(dictation.phase == .listening)
+        dictation.close()
+        await until { !dictation.holdsResources }
+    }
+
+    /// A stale event behind a palette, menu or CLI call is a plain toggle:
+    /// no hold, and a stale repeat does not swallow the command.
+    @Test func staleEventsArePlainToggles() async throws {
+        let engine = SilentEngine()
+        let dictation = Self.pane(engine)
+        dictation.toggle(from: try Self.key(.keyDown, at: 50, isRepeat: true))
+        await until { dictation.phase == .listening }
+        dictation.keyUp(try Self.key(.keyUp, at: 101))
+        #expect(dictation.phase == .listening)
+        // The palette's Return carries no modifier chord.
+        dictation.toggle(from: try Self.key(.keyDown, at: 100, modifiers: []))
+        await until { dictation.phase == .idle && !dictation.holdsResources }
+    }
+
+    /// The Mac going to sleep stops listening and keeps the words; the
+    /// observer exists only while a session runs.
+    @Test func sleepStopsListening() async {
+        let engine = SilentEngine()
+        var scripts: [String] = []
+        let dictation = Self.pane(engine) { scripts.append($0) }
+        #expect(!dictation.holdsResources)
+        dictation.handle(.start)
+        await until { dictation.phase == .listening }
+        #expect(dictation.holdsResources)
+        await engine.say("before sleep")
+        await until { scripts.last?.contains("before sleep") == true }
+        dictation.sleepNotifications.post(name: NSWorkspace.willSleepNotification, object: nil)
+        await until { dictation.phase == .idle && !dictation.holdsResources }
+        #expect(scripts.last?.contains("\"text\":\"before sleep\"") == true)
+        #expect(await engine.finishes >= 1)
+    }
+
+    /// Closing the pane mid-dictation drops the session and lets go of the
+    /// microphone; nothing is left behind.
+    @Test func closingMidDictationReleasesEverything() async throws {
+        let engine = SilentEngine()
+        let dictation = Self.pane(engine)
+        dictation.toggle(from: try Self.key(.keyDown, at: 100))
+        await until { dictation.phase == .listening }
+        dictation.close()
+        #expect(dictation.phase == .idle)
+        await until { await engine.finishes >= 1 && !dictation.holdsResources }
+    }
+
+    private func until(_ condition: @MainActor () async -> Bool) async {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline {
+            if await condition() { return }
+            try? await Task.sleep(for: .milliseconds(1))
         }
+        if await condition() { return }
         Issue.record("condition never held")
     }
 }
