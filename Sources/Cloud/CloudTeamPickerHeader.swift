@@ -76,6 +76,7 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
                     machineActionsMenu
                 }
             }
+            .frame(maxWidth: .infinity)
             .rightSidebarChromeBar()
             .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
             .accessibilityElement(children: .contain)
