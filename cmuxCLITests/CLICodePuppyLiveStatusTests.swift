@@ -15,7 +15,10 @@ struct CLICodePuppyLiveStatusTests {
         ("stop", "Stop", "Idle"),
         ("stop", "SubagentStop", "Idle"),
         ("stop", "Stop", "Code Puppy error"),
-        ("session-end", "SessionEnd", "")
+        ("session-end", "SessionEnd", ""),
+        ("session-update", "PostAutosave", "Existing"),
+        ("session-update", "PostAutosave", "Fresh"),
+        ("session-update", "PostAutosave", "Fresh error")
     ])
     func lifecycleProjectsStatusAndFeed(_ subcommand: String, _ event: String, _ status: String) throws {
         let context = try Harness.makeContext(name: "puppy-status")
@@ -31,8 +34,10 @@ struct CLICodePuppyLiveStatusTests {
             "startedAt": Date.now.timeIntervalSince1970, "updatedAt": Date.now.timeIntervalSince1970,
             "agentLifecycle": "running", "activePromptDepth": subcommand == "prompt-submit" ? 0 : 1
         ]
-        try JSONSerialization.data(withJSONObject: ["version": 1, "sessions": [sessionID: record]])
-            .write(to: storeURL)
+        if !status.hasPrefix("Fresh") {
+            try JSONSerialization.data(withJSONObject: ["version": 1, "sessions": [sessionID: record]])
+                .write(to: storeURL)
+        }
         let handled = Harness.startDeliveryTargetServer(
             context: context, surfacesByWorkspace: [Self.workspace: [Self.surface]],
             pidTarget: (workspaceId: Self.workspace, surfaceId: Self.surface)
@@ -44,7 +49,7 @@ struct CLICodePuppyLiveStatusTests {
             "session_id": sessionID, "hook_event_name": event, "tool_name": "read_file",
             "tool_input": ["path": "README.md"], "tool_result": "file contents", "cwd": context.root.path
         ]
-        if status == "Code Puppy error" {
+        if status == "Code Puppy error" || status == "Fresh error" {
             payloadObject["success"] = false
             payloadObject["error"] = "tool exploded"
         }
@@ -58,7 +63,17 @@ struct CLICodePuppyLiveStatusTests {
         #expect(!result.timedOut)
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         let commands = context.state.snapshot()
-        if subcommand == "session-end" {
+        if subcommand == "session-update" {
+            #expect(!commands.contains { $0.hasPrefix("set_status ") || $0.hasPrefix("clear_agent_pid ") || $0.hasPrefix("agent_journal_append ") })
+            let bindings = commands.compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+            #expect(bindings.contains { $0["method"] as? String == "surface.resume_binding.set" })
+            let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            let sessions = try #require(saved["sessions"] as? [String: Any])
+            let current = try #require(sessions[sessionID] as? [String: Any])
+            #expect(current["isRestorable"] as? Bool == true)
+            #expect(current["agentLifecycle"] as? String == (status == "Existing" ? "running" : (status == "Fresh error" ? "needsInput" : "idle")))
+            #expect(current["activePromptDepth"] as? Int == (status == "Existing" ? 1 : nil))
+        } else if subcommand == "session-end" {
             #expect(commands.contains { $0.hasPrefix("clear_agent_pid code-puppy.") && $0.contains("--clear-status") })
         } else {
             #expect(commands.contains {
@@ -76,7 +91,11 @@ struct CLICodePuppyLiveStatusTests {
                   let params = request["params"] as? [String: Any] else { return nil }
             return params["event"] as? [String: Any]
         }
-        #expect(feedEvents.contains { $0["hook_event_name"] as? String == (event == "SubagentStop" ? "Stop" : event) })
+        if subcommand == "session-update" {
+            #expect(feedEvents.isEmpty)
+        } else {
+            #expect(feedEvents.contains { $0["hook_event_name"] as? String == (event == "SubagentStop" ? "Stop" : event) })
+        }
         if subcommand == "pre-tool-use" || subcommand == "post-tool-use" {
             let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
             let sessions = try #require(saved["sessions"] as? [String: Any])
