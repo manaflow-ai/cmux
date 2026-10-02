@@ -1,5 +1,6 @@
 //! Runs a catalog-gated TypeScript code-mode script through the bundled runner.
 
+use std::borrow::Cow;
 use std::env;
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
@@ -43,6 +44,10 @@ pub(super) fn help() -> &'static str {
     "USAGE\n  cmux run <script.ts> [-- <script args>]\n\nRun a TypeScript cmux script in the locked-down code-mode sandbox.\n"
 }
 
+pub(super) fn scope_help(scope: &str) -> Option<Cow<'static, str>> {
+    (scope == "run").then(|| Cow::Borrowed(help()))
+}
+
 pub(super) fn run(plan: Plan) -> i32 {
     let runner = resolve_runner(std::env::current_exe().ok());
     let mut command = Command::new(runner);
@@ -79,7 +84,7 @@ fn exit_code(status: ExitStatus) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_runner;
+    use super::{help, resolve_runner, scope_help};
     use std::fs;
 
     #[test]
@@ -91,5 +96,20 @@ mod tests {
         fs::write(&installed, b"#!/bin/sh\n").unwrap();
         assert_eq!(resolve_runner(Some(root.join("cmux"))), installed);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn docs_help_routes_before_code_mode_commands() {
+        let args = ["help".to_owned(), "docs".to_owned()];
+        assert!(matches!(
+            crate::cli::parse(&args),
+            Ok(crate::cli::ParsedCommand::Help(Some(scope))) if scope == "docs"
+        ));
+    }
+
+    #[test]
+    fn run_scope_help_is_owned_by_code_mode() {
+        assert_eq!(scope_help("run").as_deref(), Some(help()));
+        assert!(scope_help("docs").is_none());
     }
 }

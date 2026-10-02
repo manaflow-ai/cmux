@@ -113,7 +113,7 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
 
 /// The changes view reads git scopes from whoever runs the session: the acpmux client
 /// (or the mock daemon), else the native host.
-const changesSource: ChangesSource = { scopeDiff: (scope) => callNative("git.scope.diff", { scope }) };
+const changesSource: ChangesSource = { diff: (scope) => callNative("git.diff", { scope, include_patch: true }) };
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
@@ -910,6 +910,9 @@ function AcpmuxPane() {
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
     const RECONNECT_MAX_DELAY_MS = 2_000;
     let reconnect = false;
+    // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
+    // here until a connect succeeds: a first connect that fails retries without it.
+    let pendingPrompt: string | undefined;
     const connectHost = async () => {
       try {
         const host = await callNative<{
@@ -921,6 +924,7 @@ function AcpmuxPane() {
           newSession?: boolean;
           cwd?: string;
           draft?: string;
+          prompt?: string;
           account?: unknown;
           handoffStrings?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
@@ -930,6 +934,7 @@ function AcpmuxPane() {
         setHandoffLabels(localizedHandoffStrings(host.handoffStrings));
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
+        pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
         setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
@@ -974,12 +979,13 @@ function AcpmuxPane() {
           sessionId && !mock
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
+        const send = async (text: string) => {
+          const sessionId = await client.ensureSession();
+          await persistSession(sessionId);
+          return client.send(text);
+        };
         window.cmuxAcpmuxActions = {
-          "chat.send": async ({ text }) => {
-            const sessionId = await client.ensureSession();
-            await persistSession(sessionId);
-            return client.send(String(text ?? ""));
-          },
+          "chat.send": ({ text }) => send(String(text ?? "")),
           "chat.cancel": () => client.cancel(),
           "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
           "chat.model": ({ modelId }) => client.setModel(String(modelId)),
@@ -995,12 +1001,17 @@ function AcpmuxPane() {
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
           "chat.handoff.start": ({ review }) => client.startHandoff(review as HandoffReviewInput),
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
-          "git.scope.diff": ({ scope }) => client.gitScopeDiff(String(scope)),
+          "git.diff": ({ scope }) => client.gitDiff(String(scope)),
           "git.status": () => client.gitStatus(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
         client.snapshot();
+        // Onboarding's first task runs without a Send press, once. If the chat cannot start,
+        // the prompt waits in the composer instead of vanishing.
+        const prompt = pendingPrompt;
+        pendingPrompt = undefined;
+        if (prompt) void send(prompt).catch(() => setDraft(prompt));
       } catch (error) {
         if (!cancelled) {
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));

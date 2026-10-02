@@ -243,7 +243,7 @@ fn parse_command(
     if let Some(command) = docs::command(&command_args, global.clone())? {
         return Ok(command);
     }
-    if let Some(command) = code_mode::command(&command_args, global)? {
+    if let Some(command) = code_mode::command(&command_args, global.clone())? {
         return Ok(command);
     }
     if has_help_option(&command_args) {
@@ -460,10 +460,9 @@ fn scope_help_for(
     scope: &str,
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
-    let text = match scope {
+    let text = code_mode::scope_help(scope).unwrap_or_else(|| match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
         "docs" => Cow::Borrowed(docs::help()),
-        "run" => Cow::Borrowed(code_mode::help()),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
@@ -488,7 +487,7 @@ fn scope_help_for(
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
-    };
+    });
     docs::append_scope_help(scope, text)
 }
 const ROOT_HELP_PROCESS_PREFIX: &str = "\
@@ -591,7 +590,6 @@ fn session_help(
         local_server.session_stop_help, messages.help,
     )
 }
-
 const CLIENT_HELP: &str = "\
 USAGE
   cmux client list
@@ -601,7 +599,6 @@ USAGE
   cmux client <selector> sizing release --terminal <selector>
   cmux client <selector> cell pixels set --width-px <n> --height-px <n>
 ";
-
 const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list
@@ -940,11 +937,10 @@ mod tests {
         assert!(help.contains("cmux help start"));
         assert!(help.starts_with("cmux - "));
         assert!(!help.contains("cmux-tui"));
-        for topic in ["start", "docs"] {
-            assert!(
-                matches!(parse(&strings(&["help", topic])).unwrap(), ParsedCommand::Help(Some(scope)) if scope == topic)
-            );
-        }
+        assert!(matches!(
+            parse(&strings(&["help", "start"])).unwrap(),
+            ParsedCommand::Help(Some(scope)) if scope == "start"
+        ));
     }
     #[test]
     fn remote_invocation_allows_leading_global_options() {

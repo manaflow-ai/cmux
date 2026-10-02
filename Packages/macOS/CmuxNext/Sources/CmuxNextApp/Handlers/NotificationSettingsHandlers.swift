@@ -5,6 +5,8 @@ import os
 /// Notification preference verbs: mute a workspace, banners on or off, and
 /// the dismissal policy. Each applies to `NotificationCenterService` at once
 /// and writes cmux.json, which owns settings (the watcher reapplies it).
+/// Banners and dismissal are schema keys and go through the validated
+/// `setSetting` path; the muted workspace list has no schema entry.
 enum NotificationSettingsHandlers {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
@@ -23,16 +25,17 @@ enum NotificationSettingsHandlers {
         registry.bind("notifications.toggleBanners", run: { _ in
             let next: DesktopNotificationMode = notifications.preferences.desktop == .never ? .unlessFocused : .never
             notifications.preferences.desktop = next
-            write(context, "toggle banners") { try await $0.set(.string(next.rawValue), at: ["notifications", "desktop"]) }
+            context.writeSetting("toggle banners", ["notifications", "desktop"], .string(next.rawValue))
         })
         for mode in NotificationDismissal.allCases {
             registry.bind(ActionID(rawValue: "notifications.dismissal.\(mode.rawValue)"), run: { _ in
                 notifications.preferences.dismissal = mode
-                write(context, "set dismissal") { try await $0.set(.string(mode.rawValue), at: ["notifications", "dismissal"]) }
+                context.writeSetting("set dismissal", ["notifications", "dismissal"], .string(mode.rawValue))
             })
         }
     }
 
+    /// Raw write for `notifications.mutedWorkspaces`, which is not a schema setting.
     private static func write(_ context: AppActionContext, _ label: String,
                               _ body: @escaping @Sendable (SettingsController) async throws -> Void) {
         guard let settings = context.services.settings else { return }

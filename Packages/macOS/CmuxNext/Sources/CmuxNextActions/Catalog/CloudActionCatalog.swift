@@ -67,6 +67,20 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 requires: [.cloudWorkspace], targets: [.machine], cliName: "cloud hand-off-machine"
             ),
             ActionDescriptor(
+                id: "cloudSSH",
+                title: String(localized: "action.cloudSSH", defaultValue: "Open Cloud SSH Terminal", bundle: .module),
+                keywords: ["vm", "cloud", "ssh", "terminal"], category: .cloud, symbol: "terminal",
+                surfaces: [.palette, .contextMenu], targets: [.machine],
+                cliName: "cloud ssh", startsTerminal: true
+            ),
+            ActionDescriptor(
+                id: "cloudExec",
+                title: String(localized: "action.cloudExec", defaultValue: "Run Command on Cloud Machine…", bundle: .module),
+                keywords: ["vm", "cloud", "exec", "command"], category: .cloud, symbol: "terminal.fill",
+                surfaces: [.palette], requires: [.cloudWorkspace], arguments: [CatalogArgument.commandString], targets: [.machine],
+                cliName: "cloud exec", startsTerminal: true
+            ),
+            ActionDescriptor(
                 id: "cloudNewTerminal",
                 title: String(localized: "action.cloudNewTerminal", defaultValue: "New Terminal on Machine", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "apple.terminal", surfaces: [.contextMenu],
