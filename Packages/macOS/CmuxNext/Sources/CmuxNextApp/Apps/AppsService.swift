@@ -25,7 +25,10 @@ final class AppsService {
         registry = AppRegistry(directory: directory)
         storage = AppStorageStore(directory: directory.appending(path: "storage", directoryHint: .isDirectory))
         host = AppHost(sink: sink)
-        host.grants = { [weak self] manifest in self?.grants(for: manifest) ?? [] }
+        host.grants = { [weak self] manifest in
+            self?.registry.app(manifest.id)?.grants ?? AppGrants.Snapshot(scopes: [], sandboxed: true)
+        }
+        registry.onChange = { [weak self] app in self?.host.refreshGrants(app.manifest) }
     }
 
     func start() {
@@ -43,14 +46,6 @@ final class AppsService {
             return try await connection.notificationLedger(limit: 200)
         }
         sink.attach(AppOperationRouter(router: router, storage: storage, ledger: ledger))
-    }
-
-    /// Prototype grants: the manifest's required scopes, for apps the
-    /// registry lets run (first-party samples and `local/` apps only; the
-    /// JSC engine has no OS sandbox). Optional scopes wait for consent UI.
-    func grants(for manifest: AppManifest) -> Set<String> {
-        guard registry.app(manifest.id)?.isActive == true || registry.app(manifest.id) == nil else { return [] }
-        return Set(manifest.scopes.map(\.scope))
     }
 
     /// Posts `<family>.changed` for streams an app listens to, when the
