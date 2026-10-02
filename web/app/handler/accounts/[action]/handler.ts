@@ -27,6 +27,8 @@ export type AccountsDependencies = {
   now?: () => number;
 };
 
+type CurrentSession = { known: true; session: { id: string; refreshToken: string } | null } | { known: false };
+
 const ACTIONS = ["save", "check", "switch", "forget", "forget-all"] as const;
 type Action = (typeof ACTIONS)[number];
 
@@ -53,12 +55,19 @@ export function makeAccountsHandler(dependencies: AccountsDependencies) {
     const body = await readBody(request);
     const sessions = readSessions(request, secret);
 
-    // The browser's own session, read once per request.
-    let currentLookup: Promise<{ id: string; refreshToken: string } | null> | null = null;
-    const currentSession = () => (currentLookup ??= dependencies.currentSession(request).catch(() => null));
+    // The browser's own session, read once per request. A failed read is
+    // "unknown", not "signed out": any saved token could be the browser's own,
+    // so nothing is evicted or refreshed until the read succeeds.
+    let currentLookup: Promise<CurrentSession> | null = null;
+    const currentSession = () =>
+      (currentLookup ??= dependencies.currentSession(request).then(
+        (session): CurrentSession => ({ known: true, session }),
+        (): CurrentSession => ({ known: false }),
+      ));
 
     async function keepCurrent(list: SavedSession[]): Promise<SavedSession[]> {
-      const current = await currentSession();
+      const lookup = await currentSession();
+      const current = lookup.known ? lookup.session : null;
       const next = current ? saveSession(list, { id: current.id, refreshToken: current.refreshToken, savedAt: now() }) : list;
       // Newest first, so anything that doesn't fit in one cookie is the oldest.
       return fitToCookie(next, secret!);
@@ -69,7 +78,9 @@ export function makeAccountsHandler(dependencies: AccountsDependencies) {
     // so it is ended too. Never the browser's own session, even if it
     // couldn't be kept in the list: that would sign the browser out.
     async function endEvicted(next: SavedSession[]): Promise<void> {
-      const current = await currentSession();
+      const lookup = await currentSession();
+      if (!lookup.known) return;
+      const current = lookup.session;
       const kept = new Set(next.map((session) => session.refreshToken));
       const evicted = sessions.filter((session) => !kept.has(session.refreshToken) && session.refreshToken !== current?.refreshToken);
       await Promise.all(evicted.map((session) => dependencies.revoke(session.refreshToken).catch(() => {})));
@@ -89,7 +100,10 @@ export function makeAccountsHandler(dependencies: AccountsDependencies) {
       }
 
       case "check": {
-        const current = await currentSession();
+        const lookup = await currentSession();
+        // Unknown: leave every saved account as it is, and let a switch decide.
+        if (!lookup.known) return reply({ signedIn: sessions.map((session) => session.id) }, sessions);
+        const current = lookup.session;
         const checked = await Promise.all(
           sessions.map(async (session): Promise<SavedSession | null> => {
             // The browser's own session is signed in by definition, and a
@@ -153,7 +167,8 @@ export function makeAccountsHandler(dependencies: AccountsDependencies) {
       case "forget-all": {
         // The browser's own session is left to the SDK's sign-out: ending it
         // here first would make that sign-out fail.
-        const current = await currentSession();
+        const lookup = await currentSession();
+        const current = lookup.known ? lookup.session : null;
         const others = sessions.filter((session) => session.refreshToken !== current?.refreshToken);
         await Promise.all(others.map((session) => dependencies.revoke(session.refreshToken).catch(() => {})));
         return reply({ ok: true }, []);

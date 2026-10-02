@@ -61,6 +61,7 @@ type Lookup = { status: "valid"; id: string; tokens: { accessToken: string; refr
 function harness(options: {
   sessions?: typeof a[];
   current?: { id: string; refreshToken: string } | null;
+  currentFails?: boolean;
   lookup?: (refreshToken: string) => Promise<Lookup>;
 } = {}) {
   const revoke = mock(async (refreshToken: string) => {
@@ -76,7 +77,10 @@ function harness(options: {
   );
   const handler = makeAccountsHandler({
     secret: SECRET,
-    currentSession: async () => options.current ?? null,
+    currentSession: async () => {
+      if (options.currentFails) throw new Error("sign-in service unavailable");
+      return options.current ?? null;
+    },
     lookup,
     revoke,
     now: () => 100,
@@ -287,5 +291,25 @@ describe("account session routes: the browser's own session", () => {
 
   test("nothing fits means an empty list, not an oversized cookie", () => {
     expect(fitToCookie([{ id: "user-a", refreshToken: "r".repeat(5000), savedAt: 1 }], SECRET)).toEqual([]);
+  });
+
+  test("when the browser's own session can't be read, nothing is evicted or refreshed", async () => {
+    const full = Array.from({ length: ACCOUNT_HISTORY_LIMIT }, (_, index) => ({ id: `user-${index}`, refreshToken: `r${index}`, savedAt: index }));
+    const switched = harness({
+      sessions: full,
+      currentFails: true,
+      lookup: async () => ({ status: "valid", id: "user-0", tokens: { accessToken: "x", refreshToken: "r0-rotated" } }),
+    });
+    expect((await switched.call("switch", { accountId: "user-0" })).body.status).toBe("ok");
+    expect(switched.revoke).not.toHaveBeenCalled();
+
+    const saved = harness({ sessions: full, currentFails: true });
+    await saved.call("save");
+    expect(saved.revoke).not.toHaveBeenCalled();
+
+    const checked = harness({ sessions: [a, b], currentFails: true });
+    const { body } = await checked.call("check");
+    expect(checked.lookup).not.toHaveBeenCalled();
+    expect(body.signedIn).toEqual(["user-a", "user-b"]);
   });
 });
