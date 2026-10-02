@@ -33,6 +33,19 @@
         "vite-plus": "catalog:",
       },
     },
+    "cli": {
+      "name": "@mux/cli",
+      "version": "0.0.0",
+      "bin": {
+        "mux": "src/main.ts",
+      },
+      "dependencies": {
+        "@mux/brain": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "1.4.2",
+      },
+    },
     "cloud/worker": {
       "name": "@mux/cloud-worker",
       "version": "0.0.0",
@@ -279,6 +292,8 @@
     "@kobalte/utils": ["@kobalte/utils@0.9.2", "", { "dependencies": { "@solid-primitives/event-listener": "^2.2.14", "@solid-primitives/keyed": "^1.2.0", "@solid-primitives/map": "^0.4.7", "@solid-primitives/media": "^2.2.4", "@solid-primitives/props": "^3.1.8", "@solid-primitives/refs": "^1.0.5", "@solid-primitives/utils": "^6.2.1" }, "peerDependencies": { "solid-js": "^1.8.8" } }, "sha512-jRVXr+zsVHxzDXRoh+CDeXzvCsFJ6uiHhqqNQ26Cw9ZsZ3D6nqPUBt1gGVtj2ZPmRL3a9Uk1v8D1aJ8/I12Dow=="],
 
     "@mux/brain": ["@mux/brain@workspace:packages/brain"],
+
+    "@mux/cli": ["@mux/cli@workspace:cli"],
 
     "@mux/cloud-worker": ["@mux/cloud-worker@workspace:cloud/worker"],
 

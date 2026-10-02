@@ -1,0 +1,18 @@
+{
+  "name": "@mux/cli",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "mux": "src/main.ts"
+  },
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@mux/brain": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2"
+  }
+}
