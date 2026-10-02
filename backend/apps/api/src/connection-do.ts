@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { canonicalJson, LEDGER_RETENTION_MS, type OwnerFrame, type Principal, type RejectFrame } from "@cmux/ownership"
 import { cloudOpByName, type Connection, type IntegrationProvider } from "@cmux/protocol"
-import { connectionsDomain, githubRepoAllowed, mayUse, policyOf, type ConnectionsState } from "./domains/connections.ts"
+import { connectionsDomain, githubRepoAllowed, mayUse, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
 import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
 import { aadFor, open, seal, type SealedSecret } from "./integrations/crypto.ts"
@@ -163,7 +163,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     let reply: ExternalReply
     try {
       const value = frame.op === "integration.complete" ? await this.complete(principal, params, frame) : await this.callProvider(principal, frame.op, params)
-      reply = { ...base, ok: true, value, replayed: false, sequence: engine.currentSeq }
+      // Plain JSON only: a provider field that is absent (undefined) must not break the HTTP encoder.
+      reply = { ...base, ok: true, value: JSON.parse(JSON.stringify(value ?? null)) as unknown, replayed: false, sequence: engine.currentSeq }
     } catch (e) {
       if (e instanceof ProviderError) reply = fail(e.code === "needs_reauth" ? "integration.unavailable" : e.code, e.message, e.retryable && e.code !== "mutation.indeterminate")
       else {
@@ -186,7 +187,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const impl = providers[c.provider]
     if (!impl.configured(this.env) || !this.env.INTEGRATIONS_KEK) throw new ProviderError("integration.unavailable", `${c.provider} is not configured`)
     const policy = policyOf(this.boundEngine!.currentState)
-    if (policy.allowed_providers !== null && !policy.allowed_providers.includes(c.provider)) throw new ProviderError("integration.state_invalid", `the team policy does not allow ${c.provider}`)
+    if (!providerAllowed(policy, c.provider)) throw new ProviderError("policy.denied", `the team policy does not allow ${c.provider}`)
     const approved = await impl.complete(this.env, this.http, {
       policy: { githubScope: policy.github.scope, requireOrgAdmin: policy.github.require_org_admin },
       ...(typeof params.code === "string" ? { code: params.code } : {}),
@@ -243,6 +244,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const c = this.boundEngine!.currentState.connections[String(params.connection)]
     if (!provider || !c || !mayUse(c, principal) || c.provider !== provider) throw new ProviderError("provider.error", "connection not found for this provider")
     if (c.status !== "active") throw new ProviderError("integration.unavailable", `connection is ${c.status}`)
+    if (!providerAllowed(policyOf(this.boundEngine!.currentState), c.provider)) throw new ProviderError("policy.denied", `the team policy does not allow ${c.provider}`)
     if (provider === "github" && typeof params.repo === "string" && !githubRepoAllowed(c, policyOf(this.boundEngine!.currentState), params.repo)) {
       throw new ProviderError("policy.denied", `this connection may not act on ${params.repo} (team policy or the linking user's access)`)
     }
@@ -270,6 +272,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (!bound || bound.entity !== entity) return { status: "dropped", runs: 0 }
     const c = this.bind(entity).currentState.connections[connection]
     if (!c || c.status !== "active" || c.account?.key !== event.account) return { status: "dropped", runs: 0 }
+    if (!providerAllowed(policyOf(this.boundEngine!.currentState), c.provider)) return { status: "dropped", runs: 0 }
     // GitHub events from repositories outside the connection's scope never start automations.
     const repo = (event.payload as { repository?: { full_name?: unknown } } | null)?.repository?.full_name
     if (event.provider === "github" && typeof repo === "string" && !githubRepoAllowed(c, policyOf(this.boundEngine!.currentState), repo)) return { status: "dropped", runs: 0 }

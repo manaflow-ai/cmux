@@ -169,6 +169,8 @@ export const github: ProviderImpl = {
         const batch = ((await json(r)).repositories ?? []) as Array<{ full_name?: string }>
         for (const x of batch) if (typeof x.full_name === "string") repos.push(x.full_name)
         if (batch.length < 100) break
+        // A full last page means more repositories than we record: refuse instead of silently truncating.
+        if (page === MAX_LINKED_REPOS / 100) throw new ProviderError("integration.state_invalid", `this installation gives you more than ${MAX_LINKED_REPOS} repositories; ask a team admin to set the GitHub scope to the whole installation`)
       }
       repos.sort()
     }
@@ -186,7 +188,7 @@ export const github: ProviderImpl = {
     const res = await effectCall(
       http,
       "github",
-      new Request(`${GH_API}/repos/${params.repo}/issues/${params.issue}/comments`, {
+      new Request(`${GH_API}/repos/${String(params.repo).split("/").map(encodeURIComponent).join("/")}/issues/${params.issue}/comments`, {
         method: "POST",
         headers: { ...ghHeaders(token), "content-type": "application/json" },
         body: JSON.stringify({ body: params.body })

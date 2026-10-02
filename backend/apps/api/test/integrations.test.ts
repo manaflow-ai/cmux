@@ -22,7 +22,12 @@ const sessionToken = async (stackUser: string) => {
 }
 const call = async (path: string, token: string, body: unknown) => {
   const res = await worker.fetch(`https://api.test${path}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(body) })
-  return { status: res.status, json: (await res.json()) as any }
+  const text = await res.text()
+  try {
+    return { status: res.status, json: JSON.parse(text) as any }
+  } catch {
+    throw new Error(`${path} ${JSON.stringify(body).slice(0, 200)} -> ${res.status} non-JSON: ${text.slice(0, 200)}`)
+  }
 }
 const op = (token: string, name: string, params: unknown, key: string = crypto.randomUUID()) => call("/v1/ops", token, { op: name, params, idempotency_key: key, origin: "cli" })
 const read = (token: string, name: string, params: unknown = {}) => call("/v1/read", token, { op: name, params })
@@ -331,8 +336,46 @@ describe("connections end to end (workerd)", () => {
     expect(got.json.value).toMatchObject({ source: "mdm", locked: true, allowed_providers: ["github"], github: { require_org_admin: true, repo_allowlist: null } })
     expect((await op(token, "integration.policy.set", { github: { repo_allowlist: null } })).json.error.code).toBe("policy.locked")
     expect((await op(token, "integration.connect", { provider: "slack" })).json.error.code).toBe("policy.denied")
+    // Path segments like ".." never reach the GitHub URL.
+    expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/..", issue: 1, body: "x" })).json.error.code).toBe("validation.invalid")
     // Managed sources cannot be claimed over the API.
     expect((await op(token, "integration.policy.apply_managed", { source: "sso", policy: {}, applied_by: "me" })).status).toBe(400)
+  })
+
+  it("a stricter policy narrows existing connections: installation-scope links and denied providers stop working", async () => {
+    const { token, team } = await signedIn("conn-gh-2")
+    await op(token, "integration.policy.set", { github: { scope: "installation" } })
+    const connect = await op(token, "integration.connect", { provider: "github" })
+    const conn = connect.json.value.connection.id as string
+    const state = new URL(connect.json.value.authorize_url).searchParams.get("state")!
+    const fake = fakeHttp({
+      "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_user" }),
+      "https://api.github.com/user/installations": () => ok({ installations: [{ id: 77, account: { login: "acme", type: "Organization" } }] }),
+      "https://api.github.com/app/installations/77/access_tokens": () => ok({ token: "ghs_x", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201),
+      "https://api.github.com/repos/": () => ok({ id: 1 }, 201)
+    })
+    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
+    await inDO(connections, async (instance) => {
+      instance.http = fake.http
+    })
+    const done = await op(token, "integration.complete", { state, code: "c", installation_id: "77" })
+    expect(done.json.value.resources).toEqual({ repos: null })
+    expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/any", issue: 1, body: "x" })).json.ok).toBe(true)
+    await op(token, "integration.policy.set", { github: { scope: "linking_user_repos" } })
+    expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/any", issue: 2, body: "x" })).json.error.code).toBe("policy.denied")
+    await op(token, "integration.policy.set", { github: { scope: "installation" } })
+    await op(token, "integration.policy.set", { allowed_providers: ["slack"] })
+    expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/any", issue: 3, body: "x" })).json.error.code).toBe("policy.denied")
+  })
+
+  it("GitHub: more than 1000 accessible repositories refuses the link instead of truncating", async () => {
+    const full = { repositories: Array.from({ length: 100 }, (_, i) => ({ full_name: `acme/r${i}` })) }
+    const f = fakeHttp({
+      "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_user" }),
+      "https://api.github.com/user/installations/42/repositories": () => ok(full),
+      "https://api.github.com/user/installations": () => ok({ installations: [{ id: 42, account: { login: "acme", type: "Organization" } }] })
+    })
+    await expect(github.complete(testEnv as any, f.http, { code: "c", installation_id: "42", redirectUri: "x", policy: { githubScope: "linking_user_repos", requireOrgAdmin: false } })).rejects.toThrow(/more than 1000/)
   })
 
   it("refuses forged provider webhooks and answers Slack URL verification", async () => {

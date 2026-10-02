@@ -38,10 +38,9 @@ const repoMatches = (pattern: string, repo: string) => {
  */
 export const githubRepoAllowed = (c: Connection, policy: TeamIntegrationPolicy, repo: string): boolean => {
   const repos = c.resources?.repos
-  if (policy.github.scope === "linking_user_repos" && repos !== null) {
-    // Connections linked before policies have no list: nothing is allowed until re-linked.
-    if (!repos || !repos.some((r) => r.toLowerCase() === repo.toLowerCase())) return false
-  }
+  // Under the default scope a connection needs its recorded list: one linked under installation
+  // scope (null) or before policies (undefined) is narrowed to nothing until it is re-linked.
+  if (policy.github.scope === "linking_user_repos" && !repos?.some((r) => r.toLowerCase() === repo.toLowerCase())) return false
   const allow = policy.github.repo_allowlist
   return allow === null || allow.some((p) => repoMatches(p, repo))
 }
@@ -58,6 +57,10 @@ const merged = (base: TeamIntegrationPolicy, f: PolicyFields, source: TeamIntegr
 
 export const MAX_CONNECTIONS = 50
 const internalByName = new Map(connectionInternalOps.map((d) => [d.name, d]))
+
+/** Whether the team policy allows this connection's provider (checked on every use, not only at link time). */
+export const providerAllowed = (policy: TeamIntegrationPolicy, provider: Connection["provider"]) =>
+  policy.allowed_providers === null || policy.allowed_providers.includes(provider)
 
 /** Who may see and use a connection: private ones only their creator; team ones every member. */
 export const mayUse = (c: Connection, p: Principal) => c.sharing === "team" || c.created_by === p.user

@@ -212,7 +212,7 @@ const Text = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.
 export const GitHubIssueComment = providerOp(
   "github.issue.comment",
   "send-external",
-  Schema.Struct({ connection: ConnectionId, repo: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/)), issue: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 1e9 })), body: Text(65_000) }),
+  Schema.Struct({ connection: ConnectionId, repo: Schema.String.check(Schema.isPattern(/^(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,100}\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/)), issue: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 1e9 })), body: Text(65_000) }),
   "Comment on a GitHub issue or pull request as the cmux GitHub App installation."
 )
 
