@@ -1,22 +1,27 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextControl
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSettings
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let environment: AppEnvironment = {
-        var environment = AppEnvironment.current()
-        environment.marksRun = true
-        return environment
-    }()
+    private let environment: AppEnvironment
+    /// The daemon's first connect attempt, begun in `main`.
+    private let daemonPrestart: DaemonPrestart?
     private var services: AppServices!
     private var settings: SettingsController?
     private let control = AppControl()
     private var cloudContext: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
+
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?) {
+        self.environment = environment
+        self.daemonPrestart = daemonPrestart
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         control.startWatchdog()
@@ -47,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
-                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider())
+                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider(), prestart: daemonPrestart)
         cloudContext = services.startCloud()
         services.ssh.start()
         services.updater.start()

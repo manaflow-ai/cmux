@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextControl
+import CmuxNextDaemon
 import CmuxNextMallocZone
 
 /// Entry point called from the Xcode target's `App/main.swift`.
@@ -28,10 +29,15 @@ public struct CmuxNextApp {
         LaunchIdentity.stripInheritedEnvironment()
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
         LaunchWarmup.start()
+        var environment = AppEnvironment.current()
+        environment.marksRun = true
+        // The daemon connect overlaps AppKit's start (off the main thread).
+        let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+                                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider())
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart)
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         // NSApplication.delegate is weak; keep the delegate alive for the run.

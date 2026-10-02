@@ -1,5 +1,6 @@
 public import Foundation
 import os
+import Synchronization
 
 /// Locates the bundled cmux-tui binary and runs `cmux-tui --session <S>
 /// --json server ensure`, which returns a running owner or spawns a detached
@@ -32,16 +33,22 @@ public struct DaemonLauncher: Sendable {
         /// closed workspace, then ends it so closed tabs never leak PTYs.
         /// An owner that is already running keeps the grace it started with.
         public var terminalReapGraceSeconds: UInt32
+        /// The socket the last connection used (`DaemonSocketMemory`). The
+        /// first endpoint request returns it when it accepts a connection,
+        /// skipping the `server status` spawn; later ones (reconnects) run
+        /// `ensure`, which restarts a crashed daemon.
+        public var rememberedSocket: String?
 
         public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil,
                     runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(),
-                    terminalReapGraceSeconds: UInt32 = 30) {
+                    terminalReapGraceSeconds: UInt32 = 30, rememberedSocket: String? = nil) {
             self.binary = binary
             self.session = session
             self.stateDirectory = stateDirectory
             self.configFile = configFile
             self.runtimeBase = runtimeBase
             self.terminalReapGraceSeconds = terminalReapGraceSeconds
+            self.rememberedSocket = rememberedSocket
         }
     }
 
@@ -88,14 +95,16 @@ public struct DaemonLauncher: Sendable {
         tag: String?,
         terminalEnvironment: [String: String],
         bundle: Bundle = .main,
-        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        socketMemory: DaemonSocketMemory = DaemonSocketMemory()
     ) throws -> DaemonLauncher {
         let tag = tag.flatMap { $0.isEmpty ? nil : $0 }
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
         let session = try sessionName(tag: tag)
         let stateDirectory = tag.map { tagStateDirectory(tag: $0) }
-        let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory)
+        let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
+                                          rememberedSocket: socketMemory.socket(session: session))
         let cache = LoginEnvironmentCache.shared
         var overrides = terminalEnvironment
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
@@ -250,7 +259,16 @@ public struct DaemonLauncher: Sendable {
     /// Endpoint provider for `DaemonConnection`: every (re)connect re-runs
     /// `ensure`, which restarts a crashed daemon.
     public var endpointProvider: DaemonConnection.EndpointProvider {
-        { try await ensure().endpoint }
+        let remembered = Mutex(configuration.rememberedSocket)
+        return {
+            if let path = remembered.withLock({ $0.take() }) {
+                if DaemonSocketMemory.acceptsConnections(path) {
+                    DaemonLaunchTimings.shared.mark("daemon.remembered_socket")
+                    return DaemonEndpoint(socketPath: path)
+                }
+            }
+            return try await ensure().endpoint
+        }
     }
 
     /// Build commit of the bundled binary (`cmux 0.1.0 (<commit>; ghostty …)`).

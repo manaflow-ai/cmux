@@ -24,6 +24,14 @@ extension DaemonService {
         launchSnapshotLocation.record(identity.launchSnapshotPath, session: session)
     }
 
+    /// Records the local daemon's socket for the next launch
+    /// (`DaemonSocketMemory`), so it connects without `server status`.
+    func rememberSocket(_ identity: DaemonIdentity, connection: DaemonConnection) async {
+        guard let session = launchSnapshotSession, identity.session == session,
+              let path = await connection.endpoint?.socketPath else { return }
+        DaemonSocketMemory().record(path, session: session)
+    }
+
     /// Waits for the first connection (or for startup to give up): an event,
     /// not a retry, so terminals drawn from the snapshot attach at once.
     func firstConnection() async {

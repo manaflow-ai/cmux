@@ -71,21 +71,29 @@ final class DaemonService {
     /// changing (watched by the connection), the app becoming active, and
     /// for a Cloud machine a network path change. Retries past their timed
     /// budget wait only for these (no polling).
-    @ObservationIgnored let retryWake: RetryWake
+    @ObservationIgnored private(set) var retryWake: RetryWake
     @ObservationIgnored private var activationObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
 
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
     /// the daemon process and to every terminal it creates for this app.
+    /// `prestart` is the first connect attempt `main` began
+    /// (`DaemonService.prestart`); without one the first attempt starts here.
     func start(launch: LaunchIdentity, terminalEnvironment: [String: String],
-               terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String]) {
+               terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
+               prestart: DaemonPrestart? = nil) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
-        do {
-            launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment)
-        } catch {
-            noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
-            return
+        if let prestart {
+            launcher = prestart.launcher
+            retryWake = prestart.wake
+        } else {
+            do {
+                launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment)
+            } catch {
+                noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
+                return
+            }
         }
         if let session = try? DaemonLauncher.sessionName(tag: launch.tag) {
             launchSnapshotSession = session
@@ -94,14 +102,27 @@ final class DaemonService {
         let configuration = DaemonConnection.Configuration(
             retryWake: retryWake,
             terminalEnvironment: terminalEnvironmentProvider)
-        start { DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider) }
+        var first: (@Sendable () async -> DaemonPrestart.Outcome)?
+        if let prestart { first = { @Sendable in await prestart.outcome() } }
+        start(first: first) { DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider) }
+    }
+
+    /// Begins the local daemon's first connect attempt off the main thread,
+    /// at the top of `main`, so it overlaps AppKit's start; `start(launch:…
+    /// prestart:)` takes it over. Nil when the launcher cannot be made (the
+    /// later `start` reports why).
+    nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
+                                     terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String]) -> DaemonPrestart? {
+        guard let launcher = try? DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment) else { return nil }
+        return DaemonPrestart(launcher: launcher, configuration: DaemonConnection.Configuration(terminalEnvironment: terminalEnvironmentProvider))
     }
 
 
     /// Connects with `makeConnection`, retrying the first connect until it
     /// succeeds (`DaemonStartup`), then mirrors the connection into `store`.
     /// The connection reconnects by itself afterwards.
-    func start(makeConnection: @escaping @Sendable () -> DaemonConnection) {
+    func start(first: (@Sendable () async -> DaemonPrestart.Outcome)? = nil,
+               makeConnection: @escaping @Sendable () -> DaemonConnection) {
         guard runTask == nil else { return }
         let store = store
         armStartupDeadline()
@@ -110,7 +131,8 @@ final class DaemonService {
         runTask = Task { [weak self, scheduler, logger] in
             let clock = self?.startupClock ?? ContinuousClock()
             weak let weakSelf = self
-            let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, makeConnection: makeConnection) { error in
+            let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, first: first,
+                                                               makeConnection: makeConnection) { error in
                 await weakSelf?.noteStartupFailure(error)
             }
             guard let (connection, identity) = connected else { return }
@@ -121,6 +143,8 @@ final class DaemonService {
             self.didConnect(connection, identity: identity)
             self.windowState = WindowStateStore(connection: connection)
             logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
+            // task-owner: one hop to read the endpoint; the store run below owns the connection
+            Task { await self.rememberSocket(identity, connection: connection) }
             await store.run(connection: connection, scheduler: scheduler)
         }
     }
