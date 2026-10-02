@@ -107,6 +107,17 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.textString],
                 cliName: "app search-all-windows", mainMenu: .window
             ),
+            // Opens one palette scope (plans/cmux-next/palette-scopes.md):
+            // `cmux palette open --arg scope=tabs --focus`. CLI and MCP runs
+            // need focus (the palette takes the keyboard); agents read rows
+            // with the `palette.query` socket method instead.
+            ActionDescriptor(
+                id: "palette.open",
+                title: String(localized: "action.palette.open", defaultValue: "Open Palette Scope…", bundle: .module),
+                keywords: ["palette", "scope", "search in"], category: .window, symbol: "square.grid.2x2",
+                surfaces: [.palette, .keyboard], arguments: [CatalogArgument.scopeString, CatalogArgument.queryString],
+                cliName: "palette open", surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "commandPalette",
                 title: String(localized: "action.commandPalette", defaultValue: "Command Palette…", bundle: .module),

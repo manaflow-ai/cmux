@@ -9432,6 +9432,268 @@
           }
         }
       }
+    },
+    "palette.scope.refusal.needsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A palette scope opens only when focus is requested; read rows with palette.query"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレットのスコープはフォーカスを要求したときだけ開きます。行は palette.query で読み取ってください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يُفتح نطاق اللوحة فقط عند طلب التركيز؛ اقرأ الصفوف باستخدام palette.query"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opseg palete se otvara samo kada se zatraži fokus; redove čitajte pomoću palette.query"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et paletområde åbnes kun, når der anmodes om fokus; læs rækker med palette.query"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Palettenbereich öffnet sich nur, wenn Fokus angefordert wird; Zeilen mit palette.query lesen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un ámbito de la paleta solo se abre cuando se solicita el foco; lee las filas con palette.query"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une portée de la palette ne s’ouvre que si le focus est demandé ; lisez les lignes avec palette.query"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un ambito della palette si apre solo se si richiede il focus; leggi le righe con palette.query"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វិសាលភាពផ្ទាំងបញ្ជាបើកតែពេលស្នើ focus ប៉ុណ្ណោះ; អានជួរដោយ palette.query"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "팔레트 범위는 포커스를 요청할 때만 열립니다. 행은 palette.query로 읽으세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et palettomfang åpnes bare når fokus blir bedt om; les rader med palette.query"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zakres palety otwiera się tylko po żądaniu fokusu; wiersze odczytaj przez palette.query"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um escopo da paleta só abre quando o foco é solicitado; leia as linhas com palette.query"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Область палитры открывается только при запросе фокуса; читайте строки через palette.query"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขอบเขตของพาเลตจะเปิดเมื่อขอโฟกัสเท่านั้น อ่านแถวด้วย palette.query"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Palet kapsamı yalnızca odak istendiğinde açılır; satırları palette.query ile okuyun"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Область палітри відкривається лише на запит фокуса; читайте рядки через palette.query"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phạm vi bảng lệnh chỉ mở khi yêu cầu focus; đọc các hàng bằng palette.query"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅在请求焦点时才会打开面板范围；请用 palette.query 读取行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅在要求焦點時才會開啟面板範圍；請用 palette.query 讀取列"
+          }
+        }
+      }
+    },
+    "palette.scope.refusal.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No palette scope %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレットのスコープ %@ はありません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد نطاق لوحة %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema opsega palete %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet paletområde %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein Palettenbereich %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay ningún ámbito de la paleta %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune portée de palette %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun ambito della palette %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានវិសាលភាពផ្ទាំងបញ្ជា %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "팔레트 범위 %@ 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen palettomfang %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak zakresu palety %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum escopo da paleta %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет области палитры %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีขอบเขตพาเลต %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ adlı palet kapsamı yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає області палітри %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có phạm vi bảng lệnh %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有面板范围 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有面板範圍 %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

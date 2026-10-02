@@ -163,6 +163,13 @@ nonisolated enum CatalogArgument {
     }
 
     /// Optional page to open (`openBrowser`).
+    /// Optional palette scope id (`palette.open`): `tabs`, `workspaces`,
+    /// `app:<id>#<scope>`; the full palette when absent.
+    static var scopeString: ActionArgument {
+        ActionArgument(name: "scope", title: String(localized: "argument.scope", defaultValue: "Scope", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
     /// Optional search text (`tab.search`): the page opens with it typed.
     static var queryString: ActionArgument {
         ActionArgument(name: "query", title: String(localized: "argument.query", defaultValue: "Search", bundle: .module), kind: .string,

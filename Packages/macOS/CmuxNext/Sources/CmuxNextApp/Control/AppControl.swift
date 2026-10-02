@@ -40,6 +40,7 @@ final class AppControl {
         let probe = frameProbe
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
+        service.router.register(PaletteScopeControl.methods(services: services))
         service.router.register(BookmarkControl.methods(services: services))
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
