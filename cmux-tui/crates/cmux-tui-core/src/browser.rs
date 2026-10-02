@@ -14,6 +14,8 @@ use crate::resource::TabResourceIdentity;
 use crate::surface::{Surface, SurfaceMeta, SurfaceOptions};
 use crate::{Mux, MuxEvent, SurfaceId};
 
+mod navigation_hold_tests;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserSource {
     External,
@@ -4107,11 +4109,9 @@ impl BrowserSurface {
     // never be swallowed by a later `Forward` (unlike the latest-wins nav slot),
     // but unlike disposable input they must not be silently dropped: losing a
     // control action the caller asked for is a user-visible action that
-    // vanished. When the queue is full (a wedged/unresponsive worker) report
-    // backpressure as an error instead of a false `ok` so the caller learns the
-    // command was rejected. `try_send` never blocks, so this preserves the
-    // non-blocking contract. URL navigation uses the latest-wins slot instead
-    // (see `enqueue_latest_nav`), where only the final destination matters.
+    // vanished. A full queue (a wedged worker) reports backpressure as an error
+    // instead of a false `ok`; `try_send` never blocks. URL navigation uses the
+    // latest-wins slot (`enqueue_latest_nav`): only the final destination matters.
     fn enqueue_control(&self, command: BrowserCommand) -> anyhow::Result<()> {
         if self.is_dead() {
             anyhow::bail!("browser surface is closed");
