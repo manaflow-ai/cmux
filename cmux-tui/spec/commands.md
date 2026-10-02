@@ -5168,20 +5168,24 @@ Result: `object{messages:[Message]}`
 | status | implemented |
 | since | protocol 12 additive extension; capability `conversation-search-v1` |
 
-Home-only search over the text parts of every message that is not
-retracted, in every local conversation. SQLite triggers in the store keep
-the index, so a daemon without this command keeps it current too. Every word of `query` (at most 200
-characters) must match as a word prefix, case and diacritics ignored; FTS5
-operators in the query are literal text, and a word without a letter or
-digit is ignored. The index row is written by the statement that writes the
-message, so an edit or a retraction changes the results with the same commit. Work cards are not indexed. Returns up to
-`limit` (1-100) hits, best match first.
+Home-only search with the read model the cloud owner shares
+(`backend/packages/home-core/conformance/conversation-search-cases.json`):
+a case-insensitive substring (lower case per code point) of the text parts
+of every message that is not retracted, in the conversations where the
+caller's principal is a participant. Work cards are not searched. `query`
+is trimmed, 1-200 characters, no control characters; `limit` is 1-100.
+Hits are ordered newest `created_at` first, then conversation id, then seq
+descending. An edit or a retraction changes the results with its own commit.
 
 Params: `query`, `limit` (both required).
 
 Result: `object{hits:[{conversation, title, seq, message_id, author,
-created_at, snippet}]}`. `snippet` is plain text, about twelve words around
-the match, with `…` where it cuts the message.
+created_at, snippet}]}`. `snippet` is the message text (text parts joined by
+one space, whitespace collapsed), or 120 characters of it centered on the
+match with `…` where it is cut.
+
+Errors: `error_code` `conversation_rejected` with `reason` `invalid_query` or
+`invalid_limit`.
 
 ### conversation-op
 
