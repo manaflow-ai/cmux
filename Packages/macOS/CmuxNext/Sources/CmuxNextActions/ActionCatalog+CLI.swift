@@ -9,7 +9,8 @@
 nonisolated extension ActionCatalog {
     static let cliActionIDs: Set<ActionID> = [
         // Windows
-        "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus",
+        "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "quit", "quitKeepSessions", "quitEndSessions",
+        "quitEndEverything",
         // Workspaces
         "newTab", "newBrowserWorkspace", "openFolder", "reopenClosedWorkspace", "renameWorkspace",
         "palette.clearWorkspaceName", "editWorkspaceDescription", "palette.clearWorkspaceDescription", "closeWorkspace",
@@ -59,10 +60,10 @@ nonisolated extension ActionCatalog {
         "browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault", "browserProfile.setRoomDefault",
         "browserProfile.clearRoomDefault", "browserProfile.moveTab", "browserProfile.duplicateTab",
         // Bookmarks
-        "bookmark.add", "bookmark.newFolder", "bookmark.open", "bookmark.openInNewTab", "bookmark.openAll",
+        "bookmark.addPage", "bookmark.add", "bookmark.newFolder", "bookmark.open", "bookmark.openInNewTab", "bookmark.openAll",
         "bookmark.edit", "bookmark.move", "bookmark.remove", "bookmark.import", "bookmark.export",
         // History
-        "history.reopen", "history.clear", "history.resumeAgentSession",
+        "history.reopen", "history.clear", "history.resumeAgentSession", "history.show", "layout.undo",
         // Terminals
         "terminal.keep", "resetTerminal", "reconnectPane", "resumeCommandSet", "resumeCommandClear", "terminal.setTheme",
         "terminal.clearTheme",
@@ -75,7 +76,7 @@ nonisolated extension ActionCatalog {
         "newCloudWorkspace", "newCloudMachine", "palette.cloud.fork", "palette.cloud.snapshot", "palette.cloud.restore",
         "palette.cloud.promoteTemplate", "palette.cloud.status", "palette.cloud.ports", "palette.cloud.handoff",
         "cloudNewTerminal", "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine", "cloudDiagnostics",
-        "palette.auth.signIn", "palette.auth.signOut", "accounts.connect", "accounts.remove", "accounts.refresh",
+        "palette.auth.signIn", "palette.auth.signOut", "accounts.show", "accounts.connect", "accounts.remove", "accounts.refresh",
         "accounts.reauthenticate", "remote.connect", "remote.newWorkspace", "remote.openTerminalHere", "remote.reconnect",
         "remote.disconnect", "remote.install", "remote.forget",
         // Settings that make sense headless

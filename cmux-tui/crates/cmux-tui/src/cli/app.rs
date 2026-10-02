@@ -24,7 +24,7 @@ use crate::app_identity::AppIdentity;
 
 /// Scopes that belong to the app, whatever follows.
 pub(super) const APP_SCOPES: &[&str] =
-    &["app", "action", "settings", "window", "events", "history", "bookmark"];
+    &["app", "action", "settings", "window", "events", "history", "bookmark", "accounts"];
 
 /// Control-plane requests answer within the app's own 2 s deadline. A run
 /// that waits for its work may wait for a terminal to start (6 s) or for a
@@ -130,6 +130,14 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             }
             call("history.list", Value::Object(params))
         }
+        // The app's AI provider accounts, no secrets (`accounts.list`); the
+        // other `accounts` verbs are app actions.
+        ("accounts", Some("list")) => {
+            if rest.len() > 1 {
+                return Err(UsageError::new(messages.scope_usage.replace("{scope}", scope)));
+            }
+            call("accounts.list", json!({}))
+        }
         // Bookmarks of a browser profile (plans/cmux-next/bookmarks.md).
         ("bookmark", Some(verb @ ("list" | "search"))) => {
             let (text, tail) = read_text(verb, &rest[1..], scope)?;
@@ -173,6 +181,24 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         }
     };
     Ok(Some(command))
+}
+
+/// An action argument's name from its flag: the catalog names arguments in
+/// camelCase (`--keep-sessions` is `keepSessions`).
+fn argument_name(flag: &str) -> String {
+    let mut name = String::with_capacity(flag.len());
+    let mut upper = false;
+    for character in flag.chars() {
+        if character == '-' || character == '_' {
+            upper = true;
+        } else if upper {
+            name.extend(character.to_uppercase());
+            upper = false;
+        } else {
+            name.push(character);
+        }
+    }
+    name
 }
 
 /// The text of a `search <text>` read (none for `list`) and the options
@@ -312,29 +338,35 @@ pub(super) fn run_action(
             }
             _ => {}
         }
+        // `--name value`, `--name=value`, or a bare `--name` (true) when no
+        // value follows (`cmux app quit --keep-sessions`).
         let (name, value) = match name.split_once('=') {
-            Some((name, value)) => (name.to_owned(), value.to_owned()),
-            None => {
-                let value = args.get(index + 1).ok_or_else(|| {
-                    UsageError::new(messages.missing_value.replace("{flag}", flag))
-                })?;
-                index += 1;
-                (name.to_owned(), value.clone())
-            }
+            Some((name, value)) => (name.to_owned(), json!(value)),
+            None => match args.get(index + 1) {
+                Some(value) if !value.starts_with("--") => {
+                    index += 1;
+                    (name.to_owned(), json!(value))
+                }
+                _ if name == "target" || name == "arg" => {
+                    return Err(UsageError::new(messages.missing_value.replace("{flag}", flag)));
+                }
+                _ => (name.to_owned(), json!(true)),
+            },
         };
         index += 1;
         match name.as_str() {
             "target" => {
-                params.insert("target".into(), json!(value));
+                params.insert("target".into(), value);
             }
             "arg" => {
-                let (key, value) = value.split_once('=').ok_or_else(|| {
-                    UsageError::new(messages.arg_shape.replace("{value}", &value))
-                })?;
+                let text = value.as_str().unwrap_or_default();
+                let (key, value) = text
+                    .split_once('=')
+                    .ok_or_else(|| UsageError::new(messages.arg_shape.replace("{value}", text)))?;
                 arguments.insert(key.into(), json!(value));
             }
             _ => {
-                arguments.insert(name.replace('-', "_"), json!(value));
+                arguments.insert(argument_name(&name), value);
             }
         }
     }
@@ -699,9 +731,22 @@ mod tests {
         assert_eq!(params, json!({ "folder": "Work" }));
         assert!(parse(&args(&["history", "search"])).is_err());
         assert!(parse(&args(&["bookmark", "list", "--limit", "0"])).is_err());
+        assert_eq!(call(parse(&args(&["accounts", "list"])).unwrap().unwrap()).0, "accounts.list");
         let (method, params) = call(parse(&args(&["history", "reopen"])).unwrap().unwrap());
         assert_eq!(method, "action.run");
         assert_eq!(params["action"], "history reopen");
+    }
+
+    #[test]
+    fn action_flags_name_camel_case_arguments_and_bare_flags_are_true() {
+        let (_, params) = call(
+            parse(&args(&["app", "quit", "--keep-sessions", "--browser-profile", "work"]))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(params["action"], "app quit");
+        assert_eq!(params["args"], json!({ "keepSessions": true, "browserProfile": "work" }));
+        assert!(parse(&args(&["action", "run", "quit", "--target"])).is_err());
     }
 
     #[test]
