@@ -137,6 +137,8 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ActionDescriptor(id: "cloudFirewallGet", title: "Get Cloud Firewall Rule", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud firewall-get"),
             ActionDescriptor(id: "cloudFirewallCreate", title: "Create Cloud Firewall Rule", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.lefthalf.filled", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud firewall-create"),
             ActionDescriptor(id: "cloudFirewallDelete", title: "Delete Cloud Firewall Rule", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.slash", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString, CatalogArgument.confirmBool], cliName: "cloud firewall-delete", destructive: true),
+            ActionDescriptor(id: "cloudDomainList", title: "List Cloud Domains", keywords: ["cloud", "domain", "dns", "verify"], category: .cloud, symbol: "globe", surfaces: [.palette], cliName: "cloud domain-list"),
+            ActionDescriptor(id: "cloudPublicationList", title: "List Cloud Publications", keywords: ["cloud", "domain", "publication", "tls"], category: .cloud, symbol: "globe.americas", surfaces: [.palette], cliName: "cloud publication-list"),
             ActionDescriptor(
                 id: "cloudNewTerminal",
                 title: String(localized: "action.cloudNewTerminal", defaultValue: "New Terminal on Machine", bundle: .module),
@@ -245,6 +247,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             "cloudFileRemove", "cloudFileStat", "cloudPrepareSCP",
             "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
             "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete",
+            "cloudDomainList", "cloudPublicationList",
         ]
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true

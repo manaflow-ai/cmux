@@ -33,7 +33,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 ## Counts (734 actions)
 
-Palette 731, CLI verbs 431, right-click 422, MCP tools 377.
+Palette 731, CLI verbs 433, right-click 422, MCP tools 379.
 
 ## Menus
 

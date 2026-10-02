@@ -16,6 +16,7 @@ enum CloudHandlers {
         let signedInReason: @MainActor () -> String? = { cloud.unavailableReason ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }
         bindMachineActions(into: registry, context: context, reason: signedInReason)
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
+        bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: signedInReason)
         bindAccount(into: registry, context: context, reason: reason)
         registry.bindUnavailable(["palette.mobileConnect"], ActionFailure(message: CloudStrings.mobilePairing))
