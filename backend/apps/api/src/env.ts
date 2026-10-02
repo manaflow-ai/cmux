@@ -41,6 +41,10 @@ export interface Env {
   readonly SLACK_CLIENT_ID?: string
   readonly SLACK_CLIENT_SECRET?: string
   readonly SLACK_SIGNING_SECRET?: string
+  /** Secret: Freestyle API key for the network reconciler (VPCs, tunnels, firewall rules). Unset: the reconciler records "not configured". */
+  readonly FREESTYLE_API_KEY?: string
+  /** Freestyle API base URL override (default https://api.freestyle.sh). */
+  readonly FREESTYLE_API_URL?: string
   /** PlanetScale `cmux-next` through Hyperdrive (projection writes only). */
   readonly HYPERDRIVE?: Hyperdrive
 }

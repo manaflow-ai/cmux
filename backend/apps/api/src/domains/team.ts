@@ -1,11 +1,14 @@
 import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
+import { NETWORK_OPS, initialNetwork, reduceNetwork, type NetworkState } from "./network.ts"
 
 export interface TeamState {
   readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
   readonly members: Readonly<Record<string, typeof TeamMember.Type>>
   readonly hosts: Readonly<Record<string, typeof Host.Type>>
+  /** Network policy, directory and reconciler status (network.ts). Absent in state written before it existed. */
+  readonly network?: NetworkState
 }
 
 /**
@@ -15,10 +18,11 @@ export interface TeamState {
  * checks membership and the op's principal kind.
  */
 export const teamDomain: Domain<TeamState> = {
-  initial: () => ({ team: null, members: {}, hosts: {} }),
+  initial: () => ({ team: null, members: {}, hosts: {}, network: initialNetwork() }),
 
   authorize: (state, op, _params, principal) => {
-    if (op !== "team.ensure_personal") {
+    // System principals exist only inside this DO (reconciler, revocation notices); admit() limits them to internal ops.
+    if (op !== "team.ensure_personal" && principal.kind !== "system") {
       if (!principal.user || !state.members[principal.user]) return { code: "auth.forbidden", message: "not a member of this team" }
     }
     // The grant lives in UserDO. The Worker asks UserDO on every install call
@@ -28,6 +32,7 @@ export const teamDomain: Domain<TeamState> = {
 
   reduce: (state, op, params, ctx) => {
     const p = ctx.principal
+    if (NETWORK_OPS.has(op)) return reduceNetwork(state, op, params, ctx)
     switch (op) {
       case "team.ensure_personal": {
         if (!p.user || !p.team) return reject("auth.forbidden", "needs a user session")

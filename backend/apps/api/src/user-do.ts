@@ -36,7 +36,16 @@ export class UserDO extends OwnerDO<UserState> {
     if (op !== "install.revoke") return
     const result = frames.find((f) => f.t === "result")
     const revoked = result && result.t === "result" ? (result.value as { id?: string }).id : undefined
-    if (revoked) this.closeSockets((p) => p.install === revoked, "install revoked")
+    if (!revoked) return
+    this.closeSockets((p) => p.install === revoked, "install revoked")
+    // The team network drops the install's tunnel now, not at the next drift check (phase 1: the personal team).
+    const team = this.boundEngine?.currentState.user?.personal_team
+    if (team)
+      this.ctx.waitUntil(
+        this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team))
+          .networkInstallRevoked(team, revoked)
+          .catch((e: unknown) => console.error(JSON.stringify({ msg: "network revoke notice failed", install: revoked, error: String(e) })))
+      )
   }
 
   /** Bound user state, or undefined for an id this object never served (no storage is created). */

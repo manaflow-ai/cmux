@@ -11,6 +11,7 @@
     "deploy:development": "bash ../../scripts/deploy-worker.sh development"
   },
   "dependencies": {
+    "@cmux/network-policy": "workspace:*",
     "@cmux/ownership": "workspace:*",
     "@cmux/protocol": "workspace:*",
     "croner": "10.0.1",

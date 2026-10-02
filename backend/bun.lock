@@ -9,6 +9,7 @@
       "name": "@cmux/api",
       "version": "0.0.0",
       "dependencies": {
+        "@cmux/network-policy": "workspace:*",
         "@cmux/ownership": "workspace:*",
         "@cmux/protocol": "workspace:*",
         "croner": "10.0.1",

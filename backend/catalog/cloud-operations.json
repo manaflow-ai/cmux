@@ -741,6 +741,264 @@
         "slack"
       ]
     },
+    "MachineId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^mach_[a-z0-9_]{1,40}$",
+      "description": "A VPC member machine in the team directory."
+    },
+    "NetworkDevice": {
+      "kind": "object",
+      "fields": {
+        "install": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "InstallId"
+          }
+        },
+        "user": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "wg_public_key": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "WireGuardPublicKey"
+          }
+        },
+        "joined_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "revoked_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "status": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "pending",
+              "ready",
+              "revoked"
+            ]
+          }
+        },
+        "tunnel": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "NetworkDeviceTunnel"
+            }
+          }
+        }
+      }
+    },
+    "NetworkDeviceTunnel": {
+      "kind": "object",
+      "fields": {
+        "tunnel_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "client_config": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "endpoint": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "address_v4": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "address_v6": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "server_public_key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "ready_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      },
+      "description": "WireGuard config with a blank PrivateKey (the device fills it in) and PersistentKeepalive."
+    },
+    "NetworkMachine": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "MachineId"
+          }
+        },
+        "provider_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "owner_user": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          }
+        },
+        "tags": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$"
+            }
+          }
+        },
+        "classes": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "enum",
+              "values": [
+                "mux",
+                "agent",
+                "run"
+              ]
+            }
+          }
+        },
+        "address": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      }
+    },
+    "NetworkPolicyVersion": {
+      "kind": "object",
+      "fields": {
+        "version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "source": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "canonical": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "applied_by": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "applied_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "tests_passed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "rollback_of": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        }
+      }
+    },
     "OpClass": {
       "kind": "enum",
       "values": [
@@ -762,6 +1020,32 @@
         "windows",
         "web"
       ]
+    },
+    "PolicyDocument": {
+      "kind": "primitive",
+      "name": "string",
+      "min_length": 2,
+      "max_length": 131072,
+      "description": "The network policy as JSON (comments and trailing commas allowed)."
+    },
+    "PolicyIssue": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      }
     },
     "PublicJwk": {
       "kind": "object",
@@ -1452,6 +1736,12 @@
           }
         }
       }
+    },
+    "WireGuardPublicKey": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$",
+      "description": "Curve25519 public key, base64. The private key never leaves the device."
     }
   },
   "generics": {
@@ -9093,6 +9383,1993 @@
       },
       "output_json_schema": {
         "$defs": {}
+      }
+    },
+    "network.device.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "network",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "install": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "InstallId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "devices": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "NetworkDevice"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "network device list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "network"
+      },
+      "docs": "The caller's network devices (an install sees itself unless it names another of its user's installs; admins see every device).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "install": {
+            "$ref": "#/$defs/InstallId"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/NetworkDevice"
+            }
+          }
+        },
+        "required": [
+          "devices"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "WireGuardPublicKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{43}=$",
+            "description": "Curve25519 public key, base64. The private key never leaves the device."
+          },
+          "NetworkDeviceTunnel": {
+            "type": "object",
+            "properties": {
+              "tunnel_id": {
+                "type": "string"
+              },
+              "client_config": {
+                "type": "string"
+              },
+              "endpoint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "address_v4": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "address_v6": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "server_public_key": {
+                "type": "string"
+              },
+              "ready_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "tunnel_id",
+              "client_config",
+              "endpoint",
+              "address_v4",
+              "address_v6",
+              "server_public_key",
+              "ready_at"
+            ],
+            "additionalProperties": true,
+            "description": "WireGuard config with a blank PrivateKey (the device fills it in) and PersistentKeepalive."
+          },
+          "NetworkDevice": {
+            "type": "object",
+            "properties": {
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "wg_public_key": {
+                "$ref": "#/$defs/WireGuardPublicKey"
+              },
+              "joined_at": {
+                "type": "integer"
+              },
+              "revoked_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "ready",
+                  "revoked"
+                ]
+              },
+              "tunnel": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/NetworkDeviceTunnel"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "install",
+              "user",
+              "wg_public_key",
+              "joined_at",
+              "revoked_at",
+              "status",
+              "tunnel"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "network.device.join": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "network",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "wg_public_key": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "WireGuardPublicKey"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "NetworkDevice"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "network.no_access",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-own",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "network join",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "network"
+      },
+      "docs": "Join the calling install to the team network with its WireGuard public key. Returns the device; the tunnel config arrives when the reconciler has created the tunnel (status ready, network.device.get or the team stream).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "wg_public_key": {
+            "$ref": "#/$defs/WireGuardPublicKey"
+          }
+        },
+        "required": [
+          "wg_public_key"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "WireGuardPublicKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{43}=$",
+            "description": "Curve25519 public key, base64. The private key never leaves the device."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/NetworkDevice",
+        "$defs": {
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "WireGuardPublicKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{43}=$",
+            "description": "Curve25519 public key, base64. The private key never leaves the device."
+          },
+          "NetworkDeviceTunnel": {
+            "type": "object",
+            "properties": {
+              "tunnel_id": {
+                "type": "string"
+              },
+              "client_config": {
+                "type": "string"
+              },
+              "endpoint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "address_v4": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "address_v6": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "server_public_key": {
+                "type": "string"
+              },
+              "ready_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "tunnel_id",
+              "client_config",
+              "endpoint",
+              "address_v4",
+              "address_v6",
+              "server_public_key",
+              "ready_at"
+            ],
+            "additionalProperties": true,
+            "description": "WireGuard config with a blank PrivateKey (the device fills it in) and PersistentKeepalive."
+          },
+          "NetworkDevice": {
+            "type": "object",
+            "properties": {
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "wg_public_key": {
+                "$ref": "#/$defs/WireGuardPublicKey"
+              },
+              "joined_at": {
+                "type": "integer"
+              },
+              "revoked_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "ready",
+                  "revoked"
+                ]
+              },
+              "tunnel": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/NetworkDeviceTunnel"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "install",
+              "user",
+              "wg_public_key",
+              "joined_at",
+              "revoked_at",
+              "status",
+              "tunnel"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "network.device.revoke": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "network",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "install": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "InstallId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "NetworkDevice"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "network device revoke",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "network"
+      },
+      "docs": "Remove a device from the team network: its tunnel and rules are deleted. The device's user or a team admin.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "install": {
+            "$ref": "#/$defs/InstallId"
+          }
+        },
+        "required": [
+          "install"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/NetworkDevice",
+        "$defs": {
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "WireGuardPublicKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{43}=$",
+            "description": "Curve25519 public key, base64. The private key never leaves the device."
+          },
+          "NetworkDeviceTunnel": {
+            "type": "object",
+            "properties": {
+              "tunnel_id": {
+                "type": "string"
+              },
+              "client_config": {
+                "type": "string"
+              },
+              "endpoint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "address_v4": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "address_v6": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "server_public_key": {
+                "type": "string"
+              },
+              "ready_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "tunnel_id",
+              "client_config",
+              "endpoint",
+              "address_v4",
+              "address_v6",
+              "server_public_key",
+              "ready_at"
+            ],
+            "additionalProperties": true,
+            "description": "WireGuard config with a blank PrivateKey (the device fills it in) and PersistentKeepalive."
+          },
+          "NetworkDevice": {
+            "type": "object",
+            "properties": {
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "wg_public_key": {
+                "$ref": "#/$defs/WireGuardPublicKey"
+              },
+              "joined_at": {
+                "type": "integer"
+              },
+              "revoked_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "ready",
+                  "revoked"
+                ]
+              },
+              "tunnel": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/NetworkDeviceTunnel"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "install",
+              "user",
+              "wg_public_key",
+              "joined_at",
+              "revoked_at",
+              "status",
+              "tunnel"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "network.machine.register": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "network",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MachineId"
+            }
+          },
+          "provider_id": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "owner_user": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "ref",
+                "name": "UserId"
+              }
+            }
+          },
+          "tags": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$"
+              }
+            }
+          },
+          "classes": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "enum",
+                "values": [
+                  "mux",
+                  "agent",
+                  "run"
+                ]
+              }
+            }
+          },
+          "address": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "NetworkMachine"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "tag.forbidden",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "network machine register",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "network"
+      },
+      "docs": "Record a VPC member machine in the team directory (team admins; tags need tag ownership). The Cloud VM lifecycle will call this when it ports.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          },
+          "provider_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "owner_user": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/UserId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$"
+            }
+          },
+          "classes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "mux",
+                "agent",
+                "run"
+              ]
+            }
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "machine",
+          "provider_id",
+          "owner_user",
+          "tags"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^mach_[a-z0-9_]{1,40}$",
+            "description": "A VPC member machine in the team directory."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/NetworkMachine",
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^mach_[a-z0-9_]{1,40}$",
+            "description": "A VPC member machine in the team directory."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "NetworkMachine": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/MachineId"
+              },
+              "provider_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "owner_user": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/UserId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$"
+                }
+              },
+              "classes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "mux",
+                    "agent",
+                    "run"
+                  ]
+                }
+              },
+              "address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "provider_id",
+              "owner_user",
+              "tags",
+              "classes",
+              "address"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "network.machine.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "network",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MachineId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "machine": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "MachineId"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "network machine remove",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "network"
+      },
+      "docs": "Remove a machine from the team directory (team admins).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          }
+        },
+        "required": [
+          "machine"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^mach_[a-z0-9_]{1,40}$",
+            "description": "A VPC member machine in the team directory."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          }
+        },
+        "required": [
+          "machine"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^mach_[a-z0-9_]{1,40}$",
+            "description": "A VPC member machine in the team directory."
+          }
+        }
+      }
+    },
+    "network.machine.tag": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "network",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MachineId"
+            }
+          },
+          "tags": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$"
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "NetworkMachine"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "tag.forbidden",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "network machine tag",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "network"
+      },
+      "docs": "Replace a machine's tags. The caller must own every tag added or removed (tagOwners).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$"
+            }
+          }
+        },
+        "required": [
+          "machine",
+          "tags"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^mach_[a-z0-9_]{1,40}$",
+            "description": "A VPC member machine in the team directory."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/NetworkMachine",
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^mach_[a-z0-9_]{1,40}$",
+            "description": "A VPC member machine in the team directory."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "NetworkMachine": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/MachineId"
+              },
+              "provider_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "owner_user": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/UserId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$"
+                }
+              },
+              "classes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "mux",
+                    "agent",
+                    "run"
+                  ]
+                }
+              },
+              "address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "provider_id",
+              "owner_user",
+              "tags",
+              "classes",
+              "address"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "network.policy.apply": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "network",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "document": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "PolicyDocument"
+            }
+          },
+          "expected_version": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "NetworkPolicyVersion"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "policy.invalid",
+        "revision.conflict",
+        "validation.invalid",
+        "version.conflict"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "network policy apply",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "network"
+      },
+      "docs": "Validate, test and commit a new policy version (team owners and admins). expected_version is the version the editor started from (null when none was applied); a different current version is a version.conflict. The reconciler then converges Freestyle.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/PolicyDocument"
+          },
+          "expected_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "document",
+          "expected_version"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "PolicyDocument": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 131072,
+            "description": "The network policy as JSON (comments and trailing commas allowed)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/NetworkPolicyVersion",
+        "$defs": {
+          "NetworkPolicyVersion": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "integer"
+              },
+              "source": {
+                "type": "string"
+              },
+              "canonical": {
+                "type": "string"
+              },
+              "applied_by": {
+                "type": "string"
+              },
+              "applied_at": {
+                "type": "integer"
+              },
+              "tests_passed": {
+                "type": "integer"
+              },
+              "rollback_of": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "source",
+              "canonical",
+              "applied_by",
+              "applied_at",
+              "tests_passed",
+              "rollback_of"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "network.policy.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "network",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "policy": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "NetworkPolicyVersion"
+            }
+          },
+          "effective_default": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "versions": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "object",
+                "fields": {
+                  "version": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "applied_by": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "applied_at": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "rollback_of": {
+                    "required": true,
+                    "type": {
+                      "kind": "nullable",
+                      "inner": {
+                        "kind": "primitive",
+                        "name": "int64"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "reconcile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "json"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "selector.not_found"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "network policy get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "network"
+      },
+      "docs": "Read the team network policy (current or a given version), its version list and the reconciler status. Without an applied policy the built-in default is returned.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "policy": {
+            "$ref": "#/$defs/NetworkPolicyVersion"
+          },
+          "effective_default": {
+            "type": "boolean"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer"
+                },
+                "applied_by": {
+                  "type": "string"
+                },
+                "applied_at": {
+                  "type": "integer"
+                },
+                "rollback_of": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "version",
+                "applied_by",
+                "applied_at",
+                "rollback_of"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "reconcile": {}
+        },
+        "required": [
+          "policy",
+          "effective_default",
+          "versions",
+          "reconcile"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "NetworkPolicyVersion": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "integer"
+              },
+              "source": {
+                "type": "string"
+              },
+              "canonical": {
+                "type": "string"
+              },
+              "applied_by": {
+                "type": "string"
+              },
+              "applied_at": {
+                "type": "integer"
+              },
+              "tests_passed": {
+                "type": "integer"
+              },
+              "rollback_of": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "source",
+              "canonical",
+              "applied_by",
+              "applied_at",
+              "tests_passed",
+              "rollback_of"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "network.policy.preview": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "network",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "document": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "PolicyDocument"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "ok": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "issues": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "PolicyIssue"
+              }
+            }
+          },
+          "canonical": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "diff": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "json"
+            }
+          },
+          "compiled": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "rules": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "ssh": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              }
+            }
+          },
+          "notes": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "network policy preview",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "network"
+      },
+      "docs": "Validate a policy, run its tests and the lockout guard, compile it and diff the compiled rules per enforcement point against the current version. Changes nothing. Team owners and admins only.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/PolicyDocument"
+          }
+        },
+        "required": [
+          "document"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "PolicyDocument": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 131072,
+            "description": "The network policy as JSON (comments and trailing commas allowed)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/PolicyIssue"
+            }
+          },
+          "canonical": {
+            "type": "string"
+          },
+          "diff": {},
+          "compiled": {
+            "type": "object",
+            "properties": {
+              "rules": {
+                "type": "integer"
+              },
+              "ssh": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "rules",
+              "ssh"
+            ],
+            "additionalProperties": true
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "PolicyIssue": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "message"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "network.policy.rollback": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "network",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "version": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "NetworkPolicyVersion"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "policy.invalid",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "network policy rollback",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "network"
+      },
+      "docs": "Apply an earlier version as a new version (it is validated again against today's directory).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/NetworkPolicyVersion",
+        "$defs": {
+          "NetworkPolicyVersion": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "integer"
+              },
+              "source": {
+                "type": "string"
+              },
+              "canonical": {
+                "type": "string"
+              },
+              "applied_by": {
+                "type": "string"
+              },
+              "applied_at": {
+                "type": "integer"
+              },
+              "tests_passed": {
+                "type": "integer"
+              },
+              "rollback_of": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "source",
+              "canonical",
+              "applied_by",
+              "applied_at",
+              "tests_passed",
+              "rollback_of"
+            ],
+            "additionalProperties": true
+          }
+        }
       }
     },
     "slack.post_as_bot": {
