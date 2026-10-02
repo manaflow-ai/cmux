@@ -118,27 +118,41 @@ async function selectedClient(h = harness()) {
 
 describe("HandoffClient", () => {
   test("a daemon uncertain_delivery reply gets first and reuses the accepted prompt ID", async () => {
-    const {client, h} = await selectedClient();
+    const { client, h } = await selectedClient();
     client.select(targetSession.sessionId);
     await client.refresh();
     h.calls.length = 0;
     let attempts = 0;
     const sent: Record<string, unknown>[] = [];
     h.setRequest(async (method, params) => {
-      h.calls.push({method, params: structuredClone(params)});
+      h.calls.push({ method, params: structuredClone(params) });
       if (method === HANDOFF_OPS.get) return h.current;
       if (method !== HANDOFF_OPS.start) throw new Error(`unexpected ${method}`);
       sent.push(structuredClone(params));
       if (++attempts === 1) {
-        h.current = record({state: "starting", promptId: String(params.promptId)});
-        throw new AcpmuxRpcError({message: "uncertain_delivery: the prompt was accepted", data: {reason: "uncertain_delivery", handoff: h.current}});
+        h.current = record({ state: "starting", promptId: String(params.promptId) });
+        throw new AcpmuxRpcError({
+          message: "uncertain_delivery: the prompt was accepted",
+          data: { reason: "uncertain_delivery", handoff: h.current },
+        });
       }
-      h.current = record({state: "started", promptId: String(params.promptId), turnId: "turn-1"});
-      return {handoffId: "handoff-1", targetSessionId: targetSession.sessionId, promptId: String(params.promptId), turnId: "turn-1", outcome: "already_started"};
+      h.current = record({ state: "started", promptId: String(params.promptId), turnId: "turn-1" });
+      return {
+        handoffId: "handoff-1",
+        targetSessionId: targetSession.sessionId,
+        promptId: String(params.promptId),
+        turnId: "turn-1",
+        outcome: "already_started",
+      };
     });
     const receipt = await client.start(review);
     expect(receipt?.outcome).toBe("already_started");
-    expect(h.calls.map(call => call.method)).toEqual([HANDOFF_OPS.start, HANDOFF_OPS.get, HANDOFF_OPS.start, HANDOFF_OPS.get]);
+    expect(h.calls.map((call) => call.method)).toEqual([
+      HANDOFF_OPS.start,
+      HANDOFF_OPS.get,
+      HANDOFF_OPS.start,
+      HANDOFF_OPS.get,
+    ]);
     expect(sent[1]).toEqual(sent[0]);
     expect(sent[0]?.promptId).toBe("handoff-1");
   });
