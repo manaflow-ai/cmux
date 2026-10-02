@@ -2,12 +2,13 @@ import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
-import { reduceDomainClaim, reduceDomainLost, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
+import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
+import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduceSecretSet, type SsoState } from "./team-sso.ts"
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
 import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, reduceReleaseDone, reduceReleaseLock, type IntegrationSyncState } from "./team-integration-sync.ts"
 import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
 
-export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, DomainState {
+export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, DomainState, SsoState {
   readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
   readonly members: Readonly<Record<string, typeof TeamMember.Type>>
   readonly hosts: Readonly<Record<string, typeof Host.Type>>
@@ -19,10 +20,15 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
  * Grants for team ops are checked by UserDO when it mints the token; TeamDO
  * checks membership and the op's principal kind.
  */
+const HTTP_ONLY_OPS: ReadonlySet<string> = new Set(["sso.connection.set_secret", "sso.connection.activate", "domain.verify", "domain.release"])
+
 export const teamDomain: Domain<TeamState> = {
   initial: () => ({ team: null, members: {}, hosts: {} }),
 
   authorize: (state, op, _params, principal) => {
+    // HTTP-only ops (external effects; a secret in params): refused before the ledger, which would
+    // otherwise keep an unsalted hash of the params (review P2). They run through the Worker's route.
+    if (HTTP_ONLY_OPS.has(op)) return { code: "validation.invalid", message: `${op} runs through POST /v1/ops only` }
     // TeamDO's own ops (alarm work); admit allows a system principal only for internal ops.
     if (principal.kind === "system") return admit("cloud:TeamDO", op, principal, () => undefined, Date.now())
     if (op !== "team.ensure_personal") {
@@ -103,6 +109,29 @@ export const teamDomain: Domain<TeamState> = {
         const role = p.user ? state.members[p.user]?.role : undefined
         if (role !== "owner" && role !== "admin") return reject("auth.forbidden", "only team owners and admins may claim domains")
         return withAudit(reduceDomainClaim(state, params, ctx), state.team.id, ctx, op)
+      }
+      case "sso.connection.create":
+      case "sso.connection.disable": {
+        if (!state.team) return reject("validation.invalid", "team not initialized")
+        if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot change SSO connections")
+        const role = p.user ? state.members[p.user]?.role : undefined
+        if (role !== "owner" && role !== "admin") return reject("auth.forbidden", "only team owners and admins may change SSO connections")
+        return withAudit(op === "sso.connection.create" ? reduceConnectionCreate(state, params, ctx) : reduceConnectionDisable(state, params, ctx), state.team.id, ctx, op)
+      }
+      case "sso.connection.set_secret":
+      case "sso.connection.activate":
+      case "domain.verify":
+      case "domain.release":
+        // External effects: only through the Worker's HTTP route (never the wire), so a secret is never an op param.
+        return reject("validation.invalid", `${op} runs through POST /v1/ops only`)
+      case "sso.connection.secret_set":
+      case "sso.connection.activated": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        return withAudit(op === "sso.connection.secret_set" ? reduceSecretSet(state, params, ctx) : reduceActivated(state, params, ctx), state.team.id, ctx, op)
+      }
+      case "domain.rechecked": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        return withAudit(reduceDomainRechecked(state, params), state.team.id, ctx, op)
       }
       case "domain.mark_verified":
       case "domain.mark_released":
