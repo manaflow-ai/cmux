@@ -3397,6 +3397,9 @@
 		F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */; };
 		797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800040000000000000002 /* SSHDeepSleepReattachTests.swift */; };
 		8410A0020000000000000002 /* SSHForegroundAuthenticationMarkerCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8410A0010000000000000001 /* SSHForegroundAuthenticationMarkerCleanupTests.swift */; };
+		2B59B6920CB1A5DD40257710 /* SSHHereCLIIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2781D586B153278CA03C918 /* SSHHereCLIIntegrationTests.swift */; };
+		21BCAA4DB48968FFBAD70703 /* SSHHereDaemonFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFF69A1051F90AE3D9071BCF /* SSHHereDaemonFixture.swift */; };
+		F8311DC830D6B63924A3E0EE /* SSHHereWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3431DE71F3D8531D908BA803 /* SSHHereWorkspaceTests.swift */; };
 		797800050000000000000001 /* SSHPersistentPTYRetryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800050000000000000002 /* SSHPersistentPTYRetryLifecycleTests.swift */; };
 		A87500010000000000000001 /* SSHPTYAttachNoProgressRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87500010000000000000002 /* SSHPTYAttachNoProgressRetryTests.swift */; };
 		C12813000000000000000311 /* SSHPTYAttachParkedSessionCLITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12813000000000000000302 /* SSHPTYAttachParkedSessionCLITests.swift */; };
@@ -7708,6 +7711,9 @@
 		F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHConfiguredRemoteCommandHostTests.swift; sourceTree = "<group>"; };
 		797800040000000000000002 /* SSHDeepSleepReattachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHDeepSleepReattachTests.swift; sourceTree = "<group>"; };
 		8410A0010000000000000001 /* SSHForegroundAuthenticationMarkerCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHForegroundAuthenticationMarkerCleanupTests.swift; sourceTree = "<group>"; };
+		F2781D586B153278CA03C918 /* SSHHereCLIIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHHereCLIIntegrationTests.swift"; sourceTree = "<group>"; };
+		BFF69A1051F90AE3D9071BCF /* SSHHereDaemonFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHHereDaemonFixture.swift"; sourceTree = "<group>"; };
+		3431DE71F3D8531D908BA803 /* SSHHereWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHHereWorkspaceTests.swift"; sourceTree = "<group>"; };
 		797800050000000000000002 /* SSHPersistentPTYRetryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPersistentPTYRetryLifecycleTests.swift; sourceTree = "<group>"; };
 		A87500010000000000000002 /* SSHPTYAttachNoProgressRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYAttachNoProgressRetryTests.swift; sourceTree = "<group>"; };
 		C12813000000000000000302 /* SSHPTYAttachParkedSessionCLITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYAttachParkedSessionCLITests.swift; sourceTree = "<group>"; };
@@ -13171,6 +13177,9 @@
 				EE3A25C746823752FEDCE827 /* AgentMessageOffSwitchSettingsTests.swift */,
 				52DCC8C8DADFD89BE7611119 /* CLINotifyProcessIntegrationRegressionTests+Desktop.swift */,
 				DFD38A422E92A103776448E9 /* CmuxTopTTYCollisionAttributionTests.swift */,
+				F2781D586B153278CA03C918 /* SSHHereCLIIntegrationTests.swift */,
+				BFF69A1051F90AE3D9071BCF /* SSHHereDaemonFixture.swift */,
+				3431DE71F3D8531D908BA803 /* SSHHereWorkspaceTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -17920,6 +17929,9 @@
 				F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */,
 				797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */,
 				8410A0020000000000000002 /* SSHForegroundAuthenticationMarkerCleanupTests.swift in Sources */,
+				2B59B6920CB1A5DD40257710 /* SSHHereCLIIntegrationTests.swift in Sources */,
+				21BCAA4DB48968FFBAD70703 /* SSHHereDaemonFixture.swift in Sources */,
+				F8311DC830D6B63924A3E0EE /* SSHHereWorkspaceTests.swift in Sources */,
 				797800050000000000000001 /* SSHPersistentPTYRetryLifecycleTests.swift in Sources */,
 				A87500010000000000000001 /* SSHPTYAttachNoProgressRetryTests.swift in Sources */,
 				C12813000000000000000311 /* SSHPTYAttachParkedSessionCLITests.swift in Sources */,
