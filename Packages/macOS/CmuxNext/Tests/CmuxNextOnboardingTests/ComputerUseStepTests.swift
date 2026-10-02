@@ -16,7 +16,7 @@ import Testing
         #expect(!OnboardingModel(services: MockOnboardingServices()).steps.contains(.computerUse))
         let services = MockOnboardingServices()
         services.computerUseSource = MockComputerUsePermissionSource()
-        #expect(OnboardingModel(services: services).steps == [.role, .defaultBrowser, .importData, .theme, .computerUse])
+        #expect(OnboardingModel(services: services).steps == [.role, .projects, .defaultBrowser, .importData, .theme, .computerUse])
     }
 
     @Test func rowsFollowTheGrantsWhileTheStepShows() async {
