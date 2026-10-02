@@ -16,17 +16,18 @@ Fixed on 2026-10-01 (each a behavior-preserving split, full package tests green)
 | ActionCatalog | 4,253 | 70 | 28 `ActionCatalogGroup` types, one per domain (`Catalog/<Domain>ActionCatalog.swift`) |
 | CEFTab | 1,124 | 909 | DevTools placement into `CEFDevToolsController` |
 | CEFRuntime | 1,138 | 968 | `CEFExtensionStores`, `CEFExtensionPrompts`, `CEFOrphanTabs` |
+| SidebarListView | 1,101 | 936 | `SidebarInlineRename`, `SidebarRowViewPool`, `SidebarDragAutoscroll` |
+| DaemonStore | 1,046 | under 1,000 | ownership step 4 (intent log agent): optimistic patches became typed intents, overlay in `IntentOverlay` |
+| TerminalSurfaceView | 1,382 | 1,118 (still listed) | `TerminalCopyMode`, `TerminalClipboardRequests` |
 
 Still in the baseline, with the planned owner split:
 
 | Type | Lines | Planned split | Waits for |
 | --- | --- | --- | --- |
-| TabStripView | 2,138 | drag/reorder and phantom-drop state machine (`Press`, `Drag`, order override, placeholder, pending drop) into a strip drag controller; per-tab springs and scroll (`TabMotion`, `advance`) into a layout animator; pointer and hover state into a value type | nothing (screen-groups agent does not touch it) |
-| DaemonConnection | 1,481 | transport stays; command families (tab groups, profiles, screens, bookmarks, placement, remote terminals) become client types over the connection, like `ScreenGroupStateClient` | ownership step 4 (intent log) and #16174 settle the command surface |
-| TerminalSurfaceView | 1,382 | copy mode, pasteboard, and IME text input into owners the view holds | nothing |
+| TabStripView | 2,138 | drag/reorder and phantom-drop state machine (`Press`, `Drag`, order override, placeholder, pending drop; +Drag, +Phantom, +DropTarget, Groups/+GroupDrag, +TitlebarDrag, about 630 lines) into a strip drag controller; per-tab springs and scroll (`TabMotion`, `advance`, +Layout) into a layout animator; pointer, hover and press state (+Pointer, +HoverCards) into its own owner. More than 1,100 lines must move. | a quiet window: the strip had 31 commits in 3 days (hover cards, strip scrollbar, groups); a move this size conflicts with every in-flight strip branch, so the coordinator should schedule it |
+| DaemonConnection | 1,481 | transport stays; command families (tab groups, profiles, screens, bookmarks, placement, remote terminals) become client types over the connection, like `ScreenGroupStateClient` | #16174 and ownership step 4 settle the command surface |
+| TerminalSurfaceView | 1,118 | key and IME input state (`markedText`, `keyTextAccumulator`, `sendKey`, `syncPreedit`) into a key input owner; grid sizing (`TerminalGridPolicy` use, `updateSurfaceSize`, `publish`) into a sizing owner; Ghostty mouse/cursor mappings into a value type | nothing |
 | WindowManager | 1,163 | workspace membership of windows (`+Membership`) and incognito windows into their own owners | intent log agent removes WindowManager pending claims |
-| SidebarListView | 1,101 | drag and tab-drop handling into a sidebar drag controller, inline rename into its own owner | nothing |
-| DaemonStore | 1,046 | optimistic patches leave as ownership step 4 migrates them to the intent log | ownership step 4 |
 
 ## Rust: mux.rs and server.rs
 
