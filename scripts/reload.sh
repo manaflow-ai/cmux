@@ -7,6 +7,8 @@ RELOAD_ORIGINAL_ARGS=("$@")
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 # shellcheck source=scripts/lib/dev-secrets.sh
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
+# shellcheck source=scripts/lib/stop-app-instances.sh
+source "$SCRIPT_DIR/lib/stop-app-instances.sh"
 
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
@@ -2054,20 +2056,12 @@ fi
 # that path first can make Bundle.module trap during startup while the old
 # process is still initializing.
 if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
-  /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-  sleep 0.3
   TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"
-  pkill -f "$TAG_PROCESS_PATTERN" || true
-  for _ in {1..20}; do
-    if ! pgrep -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1; then
-      break
-    fi
-    sleep 0.1
-  done
-  # A startup process may not service its quit event yet. Do not replace the
-  # resource-bearing bundle while it is still mapped; force only this tagged
-  # executable after the bounded graceful window.
-  pkill -KILL -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1 || true
+  # A startup process may not service its quit request yet. Do not replace the
+  # resource-bearing bundle while it is still mapped; the helper forces only
+  # this tag's executables after a bounded graceful window.
+  cmux_stop_app_instances "$BUNDLE_ID" "$TAG_PROCESS_PATTERN" \
+    "${XCODEBUILD_SOURCE_APP_PATH:+$XCODEBUILD_SOURCE_APP_PATH/Contents/MacOS/${BASE_APP_NAME}}"
   # Tagged --launch runs are handed off to launchd so they survive the terminal
   # or automation process that invoked reload.sh. Remove a still-registered
   # prior job before publishing the replacement bundle.
@@ -2082,6 +2076,13 @@ if [[ "$BUILD_ONLY" -eq 1 && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
 elif [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
   rm -rf "$TAG_APP_FINAL_PATH"
   mv "$TAG_APP_STAGING_PATH" "$TAG_APP_FINAL_PATH"
+  # xcodebuild registered its raw product under the tag's bundle id. Leave the
+  # tagged bundle as the only one, so a launch by bundle id (notification
+  # click, URL, Dock) never starts the raw copy without the tagged environment.
+  if [[ -n "${XCODEBUILD_SOURCE_APP_PATH:-}" && -d "$XCODEBUILD_SOURCE_APP_PATH" ]]; then
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+      -u "$XCODEBUILD_SOURCE_APP_PATH" >/dev/null 2>&1 || true
+  fi
   APP_PATH="$TAG_APP_FINAL_PATH"
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
@@ -2126,10 +2127,7 @@ fi
 if [[ "$LAUNCH" -eq 1 ]]; then
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
-    /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-    sleep 0.3
-    pkill -f "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-    sleep 0.3
+    cmux_stop_app_instances "$BUNDLE_ID" "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"
   fi
 
   # Avoid inheriting cmux/ghostty environment variables from the terminal that
