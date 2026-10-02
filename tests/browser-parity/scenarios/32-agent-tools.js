@@ -91,6 +91,12 @@ emitCmux("policy-goto", await page.goto(`${PEER}/aria.html`).then(() => "loaded"
 emitCmux("policy-fetch", await fetch(`${PEER}/api/data`).then(() => "fetched", (e) => e.message));
 emitCmux("policy-tabs-open", await tabs.open(`${PEER}/aria.html`).then(() => "opened", (e) => e.message));
 await page.goto(`${PRIMARY}/agent-tools.html?peer=${PEER}`);
+// Subresources follow the policy too: a script from the allowed origin
+// loads, one from the peer is blocked.
+emitCmux("policy-subresources", await page.evaluate(async (peer) => {
+  const load = (src) => new Promise((r) => { const s = document.createElement("script"); s.onload = () => r("loaded"); s.onerror = () => r("blocked"); s.src = src; document.head.append(s); });
+  return [await load("/log.js?own"), await load(peer + "/log.js?peer")];
+}, PEER));
 // The link's navigation is sent back to about:blank: the click fails when it
 // sees it, else a navigation event or the next read of the tab does.
 await page.click("#peer-link").catch(() => {});

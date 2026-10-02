@@ -261,6 +261,10 @@
     ],
     "policy-prohibited": "page.goto: PEER/aria.html is blocked: prohibited by http://127.0.0.1 (session.prohibitedDomains)",
     "policy-ip": "page.goto: PEER/aria.html is blocked: IP addresses are blocked (session.blockIPAddresses)",
-    "policy-locked": "session.allowedDomains: the domain policy is locked for this session"
+    "policy-locked": "session.allowedDomains: the domain policy is locked for this session",
+    "policy-subresources": [
+      "loaded",
+      "blocked"
+    ]
   }
 }
