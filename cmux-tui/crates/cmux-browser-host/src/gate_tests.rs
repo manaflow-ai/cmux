@@ -23,7 +23,7 @@ impl Driver for FakeDriver {
     }
 }
 
-fn gate(focused_url: Value, raw_cdp: bool) -> (Gate, Arc<FakeDriver>) {
+fn make_gate(focused_url: Value, raw_cdp: bool) -> (Gate, Arc<FakeDriver>) {
     let driver = Arc::new(FakeDriver {
         calls: Mutex::new(Vec::new()),
         focused_url,
@@ -38,7 +38,7 @@ fn methods(driver: &FakeDriver) -> Vec<String> {
 
 #[test]
 fn blocked_navigation_never_reaches_the_driver() {
-    let (gate, driver) = gate(Value::Null, false);
+    let (gate, driver) = make_gate(Value::Null, false);
     let layer = Layer {
         allowed: Some(vec![DomainPattern::parse("example.com").unwrap()]),
         prohibited: Vec::new(),
@@ -64,7 +64,7 @@ fn blocked_navigation_never_reaches_the_driver() {
 
 #[test]
 fn vm_code_cannot_widen_a_locked_policy() {
-    let (gate, _) = gate(Value::Null, false);
+    let (gate, _) = make_gate(Value::Null, false);
     let layer = Layer {
         allowed: Some(vec![DomainPattern::parse("example.com").unwrap()]),
         prohibited: Vec::new(),
@@ -84,7 +84,7 @@ fn vm_code_cannot_widen_a_locked_policy() {
 
 #[test]
 fn vm_code_never_reaches_the_host_world() {
-    let (gate, driver) = gate(Value::Null, false);
+    let (gate, driver) = make_gate(Value::Null, false);
     let error = gate
         .driver_call(
             "frame.evaluate",
@@ -97,7 +97,7 @@ fn vm_code_never_reaches_the_host_world() {
 
 #[test]
 fn raw_cdp_and_content_rules_need_the_host() {
-    let (gate, driver) = gate(Value::Null, false);
+    let (gate, driver) = make_gate(Value::Null, false);
     assert_eq!(
         gate.driver_call("cdp", json!({"targetId": "T", "method": "DOM.getDocument"}))
             .unwrap_err()
@@ -118,7 +118,7 @@ fn raw_cdp_and_content_rules_need_the_host() {
 
 #[test]
 fn secret_handles_resolve_only_in_matching_frames() {
-    let (gate, driver) = gate(json!("https://login.example.com/form"), false);
+    let (gate, driver) = make_gate(json!("https://login.example.com/form"), false);
     gate.load_secret("pw", "s3cret-value", &["*.example.com".into()], false).unwrap();
     gate.driver_call("input.insertText", json!({"targetId": "T", "text": {"__secret": "pw"}}))
         .unwrap();
@@ -126,7 +126,7 @@ fn secret_handles_resolve_only_in_matching_frames() {
     assert_eq!(calls.last().unwrap().1["text"], "s3cret-value", "the driver gets the value");
     drop(calls);
 
-    let (other, other_driver) = gate(json!("https://evil.test/"), false);
+    let (other, other_driver) = make_gate(json!("https://evil.test/"), false);
     other.load_secret("pw", "s3cret-value", &["*.example.com".into()], false).unwrap();
     let error = other
         .driver_call("input.insertText", json!({"targetId": "T", "text": {"__secret": "pw"}}))
@@ -135,7 +135,7 @@ fn secret_handles_resolve_only_in_matching_frames() {
     assert!(!error.message.contains("s3cret"));
     assert_eq!(methods(&other_driver), vec!["frame.evaluate"], "nothing was typed");
 
-    let (unknown, _) = gate(Value::Null, false);
+    let (unknown, _) = make_gate(Value::Null, false);
     unknown.load_secret("pw", "s3cret-value", &["example.com".into()], false).unwrap();
     assert!(
         unknown
@@ -144,7 +144,7 @@ fn secret_handles_resolve_only_in_matching_frames() {
         "unverifiable focus refuses"
     );
 
-    let (raw, _) = gate(json!("https://example.com/"), true);
+    let (raw, _) = make_gate(json!("https://example.com/"), true);
     raw.load_secret("pw", "s3cret-value", &["example.com".into()], false).unwrap();
     let refused = raw
         .driver_call("input.insertText", json!({"targetId": "T", "text": {"__secret": "pw"}}))
@@ -154,7 +154,7 @@ fn secret_handles_resolve_only_in_matching_frames() {
 
 #[test]
 fn results_and_errors_going_back_into_the_vm_are_masked() {
-    let (gate, _) = gate(Value::Null, false);
+    let (gate, _) = make_gate(Value::Null, false);
     gate.load_secret("pw", "s3cret-value", &["example.com".into()], false).unwrap();
     let info = gate.driver_call("tab.info", json!({"targetId": "T"})).unwrap();
     assert_eq!(info["title"], "token <secret:pw> here");
@@ -167,7 +167,7 @@ fn results_and_errors_going_back_into_the_vm_are_masked() {
 
 #[test]
 fn natives_expose_names_never_values() {
-    let (gate, _) = gate(Value::Null, false);
+    let (gate, _) = make_gate(Value::Null, false);
     let handle =
         gate.native("secretSet", json!(["api", "k-123", {"domains": ["example.com"]}])).unwrap();
     assert_eq!(handle, json!({"__secret": "api"}));

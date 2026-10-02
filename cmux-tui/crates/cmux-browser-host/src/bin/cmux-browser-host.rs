@@ -61,14 +61,14 @@ mod unix {
                         value("--max-output")?
                             .parse()
                             .map_err(|_| "--max-output: expected a number")?,
-                    )
+                    );
                 }
                 "--timeout-ms" => {
                     options.timeout_ms = Some(
                         value("--timeout-ms")?
                             .parse()
                             .map_err(|_| "--timeout-ms: expected a number")?,
-                    )
+                    );
                 }
                 "-" => {
                     let mut code = String::new();

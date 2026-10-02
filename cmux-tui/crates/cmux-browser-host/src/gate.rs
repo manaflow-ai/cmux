@@ -226,7 +226,7 @@ impl VmHost for Gate {
                 match change.get("allowed") {
                     Some(Value::Null) => layer.allowed = None,
                     Some(list) => {
-                        layer.allowed = Some(parse_patterns(&to_list(list)).map_err(|e| e.0)?)
+                        layer.allowed = Some(parse_patterns(&to_list(list)).map_err(|e| e.0)?);
                     }
                     None => {}
                 }

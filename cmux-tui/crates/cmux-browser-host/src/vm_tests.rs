@@ -31,7 +31,7 @@ struct FakeHost {
 
 impl VmHost for FakeHost {
     fn driver_call(&self, method: &str, params: Value) -> Result<Value, DriverError> {
-        self.calls.lock().unwrap().push((method.to_owned(), params.clone()));
+        self.calls.lock().unwrap().push((method.to_owned(), params));
         match method {
             "tab.info" => Ok(json!({"url": "https://a.test/", "title": "A"})),
             "tab.navigate" => {

@@ -387,12 +387,13 @@ fn install(
             Function::new(ctx.clone(), move |call_id: f64, method: String, params: String| {
                 let host = driver_host.clone();
                 let results = results.clone();
+                let sender = results.clone();
                 let params: Value = serde_json::from_str(&params).unwrap_or(json!({}));
                 let spawned = std::thread::Builder::new()
                     .name("cmux-browser-host-driver-call".into())
                     .spawn(move || {
                         let outcome = host.driver_call(&method, params);
-                        let _ = results.send(Input::Result { call_id, outcome });
+                        let _ = sender.send(Input::Result { call_id, outcome });
                     });
                 if spawned.is_err() {
                     let _ = results.send(Input::Result {

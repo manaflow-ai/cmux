@@ -92,7 +92,7 @@ impl ProviderDriver {
             let reason = loop {
                 match read_frame(&mut reader) {
                     Ok(Some(Frame::Event { name, payload })) => {
-                        events(DriverEvent { name, payload })
+                        events(DriverEvent { name, payload });
                     }
                     Ok(Some(frame @ Frame::Result { .. })) => {
                         if let Some((id, result)) = frame.into_call_result()
