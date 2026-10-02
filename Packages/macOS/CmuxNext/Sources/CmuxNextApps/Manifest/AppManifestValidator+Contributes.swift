@@ -19,6 +19,8 @@ nonisolated extension AppManifestValidator {
         "agents": Kind(maxItems: 8, required: ["id", "title", "command"]),
         "mcpServers": Kind(maxItems: 4, required: ["id"]),
         "automations": Kind(maxItems: 16, required: ["id", "title", "template"]),
+        "automationTriggers": Kind(maxItems: 32, required: ["id", "title", "event"]),
+        "paletteScopes": Kind(maxItems: 16, required: ["id", "title"]),
     ]
 
     mutating func contributes(_ value: AppJSON) {
@@ -62,13 +64,18 @@ nonisolated extension AppManifestValidator {
                 this.pattern(.string(item), path, P.commandContext, "a command context")
             }
             if let arguments = object["arguments"] { _ = self.object(arguments, at: "\(path)/arguments") }
+            enumValue(object["view"], "\(path)/view", ["none", "list", "detail", "form"])
             if let destructive = object["destructive"], destructive.boolValue == nil { fail("\(path)/destructive", "type", "expected a boolean") }
         case "statusItems":
             enumValue(object["placement"], "\(path)/placement", ["titlebar", "roomBar", "statusStrip"])
         case "paneKinds":
             relativePath(object["web"], "\(path)/web")
             if let csp = object["csp"], let text = string(csp, at: "\(path)/csp") { maxLength(text, "\(path)/csp", 1024) }
-            if (object["render"] == nil) == (object["web"] == nil) { fail(path, "oneOf", "a pane kind needs exactly one of render or web") }
+            enumValue(object["renderer"], "\(path)/renderer", ["declarative", "web", "native"])
+            pattern(object["nativeView"], "\(path)/nativeView", P.nativeView, "a native view id")
+            let native = object["renderer"]?.stringValue == "native" && object["nativeView"] != nil
+            let shapes = [object["render"] != nil, object["web"] != nil, native].filter { $0 }.count
+            if shapes != 1 { fail(path, "oneOf", "a pane kind needs exactly one of render, web, or renderer native with nativeView") }
         case "themes":
             relativePath(object["ghostty"], "\(path)/ghostty")
             enumValue(object["appearance"], "\(path)/appearance", ["light", "dark", "any"])
@@ -84,10 +91,17 @@ nonisolated extension AppManifestValidator {
             if object["command"]?.arrayValue?.isEmpty == true { fail("\(path)/command", "minItems", "command needs at least one item") }
             enumValue(object["protocol"], "\(path)/protocol", ["acp"])
         case "mcpServers":
-            enumValue(object["tools"], "\(path)/tools", ["commands", "main"])
+            enumValue(object["tools"], "\(path)/tools", ["commands", "main", "catalog"])
+            pattern(object["group"], "\(path)/group", P.mcpGroup, "an MCP group name")
             pattern(object["url"], "\(path)/url", P.httpsURL, "an https URL", maxLength: 2048)
         case "automations":
             relativePath(object["template"], "\(path)/template")
+        case "paletteScopes":
+            localizedText(object["placeholder"], "\(path)/placeholder")
+            pattern(object["prefix"], "\(path)/prefix", P.palettePrefix, "a short lowercase prefix")
+        case "automationTriggers":
+            pattern(object["event"], "\(path)/event", P.eventName, "a catalog event name")
+            if let schema = object["payloadSchema"] { _ = self.object(schema, at: "\(path)/payloadSchema") }
         default:
             break
         }
@@ -102,7 +116,7 @@ nonisolated extension AppManifestValidator {
         if let properties = object["properties"] { _ = self.object(properties, at: "\(path)/properties") }
     }
 
-    private mutating func enumValue(_ value: AppJSON?, _ path: String, _ allowed: Set<String>) {
+    mutating func enumValue(_ value: AppJSON?, _ path: String, _ allowed: Set<String>) {
         guard let value, let text = string(value, at: path) else { return }
         if !allowed.contains(text) { fail(path, "enum", "\(text) is not one of \(allowed.sorted().joined(separator: ", "))") }
     }

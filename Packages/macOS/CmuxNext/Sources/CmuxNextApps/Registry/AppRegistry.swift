@@ -6,6 +6,8 @@ public nonisolated struct InstalledApp: Sendable, Hashable, Identifiable {
     public var bundle: AppBundle
     public var isInstalled: Bool
     public var isEnabled: Bool
+    /// Installed but hidden from the sidebar, palette and menus.
+    public var isHidden: Bool
     public var tier: AppStoreTier
     public var revokedScopes: Set<String>
     public var grantedOptionalScopes: Set<String>
@@ -13,13 +15,16 @@ public nonisolated struct InstalledApp: Sendable, Hashable, Identifiable {
     public var isSandboxed: Bool
     public var id: String { bundle.id }
     public var manifest: AppManifest { bundle.manifest }
-    /// Installed and enabled: its contributions are live.
+    /// Installed and enabled: it runs and answers granted calls.
     public var isActive: Bool { isInstalled && isEnabled }
+    /// Active and not hidden: its sidebar, palette and menu contributions show.
+    public var isVisible: Bool { isActive && !isHidden }
 
     init(bundle: AppBundle, entry: AppRegistryFile.Entry) {
         self.bundle = bundle
         isInstalled = entry.installed
         isEnabled = entry.enabled
+        isHidden = entry.hidden
         tier = AppStoreTier.local(bundle.manifest)
         revokedScopes = Set(entry.revokedScopes)
         grantedOptionalScopes = Set(entry.grantedOptionalScopes)
@@ -87,7 +92,7 @@ public final class AppRegistry {
         self.file = file
         self.problems = problems
         var seen = Set<String>()
-        apps = bundles.filter { seen.insert($0.id).inserted }.map { InstalledApp(bundle: $0, entry: file.entry($0.id)) }
+        apps = bundles.filter { seen.insert($0.id).inserted }.map { InstalledApp(bundle: $0, entry: file.entry($0.id, installedByDefault: Self.installedByDefault($0))) }
     }
 
     public func app(_ id: String) -> InstalledApp? { apps.first { $0.id == id } }
@@ -96,6 +101,10 @@ public final class AppRegistry {
     public func install(_ id: String) async throws { try await update(id) { $0.installed = true; $0.enabled = true } }
     public func remove(_ id: String) async throws { try await update(id) { $0.installed = false } }
     public func setEnabled(_ id: String, _ enabled: Bool) async throws { try await update(id) { $0.enabled = enabled } }
+    public func setHidden(_ id: String, _ hidden: Bool) async throws { try await update(id) { $0.hidden = hidden } }
+
+    /// Development apps are installed as soon as they are in the local directory; bundled samples are opt-in.
+    nonisolated static func installedByDefault(_ bundle: AppBundle) -> Bool { bundle.source == .local }
 
     /// Grants or revokes one scope (takes effect on the app's next call).
     public func setGranted(_ id: String, scope: String, _ granted: Bool) async throws {
@@ -119,7 +128,7 @@ public final class AppRegistry {
 
     private func update(_ id: String, _ change: (inout AppRegistryFile.Entry) -> Void) async throws {
         guard let index = apps.firstIndex(where: { $0.id == id }) else { return }
-        var entry = file.entry(id)
+        var entry = file.entry(id, installedByDefault: Self.installedByDefault(apps[index].bundle))
         change(&entry)
         entry.changedAt = Date()
         var next = file

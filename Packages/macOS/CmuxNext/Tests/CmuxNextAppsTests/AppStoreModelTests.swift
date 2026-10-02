@@ -47,6 +47,7 @@ struct AppStoreModelTests {
     @Test func removeAndInstallRoundTripAndNotify() async throws {
         let model = try await model()
         var removed: [String] = []
+        try await model.install("cmux/github-prs") // samples are opt-in
         model.onRemoved = { removed.append($0) }
         try await model.remove("cmux/github-prs")
         #expect(model.state(of: "cmux/github-prs")?.isInstalled == false)
