@@ -2060,7 +2060,7 @@
     }
   },
   "pricing.native.compare.concurrent.paid": {
-    "source": "50",
+    "source": "5",
     "identityLocales": {
       "de": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
       "fr": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
