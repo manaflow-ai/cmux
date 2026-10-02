@@ -986,7 +986,8 @@ function AcpmuxPane() {
           "chat.mode": ({ modeId }) => client.setMode(String(modeId)),
           "chat.effort": ({ configId, value }) => client.setConfig(String(configId), String(value)),
           "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
-          "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
+          "chat.new": async ({ harness, cwd }) =>
+            persistSession(await client.create(harness ? String(harness) : undefined, cwd ? String(cwd) : undefined)),
           "chat.history": () => client.loadOlder(),
           "chat.fork": async ({ throughSeq }) => persistSession(await client.fork(Number(throughSeq))),
           "chat.handoff.prepare": async ({ harness }) => persistSession(await client.continueIn(String(harness))),
@@ -1157,6 +1158,7 @@ function AcpmuxPane() {
               draft={draft}
               onSend={(text) => void callNative("chat.send", { text })}
               onStop={() => void callNative("chat.cancel")}
+              onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
             />
           )}
         </div>
