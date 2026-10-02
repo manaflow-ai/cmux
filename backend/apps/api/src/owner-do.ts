@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers"
-import { EVENT_RETENTION_MS, LEDGER_RETENTION_MS, OwnerEngine, type Domain, type EventFrame, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
+import { EVENT_RETENTION_MS, LEDGER_RETENTION_MS, OwnerEngine, type Domain, type EngineOptions, type EventFrame, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.ts"
 import { drainOutbox } from "./projection.ts"
@@ -11,10 +11,16 @@ const doSql = (storage: DurableObjectStorage): SqlStore => ({
   transaction: <T>(fn: () => T): T => storage.transactionSync(fn)
 })
 
-interface Attachment {
+export interface Attachment {
   readonly principal: Principal
+  /** Subscribed to this object's primary stream. */
   subscribed: boolean
+  /** Secondary streams this socket subscribed to (for example `inbox`). */
+  streams?: Array<string>
 }
+
+/** Engine options a subclass may set: row mode and redaction (row-backed domains). */
+export type OwnerEngineOptions = Pick<EngineOptions, "rowMode" | "redact">
 
 export interface SubmitResult {
   readonly frames: ReadonlyArray<OwnerFrame>
@@ -51,7 +57,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     env: Env,
     private readonly domain: Domain<S>,
     private readonly streamPrefix: string,
-    private readonly eventActor?: (p: Principal) => Principal
+    private readonly eventActor?: (p: Principal) => Principal,
+    private readonly engineOptions: OwnerEngineOptions = {}
   ) {
     super(ctx, env)
     this.store = doSql(ctx.storage)
@@ -72,7 +79,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     if (!this.engine)
       this.engine = new OwnerEngine(this.store, this.domain, {
         stream: `${this.streamPrefix}:${entity}`,
-        ...(this.eventActor ? { eventActor: this.eventActor } : {})
+        ...(this.eventActor ? { eventActor: this.eventActor } : {}),
+        ...this.engineOptions
       })
     return this.engine
   }
@@ -167,6 +175,24 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return false
   }
 
+  /**
+   * Runs before the base handles a frame: a subclass with secondary streams takes frames that
+   * name another stream (`stream: "inbox:<user>"`) or an op that stream owns. Return true when
+   * handled.
+   */
+  protected routeFrame(_ws: WebSocket, _attachment: Attachment, _frame: { readonly t?: string; readonly stream?: unknown; readonly op?: unknown } & Record<string, unknown>): boolean {
+    return false
+  }
+
+  /**
+   * Which engine commits a system op delivered by another owner's outbox (E4). Default: the
+   * primary engine. A subclass with secondary streams routes their ops (for example
+   * `inbox.bump`) to them; `publish` sends the committed events to that stream's subscribers.
+   */
+  protected systemEngine(_op: string, entity: string): { engine: OwnerEngine<unknown>; publish: (frame: OwnerFrame) => void } {
+    return { engine: this.bind(entity) as OwnerEngine<unknown>, publish: (f) => this.broadcast(f) }
+  }
+
   /** Subclasses prune their own side tables older than `before` (same replay window). */
   protected onPrune(_before: number): void {}
 
@@ -198,13 +224,14 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    * (applied, replayed or refused for good); a throw stops the batch and the rest is retried.
    */
   async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
-    const engine = this.bind(entity)
+    this.bind(entity)
     const principal: Principal = { identity: `system:${source}`, kind: "system" }
     const done: Array<number> = []
     for (const item of items) {
       const frames: Array<OwnerFrame> = []
+      const { engine, publish } = this.systemEngine(item.op, entity)
       engine.submit(principal, { t: "op", op: item.op, params: item.params, idempotency_key: item.key, origin: "script" }, (target, f) =>
-        target === "all" ? this.broadcast(f) : frames.push(f)
+        target === "all" ? publish(f) : frames.push(f)
       )
       const reject = frames.find((f) => f.t === "reject")
       if (reject && reject.t === "reject") console.warn(JSON.stringify({ msg: "system op refused", target: engine.stream, source, op: item.op, code: reject.code }))
@@ -217,6 +244,16 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   /** Runs in the alarm after the outbox drain. A throw is logged and the alarm is rescheduled. */
   protected async onWake(_now: number): Promise<void> {}
+
+  /** The object's SQLite store, for subclasses that host secondary streams or side tables. */
+  protected get sqlStore(): SqlStore {
+    return this.store
+  }
+
+  /** Moves the alarm earlier when a subclass committed outside the base paths (secondary streams). */
+  protected scheduleAlarm(): void {
+    this.afterCommit()
+  }
 
   /** The bound entity's engine, for subclasses that read state outside an op. */
   protected get boundEngine(): OwnerEngine<S> | undefined {
@@ -306,6 +343,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     } catch {
       return safeSend(ws, JSON.stringify({ t: "error", code: "validation.invalid", message: "frames are JSON" }))
     }
+    if (this.routeFrame(ws, a, frame as { t?: string } & Record<string, unknown>)) return
     switch (frame.t) {
       case "subscribe": {
         a.subscribed = true
