@@ -11,6 +11,19 @@ mod store;
 #[cfg(test)]
 mod tests;
 
+/// Test seams for failures a test cannot otherwise time.
+#[cfg(test)]
+pub(super) mod seams {
+    use std::cell::{Cell, RefCell};
+
+    thread_local! {
+        /// Stops a create right after its ref is published, as a crash would.
+        pub static CRASH_AFTER_PUBLISH: Cell<bool> = const { Cell::new(false) };
+        /// Runs after a capture hashed its files and before it verifies them.
+        pub static AFTER_HASHING: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
+    }
+}
+
 use std::sync::Arc;
 
 use serde_json::{Map, Value, json};

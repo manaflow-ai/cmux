@@ -7139,7 +7139,15 @@
               "name": "GitCheckpointCandidate"
             }
           },
-          "description": "With include_candidates: untracked files and folders, in path order."
+          "description": "With include_candidates: untracked files and folders, in path order, then at most 200 ignored paths."
+        },
+        "ignored_total": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "With include_candidates: how many ignored paths there are. Ignored paths never count against max_files."
         },
         "limits": {
           "required": true,
@@ -9731,7 +9739,7 @@
         "Unsupported index modes (sparse checkout, split index, unresolved stages, intent-to-add, assume-unchanged, skip-worktree) refuse with unsupported_index.",
         "A change to HEAD, the index or a captured file during capture refuses with repository_changed; nothing is published.",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
-        "operation.failed carries extra.code: not_a_repository, no_working_directory, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory or git_failed."
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
       ]
     },
     "git.checkpoint.get": {
@@ -9816,7 +9824,7 @@
       ],
       "constraints": [
         "Exactly one of checkpoint_id and idempotency_key.",
-        "operation.failed carries extra.code: not_a_repository, no_working_directory, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory or git_failed."
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
       ]
     },
     "git.checkpoint.list": {
@@ -9891,8 +9899,8 @@
         "validation.invalid"
       ],
       "constraints": [
-        "More candidates than limits.max_files refuses with budget_exceeded and extra.candidate_total.",
-        "operation.failed carries extra.code: not_a_repository, no_working_directory, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory or git_failed."
+        "More untracked, nonignored candidates than limits.max_files refuses with budget_exceeded and extra.candidate_total.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
       ]
     },
     "git.checkpoint.pin": {
@@ -9976,7 +9984,7 @@
       "constraints": [
         "A pinned record is never pruned.",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
-        "operation.failed carries extra.code: not_a_repository, no_working_directory, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory or git_failed."
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
       ]
     },
     "git.checkpoint.unpin": {
@@ -10051,7 +10059,7 @@
       "constraints": [
         "A managed pin (handoff: or restore:) refuses with managed_pin. Unpin never deletes a checkpoint.",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
-        "operation.failed carries extra.code: not_a_repository, no_working_directory, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory or git_failed."
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
       ]
     },
     "git.diff": {

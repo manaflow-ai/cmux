@@ -102,11 +102,14 @@ fn failure(envelope: &Value) -> (String, Value) {
     (envelope["error"]["code"].as_str().unwrap().to_string(), envelope["error"]["details"].clone())
 }
 
-/// `operation.failed`'s `extra.code`.
+/// `operation.failed`'s machine reason; the explanation is in
+/// `extra.message`.
 fn failed_code(envelope: &Value) -> String {
     let (code, details) = failure(envelope);
     assert_eq!(code, "operation.failed", "{envelope}");
-    details["extra"]["code"].as_str().unwrap_or_default().to_string()
+    assert!(details["extra"]["message"].is_string(), "{envelope}");
+    assert!(details["extra"].get("code").is_none(), "{envelope}");
+    details["reason"].as_str().unwrap_or_default().to_string()
 }
 
 fn create(mux: &Arc<Mux>, repository: &Path, fields: Value, key: &str) -> Value {
@@ -211,7 +214,8 @@ fn capture_stores_staged_and_worktree_bytes_and_modes_without_touching_the_repos
     assert_eq!(observed(&repository), before, "capture changed HEAD, the index or the tree");
     assert!(!marker.exists(), "a hook ran during capture");
     assert_eq!(result["replayed"], false);
-    assert_eq!(result["revision"], "1");
+    assert!(result["revision"].as_str().unwrap().parse::<u64>().is_ok(), "{result}");
+    assert_eq!(result["value"]["revision"], "1");
     let record = &result["value"];
     let object = record["object_id"].as_str().unwrap();
     let reference = record["ref"].as_str().unwrap();
@@ -381,12 +385,12 @@ fn pins_commute_replay_and_managed_pins_cannot_be_unpinned() {
         call(&mux, "git.checkpoint.pin", params, Some(key))
     };
     let user = ok(pin("user:review", "pin-1"));
-    assert_eq!(user["revision"], "2");
+    assert_eq!(user["value"]["revision"], "2");
     assert_eq!(user["value"]["pins"], json!([{"pin_id":"user:review","reason":"keep"}]));
     assert_eq!(user["value"]["expires_at"], Value::Null, "a pinned record does not expire");
     let handoff = ok(pin("handoff:h1", "pin-2"));
     assert_eq!(handoff["value"]["pins"].as_array().unwrap().len(), 2);
-    assert_eq!(handoff["revision"], "3");
+    assert_eq!(handoff["value"]["revision"], "3");
     // The first key replays its first result, not the current record.
     let replay = ok(pin("user:review", "pin-1"));
     assert_eq!(
@@ -501,4 +505,331 @@ fn an_in_memory_session_and_a_folder_outside_a_repository_refuse() {
 #[test]
 fn identify_advertises_git_checkpoints() {
     assert_eq!(super::super::CHECKPOINTS_CAPABILITY, "git-checkpoints-v1");
+}
+
+fn pin_call(mux: &Arc<Mux>, repository: &Path, operation: &str, fields: Value, key: &str) -> Value {
+    let mut params = fields;
+    params["path"] = json!(repository.to_string_lossy());
+    call(mux, operation, params, Some(key))
+}
+
+/// A second worktree of `repository` on a new branch.
+fn second_worktree(repository: &Path, name: &str) -> PathBuf {
+    let worktree = repository.parent().unwrap().join(format!("{name}-second"));
+    let target = worktree.to_string_lossy().into_owned();
+    git(repository, &["worktree", "add", "-q", "-b", name, &target]);
+    fs::canonicalize(worktree).unwrap()
+}
+
+fn record_file(mux: &Arc<Mux>, record: &Value) -> PathBuf {
+    mux.session_state_directory()
+        .unwrap()
+        .join("git-checkpoints/records")
+        .join(record["repository_id"].as_str().unwrap())
+        .join(format!("{}.json", record["checkpoint_id"].as_str().unwrap()))
+}
+
+#[test]
+fn refusals_name_their_reason_and_explain_in_extra_message() {
+    let (mux, _root) = session("reasons");
+    let repository = worked_repository("reasons");
+    let created = ok(create(&mux, &repository, json!({}), "reasons-1"));
+    let id = created["value"]["checkpoint_id"].clone();
+    let fields = json!({"checkpoint_id":id,"pin_id":"handoff:h1"});
+    let refused = pin_call(&mux, &repository, "git.checkpoint.unpin", fields, "reasons-2");
+    let (code, details) = failure(&refused);
+    assert_eq!(code, "operation.failed");
+    assert_eq!(details["operation"], "git.checkpoint.unpin");
+    assert_eq!(details["reason"], "managed_pin");
+    assert!(details["extra"]["message"].as_str().is_some_and(|text| text.contains("handoff:h1")));
+    assert_eq!(details["extra"]["pin_id"], "handoff:h1");
+    assert!(details["extra"].get("code").is_none());
+    mux.shutdown();
+}
+
+#[test]
+fn mutations_are_recorded_in_the_session_resource_mutation_ledger() {
+    let (mux, _root) = session("ledger");
+    let repository = worked_repository("ledger");
+    let count =
+        || mux.workspace_registry.lock().unwrap().resource_mutation_count_for_test().unwrap();
+    let before = count();
+    let created = ok(create(&mux, &repository, json!({}), "ledger-1"));
+    assert_eq!(count(), before + 1, "create is not in resource_mutations");
+    ok(create(&mux, &repository, json!({}), "ledger-1"));
+    assert_eq!(count(), before + 1, "a replay recorded a second mutation");
+    let id = created["value"]["checkpoint_id"].clone();
+    let fields = json!({"checkpoint_id":id,"pin_id":"user:a","reason":"keep"});
+    ok(pin_call(&mux, &repository, "git.checkpoint.pin", fields, "ledger-2"));
+    assert_eq!(count(), before + 2, "pin is not in resource_mutations");
+    mux.shutdown();
+}
+
+#[test]
+fn a_key_reused_for_a_target_that_now_resolves_elsewhere_is_refused() {
+    let (mux, _root) = session("moved");
+    let repository = worked_repository("moved");
+    let other = second_worktree(&repository, "moved");
+    let link = repository.parent().unwrap().join(format!("moved-link-{}", std::process::id()));
+    let _ = fs::remove_file(&link);
+    std::os::unix::fs::symlink(&repository, &link).unwrap();
+    ok(create(&mux, &link, json!({}), "moved-1"));
+    fs::remove_file(&link).unwrap();
+    std::os::unix::fs::symlink(&other, &link).unwrap();
+    let again = create(&mux, &link, json!({}), "moved-1");
+    assert_eq!(failed_code(&again), "repository_changed");
+    assert_eq!(checkpoint_refs(&repository).len(), 1, "the refused retry published a checkpoint");
+    mux.shutdown();
+}
+
+fn other_worktree_id(mux: &Arc<Mux>, worktree: &Path) -> String {
+    let listed = ok(read(mux, "git.checkpoint.list", worktree, json!({})));
+    listed["worktree_id"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn key_lookup_finds_only_creates_of_the_same_worktree() {
+    let (mux, _root) = session("scoped");
+    let repository = worked_repository("scoped");
+    let other = second_worktree(&repository, "scoped");
+    let created = ok(create(&mux, &repository, json!({}), "scoped-1"));
+    let elsewhere = read(&mux, "git.checkpoint.get", &other, json!({"idempotency_key":"scoped-1"}));
+    assert_eq!(failure(&elsewhere).0, "resource.not_found", "another worktree saw the key");
+    let id = created["value"]["checkpoint_id"].clone();
+    let fields = json!({"checkpoint_id":id,"pin_id":"user:a","reason":"keep"});
+    ok(pin_call(&mux, &repository, "git.checkpoint.pin", fields, "scoped-pin"));
+    let pin_key =
+        read(&mux, "git.checkpoint.get", &repository, json!({"idempotency_key":"scoped-pin"}));
+    assert_eq!(failure(&pin_key).0, "resource.not_found", "a pin key resolved as a create");
+    let own =
+        ok(read(&mux, "git.checkpoint.get", &repository, json!({"idempotency_key":"scoped-1"})));
+    assert_eq!(own["checkpoint_id"], id);
+    mux.shutdown();
+}
+
+#[test]
+fn a_reused_key_conflicts_before_the_managed_pin_check() {
+    let (mux, _root) = session("order");
+    let repository = worked_repository("order");
+    let created = ok(create(&mux, &repository, json!({}), "order-1"));
+    let id = created["value"]["checkpoint_id"].clone();
+    let fields = json!({"checkpoint_id":id,"pin_id":"user:a","reason":"keep"});
+    ok(pin_call(&mux, &repository, "git.checkpoint.pin", fields, "order-2"));
+    let fields = json!({"checkpoint_id":id,"pin_id":"handoff:h1"});
+    let reused = pin_call(&mux, &repository, "git.checkpoint.unpin", fields, "order-2");
+    let (code, details) = failure(&reused);
+    assert_eq!(code, "idempotency.conflict", "{reused}");
+    assert_eq!(details["committed_operation"], "git.checkpoint.pin");
+    mux.shutdown();
+}
+
+#[test]
+fn a_create_that_stopped_after_publishing_its_ref_is_finished_by_its_retry() {
+    let (mux, _root) = session("crash");
+    let repository = worked_repository("crash");
+    super::seams::CRASH_AFTER_PUBLISH.with(|crash| crash.set(true));
+    let crashed = create(&mux, &repository, json!({}), "crash-1");
+    super::seams::CRASH_AFTER_PUBLISH.with(|crash| crash.set(false));
+    assert_eq!(crashed["ok"], false, "the simulated crash did not stop the create: {crashed}");
+    let refs = checkpoint_refs(&repository);
+    assert_eq!(refs.len(), 1, "the ref was not published before the crash");
+    let pending =
+        read(&mux, "git.checkpoint.get", &repository, json!({"idempotency_key":"crash-1"}));
+    assert_eq!(failure(&pending).0, "resource.not_found");
+
+    let retried = ok(create(&mux, &repository, json!({}), "crash-1"));
+    assert_eq!(retried["replayed"], true);
+    let record = &retried["value"];
+    assert_eq!(refs[0], record["ref"].as_str().unwrap());
+    assert_eq!(git(&repository, &["rev-parse", &refs[0]]), record["object_id"].as_str().unwrap());
+    assert_eq!(checkpoint_refs(&repository).len(), 1, "the retry captured a second checkpoint");
+    let found =
+        ok(read(&mux, "git.checkpoint.get", &repository, json!({"idempotency_key":"crash-1"})));
+    assert_eq!(&found, record);
+    mux.shutdown();
+}
+
+#[test]
+fn a_file_that_changes_during_capture_refuses_with_repository_changed() {
+    let (mux, _root) = session("racing");
+    let repository = worked_repository("racing");
+    let path = repository.join("a.txt");
+    let rewrite: Box<dyn Fn()> =
+        Box::new(move || fs::write(&path, b"changed again, longer\n").unwrap());
+    super::seams::AFTER_HASHING.with(|hook| *hook.borrow_mut() = Some(rewrite));
+    let raced = create(&mux, &repository, json!({}), "racing-1");
+    super::seams::AFTER_HASHING.with(|hook| hook.borrow_mut().take());
+    assert_eq!(failed_code(&raced), "repository_changed");
+    assert!(checkpoint_refs(&repository).is_empty());
+    mux.shutdown();
+}
+
+#[test]
+fn credential_files_are_never_stored() {
+    let (mux, _root) = session("secrets");
+    let repository = repository("secrets");
+    write(&repository, "README.md", b"readme\n");
+    commit_all(&repository, "first");
+    let credentials = [
+        ".git-credentials",
+        ".npmrc",
+        ".pypirc",
+        ".netrc",
+        ".aws/credentials",
+        "config/credentials",
+        "app.jks",
+        "release.keystore",
+        "client.p12",
+        "client.pfx",
+        "id_rsa",
+        "id_ed25519",
+        "id_ecdsa_work",
+        ".env",
+        ".env.local",
+    ];
+    for path in credentials {
+        write(&repository, path, b"secret\n");
+    }
+    write(&repository, "id_ed25519.pub", b"ssh-ed25519 AAAA\n");
+    write(&repository, "notes.txt", b"notes\n");
+    let created =
+        ok(create(&mux, &repository, json!({"include_untracked":"eligible"}), "secrets-1"));
+    let record = &created["value"];
+    let object = record["object_id"].as_str().unwrap();
+    let skips = skipped(record);
+    for path in credentials {
+        assert!(skips.contains(&(path.to_string(), "credential".to_string())), "{path}: {skips:?}");
+        assert!(stored(&repository, object, "untracked", path).is_none(), "{path} was stored");
+    }
+    assert!(stored(&repository, object, "untracked", "id_ed25519.pub").is_some());
+    assert!(stored(&repository, object, "untracked", "notes.txt").is_some());
+    mux.shutdown();
+}
+
+#[test]
+fn untracked_links_store_their_target_and_never_what_it_points_at() {
+    let (mux, _root) = session("links");
+    let repository = repository("links");
+    write(&repository, "src/lib.rs", b"pub fn f() {}\n");
+    commit_all(&repository, "first");
+    let outside = temporary("links-outside").join("secret.txt");
+    fs::write(&outside, b"outside the repository\n").unwrap();
+    std::os::unix::fs::symlink("src", repository.join("to-folder")).unwrap();
+    std::os::unix::fs::symlink(&outside, repository.join("to-outside")).unwrap();
+    let selected = json!({"include_untracked":["to-folder","to-outside"]});
+    let created = ok(create(&mux, &repository, selected, "links-1"));
+    let object = created["value"]["object_id"].as_str().unwrap();
+    let folder = stored(&repository, object, "untracked", "to-folder").unwrap();
+    assert_eq!(folder, ("120000".to_string(), b"src".to_vec()));
+    let away = stored(&repository, object, "untracked", "to-outside").unwrap();
+    assert_eq!(away, ("120000".to_string(), outside.to_string_lossy().as_bytes().to_vec()));
+    mux.shutdown();
+}
+
+#[test]
+fn a_create_prunes_expired_unpinned_checkpoints() {
+    let (mux, _root) = session("prune");
+    let repository = worked_repository("prune");
+    let old = ok(create(&mux, &repository, json!({}), "prune-1"))["value"].clone();
+    let kept = ok(create(&mux, &repository, json!({}), "prune-2"))["value"].clone();
+    let fields = json!({"checkpoint_id":kept["checkpoint_id"],"pin_id":"user:a","reason":"keep"});
+    ok(pin_call(&mux, &repository, "git.checkpoint.pin", fields, "prune-pin"));
+    let eight_days_ago = super::record::now_ms() - 8 * 24 * 60 * 60 * 1000;
+    for record in [&old, &kept] {
+        let path = record_file(&mux, record);
+        let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        stored["created_at_ms"] = json!(eight_days_ago);
+        fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+    }
+    ok(create(&mux, &repository, json!({}), "prune-3"));
+    let refs = checkpoint_refs(&repository);
+    assert!(!refs.contains(&old["ref"].as_str().unwrap().to_string()), "{refs:?}");
+    assert!(
+        refs.contains(&kept["ref"].as_str().unwrap().to_string()),
+        "a pinned record was pruned"
+    );
+    let gone = read(
+        &mux,
+        "git.checkpoint.get",
+        &repository,
+        json!({"checkpoint_id":old["checkpoint_id"]}),
+    );
+    assert_eq!(failure(&gone).0, "resource.not_found");
+    mux.shutdown();
+}
+
+#[test]
+fn a_create_sweeps_only_its_worktrees_orphaned_refs() {
+    let (mux, _root) = session("sweep");
+    let repository = worked_repository("sweep");
+    let worktree = other_worktree_id(&mux, &repository);
+    let head = git(&repository, &["rev-parse", "HEAD"]);
+    let orphan = format!("refs/cmux/checkpoints/{worktree}/ckpt_{}", "1".repeat(32));
+    let foreign = format!("refs/cmux/checkpoints/wt_{}/ckpt_{}", "2".repeat(32), "3".repeat(32));
+    for name in [orphan.as_str(), foreign.as_str(), "refs/cmux/other/keep"] {
+        git(&repository, &["update-ref", name, &head]);
+    }
+    let created = ok(create(&mux, &repository, json!({}), "sweep-1"));
+    let refs = git(&repository, &["for-each-ref", "--format=%(refname)", "refs/cmux/"]);
+    assert!(!refs.lines().any(|name| name == orphan), "the orphan stayed: {refs}");
+    assert!(refs.lines().any(|name| name == foreign), "another worktree's ref was swept");
+    assert!(refs.lines().any(|name| name == "refs/cmux/other/keep"));
+    assert!(refs.lines().any(|name| name == created["value"]["ref"].as_str().unwrap()));
+    mux.shutdown();
+}
+
+#[test]
+fn ignored_paths_do_not_count_against_the_candidate_budget() {
+    let (mux, _root) = session("ignored");
+    let repository = repository("ignored");
+    write(&repository, ".gitignore", b"*.log\n");
+    commit_all(&repository, "first");
+    for index in 0..1001 {
+        write(&repository, &format!("run-{index:04}.log"), b"log\n");
+    }
+    write(&repository, "notes.md", b"notes\n");
+    let listed =
+        ok(read(&mux, "git.checkpoint.list", &repository, json!({"include_candidates":true})));
+    assert_eq!(listed["ignored_total"], 1001);
+    let candidates = listed["candidates"].as_array().unwrap();
+    let ignored = candidates.iter().filter(|candidate| candidate["reason"] == "ignored").count();
+    assert!(ignored <= 200, "{ignored} ignored candidates listed");
+    assert!(candidates.iter().any(|candidate| candidate["path"] == "notes.md"));
+    mux.shutdown();
+}
+
+#[test]
+fn reads_do_not_wait_behind_a_running_capture() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let (mux, _root) = session("unblocked");
+    let repository = worked_repository("unblocked");
+    let created = ok(create(&mux, &repository, json!({}), "unblocked-1"));
+    let id = created["value"]["checkpoint_id"].clone();
+    let store = super::store::Store::open(&mux, "git.checkpoint.create").unwrap();
+    let (held, holding) = mpsc::channel();
+    let (release, released) = mpsc::channel::<()>();
+    let holder = std::thread::spawn(move || {
+        store.exclusive(|| {
+            held.send(()).unwrap();
+            let _ = released.recv();
+        });
+    });
+    holding.recv().unwrap();
+    let (done, answered) = mpsc::channel();
+    let (reader_mux, path) = (mux.clone(), repository.clone());
+    let reader = std::thread::spawn(move || {
+        let got = read(&reader_mux, "git.checkpoint.get", &path, json!({"checkpoint_id":id}));
+        let listed = read(&reader_mux, "git.checkpoint.list", &path, json!({}));
+        let _ = done.send((got, listed));
+    });
+    let answer = answered.recv_timeout(Duration::from_secs(10));
+    release.send(()).unwrap();
+    holder.join().unwrap();
+    reader.join().unwrap();
+    let (got, listed) = answer.expect("get and list waited behind the checkpoint lock");
+    assert_eq!(ok(got), created["value"]);
+    assert_eq!(ok(listed)["checkpoints"].as_array().unwrap().len(), 1);
+    mux.shutdown();
 }
