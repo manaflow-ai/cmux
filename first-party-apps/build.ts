@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
-// Builds (or with --check verifies) every first-party app's dist/main.js and
-// validates its manifest. Plan: plans/cmux-next/first-party-apps.md.
+// Builds (or with --check verifies) every first-party app's dist/main.js.
+// Manifest validation moved to the Rust validator (crate cmux-app-manifest,
+// manifest v2 only); these apps validate there once they move to v2.
+// Plan: plans/cmux-next/first-party-apps.md.
 // Usage: bun first-party-apps/build.ts [--check] [<name>...]
 import { readdirSync, statSync, existsSync } from "node:fs"
 import { join } from "node:path"
@@ -17,8 +19,7 @@ const names = readdirSync(here)
 for (const name of names) {
   const dir = join(here, name)
   const pack = Bun.spawnSync(["bun", join(tools, "pack.ts"), dir, ...(check ? ["--check"] : [])], { stdout: "inherit", stderr: "inherit" })
-  const validate = Bun.spawnSync(["bun", join(tools, "validate-manifest.ts"), dir], { stdout: "inherit", stderr: "inherit" })
-  if (pack.exitCode !== 0 || validate.exitCode !== 0) failed = true
+  if (pack.exitCode !== 0) failed = true
 }
 if (names.length === 0) console.log("no first-party apps found")
 process.exit(failed ? 1 : 0)
