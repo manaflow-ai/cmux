@@ -34,7 +34,13 @@ try {
         { path: "large.bin", bytes: 10000000, eligible: false, reason: "over_limit" },
       ];
       const state = (window.checkpointTour = {
-        calls: [], creates: 0, captures: 0, caps: 0, unsupported: false, record: null, intent: null,
+        calls: [],
+        creates: 0,
+        captures: 0,
+        caps: 0,
+        unsupported: false,
+        record: null,
+        intent: null,
       });
       window.webkit = {
         messageHandlers: {
