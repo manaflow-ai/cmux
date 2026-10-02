@@ -99,8 +99,8 @@ Environment:
 | `vm`, `cloud` | Manage cloud VMs and their HTTPS publications. `cloud` is an alias for `vm`. |
 | `cloud guide`, `cloud --skill` (also `vm guide`, `vm --skill`) | Print the same short Cloud guide without connecting to the app. `--json` returns `{topic: "cloud", format: "markdown", content: "..."}`. This does not install a skill or start an agent; `vm prompt` and its existing `vm skill` alias keep that behavior. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
-| `diff` | Render a unified diff or patch in a cmux browser split. See [Diff subcommands](#diff-subcommands). |
-| `ai-accounts` | Upload local AI credentials to the team's subrouter tenant and manage the sanitized account records stored there. See [AI accounts subcommands](#ai-accounts-subcommands). |
+| `diff` | Render a unified diff or patch in a cmux browser split. See [Diff subcommands](#command-families) under Command Families. |
+| `ai-accounts` | Upload local AI credentials to the team's subrouter tenant and manage the sanitized account records stored there. See [AI accounts subcommands](#command-families) under Command Families. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
 | `identify` | Print server identity and caller context. |
 | `list-windows` | List windows. |
