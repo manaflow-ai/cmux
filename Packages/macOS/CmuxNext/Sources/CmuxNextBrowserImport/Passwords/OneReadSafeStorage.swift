@@ -19,7 +19,7 @@ public final class OneReadSafeStorage: SafeStorageKeyProviding {
         let result = read.withLock { reads in
             if let earlier = reads[service] { return earlier }
             let result: Result<SecretBytes, CookieImportError>
-            do {
+            do throws(CookieImportError) {
                 result = .success(SecretBytes(copying: try source.password(service: service)))
             } catch {
                 result = .failure(error)
@@ -27,6 +27,7 @@ public final class OneReadSafeStorage: SafeStorageKeyProviding {
             reads[service] = result
             return result
         }
-        return try result.get().withUnsafeBytes { Data($0) }
+        let key: SecretBytes = try result.get()
+        return key.withUnsafeBytes { bytes in Data(bytes) }
     }
 }

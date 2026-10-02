@@ -50,14 +50,15 @@ public struct PasswordImporter: Sendable {
         } catch let error as CookieImportError {
             throw Failure.key(error)
         }
-        let logins: [ImportedLogin], skipped: LoginSkipCounts
+        let read: (logins: [ImportedLogin], skipped: LoginSkipCounts)
         do {
-            (logins, skipped) = try ChromiumLoginDataReader().read(profile: profile.path, crypto: crypto)
+            read = try ChromiumLoginDataReader().read(profile: profile.path, crypto: crypto)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             throw Failure.unreadable
         }
+        let (logins, skipped) = read
         var report = PasswordImportReport()
         report.read = logins.count + skipped.total
         report.skipped = skipped

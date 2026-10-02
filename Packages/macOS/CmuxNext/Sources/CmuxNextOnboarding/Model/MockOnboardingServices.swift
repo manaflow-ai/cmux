@@ -76,7 +76,7 @@ public final class MockOnboardingServices: OnboardingServices {
         services.accountsView = accountsView
         services.passwordStore = true
         func profile(_ browser: ImportBrowser, _ directory: String, _ name: String) -> BrowserSourceProfile {
-            let passwords: ImportAvailability = browser.family == .chromium ? .available : .absent
+            let passwords: DataAvailability = browser.family == .chromium ? .available : .absent
             return BrowserSourceProfile(browser: browser, directoryName: directory, displayName: name, path: URL(fileURLWithPath: "/sample/\(directory)"),
                                         availability: [.bookmarks: .available, .history: .available, .cookies: .available, .passwords: passwords])
         }
