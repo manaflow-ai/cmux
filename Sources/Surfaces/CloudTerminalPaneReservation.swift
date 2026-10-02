@@ -164,6 +164,7 @@ final class CloudTerminalPaneReservation {
         allowPlacementRepair: Bool = false
     ) throws -> SurfaceRemotePlacement? {
         guard let expected = attachmentPlacement else { return materializedPlacement }
+        guard expected.resource.machine == machine else { throw CloudDiagnosticFailure.placement }
         let catalogPlacement = (try? catalog.remoteView(
             for: resourceID, tabID: expected.remoteTabID, workspaceID: expected.remoteWorkspaceID
         )).map { SurfaceRemotePlacement(workspaceID: $0.workspace.id, tabID: $0.tabID) }
