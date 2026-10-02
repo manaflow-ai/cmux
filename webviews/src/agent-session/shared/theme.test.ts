@@ -69,11 +69,15 @@ describe("agent theme", () => {
     expect(shared).toMatch(/--agent-primary-text:\s*var\(--agent-accent-text/);
   });
 
-  // The composer sits on the page, which already paints the theme's
-  // background; a second fill stacks with it and hides a translucent
-  // window's backdrop.
-  test("the composer paints no background of its own", () => {
-    const composer = css("../acpmux/styles.css").match(/\.acpmux-composer\{[^}]*\}/)?.[0] ?? "";
-    expect(composer).not.toMatch(/background:(?!transparent)/);
-  });
+  // The composer and the docked session list sit on the page, which already
+  // paints the theme's background; a second fill stacks with it and hides a
+  // translucent window's backdrop.
+  for (const selector of [".acpmux-composer", ".acpmux-sidebar"]) {
+    test(`${selector} paints no background of its own`, () => {
+      const escaped = selector.replace(/[.]/g, "\\.");
+      const rule = css("../acpmux/styles.css").match(new RegExp(`${escaped}\\{[^}]*\\}`))?.[0] ?? "";
+      expect(rule).not.toBe("");
+      expect(rule).not.toMatch(/background:(?!transparent|none)/);
+    });
+  }
 });
