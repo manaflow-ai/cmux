@@ -15,7 +15,7 @@ struct CloudTreePortPresentation {
     }
 
     var toolTip: String? {
-        String(localized: "cloudTree.port.openInCmuxHelp", defaultValue: "Open in cmux. No VPN setup needed.")
+        String(localized: "cloudTree.port.openInCmux.help", defaultValue: "Open in cmux. No VPN setup needed.")
     }
 
     var accessibilityLabel: String {
