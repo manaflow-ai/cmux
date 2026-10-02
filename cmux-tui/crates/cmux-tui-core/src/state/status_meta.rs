@@ -40,7 +40,37 @@ pub(crate) struct StatusMeta {
     pub(crate) duration_ms: Option<u64>,
 }
 
+/// The identity of an owner process: its pid and the kernel's start time,
+/// so a reused pid never stands in for the owner after a restart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct OwnerProcess {
+    pub(crate) pid: u32,
+    pub(crate) started: u128,
+}
+
+impl OwnerProcess {
+    /// The running process `pid`, if any (and this daemon may watch it).
+    pub(crate) fn current(pid: u32) -> Option<Self> {
+        if !super::status_owners::process_is_running(pid) {
+            return None;
+        }
+        #[cfg(unix)]
+        let started = crate::unix_process_scope::process_identity(pid)?.started;
+        #[cfg(not(unix))]
+        let started = 0;
+        Some(Self { pid, started })
+    }
+}
+
 impl StatusMeta {
+    /// Serialize nothing for a plain line, so a plain set keeps the request
+    /// fingerprint it had before these fields existed (idempotent replay
+    /// across an upgrade).
+    #[allow(clippy::borrowed_box)]
+    pub(crate) fn is_plain_boxed(meta: &Box<Self>) -> bool {
+        meta.is_plain()
+    }
+
     /// Read the fields of a `workspace_status.set` request.
     pub(crate) fn from_fields(fields: &Map<String, Value>) -> anyhow::Result<Self> {
         let string = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
@@ -147,6 +177,7 @@ pub(crate) fn create_status_meta_schema(transaction: &Transaction<'_>) -> anyhow
            style TEXT,
            expires_at_ms INTEGER,
            owner_pid INTEGER,
+           owner_pid_start TEXT,
            owner_machine TEXT,
            owner_terminal TEXT,
            owner_agent_session TEXT,
@@ -166,6 +197,7 @@ pub(crate) fn write_meta(
     workspace_id: &str,
     key: &str,
     meta: &StatusMeta,
+    owner_process: Option<OwnerProcess>,
     machine: &str,
     now_ms: u64,
 ) -> anyhow::Result<()> {
@@ -179,8 +211,8 @@ pub(crate) fn write_meta(
         "INSERT OR REPLACE INTO workspace_status_meta(
            workspace_id, status_key, state, progress, style, expires_at_ms, owner_pid,
            owner_machine, owner_terminal, owner_agent_session, target_terminal, exit_code,
-           duration_ms
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+           duration_ms, owner_pid_start
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             workspace_id,
             key,
@@ -188,13 +220,14 @@ pub(crate) fn write_meta(
             meta.progress,
             meta.style,
             to_i64(expires)?,
-            meta.owner_pid,
-            meta.owner_pid.map(|_| machine),
+            owner_process.map(|process| process.pid),
+            owner_process.map(|_| machine),
             meta.owner_terminal,
             meta.owner_agent_session,
             meta.target_terminal,
             meta.exit_code,
             to_i64(meta.duration_ms)?,
+            owner_process.map(|process| process.started.to_string()),
         ],
     )?;
     Ok(())
@@ -330,18 +363,25 @@ pub(crate) fn next_expiry_ms(connection: &Connection) -> anyhow::Result<Option<u
     Ok(next.and_then(|value| u64::try_from(value).ok()))
 }
 
-/// Owners to watch after a daemon start: terminals, and processes of `machine`.
+/// Owners to watch after a daemon start: terminals, and processes of
+/// `machine` with their recorded start time.
 pub(crate) fn live_owners(
     connection: &Connection,
     machine: &str,
-) -> anyhow::Result<(Vec<String>, Vec<u32>)> {
+) -> anyhow::Result<(Vec<String>, Vec<OwnerProcess>)> {
     let terminals = connection
         .prepare("SELECT DISTINCT owner_terminal FROM workspace_status_meta WHERE owner_terminal IS NOT NULL")?
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<Result<Vec<_>, _>>()?;
     let pids = connection
-        .prepare("SELECT DISTINCT owner_pid FROM workspace_status_meta WHERE owner_pid IS NOT NULL AND owner_machine = ?1")?
-        .query_map([machine], |row| row.get::<_, u32>(0))?
+        .prepare(
+            "SELECT DISTINCT owner_pid, owner_pid_start FROM workspace_status_meta
+             WHERE owner_pid IS NOT NULL AND owner_machine = ?1",
+        )?
+        .query_map([machine], |row| {
+            let started = row.get::<_, Option<String>>(1)?.and_then(|value| value.parse().ok());
+            Ok(OwnerProcess { pid: row.get(0)?, started: started.unwrap_or_default() })
+        })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok((terminals, pids))
 }

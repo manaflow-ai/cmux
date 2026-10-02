@@ -20,6 +20,7 @@ pub(crate) enum WorkspaceStatusChange {
         text: String,
         icon: Option<String>,
         color: Option<String>,
+        #[serde(skip_serializing_if = "crate::state::status_meta::StatusMeta::is_plain_boxed")]
         meta: Box<crate::state::status_meta::StatusMeta>,
     },
     Clear {
@@ -105,6 +106,20 @@ impl Mux {
                 match &change {
                     WorkspaceStatusChange::Set { key, text, icon, color, meta } => {
                         meta.validate(|id| state.terminal_catalog.contains_key(id))?;
+                        // Checked here, after the replay check, so a retry of
+                        // a committed set returns its stored result.
+                        let owner_process = match meta.owner_pid {
+                            Some(pid) => Some(
+                                crate::state::status_meta::OwnerProcess::current(pid).ok_or_else(
+                                    || {
+                                        anyhow::anyhow!(
+                                            "bad request: owner.pid {pid} is not running"
+                                        )
+                                    },
+                                )?,
+                            ),
+                            None => None,
+                        };
                         status::set_status(
                             transaction,
                             workspace,
@@ -119,6 +134,7 @@ impl Mux {
                             workspace,
                             key,
                             meta,
+                            owner_process,
                             &machine,
                             now,
                         )?;

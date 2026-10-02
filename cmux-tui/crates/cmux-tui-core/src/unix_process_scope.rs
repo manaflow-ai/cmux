@@ -36,9 +36,9 @@ const MAX_SCAN_FILE_DESCRIPTORS: usize = 65_536;
 const PROCESS_SCOPE_ENV: &str = "CMUX_TUI_PROCESS_SCOPE";
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-struct ProcessIdentity {
-    pid: u32,
-    started: u128,
+pub(crate) struct ProcessIdentity {
+    pub(crate) pid: u32,
+    pub(crate) started: u128,
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -1173,7 +1173,7 @@ fn scan_registered_processes(
 }
 
 #[cfg(target_os = "linux")]
-fn process_identity(pid: u32) -> Option<ProcessIdentity> {
+pub(crate) fn process_identity(pid: u32) -> Option<ProcessIdentity> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     linux_process_identity_from_stat(pid, &stat)
 }
@@ -1483,7 +1483,7 @@ fn mac_environment_contains(arguments: &[u8], expected: &[u8]) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-fn process_identity(pid: u32) -> Option<ProcessIdentity> {
+pub(crate) fn process_identity(pid: u32) -> Option<ProcessIdentity> {
     Some(mac_process_snapshot(pid)?.identity)
 }
 
@@ -1518,7 +1518,7 @@ fn scan_registered_processes(
 }
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
-fn process_identity(pid: u32) -> Option<ProcessIdentity> {
+pub(crate) fn process_identity(pid: u32) -> Option<ProcessIdentity> {
     Some(ProcessIdentity { pid, started: 0 })
 }
 

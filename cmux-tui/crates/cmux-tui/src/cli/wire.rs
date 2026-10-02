@@ -33,6 +33,8 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         eprintln!("cmux: {error}");
         return 2;
     }
+    #[cfg(unix)]
+    super::status::drop_caller_terminal_when_routed(&global, &mut plan);
     let mut request = match request_value(&plan) {
         Ok(request) => request,
         Err(error) => {

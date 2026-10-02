@@ -17541,7 +17541,8 @@
             "type": {
               "kind": "primitive",
               "name": "uint32",
-              "minimum": 1
+              "minimum": 1,
+              "maximum": 604800000
             },
             "description": "The daemon removes the entry this long after the write (at most 7 days)."
           },

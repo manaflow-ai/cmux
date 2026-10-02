@@ -152,3 +152,31 @@ fn owner_process_exit_removes_only_its_entries() {
     assert_eq!(entries(&mux, &workspace)[0]["key"], "other");
     mux.shutdown();
 }
+
+#[cfg(unix)]
+#[test]
+fn owner_process_identity_carries_a_start_time_and_dead_pids_have_none() {
+    let me = crate::state::status_meta::OwnerProcess::current(std::process::id()).unwrap();
+    assert_eq!(me.pid, std::process::id());
+    assert_ne!(me.started, 0, "the start time tells a reused pid apart");
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    assert!(crate::state::status_meta::OwnerProcess::current(pid).is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_retry_after_the_owner_exited_returns_the_stored_result() {
+    let mux = Mux::new_for_test("status-meta-replay", SurfaceOptions::default());
+    let workspace = empty_workspace(&mux, "replay");
+    let mut child = std::process::Command::new("sleep").arg("30").spawn().unwrap();
+    let params = json!({"workspace": workspace, "key": "run", "text": "T", "state": "busy",
+                        "owner": {"pid": child.id()}});
+    mutate(&mux, "workspace_status.set", params.clone(), "r1");
+    child.kill().unwrap();
+    child.wait().unwrap();
+    let replay = send(&mux, "workspace_status.set", params, Some("r1")).unwrap();
+    assert_eq!(replay["replayed"], true);
+    mux.shutdown();
+}

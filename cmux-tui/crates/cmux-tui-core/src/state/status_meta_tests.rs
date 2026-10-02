@@ -30,7 +30,8 @@ fn put(connection: &mut Connection, workspace: &str, key: &str, value: &StatusMe
         params![workspace, key],
     )
     .unwrap();
-    write_meta(&tx, workspace, key, value, "mach_a", now).unwrap();
+    let process = value.owner_pid.map(|pid| OwnerProcess { pid, started: 7 });
+    write_meta(&tx, workspace, key, value, process, "mach_a", now).unwrap();
     tx.commit().unwrap();
 }
 
@@ -127,5 +128,5 @@ fn each_owner_end_removes_exactly_its_entries() {
     tx.commit().unwrap();
     assert!(owned_entries(&connection, &OwnerEnd::Expired { now_ms: 1100 }).unwrap().is_empty());
     let (terminals, pids) = live_owners(&connection, "mach_a").unwrap();
-    assert_eq!((terminals, pids), (vec![term(1)], vec![9]));
+    assert_eq!((terminals, pids), (vec![term(1)], vec![OwnerProcess { pid: 9, started: 7 }]));
 }

@@ -40,6 +40,39 @@ pub(super) fn run_args(args: &[String]) -> Option<i32> {
     run(&global, &command)
 }
 
+/// A status set routed to another session (`--socket`, `--session`) cannot
+/// name the caller's terminal, which belongs to the caller's session: drop
+/// the defaults `workspace status set` filled from `CMUX_TUI_TERMINAL_ID`.
+pub(super) fn drop_caller_terminal_when_routed(
+    global: &GlobalArgs,
+    plan: &mut super::command::RequestPlan,
+) {
+    use cmux_tui_core::resource::ResourceOperation;
+    let routed = global.socket.is_some() || global.session.is_some();
+    let is_set = matches!(
+        plan.operation,
+        super::command::WireOperation::Typed(ResourceOperation::WorkspaceStatusSet)
+    );
+    let (true, true, Some(caller)) = (routed, is_set, caller_terminal()) else { return };
+    let Some(params) = plan.params.as_object_mut() else { return };
+    if params.get("target_terminal").and_then(serde_json::Value::as_str) == Some(caller.as_str()) {
+        params.remove("target_terminal");
+    }
+    let owner_is_caller = params
+        .get("owner")
+        .and_then(|owner| owner.get("terminal"))
+        .and_then(serde_json::Value::as_str)
+        == Some(caller.as_str());
+    if owner_is_caller
+        && let Some(owner) = params.get_mut("owner").and_then(serde_json::Value::as_object_mut)
+    {
+        owner.remove("terminal");
+        if owner.is_empty() {
+            params.remove("owner");
+        }
+    }
+}
+
 /// `None` when `command` is not a `status` command.
 fn run(global: &GlobalArgs, command: &[String]) -> Option<i32> {
     let (first, rest) = command.split_first()?;
@@ -163,7 +196,10 @@ fn parse(words: &[String]) -> Result<Status, UsageError> {
         (["list"], None) if passthrough.is_empty() => {
             Ok(Status::Send(words(&["list"], Vec::new())))
         }
-        (["run"], Some(argv)) if !argv.is_empty() && passthrough.is_empty() => {
+        (["run"], Some(_)) if !passthrough.is_empty() => {
+            Err(UsageError::new("status run takes only --label, --target and --badge-ttl"))
+        }
+        (["run"], Some(argv)) if !argv.is_empty() => {
             let label = label.unwrap_or_else(|| {
                 std::path::Path::new(&argv[0])
                     .file_name()
@@ -197,41 +233,89 @@ fn send(global: &GlobalArgs, words: &[String]) -> i32 {
     }
 }
 
-/// The child `status run` waits for, so SIGTERM reaches it.
+/// The child `status run` waits for, so forwarded signals reach it.
 static CHILD: AtomicI32 = AtomicI32::new(0);
 
-extern "C" fn forward_signal(signal: libc::c_int) {
+/// Forward a signal to the child. SIGINT and SIGQUIT the terminal sends
+/// (`si_pid` 0) already reach the child through its process group, so only
+/// ones another process sent are forwarded; SIGTERM and SIGHUP always are.
+extern "C" fn forward_signal(
+    signal: libc::c_int,
+    info: *mut libc::siginfo_t,
+    _: *mut libc::c_void,
+) {
     let child = CHILD.load(Ordering::SeqCst);
-    if child > 0 {
+    // SAFETY: the kernel passes a valid siginfo with SA_SIGINFO.
+    let sender = if info.is_null() { 0 } else { unsafe { (*info).si_pid() } };
+    let from_terminal = sender == 0 && matches!(signal, libc::SIGINT | libc::SIGQUIT);
+    if child > 0 && !from_terminal {
         // SAFETY: kill is async-signal-safe.
         unsafe { libc::kill(child, signal) };
+    }
+}
+
+const FORWARDED: [libc::c_int; 4] = [libc::SIGINT, libc::SIGQUIT, libc::SIGTERM, libc::SIGHUP];
+
+/// Install `forward_signal` for the forwarded signals; returns the old
+/// actions. Caught (not ignored) signals reset to their defaults in the
+/// child at exec, so the command still sees Ctrl-C normally.
+fn install_forwarding() -> Vec<libc::sigaction> {
+    FORWARDED
+        .iter()
+        .map(|signal| {
+            // SAFETY: plain sigaction calls with zeroed, then filled, structs.
+            unsafe {
+                let mut action: libc::sigaction = std::mem::zeroed();
+                action.sa_sigaction = forward_signal as *const () as libc::sighandler_t;
+                action.sa_flags = libc::SA_SIGINFO | libc::SA_RESTART;
+                libc::sigemptyset(&mut action.sa_mask);
+                let mut previous: libc::sigaction = std::mem::zeroed();
+                libc::sigaction(*signal, &action, &mut previous);
+                previous
+            }
+        })
+        .collect()
+}
+
+fn restore_forwarding(previous: &[libc::sigaction]) {
+    for (signal, action) in FORWARDED.iter().zip(previous) {
+        // SAFETY: restoring the actions saved by install_forwarding.
+        unsafe { libc::sigaction(*signal, action, std::ptr::null_mut()) };
     }
 }
 
 fn run_command(global: &GlobalArgs, run: RunPlan) -> i32 {
     let mut quiet = global.clone();
     quiet.output = OutputMode::Quiet;
-    quiet.idempotency_key = None;
-    let set = |state: &str, extra: &[String]| {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let set = |phase: &str, state: &str, extra: &[String]| {
         let mut words = vec!["workspace".to_owned()];
         words.extend(run.target.clone());
         words.extend(["status", "set"].map(str::to_owned));
         words.extend([run.key.clone(), run.label.clone(), "--state".into(), state.into()]);
         words.extend(extra.iter().cloned());
-        send(&quiet, &words)
+        // One idempotency key per write, so a retried write never applies twice.
+        let mut keyed = quiet.clone();
+        keyed.idempotency_key = Some(format!("status-run-{}-{nonce}-{phase}", std::process::id()));
+        send(&keyed, &words)
     };
     // Best effort: the command runs even when no daemon answers.
-    let marked = set("busy", &["--pid".into(), std::process::id().to_string()]) == 0;
+    let marked = set("busy", "busy", &["--pid".into(), std::process::id().to_string()]) == 0;
     if !marked {
         eprintln!("cmux: status run could not mark {} busy; running it anyway", run.label);
     }
+    let previous = install_forwarding();
     let started = Instant::now();
     let mut child = match Command::new(&run.argv[0]).args(&run.argv[1..]).spawn() {
         Ok(child) => child,
         Err(error) => {
+            restore_forwarding(&previous);
             eprintln!("cmux: cannot run {}: {error}", run.argv[0]);
             if marked {
                 set(
+                    "final",
                     "error",
                     &["--exit-code".into(), "127".into(), "--ttl".into(), run.badge_ttl.clone()],
                 );
@@ -240,38 +324,22 @@ fn run_command(global: &GlobalArgs, run: RunPlan) -> i32 {
         }
     };
     CHILD.store(i32::try_from(child.id()).unwrap_or(0), Ordering::SeqCst);
-    // The terminal delivers Ctrl-C and Ctrl-\ to the child too; this
-    // process stays to record the outcome. SIGTERM is forwarded.
-    // SAFETY: installing process-wide dispositions before waiting.
-    let previous = unsafe {
-        [
-            libc::signal(libc::SIGINT, libc::SIG_IGN),
-            libc::signal(libc::SIGQUIT, libc::SIG_IGN),
-            libc::signal(libc::SIGTERM, forward_signal as *const () as libc::sighandler_t),
-            libc::signal(libc::SIGHUP, forward_signal as *const () as libc::sighandler_t),
-        ]
-    };
     let status = child.wait();
-    // SAFETY: restoring the dispositions saved above.
-    unsafe {
-        for (signal, handler) in
-            [libc::SIGINT, libc::SIGQUIT, libc::SIGTERM, libc::SIGHUP].into_iter().zip(previous)
-        {
-            libc::signal(signal, handler);
-        }
-    }
     CHILD.store(0, Ordering::SeqCst);
-    let code = match status {
-        Ok(status) => exit_code(status),
+    restore_forwarding(&previous);
+    let (code, signal) = match status {
+        Ok(status) => (exit_code(status), terminating_signal(status)),
         Err(error) => {
             eprintln!("cmux: waiting for {} failed: {error}", run.argv[0]);
-            1
+            (1, None)
         }
     };
     if marked {
-        let duration = started.elapsed().as_millis().to_string();
+        // The catalog carries durations as uint32 milliseconds (49 days).
+        let duration = started.elapsed().as_millis().min(u128::from(u32::MAX)).to_string();
         let state = if code == 0 { "success" } else { "error" };
         set(
+            "final",
             state,
             &[
                 "--exit-code".into(),
@@ -283,7 +351,23 @@ fn run_command(global: &GlobalArgs, run: RunPlan) -> i32 {
             ],
         );
     }
+    // A command killed by Ctrl-C ends this process the same way, so a shell
+    // loop around `cmux status run` stops too.
+    if let Some(signal) = signal {
+        // SAFETY: restore the default action, then raise to ourselves.
+        unsafe {
+            libc::signal(signal, libc::SIG_DFL);
+            libc::raise(signal);
+        }
+    }
     code
+}
+
+fn terminating_signal(status: std::process::ExitStatus) -> Option<libc::c_int> {
+    use std::os::unix::process::ExitStatusExt;
+    status.signal().filter(|signal| {
+        matches!(*signal, libc::SIGINT | libc::SIGQUIT | libc::SIGTERM | libc::SIGHUP)
+    })
 }
 
 /// The shell convention: the exit status, or 128 + the signal number.

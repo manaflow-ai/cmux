@@ -66,7 +66,9 @@ pub(super) fn insert(
         Some("none") => true,
         Some(_) => return Err(UsageError::new("--owner takes terminal or none")),
     };
-    if let Some(terminal) = caller_terminal {
+    // A plain status line stays plain: only a loading entry (one with a
+    // state) is owned by and about the caller's terminal.
+    if let Some(terminal) = caller_terminal.filter(|_| fields.contains_key("state")) {
         validate_prefixed_id("terminal", "term", &terminal)?;
         if !keep {
             owner.insert("terminal".into(), Value::String(terminal.clone()));

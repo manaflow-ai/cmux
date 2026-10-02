@@ -84,26 +84,17 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
     )
 }
 
-/// Map a state failure to its typed protocol error. Registry validation
-/// failures are `bad request: ...`.
-/// The loading-indicator fields of `workspace_status.set`. A process owner
-/// must be running when the entry is set (local trust is checked by the
-/// transport, which alone knows the connection).
+/// The loading-indicator fields of `workspace_status.set`. Local trust for
+/// a process owner is checked by the transport, which alone knows the
+/// connection; whether it runs, inside the commit (after the replay check).
 fn status_set_meta(
     fields: &Map<String, Value>,
 ) -> Result<crate::state::status_meta::StatusMeta, ResourceError> {
-    let meta = crate::state::status_meta::StatusMeta::from_fields(fields).map_err(state_error)?;
-    if let Some(pid) = meta.owner_pid
-        && !crate::state::status_owners::process_is_running(pid)
-    {
-        return Err(ResourceError::validation_invalid(
-            Some("owner.pid"),
-            format!("process {pid} is not running"),
-        ));
-    }
-    Ok(meta)
+    crate::state::status_meta::StatusMeta::from_fields(fields).map_err(state_error)
 }
 
+/// Map a state failure to its typed protocol error. Registry validation
+/// failures are `bad request: ...`.
 fn state_error(error: anyhow::Error) -> ResourceError {
     if error.downcast_ref::<ResourceError>().is_none()
         && let Some(reason) = error.to_string().strip_prefix("bad request: ")

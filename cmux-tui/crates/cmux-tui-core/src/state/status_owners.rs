@@ -18,7 +18,7 @@ use crate::Mux;
 use crate::resource::TerminalPublicId;
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
-use crate::state::status_meta::{self, OwnerEnd};
+use crate::state::status_meta::{self, OwnerEnd, OwnerProcess};
 use crate::state::store::{StateChanges, StateCommit, state_upsert};
 use crate::state::workspace_status_store as status;
 
@@ -89,7 +89,11 @@ pub(crate) fn watch_owners(
         watch_terminal(mux, terminal.to_owned());
     }
     if let Some(pid) = pid {
-        watch_process(mux, pid);
+        match OwnerProcess::current(pid) {
+            Some(process) => watch_process(mux, process),
+            // It ended between the commit and now.
+            None => clear_now(mux, &OwnerEnd::Process { pid, machine: mux.status_machine_id() }),
+        }
     }
     if has_ttl {
         schedule_expiry(mux);
@@ -101,17 +105,32 @@ pub(crate) fn watch_owners(
 pub(crate) fn resume(mux: &Arc<Mux>) {
     let machine = mux.status_machine_id();
     match mux.read_registry_state(|connection| status_meta::live_owners(connection, &machine)) {
-        Ok((terminals, pids)) => {
+        Ok((terminals, processes)) => {
             for terminal in terminals {
                 watch_terminal(mux, terminal);
             }
-            for pid in pids {
-                watch_process(mux, pid);
+            for recorded in processes {
+                // A pid reused by another process is not the owner.
+                match OwnerProcess::current(recorded.pid) {
+                    Some(current) if recorded.started == 0 || current == recorded => {
+                        watch_process(mux, current);
+                    }
+                    _ => clear_now(
+                        mux,
+                        &OwnerEnd::Process { pid: recorded.pid, machine: machine.clone() },
+                    ),
+                }
             }
         }
         Err(error) => eprintln!("cmux-tui: status owner resume failed: {error}"),
     }
     schedule_expiry(mux);
+}
+
+fn clear_now(mux: &Mux, end: &OwnerEnd) {
+    if let Err(error) = mux.clear_owned_workspace_status(end) {
+        eprintln!("cmux-tui: clearing owned status failed: {error}");
+    }
 }
 
 fn mux_key(mux: &Arc<Mux>) -> usize {
@@ -123,61 +142,96 @@ fn watched() -> &'static Mutex<HashSet<(usize, String)>> {
     WATCHED.get_or_init(Default::default)
 }
 
-/// Run `wait` on its own thread once per `(mux, label)`, then clear `end`.
+/// What a watch saw.
+enum Watch {
+    /// The owner ended: remove its entries.
+    Ended,
+    /// The watch could not be armed or failed; the owner may still run, so
+    /// its entries stay (a TTL or an explicit clear still removes them).
+    Failed,
+}
+
+/// Run `wait` on its own thread once per `(mux, label)`, then clear `end`
+/// when the owner ended.
 fn spawn_watch(
     mux: &Arc<Mux>,
     label: String,
     end: OwnerEnd,
-    wait: impl FnOnce(&Mux) + Send + 'static,
+    wait: impl FnOnce(&Weak<Mux>) -> Watch + Send + 'static,
 ) {
     let key = (mux_key(mux), label);
     if !watched().lock().unwrap().insert(key.clone()) {
         return;
     }
-    let mux = mux.clone();
+    let weak = Arc::downgrade(mux);
+    let thread_key = key.clone();
     let spawned = std::thread::Builder::new().name("cmux-status-owner".into()).spawn(move || {
-        wait(&mux);
-        watched().lock().unwrap().remove(&key);
-        if let Err(error) = mux.clear_owned_workspace_status(&end) {
-            eprintln!("cmux-tui: clearing owned status failed: {error}");
+        let outcome = wait(&weak);
+        watched().lock().unwrap().remove(&thread_key);
+        if let (Watch::Ended, Some(mux)) = (outcome, weak.upgrade()) {
+            clear_now(&mux, &end);
         }
     });
     if let Err(error) = spawned {
+        watched().lock().unwrap().remove(&key);
         eprintln!("cmux-tui: status owner watch failed to start: {error}");
     }
 }
 
+/// Watch a terminal owner through the session host's exit subscription. The
+/// wait holds the daemon while it blocks; a terminal ends with its daemon.
 fn watch_terminal(mux: &Arc<Mux>, terminal: String) {
     let end = OwnerEnd::Terminal { terminal: terminal.clone() };
-    spawn_watch(mux, format!("terminal:{terminal}"), end, move |mux| {
-        let Ok(id) = TerminalPublicId::parse(terminal) else { return };
-        // Returns at exit; an unknown terminal is already gone.
-        while let Ok(state) = mux.wait_for_terminal_exit(&id, None) {
-            if state["state"] == "exited" {
-                return;
+    spawn_watch(mux, format!("terminal:{terminal}"), end, move |weak| {
+        let Ok(id) = TerminalPublicId::parse(terminal) else { return Watch::Failed };
+        let mut backoff = Duration::from_secs(1);
+        loop {
+            let Some(mux) = weak.upgrade() else { return Watch::Failed };
+            match mux.wait_for_terminal_exit(&id, None) {
+                Ok(state) if state["state"] == "exited" => return Watch::Ended,
+                Ok(_) => {}
+                // The session host no longer knows the terminal: it is gone.
+                Err(error) if is_gone(&error) => return Watch::Ended,
+                Err(error) => {
+                    eprintln!("cmux-tui: watching terminal {id} failed: {error}; retrying");
+                    drop(mux);
+                    std::thread::sleep(backoff);
+                    backoff = (backoff * 2).min(Duration::from_secs(60));
+                }
             }
         }
     });
 }
 
-fn watch_process(mux: &Arc<Mux>, pid: u32) {
-    let end = OwnerEnd::Process { pid, machine: mux.status_machine_id() };
-    spawn_watch(mux, format!("pid:{pid}"), end, move |_| {
-        if let Err(error) = wait_for_process_exit(pid) {
-            eprintln!("cmux-tui: cannot watch process {pid}: {error}");
+fn is_gone(error: &anyhow::Error) -> bool {
+    let text = error.to_string();
+    text.contains("is not live") || text.contains("no durable placement")
+}
+
+/// Watch a process owner through the kernel's exit notification. The wait
+/// holds no daemon reference.
+fn watch_process(mux: &Arc<Mux>, process: OwnerProcess) {
+    let end = OwnerEnd::Process { pid: process.pid, machine: mux.status_machine_id() };
+    spawn_watch(mux, format!("pid:{}", process.pid), end, move |_| {
+        match wait_for_process_exit(process.pid) {
+            Ok(()) => Watch::Ended,
+            Err(error) => {
+                eprintln!("cmux-tui: cannot watch process {}: {error}", process.pid);
+                Watch::Failed
+            }
         }
     });
 }
 
-/// Whether `pid` names a running process (`kill(pid, 0)`).
+/// Whether `pid` names a running process this daemon may signal (and so
+/// watch): `kill(pid, 0)` succeeds.
 pub(crate) fn process_is_running(pid: u32) -> bool {
     let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
     // SAFETY: signal 0 performs only the existence and permission check.
-    let result = unsafe { libc::kill(pid, 0) };
-    result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    unsafe { libc::kill(pid, 0) == 0 }
 }
 
-/// Block until `pid` exits. Returns at once when it is not running.
+/// Block until `pid` exits. `Ok` at once when it is not running.
 #[cfg(target_vendor = "apple")]
 fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
     let pid = libc::pid_t::try_from(pid).map_err(|_| std::io::ErrorKind::InvalidInput)?;
@@ -190,25 +244,35 @@ fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
         let mut change: libc::kevent = std::mem::zeroed();
         change.ident = pid as libc::uintptr_t;
         change.filter = libc::EVFILT_PROC;
-        change.flags = libc::EV_ADD | libc::EV_ONESHOT;
+        change.flags = libc::EV_ADD | libc::EV_ONESHOT | libc::EV_RECEIPT;
         change.fflags = libc::NOTE_EXIT;
         let mut event: libc::kevent = std::mem::zeroed();
-        let mut result = libc::kevent(queue, &change, 1, &mut event, 1, std::ptr::null());
-        while result < 0
-            && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
-        {
-            result = libc::kevent(queue, std::ptr::null(), 0, &mut event, 1, std::ptr::null());
-        }
-        let error = std::io::Error::last_os_error();
+        // EV_RECEIPT: registration reports its outcome as an EV_ERROR event.
+        let registered = libc::kevent(queue, &change, 1, &mut event, 1, std::ptr::null());
+        let outcome = if registered < 0 {
+            Err(std::io::Error::last_os_error())
+        } else if event.flags & libc::EV_ERROR != 0 && event.data != 0 {
+            let code = i32::try_from(event.data).unwrap_or(libc::EINVAL);
+            if code == libc::ESRCH { Ok(()) } else { Err(std::io::Error::from_raw_os_error(code)) }
+        } else {
+            loop {
+                let ready =
+                    libc::kevent(queue, std::ptr::null(), 0, &mut event, 1, std::ptr::null());
+                if ready > 0 {
+                    break Ok(());
+                }
+                let error = std::io::Error::last_os_error();
+                if ready < 0 && error.kind() != std::io::ErrorKind::Interrupted {
+                    break Err(error);
+                }
+            }
+        };
         libc::close(queue);
-        if result < 0 && error.raw_os_error() != Some(libc::ESRCH) {
-            return Err(error);
-        }
+        outcome
     }
-    Ok(())
 }
 
-/// Block until `pid` exits. Returns at once when it is not running.
+/// Block until `pid` exits. `Ok` at once when it is not running.
 #[cfg(target_os = "linux")]
 fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
     let pid = libc::pid_t::try_from(pid).map_err(|_| std::io::ErrorKind::InvalidInput)?;
@@ -220,12 +284,18 @@ fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
             return if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) };
         }
         let mut poll = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
-        while libc::poll(&mut poll, 1, -1) < 0
-            && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
-        {}
+        let outcome = loop {
+            if libc::poll(&mut poll, 1, -1) >= 0 {
+                break Ok(());
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
+                break Err(error);
+            }
+        };
         libc::close(fd);
+        outcome
     }
-    Ok(())
 }
 
 #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
@@ -266,6 +336,7 @@ fn schedule_expiry(mux: &Arc<Mux>) {
 /// repeat. Woken early by `schedule_expiry`.
 fn run_expiry() {
     let expiry = expiry();
+    let mut failures: u32 = 0;
     loop {
         let (muxes, generation) = {
             let mut guard = expiry.muxes.lock().unwrap();
@@ -273,15 +344,23 @@ fn run_expiry() {
             (guard.0.clone(), guard.1)
         };
         let mut next: Option<u64> = None;
+        let mut failed = false;
         for mux in muxes.iter().filter_map(Weak::upgrade) {
             let now = crate::mux::now_ms();
             if let Err(error) = mux.clear_owned_workspace_status(&OwnerEnd::Expired { now_ms: now })
             {
                 eprintln!("cmux-tui: status expiry failed: {error}");
+                failed = true;
             }
             if let Ok(Some(deadline)) = mux.read_registry_state(status_meta::next_expiry_ms) {
                 next = Some(next.map_or(deadline, |current| current.min(deadline)));
             }
+        }
+        // After a failure the expired row stays; retry with a growing delay
+        // (1 s to about 4 min) instead of spinning on a past deadline.
+        failures = if failed { failures.saturating_add(1) } else { 0 };
+        if failures > 0 {
+            next = Some(crate::mux::now_ms().saturating_add(1_000u64 << failures.min(8)));
         }
         let guard = expiry.muxes.lock().unwrap();
         if guard.1 != generation {

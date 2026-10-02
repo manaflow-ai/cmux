@@ -448,9 +448,9 @@ pub(crate) fn public_terminal_snapshot(
     if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
         terminal["cwd"] = json!(cwd);
     }
-    // Activity facts (`terminal-activity-v1`) describe a running terminal
-    // only; an exited one publishes neither.
-    if durable.lifecycle == TerminalLifecycle::Running {
+    // Activity facts (`terminal-activity-v1`) describe a live terminal; an
+    // exited one publishes neither.
+    if !matches!(durable.lifecycle, TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned) {
         let mut extra = Map::new();
         if let Some(progress) = surface.and_then(crate::Surface::terminal_progress) {
             extra.insert("progress".into(), progress.to_json());
