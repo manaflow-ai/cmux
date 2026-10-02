@@ -1935,6 +1935,25 @@ class RootRunners(unittest.TestCase):
         self.assertEqual(output.getvalue().strip(), GUI_MINI)
         self.assertEqual(resolve.call_args.kwargs["test_filter"], "cmuxUITests/DogfoodScenarioUITests")
 
+    def test_ui_auto_resolve_selects_gui_label_from_measured_capacity(self):
+        """The real resolver keeps a UI tour on the GUI label when minis are busy."""
+        load = e2e_pool.PoolLoad(fleet(busy=4))
+        choice = e2e_pool.resolve(
+            "auto", SMALL,
+            overflow="1",
+            order="",
+            max_queued="",
+            measure=lambda: load,
+            now=NOW,
+            owned="1",
+            owned_slots=json.dumps({MINI: 4, ROOT_MINI: 0, GUI_MINI: 2}),
+            pr_xcode_app=PR_XCODE,
+            test_filter="cmuxUITests/DogfoodScenarioUITests",
+            owned_ui="1",
+            queue_rounds="0",
+        )
+        self.assertEqual(choice, GUI_MINI)
+
     def test_ui_owned_runner_prefers_an_online_gui_label(self):
         self.assertEqual(
             e2e_pool.ui_owned_runner(
