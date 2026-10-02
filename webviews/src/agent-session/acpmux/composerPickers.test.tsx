@@ -84,6 +84,8 @@ describe("acpmux composer pickers", () => {
         createElement(ComposerPickers, {
           snapshot: value,
           settleMs,
+          // Room beside the menu for the cascade; the model picker's tests cover the narrow drill.
+          measurePickerRoom: () => 600,
           onModel: (id: string) => {
             calls.push(`model ${id}`);
           },
@@ -102,6 +104,12 @@ describe("acpmux composer pickers", () => {
     [...doc.querySelectorAll("[role=option]")].map(
       (option) => `${option.textContent}${option.getAttribute("aria-checked") === "true" ? " *" : ""}`,
     );
+  /// The model picker's rows by label, the checked one starred.
+  const rowLabels = () =>
+    [...doc.querySelectorAll(".acpmux-mp-row")].map(
+      (row) =>
+        `${row.querySelector(".acpmux-menu-label")?.textContent}${row.getAttribute("aria-checked") === "true" ? " *" : ""}`,
+    );
   const key = async (target: Element, name: string) =>
     act(async () => {
       target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
@@ -116,20 +124,23 @@ describe("acpmux composer pickers", () => {
     await act(async () => root.unmount());
   });
 
-  test("the model is a dropdown with its current choice checked; the effort is a stepped slider", async () => {
+  test("the model chip opens the model picker on the current model; the effort is a stepped slider", async () => {
     await render(snapshot({ configOptions: [effort] }));
-    expect(button("Model")!.textContent).toBe("6 Astra");
+    const model = button("Model")!;
+    expect(model.textContent).toBe("6 Astra");
     expect(button("Effort")!.textContent).toBe("High");
     expect(button("Mode")).toBeNull();
-    await act(async () => button("Model")!.click());
-    expect(options()).toEqual(["6 Astra *", "6.1 Sol"]);
-    await act(async () => {
-      doc
-        .querySelectorAll("[role=option]")[1]!
-        .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-    });
+    await act(async () => model.click());
+    const menu = doc.querySelector(".acpmux-mp[role=menu]")!;
+    const astra = [...menu.querySelectorAll("[role=menuitemradio]")].find(
+      (row) => row.querySelector(".acpmux-menu-label")?.textContent === "6 Astra",
+    );
+    expect(astra!.getAttribute("aria-checked")).toBe("true");
+    // Typing filters the models; Return picks the best match.
+    for (const char of "sol") await key(model, char);
+    await key(model, "Enter");
     expect(calls).toEqual(["model sol"]);
-    expect(doc.querySelector("[role=listbox]")).toBeNull();
+    expect(doc.querySelector(".acpmux-mp")).toBeNull();
     await act(async () => button("Effort")!.click());
     // The popover names the effort and the model over one stop per level.
     expect(doc.querySelector(".acpmux-effort-title")!.textContent).toBe("High");
@@ -151,20 +162,20 @@ describe("acpmux composer pickers", () => {
   });
 
   test("arrows and Enter pick from the menu, and Escape closes it back to the button", async () => {
-    await render(snapshot({ configOptions: [effort] }));
-    const model = button("Model")!;
-    await key(model, "ArrowDown");
-    expect(model.getAttribute("aria-expanded")).toBe("true");
-    expect(doc.getElementById(model.getAttribute("aria-activedescendant")!)!.textContent).toBe("6 Astra");
-    await key(model, "ArrowUp");
-    expect(doc.getElementById(model.getAttribute("aria-activedescendant")!)!.textContent).toBe("6.1 Sol");
-    await key(model, "Enter");
-    expect(calls).toEqual(["model sol"]);
-    await key(model, "ArrowDown");
-    await key(model, "Escape");
+    await render(snapshot({ modes }));
+    const mode = button("Mode")!;
+    await key(mode, "ArrowDown");
+    expect(mode.getAttribute("aria-expanded")).toBe("true");
+    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain("Ask for approval");
+    await key(mode, "ArrowUp");
+    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain("Full access");
+    await key(mode, "Enter");
+    expect(calls).toEqual(["mode bypassPermissions"]);
+    await key(mode, "ArrowDown");
+    await key(mode, "Escape");
     expect(doc.querySelector("[role=listbox]")).toBeNull();
-    expect(doc.activeElement).toBe(model);
-    expect(calls).toEqual(["model sol"]);
+    expect(doc.activeElement).toBe(mode);
+    expect(calls).toEqual(["mode bypassPermissions"]);
   });
 
   test("Space picks on keyup without the button's click reopening the menu, and a shrunk list keeps a row highlighted", async () => {
@@ -197,7 +208,7 @@ describe("acpmux composer pickers", () => {
     expect(menu.textContent).toContain("Always ask");
   });
 
-  test("a long catalog offers recent model and effort combos first, and folds the rest under a searchable More models", async () => {
+  test("a recent combo lands its model, then its effort once the agent reports that model offering it", async () => {
     const catalog = [
       {
         id: "codex",
@@ -212,123 +223,52 @@ describe("acpmux composer pickers", () => {
       },
     ];
     const long = (summary: Parameters<typeof snapshot>[0]) => ({ ...snapshot(summary), catalog });
+    const medium = { ...effort, currentValue: "medium" };
     settleMs = 0;
     const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
     // The session runs Astra on High, then Sol on Medium: both become recents.
     await render(long({ configOptions: [effort] }));
     await settle();
-    await act(async () => button("Model")!.click());
-    expect(options()).toEqual(["6 Astra *", "6.1 Sol", "6 Luna", "6 Mini", "6 Nano"]);
-    await act(async () => button("Model")!.click());
     // The switch passes through Sol on the old effort before the new one lands; only the settled combo counts.
     await render(long({ model: "sol", configOptions: [effort] }));
-    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    await render(long({ model: "sol", configOptions: [medium] }));
     await settle();
     const model = button("Model")!;
+    const recentRows = () =>
+      [...doc.querySelectorAll(".acpmux-mp-row")]
+        .filter((row) => row.querySelector(".acpmux-menu-hint"))
+        .map((row) => `${row.textContent}${row.getAttribute("aria-checked") === "true" ? " *" : ""}`);
     await act(async () => model.click());
-    expect(doc.querySelector(".acpmux-menu-header")!.textContent).toBe("Recent");
-    expect(options()).toEqual(["6.1 Sol · Medium *", "6 Astra · High", "More models"]);
-    // One click switches the model, then the effort once the agent reports that model offering it.
-    const pickRecent = (index: number) =>
-      act(async () => {
-        doc
-          .querySelectorAll("[role=option]")
-          [index]!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-      });
-    await pickRecent(1);
+    expect(recentRows()).toEqual(["26 AstraHigh", "16.1 SolMedium *"]);
+    // One key switches the model, then the effort once the agent reports that model offering it.
+    const pickRecent = async (digit: string) => {
+      if (model.getAttribute("aria-expanded") !== "true") await act(async () => model.click());
+      await key(model, digit);
+    };
+    await pickRecent("2");
     expect(calls).toEqual(["model astra"]);
-    await render(long({ model: "astra", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    await render(long({ model: "astra", configOptions: [medium] }));
     expect(calls).toEqual(["model astra", "effort reasoning_effort high"]);
     // A model that doesn't offer the stored effort keeps its own.
-    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
-    await act(async () => button("Model")!.click());
-    await pickRecent(1);
-    await render(
-      long({ model: "astra", configOptions: [{ ...effort, currentValue: "medium", options: [effort.options[0]!] }] }),
-    );
-    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
-    await render(long({ model: "astra", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    await render(long({ model: "sol", configOptions: [medium] }));
+    await pickRecent("2");
+    await render(long({ model: "astra", configOptions: [{ ...medium, options: [effort.options[0]!] }] }));
+    await render(long({ model: "sol", configOptions: [medium] }));
+    await render(long({ model: "astra", configOptions: [medium] }));
     expect(calls).toEqual(["model astra", "effort reasoning_effort high", "model astra"]);
-    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
     // A combo still waiting when the pane switches sessions doesn't follow into the other session.
-    await act(async () => button("Model")!.click());
-    await pickRecent(1);
-    await render(long({ sessionId: "t", model: "astra", configOptions: [{ ...effort, currentValue: "medium" }] }));
-    // A plain pick through More models drops a waiting combo's effort.
-    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
-    await act(async () => button("Model")!.click());
-    await pickRecent(1);
-    await act(async () => button("Model")!.click());
-    await pickRecent(2);
-    await act(async () => {
-      [...doc.querySelectorAll("[role=option]")]
-        .find((option) => option.textContent === "6 Astra")!
-        .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-    });
-    await render(long({ model: "astra", configOptions: [{ ...effort, currentValue: "medium" }] }));
-    expect(calls.filter((call) => call.startsWith("effort"))).toEqual(["effort reasoning_effort high"]);
-    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
-    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    await render(long({ model: "sol", configOptions: [medium] }));
     calls.length = 0;
-    // More models opens the full list in place; typing filters it and Enter picks.
-    await key(model, "ArrowDown");
-    await key(model, "ArrowUp");
-    await key(model, "Enter");
-    expect(model.getAttribute("aria-expanded")).toBe("true");
-    expect(options()).toEqual([
-      "6.1 Sol · Medium *",
-      "6 Astra · High",
-      "6 Astra",
-      "6.1 Sol *",
-      "6 Luna",
-      "6 Mini",
-      "6 Nano",
-    ]);
-    expect(doc.querySelector(".acpmux-menu-search")!.textContent).toBe("Type to search models");
-    await key(model, "l");
-    await key(model, "u");
-    expect(doc.querySelector(".acpmux-menu-search")!.textContent).toBe("lu");
-    expect(options()).toEqual(["6 Luna"]);
-    await key(model, "Backspace");
-    expect(options()).toEqual(["6.1 Sol · Medium *", "6.1 Sol *", "6 Luna"]);
-    await key(model, "u");
-    await key(model, "ArrowUp");
-    await key(model, "Enter");
-    expect(calls.at(-1)).toBe("model luna");
-    // A query that matches nothing leaves no highlight; Backspace brings the rows and the highlight back.
-    await act(async () => model.click());
-    await pickRecent(2);
-    expect(doc.querySelector("[role=listbox] .acpmux-menu-search")).toBeNull();
-    await key(model, "z");
-    await key(model, "z");
-    expect(options()).toEqual([]);
-    await key(model, "ArrowDown");
-    expect(model.getAttribute("aria-activedescendant")).toBeNull();
-    await key(model, "Backspace");
-    await key(model, "Backspace");
-    await key(model, "ArrowDown");
-    expect(doc.getElementById(model.getAttribute("aria-activedescendant")!)!.textContent).toBe("6 Astra · High");
-    await act(async () => model.click());
-    // Closing folds the list again.
-    await act(async () => model.click());
-    expect(options()).toEqual(["6.1 Sol · Medium *", "6 Astra · High", "More models"]);
-    const pickNamed = (name: string) =>
-      act(async () => {
-        [...doc.querySelectorAll("[role=option]")]
-          .find((option) => option.textContent?.replace(" *", "") === name)!
-          .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-      });
+    await pickRecent("2");
+    await render(long({ sessionId: "t", model: "astra", configOptions: [medium] }));
+    expect(calls).toEqual(["model astra"]);
     // An effort picked by hand while a combo waits wins: the combo's effort never follows.
+    await render(long({ model: "sol", configOptions: [medium] }));
     calls.length = 0;
-    await pickNamed("6 Astra · High");
+    await pickRecent("2");
     // Astra arrives offering Low and Medium, not yet High; the user slides to Low.
     const low = { value: "low", name: "Low" };
-    await render(
-      long({
-        model: "astra",
-        configOptions: [{ ...effort, currentValue: "medium", options: [low, effort.options[0]!] }],
-      }),
-    );
+    await render(long({ model: "astra", configOptions: [{ ...medium, options: [low, effort.options[0]!] }] }));
     await act(async () => button("Effort")!.click());
     await act(async () => {
       const range = doc.querySelector<HTMLInputElement>(".acpmux-effort-range")!;
@@ -344,13 +284,11 @@ describe("acpmux composer pickers", () => {
     );
     expect(calls).toEqual(["model astra", "effort reasoning_effort low"]);
     // A combo for the current model drops one still waiting for another model.
-    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
-    await act(async () => model.click());
+    await render(long({ model: "sol", configOptions: [medium] }));
     calls.length = 0;
-    await pickNamed("6 Astra · High");
-    await act(async () => model.click());
-    await pickNamed("6.1 Sol · Medium");
-    await render(long({ model: "astra", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    await pickRecent("2");
+    await pickRecent("1");
+    await render(long({ model: "astra", configOptions: [medium] }));
     expect(calls).toEqual(["model astra"]);
   });
 
@@ -412,13 +350,24 @@ describe("acpmux composer pickers", () => {
     });
     expect(opened).toBe(true);
     expect(button("Model")!.getAttribute("aria-expanded")).toBe("true");
-    expect(options()).toEqual(["6 Astra *", "6.1 Sol"]);
-    // Keys reach the menu as after a click: the button has focus.
+    // The current model shows checked under its family.
+    expect(rowLabels()).toContain("6 Astra *");
+    // Keys reach the menu as after a click: the chip has focus and names the highlighted row.
     expect(doc.activeElement).toBe(button("Model"));
-    await key(button("Model")!, "ArrowDown");
+    expect(doc.getElementById(button("Model")!.getAttribute("aria-activedescendant")!)).not.toBeNull();
+    for (const char of "sol") await key(button("Model")!, char);
     await key(button("Model")!, "Enter");
     expect(calls).toEqual(["model sol"]);
     // Opening an open menu keeps it open rather than toggling it shut.
+    await act(async () => {
+      openPicker("Model");
+    });
+    await act(async () => {
+      openPicker("Model");
+    });
+    expect(button("Model")!.getAttribute("aria-expanded")).toBe("true");
+    expect(doc.activeElement).toBe(button("Model"));
+    expect(doc.querySelector('button[data-menu="Model"]')).toBe(button("Model"));
     await act(async () => {
       openPicker("Effort");
     });
@@ -456,9 +405,14 @@ describe("acpmux composer pickers", () => {
     root = createRoot(doc.getElementById("root")!);
   });
 
-  test("the menu closes when the window loses focus", async () => {
-    await render(snapshot());
+  test("the menus close when the window loses focus", async () => {
+    await render(snapshot({ modes }));
     await act(async () => button("Model")!.click());
+    await act(async () => {
+      dom.window.dispatchEvent(new dom.window.Event("blur"));
+    });
+    expect(doc.querySelector(".acpmux-mp")).toBeNull();
+    await act(async () => button("Mode")!.click());
     await act(async () => {
       dom.window.dispatchEvent(new dom.window.Event("blur"));
     });
@@ -466,20 +420,25 @@ describe("acpmux composer pickers", () => {
   });
 
   test("a single-section menu is a group named for the control", async () => {
-    await render(snapshot());
-    await act(async () => button("Model")!.click());
+    await render(snapshot({ modes: { ...modes, availableModes: [modes.availableModes[0]!] } }));
+    await act(async () => button("Mode")!.click());
     const groups = [...doc.querySelectorAll("[role=listbox] > [role=group]")];
-    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual(["Model"]);
+    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual(["Mode"]);
   });
 
-  test("a click outside closes the menu without picking", async () => {
-    await render(snapshot());
-    await act(async () => button("Model")!.click());
-    expect(doc.querySelector("[role=listbox]")).not.toBeNull();
-    await act(async () => {
-      doc.body.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
-    });
-    expect(doc.querySelector("[role=listbox]")).toBeNull();
+  test("a click outside closes the menus without picking", async () => {
+    await render(snapshot({ modes }));
+    for (const [label, menu] of [
+      ["Model", ".acpmux-mp"],
+      ["Mode", "[role=listbox]"],
+    ] as const) {
+      await act(async () => button(label)!.click());
+      expect(doc.querySelector(menu)).not.toBeNull();
+      await act(async () => {
+        doc.body.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+      });
+      expect(doc.querySelector(menu)).toBeNull();
+    }
     expect(calls).toEqual([]);
   });
 

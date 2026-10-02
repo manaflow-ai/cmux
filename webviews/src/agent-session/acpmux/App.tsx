@@ -28,6 +28,12 @@ import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
+import type { TrustSource } from "./folderTrust";
+import { TrustAsk } from "./TrustAsk";
+import { agentName } from "./agents";
+import { t } from "./i18n";
+import { useFolderTrustAsk } from "./useFolderTrustAsk";
+import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
 import type { ChangesSource } from "./changes/model";
 import { Counts } from "./changes/Counts";
@@ -45,8 +51,11 @@ import { ContinueMenu } from "./handoff/ContinueMenu";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings, localizedHandoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
+import { useCheckpoints } from "./checkpoints/controller";
+import { checkpointStrings, localizedCheckpointStrings } from "./checkpoints/strings";
+import { NativeError, type NativeErrorReply } from "./nativeError";
 
-type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
+type Reply<T> = { ok: true; value: T } | { ok: false; error?: NativeErrorReply };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
 /// `onOpenDiff` opens the changes of the turn holding `rowId`, at `path` when given.
@@ -102,14 +111,20 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
   const handler = window.webkit?.messageHandlers?.agentSession;
-  if (!handler) return Promise.reject(new Error("Native bridge is unavailable"));
+  if (!handler) return Promise.reject(new NativeError({ code: "native.not_connected", origin: "native" }));
   return Promise.resolve(handler.postMessage({ id: crypto.randomUUID(), method, params }) as unknown as Reply<T>).then(
     (reply) => {
-      if (!reply.ok) throw new Error(reply.error?.userMessage ?? "Request failed");
+      if (!reply.ok) throw new NativeError(reply.error);
       return reply.value;
     },
   );
 }
+
+/// Folder trust lives with acpmux (or the mock daemon), else the native host.
+const trustSource: TrustSource = {
+  get: (cwd) => callNative("acp.trust.get", { cwd }),
+  set: (cwd, level) => callNative("acp.trust.set", { cwd, level }),
+};
 
 /// The changes view reads git scopes from whoever runs the session: the acpmux client
 /// (or the mock daemon), else the native host.
@@ -654,6 +669,7 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       onModel={(modelId) => void callNative("chat.model", { modelId })}
       onMode={(modeId) => void callNative("chat.mode", { modeId })}
       onEffort={(configId, value) => void callNative("chat.effort", { configId, value })}
+      onHarness={(harness) => void callNative("chat.new", { harness })}
     />
   );
 }
@@ -688,6 +704,22 @@ function AcpmuxPane() {
     canLoadOlder: false,
   });
   const [handoffLabels, setHandoffLabels] = useState(handoffStrings);
+  const [checkpointLabels, setCheckpointLabels] = useState(checkpointStrings);
+  const [checkpointVariant, setCheckpointVariant] = useState<"compact" | "expanded">("compact");
+  const checkpoints = useCheckpoints({
+    request: callNative,
+    target: snapshot.summary?.cwd
+      ? { cwd: snapshot.summary.cwd, sessionId: snapshot.sessionId, hostKind: snapshot.summary.hostKind }
+      : undefined,
+    online: snapshot.connection === "connected",
+    strings: checkpointLabels,
+    variant: checkpointVariant,
+  });
+  const showCheckpoint = useRef(checkpoints.show);
+  showCheckpoint.current = checkpoints.show;
+  useEffect(() => {
+    void callNative("pane.checkpointAvailability", { available: checkpoints.supported }).catch(() => undefined);
+  }, [checkpoints.supported, snapshot.sessionId]);
   const [continuing, setContinuing] = useState(false);
   const [reviewReload, setReviewReload] = useState(0);
   useEffect(() => setContinuing(false), [snapshot.sessionId]);
@@ -712,6 +744,21 @@ function AcpmuxPane() {
     !snapshot.handoff?.receipt;
   const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
   const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot);
+  // A folder the user hasn't decided on is asked about beside the chat's other permission asks,
+  // once its first prompt went; nothing waits on the answer.
+  const trustAsk = useFolderTrustAsk(trustSource, {
+    sessionId: snapshot.sessionId,
+    cwd: snapshot.summary?.cwd,
+    started: !freshChat && snapshot.rows.length > 0,
+    prompts: snapshot.rows.filter((row) => row.kind === "user").length,
+  });
+  // Search files reads the session's folder through whoever runs the session: the acpmux
+  // client (or the mock daemon), else the native host.
+  const fileRoot = snapshot.summary?.cwd;
+  const searchFiles = useCallback<FileSearchSource>(
+    (query) => callNative("file.search", { ...(fileRoot ? { path: fileRoot } : {}), query, limit: FILE_SEARCH_LIMIT }),
+    [fileRoot],
+  );
   // Turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(
     () => turnView(snapshot.rows, expanded, { working: snapshot.isWorking }),
@@ -852,6 +899,7 @@ function AcpmuxPane() {
     window.cmuxAcpmuxBridge = {
       command(name) {
         if (name === "searchChats") setSearching((open) => !open);
+        if (name === "createCheckpoint") showCheckpoint.current();
         if (
           name === "continueIn" &&
           snapshotRef.current?.canHandoff &&
@@ -927,16 +975,24 @@ function AcpmuxPane() {
           prompt?: string;
           account?: unknown;
           handoffStrings?: unknown;
+          checkpointStrings?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         setHandoffLabels(localizedHandoffStrings(host.handoffStrings));
+        setCheckpointLabels(localizedCheckpointStrings(host.checkpointStrings));
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
+        if (mock)
+          setCheckpointVariant(
+            new URLSearchParams(window.location.search).get("checkpointVariant") === "expanded"
+              ? "expanded"
+              : "compact",
+          );
         setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
         if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) return;
         const client = await AcpmuxDirectClient.connect(
@@ -995,6 +1051,14 @@ function AcpmuxPane() {
           "chat.new": async ({ harness, cwd }) =>
             persistSession(await client.create(harness ? String(harness) : undefined, cwd ? String(cwd) : undefined)),
           "chat.history": () => client.loadOlder(),
+          "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
+          "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
+          "file.search": ({ path, query, limit }) =>
+            client.fileSearch(
+              typeof path === "string" ? path : undefined,
+              String(query ?? ""),
+              typeof limit === "number" ? limit : FILE_SEARCH_LIMIT,
+            ),
           "chat.fork": async ({ throughSeq }) => persistSession(await client.fork(Number(throughSeq))),
           "chat.handoff.prepare": async ({ harness }) => persistSession(await client.continueIn(String(harness))),
           "chat.handoff.get": () => client.refreshHandoff(),
@@ -1089,6 +1153,11 @@ function AcpmuxPane() {
                 {header.status && <span className="acpmux-status">{header.status}</span>}
               </div>
               <div className="acpmux-handoff-header-tools">
+                {checkpoints.supported && (
+                  <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
+                    {checkpointLabels.createCheckpoint}
+                  </button>
+                )}
                 <span
                   className="acpmux-session-coverage"
                   title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}
@@ -1107,6 +1176,7 @@ function AcpmuxPane() {
                 )}
               </div>
             </header>
+            {!diffView && checkpoints.review}
             {!reviewing && snapshot.handoff?.error && (
               <p className="acpmux-handoff-error" role="alert">
                 {snapshot.handoff.error}
@@ -1148,12 +1218,34 @@ function AcpmuxPane() {
               </TurnActionsContext.Provider>
             )}
             {diffView && diffFiles && (
-              <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} source={changesSource} />
+              <DiffPanel
+                files={diffFiles}
+                initialPath={diffView.path}
+                onClose={closeDiff}
+                source={changesSource}
+                checkpointAction={
+                  checkpoints.supported ? (
+                    <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
+                      {checkpointLabels.createCheckpoint}
+                    </button>
+                  ) : undefined
+                }
+                checkpointReview={checkpoints.review}
+              />
             )}
           </div>
-          {snapshot.permission?.pending && (
+          {(snapshot.permission?.pending || trustAsk.ask) && (
             <div className="acpmux-permission">
-              <PermissionCard permission={snapshot.permission} />
+              {trustAsk.ask && (
+                <TrustAsk
+                  ask={trustAsk.ask}
+                  agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+                  onTrust={trustAsk.trust}
+                  onDistrust={trustAsk.distrust}
+                  onUndo={trustAsk.undo}
+                />
+              )}
+              {snapshot.permission?.pending && <PermissionCard permission={snapshot.permission} />}
             </div>
           )}
           {/* Between the hero and the docked composer. */}
@@ -1170,6 +1262,8 @@ function AcpmuxPane() {
               onSend={(text) => void callNative("chat.send", { text })}
               onStop={() => void callNative("chat.cancel")}
               onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
+              // Without a folder there is nothing to search; the + menu leaves the item out.
+              searchFiles={fileRoot ? searchFiles : undefined}
             />
           )}
         </div>
