@@ -194,7 +194,7 @@ final class MacMessageRowView: MacFlippedView {
         }
         senderLabel.font = MacConversationTheme.senderNameFont
         senderLabel.textColor = MacConversationTheme.secondaryText
-        quoteLabel.font = .systemFont(ofSize: 12)
+        quoteLabel.font = .systemFont(ofSize: 10)
         quoteLabel.maximumNumberOfLines = 2
         quoteLabel.lineBreakMode = .byTruncatingTail
         editedLabel.font = MacConversationTheme.editedFont
@@ -255,7 +255,14 @@ final class MacMessageRowView: MacFlippedView {
             quoteBubble.fillColor = nil
             quoteBubble.strokeColor = resolved(quote.isOutgoing ? MacConversationTheme.outgoingBubble : MacConversationTheme.quoteStroke, in: self)
             quoteLabel.isHidden = false
-            quoteLabel.stringValue = quote.text
+            var attributes = MacConversationTheme.quoteAttributes
+            (attributes[.paragraphStyle] as? NSParagraphStyle).map { style in
+                let truncating = style.mutableCopy() as! NSMutableParagraphStyle
+                truncating.lineBreakMode = .byTruncatingTail
+                attributes[.paragraphStyle] = truncating
+            }
+            attributes[.foregroundColor] = quote.isOutgoing ? NSColor.systemBlue : MacConversationTheme.secondaryText
+            quoteLabel.attributedStringValue = NSAttributedString(string: quote.text, attributes: attributes)
             quoteLabel.textColor = quote.isOutgoing ? .systemBlue : MacConversationTheme.secondaryText
             // NSTextField insets its text ~2 pt per side; without this a short
             // quote (one emoji) measures exactly and truncates to nothing.

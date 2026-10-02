@@ -247,18 +247,19 @@ extension MacMessageLayout {
         var quoteFrame: CGRect?
         var quoteTextFrame: CGRect?
         if let quote = model.replyQuote {
-            let font = NSFont.systemFont(ofSize: 12)
-            let quoteText = NSAttributedString(string: quote.text, attributes: [.font: font])
-            let size = measure(quoteText, maxWidth: maxBubble - 20)
-            let textHeight = min(size.height, ceil(font.boundingRectForFont.height * 2))
-            let bodyWidth = min(maxBubble, size.width + 20)
-            let h = textHeight + 10
+            // Measured against Messages: 10 pt text on a 13 pt pitch, up to two
+            // lines, 8 pt side and 7 pt vertical insets in an outlined pill.
+            let quoteText = NSAttributedString(string: quote.text, attributes: MacConversationTheme.quoteAttributes)
+            let size = measure(quoteText, maxWidth: maxBubble - 16)
+            let textHeight = min(size.height, MacConversationTheme.quoteLineHeight * 2)
+            let bodyWidth = min(maxBubble, size.width + 16)
+            let h = textHeight + 14
             let frame = quote.isOutgoing
                 ? CGRect(x: width - t.outgoingMargin - bodyWidth, y: y, width: bodyWidth + t.tailWidth, height: h)
                 : CGRect(x: incomingLeading - t.tailWidth, y: y, width: bodyWidth + t.tailWidth, height: h)
             quoteFrame = frame
             let bodyMinX = quote.isOutgoing ? frame.minX : frame.minX + t.tailWidth
-            quoteTextFrame = CGRect(x: bodyMinX + 10, y: y + 5, width: bodyWidth - 20, height: textHeight)
+            quoteTextFrame = CGRect(x: bodyMinX + 8, y: y + 7, width: bodyWidth - 16, height: textHeight)
             y += h + 4
         }
 

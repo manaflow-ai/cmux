@@ -73,6 +73,15 @@ enum MacConversationTheme {
             : NSColor.white
     }
 
+    static let quoteLineHeight: CGFloat = 13
+    nonisolated(unsafe) static let quoteAttributes: [NSAttributedString.Key: Any] = {
+        let style = NSMutableParagraphStyle()
+        style.minimumLineHeight = quoteLineHeight
+        style.maximumLineHeight = quoteLineHeight
+        style.lineBreakMode = .byWordWrapping
+        return [.font: NSFont.systemFont(ofSize: 10), .paragraphStyle: style]
+    }()
+
     nonisolated(unsafe) static let bodyParagraph: NSParagraphStyle = {
         let style = NSMutableParagraphStyle()
         style.minimumLineHeight = lineHeight
