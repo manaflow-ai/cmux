@@ -46,6 +46,8 @@ The Rust app host needs the testbox for every build and a daemon supervisor, so 
 
 ## 5. Prototypes for Lawrence (Debug Settings > Apps)
 
+Picked (Lawrence, 2026-10-02): cards. `apps.store.layout` defaults to `grid` and `apps.section.look` to `card`; the other variants stay as Debug Settings variants.
+
 - `apps.store.layout` = `grid` (cards) | `list` (dense rows) | `split` (list + detail side by side).
 - `apps.section.look` = `native` (app sections use built-in row metrics) | `card` (app section in a subtle inset card with the app icon in the header) | `minimal` (no header icon, title only).
 - `apps.consent.style` = `sheet` (scopes as a list with reasons) | `inline` (scopes expand inside the listing page).
