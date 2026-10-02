@@ -342,3 +342,18 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         #expect(!store.canEdit(old))
     }
 }
+
+extension ConversationStoreWindowTests {
+    @Test func updatesDuringTheInitialLoadDoNotOpenAGap() async throws {
+        let backend = ScriptedBackend(total: 100)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        // An old message's tapback and a brand-new message race the first page.
+        var old = backend.makeMessage(seq: 12, sender: "lc")
+        old.reactions = [ConversationReactionMark(participantID: "aw", reaction: .haha)]
+        store.apply(.message(old, eventSeq: 1))
+        store.apply(.message(backend.makeMessage(seq: 101, sender: "aw"), eventSeq: 2))
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        #expect(store.messages.compactMap(\.seq) == Array(71...101))
+    }
+}

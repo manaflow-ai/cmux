@@ -16,7 +16,7 @@ final class ConversationImageLoader {
     }()
 
     init() {
-        cache.totalCostLimit = 96 << 20
+        cache.totalCostLimit = 48 << 20
     }
 
     func cachedImage(for attachment: ConversationAttachment, pixelWidth: CGFloat) -> UIImage? {

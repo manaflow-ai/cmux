@@ -173,21 +173,33 @@ final class MessageCell: UICollectionViewCell {
         let footerWasHidden = footerLabel.isHidden
         let previousFooterText = footerLabel.text
         defer {
+            // Explicit layer animations: these run the same inside a batch
+            // update, a spring, or performWithoutAnimation.
             if sameRow, footerWasHidden, !footerLabel.isHidden {
-                // A status landing on this row fades in over ~0.4 s.
-                UIView.performWithoutAnimation { self.footerLabel.alpha = 0 }
-                UIView.animate(withDuration: 0.45, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .overrideInheritedDuration, .overrideInheritedCurve]) {
-                    self.footerLabel.alpha = 1
-                }
+                // A status landing on this row fades in over ~0.45 s.
+                footerLabel.alpha = 1
+                let fade = CABasicAnimation(keyPath: "opacity")
+                fade.fromValue = 0
+                fade.toValue = 1
+                fade.duration = 0.45
+                fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                footerLabel.layer.add(fade, forKey: "statusFade")
             } else if sameRow, !footerWasHidden, footerLabel.isHidden {
-                // A status leaving this row fades out instead of vanishing.
+                // A status leaving this row fades out over ~0.3 s instead of vanishing.
                 footerLabel.isHidden = false
                 footerLabel.text = previousFooterText
-                UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseIn, .allowUserInteraction, .overrideInheritedDuration, .overrideInheritedCurve]) {
-                    self.footerLabel.alpha = 0
-                } completion: { _ in
-                    if self.model?.footer == MessageFooter.none { self.footerLabel.isHidden = true }
+                footerLabel.alpha = 0
+                CATransaction.begin()
+                CATransaction.setCompletionBlock { [weak self] in
+                    guard let self, self.model?.footer == MessageFooter.none else { return }
+                    self.footerLabel.isHidden = true
                 }
+                let fade = CABasicAnimation(keyPath: "opacity")
+                fade.fromValue = 1
+                fade.toValue = 0
+                fade.duration = 0.3
+                footerLabel.layer.add(fade, forKey: "statusFade")
+                CATransaction.commit()
             } else if !footerLabel.isHidden {
                 footerLabel.alpha = 1
             }

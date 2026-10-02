@@ -203,6 +203,15 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     // MARK: Select mode
 
     func setSelecting(_ selecting: Bool, initial: String? = nil) {
+        // Remember where the pressed message is so the keyboard leaving
+        // doesn't carry it off screen.
+        let anchorRow = initial.flatMap { indexPath(for: $0) }
+        let anchorY = anchorRow.flatMap { collectionView.layoutAttributesForItem(at: $0)?.frame.minY }.map { $0 - collectionView.contentOffset.y }
+        if selecting { view.endEditing(true) }
+        view.layoutIfNeeded()
+        if let anchorRow, let anchorY, let frame = collectionView.layoutAttributesForItem(at: anchorRow)?.frame {
+            collectionView.contentOffset.y = min(max(-collectionView.adjustedContentInset.top, frame.minY - anchorY), bottomOffset.y)
+        }
         isSelecting = selecting
         selectedRowIDs = selecting ? Set([initial].compactMap { $0 }) : []
         header.setTrailingMode(selecting || replyTarget != nil ? .close : .action, animated: true)
@@ -290,11 +299,11 @@ extension MessageCell {
             circle.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 22, weight: .regular))
             circle.tintColor = selected ? .systemBlue : .tertiaryLabel
             let frame = self.liftedContentFrame
-            circle.frame = CGRect(x: selecting ? 14 : -30, y: frame.midY - 13, width: 26, height: 26)
+            circle.frame = CGRect(x: selecting ? 10 : -30, y: frame.midY - 13, width: 26, height: 26)
             circle.alpha = selecting ? 1 : 0
             let isOutgoing = self.model?.isOutgoing ?? false
             // Incoming content makes room for the circle; outgoing stays put.
-            self.selectionShift = selecting && !isOutgoing ? 34 : 0
+            self.selectionShift = selecting && !isOutgoing ? 42 : 0
         }
         if animated {
             UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0, animations: apply)

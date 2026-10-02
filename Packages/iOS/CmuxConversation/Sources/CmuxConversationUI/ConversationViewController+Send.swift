@@ -64,17 +64,26 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         container.isUserInteractionEnabled = false
         view.insertSubview(container, belowSubview: header)
 
-        var pieces: [(view: UIView, from: CGRect, to: CGRect)] = []
+        // Images fly at their final size and shape (tail included), scaled
+        // down to the composer thumbnail, so the tail never pops in late.
+        var imageFlights: [(view: UIView, start: CGAffineTransform)] = []
         for (offset, imageFrame) in cellLayout.imageFrames.enumerated() where offset < flight.attachments.count {
             let imageView = UIImageView(image: flight.attachments[offset])
             imageView.contentMode = .scaleAspectFill
-            imageView.clipsToBounds = true
-            imageView.layer.cornerRadius = ConversationTheme.bubbleCornerRadius
-            imageView.layer.cornerCurve = .continuous
             let to = imageFrame.offsetBy(dx: cellOrigin.x, dy: cellOrigin.y)
-            let from = CGRect(x: flight.fieldFrame.minX + 12, y: flight.fieldFrame.minY + 8, width: min(flight.fieldFrame.width - 24, to.width * 0.5), height: min(120, to.height * 0.5))
+            imageView.frame = to
+            let tailed = model.showsTail && offset == cellLayout.imageFrames.count - 1 && model.message.text.isEmpty
+            var maskRect = imageView.bounds
+            if tailed { maskRect.size.height -= ConversationTheme.tailDrop }
+            let mask = CAShapeLayer()
+            mask.path = BubbleShape.path(in: maskRect, side: .trailing, tail: tailed).cgPath
+            imageView.layer.mask = mask
+            let from = CGRect(x: flight.fieldFrame.minX + 12, y: flight.fieldFrame.minY + 8, width: min(flight.fieldFrame.width - 24, 120 * CGFloat(flight.attachments[offset].size.width / max(1, flight.attachments[offset].size.height))), height: 120)
+            let scale = min(from.width / to.width, from.height / to.height)
+            let start = CGAffineTransform(translationX: from.midX - to.midX, y: from.midY - to.midY).scaledBy(x: scale, y: scale)
+            imageView.transform = start
             container.addSubview(imageView)
-            pieces.append((imageView, from, to))
+            imageFlights.append((imageView, start))
         }
 
         var bubbleFlight: (bubble: BubbleBackgroundView, label: UILabel, from: CGRect, to: CGRect, textFrom: CGRect, textTo: CGRect)?
@@ -102,7 +111,6 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         }
 
         UIView.performWithoutAnimation {
-            for piece in pieces { piece.view.frame = piece.from }
             if let flight = bubbleFlight {
                 flight.bubble.frame = flight.from
                 flight.bubble.layoutIfNeeded()
@@ -118,7 +126,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             self?.landFlight(rowID: rowID)
         }
         UIView.animate(withDuration: 0.8, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
-            for piece in pieces { piece.view.frame = piece.to }
+            for image in imageFlights { image.view.transform = .identity }
             if let flight = bubbleFlight {
                 flight.bubble.frame = flight.to
                 flight.bubble.layoutIfNeeded()

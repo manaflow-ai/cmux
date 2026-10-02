@@ -59,6 +59,7 @@ public final class ConversationStore {
     private var markedReadSeq = 0
     private var localTyping = false
     private var localTypingTask: Task<Void, Never>?
+    private var bufferedLive: [ConversationMessage] = []
 
     public init(
         backend: any ConversationBackend,
@@ -126,7 +127,23 @@ public final class ConversationStore {
         }
     }
 
+    /// Replays a live event held during the initial load: newer messages and
+    /// updates to loaded ones apply; anything above the window is dropped.
+    private func ingestBuffered(_ incoming: ConversationMessage) {
+        if indexByID[incoming.id] == nil, let seq = incoming.seq,
+           let oldest = messages.first(where: { $0.seq != nil })?.seq, seq < oldest {
+            return
+        }
+        if upsert(incoming) { sortAndReindex() }
+    }
+
     private func ingestLive(_ incoming: ConversationMessage) {
+        // Until the newest page lands there is no window to judge against;
+        // hold live traffic and replay it through the same rules afterwards.
+        guard hasLoadedNewest else {
+            bufferedLive.append(incoming)
+            return
+        }
         // An edit, tapback or receipt for a message above the loaded window
         // must not pull it into the transcript (that would leave a gap); the
         // page that contains it will carry its current state.
@@ -267,15 +284,16 @@ public final class ConversationStore {
     private func applyNewest(_ page: ConversationHistoryPage, rebase: Bool) {
         if rebase || !hasLoadedNewest {
             let pending = messages.filter { $0.seq == nil }
-            let live = hasLoadedNewest ? [] : messages.filter { $0.seq != nil }
             messages = []
             indexByID = [:]
             for message in page.messages { upsert(message) }
-            for message in live { upsert(message) }
             for message in pending { upsert(message) }
             sortAndReindex()
         }
         hasLoadedNewest = true
+        let buffered = bufferedLive
+        bufferedLive = []
+        for message in buffered { ingestBuffered(message) }
         older = page.hasMore ? .idle : .exhausted
         onChange?(.reset)
         if olderWanted { loadOlder() }

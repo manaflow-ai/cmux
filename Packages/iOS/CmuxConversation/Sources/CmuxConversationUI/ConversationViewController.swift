@@ -59,6 +59,9 @@ public final class ConversationViewController: UIViewController {
     var activeFlights: [String: UIView] = [:]
     private var hasPositionedInitially = false
     private var lastBottomInset: CGFloat = 0
+    /// Whether the reader is following the bottom. Only the reader's own
+    /// scrolling (or a send) changes it; inset changes never do.
+    var isPinnedToBottom = true
     var layoutMargin: CGFloat { view.directionalLayoutMargins.leading }
 
     // Interaction state (see +Gestures).
@@ -203,18 +206,19 @@ public final class ConversationViewController: UIViewController {
         let bottom = max(0, view.bounds.maxY - composerContainer.frame.minY) + 10
         let old = collectionView.contentInset
         guard old.top != top || old.bottom != bottom else { return }
-        let delta = bottom - old.bottom
-        // Measured against the old inset: a reader at the bottom stays pinned
-        // as the keyboard or composer grows; a reader scrolled up stays put.
-        let wasAtBottom = isNearBottom(tolerance: 44)
+        // A reader pinned to the bottom stays pinned as the keyboard, drawer or
+        // composer changes the inset; a reader scrolled up stays where they are.
         collectionView.contentInset = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         collectionView.verticalScrollIndicatorInsets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         if old.top != top { layout.invalidateLayout() }
-        if delta != 0, !collectionView.isTracking, hasPositionedInitially, wasAtBottom || delta < 0 {
-            let maxOffset = max(-top, collectionView.contentSize.height + bottom - collectionView.bounds.height)
-            var offset = collectionView.contentOffset
-            offset.y = min(max(-top, offset.y + delta), maxOffset)
-            collectionView.contentOffset = offset
+        if !collectionView.isTracking, hasPositionedInitially {
+            if isPinnedToBottom {
+                collectionView.contentOffset = bottomOffset
+            } else {
+                var offset = collectionView.contentOffset
+                offset.y = min(max(-top, offset.y), bottomOffset.y)
+                collectionView.contentOffset = offset
+            }
         }
         lastBottomInset = bottom
     }
@@ -263,22 +267,31 @@ public final class ConversationViewController: UIViewController {
         var offsetFromTop: CGFloat
     }
 
+    /// The anchor is the bubble, not the row: a row can gain or lose its
+    /// sender name or reply quote when neighbors change (for example when an
+    /// older page joins it to a run), and the bubble must not move.
+    private func bubbleTop(at index: Int) -> CGFloat? {
+        guard index < rows.count, case let .message(model) = rows[index], let frame = layout.frame(at: index) else { return nil }
+        let content = layoutCache.layout(for: model, width: collectionView.bounds.width, margin: layoutMargin).contentFrame
+        return frame.minY + content.minY
+    }
+
     private func captureAnchor() -> Anchor? {
         let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
         let candidates = collectionView.indexPathsForVisibleItems.sorted { $0.item < $1.item }
         for indexPath in candidates {
-            guard indexPath.item < rows.count, let frame = layout.frame(at: indexPath.item) else { continue }
-            if case .message = rows[indexPath.item], frame.maxY > top {
-                return Anchor(rowID: rows[indexPath.item].id, offsetFromTop: frame.minY - collectionView.contentOffset.y)
-            }
+            guard indexPath.item < rows.count, let frame = layout.frame(at: indexPath.item),
+                  case .message = rows[indexPath.item], frame.maxY > top,
+                  let bubbleTop = bubbleTop(at: indexPath.item) else { continue }
+            return Anchor(rowID: rows[indexPath.item].id, offsetFromTop: bubbleTop - collectionView.contentOffset.y)
         }
         return nil
     }
 
     private func restore(_ anchor: Anchor?) {
-        guard let anchor, let index = rowIndex[anchor.rowID], let frame = layout.frame(at: index) else { return }
+        guard let anchor, let index = rowIndex[anchor.rowID], let bubbleTop = bubbleTop(at: index) else { return }
         var offset = collectionView.contentOffset
-        offset.y = frame.minY - anchor.offsetFromTop
+        offset.y = bubbleTop - anchor.offsetFromTop
         collectionView.contentOffset = offset
     }
 
@@ -325,8 +338,9 @@ public final class ConversationViewController: UIViewController {
                 landFlight(rowID: model.rowID)
             }
         }
-        let wasAtBottom = isNearBottom()
+        let wasAtBottom = isPinnedToBottom || isNearBottom()
         let anchor = captureAnchor()
+        if sentByMeChange(change) { isPinnedToBottom = true }
         let sentByMe: Bool
         if case let .live(_, mine) = change { sentByMe = mine } else { sentByMe = false }
         let animateLive: Bool = {
@@ -394,6 +408,11 @@ public final class ConversationViewController: UIViewController {
             }
         }
         appearances = appearances.filter { flyingRowIDs.contains($0.key) }
+    }
+
+    private func sentByMeChange(_ change: ConversationStoreChange) -> Bool {
+        if case let .live(inserted, mine) = change { return mine && !inserted.isEmpty }
+        return false
     }
 
     func maybeLoadOlder() {
@@ -482,6 +501,8 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         case let .typing(ids):
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TypingCell.reuseID, for: indexPath) as! TypingCell
             cell.margin = layoutMargin
+            // Batch updates and reuse strip layer animations; restart the pulse.
+            cell.indicator.startAnimating()
             let participant = ids.first.flatMap { store.info?.participant($0) }
             cell.configure(
                 initials: participant?.initials,
@@ -492,6 +513,12 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         }
     }
 
+    public func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+        // A status-bar tap leaves the bottom on purpose.
+        isPinnedToBottom = false
+        return true
+    }
+
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         // A flight is pinned to the screen; once the reader scrolls, show the real row.
         landAllFlights()
@@ -499,10 +526,17 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if scrollView.isTracking || scrollView.isDecelerating {
+            isPinnedToBottom = isNearBottom(tolerance: 44)
+        }
         maybeLoadOlder()
         if store.hasLoadedNewest, isNearBottom(tolerance: 60) {
             store.markNewestRead()
         }
+    }
+
+    public func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        (cell as? TypingCell)?.indicator.startAnimating()
     }
 
     func transcriptItemCount() -> Int { rows.count }
