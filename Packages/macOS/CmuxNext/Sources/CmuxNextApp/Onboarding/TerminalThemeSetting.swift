@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTerminal
 import Observation
@@ -48,6 +49,7 @@ final class TerminalThemeSetting {
         applied = state
         GhosttyRuntime.themeOverride = state.theme
         GhosttyRuntime.fontOverride = state.font
+        DesignSettings.shared.terminalFontFamily = state.font.family
         // At launch with no overrides the config already loaded as is.
         if !(first && state == State(theme: nil, font: .init())) { GhosttyRuntime.shared.reloadConfig() }
     }

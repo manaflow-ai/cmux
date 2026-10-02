@@ -84,6 +84,7 @@
         "arc",
         "native",
         "dot",
+        "braille",
         "none"
       ],
       "title" : "Style",

@@ -60,6 +60,10 @@ public final class DesignSettings {
     /// `appearance.statusIndicator.*`: loading and status indicators on
     /// sidebar rows, tabs, sections and pane headers.
     public var statusIndicator = StatusIndicatorSettings()
+    /// The terminal's font family (`terminal.fontFamily`), so chrome that
+    /// imitates the terminal (the braille status indicator) draws in it.
+    /// Nil uses the system monospaced font.
+    public var terminalFontFamily: String?
     /// `status.*`: inferred command busy and run notifications.
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`: default, or none (no border, hairline or

@@ -13,11 +13,12 @@ struct StatusIndicatorPlanTests {
         #expect(StatusIndicatorPlan.make(.busy, style: .arc, animates: true) == StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .loading))
         #expect(StatusIndicatorPlan.make(.busy, style: .native, animates: true) == StatusIndicatorPlan(glyph: .native, animation: .step, tint: .loading))
         #expect(StatusIndicatorPlan.make(.busy, style: .dot, animates: true) == StatusIndicatorPlan(glyph: .dot, animation: .pulse, tint: .loading))
+        #expect(StatusIndicatorPlan.make(.busy, style: .braille, animates: true) == StatusIndicatorPlan(glyph: .braille, animation: .frames, tint: .loading))
         #expect(StatusIndicatorPlan.make(.busy, style: .none, animates: true) == .hidden)
     }
 
     @Test func knownProgressDrawsAStillRingExceptInNone() {
-        for style in [StatusIndicatorStyle.arc, .native, .dot] {
+        for style in [StatusIndicatorStyle.arc, .native, .dot, .braille] {
             #expect(StatusIndicatorPlan.make(.busy(progress: 0.4), style: style, animates: true)
                 == StatusIndicatorPlan(glyph: .ring(progress: 0.4), animation: nil, tint: .loading))
         }
@@ -56,6 +57,12 @@ struct StatusIndicatorPlanTests {
                 #expect(plan.glyph == StatusIndicatorPlan.make(state, style: style, animates: true).glyph)
             }
         }
+    }
+
+    /// Reduce Motion, loops off or an occluded host: the braille spinner
+    /// keeps its first frame instead of disappearing.
+    @Test func stillBrailleKeepsItsGlyph() {
+        #expect(StatusIndicatorPlan.make(.busy, style: .braille, animates: false) == StatusIndicatorPlan(glyph: .braille, animation: nil, tint: .loading))
     }
 
     @Test func configStylePrecedenceIsOverrideThenHintThenSetting() {

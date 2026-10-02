@@ -25,7 +25,9 @@ One component, `CmuxNextDesign/StatusIndicator`:
 - `StatusIndicatorState`: `idle | busy(progress?) | paused(progress?) | waiting | error | success`.
 - `StatusIndicatorStyle`: `arc` (default, the thin 72% arc), `native` (NSProgressIndicator's spokes, rendered
   once per pixel size by AppKit, alpha-normalized and used as a tinted mask, rotated in 8 discrete steps like
-  the control), `dot` (pulsing dot), `none` (no loading mark; waiting/error/success still show).
+  the control), `dot` (pulsing dot), `braille` (the terminal braille spinner ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ in the terminal font,
+  rendered once per pixel size as tinted masks and stepped through `contents` once per `spinner` period; still,
+  it shows ⠋), `none` (no loading mark; waiting/error/success still show).
 - Known progress always draws a still ring (track + clockwise arc from 12 o'clock), in every style except
   `none`; the AppKit determinate circular indicator is the same shape. Paused uses the attention color.
 - `StatusIndicatorPlan.make(state, style:, animates:)` is the pure rule table (tested). `StatusIndicatorLayer`
