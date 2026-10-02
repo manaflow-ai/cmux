@@ -708,8 +708,10 @@ private func installFileDropOverlayWhenReady(
 
     // Defer retrying until the next main-loop turn so we don't mutate the
     // NSThemeFrame hierarchy while SwiftUI/AppKit is still attaching views.
-    DispatchQueue.main.async { [weak window, weak tabManager] in
-        guard let window, let tabManager else { return }
+    let windowIdentifier = ObjectIdentifier(window)
+    DispatchQueue.main.async { [weak tabManager] in
+        guard let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }),
+              let tabManager else { return }
         installFileDropOverlayWhenReady(
             on: window,
             tabManager: tabManager,
@@ -957,7 +959,7 @@ struct ContentView: View {
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
     @State private var observedWindowReference = WeakWindowReference()
-    private var observedWindow: NSWindow? { observedWindowReference.window }
+    var observedWindow: NSWindow? { observedWindowReference.window }
     @State private var workspaceSwitchPortalSignalRouter = WorkspaceSwitchPortalSignalRouter()
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
@@ -6998,6 +7000,8 @@ struct ContentView: View {
         )
     }
 
+    /// Materializes the currently visible, enabled palette commands after
+    /// applying config visibility, Cloud capability, and context gates.
     private func commandPaletteCommands(
         commandsContext: CommandPaletteCommandsContext
     ) -> [CommandPaletteCommand] {
@@ -7005,12 +7009,17 @@ struct ContentView: View {
         let contributions = commandPaletteCommandContributions()
         var handlerRegistry = CommandPaletteHandlerRegistry()
         registerCommandPaletteHandlers(&handlerRegistry)
+        let cloudCapabilityPolicy = CommandPaletteCloudCapabilityPolicy()
 
         var commands: [CommandPaletteCommand] = []
         commands.reserveCapacity(contributions.count)
         var nextRank = 0
 
         for contribution in contributions {
+            guard cloudCapabilityPolicy.allows(
+                commandId: contribution.commandId,
+                context: context
+            ) else { continue }
             let configuredPaletteAction = commandPaletteConfigActionID(for: contribution.commandId)
                 .flatMap { cmuxConfigStore.resolvedAction(id: $0) }
             if let configuredPaletteAction, !configuredPaletteAction.palette {
@@ -7113,6 +7122,7 @@ struct ContentView: View {
     }
 
     /// Captures the lightweight synchronous state consumed by palette contribution gates.
+    /// Captures the selected workspace and window state used by palette gates.
     private func commandPaletteContextSnapshot(
         terminalOpenTargets: Set<TerminalDirectoryOpenTarget>? = nil
     ) -> CommandPaletteContextSnapshot {
@@ -7147,6 +7157,40 @@ struct ContentView: View {
             let pinState = WorkspaceActionDispatcher.pinState(in: tabManager, target: pinTarget)
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
             snapshot.setBool(Self.commandPaletteWorkspaceIsRemoteKey, workspace.isRemoteWorkspace)
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceIsCloud,
+                workspace.isManagedCloudVMWorkspace || workspace.cloudVMID != nil
+            )
+            let cloudCapabilities = workspace.cloudVMID.flatMap { vmID in
+                (SurfaceCatalog.shared.provider(for: .cloud(vmID)) as? CmuxTuiSurfaceProvider)?.capabilities
+            }
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMCapabilitiesKnown,
+                cloudCapabilities != nil
+            )
+            // Legacy managed workspaces can predate the surface provider's capability
+            // snapshot. Preserve their existing command visibility until the provider
+            // publishes authoritative server capabilities.
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsFork,
+                cloudCapabilities?.fork ?? true
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsSnapshot,
+                cloudCapabilities?.snapshot ?? true
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsRestore,
+                cloudCapabilities?.restore ?? true
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsPorts,
+                cloudCapabilities?.ports ?? true
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsExec,
+                cloudCapabilities?.exec ?? true
+            )
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomDescription, workspace.hasCustomDescription)
@@ -7328,6 +7372,7 @@ struct ContentView: View {
     ]
 
     /// Builds command-palette contributions from synchronous context and cached async availability.
+    /// Builds the complete Cmd-Shift-P contribution list before filtering.
     private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
@@ -7388,6 +7433,7 @@ struct ContentView: View {
 
         var contributions: [CommandPaletteCommandContribution] = [Self.commandPaletteFindWorkContribution()]
         contributions.append(contentsOf: Self.commandPaletteCloudCommandContributions())
+        contributions.append(Self.commandPaletteCloudAvailabilityInfoContribution())
         contributions.append(contentsOf: Self.commandPaletteComputerUseContributions())
 
         contributions.append(
@@ -7726,14 +7772,6 @@ struct ContentView: View {
                 )
             )
         }
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.whatsNew",
-                title: constant(String(localized: "command.whatsNew.title", defaultValue: "What's New in cmux")),
-                subtitle: constant(String(localized: "command.checkForUpdates.subtitle", defaultValue: "Global")),
-                keywords: ["whats", "new", "changelog", "release", "notes", "highlights", "update", "version"]
-            )
-        )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.applyUpdateIfAvailable",
@@ -8414,6 +8452,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
+        contributions.append(contentsOf: Self.commandPaletteTerminalScrollContributions(subtitle: terminalPanelSubtitle))
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitRight",
@@ -8755,26 +8794,10 @@ struct ContentView: View {
         registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.
             DispatchQueue.main.async {
-                let panel = NSOpenPanel()
-                panel.canChooseFiles = false
-                panel.canChooseDirectories = true
-                panel.allowsMultipleSelection = false
-                // Surface the system "New Folder" button so the user can create a
-                // directory and immediately open it as a workspace.
-                panel.canCreateDirectories = true
-                panel.title = String(localized: "panel.openFolder.title", defaultValue: "Open Folder")
-                panel.prompt = String(localized: "panel.openFolder.prompt", defaultValue: "Open")
-                if let startDirectory = OpenFolderPanelStartDirectory().resolve(
-                    configuredPath: AppCatalogSection().defaultWorkspacePath.value(in: .standard),
-                    workspaceDirectory: tabManager.selectedWorkspace?.currentDirectory
-                ) {
-                    panel.directoryURL = startDirectory
-                }
-                if panel.runModal() == .OK, let url = panel.url {
-                    _ = tabManager.acquireOptionalWorkspaceIfActive {
-                        tabManager.addWorkspaceIfActive(workingDirectory: url.path)
-                    }
-                }
+                AppDelegate.shared?.showOpenFolderPanel(
+                    preferredWindow: observedWindow,
+                    tabManager: tabManager
+                )
             }
         }
         registry.register(commandId: "palette.openFolderInVSCodeInline") {
@@ -9014,9 +9037,6 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.checkForUpdates") {
             AppDelegate.shared?.checkForUpdates(nil)
-        }
-        registry.register(commandId: "palette.whatsNew") {
-            WhatsNewCenter.shared.presentOnDemand(source: "commandPalette")
         }
         registry.register(commandId: "palette.switchAppChannel") {
             AppDelegate.shared?.switchAppChannel(nil)
@@ -9406,6 +9426,7 @@ struct ContentView: View {
                 NSSound.beep()
             }
         }
+        registerTerminalScrollCommandPaletteHandlers(&registry)
         registry.register(commandId: "palette.terminalClearScreenKeepScrollback") {
             if !tabManager.clearFocusedTerminalKeepingScrollback() {
                 NSSound.beep()
@@ -15400,7 +15421,6 @@ private enum SidebarHelpMenuAction {
     case checkForUpdates
     case sendFeedback
     case welcome
-    case whatsNew
 }
 
 private struct SidebarHelpMenuButton: View {
@@ -15423,7 +15443,6 @@ private struct SidebarHelpMenuButton: View {
     let onSendFeedback: () -> Void
 
     @State private var isPopoverPresented = false
-    private var whatsNewCenter: WhatsNewCenter { .shared }
 
     private var iconSize: CGFloat {
 #if DEBUG
@@ -15458,13 +15477,6 @@ private struct SidebarHelpMenuButton: View {
         } label: {
             SidebarFooterHelpIcon(pointSize: iconSize, weight: iconWeight)
                 .frame(width: buttonSize, height: buttonSize, alignment: .center)
-                .overlay(alignment: .topTrailing) {
-                    // Quiet What's New: a static dot, no motion, cleared once opened.
-                    if whatsNewCenter.hasUnseenHighlights {
-                        SidebarWhatsNewDot()
-                            .offset(x: -3, y: 3)
-                    }
-                }
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
         .frame(width: buttonSize, height: buttonSize, alignment: .center)
@@ -15488,13 +15500,6 @@ private struct SidebarHelpMenuButton: View {
                 action: .welcome,
                 accessibilityIdentifier: "SidebarHelpMenuOptionWelcome",
                 isExternalLink: false
-            )
-            helpOptionButton(
-                title: String(localized: "sidebar.help.whatsNew", defaultValue: "What's New"),
-                action: .whatsNew,
-                accessibilityIdentifier: "SidebarHelpMenuOptionWhatsNew",
-                isExternalLink: false,
-                showsUnseenDot: whatsNewCenter.hasUnseenHighlights
             )
             if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
                 helpOptionButton(
@@ -15589,8 +15594,7 @@ private struct SidebarHelpMenuButton: View {
         accessibilityIdentifier: String,
         isExternalLink: Bool,
         shortcutHint: String? = nil,
-        trailingSystemImage: String? = nil,
-        showsUnseenDot: Bool = false
+        trailingSystemImage: String? = nil
     ) -> some View {
         Button {
             isPopoverPresented = false
@@ -15599,9 +15603,6 @@ private struct SidebarHelpMenuButton: View {
             HStack(spacing: 8) {
                 Text(title)
                     .cmuxFont(size: 12)
-                if showsUnseenDot {
-                    SidebarWhatsNewDot()
-                }
                 Spacer(minLength: 0)
                 if let shortcutHint {
                     helpOptionShortcutHint(text: shortcutHint)
@@ -15694,29 +15695,9 @@ private struct SidebarHelpMenuButton: View {
                     appDelegate.openWelcomeWorkspace()
                 }
             }
-        case .whatsNew:
-            isPopoverPresented = false
-            Task { @MainActor in
-                WhatsNewCenter.shared.presentOnDemand(source: "sidebarHelpMenu")
-            }
         }
     }
 
-}
-
-/// The quiet What's New indicator: a small accent dot with no animation.
-private struct SidebarWhatsNewDot: View {
-    @Environment(\.cmuxAccentColor) private var cmuxAccent
-
-    var body: some View {
-        Circle()
-            .fill(cmuxAccent.color)
-            .frame(width: 6, height: 6)
-            // A bare shape is not an accessibility element, so the label needs
-            // one to attach to or VoiceOver never mentions the dot.
-            .accessibilityElement()
-            .accessibilityLabel(String(localized: "sidebar.help.whatsNew.unseen", defaultValue: "New highlights"))
-    }
 }
 
 // PERF: TabItemView is an Equatable value projection. The parent owns every

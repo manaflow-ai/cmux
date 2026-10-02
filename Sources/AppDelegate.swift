@@ -698,6 +698,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static let persistedWindowGeometryDefaultsKey = SessionSnapshotPersistenceWriter.persistedWindowGeometryDefaultsKey
 #if DEBUG
     nonisolated static var debugPersistedWindowGeometryDefaultsKey: String { persistedWindowGeometryDefaultsKey }
+
+    private nonisolated static func forgetPersistedWindowGeometryForTestProcess() {
+        UserDefaults.standard.removeObject(forKey: persistedWindowGeometryDefaultsKey)
+        removeLegacyPersistedWindowGeometry()
+    }
 #endif
 
     weak var tabManager: TabManager?
@@ -3893,19 +3898,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         SessionSnapshotPersistenceWriter.removeLegacyPersistedWindowGeometry(defaults: defaults)
     }
 
-#if DEBUG
-    /// Clears all persisted window geometry for isolated UI-test processes.
-    ///
-    /// Tests must start from the same clean geometry state regardless of which
-    /// schema version a previous test run wrote.
-    private nonisolated static func forgetPersistedWindowGeometryForTestProcess(
-        defaults: UserDefaults = .standard
-    ) {
-        defaults.removeObjectIfPresent(forKey: persistedWindowGeometryDefaultsKey)
-        removeLegacyPersistedWindowGeometry(defaults: defaults)
-    }
-#endif
-
     private func persistWindowGeometry(from window: NSWindow?) {
         guard let window else { return }
         persistWindowGeometry(
@@ -3951,10 +3943,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         if !didApplyStartupSessionRestore, didAttemptStartupSessionRestore {
             // No snapshot restore ran (fresh start / restore disabled):
-            // startup restore has settled now. When a restore DID run,
-            // completeSessionRestoreOperation settles it after every restored
-            // window exists and the panel-identity aliases are recorded.
-            noteStartupSessionRestoreSettled()
+            // replay the agent journal now. When a restore DID run,
+            // completeSessionRestoreOperation triggers replay after the
+            // restored panel-identity aliases are recorded.
+            AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
             scheduleAgentSessionRecoveryAfterUncleanLaunchIfNeeded()
         }
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
@@ -4067,7 +4059,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         // Every restored workspace has enqueued its identity aliases by now;
         // the journal consumer is FIFO, so the replay fold sees all of them.
-        noteStartupSessionRestoreSettled()
+        AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
         if !isManualReopen {
             scheduleAgentSessionRecoveryAfterUncleanLaunchIfNeeded()
         }
@@ -4096,17 +4088,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Auto-resume input can be queued before tmux has spawned; preserve
             // restored process-detected bindings until a later live scan.
             _ = saveSessionSnapshot(includeScrollback: false)
-        }
-    }
-
-    /// The one place startup session restore reports that it settled: either
-    /// the snapshot was applied with every restored window created, or there
-    /// was nothing to restore. Consumers must tolerate repeat calls (window
-    /// registrations and manual reopens land here too).
-    private func noteStartupSessionRestoreSettled() {
-        AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
-        if !isRunningUnderXCTestCached {
-            WhatsNewCenter.shared.startupSessionRestoreDidSettle()
         }
     }
 
@@ -8086,8 +8067,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
+    /// Applies the command-palette Cloud policy to shared entry points such as
+    /// keyboard shortcuts, menus, and direct Cloud VM handlers. Keeping this
+    /// check here prevents a local-resource shortcut from bypassing the same
+    /// capability decision used while materializing the palette.
+    func commandPaletteCloudCapabilityAllows(
+        commandId: String,
+        tabManager preferredTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
+            ?? preferredWindow.flatMap { contextForMainWindow($0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(
+                event: nil,
+                debugSource: "commandPalette.cloudCapability"
+            )
+        guard let workspace = context?.tabManager.selectedWorkspace else {
+            return true
+        }
+
+        var snapshot = CommandPaletteContextSnapshot()
+        snapshot.setBool(
+            CommandPaletteContextKeys.workspaceIsCloud,
+            workspace.isManagedCloudVMWorkspace || workspace.cloudVMID != nil
+        )
+        let cloudCapabilities = workspace.cloudVMID.flatMap { vmID in
+            (SurfaceCatalog.shared.provider(for: .cloud(vmID)) as? CmuxTuiSurfaceProvider)?.capabilities
+        }
+        snapshot.setBool(CommandPaletteContextKeys.cloudVMCapabilitiesKnown, cloudCapabilities != nil)
+        snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsFork, cloudCapabilities?.fork ?? true)
+        snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsSnapshot, cloudCapabilities?.snapshot ?? true)
+        snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsRestore, cloudCapabilities?.restore ?? true)
+        snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsPorts, cloudCapabilities?.ports ?? true)
+        snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsExec, cloudCapabilities?.exec ?? true)
+        return CommandPaletteCloudCapabilityPolicy().allows(
+            commandId: commandId,
+            context: snapshot
+        )
+    }
+
     @discardableResult
     func focusFileSearchInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        guard commandPaletteCloudCapabilityAllows(
+            commandId: "palette.findInDirectory",
+            preferredWindow: preferredWindow
+        ) else {
+            NSSound.beep()
+            return false
+        }
         let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
 
         guard let context else {
@@ -9041,10 +9068,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             return false
         }
-        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
-            ?? preferredWindow.flatMap { contextForMainWindow($0) }
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        let context = contextForCloudVMCommand(
+            preferredTabManager: preferredTabManager,
+            preferredWindow: preferredWindow,
+            debugSource: debugSource
+        )
         guard let context else {
+            NSSound.beep()
+            return false
+        }
+        guard commandPaletteCloudCapabilityAllows(
+            commandId: command.commandPaletteID,
+            tabManager: context.tabManager,
+            preferredWindow: resolvedWindow(for: context) ?? preferredWindow
+        ) else {
             NSSound.beep()
             return false
         }
@@ -9070,6 +9107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performCloudVMRestoreCommand(
+        tabManager preferredTabManager: TabManager? = nil,
         preferredWindow: NSWindow? = nil,
         debugSource: String = "cloudVM.restore"
     ) -> Bool {
@@ -9085,13 +9123,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             return false
         }
-        let context = preferredWindow.flatMap { contextForMainWindow($0) }
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        let context = contextForCloudVMCommand(
+            preferredTabManager: preferredTabManager,
+            preferredWindow: preferredWindow,
+            debugSource: debugSource
+        )
         guard let context else {
             NSSound.beep()
             return false
         }
         let window = resolvedWindow(for: context) ?? preferredWindow
+        guard commandPaletteCloudCapabilityAllows(
+            commandId: ContentView.commandPaletteCloudRestoreCommandId,
+            tabManager: context.tabManager,
+            preferredWindow: window
+        ) else {
+            NSSound.beep()
+            return false
+        }
         guard let snapshotId = promptForCloudVMSnapshotId(preferredWindow: window) else {
             return false
         }
@@ -9105,6 +9154,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             successTitle: String(localized: "command.cloudVM.restore.result.title", defaultValue: "Cloud VM Restored"),
             presentOutputOnSuccess: true
         )
+    }
+
+    /// Resolves a Cloud palette action to the window that opened the palette.
+    /// The tab manager takes precedence so a secondary window cannot fall back
+    /// to another window's selected workspace.
+    func contextForCloudVMCommand(
+        preferredTabManager: TabManager?,
+        preferredWindow: NSWindow?,
+        debugSource: String
+    ) -> MainWindowContext? {
+        preferredTabManager.flatMap { mainWindowContext(for: $0) }
+            ?? preferredWindow.flatMap { contextForMainWindow($0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
     }
 
     enum CurrentCloudVMCommand {
@@ -9141,6 +9203,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             case .status, .snapshot, .ports, .tools, .handoff, .promoteTemplate:
                 return true
+            }
+        }
+
+        @MainActor var commandPaletteID: String {
+            switch self {
+            case .fork: return ContentView.commandPaletteCloudForkCommandId
+            case .snapshot: return ContentView.commandPaletteCloudSnapshotCommandId
+            case .ports: return ContentView.commandPaletteCloudPortsCommandId
+            case .tools: return ContentView.commandPaletteCloudToolsCommandId
+            case .handoff: return ContentView.commandPaletteCloudHandoffCommandId
+            case .promoteTemplate: return ContentView.commandPaletteCloudPromoteTemplateCommandId
+            case .status: return ContentView.commandPaletteCloudStatusCommandId
             }
         }
 
@@ -9455,7 +9529,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Shows the "Open Folder" panel and creates a workspace for the selected directory.
     /// Called from both the SwiftUI menu and `handleCustomShortcut`.
-    func showOpenFolderPanel() {
+    func showOpenFolderPanel(
+        preferredWindow: NSWindow? = nil,
+        tabManager preferredTabManager: TabManager? = nil
+    ) {
+        guard commandPaletteCloudCapabilityAllows(
+            commandId: "palette.openFolder",
+            tabManager: preferredTabManager,
+            preferredWindow: preferredWindow
+        ) else {
+            NSSound.beep()
+            return
+        }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -9468,7 +9553,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Seed the panel with the active workspace's directory. Use the shared
         // main-window resolver so this works even when an auxiliary window is key.
         // app.defaultWorkspacePath, when set to an existing folder, wins.
-        let context = preferredMainWindowContextForWorkspaceCreation(debugSource: "openFolderPanel.seed")
+        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
+            ?? preferredWindow.flatMap { contextForMainWindow($0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "openFolderPanel.seed")
         if let startDirectory = OpenFolderPanelStartDirectory().resolve(
             configuredPath: AppCatalogSection().defaultWorkspacePath.value(in: .standard),
             workspaceDirectory: context?.tabManager.selectedWorkspace?.currentDirectory
@@ -9488,6 +9575,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ directoryURL: URL,
         tabManager preferredTabManager: TabManager? = nil
     ) -> Bool {
+        guard commandPaletteCloudCapabilityAllows(
+            commandId: "palette.openFolderInVSCodeInline",
+            tabManager: preferredTabManager
+        ) else {
+            NSSound.beep()
+            return false
+        }
         guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             return false
         }
@@ -9529,6 +9623,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
+        guard commandPaletteCloudCapabilityAllows(
+            commandId: "palette.openFolderInVSCodeInline",
+            tabManager: preferredTabManager
+        ) else {
+            NSSound.beep()
+            return
+        }
         guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
             NSSound.beep()
             return
@@ -15318,7 +15419,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Handled here to prevent AppKit's default NSDocumentController from opening
         // the Documents folder when SwiftUI menu dispatch fails due to focus bugs.
         if matchConfiguredShortcut(event: event, action: .openFolder) {
-            showOpenFolderPanel()
+            showOpenFolderPanel(preferredWindow: event.window)
             return true
         }
 

@@ -126,12 +126,32 @@ struct SurfaceMachineIDDeviceEncodingTests {
         failed.linkError = "cloud_api_unavailable"
         let payload = TerminalController.surfaceMachinePayload(failed)
         #expect(payload["link_error"] as? String == "cloud_api_unavailable")
-        // A snake-case reason code in the .error state maps to the generic
-        // network copy (#16003); the payload must never surface the raw code.
-        #expect(payload["link_error_message"] as? String == "The Cloud connection did not complete. Check your connection and try again.")
-        // The CLI half (CMUXCLI.vmTreeLines preferring link_error_message)
-        // lives in the CLI executable, which this app test target cannot
-        // link; here CMUXCLI is the app's CmuxTuiRemoteRouting alias.
+        #expect(payload["link_error_message"] as? String == "cmux cannot reach the Cloud service for this machine right now.")
+
+        let lines = CMUXCLI.vmTreeLines(
+            machine: [
+                "id": "brave-otter",
+                "status": "running",
+                "link_state": "error",
+                "link_error": "cloud_api_unavailable",
+                "link_error_message": "cmux cannot reach the Cloud service for this machine right now."
+            ],
+            resources: []
+        )
+        #expect(lines.contains { $0.contains("cmux cannot reach the Cloud service") })
+        #expect(!lines.contains { $0.contains("cloud_api_unavailable") })
+
+        let fallbackLines = CMUXCLI.vmTreeLines(
+            machine: [
+                "id": "brave-otter",
+                "status": "running",
+                "link_state": "error",
+                "link_error": "cloud_api_unavailable",
+            ],
+            resources: []
+        )
+        #expect(!fallbackLines.contains { $0.contains("cloud_api_unavailable") })
+        #expect(fallbackLines.contains { $0.contains("Link failed") })
     }
 
     @Test("Build labels qualify dev, nightly, rc, and tagged instances; stable stays bare")
