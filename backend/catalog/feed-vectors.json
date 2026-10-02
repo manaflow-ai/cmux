@@ -1,0 +1,3096 @@
+[
+ {
+  "final_state": {
+   "dedupe": {
+    "inst:inst_dmn00000000000000000/agent:agent_a\u0000claude-code:s1:h1": "fi_5155ddc5a9aabe8017e3"
+   },
+   "items": {
+    "fi_1d4b39ea0103e14a0edd": {
+     "actions": [],
+     "answer": {
+      "at": 1004000,
+      "by": "inst_ios00000000000000000",
+      "device": "iPhone",
+      "value": {
+       "decision": "allow",
+       "scope": "session"
+      }
+     },
+     "archived_at": null,
+     "attachments": [],
+     "body": "",
+     "cancel": null,
+     "closed_at": 1004000,
+     "context": {},
+     "count": 1,
+     "created_at": 1000000,
+     "dedupe_key": "claude-code:s1:h1",
+     "expires_at": 87400000,
+     "home": "cloud",
+     "id": "fi_1d4b39ea0103e14a0edd",
+     "kind": "approve",
+     "needs_mac": false,
+     "open": null,
+     "order": 1,
+     "poster": {
+      "agent": "agent_a",
+      "install": "inst_dmn00000000000000000",
+      "kind": "agent",
+      "label": "",
+      "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+     },
+     "priority": "high",
+     "prompt": {
+      "action": {
+       "command": "npm run build",
+       "cwd": "/repo",
+       "summary": "Run the build",
+       "type": "command"
+      },
+      "scopes": [
+       "once",
+       "session"
+      ]
+     },
+     "push_due_at": null,
+     "pushed_at": null,
+     "read_at": 1004000,
+     "revision": 2,
+     "seen_at": null,
+     "snoozed_until": null,
+     "state": "answered",
+     "thread": null,
+     "title": "approve",
+     "type": "request",
+     "updated_at": 1004000
+    },
+    "fi_5155ddc5a9aabe8017e3": {
+     "actions": [],
+     "answer": null,
+     "archived_at": null,
+     "attachments": [],
+     "body": "",
+     "cancel": null,
+     "closed_at": null,
+     "context": {},
+     "count": 1,
+     "created_at": 1006000,
+     "dedupe_key": "claude-code:s1:h1",
+     "expires_at": 87406000,
+     "home": "cloud",
+     "id": "fi_5155ddc5a9aabe8017e3",
+     "kind": "approve",
+     "needs_mac": false,
+     "open": null,
+     "order": 2,
+     "poster": {
+      "agent": "agent_a",
+      "install": "inst_dmn00000000000000000",
+      "kind": "agent",
+      "label": "",
+      "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+     },
+     "priority": "high",
+     "prompt": {
+      "action": {
+       "command": "npm run build",
+       "cwd": "/repo",
+       "summary": "Run the build",
+       "type": "command"
+      },
+      "scopes": [
+       "once",
+       "session"
+      ]
+     },
+     "push_due_at": 1026000,
+     "pushed_at": null,
+     "read_at": null,
+     "revision": 1,
+     "seen_at": null,
+     "snoozed_until": null,
+     "state": "open",
+     "thread": null,
+     "title": "approve",
+     "type": "request",
+     "updated_at": 1006000
+    }
+   },
+   "next_order": 3,
+   "prefs": {
+    "push_delay": {
+     "high": 20000,
+     "low": null,
+     "normal": 120000,
+     "urgent": 0
+    },
+    "push_enabled": true,
+    "push_skip_when_mac_active": true
+   },
+   "rate": {
+    "inst:inst_dmn00000000000000000/agent:agent_a": {
+     "count": 2,
+     "minute": 16
+    }
+   },
+   "user": "user_aaaaaaaaaaaaaaaaaaaa"
+  },
+  "name": "lifecycle",
+  "steps": [
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "deduped": false,
+      "item": {
+       "actions": [],
+       "answer": null,
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": null,
+       "context": {},
+       "count": 1,
+       "created_at": 1000000,
+       "dedupe_key": "claude-code:s1:h1",
+       "expires_at": 87400000,
+       "home": "cloud",
+       "id": "fi_1d4b39ea0103e14a0edd",
+       "kind": "approve",
+       "needs_mac": false,
+       "open": null,
+       "order": 1,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "high",
+       "prompt": {
+        "action": {
+         "command": "npm run build",
+         "cwd": "/repo",
+         "summary": "Run the build",
+         "type": "command"
+        },
+        "scopes": [
+         "once",
+         "session"
+        ]
+       },
+       "push_due_at": 1020000,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 1,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "open",
+       "thread": null,
+       "title": "approve",
+       "type": "request",
+       "updated_at": 1000000
+      }
+     }
+    },
+    "now": 1000000,
+    "op": "feed.post",
+    "origin": "cli",
+    "params": {
+     "dedupe_key": "claude-code:s1:h1",
+     "kind": "approve",
+     "prompt": {
+      "action": {
+       "command": "npm run build",
+       "cwd": "/repo",
+       "summary": "Run the build",
+       "type": "command"
+      },
+      "scopes": [
+       "once",
+       "session"
+      ]
+     },
+     "title": "approve",
+     "type": "request"
+    },
+    "principal": {
+     "agent": "agent_a",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "lifecycle-0"
+   },
+   {
+    "expect": {
+     "changed": false,
+     "ok": true,
+     "value": {
+      "deduped": true,
+      "item": {
+       "actions": [],
+       "answer": null,
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": null,
+       "context": {},
+       "count": 1,
+       "created_at": 1000000,
+       "dedupe_key": "claude-code:s1:h1",
+       "expires_at": 87400000,
+       "home": "cloud",
+       "id": "fi_1d4b39ea0103e14a0edd",
+       "kind": "approve",
+       "needs_mac": false,
+       "open": null,
+       "order": 1,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "high",
+       "prompt": {
+        "action": {
+         "command": "npm run build",
+         "cwd": "/repo",
+         "summary": "Run the build",
+         "type": "command"
+        },
+        "scopes": [
+         "once",
+         "session"
+        ]
+       },
+       "push_due_at": 1020000,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 1,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "open",
+       "thread": null,
+       "title": "approve",
+       "type": "request",
+       "updated_at": 1000000
+      }
+     }
+    },
+    "now": 1001000,
+    "op": "feed.post",
+    "origin": "cli",
+    "params": {
+     "dedupe_key": "claude-code:s1:h1",
+     "kind": "approve",
+     "prompt": {
+      "action": {
+       "command": "npm run build",
+       "cwd": "/repo",
+       "summary": "Run the build",
+       "type": "command"
+      },
+      "scopes": [
+       "once",
+       "session"
+      ]
+     },
+     "title": "approve",
+     "type": "request"
+    },
+    "principal": {
+     "agent": "agent_a",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "lifecycle-1"
+   },
+   {
+    "expect": {
+     "code": "auth.forbidden",
+     "ok": false
+    },
+    "now": 1002000,
+    "op": "feed.answer",
+    "origin": "user",
+    "params": {
+     "answer": {
+      "decision": "allow"
+     },
+     "item": "fi_1d4b39ea0103e14a0edd"
+    },
+    "principal": {
+     "agent": "agent_a",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "lifecycle-2"
+   },
+   {
+    "expect": {
+     "code": "auth.forbidden",
+     "ok": false
+    },
+    "now": 1003000,
+    "op": "feed.answer",
+    "origin": "cli",
+    "params": {
+     "answer": {
+      "decision": "allow"
+     },
+     "item": "fi_1d4b39ea0103e14a0edd"
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "lifecycle-3"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "item": {
+       "actions": [],
+       "answer": {
+        "at": 1004000,
+        "by": "inst_ios00000000000000000",
+        "device": "iPhone",
+        "value": {
+         "decision": "allow",
+         "scope": "session"
+        }
+       },
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": 1004000,
+       "context": {},
+       "count": 1,
+       "created_at": 1000000,
+       "dedupe_key": "claude-code:s1:h1",
+       "expires_at": 87400000,
+       "home": "cloud",
+       "id": "fi_1d4b39ea0103e14a0edd",
+       "kind": "approve",
+       "needs_mac": false,
+       "open": null,
+       "order": 1,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "high",
+       "prompt": {
+        "action": {
+         "command": "npm run build",
+         "cwd": "/repo",
+         "summary": "Run the build",
+         "type": "command"
+        },
+        "scopes": [
+         "once",
+         "session"
+        ]
+       },
+       "push_due_at": null,
+       "pushed_at": null,
+       "read_at": 1004000,
+       "revision": 2,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "answered",
+       "thread": null,
+       "title": "approve",
+       "type": "request",
+       "updated_at": 1004000
+      }
+     }
+    },
+    "now": 1004000,
+    "op": "feed.answer",
+    "origin": "user",
+    "params": {
+     "answer": {
+      "decision": "allow",
+      "scope": "session"
+     },
+     "device": "iPhone",
+     "item": "fi_1d4b39ea0103e14a0edd"
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_ios00000000000000000",
+     "install": "inst_ios00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "lifecycle-4"
+   },
+   {
+    "expect": {
+     "code": "feed.closed",
+     "ok": false
+    },
+    "now": 1005000,
+    "op": "feed.answer",
+    "origin": "user",
+    "params": {
+     "answer": {
+      "decision": "deny"
+     },
+     "item": "fi_1d4b39ea0103e14a0edd"
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "lifecycle-5"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "deduped": false,
+      "item": {
+       "actions": [],
+       "answer": null,
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": null,
+       "context": {},
+       "count": 1,
+       "created_at": 1006000,
+       "dedupe_key": "claude-code:s1:h1",
+       "expires_at": 87406000,
+       "home": "cloud",
+       "id": "fi_5155ddc5a9aabe8017e3",
+       "kind": "approve",
+       "needs_mac": false,
+       "open": null,
+       "order": 2,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "high",
+       "prompt": {
+        "action": {
+         "command": "npm run build",
+         "cwd": "/repo",
+         "summary": "Run the build",
+         "type": "command"
+        },
+        "scopes": [
+         "once",
+         "session"
+        ]
+       },
+       "push_due_at": 1026000,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 1,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "open",
+       "thread": null,
+       "title": "approve",
+       "type": "request",
+       "updated_at": 1006000
+      }
+     }
+    },
+    "now": 1006000,
+    "op": "feed.post",
+    "origin": "cli",
+    "params": {
+     "dedupe_key": "claude-code:s1:h1",
+     "kind": "approve",
+     "prompt": {
+      "action": {
+       "command": "npm run build",
+       "cwd": "/repo",
+       "summary": "Run the build",
+       "type": "command"
+      },
+      "scopes": [
+       "once",
+       "session"
+      ]
+     },
+     "title": "approve",
+     "type": "request"
+    },
+    "principal": {
+     "agent": "agent_a",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "lifecycle-6"
+   }
+  ]
+ },
+ {
+  "final_state": {
+   "dedupe": {
+    "inst:inst_dmn00000000000000000/agent:agent_a\u0000ci": "fi_1d896467377ffdf55d31",
+    "inst:inst_dmn00000000000000000/agent:agent_b\u0000ci": "fi_a59fed2d033bcad20d15"
+   },
+   "items": {
+    "fi_1d896467377ffdf55d31": {
+     "actions": [],
+     "answer": null,
+     "archived_at": null,
+     "attachments": [],
+     "body": "",
+     "cancel": null,
+     "closed_at": null,
+     "context": {},
+     "count": 1,
+     "created_at": 1005000,
+     "dedupe_key": "ci",
+     "expires_at": 605805000,
+     "home": "cloud",
+     "id": "fi_1d896467377ffdf55d31",
+     "kind": "notice",
+     "needs_mac": false,
+     "open": null,
+     "order": 3,
+     "poster": {
+      "agent": "agent_a",
+      "install": "inst_dmn00000000000000000",
+      "kind": "agent",
+      "label": "",
+      "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+     },
+     "priority": "normal",
+     "push_due_at": null,
+     "pushed_at": null,
+     "read_at": 1008000,
+     "revision": 2,
+     "seen_at": null,
+     "snoozed_until": null,
+     "state": "open",
+     "thread": null,
+     "title": "CI failed a third time",
+     "type": "notice",
+     "updated_at": 1008000
+    },
+    "fi_4a7d8186ab951272f814": {
+     "actions": [],
+     "answer": null,
+     "archived_at": null,
+     "attachments": [],
+     "body": "",
+     "cancel": null,
+     "closed_at": null,
+     "context": {},
+     "count": 2,
+     "created_at": 1000000,
+     "dedupe_key": "ci",
+     "expires_at": 605802000,
+     "home": "cloud",
+     "id": "fi_4a7d8186ab951272f814",
+     "kind": "notice",
+     "needs_mac": false,
+     "open": null,
+     "order": 1,
+     "poster": {
+      "agent": "agent_a",
+      "install": "inst_dmn00000000000000000",
+      "kind": "agent",
+      "label": "",
+      "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+     },
+     "priority": "normal",
+     "push_due_at": null,
+     "pushed_at": null,
+     "read_at": 1004000,
+     "revision": 5,
+     "seen_at": null,
+     "snoozed_until": null,
+     "state": "open",
+     "thread": null,
+     "title": "CI failed again",
+     "type": "notice",
+     "updated_at": 1006000
+    },
+    "fi_a59fed2d033bcad20d15": {
+     "actions": [],
+     "answer": null,
+     "archived_at": null,
+     "attachments": [],
+     "body": "",
+     "cancel": null,
+     "closed_at": null,
+     "context": {},
+     "count": 1,
+     "created_at": 1003000,
+     "dedupe_key": "ci",
+     "expires_at": 605803000,
+     "home": "cloud",
+     "id": "fi_a59fed2d033bcad20d15",
+     "kind": "notice",
+     "needs_mac": false,
+     "open": null,
+     "order": 2,
+     "poster": {
+      "agent": "agent_b",
+      "install": "inst_dmn00000000000000000",
+      "kind": "agent",
+      "label": "",
+      "scope": "inst:inst_dmn00000000000000000/agent:agent_b"
+     },
+     "priority": "normal",
+     "push_due_at": null,
+     "pushed_at": null,
+     "read_at": 1008000,
+     "revision": 3,
+     "seen_at": null,
+     "snoozed_until": 2000000,
+     "state": "open",
+     "thread": null,
+     "title": "CI failed",
+     "type": "notice",
+     "updated_at": 1008000
+    }
+   },
+   "next_order": 4,
+   "prefs": {
+    "push_delay": {
+     "high": 20000,
+     "low": null,
+     "normal": 120000,
+     "urgent": 0
+    },
+    "push_enabled": true,
+    "push_skip_when_mac_active": true
+   },
+   "rate": {
+    "inst:inst_dmn00000000000000000/agent:agent_a": {
+     "count": 3,
+     "minute": 16
+    },
+    "inst:inst_dmn00000000000000000/agent:agent_b": {
+     "count": 1,
+     "minute": 16
+    }
+   },
+   "user": "user_aaaaaaaaaaaaaaaaaaaa"
+  },
+  "name": "dedupe_and_triage",
+  "steps": [
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "deduped": false,
+      "item": {
+       "actions": [],
+       "answer": null,
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": null,
+       "context": {},
+       "count": 1,
+       "created_at": 1000000,
+       "dedupe_key": "ci",
+       "expires_at": 605800000,
+       "home": "cloud",
+       "id": "fi_4a7d8186ab951272f814",
+       "kind": "notice",
+       "needs_mac": false,
+       "open": null,
+       "order": 1,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "normal",
+       "push_due_at": 1120000,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 1,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "open",
+       "thread": null,
+       "title": "CI failed",
+       "type": "notice",
+       "updated_at": 1000000
+      }
+     }
+    },
+    "now": 1000000,
+    "op": "feed.post",
+    "origin": "cli",
+    "params": {
+     "dedupe_key": "ci",
+     "kind": "notice",
+     "title": "CI failed",
+     "type": "notice"
+    },
+    "principal": {
+     "agent": "agent_a",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "dedupe_and_triage-0"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "items": [
+       {
+        "actions": [],
+        "answer": null,
+        "archived_at": null,
+        "attachments": [],
+        "body": "",
+        "cancel": null,
+        "closed_at": null,
+        "context": {},
+        "count": 1,
+        "created_at": 1000000,
+        "dedupe_key": "ci",
+        "expires_at": 605800000,
+        "home": "cloud",
+        "id": "fi_4a7d8186ab951272f814",
+        "kind": "notice",
+        "needs_mac": false,
+        "open": null,
+        "order": 1,
+        "poster": {
+         "agent": "agent_a",
+         "install": "inst_dmn00000000000000000",
+         "kind": "agent",
+         "label": "",
+         "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+        },
+        "priority": "normal",
+        "push_due_at": null,
+        "pushed_at": null,
+        "read_at": 1001000,
+        "revision": 2,
+        "seen_at": null,
+        "snoozed_until": null,
+        "state": "open",
+        "thread": null,
+        "title": "CI failed",
+        "type": "notice",
+        "updated_at": 1001000
+       }
+      ]
+     }
+    },
+    "now": 1001000,
+    "op": "feed.read",
+    "origin": "user",
+    "params": {
+     "items": [
+      "fi_4a7d8186ab951272f814"
+     ]
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "dedupe_and_triage-1"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "deduped": true,
+      "item": {
+       "actions": [],
+       "answer": null,
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": null,
+       "context": {},
+       "count": 2,
+       "created_at": 1000000,
+       "dedupe_key": "ci",
+       "expires_at": 605802000,
+       "home": "cloud",
+       "id": "fi_4a7d8186ab951272f814",
+       "kind": "notice",
+       "needs_mac": false,
+       "open": null,
+       "order": 1,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "normal",
+       "push_due_at": 1122000,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 3,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "open",
+       "thread": null,
+       "title": "CI failed again",
+       "type": "notice",
+       "updated_at": 1002000
+      }
+     }
+    },
+    "now": 1002000,
+    "op": "feed.post",
+    "origin": "cli",
+    "params": {
+     "dedupe_key": "ci",
+     "kind": "notice",
+     "title": "CI failed again",
+     "type": "notice"
+    },
+    "principal": {
+     "agent": "agent_a",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "dedupe_and_triage-2"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "deduped": false,
+      "item": {
+       "actions": [],
+       "answer": null,
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": null,
+       "context": {},
+       "count": 1,
+       "created_at": 1003000,
+       "dedupe_key": "ci",
+       "expires_at": 605803000,
+       "home": "cloud",
+       "id": "fi_a59fed2d033bcad20d15",
+       "kind": "notice",
+       "needs_mac": false,
+       "open": null,
+       "order": 2,
+       "poster": {
+        "agent": "agent_b",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_b"
+       },
+       "priority": "normal",
+       "push_due_at": 1123000,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 1,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "open",
+       "thread": null,
+       "title": "CI failed",
+       "type": "notice",
+       "updated_at": 1003000
+      }
+     }
+    },
+    "now": 1003000,
+    "op": "feed.post",
+    "origin": "cli",
+    "params": {
+     "dedupe_key": "ci",
+     "kind": "notice",
+     "title": "CI failed",
+     "type": "notice"
+    },
+    "principal": {
+     "agent": "agent_b",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "dedupe_and_triage-3"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "items": [
+       {
+        "actions": [],
+        "answer": null,
+        "archived_at": 1004000,
+        "attachments": [],
+        "body": "",
+        "cancel": null,
+        "closed_at": null,
+        "context": {},
+        "count": 2,
+        "created_at": 1000000,
+        "dedupe_key": "ci",
+        "expires_at": 605802000,
+        "home": "cloud",
+        "id": "fi_4a7d8186ab951272f814",
+        "kind": "notice",
+        "needs_mac": false,
+        "open": null,
+        "order": 1,
+        "poster": {
+         "agent": "agent_a",
+         "install": "inst_dmn00000000000000000",
+         "kind": "agent",
+         "label": "",
+         "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+        },
+        "priority": "normal",
+        "push_due_at": null,
+        "pushed_at": null,
+        "read_at": 1004000,
+        "revision": 4,
+        "seen_at": null,
+        "snoozed_until": null,
+        "state": "open",
+        "thread": null,
+        "title": "CI failed again",
+        "type": "notice",
+        "updated_at": 1004000
+       }
+      ]
+     }
+    },
+    "now": 1004000,
+    "op": "feed.archive",
+    "origin": "user",
+    "params": {
+     "items": [
+      "fi_4a7d8186ab951272f814"
+     ]
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "dedupe_and_triage-4"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "deduped": false,
+      "item": {
+       "actions": [],
+       "answer": null,
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": null,
+       "context": {},
+       "count": 1,
+       "created_at": 1005000,
+       "dedupe_key": "ci",
+       "expires_at": 605805000,
+       "home": "cloud",
+       "id": "fi_1d896467377ffdf55d31",
+       "kind": "notice",
+       "needs_mac": false,
+       "open": null,
+       "order": 3,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "normal",
+       "push_due_at": 1125000,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 1,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "open",
+       "thread": null,
+       "title": "CI failed a third time",
+       "type": "notice",
+       "updated_at": 1005000
+      }
+     }
+    },
+    "now": 1005000,
+    "op": "feed.post",
+    "origin": "cli",
+    "params": {
+     "dedupe_key": "ci",
+     "kind": "notice",
+     "title": "CI failed a third time",
+     "type": "notice"
+    },
+    "principal": {
+     "agent": "agent_a",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "dedupe_and_triage-5"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "items": [
+       {
+        "actions": [],
+        "answer": null,
+        "archived_at": null,
+        "attachments": [],
+        "body": "",
+        "cancel": null,
+        "closed_at": null,
+        "context": {},
+        "count": 2,
+        "created_at": 1000000,
+        "dedupe_key": "ci",
+        "expires_at": 605802000,
+        "home": "cloud",
+        "id": "fi_4a7d8186ab951272f814",
+        "kind": "notice",
+        "needs_mac": false,
+        "open": null,
+        "order": 1,
+        "poster": {
+         "agent": "agent_a",
+         "install": "inst_dmn00000000000000000",
+         "kind": "agent",
+         "label": "",
+         "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+        },
+        "priority": "normal",
+        "push_due_at": null,
+        "pushed_at": null,
+        "read_at": 1004000,
+        "revision": 5,
+        "seen_at": null,
+        "snoozed_until": null,
+        "state": "open",
+        "thread": null,
+        "title": "CI failed again",
+        "type": "notice",
+        "updated_at": 1006000
+       }
+      ]
+     }
+    },
+    "now": 1006000,
+    "op": "feed.unarchive",
+    "origin": "user",
+    "params": {
+     "items": [
+      "fi_4a7d8186ab951272f814"
+     ]
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "dedupe_and_triage-6"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "items": [
+       {
+        "actions": [],
+        "answer": null,
+        "archived_at": null,
+        "attachments": [],
+        "body": "",
+        "cancel": null,
+        "closed_at": null,
+        "context": {},
+        "count": 1,
+        "created_at": 1003000,
+        "dedupe_key": "ci",
+        "expires_at": 605803000,
+        "home": "cloud",
+        "id": "fi_a59fed2d033bcad20d15",
+        "kind": "notice",
+        "needs_mac": false,
+        "open": null,
+        "order": 2,
+        "poster": {
+         "agent": "agent_b",
+         "install": "inst_dmn00000000000000000",
+         "kind": "agent",
+         "label": "",
+         "scope": "inst:inst_dmn00000000000000000/agent:agent_b"
+        },
+        "priority": "normal",
+        "push_due_at": null,
+        "pushed_at": null,
+        "read_at": null,
+        "revision": 2,
+        "seen_at": null,
+        "snoozed_until": 2000000,
+        "state": "open",
+        "thread": null,
+        "title": "CI failed",
+        "type": "notice",
+        "updated_at": 1007000
+       }
+      ]
+     }
+    },
+    "now": 1007000,
+    "op": "feed.snooze",
+    "origin": "user",
+    "params": {
+     "items": [
+      "fi_a59fed2d033bcad20d15"
+     ],
+     "until": 2000000
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "dedupe_and_triage-7"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "items": [
+       {
+        "actions": [],
+        "answer": null,
+        "archived_at": null,
+        "attachments": [],
+        "body": "",
+        "cancel": null,
+        "closed_at": null,
+        "context": {},
+        "count": 1,
+        "created_at": 1003000,
+        "dedupe_key": "ci",
+        "expires_at": 605803000,
+        "home": "cloud",
+        "id": "fi_a59fed2d033bcad20d15",
+        "kind": "notice",
+        "needs_mac": false,
+        "open": null,
+        "order": 2,
+        "poster": {
+         "agent": "agent_b",
+         "install": "inst_dmn00000000000000000",
+         "kind": "agent",
+         "label": "",
+         "scope": "inst:inst_dmn00000000000000000/agent:agent_b"
+        },
+        "priority": "normal",
+        "push_due_at": null,
+        "pushed_at": null,
+        "read_at": 1008000,
+        "revision": 3,
+        "seen_at": null,
+        "snoozed_until": 2000000,
+        "state": "open",
+        "thread": null,
+        "title": "CI failed",
+        "type": "notice",
+        "updated_at": 1008000
+       },
+       {
+        "actions": [],
+        "answer": null,
+        "archived_at": null,
+        "attachments": [],
+        "body": "",
+        "cancel": null,
+        "closed_at": null,
+        "context": {},
+        "count": 1,
+        "created_at": 1005000,
+        "dedupe_key": "ci",
+        "expires_at": 605805000,
+        "home": "cloud",
+        "id": "fi_1d896467377ffdf55d31",
+        "kind": "notice",
+        "needs_mac": false,
+        "open": null,
+        "order": 3,
+        "poster": {
+         "agent": "agent_a",
+         "install": "inst_dmn00000000000000000",
+         "kind": "agent",
+         "label": "",
+         "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+        },
+        "priority": "normal",
+        "push_due_at": null,
+        "pushed_at": null,
+        "read_at": 1008000,
+        "revision": 2,
+        "seen_at": null,
+        "snoozed_until": null,
+        "state": "open",
+        "thread": null,
+        "title": "CI failed a third time",
+        "type": "notice",
+        "updated_at": 1008000
+       }
+      ]
+     }
+    },
+    "now": 1008000,
+    "op": "feed.read",
+    "origin": "user",
+    "params": {
+     "all": true
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "dedupe_and_triage-8"
+   }
+  ]
+ },
+ {
+  "final_state": {
+   "dedupe": {},
+   "items": {
+    "fi_1317176334ee6ac8cd2b": {
+     "actions": [],
+     "answer": {
+      "at": 1008000,
+      "by": "inst_mac00000000000000000",
+      "device": null,
+      "value": {
+       "go": true
+      }
+     },
+     "answer_schema": {
+      "properties": {
+       "go": {
+        "type": "boolean"
+       }
+      },
+      "required": [
+       "go"
+      ],
+      "type": "object"
+     },
+     "archived_at": null,
+     "attachments": [],
+     "body": "",
+     "cancel": null,
+     "closed_at": 1008000,
+     "context": {},
+     "count": 1,
+     "created_at": 1006000,
+     "dedupe_key": null,
+     "expires_at": 87406000,
+     "home": "cloud",
+     "id": "fi_1317176334ee6ac8cd2b",
+     "kind": "x-acme.deploy",
+     "needs_mac": false,
+     "open": null,
+     "order": 3,
+     "poster": {
+      "agent": "agent_a",
+      "install": "inst_dmn00000000000000000",
+      "kind": "agent",
+      "label": "",
+      "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+     },
+     "priority": "normal",
+     "prompt": {
+      "env": "prod"
+     },
+     "push_due_at": null,
+     "pushed_at": null,
+     "read_at": 1008000,
+     "revision": 2,
+     "seen_at": null,
+     "snoozed_until": null,
+     "state": "answered",
+     "thread": null,
+     "title": "Deploy?",
+     "type": "request",
+     "updated_at": 1008000
+    },
+    "fi_cda8288797ee5b3e80dc": {
+     "actions": [],
+     "answer": {
+      "at": 1005000,
+      "by": "inst_mac00000000000000000",
+      "device": null,
+      "value": {
+       "email": "a@b.co"
+      }
+     },
+     "archived_at": null,
+     "attachments": [],
+     "body": "",
+     "cancel": null,
+     "closed_at": 1005000,
+     "context": {},
+     "count": 1,
+     "created_at": 1003000,
+     "dedupe_key": null,
+     "expires_at": 87403000,
+     "home": "cloud",
+     "id": "fi_cda8288797ee5b3e80dc",
+     "kind": "input",
+     "needs_mac": false,
+     "open": null,
+     "order": 2,
+     "poster": {
+      "agent": "agent_a",
+      "install": "inst_dmn00000000000000000",
+      "kind": "agent",
+      "label": "",
+      "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+     },
+     "priority": "high",
+     "prompt": {
+      "schema": {
+       "properties": {
+        "email": {
+         "format": "email",
+         "type": "string"
+        }
+       },
+       "required": [
+        "email"
+       ],
+       "type": "object"
+      }
+     },
+     "push_due_at": null,
+     "pushed_at": null,
+     "read_at": 1005000,
+     "revision": 2,
+     "seen_at": null,
+     "snoozed_until": null,
+     "state": "answered",
+     "thread": null,
+     "title": "input",
+     "type": "request",
+     "updated_at": 1005000
+    },
+    "fi_fe263bfcb95a5d23aa81": {
+     "actions": [],
+     "answer": {
+      "at": 1002000,
+      "by": "inst_mac00000000000000000",
+      "device": null,
+      "value": {
+       "answers": {
+        "db": {
+         "other": "DuckDB",
+         "selected": []
+        },
+        "feat": {
+         "selected": [
+          "auth",
+          "sync"
+         ]
+        }
+       }
+      }
+     },
+     "archived_at": null,
+     "attachments": [],
+     "body": "",
+     "cancel": null,
+     "closed_at": 1002000,
+     "context": {},
+     "count": 1,
+     "created_at": 1000000,
+     "dedupe_key": null,
+     "expires_at": 87400000,
+     "home": "cloud",
+     "id": "fi_fe263bfcb95a5d23aa81",
+     "kind": "choice",
+     "needs_mac": false,
+     "open": null,
+     "order": 1,
+     "poster": {
+      "agent": "agent_a",
+      "install": "inst_dmn00000000000000000",
+      "kind": "agent",
+      "label": "",
+      "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+     },
+     "priority": "high",
+     "prompt": {
+      "questions": [
+       {
+        "allow_other": true,
+        "id": "db",
+        "multi": false,
+        "options": [
+         {
+          "id": "pg",
+          "label": "Postgres"
+         },
+         {
+          "id": "sqlite",
+          "label": "SQLite"
+         }
+        ],
+        "question": "Which database?"
+       },
+       {
+        "allow_other": false,
+        "id": "feat",
+        "multi": true,
+        "options": [
+         {
+          "id": "auth",
+          "label": "Auth"
+         },
+         {
+          "id": "push",
+          "label": "Push"
+         },
+         {
+          "id": "sync",
+          "label": "Sync"
+         }
+        ],
+        "question": "Which features?"
+       }
+      ]
+     },
+     "push_due_at": null,
+     "pushed_at": null,
+     "read_at": 1002000,
+     "revision": 2,
+     "seen_at": null,
+     "snoozed_until": null,
+     "state": "answered",
+     "thread": null,
+     "title": "choice",
+     "type": "request",
+     "updated_at": 1002000
+    }
+   },
+   "next_order": 4,
+   "prefs": {
+    "push_delay": {
+     "high": 20000,
+     "low": null,
+     "normal": 120000,
+     "urgent": 0
+    },
+    "push_enabled": true,
+    "push_skip_when_mac_active": true
+   },
+   "rate": {
+    "inst:inst_dmn00000000000000000/agent:agent_a": {
+     "count": 3,
+     "minute": 16
+    }
+   },
+   "user": "user_aaaaaaaaaaaaaaaaaaaa"
+  },
+  "name": "kinds",
+  "steps": [
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "deduped": false,
+      "item": {
+       "actions": [],
+       "answer": null,
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": null,
+       "context": {},
+       "count": 1,
+       "created_at": 1000000,
+       "dedupe_key": null,
+       "expires_at": 87400000,
+       "home": "cloud",
+       "id": "fi_fe263bfcb95a5d23aa81",
+       "kind": "choice",
+       "needs_mac": false,
+       "open": null,
+       "order": 1,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "high",
+       "prompt": {
+        "questions": [
+         {
+          "allow_other": true,
+          "id": "db",
+          "multi": false,
+          "options": [
+           {
+            "id": "pg",
+            "label": "Postgres"
+           },
+           {
+            "id": "sqlite",
+            "label": "SQLite"
+           }
+          ],
+          "question": "Which database?"
+         },
+         {
+          "allow_other": false,
+          "id": "feat",
+          "multi": true,
+          "options": [
+           {
+            "id": "auth",
+            "label": "Auth"
+           },
+           {
+            "id": "push",
+            "label": "Push"
+           },
+           {
+            "id": "sync",
+            "label": "Sync"
+           }
+          ],
+          "question": "Which features?"
+         }
+        ]
+       },
+       "push_due_at": 1020000,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 1,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "open",
+       "thread": null,
+       "title": "choice",
+       "type": "request",
+       "updated_at": 1000000
+      }
+     }
+    },
+    "now": 1000000,
+    "op": "feed.post",
+    "origin": "cli",
+    "params": {
+     "kind": "choice",
+     "prompt": {
+      "questions": [
+       {
+        "allow_other": true,
+        "id": "db",
+        "multi": false,
+        "options": [
+         {
+          "id": "pg",
+          "label": "Postgres"
+         },
+         {
+          "id": "sqlite",
+          "label": "SQLite"
+         }
+        ],
+        "question": "Which database?"
+       },
+       {
+        "allow_other": false,
+        "id": "feat",
+        "multi": true,
+        "options": [
+         {
+          "id": "auth",
+          "label": "Auth"
+         },
+         {
+          "id": "push",
+          "label": "Push"
+         },
+         {
+          "id": "sync",
+          "label": "Sync"
+         }
+        ],
+        "question": "Which features?"
+       }
+      ]
+     },
+     "title": "choice",
+     "type": "request"
+    },
+    "principal": {
+     "agent": "agent_a",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "kinds-0"
+   },
+   {
+    "expect": {
+     "code": "validation.invalid",
+     "ok": false
+    },
+    "now": 1001000,
+    "op": "feed.answer",
+    "origin": "user",
+    "params": {
+     "answer": {
+      "answers": {
+       "db": {
+        "selected": [
+         "pg",
+         "sqlite"
+        ]
+       },
+       "feat": {
+        "selected": [
+         "auth"
+        ]
+       }
+      }
+     },
+     "item": "fi_fe263bfcb95a5d23aa81"
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "kinds-1"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "item": {
+       "actions": [],
+       "answer": {
+        "at": 1002000,
+        "by": "inst_mac00000000000000000",
+        "device": null,
+        "value": {
+         "answers": {
+          "db": {
+           "other": "DuckDB",
+           "selected": []
+          },
+          "feat": {
+           "selected": [
+            "auth",
+            "sync"
+           ]
+          }
+         }
+        }
+       },
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": 1002000,
+       "context": {},
+       "count": 1,
+       "created_at": 1000000,
+       "dedupe_key": null,
+       "expires_at": 87400000,
+       "home": "cloud",
+       "id": "fi_fe263bfcb95a5d23aa81",
+       "kind": "choice",
+       "needs_mac": false,
+       "open": null,
+       "order": 1,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "high",
+       "prompt": {
+        "questions": [
+         {
+          "allow_other": true,
+          "id": "db",
+          "multi": false,
+          "options": [
+           {
+            "id": "pg",
+            "label": "Postgres"
+           },
+           {
+            "id": "sqlite",
+            "label": "SQLite"
+           }
+          ],
+          "question": "Which database?"
+         },
+         {
+          "allow_other": false,
+          "id": "feat",
+          "multi": true,
+          "options": [
+           {
+            "id": "auth",
+            "label": "Auth"
+           },
+           {
+            "id": "push",
+            "label": "Push"
+           },
+           {
+            "id": "sync",
+            "label": "Sync"
+           }
+          ],
+          "question": "Which features?"
+         }
+        ]
+       },
+       "push_due_at": null,
+       "pushed_at": null,
+       "read_at": 1002000,
+       "revision": 2,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "answered",
+       "thread": null,
+       "title": "choice",
+       "type": "request",
+       "updated_at": 1002000
+      }
+     }
+    },
+    "now": 1002000,
+    "op": "feed.answer",
+    "origin": "user",
+    "params": {
+     "answer": {
+      "answers": {
+       "db": {
+        "other": "DuckDB",
+        "selected": []
+       },
+       "feat": {
+        "selected": [
+         "auth",
+         "sync"
+        ]
+       }
+      }
+     },
+     "item": "fi_fe263bfcb95a5d23aa81"
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "kinds-2"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "deduped": false,
+      "item": {
+       "actions": [],
+       "answer": null,
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": null,
+       "context": {},
+       "count": 1,
+       "created_at": 1003000,
+       "dedupe_key": null,
+       "expires_at": 87403000,
+       "home": "cloud",
+       "id": "fi_cda8288797ee5b3e80dc",
+       "kind": "input",
+       "needs_mac": false,
+       "open": null,
+       "order": 2,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "high",
+       "prompt": {
+        "schema": {
+         "properties": {
+          "email": {
+           "format": "email",
+           "type": "string"
+          }
+         },
+         "required": [
+          "email"
+         ],
+         "type": "object"
+        }
+       },
+       "push_due_at": 1023000,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 1,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "open",
+       "thread": null,
+       "title": "input",
+       "type": "request",
+       "updated_at": 1003000
+      }
+     }
+    },
+    "now": 1003000,
+    "op": "feed.post",
+    "origin": "cli",
+    "params": {
+     "kind": "input",
+     "prompt": {
+      "schema": {
+       "properties": {
+        "email": {
+         "format": "email",
+         "type": "string"
+        }
+       },
+       "required": [
+        "email"
+       ],
+       "type": "object"
+      }
+     },
+     "title": "input",
+     "type": "request"
+    },
+    "principal": {
+     "agent": "agent_a",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "kinds-3"
+   },
+   {
+    "expect": {
+     "code": "validation.invalid",
+     "ok": false
+    },
+    "now": 1004000,
+    "op": "feed.answer",
+    "origin": "user",
+    "params": {
+     "answer": {
+      "email": "nope"
+     },
+     "item": "fi_cda8288797ee5b3e80dc"
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "kinds-4"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "item": {
+       "actions": [],
+       "answer": {
+        "at": 1005000,
+        "by": "inst_mac00000000000000000",
+        "device": null,
+        "value": {
+         "email": "a@b.co"
+        }
+       },
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": 1005000,
+       "context": {},
+       "count": 1,
+       "created_at": 1003000,
+       "dedupe_key": null,
+       "expires_at": 87403000,
+       "home": "cloud",
+       "id": "fi_cda8288797ee5b3e80dc",
+       "kind": "input",
+       "needs_mac": false,
+       "open": null,
+       "order": 2,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "high",
+       "prompt": {
+        "schema": {
+         "properties": {
+          "email": {
+           "format": "email",
+           "type": "string"
+          }
+         },
+         "required": [
+          "email"
+         ],
+         "type": "object"
+        }
+       },
+       "push_due_at": null,
+       "pushed_at": null,
+       "read_at": 1005000,
+       "revision": 2,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "answered",
+       "thread": null,
+       "title": "input",
+       "type": "request",
+       "updated_at": 1005000
+      }
+     }
+    },
+    "now": 1005000,
+    "op": "feed.answer",
+    "origin": "user",
+    "params": {
+     "answer": {
+      "email": "a@b.co"
+     },
+     "item": "fi_cda8288797ee5b3e80dc"
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "kinds-5"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "deduped": false,
+      "item": {
+       "actions": [],
+       "answer": null,
+       "answer_schema": {
+        "properties": {
+         "go": {
+          "type": "boolean"
+         }
+        },
+        "required": [
+         "go"
+        ],
+        "type": "object"
+       },
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": null,
+       "context": {},
+       "count": 1,
+       "created_at": 1006000,
+       "dedupe_key": null,
+       "expires_at": 87406000,
+       "home": "cloud",
+       "id": "fi_1317176334ee6ac8cd2b",
+       "kind": "x-acme.deploy",
+       "needs_mac": false,
+       "open": null,
+       "order": 3,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "normal",
+       "prompt": {
+        "env": "prod"
+       },
+       "push_due_at": 1126000,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 1,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "open",
+       "thread": null,
+       "title": "Deploy?",
+       "type": "request",
+       "updated_at": 1006000
+      }
+     }
+    },
+    "now": 1006000,
+    "op": "feed.post",
+    "origin": "cli",
+    "params": {
+     "answer_schema": {
+      "properties": {
+       "go": {
+        "type": "boolean"
+       }
+      },
+      "required": [
+       "go"
+      ],
+      "type": "object"
+     },
+     "kind": "x-acme.deploy",
+     "prompt": {
+      "env": "prod"
+     },
+     "title": "Deploy?",
+     "type": "request"
+    },
+    "principal": {
+     "agent": "agent_a",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "kinds-6"
+   },
+   {
+    "expect": {
+     "code": "validation.invalid",
+     "ok": false
+    },
+    "now": 1007000,
+    "op": "feed.answer",
+    "origin": "user",
+    "params": {
+     "answer": {
+      "go": "yes"
+     },
+     "item": "fi_1317176334ee6ac8cd2b"
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "kinds-7"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "item": {
+       "actions": [],
+       "answer": {
+        "at": 1008000,
+        "by": "inst_mac00000000000000000",
+        "device": null,
+        "value": {
+         "go": true
+        }
+       },
+       "answer_schema": {
+        "properties": {
+         "go": {
+          "type": "boolean"
+         }
+        },
+        "required": [
+         "go"
+        ],
+        "type": "object"
+       },
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": 1008000,
+       "context": {},
+       "count": 1,
+       "created_at": 1006000,
+       "dedupe_key": null,
+       "expires_at": 87406000,
+       "home": "cloud",
+       "id": "fi_1317176334ee6ac8cd2b",
+       "kind": "x-acme.deploy",
+       "needs_mac": false,
+       "open": null,
+       "order": 3,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "normal",
+       "prompt": {
+        "env": "prod"
+       },
+       "push_due_at": null,
+       "pushed_at": null,
+       "read_at": 1008000,
+       "revision": 2,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "answered",
+       "thread": null,
+       "title": "Deploy?",
+       "type": "request",
+       "updated_at": 1008000
+      }
+     }
+    },
+    "now": 1008000,
+    "op": "feed.answer",
+    "origin": "user",
+    "params": {
+     "answer": {
+      "go": true
+     },
+     "item": "fi_1317176334ee6ac8cd2b"
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "kinds-8"
+   },
+   {
+    "expect": {
+     "code": "validation.invalid",
+     "ok": false
+    },
+    "now": 1009000,
+    "op": "feed.post",
+    "origin": "cli",
+    "params": {
+     "kind": "approve",
+     "title": "bad",
+     "type": "notice"
+    },
+    "principal": {
+     "agent": "agent_a",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "kinds-9"
+   }
+  ]
+ },
+ {
+  "final_state": {
+   "dedupe": {},
+   "items": {
+    "fi_397e373617126798783c": {
+     "actions": [],
+     "answer": null,
+     "archived_at": null,
+     "attachments": [],
+     "body": "",
+     "cancel": null,
+     "closed_at": 1010000,
+     "context": {},
+     "count": 1,
+     "created_at": 1000000,
+     "dedupe_key": null,
+     "expires_at": 1010000,
+     "home": "cloud",
+     "id": "fi_397e373617126798783c",
+     "kind": "confirm",
+     "needs_mac": false,
+     "open": null,
+     "order": 1,
+     "poster": {
+      "agent": "agent_a",
+      "install": "inst_dmn00000000000000000",
+      "kind": "agent",
+      "label": "",
+      "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+     },
+     "priority": "high",
+     "prompt": {
+      "statement": "Delete the branch?"
+     },
+     "push_due_at": null,
+     "pushed_at": null,
+     "read_at": null,
+     "revision": 2,
+     "seen_at": null,
+     "snoozed_until": null,
+     "state": "expired",
+     "thread": null,
+     "title": "confirm",
+     "type": "request",
+     "updated_at": 1030000
+    },
+    "fi_b5598dea5ad685e764ee": {
+     "actions": [],
+     "answer": null,
+     "archived_at": null,
+     "attachments": [],
+     "body": "",
+     "cancel": {
+      "at": 1005000,
+      "by": "inst_mac00000000000000000",
+      "note": null,
+      "reason": "declined"
+     },
+     "closed_at": 1005000,
+     "context": {},
+     "count": 1,
+     "created_at": 1004000,
+     "dedupe_key": null,
+     "expires_at": 87404000,
+     "home": "cloud",
+     "id": "fi_b5598dea5ad685e764ee",
+     "kind": "handoff",
+     "needs_mac": false,
+     "open": null,
+     "order": 3,
+     "poster": {
+      "agent": "agent_a",
+      "install": "inst_dmn00000000000000000",
+      "kind": "agent",
+      "label": "",
+      "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+     },
+     "priority": "high",
+     "prompt": {
+      "reason": "stuck on 2FA"
+     },
+     "push_due_at": null,
+     "pushed_at": null,
+     "read_at": null,
+     "revision": 2,
+     "seen_at": null,
+     "snoozed_until": null,
+     "state": "cancelled",
+     "thread": null,
+     "title": "handoff",
+     "type": "request",
+     "updated_at": 1005000
+    },
+    "fi_cdc96e8ae2703fb4f2c0": {
+     "actions": [],
+     "answer": null,
+     "archived_at": null,
+     "attachments": [],
+     "body": "",
+     "cancel": {
+      "at": 1003000,
+      "by": "inst_dmn00000000000000000",
+      "note": null,
+      "reason": "answered_elsewhere"
+     },
+     "closed_at": 1003000,
+     "context": {},
+     "count": 1,
+     "created_at": 1002000,
+     "dedupe_key": null,
+     "expires_at": 87402000,
+     "home": "cloud",
+     "id": "fi_cdc96e8ae2703fb4f2c0",
+     "kind": "question",
+     "needs_mac": false,
+     "open": null,
+     "order": 2,
+     "poster": {
+      "agent": "agent_a",
+      "install": "inst_dmn00000000000000000",
+      "kind": "agent",
+      "label": "",
+      "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+     },
+     "priority": "high",
+     "prompt": {
+      "question": "Which port?"
+     },
+     "push_due_at": null,
+     "pushed_at": null,
+     "read_at": null,
+     "revision": 2,
+     "seen_at": null,
+     "snoozed_until": null,
+     "state": "cancelled",
+     "thread": null,
+     "title": "question",
+     "type": "request",
+     "updated_at": 1003000
+    }
+   },
+   "next_order": 4,
+   "prefs": {
+    "push_delay": {
+     "high": null,
+     "low": null,
+     "normal": 120000,
+     "urgent": 0
+    },
+    "push_enabled": true,
+    "push_skip_when_mac_active": true
+   },
+   "rate": {
+    "inst:inst_dmn00000000000000000/agent:agent_a": {
+     "count": 3,
+     "minute": 16
+    }
+   },
+   "user": "user_aaaaaaaaaaaaaaaaaaaa"
+  },
+  "name": "cancel_expire_push",
+  "steps": [
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "deduped": false,
+      "item": {
+       "actions": [],
+       "answer": null,
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": null,
+       "context": {},
+       "count": 1,
+       "created_at": 1000000,
+       "dedupe_key": null,
+       "expires_at": 1010000,
+       "home": "cloud",
+       "id": "fi_397e373617126798783c",
+       "kind": "confirm",
+       "needs_mac": false,
+       "open": null,
+       "order": 1,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "high",
+       "prompt": {
+        "statement": "Delete the branch?"
+       },
+       "push_due_at": 1020000,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 1,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "open",
+       "thread": null,
+       "title": "confirm",
+       "type": "request",
+       "updated_at": 1000000
+      }
+     }
+    },
+    "now": 1000000,
+    "op": "feed.post",
+    "origin": "cli",
+    "params": {
+     "expires_in_ms": 10000,
+     "kind": "confirm",
+     "prompt": {
+      "statement": "Delete the branch?"
+     },
+     "title": "confirm",
+     "type": "request"
+    },
+    "principal": {
+     "agent": "agent_a",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "cancel_expire_push-0"
+   },
+   {
+    "expect": {
+     "code": "auth.forbidden",
+     "ok": false
+    },
+    "now": 1001000,
+    "op": "feed.cancel",
+    "origin": "cli",
+    "params": {
+     "item": "fi_397e373617126798783c"
+    },
+    "principal": {
+     "agent": "agent_b",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "cancel_expire_push-1"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "deduped": false,
+      "item": {
+       "actions": [],
+       "answer": null,
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": null,
+       "context": {},
+       "count": 1,
+       "created_at": 1002000,
+       "dedupe_key": null,
+       "expires_at": 87402000,
+       "home": "cloud",
+       "id": "fi_cdc96e8ae2703fb4f2c0",
+       "kind": "question",
+       "needs_mac": false,
+       "open": null,
+       "order": 2,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "high",
+       "prompt": {
+        "question": "Which port?"
+       },
+       "push_due_at": 1022000,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 1,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "open",
+       "thread": null,
+       "title": "question",
+       "type": "request",
+       "updated_at": 1002000
+      }
+     }
+    },
+    "now": 1002000,
+    "op": "feed.post",
+    "origin": "cli",
+    "params": {
+     "kind": "question",
+     "prompt": {
+      "question": "Which port?"
+     },
+     "title": "question",
+     "type": "request"
+    },
+    "principal": {
+     "agent": "agent_a",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "cancel_expire_push-2"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "item": {
+       "actions": [],
+       "answer": null,
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": {
+        "at": 1003000,
+        "by": "inst_dmn00000000000000000",
+        "note": null,
+        "reason": "answered_elsewhere"
+       },
+       "closed_at": 1003000,
+       "context": {},
+       "count": 1,
+       "created_at": 1002000,
+       "dedupe_key": null,
+       "expires_at": 87402000,
+       "home": "cloud",
+       "id": "fi_cdc96e8ae2703fb4f2c0",
+       "kind": "question",
+       "needs_mac": false,
+       "open": null,
+       "order": 2,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "high",
+       "prompt": {
+        "question": "Which port?"
+       },
+       "push_due_at": null,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 2,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "cancelled",
+       "thread": null,
+       "title": "question",
+       "type": "request",
+       "updated_at": 1003000
+      }
+     }
+    },
+    "now": 1003000,
+    "op": "feed.cancel",
+    "origin": "script",
+    "params": {
+     "item": "fi_cdc96e8ae2703fb4f2c0",
+     "reason": "answered_elsewhere"
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "cancel_expire_push-3"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "deduped": false,
+      "item": {
+       "actions": [],
+       "answer": null,
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": null,
+       "closed_at": null,
+       "context": {},
+       "count": 1,
+       "created_at": 1004000,
+       "dedupe_key": null,
+       "expires_at": 87404000,
+       "home": "cloud",
+       "id": "fi_b5598dea5ad685e764ee",
+       "kind": "handoff",
+       "needs_mac": false,
+       "open": null,
+       "order": 3,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "high",
+       "prompt": {
+        "reason": "stuck on 2FA"
+       },
+       "push_due_at": 1024000,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 1,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "open",
+       "thread": null,
+       "title": "handoff",
+       "type": "request",
+       "updated_at": 1004000
+      }
+     }
+    },
+    "now": 1004000,
+    "op": "feed.post",
+    "origin": "cli",
+    "params": {
+     "kind": "handoff",
+     "prompt": {
+      "reason": "stuck on 2FA"
+     },
+     "title": "handoff",
+     "type": "request"
+    },
+    "principal": {
+     "agent": "agent_a",
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "execute"
+     ],
+     "identity": "inst_dmn00000000000000000",
+     "install": "inst_dmn00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "cancel_expire_push-4"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "item": {
+       "actions": [],
+       "answer": null,
+       "archived_at": null,
+       "attachments": [],
+       "body": "",
+       "cancel": {
+        "at": 1005000,
+        "by": "inst_mac00000000000000000",
+        "note": null,
+        "reason": "declined"
+       },
+       "closed_at": 1005000,
+       "context": {},
+       "count": 1,
+       "created_at": 1004000,
+       "dedupe_key": null,
+       "expires_at": 87404000,
+       "home": "cloud",
+       "id": "fi_b5598dea5ad685e764ee",
+       "kind": "handoff",
+       "needs_mac": false,
+       "open": null,
+       "order": 3,
+       "poster": {
+        "agent": "agent_a",
+        "install": "inst_dmn00000000000000000",
+        "kind": "agent",
+        "label": "",
+        "scope": "inst:inst_dmn00000000000000000/agent:agent_a"
+       },
+       "priority": "high",
+       "prompt": {
+        "reason": "stuck on 2FA"
+       },
+       "push_due_at": null,
+       "pushed_at": null,
+       "read_at": null,
+       "revision": 2,
+       "seen_at": null,
+       "snoozed_until": null,
+       "state": "cancelled",
+       "thread": null,
+       "title": "handoff",
+       "type": "request",
+       "updated_at": 1005000
+      }
+     }
+    },
+    "now": 1005000,
+    "op": "feed.cancel",
+    "origin": "user",
+    "params": {
+     "item": "fi_b5598dea5ad685e764ee"
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "cancel_expire_push-5"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "items": [
+       "fi_397e373617126798783c"
+      ]
+     }
+    },
+    "now": 1030000,
+    "op": "feed.expire",
+    "origin": "script",
+    "params": {
+     "at": 1030000
+    },
+    "principal": {
+     "identity": "system:feed",
+     "kind": "system"
+    },
+    "tx": "cancel_expire_push-6"
+   },
+   {
+    "expect": {
+     "changed": false,
+     "ok": true,
+     "value": {
+      "sent": []
+     }
+    },
+    "now": 1031000,
+    "op": "feed.push_due",
+    "origin": "script",
+    "params": {
+     "at": 1031000,
+     "send": [
+      "fi_b5598dea5ad685e764ee"
+     ],
+     "skip": []
+    },
+    "principal": {
+     "identity": "system:feed",
+     "kind": "system"
+    },
+    "tx": "cancel_expire_push-7"
+   },
+   {
+    "expect": {
+     "changed": true,
+     "ok": true,
+     "value": {
+      "prefs": {
+       "push_delay": {
+        "high": null,
+        "low": null,
+        "normal": 120000,
+        "urgent": 0
+       },
+       "push_enabled": true,
+       "push_skip_when_mac_active": true
+      }
+     }
+    },
+    "now": 1032000,
+    "op": "feed.prefs.set",
+    "origin": "user",
+    "params": {
+     "push_delay": {
+      "high": null
+     }
+    },
+    "principal": {
+     "grant_classes": [
+      "read",
+      "mutate-own",
+      "mutate-shared",
+      "execute"
+     ],
+     "identity": "inst_mac00000000000000000",
+     "install": "inst_mac00000000000000000",
+     "kind": "install",
+     "user": "user_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "tx": "cancel_expire_push-8"
+   }
+  ]
+ }
+]

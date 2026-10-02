@@ -121,6 +121,8 @@ export interface OutboxItem {
 
 export interface ReduceContext {
   readonly principal: Principal
+  /** The request's channel (view-state rules, and owners that accept some ops only from a person). */
+  readonly origin?: Origin
   readonly now: number
   readonly tx: string
   /** Deterministic id from the transaction, so mirror replay reproduces it. */

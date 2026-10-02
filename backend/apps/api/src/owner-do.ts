@@ -111,6 +111,14 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return null
   }
 
+  /**
+   * A frame type the base does not know (for example FeedDO's `presence.set`).
+   * Return true when handled. Never commits state: ops go through `op` frames.
+   */
+  protected onFrame(_ws: WebSocket, _frame: { readonly t?: string } & Record<string, unknown>): boolean {
+    return false
+  }
+
   /** Subclasses prune their own side tables older than `before` (same replay window). */
   protected onPrune(_before: number): void {}
 
@@ -243,6 +251,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         return
       }
       default:
+        if (this.onFrame(ws, frame as { t?: string } & Record<string, unknown>)) return
         safeSend(ws, JSON.stringify({ t: "error", code: "validation.invalid", message: `unknown frame ${frame.t}` }))
     }
   }

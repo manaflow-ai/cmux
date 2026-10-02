@@ -235,6 +235,7 @@ export class OwnerEngine<S, P = unknown> {
     } else {
       const r = this.domain.reduce(this.state, frame.op, frame.params as P, {
         principal,
+        origin,
         now: at,
         tx,
         newId: idFactory(tx)
