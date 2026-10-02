@@ -140,8 +140,10 @@ export function Composer({
     const send = () => {
       plusDraft.current = undefined;
       // What was typed while the send waited stays, without the prompt that went.
+      // The draft + took apart while the dialog had focus counts as the prompt too.
       const now = textNow.current;
-      const rest = now === submitted ? "" : now.startsWith(submitted) ? now.slice(submitted.length).trimStart() : now;
+      const base = now.trim() === prompt ? now : [submitted, prompt].find((sent) => now.startsWith(sent));
+      const rest = base === undefined ? now : now.slice(base.length).trimStart();
       edit(rest, rest.length);
       if (rest) pendingCaret.current = rest.length;
       sentAt.current = Date.now();

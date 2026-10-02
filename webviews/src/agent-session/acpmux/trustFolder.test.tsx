@@ -132,7 +132,7 @@ test("typing while a send waits on confirmSend stays in the prompt, without the 
   await act(async () =>
     root.render(
       createElement(Composer, {
-        snapshot: snapshot(),
+        snapshot: { ...snapshot(), commands: [{ name: "review", description: "Review the changes" }] },
         chips: () => null,
         onSend: (text: string) => sent.push(text),
         onStop: () => {},
@@ -148,6 +148,21 @@ test("typing while a send waits on confirmSend stays in the prompt, without the 
   await act(async () => answer!(true));
   expect(sent).toEqual(["Fix the build"]);
   expect(prompt.value).toBe("then the tests");
+  // + then Commands wraps the draft as "/ Ship it"; the dialog's focus puts the draft back, and
+  // that draft is the prompt that went.
+  await act(async () => typeInto(prompt, "Ship it"));
+  await act(async () => doc.querySelector<HTMLButtonElement>('[aria-label="Add"]')!.click());
+  await act(async () => {
+    [...doc.querySelectorAll("[role=option]")]
+      .find((option) => option.textContent?.startsWith("Commands"))!
+      .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  });
+  expect(prompt.value).toBe("/ Ship it");
+  await act(async () => doc.querySelector<HTMLButtonElement>(".acpmux-send")!.click());
+  await act(async () => typeInto(prompt, "Ship it"));
+  await act(async () => answer!(true));
+  expect(sent).toEqual(["Fix the build", "Ship it"]);
+  expect(prompt.value).toBe("");
 });
 
 test("the dialog names the folder and the agent, focuses Trust folder, and Escape, Close or Cancel back out", async () => {
