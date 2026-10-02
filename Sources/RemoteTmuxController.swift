@@ -433,55 +433,90 @@ final class RemoteTmuxController {
             return false
         }
         newSessionRoutingTask = Task { @MainActor in
+            // The manager must still be a REGISTERED main-window context after each
+            // ssh round trip. `windowId(for:)` would also answer for a closed window's
+            // recoverable route and resurrect a dead manager, so it is deliberately
+            // not used here.
+            func managerIsLive() -> Bool {
+                AppDelegate.shared?.mainWindowContexts.values
+                    .contains(where: { $0.tabManager === manager }) == true
+            }
+            // Create a detached session and read back its (auto-assigned) name.
+            let name: String
             do {
-                // Create a detached session and read back its (auto-assigned)
-                // name, then attach to it like any discovered session.
                 let result = try await self.transport(for: host).runTmux(
                     ["new-session", "-d", "-P", "-F", "#{session_name}"]
                 )
-                // Revalidate across the ssh round trip: the manager must still be
-                // a REGISTERED main-window context. `windowId(for:)` would also
-                // answer for a closed window's recoverable route and resurrect a
-                // dead manager, so it is deliberately not used here. On a closed
-                // window, skip — the detached session is picked up on the next
-                // attach.
-                guard AppDelegate.shared?.mainWindowContexts.values
-                    .contains(where: { $0.tabManager === manager }) == true else { return }
-                let name = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard result.succeeded, !name.isEmpty else {
-                    self.reportNewSessionFailure(host, result.stderr, manager)
+                // On a closed window, skip: the detached session is picked up on
+                // the next attach.
+                guard managerIsLive() else { return }
+                let created = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard result.succeeded, !created.isEmpty else {
+                    self.reportNewSessionFailure(host, .create(detail: result.stderr), manager)
                     return
                 }
+                name = created
+            } catch {
+                #if DEBUG
+                cmuxDebugLog("remote-tmux: new-session on active mirror's host failed: \(error)")
+                #endif
+                guard managerIsLive() else { return }
+                self.reportNewSessionFailure(host, .create(detail: error.localizedDescription), manager)
+                return
+            }
+            // Then attach to it like any discovered session. The session exists on
+            // the host from here on, so a failure is a different one: it is not
+            // "could not create", and the session cmux just made must not be left
+            // behind with nothing showing it.
+            do {
                 // The user may have moved on to another tab while the round trip
                 // ran (mirror, but don't steal selection).
                 let select = manager.selectedTab?.id == activeTabId
                 // false = an attach for this exact host+name raced us and already
                 // mirrored it (into whichever manager it targeted); nothing to add.
-                _ = try self.mirrorSession(host: host, sessionName: name, into: manager, select: select)
+                _ = try self.mirrorNewSession(host, name, manager, select)
             } catch {
                 #if DEBUG
-                cmuxDebugLog("remote-tmux: new-session on active mirror's host failed: \(error)")
+                cmuxDebugLog("remote-tmux: attaching the new session \(name) failed: \(error)")
                 #endif
-                guard AppDelegate.shared?.mainWindowContexts.values
-                    .contains(where: { $0.tabManager === manager }) == true else { return }
-                self.reportNewSessionFailure(host, error.localizedDescription, manager)
+                guard managerIsLive() else { return }
+                self.reportNewSessionFailure(host, .create(detail: error.localizedDescription), manager)
             }
         }
         return true
+    }
+
+    /// Where a routed New Workspace failed. Creating the session and attaching to
+    /// it are separate steps on the host, and only the second leaves a session
+    /// behind.
+    enum NewSessionFailure: Equatable {
+        /// `tmux new-session` did not create a session.
+        case create(detail: String)
+        /// The session was created and could not be attached. `removed` says
+        /// whether cmux managed to remove it again.
+        case attach(sessionName: String, removed: Bool, detail: String)
+    }
+
+    /// Mirrors the session a routed New Workspace just created (host, session
+    /// name, requesting manager, select). Settable so tests can make the attach
+    /// fail after a successful create.
+    lazy var mirrorNewSession: (RemoteTmuxHost, String, TabManager, Bool) throws -> Bool = {
+        [unowned self] host, name, manager, select in
+        try self.mirrorSession(host: host, sessionName: name, into: manager, select: select)
     }
 
     /// The in-flight routed New Workspace request, if any. Tests await it so the
     /// ssh round trip and mirror creation finish inside the test body.
     private(set) var newSessionRoutingTask: Task<Void, Never>?
 
-    /// How a failed routed New Workspace reaches the user (host, failure detail,
+    /// How a failed routed New Workspace reaches the user (host, which step failed,
     /// requesting manager). Local creation stays suppressed either way — a mirror
     /// workspace's Cmd+N must not quietly fall back to a local workspace — so the
     /// failure has to be visible. Settable so tests can capture it instead of
     /// presenting an alert.
-    lazy var reportNewSessionFailure: (RemoteTmuxHost, String, TabManager) -> Void = {
-        [weak self] host, detail, manager in
-        self?.presentNewSessionFailureAlert(host: host, detail: detail, manager: manager)
+    lazy var reportNewSessionFailure: (RemoteTmuxHost, NewSessionFailure, TabManager) -> Void = {
+        [weak self] host, failure, manager in
+        self?.presentNewSessionFailureAlert(host: host, failure: failure, manager: manager)
     }
 
     /// The part of a failed `tmux new-session`'s stderr that goes in the alert: its last
@@ -497,18 +532,51 @@ final class RemoteTmuxController {
         return reason.count > 200 ? String(reason.prefix(200)) + "…" : reason
     }
 
-    private func presentNewSessionFailureAlert(host: RemoteTmuxHost, detail: String, manager: TabManager) {
+    /// The alert's title and message for a failed routed New Workspace. The
+    /// message ends with the host's own reason when there is one.
+    static func newSessionFailureAlertText(
+        host: RemoteTmuxHost,
+        failure: NewSessionFailure
+    ) -> (title: String, message: String) {
+        let title: String
+        let message: String
+        let detail: String
+        switch failure {
+        case .create(let createDetail):
+            title = String(
+                localized: "dialog.remoteTmux.newSessionFailed.title",
+                defaultValue: "Couldn't Create a tmux Session on \(host.destination)"
+            )
+            message = String(
+                localized: "dialog.remoteTmux.newSessionFailed.message",
+                defaultValue: "tmux new-session failed on the remote host. No workspace was created."
+            )
+            detail = createDetail
+        case .attach(let sessionName, let removed, let attachDetail):
+            title = String(
+                localized: "dialog.remoteTmux.newSessionAttachFailed.title",
+                defaultValue: "Couldn't Open the New tmux Session on \(host.destination)"
+            )
+            message = removed
+                ? String(
+                    localized: "dialog.remoteTmux.newSessionAttachFailed.removed.message",
+                    defaultValue: "The session was created, but cmux couldn't attach to it, so it was removed from the host."
+                )
+                : String(
+                    localized: "dialog.remoteTmux.newSessionAttachFailed.left.message",
+                    defaultValue: "The session “\(sessionName)” was created, but cmux couldn't attach to it. It is still running on the host."
+                )
+            detail = attachDetail
+        }
+        return (title, newSessionFailureReason(detail).map { "\(message)\n\n\($0)" } ?? message)
+    }
+
+    private func presentNewSessionFailureAlert(host: RemoteTmuxHost, failure: NewSessionFailure, manager: TabManager) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(
-            localized: "dialog.remoteTmux.newSessionFailed.title",
-            defaultValue: "Couldn't Create a tmux Session on \(host.destination)"
-        )
-        let message = String(
-            localized: "dialog.remoteTmux.newSessionFailed.message",
-            defaultValue: "tmux new-session failed on the remote host. No workspace was created."
-        )
-        alert.informativeText = Self.newSessionFailureReason(detail).map { "\(message)\n\n\($0)" } ?? message
+        let text = Self.newSessionFailureAlertText(host: host, failure: failure)
+        alert.messageText = text.title
+        alert.informativeText = text.message
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         if let window = manager.window ?? NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window, completionHandler: nil)
