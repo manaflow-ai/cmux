@@ -11982,8 +11982,19 @@ fn surface_accepts_view_sizing(mux: &Mux, id: SurfaceId) -> bool {
     let Some(surface) = mux.surface(id).filter(|surface| !surface.is_dead()) else {
         return false;
     };
-    mux.resource_terminal_host_identity(&surface)
-        .is_some_and(|identity| mux.terminal_keep(&identity.terminal_id).unwrap_or(false))
+    // A kept terminal with no tab here (its view may be a remote-terminal tab
+    // in another session) takes its viewer's geometry. A terminal that still
+    // has a tab here does not, so a lease on a closed tab of it stays
+    // superseded by the placements that remain.
+    let unplaced = surface.terminal_public_id().is_none_or(|terminal_id| {
+        mux.with_state(|state| {
+            state.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone())).is_empty()
+        })
+    });
+    unplaced
+        && mux
+            .resource_terminal_host_identity(&surface)
+            .is_some_and(|identity| mux.terminal_keep(&identity.terminal_id).unwrap_or(false))
 }
 
 fn resolve_workspace(
@@ -16437,12 +16448,13 @@ fn placed_terminal_result(
     }))
 }
 
-/// Apply `keep: true` from a creating command. A terminal without a durable
-/// host (an in-process test surface) has nothing to reap.
 /// `create-terminal {detached:true}` (`detached-terminals-v1`): a kept
-/// terminal with no workspace, pane, screen or tab. The resource projection
-/// commits inside the same receipted mutation so the terminal's public id is
-/// durable before the host is released.
+/// terminal with no workspace, pane, screen or tab. The host spawns first;
+/// the resource projection then commits in the same receipted mutation and
+/// gives the terminal its durable public id before the host is activated. If
+/// that commit fails the terminal is ended, because nothing else would end a
+/// kept terminal with no tab. A daemon that dies between the two leaves a
+/// host that adoption restores as a kept, tabless terminal.
 #[allow(clippy::too_many_arguments)]
 fn create_detached_terminal(
     mux: &Arc<Mux>,
@@ -16468,12 +16480,24 @@ fn create_detached_terminal(
         env,
     )?;
     let projection = json!({"terminal_id":result.terminal_id, "detached":true});
-    mux.commit_full_resource_projection_with_mutation(
+    if let Err(error) = mux.commit_full_resource_projection_with_mutation(
         &workspace_mutation,
         "raw.terminal.create_detached",
         &projection,
         projection.clone(),
-    )?;
+    ) {
+        if let Err(close_error) = mux.end_unpublished_detached_terminal(
+            &result.terminal_id,
+            result.terminal_incarnation.as_deref(),
+        ) {
+            eprintln!(
+                "cmux-tui: could not end detached terminal {} after its creation failed: \
+                 {close_error:#}",
+                result.terminal_id
+            );
+        }
+        return Err(error);
+    }
     mux.activate_created_terminal_surface(result.created_surface)?;
     mux.reap_created_terminal_surface(result.created_surface);
     let terminal = mux
@@ -16500,6 +16524,8 @@ fn create_detached_terminal(
     }))
 }
 
+/// Apply `keep: true` from a creating command. A terminal without a durable
+/// host (an in-process test surface) has nothing to reap.
 fn keep_created_terminal(mux: &Mux, terminal_id: Option<&str>) -> anyhow::Result<()> {
     match terminal_id {
         Some(terminal_id) => mux.set_terminal_keep(terminal_id, true),
