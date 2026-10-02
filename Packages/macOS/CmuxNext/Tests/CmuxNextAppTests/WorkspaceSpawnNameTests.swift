@@ -30,4 +30,10 @@ import Testing
         #expect(spawn([:]).name == nil)
         #expect(spawn(["cwd": .string("/")]).name == nil)
     }
+
+    /// The Open Folder… panel names its workspace by the same rule.
+    @Test func openFolderUsesTheSameName() {
+        #expect(WorkspaceSpawn.folderName("/Users/someone/src/cmux") == "cmux")
+        #expect(WorkspaceSpawn.folderName("/") == nil)
+    }
 }

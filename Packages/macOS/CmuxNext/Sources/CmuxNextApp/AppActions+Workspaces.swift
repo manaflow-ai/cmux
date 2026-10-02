@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSidebar
 
@@ -40,9 +41,12 @@ extension AppActions {
 
     /// New workspace with one terminal (`WorkspaceSpawn` arguments), shown
     /// in the active window unless `focus` is false (the CLI's default).
+    /// An explicit `focus: true` (`cmux open <dir>` run interactively) also
+    /// brings that window forward and activates the app.
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         let spawn = WorkspaceSpawn(invocation)
         let show = invocation["focus"]?.boolValue ?? true
+        let focusesWindow = invocation["focus"]?.boolValue == true
         let windows = services.windows!
         // Shown: the active window, or a new one when none is open. Not
         // shown (the CLI default): the most recent window lists it, or a new
@@ -59,12 +63,27 @@ extension AppActions {
         services.registry.track(Task {
             do {
                 _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
+                if focusesWindow, let target { focusWindow(windows, target) }
                 return nil
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new workspace", error)
             }
         })
+    }
+
+    /// Makes window `id` key and activates the app. A new window still
+    /// waiting for its first workspace comes to the front when that shows.
+    private static func focusWindow(_ windows: WindowManager, _ id: String) {
+        guard windows.ordersWindowsIn, let controller = windows.controller(for: id) else { return }
+        if windows.awaitingContent[id] != nil {
+            windows.bringToFront(controller)
+            WindowActivation.activateApp()
+            return
+        }
+        guard let window = controller.window else { return }
+        WindowActivation.show(window, .focus)
+        windows.didActivate(controller)
     }
 
     private static func selectWorkspace(_ services: AppServices, offset: Int) {
