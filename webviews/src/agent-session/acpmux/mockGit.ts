@@ -57,16 +57,24 @@ const rootOf = (sessionId: string) =>
 /// A GitDiffResult: patches only when asked for, as the session host does.
 export function mockGitDiff(sessionId: string, scope: ChangeScope, includePatch: boolean) {
   if (outsideGit.has(sessionId)) throw new Error("Not a git repository");
-  const files = sessionId === WORKED_SESSION && scope !== "lastTurn" ? workedScopes[scope] : [];
+  if (!Object.hasOwn(workedScopes, scope)) throw new Error(`Unknown scope ${scope}`);
+  const files = sessionId === WORKED_SESSION ? workedScopes[scope as keyof typeof workedScopes] : [];
+  // The compared commit: the merge base for branch, HEAD's first parent for committed.
+  const base = scope === "branch" ? "origin/main" : scope === "committed" ? "4be1c2e~1" : undefined;
   return {
     scope,
     root: rootOf(sessionId),
     head: "4be1c2e",
-    base: scope === "branch" ? "origin/main" : undefined,
-    files: files.map(({ previousPath, patch, ...file }) => ({
-      ...file,
-      ...(previousPath ? { previous_path: previousPath } : {}),
-      ...(includePatch ? { patch } : {}),
+    ...(base ? { base } : {}),
+    files: files.map((file) => ({
+      path: file.path,
+      ...(file.previousPath ? { previous_path: file.previousPath } : {}),
+      status: file.status,
+      additions: file.additions,
+      deletions: file.deletions,
+      ...(file.binary ? { binary: true } : {}),
+      ...(includePatch && file.patch !== undefined ? { patch: file.patch } : {}),
+      ...(includePatch && file.patchTruncated ? { patch_truncated: true } : {}),
     })),
     additions: files.reduce((sum, file) => sum + file.additions, 0),
     deletions: files.reduce((sum, file) => sum + file.deletions, 0),
