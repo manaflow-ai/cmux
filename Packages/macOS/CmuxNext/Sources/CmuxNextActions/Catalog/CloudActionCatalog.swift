@@ -243,6 +243,8 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
         let waitsForResult: Set<ActionID> = [
             "cloudFilesList", "cloudFileRead", "cloudFileWrite", "cloudFileMkdir",
             "cloudFileRemove", "cloudFileStat", "cloudPrepareSCP",
+            "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
+            "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete",
         ]
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true
