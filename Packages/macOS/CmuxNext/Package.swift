@@ -518,6 +518,17 @@ let package = Package(
             dependencies: ["CmuxNextBrowser"],
             swiftSettings: uiSwiftSettings
         ),
+        // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
+        .target(
+            name: "CmuxNextBrowserAutomation",
+            dependencies: ["CmuxNextBrowser", "CmuxNextWakeups"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextBrowserAutomationTests",
+            dependencies: ["CmuxNextBrowserAutomation", "CmuxNextBrowser"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextRemoteLocalhost",
             dependencies: ["CmuxNextWakeups"],
