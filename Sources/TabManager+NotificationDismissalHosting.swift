@@ -65,6 +65,11 @@ extension TabManager: NotificationDismissalHosting {
             .value(for: Self.notificationsSettings.suppressOnlyFocusedSurface)
     }
 
+    var paneFlashOnTyping: Bool {
+        UserDefaultsSettingsClient(defaults: .standard)
+            .value(for: Self.notificationsSettings.paneFlashOnTyping)
+    }
+
     func panelId(forSurfaceOrPanelId surfaceId: UUID, in workspaceId: UUID) -> UUID? {
         if let dock = DockSplitStore.liveStore(containingPanel: surfaceId),
            dock.workspaceId == workspaceId,

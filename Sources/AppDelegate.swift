@@ -2716,6 +2716,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
         agentChatTranscriptService.start()
+        SidebarAgentUsageCoordinator { [weak self] id in self?.tabManagerFor(tabId: id)?.workspacesById[id]?.sidebarMetadata }.start()
         installMobileHostSettingsObserver()
         installManagedPolicyEnforcement()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
@@ -3681,7 +3682,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         portalStatsUITestObservers.append(observer)
         uiTestDiagnosticsWriter.write(stage: "feedSidebarUITest.portalStats.setup")
     }
-
 
 #endif
 
