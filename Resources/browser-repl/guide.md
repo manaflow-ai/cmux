@@ -169,7 +169,11 @@ snapshot prints `dialog dismissed: ...` once.
 - `page.clipboard`: `readText()`, `writeText(text)`, `read()`, `write(items)`
   on the tab's own clipboard, which Meta+C, Meta+X and Meta+V use. Those
   shortcuts work only in tabs you opened; a page that keeps one running
-  past 5 s crashes its tab (`page.reload()` brings it back).
+  past 5 s crashes its tab (`page.reload()` brings it back). In tabs you
+  opened, what the page's own scripts copy (a Copy button's
+  `navigator.clipboard.writeText` or `execCommand("copy")` after your
+  click) also lands here, never on the system clipboard, so
+  `page.clipboard.readText()` returns it.
 - `page.elementAt(x, y)`: `{ ref, role, name, box }` at a viewport point.
 - `page.keep()`: keep this tab after a one-shot run.
 - `page.markdown({ main, links, images, start, maxChars })`: the page as

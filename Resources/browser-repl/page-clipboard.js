@@ -164,7 +164,8 @@
 
   function copyOrCut(doc, type) {
     const win = doc && doc.defaultView;
-    if (!win || !activated(win)) return false;
+    // WebKit's gesture covers same-origin frames the page scripts from here.
+    if (!win || !(activated(win) || activated(globalThis))) return false;
     const target = eventTarget(doc);
     if (!target || !NativeDataTransfer || !NativeClipboardEvent) return false;
     const data = new NativeDataTransfer();

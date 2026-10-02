@@ -55,6 +55,16 @@ export function agentInstallSource() {
   return `(() => {\nconst module = {};\n${injected}\n;const __cmuxInjectedScriptFactory = module.exports.InjectedScript;\n${agent}\n})()`;
 }
 
+// The app's page clipboard guard (BrowserReplPageClipboard): in a tab a
+// session created, the page's Clipboard API and execCommand("copy" | "cut")
+// write the tab's clipboard, never the system's. The app also switches
+// WebKit's asynchronous Clipboard API off; Playwright cannot, so here the
+// same page-clipboard.js replaces it in every document the page loads.
+export function pageClipboardInitScript() {
+  const shim = fs.readFileSync(path.join(runtimeDir, "page-clipboard.js"), "utf8");
+  return `(${shim})(((post) => (message) => post ? post(message) : Promise.reject(new Error("the tab's clipboard is unavailable")))(globalThis.__cmuxReplClipboard));`;
+}
+
 class DriverError extends Error {
   constructor(code, message) {
     super(message);
@@ -254,6 +264,19 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   // Session behaviors apply to tabs a session opened (and their popups)
   // while it is attached; in any other tab only the events a session
   // registered a handler for (tab.handleEvents) reach the sessions.
+  async function guardPageClipboard(tab) {
+    if (tab.pageClipboardGuarded) return;
+    tab.pageClipboardGuarded = true;
+    await tab.page.exposeBinding("__cmuxReplClipboard", (_source, message) => {
+      const items = message && Array.isArray(message.items) ? message.items : null;
+      if (!items || items.some((i) => !i || typeof i.type !== "string" || typeof i.base64 !== "string")) {
+        throw new Error("the clipboard write is not a list of typed items within the size limit");
+      }
+      tab.clipboard = items.map((i) => ({ type: i.type, base64: i.base64 }));
+    });
+    await tab.page.addInitScript({ content: pageClipboardInitScript() });
+  }
+
   function routesToSessions(tab, event) {
     if (tab.creator && drivers.has(tab.creator)) return true;
     for (const [driver, events] of tab.handled) if (drivers.has(driver) && events.has(event)) return true;
@@ -266,6 +289,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     if (opener && tabOf.has(opener)) {
       tab.openerTargetId = tabOf.get(opener).targetId;
       tab.creator ??= tabOf.get(opener).creator;
+      if (tab.creator) await guardPageClipboard(tab).catch(() => {});
     }
     if (tab.openerTargetId) activeTarget = tab.targetId;
     emit("tab.created", { targetId: tab.targetId, openerTargetId: tab.openerTargetId, url: page.url() });
@@ -525,6 +549,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       const tab = register(page);
       tab.blankStart = !url;
       tab.creator = driver;
+      await guardPageClipboard(tab);
       driver.opened.add(tab.targetId);
       if (!background) activeTarget = tab.targetId;
       if (url) await page.goto(url, { waitUntil: "commit" });

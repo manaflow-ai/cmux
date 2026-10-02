@@ -517,6 +517,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func openTab(_ params: [String: Any]) async throws -> [String: Any] {
         let workspace = try workspace()
+        // A tab the session opens gets the page clipboard guard; without its
+        // script no page may run in such a tab.
+        if BrowserReplTabAttachments.shared.pageClipboardShim == nil {
+            guard let shim = bundle.readResource("page-clipboard.js") else {
+                throw Self.error("unsupported", "The browser REPL page clipboard script is not bundled")
+            }
+            BrowserReplTabAttachments.shared.pageClipboardShim = shim
+        }
         let rawURL = params["url"] as? String
         // Open blank and attach first, then navigate like tab.navigate, so the
         // first navigation already sees the REPL session (for example, it skips

@@ -82,6 +82,15 @@ final class BrowserReplTabAttachments {
     func sessions(attachedTo panelID: UUID) -> [String] {
         attachments[panelID]?.sessionIDs ?? []
     }
+
+    /// `Resources/browser-repl/page-clipboard.js`, which the driver loads
+    /// before it opens a session's first tab.
+    var pageClipboardShim: String?
+
+    /// The live attachment whose panel shows `webView`.
+    func attachment(showing webView: WKWebView) -> BrowserReplTabAttachment? {
+        attachments.values.first { $0.isAttached && $0.panel?.webView === webView }
+    }
 }
 
 /// Per-tab automation state shared by the sessions driving that tab.
@@ -449,9 +458,13 @@ final class BrowserReplTabAttachment {
     }
 
     /// Puts ``contextOptions`` (user agent, headers, domain rule list) on
-    /// the panel's current web view (again after WebKit replaced it).
+    /// the panel's current web view (again after WebKit replaced it), and
+    /// the page clipboard guard on the web view of a tab a session created.
     func applyContextToWebView() {
         guard let webView = panel?.webView else { return }
+        if appliesSessionPolicies {
+            guardPageClipboard(webView)
+        }
         if webView.automationUserAgentOverride != contextOptions.userAgent {
             webView.automationUserAgentOverride = contextOptions.userAgent
         }
@@ -467,6 +480,22 @@ final class BrowserReplTabAttachment {
             webView.configuration.userContentController.add(wanted)
             installedRuleList = wanted
             ruleListWebView = webView
+        }
+    }
+
+    /// Keeps the page's scripts from writing the system clipboard in a tab a
+    /// session created (``BrowserReplPageClipboard``): WebKit's asynchronous
+    /// Clipboard API is off and `page-clipboard.js` sends the page's Clipboard
+    /// API and `execCommand("copy" | "cut")` writes to the tab's clipboard
+    /// (``clipboardItems``). The guard stays on the web view for its life,
+    /// also after the session leaves: a page loaded while the session drove
+    /// the tab never gets the system clipboard. Writes after that fail.
+    private func guardPageClipboard(_ webView: WKWebView) {
+        guard let shim = BrowserReplTabAttachments.shared.pageClipboardShim else { return }
+        BrowserReplPageClipboard.install(on: webView, shim: shim) { webView, items in
+            guard let attachment = BrowserReplTabAttachments.shared.attachment(showing: webView) else { return false }
+            attachment.clipboardItems = items
+            return true
         }
     }
 

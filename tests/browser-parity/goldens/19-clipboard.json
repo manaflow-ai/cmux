@@ -63,6 +63,22 @@
       "clipboard": "before the late copy",
       "reloaded": ""
     },
+    "page-write-text": [
+      "ok",
+      "from writeText"
+    ],
+    "page-write-item": [
+      "ok",
+      "from a late item"
+    ],
+    "page-exec-copy": [
+      "true",
+      "from execCommand"
+    ],
+    "page-read-text": [
+      "NotAllowedError",
+      "from execCommand"
+    ],
     "user-tab-clipboard": {
       "shortcuts": [
         [
