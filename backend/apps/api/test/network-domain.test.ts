@@ -128,7 +128,7 @@ describe("TeamDO network reducer", () => {
       drift: [],
       deferred: 0,
       vpc_id: "vpc-1",
-      tunnels: [{ install: INST, tunnel: { tunnel_id: "tun-1", client_config: "[Interface]\nPrivateKey = \n", endpoint: "e:51820", address_v4: "10.0.0.2", address_v6: null, server_public_key: "S", ready_at: 2_500 } }]
+      tunnels: [{ install: INST, client_public_key: KEY, tunnel: { tunnel_id: "tun-1", client_config: "[Interface]\nPrivateKey = \n", endpoint: "e:51820", address_v4: "10.0.0.2", address_v6: null, server_public_key: "S", ready_at: 2_500 } }]
     }
     // Public principals cannot submit internal ops.
     expect(apply(s, owner, "network.reconcile.record", rec)).toMatchObject({ ok: false, code: "auth.forbidden" })
@@ -138,6 +138,11 @@ describe("TeamDO network reducer", () => {
     s = ok.state
     expect(net(s).reconcile).toMatchObject({ desired_seq: 1, applied_seq: 1, vpc_id: "vpc-1" })
     expect(net(s).devices[INST]).toMatchObject({ status: "ready", tunnel: { tunnel_id: "tun-1" } })
+    // A report for an older key does not make a re-keyed device ready.
+    const rekeyed = apply(s, ownerInstall, "network.device.join", { wg_public_key: `${"r".repeat(43)}=` }).state
+    expect(net(rekeyed).devices[INST]).toMatchObject({ status: "pending" })
+    const staleKey = apply(rekeyed, system, "network.reconcile.record", { ...rec, desired_seq: net(rekeyed).reconcile.desired_seq })
+    expect(net(staleKey.state).devices[INST]).toMatchObject({ status: "pending", tunnel: null })
     // A revoked install never becomes ready again from a stale report.
     s = apply(s, system, "network.install.revoked", { install: INST }).state
     s = apply(s, system, "network.reconcile.record", { ...rec, desired_seq: 2 }).state

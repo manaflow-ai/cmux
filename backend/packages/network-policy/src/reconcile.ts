@@ -28,6 +28,8 @@ export interface DeviceTunnel {
   readonly address_v4: string | null
   readonly address_v6: string | null
   readonly serverPublicKey: string
+  /** The device key Freestyle holds for this tunnel; a device whose key changed meanwhile is not ready yet. */
+  readonly clientPublicKey: string
 }
 
 export interface ReconcileReport {
@@ -223,7 +225,8 @@ export const reconcile = async (api: FreestyleNetworkApi, team: string, compiled
       endpoint: t.endpointHost ? `${t.endpointHost}:${t.endpointPort}` : null,
       address_v4: att?.ipv4 ?? null,
       address_v6: att?.ipv6 ?? null,
-      serverPublicKey: t.serverPublicKey
+      serverPublicKey: t.serverPublicKey,
+      clientPublicKey: t.clientPublicKey
     })
   }
   return {

@@ -116,6 +116,7 @@ export class TeamDO extends OwnerDO<TeamState> {
       vpc_id: report.vpc?.id ?? null,
       tunnels: report.tunnels.map((t) => ({
         install: t.install,
+        client_public_key: t.clientPublicKey,
         tunnel: { tunnel_id: t.tunnelId, client_config: t.clientConfig, endpoint: t.endpoint, address_v4: t.address_v4, address_v6: t.address_v6, server_public_key: t.serverPublicKey, ready_at: report.startedAt + report.ms }
       }))
     })

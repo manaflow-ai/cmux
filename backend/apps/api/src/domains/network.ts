@@ -289,7 +289,8 @@ export const reduceNetwork = <S extends TeamLike>(state: S, op: string, params: 
       if (exit._tag !== "Success") return reject("validation.invalid", "invalid reconcile record")
       const r = exit.value
       if (r.desired_seq < n.reconcile.applied_seq) return { ok: true, state, value: { stale: true }, changed: false }
-      const tunnels = new Map(r.tunnels.map((t) => [t.install, t.tunnel]))
+      // A tunnel counts only for the key the device holds now (a key rotated during the run waits for the next one).
+      const tunnels = new Map(r.tunnels.filter((t) => n.devices[t.install]?.wg_public_key === t.client_public_key).map((t) => [t.install, t.tunnel]))
       const devices: Record<string, Device> = {}
       for (const [id, d] of Object.entries(n.devices)) {
         const t: Tunnel | undefined = tunnels.get(id)
