@@ -36,13 +36,15 @@ extension ScreenContentView {
     /// True when `host` belongs to the scrolling strip.
     func isStripHost(_ host: PaneHostView) -> Bool { geometry.scrolls(pane: host.pane) }
 
-    /// Docked columns clip strip panes that slide under them (V1): a layer
-    /// mask keeps the part of the host inside the strip's uncovered range.
-    /// Overlay columns cover them instead (z-order), so the glass rim has
-    /// strip content to refract.
+    /// Strip panes that slide under a sticky column are clipped (V1): a
+    /// layer mask keeps the part of the host inside the strip's clip range,
+    /// the uncovered range beside a docked column and up to the glass rim's
+    /// outer edge beside an overlay (under the rim and the column the strip
+    /// stays, so the glass has content to refract).
     func clipToStrip(_ host: PaneHostView, scrolls: Bool, uncovered: CGRect) {
-        guard scrolls, geometry.sticky.contains(where: { $0.sticky.mode == .docked }) else { return host.setStripClip(nil) }
-        let visible = host.frame.intersection(uncovered)
+        guard scrolls, !geometry.sticky.isEmpty else { return host.setStripClip(nil) }
+        let range = CGRect(x: geometry.clipMinX, y: 0, width: max(0, geometry.clipMaxX - geometry.clipMinX), height: bounds.height)
+        let visible = host.frame.intersection(range)
         if visible == host.frame { return host.setStripClip(nil) }
         host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY))
     }
@@ -64,7 +66,7 @@ extension ScreenContentView {
                 backdrops[entry.column] = view
                 return view
             }()
-            view.place(cover: entry.cover, column: entry.frame, paneCornerRadius: context.style.paneCornerRadius)
+            view.place(cover: entry.glass, column: entry.frame, paneCornerRadius: context.style.paneCornerRadius)
         }
         ensureStacking()
     }
@@ -87,19 +89,54 @@ extension ScreenContentView {
         guard ranks != ranks.sorted() else { return }
         let table = StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(subviews.map(ObjectIdentifier.init), ranks)))
         withExtendedLifetime(table) {
-            sortSubviews({ a, b, context in
-                guard let context else { return .orderedSame }
-                let table = Unmanaged<StackingTable>.fromOpaque(context).takeUnretainedValue()
-                let x = table.ranks[ObjectIdentifier(a)] ?? 0
-                let y = table.ranks[ObjectIdentifier(b)] ?? 0
-                return x < y ? .orderedAscending : (x > y ? .orderedDescending : .orderedSame)
-            }, context: Unmanaged.passUnretained(table).toOpaque())
+            sortSubviews(compareStacking, context: Unmanaged.passUnretained(table).toOpaque())
         }
+    }
+
+    /// Clicks inside what a sticky column covers go to the sticky column
+    /// (its panes, dividers, handle) or to this view, never to a strip pane
+    /// hidden under it: a layer mask does not change hit testing.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        guard !isHidden, geometry.sticky.contains(where: { $0.cover.contains(local) }) else { return super.hitTest(point) }
+        for view in subviews.reversed() where !view.isHidden {
+            if let host = view as? PaneHostView, geometry.scrolls(pane: host.pane) { continue }
+            if let divider = view as? DividerHandleView, scrolls(divider.kind) { continue }
+            if let hit = view.hitTest(local) { return hit }
+        }
+        return self
+    }
+
+    /// Pane frames for directional focus in one logical line: the left
+    /// sticky column before the strip, the strip in its own space, the right
+    /// sticky column after the strip's end, so every strip column stays
+    /// reachable and nothing ties with a sticky column by screen position.
+    var navigationFrames: [PaneID: CGRect] {
+        let gap = context.style.stripGap
+        var result: [PaneID: CGRect] = [:]
+        for (pane, rect) in geometry.panes {
+            guard let entry = geometry.stickyFrame(containing: pane) else {
+                result[pane] = rect
+                continue
+            }
+            let dx = entry.sticky.edge == .left ? -entry.frame.maxX - gap : geometry.contentWidth + gap - entry.frame.minX
+            result[pane] = rect.offsetBy(dx: dx, dy: 0)
+        }
+        return result
     }
 }
 
 /// Sort keys for `ensureStacking`, passed through `sortSubviews`' context.
-private final class StackingTable: @unchecked Sendable {
+private nonisolated final class StackingTable: Sendable {
     let ranks: [ObjectIdentifier: Int]
     init(ranks: [ObjectIdentifier: Int]) { self.ranks = ranks }
+}
+
+/// `sortSubviews` comparator: reads only the table's immutable ranks.
+private nonisolated func compareStacking(_ a: NSView, _ b: NSView, _ context: UnsafeMutableRawPointer?) -> ComparisonResult {
+    guard let context else { return .orderedSame }
+    let table = Unmanaged<StackingTable>.fromOpaque(context).takeUnretainedValue()
+    let x = table.ranks[ObjectIdentifier(a)] ?? 0
+    let y = table.ranks[ObjectIdentifier(b)] ?? 0
+    return x < y ? .orderedAscending : (x > y ? .orderedDescending : .orderedSame)
 }

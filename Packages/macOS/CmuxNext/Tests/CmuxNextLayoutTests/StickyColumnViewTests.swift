@@ -76,6 +76,20 @@ struct StickyColumnViewTests {
         #expect(screen.pane(at: CGPoint(x: 900, y: 300)) == "d")
         #expect(screen.pane(at: CGPoint(x: 600, y: 300)) == "b")
         #expect(view.model.visiblePanes == ["a", "b", "d"])
+        // Clicks in the cover never reach the strip pane under it.
+        let edge = screen.hitTest(screen.convert(CGPoint(x: 998, y: 300), to: view))
+        #expect(!(edge is PaneHostView) || (edge as? PaneHostView)?.pane == "d")
+        let rim = screen.hitTest(screen.convert(CGPoint(x: 700, y: 300), to: view))
+        #expect(rim === screen)
+    }
+
+    @Test func directionalFocusReachesColumnsPastARightStickyColumn() {
+        let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked))
+        defer { window.close() }
+        let frames = view.navigationFrames
+        // d sits after the strip's end, so right from b reaches c first.
+        #expect(FocusNavigation.neighbor(of: "b", direction: .right, frames: frames) == "c")
+        #expect(FocusNavigation.neighbor(of: "c", direction: .right, frames: frames) == "d")
     }
 
     @Test func aTabDragOverTheStickyColumnTargetsItsPane() {
@@ -95,9 +109,9 @@ struct StickyColumnViewTests {
             if case let .setColumnWidth(column, _, width, _, .ended) = intent, column == "cd" { widths.append(width) }
         }
         let screen = view.screenViews["s"]!
-        screen.handleDrag(kind: .columnEdge("cd"), event: .began(NSPoint(x: 699, y: 300)))
-        screen.handleDrag(kind: .columnEdge("cd"), event: .moved(NSPoint(x: 599, y: 300)))
-        screen.handleDrag(kind: .columnEdge("cd"), event: .ended(NSPoint(x: 599, y: 300)))
+        screen.handleDrag(kind: .columnEdge("cd"), event: .began(NSPoint(x: 704, y: 300)))
+        screen.handleDrag(kind: .columnEdge("cd"), event: .moved(NSPoint(x: 604, y: 300)))
+        screen.handleDrag(kind: .columnEdge("cd"), event: .ended(NSPoint(x: 604, y: 300)))
         // 392 pt of a 1000 pt view: (392 + 6) / 994.
         #expect(widths.count == 1)
         #expect(abs((widths.first ?? 0) - 398.0 / 994.0) < 0.002)

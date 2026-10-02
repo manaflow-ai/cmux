@@ -7,10 +7,12 @@ public nonisolated struct StickyColumnFrame: Hashable, Sendable {
     public var sticky: StickyColumn
     public var frame: CGRect
     /// What the column hides of the strip below it, in view coordinates:
-    /// docked, the band from the viewport edge to the strip (an opaque
-    /// backdrop); overlay, the column plus a rim of half a gap (the Liquid
-    /// Glass edge). Strip content and its rings never draw here.
+    /// the band from the viewport edge to the column's inner edge (docked)
+    /// or to the outer edge of its glass rim (overlay). Strip panes take no
+    /// clicks or drops here and their rings never draw here.
     public var cover: CGRect
+    /// The Liquid Glass rim's frame (overlay): the column plus half a gap.
+    public var glass: CGRect
 }
 
 /// Splits a columns screen into the sticky columns and the scrolling strip,
@@ -55,6 +57,10 @@ public nonisolated enum StickyStripGeometry {
         /// The part of the strip that nothing covers (view coordinates).
         public var uncoveredMinX: CGFloat
         public var uncoveredMaxX: CGFloat
+        /// Where strip panes are clipped: the uncovered range beside a
+        /// docked column, the glass rim's outer edge beside an overlay.
+        public var clipMinX: CGFloat
+        public var clipMaxX: CGFloat
     }
 
     /// S3. A sticky column's width is a fraction of the whole viewport (as
@@ -79,37 +85,41 @@ public nonisolated enum StickyStripGeometry {
             return SplitGeometry.roundToPixel(min(wanted, widest), scale: scale)
         }
         var placement = Placement(stripMinX: 0, stripWidth: viewport.width, leadingInset: 0, trailingInset: 0, sticky: [],
-                                  uncoveredMinX: 0, uncoveredMaxX: viewport.width)
+                                  uncoveredMinX: 0, uncoveredMaxX: viewport.width, clipMinX: 0, clipMaxX: viewport.width)
         var stripMaxX = viewport.width
         if let left, let sticky = left.column.sticky {
             let w = width(left)
             let frame = CGRect(x: gap, y: 0, width: w, height: viewport.height)
-            let cover: CGRect
+            let glass = frame.insetBy(dx: -gap / 2, dy: 0).intersection(CGRect(origin: .zero, size: viewport))
             switch sticky.mode {
             case .docked:
                 placement.stripMinX = frame.maxX
-                cover = CGRect(x: 0, y: 0, width: frame.maxX, height: viewport.height)
+                placement.uncoveredMinX = frame.maxX
+                placement.clipMinX = frame.maxX
             case .overlay:
                 placement.leadingInset = frame.maxX
-                cover = frame.insetBy(dx: -gap / 2, dy: 0).intersection(CGRect(origin: .zero, size: viewport))
+                placement.uncoveredMinX = glass.maxX
+                placement.clipMinX = glass.minX
             }
-            placement.uncoveredMinX = cover.maxX
-            placement.sticky.append(StickyColumnFrame(column: left.column.id, sticky: sticky, frame: frame, cover: cover))
+            let cover = CGRect(x: 0, y: 0, width: placement.uncoveredMinX, height: viewport.height)
+            placement.sticky.append(StickyColumnFrame(column: left.column.id, sticky: sticky, frame: frame, cover: cover, glass: glass))
         }
         if let right, let sticky = right.column.sticky {
             let w = width(right)
             let frame = CGRect(x: viewport.width - gap - w, y: 0, width: w, height: viewport.height)
-            let cover: CGRect
+            let glass = frame.insetBy(dx: -gap / 2, dy: 0).intersection(CGRect(origin: .zero, size: viewport))
             switch sticky.mode {
             case .docked:
                 stripMaxX = frame.minX
-                cover = CGRect(x: frame.minX, y: 0, width: viewport.width - frame.minX, height: viewport.height)
+                placement.uncoveredMaxX = frame.minX
+                placement.clipMaxX = frame.minX
             case .overlay:
                 placement.trailingInset = viewport.width - frame.minX
-                cover = frame.insetBy(dx: -gap / 2, dy: 0).intersection(CGRect(origin: .zero, size: viewport))
+                placement.uncoveredMaxX = glass.minX
+                placement.clipMaxX = glass.maxX
             }
-            placement.uncoveredMaxX = cover.minX
-            placement.sticky.append(StickyColumnFrame(column: right.column.id, sticky: sticky, frame: frame, cover: cover))
+            let cover = CGRect(x: placement.uncoveredMaxX, y: 0, width: viewport.width - placement.uncoveredMaxX, height: viewport.height)
+            placement.sticky.append(StickyColumnFrame(column: right.column.id, sticky: sticky, frame: frame, cover: cover, glass: glass))
         }
         placement.stripWidth = max(1, stripMaxX - placement.stripMinX)
         return placement

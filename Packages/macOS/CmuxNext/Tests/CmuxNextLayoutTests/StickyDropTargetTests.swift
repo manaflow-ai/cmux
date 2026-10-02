@@ -32,6 +32,8 @@ import Testing
         let g = geometry(StickyColumn(edge: .right, mode: .overlay), widths: [0.5, 0.5, 0.3], stickyIndex: 2)
         #expect(target(g, 700) == nil)
         #expect(target(g, 996) == nil)
+        // The band between the rim and the window edge is covered too.
+        #expect(target(g, 999) == nil)
     }
 
     @Test func theStripResolvesInItsOwnSpaceBesideADockedColumn() {

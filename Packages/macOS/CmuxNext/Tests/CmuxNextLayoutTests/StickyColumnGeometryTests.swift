@@ -59,7 +59,9 @@ import Testing
         // The last column can scroll out from under the overlay.
         #expect(abs(g.contentWidth - 1298) < 0.01)
         #expect(abs(g.maxOffset - 298) < 0.01)
-        #expect(g.sticky.first?.cover == CGRect(x: 699, y: 0, width: 298, height: 600))
+        #expect(g.sticky.first?.cover == CGRect(x: 699, y: 0, width: 301, height: 600))
+        #expect(g.sticky.first?.glass == CGRect(x: 699, y: 0, width: 298, height: 600))
+        #expect(g.clipMaxX == 997)
         #expect(g.uncoveredMaxX == 699)
     }
 
@@ -110,12 +112,13 @@ import Testing
     }
 
     @Test func aStickyColumnsResizeHandleIsOnItsInnerEdge() {
+        // On the column's own edge, so the gap keeps the strip column's handle.
         let right = geometry(columns(StickyColumn(edge: .right), stickyIndex: 2))
         let handle = right.columnEdges.first { $0.column == "c2" }
         #expect(handle?.stickyEdge == .right)
-        #expect(handle?.hitFrame.midX == 699)
+        #expect(handle?.hitFrame.midX == 704.5)
         let left = geometry(columns(StickyColumn(edge: .left), stickyIndex: 0, widths: [0.3, 0.5, 0.5]))
-        #expect(left.columnEdges.first { $0.column == "c0" }?.hitFrame.midX == 301)
+        #expect(left.columnEdges.first { $0.column == "c0" }?.hitFrame.midX == 295.5)
     }
 
     @Test func theScrollReducerSeesOnlyTheScrollingColumns() {

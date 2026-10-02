@@ -7,8 +7,9 @@ import os
 
 /// Sticky columns and the strip scrollbar (plans/cmux-next/sticky-column.md).
 /// Every entry point (palette, context menus, CLI verbs, `action.run`,
-/// `debug.sticky`) ends in `apply`, which goes through the layout model's
-/// optimistic `setColumnSticky` and the daemon's `set-column-sticky`.
+/// `debug.sticky`) ends in `apply`: the layout model validates and emits
+/// the intent, the daemon's `set-column-sticky` changes the layout, and the
+/// app shows it when the daemon's snapshot arrives (no optimistic copy).
 /// Disabled with the daemon's reason until the pinned cmux-tui serves
 /// `sticky-columns-v1`.
 enum StickyColumnHandlers {
@@ -51,9 +52,12 @@ enum StickyColumnHandlers {
         })
     }
 
-    /// The one mutation path: validates like the daemon, applies at once,
-    /// sends `set-column-sticky`; a refusal throws its reason.
+    /// The one mutation path: checks the workspace's own daemon serves
+    /// `sticky-columns-v1`, validates like the daemon, sends
+    /// `set-column-sticky`; a refusal throws its reason.
     static func apply(_ sticky: StickyColumn?, to column: LayoutColumn, in content: WorkspaceContentController) throws {
+        let capability = DaemonCapabilities.shared.stickyColumns
+        guard content.daemon.supports(capability) else { throw ActionFailure(message: content.daemon.missingCapabilityMessage(capability)) }
         guard let refusal = content.layoutModel.setColumnSticky(column.id, sticky) else { return }
         switch refusal {
         case .notColumns: throw ActionFailure.invalidTarget(RefusalStrings.notColumnLayout)

@@ -35,6 +35,7 @@ final class PaneOverlayView: NSView {
     private var attentionMark: AttentionMark?
     private var borderStyle = Border(shows: false)
     private var excluded: [CGRect] = []
+    private var excludedBounds: CGRect = .zero
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -148,8 +149,9 @@ final class PaneOverlayView: NSView {
     /// column covering this strip pane. Empty removes the mask.
     func setExcluded(_ rects: [CGRect]) {
         let rects = rects.map { $0.intersection(bounds) }.filter { !$0.isNull && $0.width > 0.5 && $0.height > 0.5 }
-        guard rects != excluded else { return }
+        guard rects != excluded || (!rects.isEmpty && bounds != excludedBounds) else { return }
         excluded = rects
+        excludedBounds = bounds
         guard let layer else { return }
         guard !rects.isEmpty else {
             layer.mask = nil

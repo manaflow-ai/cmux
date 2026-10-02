@@ -81,9 +81,7 @@ public final class LayoutRootView: NSView {
     @discardableResult
     public func moveFocus(_ direction: LayoutDirection) -> PaneID? {
         guard let active = model.activeScreenID, let view = screenViews[active] else { return nil }
-        // Displayed frames: sticky panes and the scrolled strip share one space.
-        let frames = view.geometry.panes.reduce(into: [PaneID: CGRect]()) { $0[$1.key] = view.displayedRect($1.value, pane: $1.key) }
-        return model.moveFocus(direction, frames: frames)
+        return model.moveFocus(direction, frames: view.navigationFrames)
     }
 
     /// The hosted content view of `pane`, if it has been created.
@@ -98,6 +96,13 @@ public final class LayoutRootView: NSView {
     public func splitPlacement(splitting pane: PaneID, axis: SplitAxis, removing: PaneID? = nil) -> SplitPlacement {
         guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return .split }
         return view.splitPlacement(splitting: pane, axis: axis, removing: removing)
+    }
+
+    /// Pane frames of the active screen for directional focus: sticky
+    /// columns placed before and after the strip (one logical line).
+    public var navigationFrames: [PaneID: CGRect] {
+        guard let active = model.activeScreenID, let view = screenViews[active] else { return [:] }
+        return view.navigationFrames
     }
 
     /// Displayed frame of `pane` in this view's coordinates (active screen only).

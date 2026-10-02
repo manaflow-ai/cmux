@@ -40,6 +40,9 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     /// The x range of the strip nothing covers (view coordinates).
     public var uncoveredMinX: CGFloat = 0
     public var uncoveredMaxX: CGFloat = 0
+    /// Where strip panes are clipped (view coordinates).
+    public var clipMinX: CGFloat = 0
+    public var clipMaxX: CGFloat = 0
     /// Sticky columns at their edges, and what of them never scrolls.
     public var sticky: [StickyColumnFrame] = []
     public var fixedPanes: Set<PaneID> = []
@@ -50,7 +53,7 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
         case let .splits(root):
             let result = SplitGeometry.layout(root, in: CGRect(origin: .zero, size: viewport), style: style, scale: scale)
             return ScreenGeometry(viewport: viewport, panes: result.panes, dividers: result.dividers, contentWidth: viewport.width, isColumns: false,
-                                  stripWidth: viewport.width, uncoveredMaxX: viewport.width)
+                                  stripWidth: viewport.width, uncoveredMaxX: viewport.width, clipMaxX: viewport.width)
         case let .columns(all):
             let gap = style.stripGap
             let parts = StickyStripGeometry.partition(all)
@@ -70,7 +73,7 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
             var geometry = ScreenGeometry(viewport: viewport, contentWidth: strip.contentWidth, isColumns: true,
                                           stripMinX: placement.stripMinX, stripWidth: placement.stripWidth,
                                           uncoveredMinX: placement.uncoveredMinX, uncoveredMaxX: placement.uncoveredMaxX,
-                                          sticky: placement.sticky)
+                                          clipMinX: placement.clipMinX, clipMaxX: placement.clipMaxX, sticky: placement.sticky)
             let edgeHit = style.columnEdgeHitThickness
             let dropWidth = max(gap, style.newColumnDropWidth)
             let firstGapMid = (strip.frames.first?.minX ?? gap) - gap / 2
@@ -112,12 +115,13 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
         fixedPanes.formUnion(result.panes.keys)
         dividers.append(contentsOf: result.dividers)
         fixedSplits.formUnion(result.dividers.map(\.id))
+        // The handle sits on the column's own inner edge, so the gap beside
+        // it stays with the neighboring strip column's handle (both resize).
         let edgeHit = style.columnEdgeHitThickness
-        let gap = style.stripGap
-        let x = entry.sticky.edge == .left ? entry.frame.maxX + gap / 2 : entry.frame.minX - gap / 2
+        let x = entry.sticky.edge == .left ? entry.frame.maxX - edgeHit + 1 : entry.frame.minX - 1
         columnEdges.append(ColumnEdgeGeometry(
             column: column.id, columnFrame: entry.frame,
-            hitFrame: CGRect(x: x - edgeHit / 2, y: 0, width: edgeHit, height: viewport.height),
+            hitFrame: CGRect(x: x, y: 0, width: edgeHit, height: viewport.height),
             stickyEdge: entry.sticky.edge
         ))
     }
