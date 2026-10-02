@@ -161,6 +161,21 @@ private final class InvalidationCounter: @unchecked Sendable {
         #expect(emitted.last == [:])
     }
 
+    @Test func agentUsageUpdatesPublishAndIgnoreNoOps() {
+        let model = makeModel()
+        var published: [[String: SidebarAgentUsage]] = []
+        let cancellable = model.agentUsagePublisher.sink { published.append($0) }
+        defer { cancellable.cancel() }
+        let usage = SidebarAgentUsage(modelName: "Opus 4.8", contextFraction: 0.42, estimatedCostUSD: 1.2)
+
+        model.updateAgentUsage(usage, forStatusKey: "claude_code")
+        model.updateAgentUsage(usage, forStatusKey: "claude_code")
+        model.updateAgentUsage(nil, forStatusKey: "claude_code")
+
+        #expect(published == [[:], ["claude_code": usage], [:]])
+        #expect(model.agentUsageByStatusKey.isEmpty)
+    }
+
     /// SwiftUI reads `manualPullRequest` (through the workspace's inferred
     /// task status) via Observation, so a CLI handoff must invalidate those
     /// readers. An unchanged watcher reconcile must not.

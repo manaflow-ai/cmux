@@ -375,7 +375,10 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
 
 
 # Workflows whose queued macOS jobs a pull request must not take a pool from.
-RESERVED_POOL_WORKFLOW = re.compile(r"release|nightly", re.IGNORECASE)
+# Match the workflow path only.  CI run names include routing metadata such as
+# ``release=arm64``; looking at the combined name and path made every ordinary
+# pull-request run look like a release reservation.
+RESERVED_POOL_WORKFLOW = re.compile(r"(?:^|/)(?:release|nightly)\.yml$", re.IGNORECASE)
 POOL_QUEUED_JOB_STATUSES = QUEUED_JOB_STATUSES - {"waiting"}
 POOL_LOAD_VERSION = 1
 # Environment variable -> snapshot settings key, for pr_runner_pool.py.
@@ -504,7 +507,7 @@ def pool_load_snapshot(
     oldest: dict[str, dt.datetime] = {}
     committed: dict[str, int] = {}
     for run in runs:
-        reserved = bool(RESERVED_POOL_WORKFLOW.search(f"{run.get('name') or ''} {run.get('path') or ''}"))
+        reserved = bool(RESERVED_POOL_WORKFLOW.search(str(run.get("path") or "")))
         seen: dict[str, int] = {}
         for job in jobs_by_run.get(run.get("id"), ()):
             if is_macos_job(job) and owned_label(job) and job.get("status") in (
@@ -1164,12 +1167,62 @@ def build_orphan_plan(
     return decisions
 
 
+def _cancel_refused(error: RuntimeError) -> bool:
+    """Whether GitHub rejected a cancellation because the run cannot be cancelled."""
+    return "(409)" in str(error)
+
+
 def _force_cancel(github: "GitHub", orphan: Orphan, why: str) -> str:
     try:
         github.force_cancel(orphan.run["id"])
     except RuntimeError as error:
         return f"stuck: GitHub refused cancel and force-cancel ({why}; {error})"
     return f"force-cancelled ({why})"
+
+
+def cancel_plan(
+    github: "GitHub",
+    candidates: Sequence[Candidate],
+) -> tuple[dict[int, str], int]:
+    """Cancel planned runs, treating GitHub's uncancellable-run race as benign."""
+    results: dict[int, str] = {}
+    failures = 0
+    for candidate in candidates:
+        run_id = candidate.run["id"]
+        try:
+            # The inventory is seconds old; drop anything that finished or
+            # moved to a new head in between.
+            current = github.run(run_id)
+            if current.get("status") not in IN_FLIGHT_RUN_STATUSES:
+                results[run_id] = f"skipped (now {current.get('status')})"
+                continue
+            if current.get("head_sha") != candidate.run.get("head_sha"):
+                results[run_id] = "skipped (head changed)"
+                continue
+        except RuntimeError as error:
+            failures += 1
+            results[run_id] = f"failed: {error}"
+            continue
+        try:
+            github.cancel(run_id)
+            results[run_id] = "cancelled"
+        except RuntimeError as error:
+            if not _cancel_refused(error):
+                failures += 1
+                results[run_id] = f"failed: {error}"
+                continue
+            try:
+                github.force_cancel(run_id)
+            except RuntimeError as force_error:
+                if not _cancel_refused(force_error):
+                    failures += 1
+                    results[run_id] = f"failed: {force_error}"
+                else:
+                    results[run_id] = (f"stuck: GitHub refused cancel and force-cancel "
+                                       f"(cancel refused: {error}; {force_error})")
+            else:
+                results[run_id] = f"force-cancelled (cancel refused: {error})"
+    return results, failures
 
 
 def cancel_orphans(
@@ -1477,23 +1530,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     results: dict[int, str] = {}
     failures = 0
     if not args.dry_run:
-        for candidate in plan.to_cancel():
-            run_id = candidate.run["id"]
-            try:
-                # The inventory is seconds old; drop anything that finished or
-                # moved to a new head in between.
-                current = github.run(run_id)
-                if current.get("status") not in IN_FLIGHT_RUN_STATUSES:
-                    results[run_id] = f"skipped (now {current.get('status')})"
-                    continue
-                if current.get("head_sha") != candidate.run.get("head_sha"):
-                    results[run_id] = "skipped (head changed)"
-                    continue
-                github.cancel(run_id)
-                results[run_id] = "cancelled"
-            except RuntimeError as error:
-                failures += 1
-                results[run_id] = f"failed: {error}"
+        results, failures = cancel_plan(github, plan.to_cancel())
 
     orphan_decisions = build_orphan_plan(
         orphans, prs_by_branch, max_cancels=max_orphan_cancels,

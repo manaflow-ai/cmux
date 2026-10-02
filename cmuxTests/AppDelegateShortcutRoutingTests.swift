@@ -6048,6 +6048,22 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testBrowserFirstDocumentEditingRoutingIncludesPaste() {
+        // Cmd+V must reach focused web content before cmux's terminal text box
+        // fallback when the text-box beta is enabled (issue #6380).
+        let event = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            keyCode: 9 // kVK_ANSI_V
+        )
+
+        XCTAssertTrue(
+            shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event),
+            "Cmd+V must be routed through web content first while a browser pane is focused"
+        )
+    }
+
     func testBrowserFirstDocumentEditingRoutingStillExcludesPlainShortcuts() {
         // Guard against over-broadening the editing allowlist: a bare Cmd+I with no
         // browser semantics is the only italics addition; an unrelated combo such as
