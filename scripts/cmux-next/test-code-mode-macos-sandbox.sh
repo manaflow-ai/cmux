@@ -66,7 +66,7 @@ grep -q '^ready$' "$tmp/server.log" || { echo "socket server did not start" >&2;
 # Keep this assertion close to the invocation so a future profile cannot silently
 # become permissive while the smoke still passes.
 grep -q '^(deny default)$' "$profile"
-if grep -q 'network-outbound (**)' "$profile"; then
+if grep -Fq 'network-outbound (**)' "$profile"; then
   echo "sandbox profile grants broad network access" >&2
   exit 1
 fi
