@@ -686,8 +686,8 @@ final class TerminalTabOverviewViewController: UIViewController {
         menu.translatesAutoresizingMaskIntoConstraints = true
         let anchor = kind == .layout ? layoutButton : moreButton
         let anchorFrame = view.convert(anchor.frame, from: anchor.superview)
-        let menuWidth = min(kind == .layout ? 220 : 258, view.bounds.width - 32)
-        let menuHeight: CGFloat = kind == .layout ? 96 : 112
+        let menuWidth = min(kind == .layout ? 240 : 258, view.bounds.width - 32)
+        let menuHeight: CGFloat = kind == .layout ? 84 : 112
         let menuX: CGFloat
         if kind == .layout {
             menuX = (view.bounds.width - menuWidth) / 2
@@ -1146,7 +1146,7 @@ private final class TerminalTabOverviewMenuView: UIView {
             )
             row.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
             stack.addArrangedSubview(row)
-            row.heightAnchor.constraint(equalToConstant: 80).isActive = true
+            row.heightAnchor.constraint(equalToConstant: 68).isActive = true
         case .more:
             for (title, imageName) in [("Manage Tab Groups", "list.bullet"), ("Select Tabs", "checkmark.circle")] {
                 let row = TerminalTabOverviewMenuRow(title: title, imageName: imageName, showsChevron: false)
