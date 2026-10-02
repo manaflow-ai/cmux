@@ -376,6 +376,6 @@ public final class SidebarView: NSView {
     /// rows turning into live ones (or any change from them) update in
     /// place without motion, so the launch swap to live data is invisible.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
-        true
+        !((old ?? []) + new).contains(where: \.hasProvisionalRows)
     }
 }

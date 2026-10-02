@@ -142,13 +142,13 @@ final class WindowManager {
 
     // MARK: Restore
 
-    /// Opens one window at once (it shows the connecting state until the
-    /// daemon answers; it is not a registry window, since it has no
-    /// workspace yet), then restores the saved windows once the first
-    /// snapshot arrives, the launch window becoming the frontmost of them.
-    /// Creates a workspace only when the daemon tree is empty.
+    /// Opens one window at once (from the launch snapshot, else in the
+    /// connecting state, outside the registry), then restores the saved
+    /// windows once the first live snapshot arrives, the launch window
+    /// becoming the frontmost. Creates a workspace only for an empty tree.
     func restoreWhenLoaded() {
-        if controllers.isEmpty, !showLaunchSnapshot() {
+        registry.isLaunching = !restored
+        if controllers.isEmpty, !LaunchSnapshotWindow(manager: self).show() {
             let id = UUID().uuidString.lowercased()
             launchWindowID = id
             makeController(for: WindowRegistry.Window(id: id))
@@ -206,6 +206,7 @@ final class WindowManager {
         if let adopted, controllers.count > 1 { present(adopted) }
         observeMembership()
         sessionRegistrar.start()
+        registry.isLaunching = false
     }
 
     /// The launch window takes the frontmost saved window's identity and

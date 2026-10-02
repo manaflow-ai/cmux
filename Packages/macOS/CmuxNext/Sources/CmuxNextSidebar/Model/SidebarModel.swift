@@ -150,8 +150,12 @@ public final class SidebarModel {
 
     // MARK: Selection (UI-local)
 
+    /// A placeholder row (a machine still connecting) is never selected.
+    private func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState == .placeholder }
+
     /// Plain click: select only `id` and activate it.
     public func click(_ id: WorkspaceID) {
+        guard !isPlaceholder(id) else { return }
         selection = [id]
         send(.select(id))
     }
@@ -159,6 +163,7 @@ public final class SidebarModel {
     /// Cmd-click: toggle `id` in the selection without changing the active
     /// workspace, unless it is the only selected item.
     public func toggleSelection(_ id: WorkspaceID) {
+        guard !isPlaceholder(id) else { return }
         if selection.contains(id) {
             guard selection.count > 1 else { return }
             selection.remove(id)
@@ -170,6 +175,7 @@ public final class SidebarModel {
 
     /// Shift-click: select the visual range from the active workspace to `id`.
     public func extendSelection(to id: WorkspaceID, visibleOrder: [WorkspaceID]) {
+        guard !isPlaceholder(id) else { return }
         guard let anchor = activeWorkspaceID,
               let a = visibleOrder.firstIndex(of: anchor),
               let b = visibleOrder.firstIndex(of: id) else {
