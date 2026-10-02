@@ -2,7 +2,17 @@ import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, 
 import { flushSync } from "react-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
-import { diffRows, layoutConversation, paneHeader, placeRows, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
+import {
+  diffRows,
+  layoutConversation,
+  paneHeader,
+  placeRows,
+  transcriptRowWidth,
+  visibleLayoutRange,
+  type AcpmuxPermission,
+  type AcpmuxRow,
+  type AcpmuxSnapshot,
+} from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
@@ -23,16 +33,32 @@ type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: st
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
 /// `onOpenDiff` opens the changes of the turn holding `rowId`, at `path` when given.
-type RowProps = { row: AcpmuxRow; onToggleActivity: (id: string) => void; expanded: boolean; onOpenDiff?: (rowId: string, path?: string) => void };
+type RowProps = {
+  row: AcpmuxRow;
+  onToggleActivity: (id: string) => void;
+  expanded: boolean;
+  onOpenDiff?: (rowId: string, path?: string) => void;
+};
 
 declare global {
   interface Window {
     cmuxAcpmuxBridge?: {
       receive(snapshot: AcpmuxSnapshot): void;
       applyTheme(theme: Record<string, unknown>): void;
-      applyCustomization(customization: { themeCSS?: string; registryJS?: string; layout?: Record<string, unknown> }): void;
+      applyCustomization(customization: {
+        themeCSS?: string;
+        registryJS?: string;
+        layout?: Record<string, unknown>;
+      }): void;
     };
-    cmuxAcpmuxRegistry?: { register(kind: string, renderer: MeasurableRenderer, options?: { measure?: (row: AcpmuxRow, width: number) => number }): void; configure(options: Record<string, unknown>): void };
+    cmuxAcpmuxRegistry?: {
+      register(
+        kind: string,
+        renderer: MeasurableRenderer,
+        options?: { measure?: (row: AcpmuxRow, width: number) => number },
+      ): void;
+      configure(options: Record<string, unknown>): void;
+    };
     cmuxAcpmuxDebug?: AcpmuxDebug;
     cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
     /// Mock mode only: a recorded turn the in-page daemon replays (webviews/scripts/agent-pane).
@@ -46,43 +72,139 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   if (direct) return direct(params) as Promise<T>;
   const handler = window.webkit?.messageHandlers?.agentSession;
   if (!handler) return Promise.reject(new Error("Native bridge is unavailable"));
-  return Promise.resolve(handler.postMessage({ id: crypto.randomUUID(), method, params }) as unknown as Reply<T>).then((reply) => {
-    if (!reply.ok) throw new Error(reply.error?.userMessage ?? "Request failed");
-    return reply.value;
-  });
+  return Promise.resolve(handler.postMessage({ id: crypto.randomUUID(), method, params }) as unknown as Reply<T>).then(
+    (reply) => {
+      if (!reply.ok) throw new Error(reply.error?.userMessage ?? "Request failed");
+      return reply.value;
+    },
+  );
 }
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
-const MessageRow = memo(function MessageRow({ row }: RowProps) {
-  if (row.kind === "user") return <div className="cv-user"><div className="cv-user__bubble">{row.text ?? ""}</div></div>;
-  return <Markdown>{row.text ?? ""}</Markdown>;
-}, (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version);
+const MessageRow = memo(
+  function MessageRow({ row }: RowProps) {
+    if (row.kind === "user")
+      return (
+        <div className="cv-user">
+          <div className="cv-user__bubble">{row.text ?? ""}</div>
+        </div>
+      );
+    return <Markdown>{row.text ?? ""}</Markdown>;
+  },
+  (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version,
+);
 
 /// Tool calls and thoughts as Codex's quiet rows (inside an open "Worked for", or live).
-const ToolActivityRow = memo(function ToolActivityRow({ row }: RowProps) {
-  return <ToolRows row={row} />;
-}, (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version);
+const ToolActivityRow = memo(
+  function ToolActivityRow({ row }: RowProps) {
+    return <ToolRows row={row} />;
+  },
+  (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version,
+);
 
 /// "Worked for 15s": opens the turn's commentary and tool calls (turnView in conversation/turns.ts).
-const WorkedRow = memo(function WorkedRow({ row, onToggleActivity, expanded }: RowProps) {
-  return <WorkedFor row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
-}, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.expanded === b.expanded && a.onToggleActivity === b.onToggleActivity);
+const WorkedRow = memo(
+  function WorkedRow({ row, onToggleActivity, expanded }: RowProps) {
+    return <WorkedFor row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  },
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
+);
 
-const SummaryRow = memo(function SummaryRow({ row }: RowProps) { return <TurnFooter row={row} />; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
-const NoticeRow = memo(function NoticeRow({ row }: RowProps) { return <div className="acpmux-muted">{row.text}</div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
-const PermissionRow = memo(function PermissionRow({ row }: RowProps) { const permission = row.permission; return <div className="acpmux-permission-card"><strong>{permission?.title || "Permission required"}</strong><div className="acpmux-permission-buttons">{permission?.options.map((option) => <button key={option.id} onClick={() => void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })}>{option.name}</button>)}</div></div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
-const EditedFilesRow = memo(function EditedFilesRow({ row, onOpenDiff }: RowProps) {
-  const files = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
-  const reviewable = onOpenDiff && files.some((file) => file.tool?.diffs?.length);
-  return <div className="acpmux-edited-files"><div className="acpmux-edited-title"><strong>Edited files</strong>{reviewable && <button type="button" className="acpmux-review-changes" onClick={() => onOpenDiff(row.id)}>Review changes</button>}</div>{files.map((file) => {
-    const diffs = file.tool?.diffs ?? [];
-    if (!diffs.length || !onOpenDiff) return <div key={file.tool?.id || file.text}>▤ {file.tool?.inputSummary || file.text}</div>;
-    // One line per file the call changed; each opens the changes at its file.
-    return <div className="acpmux-edited-call" key={file.tool?.id || file.text}>▤ {diffs.map((diff, index) => <React.Fragment key={diff.path}>{index > 0 && ", "}<button type="button" className="acpmux-edited-file" title={diff.path} onClick={() => onOpenDiff(row.id, diff.path)}>{diff.path.split("/").pop()}</button></React.Fragment>)}</div>;
-  })}</div>;
-}, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff);
+const SummaryRow = memo(
+  function SummaryRow({ row }: RowProps) {
+    return <TurnFooter row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+const NoticeRow = memo(
+  function NoticeRow({ row }: RowProps) {
+    return <div className="acpmux-muted">{row.text}</div>;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+const PermissionRow = memo(
+  function PermissionRow({ row }: RowProps) {
+    const permission = row.permission;
+    return (
+      <div className="acpmux-permission-card">
+        <strong>{permission?.title || "Permission required"}</strong>
+        <div className="acpmux-permission-buttons">
+          {permission?.options.map((option) => (
+            <button
+              key={option.id}
+              onClick={() =>
+                void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })
+              }
+            >
+              {option.name}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+const EditedFilesRow = memo(
+  function EditedFilesRow({ row, onOpenDiff }: RowProps) {
+    const files = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
+    const reviewable = onOpenDiff && files.some((file) => file.tool?.diffs?.length);
+    return (
+      <div className="acpmux-edited-files">
+        <div className="acpmux-edited-title">
+          <strong>Edited files</strong>
+          {reviewable && (
+            <button type="button" className="acpmux-review-changes" onClick={() => onOpenDiff(row.id)}>
+              Review changes
+            </button>
+          )}
+        </div>
+        {files.map((file) => {
+          const diffs = file.tool?.diffs ?? [];
+          if (!diffs.length || !onOpenDiff)
+            return <div key={file.tool?.id || file.text}>▤ {file.tool?.inputSummary || file.text}</div>;
+          // One line per file the call changed; each opens the changes at its file.
+          return (
+            <div className="acpmux-edited-call" key={file.tool?.id || file.text}>
+              ▤{" "}
+              {diffs.map((diff, index) => (
+                <React.Fragment key={diff.path}>
+                  {index > 0 && ", "}
+                  <button
+                    type="button"
+                    className="acpmux-edited-file"
+                    title={diff.path}
+                    onClick={() => onOpenDiff(row.id, diff.path)}
+                  >
+                    {diff.path.split("/").pop()}
+                  </button>
+                </React.Fragment>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    );
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff,
+);
 
-const defaultRegistry: NativeRegistry = { user: MessageRow, assistant: MessageRow, activity: ToolActivityRow, [WORKED]: WorkedRow, editedFiles: EditedFilesRow, turnSummary: SummaryRow, notice: NoticeRow, plan: NoticeRow, typing: NoticeRow, permission: PermissionRow };
+const defaultRegistry: NativeRegistry = {
+  user: MessageRow,
+  assistant: MessageRow,
+  activity: ToolActivityRow,
+  [WORKED]: WorkedRow,
+  editedFiles: EditedFilesRow,
+  turnSummary: SummaryRow,
+  notice: NoticeRow,
+  plan: NoticeRow,
+  typing: NoticeRow,
+  permission: PermissionRow,
+};
 
 /// A row's height as the page drew it, valid while the row's content version and width hold.
 type DrawnHeight = { version: number; width: number; height: number };
@@ -91,7 +213,29 @@ type ReportDrawn = (id: string, version: number, height: number) => void;
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
 /// (a font that loads, a custom renderer that grows).
-function RowFrame({ row, kind, index, setSize, top, rowWidth, expanded, observer, report, children }: { row: AcpmuxRow; kind: string; index: number; setSize: number; top: number; rowWidth: number; expanded: boolean; observer: ResizeObserver | undefined; report: ReportDrawn; children: React.ReactNode }) {
+function RowFrame({
+  row,
+  kind,
+  index,
+  setSize,
+  top,
+  rowWidth,
+  expanded,
+  observer,
+  report,
+  children,
+}: {
+  row: AcpmuxRow;
+  kind: string;
+  index: number;
+  setSize: number;
+  top: number;
+  rowWidth: number;
+  expanded: boolean;
+  observer: ResizeObserver | undefined;
+  report: ReportDrawn;
+  children: React.ReactNode;
+}) {
   const ref = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const node = ref.current;
@@ -103,16 +247,39 @@ function RowFrame({ row, kind, index, setSize, top, rowWidth, expanded, observer
     const node = ref.current;
     if (node) report(row.id, row.version, node.getBoundingClientRect().height);
   }, [row.id, row.version, rowWidth, expanded, report]);
-  return <article ref={ref} data-row-id={row.id} className={`acpmux-row acpmux-${kind}`} aria-label={speaker(kind)} aria-posinset={index + 1} aria-setsize={setSize} style={{ transform: `translateY(${top}px)` }}>{children}</article>;
+  return (
+    <article
+      ref={ref}
+      data-row-id={row.id}
+      className={`acpmux-row acpmux-${kind}`}
+      aria-label={speaker(kind)}
+      aria-posinset={index + 1}
+      aria-setsize={setSize}
+      style={{ transform: `translateY(${top}px)` }}
+    >
+      {children}
+    </article>
+  );
 }
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
-const speaker = (kind: string) => kind === "user" ? "You" : kind === "assistant" ? "Agent" : undefined;
-const rowKind = (row: AcpmuxRow) => row.kind === "activity" && !isFoldedCopy(row) && row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ? "editedFiles" : row.kind;
-const currentRegistry = (): NativeRegistry => ({ ...defaultRegistry, ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined) });
+const speaker = (kind: string) => (kind === "user" ? "You" : kind === "assistant" ? "Agent" : undefined);
+const rowKind = (row: AcpmuxRow) =>
+  row.kind === "activity" &&
+  !isFoldedCopy(row) &&
+  row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange")
+    ? "editedFiles"
+    : row.kind;
+const currentRegistry = (): NativeRegistry => ({
+  ...defaultRegistry,
+  ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined),
+});
 
 /// Where a scroller sits, read while its content still matches `totalHeight`.
-const scrollPosition = (node: HTMLElement, totalHeight: number) => ({ top: node.scrollTop, atLatest: node.scrollTop >= totalHeight - node.clientHeight - 1 });
+const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
+  top: node.scrollTop,
+  atLatest: node.scrollTop >= totalHeight - node.clientHeight - 1,
+});
 
 /// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
 /// A scroll commits from its event, a frame after the offset moved, so without the
@@ -120,7 +287,21 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({ top: node.
 const SCROLL_LEAD_STEPS = 2;
 const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 
-export function VirtualTranscript({ rows, onToggleActivity, onOpenDiff, expanded, registry = defaultRegistry, canLoadOlder = false }: { rows: AcpmuxRow[]; onToggleActivity: (id: string) => void; onOpenDiff?: (rowId: string, path?: string) => void; expanded: Set<string>; registry?: NativeRegistry; canLoadOlder?: boolean }) {
+export function VirtualTranscript({
+  rows,
+  onToggleActivity,
+  onOpenDiff,
+  expanded,
+  registry = defaultRegistry,
+  canLoadOlder = false,
+}: {
+  rows: AcpmuxRow[];
+  onToggleActivity: (id: string) => void;
+  onOpenDiff?: (rowId: string, path?: string) => void;
+  expanded: Set<string>;
+  registry?: NativeRegistry;
+  canLoadOlder?: boolean;
+}) {
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const [scroll, setScroll] = useState({ top: 0, delta: 0 });
@@ -147,22 +328,35 @@ export function VirtualTranscript({ rows, onToggleActivity, onOpenDiff, expanded
       let next: Map<string, DrawnHeight> | undefined;
       for (const [id, entry] of updates) {
         const old = current.get(id);
-        if (old && old.version === entry.version && old.width === entry.width && Math.abs(old.height - entry.height) < 0.5) continue;
+        if (
+          old &&
+          old.version === entry.version &&
+          old.width === entry.width &&
+          Math.abs(old.height - entry.height) < 0.5
+        )
+          continue;
         next ??= new Map(current);
         next.set(id, entry);
       }
       return next ?? current;
     });
   }, []);
-  const observer = useMemo(() => typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver((entries?: ResizeObserverEntry[]) => {
-    for (const entry of entries ?? []) {
-      const target = entry.target as HTMLElement;
-      const row = rowsRef.current[Number(target.getAttribute("aria-posinset")) - 1];
-      if (row && row.id === target.dataset.rowId) reportDrawn(row.id, row.version, target.getBoundingClientRect().height);
-    }
-    // A late size change (a font loading) must not paint a frame of overlap first.
-    flushSync(flushDrawn);
-  }), [reportDrawn, flushDrawn]);
+  const observer = useMemo(
+    () =>
+      typeof ResizeObserver === "undefined"
+        ? undefined
+        : new ResizeObserver((entries?: ResizeObserverEntry[]) => {
+            for (const entry of entries ?? []) {
+              const target = entry.target as HTMLElement;
+              const row = rowsRef.current[Number(target.getAttribute("aria-posinset")) - 1];
+              if (row && row.id === target.dataset.rowId)
+                reportDrawn(row.id, row.version, target.getBoundingClientRect().height);
+            }
+            // A late size change (a font loading) must not paint a frame of overlap first.
+            flushSync(flushDrawn);
+          }),
+    [reportDrawn, flushDrawn],
+  );
   useEffect(() => () => observer?.disconnect(), [observer]);
   // Forget rows that left the transcript (a session switch, older history unloaded).
   useEffect(() => {
@@ -178,24 +372,41 @@ export function VirtualTranscript({ rows, onToggleActivity, onOpenDiff, expanded
   useLayoutEffect(flushDrawn);
   const didOpenAtLatest = useRef(false);
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
-  useEffect(() => { const node = ref.current; if (!node) return; const observer = new ResizeObserver(() => { setHeight(node.clientHeight); setWidth(node.clientWidth); }); observer.observe(node); setWidth(node.clientWidth); return () => observer.disconnect(); }, []);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const observer = new ResizeObserver(() => {
+      setHeight(node.clientHeight);
+      setWidth(node.clientWidth);
+    });
+    observer.observe(node);
+    setWidth(node.clientWidth);
+    return () => observer.disconnect();
+  }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const scrolledTo = useRef({ top: 0, atLatest: false });
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
-    const layout = layoutConversation(rows, transcriptRowWidth(width), measurementCache.current, (row, rowWidth) => registry[rowKind(row)]?.measure?.(row, rowWidth));
+    const layout = layoutConversation(rows, transcriptRowWidth(width), measurementCache.current, (row, rowWidth) =>
+      registry[rowKind(row)]?.measure?.(row, rowWidth),
+    );
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, width, registry]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
     const rowWidth = transcriptRowWidth(width);
-    const layout = drawn.size === 0 ? estimated.layout : placeRows(estimated.layout, (index) => {
-      const known = drawn.get(rows[index].id);
-      return known && known.version === rows[index].version && known.width === rowWidth ? known.height : undefined;
-    });
+    const layout =
+      drawn.size === 0
+        ? estimated.layout
+        : placeRows(estimated.layout, (index) => {
+            const known = drawn.get(rows[index].id);
+            return known && known.version === rows[index].version && known.width === rowWidth
+              ? known.height
+              : undefined;
+          });
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [estimated, drawn, rows, width]);
   const layout = measured.layout;
@@ -214,7 +425,10 @@ export function VirtualTranscript({ rows, onToggleActivity, onOpenDiff, expanded
     reportedEstimate.current = estimated;
     const layoutMs = (freshLayout ? measured.ms : 0) + (freshEstimate ? estimated.ms : 0);
     if (acpmuxPerf.enabled && freshLayout) acpmuxPerf.addLayout(layoutMs);
-    if (acpmuxPerf.enabled && renderStart > 0) { const now = performance.now(); acpmuxPerf.commit(now - renderStart, layoutMs, acpmuxPerf.mountedTop, acpmuxPerf.mountedBottom, now); }
+    if (acpmuxPerf.enabled && renderStart > 0) {
+      const now = performance.now();
+      acpmuxPerf.commit(now - renderStart, layoutMs, acpmuxPerf.mountedTop, acpmuxPerf.mountedBottom, now);
+    }
   });
   useLayoutEffect(() => {
     const old = previousLayout.current;
@@ -230,7 +444,8 @@ export function VirtualTranscript({ rows, onToggleActivity, onOpenDiff, expanded
       // then; a shorter viewport alone would otherwise read as scrolled up.
       const unmoved = Math.abs(live - scrolledTo.current.top) <= 0.5;
       const top = clamped ? scrolledTo.current.top : live;
-      const atLatest = clamped || unmoved ? scrolledTo.current.atLatest : top >= old.totalHeight - node.clientHeight - 1;
+      const atLatest =
+        clamped || unmoved ? scrolledTo.current.atLatest : top >= old.totalHeight - node.clientHeight - 1;
       // At the first row nothing above can move it.
       if (top > 0 && didOpenAtLatest.current && atLatest) {
         // At the latest row: stay there as rows settle to their drawn heights.
@@ -255,37 +470,142 @@ export function VirtualTranscript({ rows, onToggleActivity, onOpenDiff, expanded
   }, [layout, range.first, height]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // Each settled scroll's frame pacing goes to the host, which picks the pane's rendering rate.
-  const pacing = useMemo(() => new ScrollPacing((intervals) => { callNative("pane.framePacing", { intervals }).catch(() => {}); }), []);
+  const pacing = useMemo(
+    () =>
+      new ScrollPacing((intervals) => {
+        callNative("pane.framePacing", { intervals }).catch(() => {});
+      }),
+    [],
+  );
   useEffect(() => () => pacing.stop(), [pacing]);
-  const onScroll = (event: React.UIEvent<HTMLDivElement>) => { pacing.scrolled(); const next = event.currentTarget.scrollTop; scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight); flushSync(() => setScroll((current) => ({ top: next, delta: next - current.top }))); };
-  return <div ref={ref} className="acpmux-scroll" role="feed" aria-label="Transcript" onScroll={onScroll}><div className="acpmux-spacer" style={{ height: layout.totalHeight }}><div className="acpmux-thread">{rows.slice(range.first, range.last).map((row, index) => { const absoluteIndex = range.first + index; const kind = rowKind(row); const Component = registry[kind] ?? NoticeRow; const isExpanded = expanded.has(row.id); return <RowFrame key={row.id} row={row} kind={kind} index={absoluteIndex} setSize={canLoadOlder ? -1 : rows.length} top={layout.tops[absoluteIndex]} rowWidth={transcriptRowWidth(width)} expanded={isExpanded} observer={observer} report={reportDrawn}><Component row={row} onToggleActivity={onToggleActivity} onOpenDiff={onOpenDiff} expanded={isExpanded} /></RowFrame>; })}</div></div></div>;
+  const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    pacing.scrolled();
+    const next = event.currentTarget.scrollTop;
+    scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight);
+    flushSync(() => setScroll((current) => ({ top: next, delta: next - current.top })));
+  };
+  return (
+    <div ref={ref} className="acpmux-scroll" role="feed" aria-label="Transcript" onScroll={onScroll}>
+      <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
+        <div className="acpmux-thread">
+          {rows.slice(range.first, range.last).map((row, index) => {
+            const absoluteIndex = range.first + index;
+            const kind = rowKind(row);
+            const Component = registry[kind] ?? NoticeRow;
+            const isExpanded = expanded.has(row.id);
+            return (
+              <RowFrame
+                key={row.id}
+                row={row}
+                kind={kind}
+                index={absoluteIndex}
+                setSize={canLoadOlder ? -1 : rows.length}
+                top={layout.tops[absoluteIndex]}
+                rowWidth={transcriptRowWidth(width)}
+                expanded={isExpanded}
+                observer={observer}
+                report={reportDrawn}
+              >
+                <Component
+                  row={row}
+                  onToggleActivity={onToggleActivity}
+                  onOpenDiff={onOpenDiff}
+                  expanded={isExpanded}
+                />
+              </RowFrame>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
 }
 
-function PermissionCard({ permission }: { permission: AcpmuxPermission }) { return <div className="acpmux-permission-card"><strong>{permission.title || "Permission required"}</strong><div className="acpmux-permission-buttons">{permission.options.map((option) => <button key={option.id} onClick={() => void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })}>{option.name}</button>)}</div></div>; }
+function PermissionCard({ permission }: { permission: AcpmuxPermission }) {
+  return (
+    <div className="acpmux-permission-card">
+      <strong>{permission.title || "Permission required"}</strong>
+      <div className="acpmux-permission-buttons">
+        {permission.options.map((option) => (
+          <button
+            key={option.id}
+            onClick={() =>
+              void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })
+            }
+          >
+            {option.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) { return <ComposerPickers snapshot={snapshot} onModel={(modelId) => void callNative("chat.model", { modelId })} onMode={(modeId) => void callNative("chat.mode", { modeId })} onEffort={(configId, value) => void callNative("chat.effort", { configId, value })} />; }
+function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
+  return (
+    <ComposerPickers
+      snapshot={snapshot}
+      onModel={(modelId) => void callNative("chat.model", { modelId })}
+      onMode={(modeId) => void callNative("chat.mode", { modeId })}
+      onEffort={(configId, value) => void callNative("chat.effort", { configId, value })}
+    />
+  );
+}
 
 /** Whether the pane is wide enough to show the session list beside the transcript. */
 const WIDE_PANE = "(min-width: 640px)";
-function wideSidebar(): boolean { return window.matchMedia?.(WIDE_PANE).matches ?? true; }
+function wideSidebar(): boolean {
+  return window.matchMedia?.(WIDE_PANE).matches ?? true;
+}
 
 export function AcpmuxApp() {
   const [queryClient] = useState(createPaneQueryClient);
-  return <QueryClientProvider client={queryClient}><AcpmuxPane /></QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AcpmuxPane />
+    </QueryClientProvider>
+  );
 }
 
 function AcpmuxPane() {
-  const [snapshot, setSnapshot] = useState<AcpmuxSnapshot>({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connecting", isWorking: false, queue: [], catalog: [], canLoadOlder: false });
+  const [snapshot, setSnapshot] = useState<AcpmuxSnapshot>({
+    type: "snapshot",
+    protocolVersion: 1,
+    rows: [],
+    sessions: [],
+    connection: "connecting",
+    isWorking: false,
+    queue: [],
+    catalog: [],
+    canLoadOlder: false,
+  });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Codex's turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(() => turnView(snapshot.rows, expanded), [snapshot.rows, expanded]);
   // The open changes view: a turn of one session, and the control that opened it.
-  const [diffView, setDiffView] = useState<{ sessionId?: string; rowId: string; path?: string; opener?: HTMLElement }>();
+  const [diffView, setDiffView] = useState<{
+    sessionId?: string;
+    rowId: string;
+    path?: string;
+    opener?: HTMLElement;
+  }>();
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
-  const openDiff = useCallback((rowId: string, path?: string) => setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: document.activeElement instanceof HTMLElement ? document.activeElement : undefined }), []);
+  const openDiff = useCallback(
+    (rowId: string, path?: string) =>
+      setDiffView({
+        sessionId: sessionIdRef.current,
+        rowId,
+        path,
+        opener: document.activeElement instanceof HTMLElement ? document.activeElement : undefined,
+      }),
+    [],
+  );
   const closedByUser = useRef(false);
-  const closeDiff = useCallback(() => { closedByUser.current = true; setDiffView(undefined); }, []);
+  const closeDiff = useCallback(() => {
+    closedByUser.current = true;
+    setDiffView(undefined);
+  }, []);
   // Focus returns to the opener once the view is gone: until then the transcript is hidden,
   // and a hidden control can't take focus.
   const diffOpener = useRef<HTMLElement | undefined>(undefined);
@@ -299,8 +619,13 @@ function AcpmuxPane() {
     diffOpener.current = undefined;
   }, [diffView]);
   // Row ids repeat across sessions (they count events), so another session closes the view.
-  const diffOpen = diffView !== undefined && diffView.sessionId === snapshot.sessionId && snapshot.rows.some((row) => row.id === diffView.rowId);
-  useEffect(() => { if (diffView && !diffOpen) setDiffView(undefined); }, [diffView, diffOpen]);
+  const diffOpen =
+    diffView !== undefined &&
+    diffView.sessionId === snapshot.sessionId &&
+    snapshot.rows.some((row) => row.id === diffView.rowId);
+  useEffect(() => {
+    if (diffView && !diffOpen) setDiffView(undefined);
+  }, [diffView, diffOpen]);
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
   const diffActivity = useRef<{ key: string; files: ReturnType<typeof turnFiles> }>(undefined);
   const diffFiles = useMemo(() => {
@@ -316,7 +641,10 @@ function AcpmuxPane() {
   const [newTab, setNewTab] = useState<NewTabHost | undefined>();
   const sidebarToggle = useRef<HTMLButtonElement>(null);
   // Escape and the scrim close the narrow-pane overlay and give focus back to its toggle.
-  const closeOverlay = useCallback(() => { setSidebar("auto"); sidebarToggle.current?.focus(); }, []);
+  const closeOverlay = useCallback(() => {
+    setSidebar("auto");
+    sidebarToggle.current?.focus();
+  }, []);
   // Crossing the width threshold resets the list to the default for the new width, so a list opened beside the transcript never turns into an overlay.
   const [wide, setWide] = useState(wideSidebar);
   useEffect(() => {
@@ -324,18 +652,26 @@ function AcpmuxPane() {
     if (!query?.addEventListener) return;
     // The width may have crossed the threshold between the first render and this subscription.
     setWide(query.matches);
-    const onChange = () => { setWide(query.matches); setSidebar("auto"); };
+    const onChange = () => {
+      setWide(query.matches);
+      setSidebar("auto");
+    };
     query.addEventListener("change", onChange);
     return () => query.removeEventListener("change", onChange);
   }, []);
   // Picking a session closes the narrow-pane overlay. Stable so unchanged sidebar rows skip rendering.
-  const selectSession = useCallback((sessionId: string) => { setSidebar((current) => current === "open" && !wideSidebar() ? "auto" : current); void callNative("chat.select", { sessionId }); }, []);
+  const selectSession = useCallback((sessionId: string) => {
+    setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
+    void callNative("chat.select", { sessionId });
+  }, []);
   // While the narrow-pane overlay is open, Escape closes it and focus moves into it.
   useEffect(() => {
     if (sidebar !== "open" || wide) return;
     const list = document.getElementById("acpmux-sidebar");
     (list?.querySelector<HTMLElement>(".is-selected") ?? list?.querySelector<HTMLElement>("button"))?.focus();
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") closeOverlay(); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeOverlay();
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [sidebar, wide, closeOverlay]);
@@ -346,14 +682,55 @@ function AcpmuxPane() {
   const catalogClientId = useRef(0);
   const [catalogSource, setCatalogSource] = useState<{ id: number; client: HarnessCatalogSource }>();
   const catalog = useHarnessCatalog(catalogSource, snapshot.catalog);
-  const composerSnapshot = useMemo(() => catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog }, [snapshot, catalog]);
+  const composerSnapshot = useMemo(
+    () => (catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog }),
+    [snapshot, catalog],
+  );
   useEffect(() => {
     window.React = React;
-    window.cmuxAcpmuxRegistry = { register(kind, renderer, options) { const registered = window.cmuxAcpmuxRegistry as unknown as Record<string, unknown>; if (registered[kind] === renderer && (!options?.measure || options.measure === renderer.measure)) return; if (options?.measure) renderer.measure = options.measure; registered[kind] = renderer; setRegistry(currentRegistry()); }, configure() { setRegistry(currentRegistry()); } };
+    window.cmuxAcpmuxRegistry = {
+      register(kind, renderer, options) {
+        const registered = window.cmuxAcpmuxRegistry as unknown as Record<string, unknown>;
+        if (registered[kind] === renderer && (!options?.measure || options.measure === renderer.measure)) return;
+        if (options?.measure) renderer.measure = options.measure;
+        registered[kind] = renderer;
+        setRegistry(currentRegistry());
+      },
+      configure() {
+        setRegistry(currentRegistry());
+      },
+    };
     window.cmuxAcpmuxBridge = {
-      receive(next) { if (next.protocolVersion !== 1) return; const change = diffRows(rowsRef.current, next.rows); rowsRef.current = new Map(next.rows.map((row) => [row.id, row])); setSnapshot(next); void change; },
-      applyTheme(theme) { applyAgentTheme(theme as never); },
-      applyCustomization(customization) { if ("themeCSS" in customization) { let style = document.getElementById("acpmux-user-theme") as HTMLStyleElement | null; if (!style) { style = document.createElement("style"); style.id = "acpmux-user-theme"; document.head.append(style); } style.textContent = customization.themeCSS ?? ""; } if (customization.registryJS) { try { (0, eval)(customization.registryJS); setRegistry(currentRegistry()); } catch { /* a user renderer must not take down the transcript */ } } if (customization.layout) window.cmuxAcpmuxRegistry?.configure(customization.layout); },
+      receive(next) {
+        if (next.protocolVersion !== 1) return;
+        const change = diffRows(rowsRef.current, next.rows);
+        rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
+        setSnapshot(next);
+        void change;
+      },
+      applyTheme(theme) {
+        applyAgentTheme(theme as never);
+      },
+      applyCustomization(customization) {
+        if ("themeCSS" in customization) {
+          let style = document.getElementById("acpmux-user-theme") as HTMLStyleElement | null;
+          if (!style) {
+            style = document.createElement("style");
+            style.id = "acpmux-user-theme";
+            document.head.append(style);
+          }
+          style.textContent = customization.themeCSS ?? "";
+        }
+        if (customization.registryJS) {
+          try {
+            (0, eval)(customization.registryJS);
+            setRegistry(currentRegistry());
+          } catch {
+            /* a user renderer must not take down the transcript */
+          }
+        }
+        if (customization.layout) window.cmuxAcpmuxRegistry?.configure(customization.layout);
+      },
     };
     window.cmuxAcpmuxDebug = createAcpmuxDebug({
       replaceRows(rows) {
@@ -371,36 +748,61 @@ function AcpmuxPane() {
     let reconnect = false;
     const connectHost = async () => {
       try {
-        const host = await callNative<{ protocolVersion: number; transport?: string; endpoint?: string; token?: string; sessionId?: string; newSession?: boolean; newTab?: unknown; cwd?: string }>("ready", reconnect ? { reconnect } : {});
+        const host = await callNative<{
+          protocolVersion: number;
+          transport?: string;
+          endpoint?: string;
+          token?: string;
+          sessionId?: string;
+          newSession?: boolean;
+          newTab?: unknown;
+        }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
-        // A tab opened as a new tab page shows it until it becomes something (#16620).
+        // A tab opened as the new tab page shows it until it becomes something (#16620).
         if (!reconnect) setNewTab(newTabHost(host));
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
         if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) return;
         // A new chat in mock mode starts without a session too, as against a real daemon.
-        const mockConfig: AcpmuxHostConfig = host.newSession ? { ...mockHost, sessionId: undefined, newSession: true } : mockHost;
-        const client = await AcpmuxDirectClient.connect(mock ? mockConfig : host as AcpmuxHostConfig, (next) => {
-          rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
-          setSnapshot(next);
-        }, () => {
-          // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
-          if (cancelled) return;
-          reconnect = true;
-          directClient.current = undefined;
-          delete window.cmuxAcpmuxActions;
-          retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
-          retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
-        }, mock ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket : undefined);
-        if (cancelled) { client.close(); return; }
+        const mockConfig: AcpmuxHostConfig = host.newSession
+          ? { ...mockHost, sessionId: undefined, newSession: true }
+          : mockHost;
+        const client = await AcpmuxDirectClient.connect(
+          mock ? mockConfig : (host as AcpmuxHostConfig),
+          (next) => {
+            rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
+            setSnapshot(next);
+          },
+          () => {
+            // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
+            if (cancelled) return;
+            reconnect = true;
+            directClient.current = undefined;
+            delete window.cmuxAcpmuxActions;
+            retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
+            retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
+          },
+          mock ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket : undefined,
+        );
+        if (cancelled) {
+          client.close();
+          return;
+        }
         directClient.current = client;
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
         retryDelay = 250;
         // A mock session is not one the host can reopen.
-        const persistSession = (sessionId?: string) => sessionId && !mock ? callNative("chat.persistSession", { sessionId }).catch(() => undefined) : Promise.resolve();
+        const persistSession = (sessionId?: string) =>
+          sessionId && !mock
+            ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
+            : Promise.resolve();
         window.cmuxAcpmuxActions = {
-          "chat.send": async ({ text }) => { const sessionId = await client.ensureSession(); await persistSession(sessionId); return client.send(String(text ?? "")); },
+          "chat.send": async ({ text }) => {
+            const sessionId = await client.ensureSession();
+            await persistSession(sessionId);
+            return client.send(String(text ?? ""));
+          },
           "chat.cancel": () => client.cancel(),
           "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
           "chat.model": ({ modelId }) => client.setModel(String(modelId)),
@@ -421,20 +823,119 @@ function AcpmuxPane() {
       }
     };
     void connectHost();
-    return () => { cancelled = true; if (retryTimer !== undefined) window.clearTimeout(retryTimer); directClient.current?.close(); directClient.current = undefined; delete window.cmuxAcpmuxActions; };
+    return () => {
+      cancelled = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      directClient.current?.close();
+      directClient.current = undefined;
+      delete window.cmuxAcpmuxActions;
+    };
   }, []);
-  const ComposerChips = ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as React.ComponentType<{ snapshot: AcpmuxSnapshot }> | undefined) ?? DefaultComposerChips;
+  const ComposerChips =
+    ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
+      | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
+      | undefined) ?? DefaultComposerChips;
   const sidebarShown = sidebar === "open" || (sidebar === "auto" && wide);
   const toggleSidebar = () => setSidebar(sidebarShown ? "closed" : "open");
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot);
   const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
   const openFromNewTab = (kind: TabKind, text: string) => {
-    if (kind !== "agent") { void callNative("tab.open", { kind, text }); return; }
+    if (kind !== "agent") {
+      void callNative("tab.open", { kind, text });
+      return;
+    }
     setNewTab(undefined);
     if (text) void callNative("chat.send", { text });
   };
-  return <section className="acpmux-shell" data-sidebar={sidebar}><SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />{sidebar === "open" && <button type="button" className="acpmux-sidebar-scrim" aria-label="Close sessions" tabIndex={-1} onClick={closeOverlay} />}<div className="acpmux-main">{showNewTab ? <NewTabPage snapshot={composerSnapshot} hotkeys={newTab.hotkeys} initialKind={newTab.initialKind} cwd={newTab.cwd} host={newTab.host} chips={ComposerChips}
-    onSubmit={openFromNewTab} onOpenSession={(sessionId) => { setNewTab(undefined); selectSession(sessionId); }} onShowAll={() => setSidebar("open")}
-    onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })} /> : <><div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}><header className="acpmux-header"><div><button type="button" className="acpmux-sidebar-toggle" ref={sidebarToggle} aria-label="Sessions" title="Sessions" aria-controls="acpmux-sidebar" aria-expanded={sidebarShown} onClick={toggleSidebar} /><strong className="acpmux-title">{header.title}</strong>{header.status && <span className="acpmux-status">{header.status}</span>}</div></header><VirtualTranscript rows={transcriptRows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onOpenDiff={openDiff} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}</div>{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<Composer snapshot={composerSnapshot} chips={ComposerChips} onSend={(text) => void callNative("chat.send", { text })} onStop={() => void callNative("chat.cancel")} /></>}</div></section>;
+  return (
+    <section className="acpmux-shell" data-sidebar={sidebar}>
+      <SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />
+      {sidebar === "open" && (
+        <button
+          type="button"
+          className="acpmux-sidebar-scrim"
+          aria-label="Close sessions"
+          tabIndex={-1}
+          onClick={closeOverlay}
+        />
+      )}
+      <div className="acpmux-main">
+        {showNewTab ? (
+          <NewTabPage
+            snapshot={composerSnapshot}
+            hotkeys={newTab.hotkeys}
+            initialKind={newTab.initialKind}
+            cwd={newTab.cwd}
+            host={newTab.host}
+            chips={ComposerChips}
+            onSubmit={openFromNewTab}
+            onOpenSession={(sessionId) => {
+              setNewTab(undefined);
+              selectSession(sessionId);
+            }}
+            onShowAll={() => setSidebar("open")}
+            onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
+          />
+        ) : (
+          <>
+            <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
+              <header className="acpmux-header">
+                <div>
+                  <button
+                    type="button"
+                    className="acpmux-sidebar-toggle"
+                    ref={sidebarToggle}
+                    aria-label="Sessions"
+                    title="Sessions"
+                    aria-controls="acpmux-sidebar"
+                    aria-expanded={sidebarShown}
+                    onClick={toggleSidebar}
+                  />
+                  <strong className="acpmux-title">{header.title}</strong>
+                  {header.status && <span className="acpmux-status">{header.status}</span>}
+                </div>
+              </header>
+              <VirtualTranscript
+                rows={transcriptRows}
+                canLoadOlder={snapshot.canLoadOlder}
+                expanded={expanded}
+                registry={registry}
+                onOpenDiff={openDiff}
+                onToggleActivity={(id) =>
+                  setExpanded((current) => {
+                    const next = new Set(current);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    return next;
+                  })
+                }
+              />
+              {diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}
+            </div>
+            {snapshot.queue.length > 0 && (
+              <div className="acpmux-queue">
+                {snapshot.queue.map((entry) => (
+                  <span className="acpmux-queued" key={entry.id}>
+                    Queued: {entry.prompt}
+                  </span>
+                ))}
+              </div>
+            )}
+            {snapshot.permission?.pending && (
+              <div className="acpmux-permission">
+                <PermissionCard permission={snapshot.permission} />
+              </div>
+            )}
+            <Composer
+              snapshot={composerSnapshot}
+              chips={ComposerChips}
+              onSend={(text) => void callNative("chat.send", { text })}
+              onStop={() => void callNative("chat.cancel")}
+            />
+          </>
+        )}
+      </div>
+    </section>
+  );
 }

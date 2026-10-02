@@ -167,12 +167,7 @@ export const Spinner = ({ size = 16, className, style, strokeWidth = 1.5 }: CvIc
     fill="none"
     aria-hidden="true"
   >
-    <path
-      d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-    />
+    <path d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" />
   </svg>
 );
 
@@ -192,22 +187,9 @@ export const StopSquare = ({ size = 16, className, style }: CvIconProps) => (
 
 /** The composer's dim busy ring (12px) with a brighter leading arc. */
 export const ComposerSpinner = ({ className, style }: CvIconProps) => (
-  <svg
-    className={className}
-    style={style}
-    width={12}
-    height={12}
-    viewBox="0 0 12 12"
-    fill="none"
-    aria-hidden="true"
-  >
+  <svg className={className} style={style} width={12} height={12} viewBox="0 0 12 12" fill="none" aria-hidden="true">
     <circle cx="6" cy="6" r="5.1" stroke="#51524c" strokeWidth="1.5" />
-    <path
-      d="M6 .9a5.1 5.1 0 0 1 4.4 2.5"
-      stroke="#7d7e78"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-    />
+    <path d="M6 .9a5.1 5.1 0 0 1 4.4 2.5" stroke="#7d7e78" strokeWidth="1.5" strokeLinecap="round" />
   </svg>
 );
 
@@ -220,10 +202,7 @@ export const PlayTriangle = ({ size = 16, className, style }: CvIconProps) => (
     viewBox="0 0 16 16"
     aria-hidden="true"
   >
-    <path
-      d="M4.7 4.1v7.8c0 .7.75 1.1 1.3.7l5.9-3.9a.8.8 0 0 0 0-1.4L6 3.4c-.55-.4-1.3 0-1.3.7Z"
-      fill="currentColor"
-    />
+    <path d="M4.7 4.1v7.8c0 .7.75 1.1 1.3.7l5.9-3.9a.8.8 0 0 0 0-1.4L6 3.4c-.55-.4-1.3 0-1.3.7Z" fill="currentColor" />
   </svg>
 );
 
@@ -266,9 +245,7 @@ function TurnStrip({ slot }: { slot: 0 | 1 | 2 }) {
           <rect x={7.1} y={9.4} width={7.9} height={7.6} rx={2.1} fill="var(--cx-main)" />
         </>
       )}
-      {slot === 1 && (
-        <path d="M34.1 11.5h4.7l5.8-5.7M40.8 5.7h3.9v4M41.4 13.4l3.4 3.4M44.8 13.1v3.8h-3.9" />
-      )}
+      {slot === 1 && <path d="M34.1 11.5h4.7l5.8-5.7M40.8 5.7h3.9v4M41.4 13.4l3.4 3.4M44.8 13.1v3.8h-3.9" />}
       {slot === 2 && (
         <>
           <circle cx={68.5} cy={7.4} r={1.15} />
@@ -284,14 +261,7 @@ export const TurnAnchor = () => <TurnStrip slot={2} />;
 
 /** arXiv favicon as Codex shows it before "Paper" citation links. */
 export const ArxivMark = ({ size = 16, className, style }: CvIconProps) => (
-  <svg
-    className={className}
-    style={style}
-    width={size}
-    height={size}
-    viewBox="0 0 16 16"
-    aria-hidden="true"
-  >
+  <svg className={className} style={style} width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
     <path d="M3.2 2.2 12.8 13.8" stroke="#b31b1b" strokeWidth="2.2" strokeLinecap="round" />
     <path d="M12.6 2.4 3.4 13.6" stroke="#9a9a96" strokeWidth="1.6" strokeLinecap="round" />
     <path d="M3.2 2.2 8 8" stroke="#d64b3c" strokeWidth="1.4" strokeLinecap="round" />

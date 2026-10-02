@@ -21,17 +21,30 @@ export type AcpmuxSessionEntry = {
   branch?: string;
   /** Set only when the session runs in a git worktree: the worktree's path. */
   worktree?: string;
+  /** Pinned by the fixture's flag, or tagged `pinned` through `_acpmux/tag`; listed under Pinned instead of its project. */
   pinned?: boolean;
   pullRequest?: SessionPullRequest;
   /** A line of the session's latest reply, for previews. */
   preview?: string;
 };
 
-export type SessionPullRequest = { number: number; title: string; state: "open" | "draft" | "merged"; reviewReady?: boolean };
+export type SessionPullRequest = {
+  number: number;
+  title: string;
+  state: "open" | "draft" | "merged" | "closed";
+  reviewReady?: boolean;
+};
+const PR_STATES = new Set(["open", "draft", "merged", "closed"]);
 
-const text = (value: unknown) => typeof value === "string" && value ? value : undefined;
+/** A non-empty string, else undefined. */
+export const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+/** "local" or "cloud", else undefined. */
+export const hostKind = (value: unknown) => (value === "local" || value === "cloud" ? value : undefined);
 
-export type SessionGroup = { key: string; label: string; cwd?: string; sessions: AcpmuxSessionEntry[] };
+export type SessionGroup = { key: string; label: string; cwd?: string; host?: string; sessions: AcpmuxSessionEntry[] };
+
+/** The tag that pins a session to the top of the list. */
+export const PINNED_TAG = "pinned";
 
 /** What a row draws at its right edge, most urgent first. */
 export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
@@ -55,19 +68,25 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     pendingPermissions: Number.isFinite(pending) ? pending : 0,
     unread: session.unread === true,
     host: text(session.host),
-    hostKind: session.hostKind === "local" || session.hostKind === "cloud" ? session.hostKind : undefined,
+    hostKind: hostKind(session.hostKind),
     branch: text(session.branch),
     worktree: text(session.worktree),
-    pinned: session.pinned === true,
+    pinned: session.pinned === true || (Array.isArray(session.tags) && session.tags.includes(PINNED_TAG)),
     pullRequest: pullRequest(session.pullRequest),
     preview: text(session.preview),
   };
 }
 
 function pullRequest(value: any): SessionPullRequest | undefined {
-  if (typeof value?.number !== "number" || typeof value.title !== "string") return undefined;
-  const state = value.state === "draft" || value.state === "merged" ? value.state : "open";
-  return { number: value.number, title: value.title, state, reviewReady: value.reviewReady === true || undefined };
+  // A pull request the pane can't name or place is left out rather than guessed at.
+  if (!Number.isInteger(value?.number) || value.number <= 0 || !text(value.title) || !PR_STATES.has(value.state))
+    return undefined;
+  return {
+    number: value.number,
+    title: value.title,
+    state: value.state,
+    reviewReady: value.reviewReady === true || undefined,
+  };
 }
 
 /** The title (the first prompt) when the name was generated (`codex`, `codex-3`), else the name the user gave. */
@@ -75,7 +94,10 @@ export function sessionTitle(session: { title?: string; name?: string; harness?:
   const name = session.name ?? "";
   const harness = session.harness ?? "";
   const bare = name.split("/").pop() ?? name;
-  const generated = !name || (harness !== "" && (bare === harness || (bare.startsWith(`${harness}-`) && /^\d+$/.test(bare.slice(harness.length + 1)))));
+  const generated =
+    !name ||
+    (harness !== "" &&
+      (bare === harness || (bare.startsWith(`${harness}-`) && /^\d+$/.test(bare.slice(harness.length + 1)))));
   const title = session.title?.trim();
   if (generated) return title || name || session.sessionId.slice(0, 8);
   return name;
@@ -90,20 +112,37 @@ export function projectLabel(cwd: string | undefined): string {
   return parts[parts.length - 1] ?? trimmed;
 }
 
-/** Sessions under one header per folder. Groups follow their most recent session; sessions stay newest first. */
+/** Newest first. */
+function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
+  return [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
+}
+
+/** Sessions under one header per folder and machine. Groups follow their most recent session; sessions stay newest first. */
 export function groupByProject(sessions: AcpmuxSessionEntry[]): SessionGroup[] {
-  const sorted = [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
   const groups = new Map<string, SessionGroup>();
-  for (const session of sorted) {
-    const key = (session.cwd ?? "").replace(/\/+$/, "");
+  for (const session of byRecency(sessions)) {
+    const cwd = (session.cwd ?? "").replace(/\/+$/, "");
+    // The same folder on two machines is two projects.
+    const key = session.host ? `${session.host}:${cwd}` : cwd;
     let group = groups.get(key);
     if (!group) {
-      group = { key, label: projectLabel(key), cwd: key || undefined, sessions: [] };
+      group = { key, label: projectLabel(cwd), cwd: cwd || undefined, host: session.host, sessions: [] };
       groups.set(key, group);
     }
     group.sessions.push(session);
   }
   return [...groups.values()];
+}
+
+/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. */
+export function sidebarSections(sessions: AcpmuxSessionEntry[]): {
+  pinned: AcpmuxSessionEntry[];
+  groups: SessionGroup[];
+} {
+  return {
+    pinned: byRecency(sessions.filter((session) => session.pinned)),
+    groups: groupByProject(sessions.filter((session) => !session.pinned)),
+  };
 }
 
 /** The row's mark: a pending permission or a wait for one needs the user; then work in progress, a lost agent, and work that ended unseen. */
@@ -116,9 +155,15 @@ export function sessionMark(session: AcpmuxSessionEntry, selected: boolean): Ses
 }
 
 /** The rows a group shows: all of a short group, else its first GROUP_ROWS unless expanded or holding the selection. */
-export function visibleSessions(group: SessionGroup, expanded: boolean, selectedId?: string): { rows: AcpmuxSessionEntry[]; hidden: number } {
-  const open = expanded || group.sessions.length <= GROUP_ROWS + 1 || group.sessions.slice(GROUP_ROWS).some((session) => session.sessionId === selectedId);
+export function visibleSessions(
+  group: SessionGroup,
+  expanded: boolean,
+  selectedId?: string,
+): { rows: AcpmuxSessionEntry[]; hidden: number } {
+  const open =
+    expanded ||
+    group.sessions.length <= GROUP_ROWS + 1 ||
+    group.sessions.slice(GROUP_ROWS).some((session) => session.sessionId === selectedId);
   if (open) return { rows: group.sessions, hidden: 0 };
   return { rows: group.sessions.slice(0, GROUP_ROWS), hidden: group.sessions.length - GROUP_ROWS };
 }
-

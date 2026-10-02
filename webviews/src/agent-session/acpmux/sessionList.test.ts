@@ -1,17 +1,42 @@
 import { describe, expect, test } from "bun:test";
-import { GROUP_ROWS, groupByProject, projectLabel, sessionEntry, sessionMark, sessionTitle, visibleSessions, type AcpmuxSessionEntry } from "./sessionList";
+import {
+  GROUP_ROWS,
+  groupByProject,
+  projectLabel,
+  sessionEntry,
+  sessionMark,
+  sessionTitle,
+  sidebarSections,
+  visibleSessions,
+  type AcpmuxSessionEntry,
+} from "./sessionList";
 
-const entry = (sessionId: string, cwd: string, updatedAt: number, extra: Partial<AcpmuxSessionEntry> = {}): AcpmuxSessionEntry => ({ sessionId, cwd, updatedAt, displayTitle: sessionId, ...extra });
+const entry = (
+  sessionId: string,
+  cwd: string,
+  updatedAt: number,
+  extra: Partial<AcpmuxSessionEntry> = {},
+): AcpmuxSessionEntry => ({ sessionId, cwd, updatedAt, displayTitle: sessionId, ...extra });
 
 describe("session titles", () => {
   test("a generated name shows the first prompt", () => {
-    expect(sessionTitle({ sessionId: "s1", name: "codex", harness: "codex", title: "Fix the login flow" })).toBe("Fix the login flow");
-    expect(sessionTitle({ sessionId: "s1", name: "codex-3", harness: "codex", title: "Fix the login flow" })).toBe("Fix the login flow");
+    expect(sessionTitle({ sessionId: "s1", name: "codex", harness: "codex", title: "Fix the login flow" })).toBe(
+      "Fix the login flow",
+    );
+    expect(sessionTitle({ sessionId: "s1", name: "codex-3", harness: "codex", title: "Fix the login flow" })).toBe(
+      "Fix the login flow",
+    );
   });
   test("a name the user gave wins over the prompt", () => {
-    expect(sessionTitle({ sessionId: "s1", name: "login-fix", harness: "codex", title: "Fix the login flow" })).toBe("login-fix");
-    expect(sessionTitle({ sessionId: "s1", name: "codex-2b", harness: "codex", title: "Fix the login flow" })).toBe("codex-2b");
-    expect(sessionTitle({ sessionId: "s1", name: "codex-", harness: "codex", title: "Fix the login flow" })).toBe("codex-");
+    expect(sessionTitle({ sessionId: "s1", name: "login-fix", harness: "codex", title: "Fix the login flow" })).toBe(
+      "login-fix",
+    );
+    expect(sessionTitle({ sessionId: "s1", name: "codex-2b", harness: "codex", title: "Fix the login flow" })).toBe(
+      "codex-2b",
+    );
+    expect(sessionTitle({ sessionId: "s1", name: "codex-", harness: "codex", title: "Fix the login flow" })).toBe(
+      "codex-",
+    );
   });
   test("a generated name without a prompt yet shows the name, then the id", () => {
     expect(sessionTitle({ sessionId: "s1", name: "claude-2", harness: "claude" })).toBe("claude-2");
@@ -68,15 +93,93 @@ describe("row marks", () => {
 
 describe("summary entries", () => {
   test("keep the fields the sidebar needs from acpmux's summary", () => {
-    expect(sessionEntry({ sessionId: "s", name: "codex", harness: "codex", title: "Hi", cwd: "/p", updatedAt: 7, status: "waiting", pendingPermissions: 2, unread: true, preview: "Last reply", queue: ["dropped"] })).toEqual({
-      sessionId: "s", displayTitle: "Hi", title: "Hi", name: "codex", harness: "codex", status: "waiting", model: undefined, cwd: "/p", updatedAt: 7, pendingPermissions: 2, unread: true, pinned: false, preview: "Last reply",
+    expect(
+      sessionEntry({
+        sessionId: "s",
+        name: "codex",
+        harness: "codex",
+        title: "Hi",
+        cwd: "/p",
+        updatedAt: 7,
+        status: "waiting",
+        pendingPermissions: 2,
+        unread: true,
+        preview: "Last reply",
+        queue: ["dropped"],
+      }),
+    ).toEqual({
+      sessionId: "s",
+      displayTitle: "Hi",
+      title: "Hi",
+      name: "codex",
+      harness: "codex",
+      status: "waiting",
+      model: undefined,
+      cwd: "/p",
+      updatedAt: 7,
+      pendingPermissions: 2,
+      unread: true,
+      pinned: false,
+      preview: "Last reply",
+    });
+  });
+  test("read the pinned tag and the host", () => {
+    const entry = sessionEntry({ sessionId: "s", tags: ["work", "pinned"], host: "cobalt-butte" });
+    expect([entry.pinned, entry.host]).toEqual([true, "cobalt-butte"]);
+    expect(sessionEntry({ sessionId: "s", tags: "pinned", host: "" })).toMatchObject({
+      pinned: false,
+      host: undefined,
     });
   });
 
   test("keep where a session runs and its pull request, and drop malformed ones", () => {
-    const entry = sessionEntry({ sessionId: "s", host: "hearty-beige-elk", hostKind: "cloud", branch: "fix", worktree: "~/w/fix", pinned: true, pullRequest: { number: 12, title: "Fix", state: "open", reviewReady: true } });
-    expect(entry).toMatchObject({ host: "hearty-beige-elk", hostKind: "cloud", branch: "fix", worktree: "~/w/fix", pinned: true, pullRequest: { number: 12, title: "Fix", state: "open", reviewReady: true } });
+    const entry = sessionEntry({
+      sessionId: "s",
+      host: "hearty-beige-elk",
+      hostKind: "cloud",
+      branch: "fix",
+      worktree: "~/w/fix",
+      pinned: true,
+      pullRequest: { number: 12, title: "Fix", state: "open", reviewReady: true },
+    });
+    expect(entry).toMatchObject({
+      host: "hearty-beige-elk",
+      hostKind: "cloud",
+      branch: "fix",
+      worktree: "~/w/fix",
+      pinned: true,
+      pullRequest: { number: 12, title: "Fix", state: "open", reviewReady: true },
+    });
     const odd = sessionEntry({ sessionId: "s", host: "", hostKind: "mars", pullRequest: { title: "no number" } });
     expect([odd.host, odd.hostKind, odd.pullRequest]).toEqual([undefined, undefined, undefined]);
+    // A closed pull request is kept as closed; an unknown state or a bad number drops it.
+    expect(
+      sessionEntry({ sessionId: "s", pullRequest: { number: 3, title: "Old", state: "closed" } }).pullRequest?.state,
+    ).toBe("closed");
+    for (const pullRequest of [
+      { number: 3, title: "T", state: "weird" },
+      { number: Number.NaN, title: "T", state: "open" },
+      { number: 1.5, title: "T", state: "open" },
+      { number: 3, title: "", state: "open" },
+    ])
+      expect(sessionEntry({ sessionId: "s", pullRequest }).pullRequest).toBeUndefined();
+  });
+});
+
+describe("sections", () => {
+  test("pinned sessions leave their project, and one folder on two machines is two projects", () => {
+    const { pinned, groups } = sidebarSections([
+      { sessionId: "a", cwd: "/src/acpmux", updatedAt: 5 },
+      { sessionId: "b", cwd: "/src/acpmux", host: "cobalt-butte", updatedAt: 4 },
+      { sessionId: "c", cwd: "/src/acpmux", pinned: true, updatedAt: 3 },
+      { sessionId: "d", cwd: "/src/web", pinned: true, updatedAt: 9 },
+    ]);
+    expect(pinned.map((session) => session.sessionId)).toEqual(["d", "c"]);
+    expect(
+      groups.map((group) => [group.label, group.host, group.sessions.map((session) => session.sessionId)]),
+    ).toEqual([
+      ["acpmux", undefined, ["a"]],
+      ["acpmux", "cobalt-butte", ["b"]],
+    ]);
   });
 });

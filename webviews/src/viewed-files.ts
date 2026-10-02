@@ -21,9 +21,7 @@ export type ViewedByPath = ReadonlyMap<string, ViewedFileEntry>;
 type ViewedItem = { id: string; fileDiff?: any };
 type ToggleableItem = ViewedItem & { collapsed?: boolean; version?: number };
 
-export type ViewedChange =
-  | { kind: "set"; entry: ViewedFileEntry }
-  | { kind: "clear"; path: string };
+export type ViewedChange = { kind: "set"; entry: ViewedFileEntry } | { kind: "clear"; path: string };
 
 /** FNV-1a (32-bit) over the hunk text; hex so it is JSON- and path-safe. */
 export function patchFingerprint(patchText: string): string {
@@ -196,7 +194,10 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
-export function viewedProgress(items: readonly ViewedItem[], viewedByPath: ViewedByPath): { viewed: number; total: number } {
+export function viewedProgress(
+  items: readonly ViewedItem[],
+  viewedByPath: ViewedByPath,
+): { viewed: number; total: number } {
   let viewed = 0;
   for (const item of items) {
     if (viewedStateOfItem(item, viewedByPath) === "viewed") {
@@ -255,14 +256,18 @@ export function persistViewedChange(scope: ViewedScope | null, change: ViewedCha
   if (scope == null || change == null || !diffCommentsBridgeAvailable()) {
     return;
   }
-  const request = change.kind === "set"
-    ? callDiffComments<unknown>("viewedFiles.set", { scope, file: change.entry })
-    : callDiffComments<unknown>("viewedFiles.clear", { scope, path: change.path });
+  const request =
+    change.kind === "set"
+      ? callDiffComments<unknown>("viewedFiles.set", { scope, file: change.entry })
+      : callDiffComments<unknown>("viewedFiles.clear", { scope, path: change.path });
   request.catch((error) => console.warn("cmux diff viewed state save failed", error));
 }
 
 function isViewedFileEntry(value: unknown): value is ViewedFileEntry {
-  return value != null && typeof value === "object"
-    && typeof (value as ViewedFileEntry).path === "string"
-    && typeof (value as ViewedFileEntry).fingerprint === "string";
+  return (
+    value != null &&
+    typeof value === "object" &&
+    typeof (value as ViewedFileEntry).path === "string" &&
+    typeof (value as ViewedFileEntry).fingerprint === "string"
+  );
 }

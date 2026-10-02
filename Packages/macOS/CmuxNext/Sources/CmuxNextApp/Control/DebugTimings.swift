@@ -43,16 +43,18 @@ enum DebugTimings {
 
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread.
-    nonisolated static func markLaunch(_ name: String) {
-        let ms = sinceProcessStart
-        launchMarks.withLock { marks in
-            guard !marks.contains(where: { $0.name == name }) else { return }
+    nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
+        let ms = date.timeIntervalSince(processStart) * 1_000
+        let first = launchMarks.withLock { marks in
+            guard !marks.contains(where: { $0.name == name }) else { return false }
             marks.append((name, ms))
+            return true
         }
+        if first { LaunchMarkSink.shared.write(name: name, ms: ms) }
     }
 
     static func install() {
-        DaemonLaunchTimings.shared.install { markLaunch($0) }
+        DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
         TerminalTimings.onSurfaceCreated = { duration in
             let ms = milliseconds(duration)
             if surfaces.count < capacity { surfaces.append(ms) }

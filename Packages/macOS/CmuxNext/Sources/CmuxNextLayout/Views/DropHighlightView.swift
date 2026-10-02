@@ -1,37 +1,38 @@
 import AppKit
 import CmuxNextDesign
+import Observation
 
-/// Highlight showing where a dragged tab will land: real Liquid Glass on
-/// macOS 26 and later, a tinted blur before it, an opaque Ghostty-derived
-/// fill with Reduce Transparency (`OverlayMaterial`, `OverlaySurfaceView`).
-/// Same shape, corner radius and spring on every path; Reduce Motion snaps
-/// (the layout passes `animated: false`).
+/// Shows where a dragged tab will land. The drawing is one of the
+/// `DropOverlayStyle`s (Debug Settings `drop.overlay.style`; default the
+/// original Liquid Glass fill), switched live even mid-drag. This view
+/// covers the overlay plane and owns the motion: the target and its region
+/// follow springs (Motion token from the tunable, `settle` for morph), so
+/// every style moves the same way; Reduce Motion snaps (the layout passes
+/// `animated: false`). Glass styles draw through `OverlaySurfaceView`, so
+/// `OverlayMaterial.select` stays the one material choice.
 final class DropHighlightView: NSView {
-    let surface: OverlaySurfaceView
-    private let label = NSTextField(labelWithString: "")
-    private var frameSpring = AnimatedFrame(.zero, alpha: 0)
+    private var renderer: any DropOverlayRenderer
+    private var targetSpring = AnimatedFrame(.zero, alpha: 0)
+    private var regionSpring = AnimatedFrame(.zero)
+    private var zone: DropOverlayZone = .center
+    private var label = ""
+    private var cornerRadius: CGFloat = 0
+    private var materialOverride: OverlayMaterial?
     private(set) var isShowing = false
+    /// Called when a tunable change needs a redraw while nothing moves.
+    var needsFrame: () -> Void = {}
 
     /// `material` pins one material (tests); nil follows this Mac.
     init(material: OverlayMaterial? = nil) {
-        surface = OverlaySurfaceView(material: material)
-        let content = surface.contentView
+        materialOverride = material
+        renderer = DropOverlayRenderers.make(DropOverlayStyle.current, material: material)
         super.init(frame: .zero)
-        label.font = Typography.bodyEmphasized
-        label.alignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(label)
-        surface.frame = bounds
-        surface.autoresizingMask = [.width, .height]
-        addSubview(surface)
-        NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            label.leadingAnchor.constraint(greaterThanOrEqualTo: content.leadingAnchor, constant: Metrics.space3),
-        ])
+        wantsLayer = true
+        install(renderer)
         isHidden = true
         alphaValue = 0
         setAccessibilityElement(false)
+        observeTunables()
     }
 
     @available(*, unavailable)
@@ -39,42 +40,67 @@ final class DropHighlightView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        applyColors()
+        renderer.applyTheme()
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        applyColors()
+        renderer.applyTheme()
     }
 
-    private func applyColors() {
-        performWithTheme {
-            label.textColor = Palette.textPrimary
-        }
-        surface.applyTheme()
-    }
+    // MARK: State for debug and tests
 
-    /// Moves the highlight to `rect` (superview coordinates). Returns true if
-    /// an animation frame is needed. Design tokens are re-read on every call
-    /// so a density change applies to the next drag without a rebuild.
-    func show(_ rect: CGRect, text: String, inset: CGFloat, cornerRadius: CGFloat, animated: Bool) -> Bool {
-        let rect = rect.insetBy(dx: inset, dy: inset)
-        surface.cornerRadius = cornerRadius
-        label.font = Typography.bodyEmphasized
-        label.stringValue = text
-        label.isHidden = text.isEmpty || rect.width < 90
+    var style: DropOverlayStyle { renderer.style }
+    /// The material glass styles draw in (this Mac's when the style has no glass).
+    var material: OverlayMaterial { renderer.material ?? materialOverride ?? OverlayMaterial.current }
+    func pinMaterial(_ material: OverlayMaterial?) {
+        materialOverride = material
+        renderer.pinMaterial(material)
+    }
+    /// The target rect as drawn now (this view's coordinates).
+    var targetRect: CGRect { targetSpring.rect }
+
+    // MARK: Showing
+
+    /// Moves the overlay to `rect` inside `region` (superview coordinates).
+    /// `pointer` is where the drag is (morph grows from it). Returns true
+    /// if an animation frame is needed. Tokens and tunables are re-read on
+    /// every call, so a change applies to the next pointer move.
+    func show(_ rect: CGRect, region: CGRect, zone: DropOverlayZone, text: String, inset: CGFloat, cornerRadius: CGFloat,
+              pointer: CGPoint, animated: Bool) -> Bool {
+        refreshStyle()
+        let animated = animated && DropOverlayTunables.animated.value
+        let target = rect.insetBy(dx: inset, dy: inset)
+        self.zone = zone
+        self.label = text
+        self.cornerRadius = cornerRadius
         if !isShowing {
             isShowing = true
             isHidden = false
-            let start = rect.insetBy(dx: rect.width * 0.03, dy: rect.height * 0.03)
-            frameSpring = AnimatedFrame(start, alpha: animated ? 0 : 1)
+            let start: CGRect
+            if renderer.style == .morph {
+                start = DropOverlayGeometry.morphStart(pointer: pointer, width: CGFloat(DropOverlayTunables.morphStartWidth.value))
+            } else {
+                let share = CGFloat(DropOverlayTunables.appearInset.value)
+                start = target.insetBy(dx: target.width * share, dy: target.height * share)
+            }
+            targetSpring = AnimatedFrame(start, alpha: animated ? 0 : 1)
+            regionSpring = AnimatedFrame(region == target ? start : region)
+            // Theme changes and tunable changes re-apply colors on their own;
+            // a new drag re-reads them once.
+            renderer.applyTheme()
         }
-        frameSpring.setTarget(rect, alpha: 1)
-        if !animated { frameSpring.snap() }
+        targetSpring.setTarget(target, alpha: 1)
+        regionSpring.setTarget(region)
+        if !animated {
+            targetSpring.snap()
+            regionSpring.snap()
+        }
         apply()
         return animated
     }
@@ -82,9 +108,10 @@ final class DropHighlightView: NSView {
     func hide(animated: Bool) -> Bool {
         guard isShowing else { return false }
         isShowing = false
-        frameSpring.alpha.target = 0
-        if !animated {
-            frameSpring.snap()
+        targetSpring.alpha.target = 0
+        if !animated || !DropOverlayTunables.animated.value {
+            targetSpring.snap()
+            regionSpring.snap()
             apply()
             return false
         }
@@ -92,14 +119,60 @@ final class DropHighlightView: NSView {
     }
 
     func step(_ dt: Double) -> Bool {
-        let moving = frameSpring.advance(dt, parameters: Motion.spring(.track))
+        let token: MotionSpring = renderer.style == .morph ? .settle : DropOverlayTunables.spring.value
+        let parameters = Motion.spring(token)
+        let alphaParameters = Motion.spring(.track)
+        let a = targetSpring.advance(dt, parameters: parameters, alphaParameters: alphaParameters)
+        let b = regionSpring.advance(dt, parameters: parameters)
         apply()
-        return moving
+        return a || b
     }
 
+    // MARK: Private
+
     private func apply() {
-        frame = frameSpring.rect
-        alphaValue = frameSpring.alpha.value
-        if !isShowing && frameSpring.alpha.value <= 0.001 { isHidden = true }
+        if let superview, frame != superview.bounds { frame = superview.bounds }
+        renderer.update(DropOverlayFrame(target: targetSpring.rect, finalTarget: targetSpring.targetRect, region: regionSpring.rect,
+                                         zone: zone, bounds: bounds,
+                                         cornerRadius: cornerRadius, label: label, showsLabel: DropOverlayTunables.showLabel.value))
+        alphaValue = targetSpring.alpha.value * CGFloat(DropOverlayTunables.opacity.value)
+        if !isShowing && targetSpring.alpha.value <= 0.001 { isHidden = true }
+    }
+
+    private func install(_ renderer: any DropOverlayRenderer) {
+        renderer.view.frame = bounds
+        renderer.view.autoresizingMask = [.width, .height]
+        addSubview(renderer.view)
+        renderer.applyTheme()
+    }
+
+    /// Swaps the renderer when the style tunable changed.
+    private func refreshStyle() {
+        let style = DropOverlayStyle.current
+        guard style != renderer.style else { return }
+        renderer.view.removeFromSuperview()
+        renderer = DropOverlayRenderers.make(style, material: materialOverride)
+        install(renderer)
+    }
+
+    /// Redraws on any drop overlay tunable change (style switches live
+    /// mid-drag, or while `debug.drop_highlight` holds the overlay still).
+    /// One-shot Observation, re-armed after each change; no polling.
+    private func observeTunables() {
+        withObservationTracking {
+            _ = DropOverlayStyle.current
+            for descriptor in DropOverlayTunables.all { _ = TunableStore.shared.override(descriptor.key) }
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.refreshStyle()
+                if self.isShowing || !self.isHidden {
+                    self.renderer.applyTheme()
+                    self.apply()
+                    self.needsFrame()
+                }
+                self.observeTunables()
+            }
+        }
     }
 }

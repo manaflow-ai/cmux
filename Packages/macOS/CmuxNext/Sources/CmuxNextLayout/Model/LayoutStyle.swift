@@ -79,6 +79,18 @@ extension LayoutStyle {
         style.attention = DesignSettings.shared.attention
         style.paneBorderColor = DesignSettings.shared.paneChrome.borderColor
         style.paneBorderWidth = Metrics.paneBorderWidth
+        // Debug Settings overrides only (no override keeps the base style's
+        // value; the tunables' defaults equal the literals above).
+        if let value = LayoutTunables.inactivePaneDimming.override { style.inactivePaneDimming = value }
+        if let value = LayoutTunables.dropEdgeFraction.override { style.dropEdgeFraction = value }
+        let edgeMinimum = LayoutTunables.dropEdgeMinimum.override, edgeMaximum = LayoutTunables.dropEdgeMaximum.override
+        if edgeMinimum != nil || edgeMaximum != nil {
+            let lower = edgeMinimum ?? style.dropEdgeRange.lowerBound
+            style.dropEdgeRange = lower...max(lower, edgeMaximum ?? style.dropEdgeRange.upperBound)
+        }
+        if let value = LayoutTunables.newColumnDropWidth.override { style.newColumnDropWidth = value }
+        if let width = LayoutTunables.minimumContentWidth.override { style.minimumPaneContentSize.width = width }
+        if let height = LayoutTunables.minimumContentHeight.override { style.minimumPaneContentSize.height = height }
         return style
     }
 }

@@ -1,6 +1,6 @@
 import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
-import { sessionEntry, type AcpmuxSessionEntry } from "./sessionList";
+import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 
 export type AcpmuxHostConfig = {
@@ -13,7 +13,14 @@ export type AcpmuxHostConfig = {
   newSession?: boolean;
 };
 
-export type EventRecord = { sessionId?: string; seq: number; at: number; dir: string; kind: string; msg: Record<string, any> };
+export type EventRecord = {
+  sessionId?: string;
+  seq: number;
+  at: number;
+  dir: string;
+  kind: string;
+  msg: Record<string, any>;
+};
 type Session = Record<string, any> & { sessionId: string };
 type Reply = { id: number; result?: any; error?: { message?: string } };
 type Notification = { method: string; params?: any };
@@ -41,7 +48,11 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   };
 }
 
-export function settleOptimisticPrompt(rows: Map<string, AcpmuxRow>, promptRows: Map<string, string>, message: any): void {
+export function settleOptimisticPrompt(
+  rows: Map<string, AcpmuxRow>,
+  promptRows: Map<string, string>,
+  message: any,
+): void {
   const promptId = typeof message?.promptId === "string" ? message.promptId : undefined;
   if (!promptId) return;
   const rowId = promptRows.get(promptId);
@@ -55,14 +66,23 @@ export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
   return [...bySequence.values()].sort((left, right) => left.seq - right.seq);
 }
 
-export function applySupersededMessage(rows: Map<string, AcpmuxRow>, messageRows: Map<string, string[]>, superseded: Set<string>, oldMessageId: string): void {
+export function applySupersededMessage(
+  rows: Map<string, AcpmuxRow>,
+  messageRows: Map<string, string[]>,
+  superseded: Set<string>,
+  oldMessageId: string,
+): void {
   superseded.add(oldMessageId);
   for (const rowId of messageRows.get(oldMessageId) ?? []) rows.delete(rowId);
   messageRows.delete(oldMessageId);
 }
 
 /** The session to attach after connect: the selected one, else the most recent unless the pane is a new chat. */
-export function initialSession(selected: string | undefined, sessions: { sessionId: string }[], newSession?: boolean): string | undefined {
+export function initialSession(
+  selected: string | undefined,
+  sessions: { sessionId: string }[],
+  newSession?: boolean,
+): string | undefined {
   if (selected) return selected;
   return newSession ? undefined : sessions[0]?.sessionId;
 }
@@ -71,20 +91,44 @@ export function initialSession(selected: string | undefined, sessions: { session
 export function toolDiffs(content: any, locations: any): AcpmuxFileDiff[] | undefined {
   if (!Array.isArray(content)) return undefined;
   const lines = new Map<string, number>();
-  for (const location of Array.isArray(locations) ? locations : []) if (typeof location?.path === "string" && Number.isInteger(location.line) && location.line > 0 && !lines.has(location.path)) lines.set(location.path, location.line);
-  const diffs = content.filter((item: any) => item?.type === "diff" && typeof item.path === "string" && typeof item.newText === "string").map((item: any): AcpmuxFileDiff => ({ path: item.path, oldText: typeof item.oldText === "string" ? item.oldText : undefined, newText: item.newText, line: lines.get(item.path) }));
+  for (const location of Array.isArray(locations) ? locations : [])
+    if (
+      typeof location?.path === "string" &&
+      Number.isInteger(location.line) &&
+      location.line > 0 &&
+      !lines.has(location.path)
+    )
+      lines.set(location.path, location.line);
+  const diffs = content
+    .filter((item: any) => item?.type === "diff" && typeof item.path === "string" && typeof item.newText === "string")
+    .map((item: any): AcpmuxFileDiff => ({
+      path: item.path,
+      oldText: typeof item.oldText === "string" ? item.oldText : undefined,
+      newText: item.newText,
+      line: lines.get(item.path),
+    }));
   return diffs.length ? diffs : undefined;
 }
 
 /// Diffs placed again by an update that brings only locations.
 function placeDiffs(diffs: AcpmuxFileDiff[] | undefined, locations: any): AcpmuxFileDiff[] | undefined {
   if (!diffs || !Array.isArray(locations)) return diffs;
-  return toolDiffs(diffs.map((diff) => ({ type: "diff", ...diff })), locations) ?? diffs;
+  return (
+    toolDiffs(
+      diffs.map((diff) => ({ type: "diff", ...diff })),
+      locations,
+    ) ?? diffs
+  );
 }
 
 /// A tool call folded with an update to it. ACP updates carry only the fields that changed;
 /// content, when present, replaces the call's content.
-export function mergeToolItem(previous: AcpmuxActivity | undefined, update: any, callId: string, output: string): AcpmuxActivity {
+export function mergeToolItem(
+  previous: AcpmuxActivity | undefined,
+  update: any,
+  callId: string,
+  output: string,
+): AcpmuxActivity {
   const before = previous?.tool;
   const title = update.title ?? update.name;
   return {
@@ -98,7 +142,10 @@ export function mergeToolItem(previous: AcpmuxActivity | undefined, update: any,
       inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
       output: output || (update.content === undefined ? before?.output : undefined),
       locations: Array.isArray(update.locations) ? update.locations : before?.locations,
-      diffs: update.content === undefined ? placeDiffs(before?.diffs, update.locations) : toolDiffs(update.content, Array.isArray(update.locations) ? update.locations : before?.locations),
+      diffs:
+        update.content === undefined
+          ? placeDiffs(before?.diffs, update.locations)
+          : toolDiffs(update.content, Array.isArray(update.locations) ? update.locations : before?.locations),
     },
   };
 }
@@ -162,14 +209,24 @@ export class AcpmuxDirectClient {
   private attachedGeneration = -1;
   private historyExhausted = false;
 
-  private constructor(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void, private readonly openSocket: OpenSocket = (url) => new WebSocket(url)) {
+  private constructor(
+    host: AcpmuxHostConfig,
+    listener: Listener,
+    onLost?: () => void,
+    private readonly openSocket: OpenSocket = (url) => new WebSocket(url),
+  ) {
     this.host = host;
     this.listener = listener;
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
   }
 
-  static async connect(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void, openSocket?: OpenSocket): Promise<AcpmuxDirectClient> {
+  static async connect(
+    host: AcpmuxHostConfig,
+    listener: Listener,
+    onLost?: () => void,
+    openSocket?: OpenSocket,
+  ): Promise<AcpmuxDirectClient> {
     const client = new AcpmuxDirectClient(host, listener, onLost, openSocket);
     await client.open();
     return client;
@@ -184,20 +241,38 @@ export class AcpmuxDirectClient {
       const socket = this.openSocket(url);
       this.socket = socket;
       let opened = false;
-      socket.onopen = () => { opened = true; resolve(); };
-      socket.onerror = () => { this.opening = false; reject(new Error("Unable to connect to acpmux WebSocket")); };
+      socket.onopen = () => {
+        opened = true;
+        resolve();
+      };
+      socket.onerror = () => {
+        this.opening = false;
+        reject(new Error("Unable to connect to acpmux WebSocket"));
+      };
       socket.onclose = () => {
         if (this.socket !== socket) return;
-        if (!opened) { this.opening = false; reject(new Error("acpmux WebSocket closed before connect")); return; }
+        if (!opened) {
+          this.opening = false;
+          reject(new Error("acpmux WebSocket closed before connect"));
+          return;
+        }
         this.rejectPending();
         this.emit("disconnected");
         if (!this.hasConnected || this.closed) return;
-        if (this.onLost) { const onLost = this.onLost; this.close(); onLost(); } else this.scheduleReconnect();
+        if (this.onLost) {
+          const onLost = this.onLost;
+          this.close();
+          onLost();
+        } else this.scheduleReconnect();
       };
       socket.onmessage = (message) => this.receive(String(message.data));
     });
     try {
-      await this.request("initialize", { protocolVersion: 1, clientInfo: { name: "cmux-react-agent-pane", version: "1" }, clientCapabilities: {} });
+      await this.request("initialize", {
+        protocolVersion: 1,
+        clientInfo: { name: "cmux-react-agent-pane", version: "1" },
+        clientCapabilities: {},
+      });
       const watched = await this.request("_acpmux/watch", { enabled: true });
       this.sessions = (watched?.sessions ?? []).filter((session: Session) => session.sessionId);
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
@@ -213,7 +288,8 @@ export class AcpmuxDirectClient {
       if (sessionId) {
         const page = await this.attach(sessionId, generation);
         const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
-        if (resumeAfter > 0 && oldest > resumeAfter + 1) await this.fetchMissedEvents(sessionId, generation, resumeAfter, false);
+        if (resumeAfter > 0 && oldest > resumeAfter + 1)
+          await this.fetchMissedEvents(sessionId, generation, resumeAfter, false);
       }
       this.hasConnected = true;
       this.reconnectDelay = 250;
@@ -261,7 +337,11 @@ export class AcpmuxDirectClient {
 
   private receive(raw: string): void {
     let message: Reply | Notification;
-    try { message = JSON.parse(raw) as Reply | Notification; } catch { return; }
+    try {
+      message = JSON.parse(raw) as Reply | Notification;
+    } catch {
+      return;
+    }
     if ("id" in message && typeof message.id === "number") {
       const request = this.pending.get(message.id);
       if (!request) return;
@@ -272,14 +352,15 @@ export class AcpmuxDirectClient {
     }
     const notification = message as Notification;
     if (notification.method === "_acpmux/event") this.apply(notification.params as EventRecord);
-    else if (notification.method === "session/update") this.apply({
-      sessionId: notification.params?.sessionId,
-      seq: Number(notification.params?._meta?.acpmux?.seq ?? 0),
-      at: Number(notification.params?._meta?.acpmux?.at ?? Date.now()),
-      dir: "in",
-      kind: String(notification.params?.update?.sessionUpdate ?? ""),
-      msg: { method: "session/update", params: { update: notification.params?.update } },
-    });
+    else if (notification.method === "session/update")
+      this.apply({
+        sessionId: notification.params?.sessionId,
+        seq: Number(notification.params?._meta?.acpmux?.seq ?? 0),
+        at: Number(notification.params?._meta?.acpmux?.at ?? Date.now()),
+        dir: "in",
+        kind: String(notification.params?.update?.sessionUpdate ?? ""),
+        msg: { method: "session/update", params: { update: notification.params?.update } },
+      });
     else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
     else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
@@ -298,14 +379,20 @@ export class AcpmuxDirectClient {
     this.emit("resyncing");
     const generation = this.selectionGeneration;
     void this.fetchMissedEvents(sessionId, generation, this.lastSeq).catch(() => {
-      if (!this.closed && generation === this.selectionGeneration) this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+      if (!this.closed && generation === this.selectionGeneration)
+        this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
     });
   }
 
   /// Pages from its own cursor: live events keep advancing lastSeq meanwhile.
   /// The live summary, queue and permission survive the rebuild; after a lag the
   /// missed events are replayed onto them, while a fresh attach is already current.
-  private async fetchMissedEvents(sessionId: string, generation: number, afterSeq: number, replayLiveState = true): Promise<void> {
+  private async fetchMissedEvents(
+    sessionId: string,
+    generation: number,
+    afterSeq: number,
+    replayLiveState = true,
+  ): Promise<void> {
     for (let cursor = afterSeq; ;) {
       const result = await this.request("_acpmux/events", { sessionId, afterSeq: cursor, limit: 5_000 });
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
@@ -324,7 +411,9 @@ export class AcpmuxDirectClient {
     const generation = this.selectionGeneration;
     const watched = await this.request("_acpmux/watch", { enabled: true });
     this.sessions = (watched?.sessions ?? []).filter((session: Session) => session.sessionId);
-    const missing = this.selectedSessionId !== undefined && !this.sessions.some((session) => session.sessionId === this.selectedSessionId);
+    const missing =
+      this.selectedSessionId !== undefined &&
+      !this.sessions.some((session) => session.sessionId === this.selectedSessionId);
     if (missing && generation === this.selectionGeneration) this.selectFallbackSession("session changed");
     else this.emit("session changed");
   }
@@ -350,14 +439,27 @@ export class AcpmuxDirectClient {
   /// Returns the attach page's events, or none when the selection moved on.
   private async attach(sessionId: string, generation = this.selectionGeneration): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
-    const result = await this.request("_acpmux/attach", { sessionId, limit: 400, kinds: ["transcript", COMMANDS_KIND], eventStream: true });
+    const result = await this.request("_acpmux/attach", {
+      sessionId,
+      limit: 400,
+      kinds: ["transcript", COMMANDS_KIND],
+      eventStream: true,
+    });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     const page: EventRecord[] = result?.events ?? [];
     // An agent usually lists its commands once, at start, which is older than the page.
-    if (!page.some((event) => event.kind === COMMANDS_KIND) && typeof result?.lastSeq === "number" && result.lastSeq > 0) void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
+    if (
+      !page.some((event) => event.kind === COMMANDS_KIND) &&
+      typeof result?.lastSeq === "number" &&
+      result.lastSeq > 0
+    )
+      void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
     const detail = result?.session ?? {};
     this.summary = detail;
-    this.queue = (detail.queue ?? []).map((entry: any) => ({ id: String(entry.promptId), prompt: String(entry.prompt ?? "") }));
+    this.queue = (detail.queue ?? []).map((entry: any) => ({
+      id: String(entry.promptId),
+      prompt: String(entry.prompt ?? ""),
+    }));
     this.events = mergeEventRecords(page, this.events);
     this.rebuild();
     this.attachedGeneration = generation;
@@ -367,7 +469,12 @@ export class AcpmuxDirectClient {
 
   /// The newest command list at or before `lastSeq`, unless a live update already arrived.
   private async fetchCommands(sessionId: string, generation: number, lastSeq: number): Promise<void> {
-    const result = await this.request("_acpmux/events", { sessionId, beforeSeq: lastSeq + 1, limit: 1, kinds: [COMMANDS_KIND] });
+    const result = await this.request("_acpmux/events", {
+      sessionId,
+      beforeSeq: lastSeq + 1,
+      limit: 1,
+      kinds: [COMMANDS_KIND],
+    });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId || this.commandsApplied) return;
     const event: EventRecord | undefined = result?.events?.at(-1);
     const commands = event ? commandsFromUpdate(sessionUpdate(event)) : undefined;
@@ -388,7 +495,10 @@ export class AcpmuxDirectClient {
     this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
-      this.queue = (session.queue ?? this.queue).map((entry: any) => ({ id: String(entry.promptId), prompt: String(entry.prompt ?? entry.preview ?? "") }));
+      this.queue = (session.queue ?? this.queue).map((entry: any) => ({
+        id: String(entry.promptId),
+        prompt: String(entry.prompt ?? entry.preview ?? ""),
+      }));
     }
     // The picker lists every session, so a change elsewhere still needs a snapshot.
     this.emit("session changed");
@@ -414,9 +524,24 @@ export class AcpmuxDirectClient {
     // A prompt still in flight keeps its optimistic row until an event settles it; a failed one stays to show it was not sent.
     const inFlight = new Set(this.optimisticPromptRows.values());
     const local = [...this.rows.values()].filter((row) => row.failed || inFlight.has(row.id));
-    this.rows.clear(); for (const row of local) this.rows.set(row.id, row); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; this.supersededMessageIds.clear(); this.messageRows.clear(); this.toolRows.clear(); this.pendingPermission = undefined;
+    this.rows.clear();
+    for (const row of local) this.rows.set(row.id, row);
+    this.firstSeq = undefined;
+    this.lastSeq = 0;
+    this.turnOpen = false;
+    this.streamingAssistant = undefined;
+    this.streamingAssistantMessageId = undefined;
+    this.streamingActivity = undefined;
+    this.supersededMessageIds.clear();
+    this.messageRows.clear();
+    this.toolRows.clear();
+    this.pendingPermission = undefined;
     const events = [...this.events].sort((a, b) => a.seq - b.seq);
-    for (const event of events) { this.lastSeq = Math.max(this.lastSeq, event.seq); this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq); this.reduce(event); }
+    for (const event of events) {
+      this.lastSeq = Math.max(this.lastSeq, event.seq);
+      this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
+      this.reduce(event);
+    }
   }
 
   /// rebuild() replays a partial event window, so keep the live summary, queue and
@@ -429,14 +554,19 @@ export class AcpmuxDirectClient {
     this.summary = summary;
     this.queue = queue;
     this.pendingPermission = permission;
-    if (replayAfterSeq !== undefined) for (const event of this.events) if (event.seq > replayAfterSeq && event.dir === "mux") this.reduceLiveState(event);
+    if (replayAfterSeq !== undefined)
+      for (const event of this.events)
+        if (event.seq > replayAfterSeq && event.dir === "mux") this.reduceLiveState(event);
   }
 
   /// Mux events that move the live summary, queue or permission.
   private reduceLiveState(event: EventRecord): void {
     const msg = event.msg ?? {};
-    if (event.kind === "queued" || event.kind === "queue_updated") { const id = String(msg.promptId ?? ""); if (id) this.queue = [...this.queue.filter((entry) => entry.id !== id), { id, prompt: String(msg.text ?? "") }]; }
-    else if (event.kind === "queue_removed" || event.kind === "dequeued") this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
+    if (event.kind === "queued" || event.kind === "queue_updated") {
+      const id = String(msg.promptId ?? "");
+      if (id) this.queue = [...this.queue.filter((entry) => entry.id !== id), { id, prompt: String(msg.text ?? "") }];
+    } else if (event.kind === "queue_removed" || event.kind === "dequeued")
+      this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
     else if (event.kind === "permission_request") this.applyPermission({ ...msg, sessionId: event.sessionId });
     else if (event.kind === "permission_decision") this.pendingPermission = undefined;
     else if (event.kind === "status") this.summary = { ...this.summary, status: msg.status };
@@ -449,52 +579,137 @@ export class AcpmuxDirectClient {
       if (event.kind === "user_message") {
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
         const text = typeof msg.text === "string" ? msg.text : undefined;
-        const fallbackPromptId = promptId ?? (text ? [...this.optimisticPromptTexts.entries()].find(([, value]) => value === text)?.[0] : undefined);
+        const fallbackPromptId =
+          promptId ??
+          (text ? [...this.optimisticPromptTexts.entries()].find(([, value]) => value === text)?.[0] : undefined);
         settleOptimisticPrompt(this.rows, this.optimisticPromptRows, { ...msg, promptId: fallbackPromptId });
         if (fallbackPromptId) this.optimisticPromptTexts.delete(fallbackPromptId);
-        this.endAssistantSegment(); this.streamingActivity = undefined;
-        this.rows.set(`user-${event.seq}`, { id: `user-${event.seq}`, version: 1, at: event.at, kind: "user", text: String(msg.text ?? "") }); this.turnOpen = true;
-      }
-      else if (event.kind === "turn_started") { this.turnOpen = true; this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" }); }
-      else if (event.kind === "message_superseded") {
+        this.endAssistantSegment();
+        this.streamingActivity = undefined;
+        this.rows.set(`user-${event.seq}`, {
+          id: `user-${event.seq}`,
+          version: 1,
+          at: event.at,
+          kind: "user",
+          text: String(msg.text ?? ""),
+        });
+        this.turnOpen = true;
+      } else if (event.kind === "turn_started") {
+        this.turnOpen = true;
+        this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" });
+      } else if (event.kind === "message_superseded") {
         const oldMessageId = typeof msg.oldMessageId === "string" ? msg.oldMessageId : undefined;
         if (oldMessageId) {
           applySupersededMessage(this.rows, this.messageRows, this.supersededMessageIds, oldMessageId);
-          if (this.streamingAssistantMessageId === oldMessageId) { this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; }
+          if (this.streamingAssistantMessageId === oldMessageId) {
+            this.streamingAssistant = undefined;
+            this.streamingAssistantMessageId = undefined;
+          }
         }
-      }
-      else if (event.kind === "turn_end" || event.kind === "turn_result") { this.turnOpen = false; if (this.streamingAssistant) { const row = this.rows.get(this.streamingAssistant); if (row) { row.streaming = false; row.version += 1; } } this.rows.delete("typing"); if (event.kind === "turn_result") this.rows.set(`summary-${event.seq}`, { id: `summary-${event.seq}`, version: 1, at: event.at, kind: "turnSummary", ...this.turnTotals(event.at), status: String(msg.status ?? "completed"), error: msg.errorText }); this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; }
-      else this.reduceLiveState(event);
+      } else if (event.kind === "turn_end" || event.kind === "turn_result") {
+        this.turnOpen = false;
+        if (this.streamingAssistant) {
+          const row = this.rows.get(this.streamingAssistant);
+          if (row) {
+            row.streaming = false;
+            row.version += 1;
+          }
+        }
+        this.rows.delete("typing");
+        if (event.kind === "turn_result")
+          this.rows.set(`summary-${event.seq}`, {
+            id: `summary-${event.seq}`,
+            version: 1,
+            at: event.at,
+            kind: "turnSummary",
+            ...this.turnTotals(event.at),
+            status: String(msg.status ?? "completed"),
+            error: msg.errorText,
+          });
+        this.streamingAssistant = undefined;
+        this.streamingAssistantMessageId = undefined;
+        this.streamingActivity = undefined;
+      } else this.reduceLiveState(event);
       return;
     }
     if (!update) return;
     const commands = commandsFromUpdate(update);
-    if (commands) { this.commands = commands; this.commandsApplied = true; return; }
+    if (commands) {
+      this.commands = commands;
+      this.commandsApplied = true;
+      return;
+    }
     const text = textFromContent(update.content);
     if (event.kind === "agent_message_chunk" && text) {
       const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
       if (messageId && this.supersededMessageIds.has(messageId)) return;
-      const sameMessage = Boolean(this.streamingAssistant && (!messageId || !this.streamingAssistantMessageId || this.streamingAssistantMessageId === messageId));
+      const sameMessage = Boolean(
+        this.streamingAssistant &&
+        (!messageId || !this.streamingAssistantMessageId || this.streamingAssistantMessageId === messageId),
+      );
       const id = sameMessage ? this.streamingAssistant! : `assistant-${event.seq}`;
       const existing = this.rows.get(id);
       // Text after tool calls is a new segment; the next tool call opens a new fold.
       this.streamingActivity = undefined;
-      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: existing?.at ?? event.at, kind: "assistant", text: `${existing?.text ?? ""}${text}`, streaming: true }); this.streamingAssistant = id; this.streamingAssistantMessageId = messageId; if (messageId) { const ids = this.messageRows.get(messageId) ?? []; if (!ids.includes(id)) this.messageRows.set(messageId, [...ids, id]); } this.rows.delete("typing");
+      this.rows.set(id, {
+        id,
+        version: (existing?.version ?? 0) + 1,
+        at: existing?.at ?? event.at,
+        kind: "assistant",
+        text: `${existing?.text ?? ""}${text}`,
+        streaming: true,
+      });
+      this.streamingAssistant = id;
+      this.streamingAssistantMessageId = messageId;
+      if (messageId) {
+        const ids = this.messageRows.get(messageId) ?? [];
+        if (!ids.includes(id)) this.messageRows.set(messageId, [...ids, id]);
+      }
+      this.rows.delete("typing");
     } else if (event.kind === "agent_thought_chunk" && text) {
       this.endAssistantSegment();
-      const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id);
-      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: existing?.at ?? event.at, kind: "activity", toolCount: existing?.toolCount ?? 0, items: [...(existing?.items ?? []), { kind: "thought", text }] }); this.streamingActivity = id;
+      const id = this.streamingActivity ?? `activity-${event.seq}`;
+      const existing = this.rows.get(id);
+      this.rows.set(id, {
+        id,
+        version: (existing?.version ?? 0) + 1,
+        at: existing?.at ?? event.at,
+        kind: "activity",
+        toolCount: existing?.toolCount ?? 0,
+        items: [...(existing?.items ?? []), { kind: "thought", text }],
+      });
+      this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
       // An update to a call already shown stays in its fold; a new call ends the text segment.
       const known = this.toolRows.get(callId);
       const knownRow = known && this.rows.has(known) ? known : undefined;
       if (!knownRow) this.endAssistantSegment();
-      const id = knownRow ?? this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text);
-      if (itemIndex >= 0) items[itemIndex] = item; else items.push(item);
-      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: existing?.at ?? event.at, kind: "activity", toolCount: items.filter((entry) => entry.kind === "tool").length, items }); this.toolRows.set(callId, id);
+      const id = knownRow ?? this.streamingActivity ?? `activity-${event.seq}`;
+      const existing = this.rows.get(id);
+      const items = [...(existing?.items ?? [])];
+      const itemIndex = items.findIndex((item) => item.tool?.id === callId);
+      const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text);
+      if (itemIndex >= 0) items[itemIndex] = item;
+      else items.push(item);
+      this.rows.set(id, {
+        id,
+        version: (existing?.version ?? 0) + 1,
+        at: existing?.at ?? event.at,
+        kind: "activity",
+        toolCount: items.filter((entry) => entry.kind === "tool").length,
+        items,
+      });
+      this.toolRows.set(callId, id);
       if (!knownRow) this.streamingActivity = id;
-    } else if (event.kind === "plan") this.rows.set(`plan-${event.seq}`, { id: `plan-${event.seq}`, version: 1, at: event.at, kind: "plan", text: text || JSON.stringify(update.entries ?? update.content ?? "") });
+    } else if (event.kind === "plan")
+      this.rows.set(`plan-${event.seq}`, {
+        id: `plan-${event.seq}`,
+        version: 1,
+        at: event.at,
+        kind: "plan",
+        text: text || JSON.stringify(update.entries ?? update.content ?? ""),
+      });
   }
 
   /// The tool calls and time since the turn's user message. A prompt still sending (queued
@@ -504,7 +719,9 @@ export class AcpmuxDirectClient {
     let start = rows.length;
     while (start > 0 && rows[start - 1]!.kind !== "user") start -= 1;
     const user = rows[start - 1];
-    const toolCount = rows.slice(start).reduce((sum, row) => sum + (row.kind === "activity" ? row.toolCount ?? 0 : 0), 0);
+    const toolCount = rows
+      .slice(start)
+      .reduce((sum, row) => sum + (row.kind === "activity" ? (row.toolCount ?? 0) : 0), 0);
     return { durationMs: user ? Math.max(0, endedAt - user.at) : undefined, toolCount };
   }
 
@@ -519,11 +736,54 @@ export class AcpmuxDirectClient {
 
   private emit(connection = "connected"): void {
     const summary = this.summary;
-    const effort = (summary?.configOptions ?? []).find((option: any) => option.category === "thought_level" || option.id === "reasoning_effort");
-    this.listener({ type: "snapshot", protocolVersion: 1, rows: [...this.rows.values()].sort((a, b) => a.at - b.at), sessions: this.sessions.map((session) => { let entry = this.sessionEntries.get(session); if (!entry) { entry = sessionEntry(session); this.sessionEntries.set(session, entry); } return entry; }), summary: summary ? { sessionId: summary.sessionId, cwd: summary.cwd, turnCount: summary.turnCount, host: summary.host, hostKind: summary.hostKind, branch: summary.branch, worktree: summary.worktree, title: summary.title, name: summary.name, harness: summary.harness, model: summary.model, effort: effort?.currentValue, status: summary.status, modes: summary.modes, configOptions: summary.configOptions } : undefined, connection, sessionId: this.selectedSessionId, isWorking: this.turnOpen || summary?.status === "running", queue: this.queue, permission: this.pendingPermission, catalog: [], commands: this.commands, canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1 });
+    const effort = (summary?.configOptions ?? []).find(
+      (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
+    );
+    this.listener({
+      type: "snapshot",
+      protocolVersion: 1,
+      rows: [...this.rows.values()].sort((a, b) => a.at - b.at),
+      sessions: this.sessions.map((session) => {
+        let entry = this.sessionEntries.get(session);
+        if (!entry) {
+          entry = sessionEntry(session);
+          this.sessionEntries.set(session, entry);
+        }
+        return entry;
+      }),
+      summary: summary
+        ? {
+            sessionId: summary.sessionId,
+            cwd: summary.cwd,
+            turnCount: summary.turnCount,
+            host: text(summary.host),
+            hostKind: hostKind(summary.hostKind),
+            branch: text(summary.branch),
+            worktree: text(summary.worktree),
+            title: summary.title,
+            name: summary.name,
+            harness: summary.harness,
+            model: summary.model,
+            effort: effort?.currentValue,
+            status: summary.status,
+            modes: summary.modes,
+            configOptions: summary.configOptions,
+          }
+        : undefined,
+      connection,
+      sessionId: this.selectedSessionId,
+      isWorking: this.turnOpen || summary?.status === "running",
+      queue: this.queue,
+      permission: this.pendingPermission,
+      catalog: [],
+      commands: this.commands,
+      canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
+    });
   }
 
-  snapshot(): void { this.emit(); }
+  snapshot(): void {
+    this.emit();
+  }
   async ensureSession(): Promise<string | undefined> {
     if (!this.selectedSessionId) await this.create();
     return this.selectedSessionId;
@@ -531,21 +791,43 @@ export class AcpmuxDirectClient {
   async send(text: string): Promise<string | undefined> {
     const sessionId = await this.ensureSession();
     if (!sessionId) return undefined;
-    const promptId = crypto.randomUUID(); const rowId = `local-${promptId}`; const at = Date.now();
-    this.optimisticPromptRows.set(promptId, rowId); this.optimisticPromptTexts.set(promptId, text);
-    this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true }); this.emit();
+    const promptId = crypto.randomUUID();
+    const rowId = `local-${promptId}`;
+    const at = Date.now();
+    this.optimisticPromptRows.set(promptId, rowId);
+    this.optimisticPromptTexts.set(promptId, text);
+    this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
+    this.emit();
     try {
-      await this.request("session/prompt", { sessionId, prompt: [{ type: "text", text }], _meta: { acpmux: { promptId } } });
+      await this.request("session/prompt", {
+        sessionId,
+        prompt: [{ type: "text", text }],
+        _meta: { acpmux: { promptId } },
+      });
     } catch (error) {
       const row = this.rows.get(rowId);
-      if (row) { row.pending = false; row.failed = true; row.version += 1; }
-      this.optimisticPromptRows.delete(promptId); this.optimisticPromptTexts.delete(promptId); this.emit("failed");
+      if (row) {
+        row.pending = false;
+        row.failed = true;
+        row.version += 1;
+      }
+      this.optimisticPromptRows.delete(promptId);
+      this.optimisticPromptTexts.delete(promptId);
+      this.emit("failed");
       throw error;
     }
     return sessionId;
   }
-  async cancel(): Promise<void> { if (this.selectedSessionId) this.socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: this.selectedSessionId } })); }
-  async permission(permissionId: string, optionId: string): Promise<void> { if (this.selectedSessionId) await this.request("_acpmux/permission_respond", { sessionId: this.selectedSessionId, permissionId, optionId }); }
+  async cancel(): Promise<void> {
+    if (this.selectedSessionId)
+      this.socket?.send(
+        JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: this.selectedSessionId } }),
+      );
+  }
+  async permission(permissionId: string, optionId: string): Promise<void> {
+    if (this.selectedSessionId)
+      await this.request("_acpmux/permission_respond", { sessionId: this.selectedSessionId, permissionId, optionId });
+  }
   async select(sessionId: string): Promise<string | undefined> {
     const previousSessionId = this.selectedSessionId;
     const generation = ++this.selectionGeneration;
@@ -555,12 +837,25 @@ export class AcpmuxDirectClient {
     await this.attach(sessionId, generation);
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
-  async create(harness?: string): Promise<string | undefined> { const result = await this.request("session/new", { mcpServers: [], _meta: { acpmux: { harness } } }); if (result?.sessionId) return this.select(String(result.sessionId)); return undefined; }
-  async setModel(modelId: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId }); }
-  async setMode(modeId: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_mode", { sessionId: this.selectedSessionId, modeId }); }
-  async setConfig(configId: string, value: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_config_option", { sessionId: this.selectedSessionId, configId, value }); }
+  async create(harness?: string): Promise<string | undefined> {
+    const result = await this.request("session/new", { mcpServers: [], _meta: { acpmux: { harness } } });
+    if (result?.sessionId) return this.select(String(result.sessionId));
+    return undefined;
+  }
+  async setModel(modelId: string): Promise<void> {
+    if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId });
+  }
+  async setMode(modeId: string): Promise<void> {
+    if (this.selectedSessionId) await this.request("session/set_mode", { sessionId: this.selectedSessionId, modeId });
+  }
+  async setConfig(configId: string, value: string): Promise<void> {
+    if (this.selectedSessionId)
+      await this.request("session/set_config_option", { sessionId: this.selectedSessionId, configId, value });
+  }
   /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it. */
-  async harnesses(): Promise<AcpmuxSnapshot["catalog"]> { return normalizeCatalog(await this.request("_acpmux/harnesses", {})); }
+  async harnesses(): Promise<AcpmuxSnapshot["catalog"]> {
+    return normalizeCatalog(await this.request("_acpmux/harnesses", {}));
+  }
   /// Pages older transcript events in without reattaching, so the live summary,
   /// queue and permission stay as they are. A page that lands after the
   /// selection changed belongs to another session and is dropped.
@@ -568,7 +863,12 @@ export class AcpmuxDirectClient {
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
-    const result = await this.request("_acpmux/events", { sessionId, beforeSeq: this.firstSeq, limit: 400, kinds: ["transcript"] });
+    const result = await this.request("_acpmux/events", {
+      sessionId,
+      beforeSeq: this.firstSeq,
+      limit: 400,
+      kinds: ["transcript"],
+    });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
     const older: EventRecord[] = result?.events ?? [];
     this.events = mergeEventRecords(older, this.events);
@@ -577,11 +877,27 @@ export class AcpmuxDirectClient {
     this.emit("history");
   }
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
-  close(): void { this.closed = true; if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined; this.socket?.close(); this.socket = undefined; this.rejectPending(); }
-  private rejectPending(): void { for (const request of this.pending.values()) request.reject(new Error("acpmux WebSocket closed")); this.pending.clear(); }
+  close(): void {
+    this.closed = true;
+    if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = undefined;
+    this.socket?.close();
+    this.socket = undefined;
+    this.rejectPending();
+  }
+  private rejectPending(): void {
+    for (const request of this.pending.values()) request.reject(new Error("acpmux WebSocket closed"));
+    this.pending.clear();
+  }
 }
 
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
-  return (Array.isArray(harnesses) ? harnesses : Object.entries(harnesses).map(([id, data]) => ({ id, ...(data as any) }))).map((harness: any) => ({ id: String(harness.id ?? harness.name), name: agentName(String(harness.id ?? harness.name), harness.name == null ? undefined : String(harness.name)), models: (harness.models ?? []).map((model: any) => ({ id: String(model.id ?? model.modelId), name: model.name })) }));
+  return (
+    Array.isArray(harnesses) ? harnesses : Object.entries(harnesses).map(([id, data]) => ({ id, ...(data as any) }))
+  ).map((harness: any) => ({
+    id: String(harness.id ?? harness.name),
+    name: agentName(String(harness.id ?? harness.name), harness.name == null ? undefined : String(harness.name)),
+    models: (harness.models ?? []).map((model: any) => ({ id: String(model.id ?? model.modelId), name: model.name })),
+  }));
 }

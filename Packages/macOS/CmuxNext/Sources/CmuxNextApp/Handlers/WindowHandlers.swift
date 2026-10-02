@@ -17,6 +17,8 @@ enum WindowHandlers {
             let section = invocation["section"]?.stringValue.flatMap(SettingsSection.init(rawValue:))
             try context.services.settingsWindow.show(section: section)
         })
+        // DEV and NIGHTLY only: the descriptor is `isDebugOnly` (`DevTools`).
+        registry.bind("openDebugSettings", run: { _ in try context.services.debugSettings.show() })
         registry.bind("about", run: { _ in
             context.activateApp()
             NSApp.orderFrontStandardAboutPanel(nil)
