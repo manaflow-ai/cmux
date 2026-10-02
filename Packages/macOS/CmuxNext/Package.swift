@@ -100,6 +100,7 @@ let package = Package(
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextMallocZone",
+                "CmuxNextHome",
                 "CmuxNextWakeups",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
