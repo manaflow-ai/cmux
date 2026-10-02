@@ -18,9 +18,12 @@ public nonisolated struct SectionPatch: Hashable, Sendable, Codable {
     public var room: OptionalUpdate<String>?
     public var maxRows: OptionalUpdate<Int>?
     public var showsTitle: Bool?
+    public var arrangement: SectionArrangement?
 
     public init(title: OptionalUpdate<String>? = nil, look: SectionLook? = nil, room: OptionalUpdate<String>? = nil,
-                maxRows: OptionalUpdate<Int>? = nil, showsTitle: Bool? = nil) {
+                maxRows: OptionalUpdate<Int>? = nil, showsTitle: Bool? = nil,
+                arrangement: SectionArrangement? = nil) {
+        self.arrangement = arrangement
         self.showsTitle = showsTitle
         self.title = title
         self.look = look
@@ -32,6 +35,7 @@ public nonisolated struct SectionPatch: Hashable, Sendable, Codable {
         case title, look, room
         case maxRows = "max_rows"
         case showsTitle = "shows_title"
+        case arrangement
     }
 
     // Wire: a missing key keeps the field, null clears it, a value sets it.
@@ -42,6 +46,7 @@ public nonisolated struct SectionPatch: Hashable, Sendable, Codable {
         room = try Self.decode(String.self, .room, c)
         maxRows = try Self.decode(Int.self, .maxRows, c)
         showsTitle = try c.decodeIfPresent(Bool.self, forKey: .showsTitle)
+        arrangement = try c.decodeIfPresent(SectionArrangement.self, forKey: .arrangement)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -51,6 +56,7 @@ public nonisolated struct SectionPatch: Hashable, Sendable, Codable {
         try Self.encode(room, .room, &c)
         try Self.encode(maxRows, .maxRows, &c)
         try c.encodeIfPresent(showsTitle, forKey: .showsTitle)
+        try c.encodeIfPresent(arrangement, forKey: .arrangement)
     }
 
     private static func decode<T>(_ type: T.Type, _ key: CodingKeys, _ c: KeyedDecodingContainer<CodingKeys>) throws -> OptionalUpdate<T>? {

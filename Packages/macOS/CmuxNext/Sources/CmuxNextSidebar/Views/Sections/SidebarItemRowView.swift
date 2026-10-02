@@ -12,8 +12,10 @@ final class SidebarItemRowView: NSView {
         case list
         /// Glyph only, centered, on a faint tile (tray look).
         case tile
-        /// Glyph only, centered, no fill at rest (lines-icons look).
+        /// Glyph only, centered, no fill at rest (inline icons).
         case icon
+        /// Glyph and label side by side on one line (inline), no fill at rest.
+        case chip
 
         var isIconOnly: Bool { self == .tile || self == .icon }
     }
@@ -53,6 +55,17 @@ final class SidebarItemRowView: NSView {
     override var wantsUpdateLayer: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// Width of a chip showing `title`: padding, glyph, gap, label, padding.
+    static func chipWidth(title: String, font: NSFont) -> CGFloat {
+        // The label's own width (a text field adds its cell padding).
+        let label = NSTextField(labelWithString: title)
+        label.font = font
+        let text = ceil(label.intrinsicContentSize.width)
+        // One extra space2 of slack: measured and drawn widths differ by a
+        // few points between window contexts (seen in offscreen renders).
+        return Metrics.space2 + SidebarStyle.iconBox + Metrics.space2 + text + Metrics.space2 * 2
+    }
+
     func configure(_ info: SidebarItemInfo, style: Style) {
         guard info != self.info || style != self.style else { return }
         self.info = info
@@ -60,7 +73,7 @@ final class SidebarItemRowView: NSView {
         title.stringValue = info.title
         title.isHidden = style.isIconOnly
         badge.configure(info.badge.map(UnreadState.count) ?? .none)
-        if style.isIconOnly { badge.isHidden = true }
+        if style.isIconOnly || style == .chip { badge.isHidden = true }
         toolTip = style.isIconOnly ? info.title : nil
         setAccessibilityLabel(info.title)
         setAccessibilitySelected(info.isActive)
@@ -86,14 +99,14 @@ final class SidebarItemRowView: NSView {
         let inset = SidebarStyle.horizontalInset
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let pillFrame = style.isIconOnly ? b : NSRect(x: inset, y: 0, width: max(0, b.width - inset * 2), height: b.height)
+        let pillFrame = style.isIconOnly || style == .chip ? b : NSRect(x: inset, y: 0, width: max(0, b.width - inset * 2), height: b.height)
         pill.frame = pillFrame
         pill.cornerRadius = SidebarStyle.rowCornerRadius
         let side = SidebarStyle.iconBox
         // The glyph lines up with the text of workspace rows (their inset plus the pill inset).
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
-            : NSRect(x: inset * 2, y: (b.height - side) / 2, width: side, height: side)
+            : NSRect(x: style == .chip ? Metrics.space2 : inset * 2, y: (b.height - side) / 2, width: side, height: side)
         chip.frame = style == .list ? iconFrame : .zero
         chip.cornerRadius = Metrics.space1 + 1
         CATransaction.commit()
@@ -106,10 +119,10 @@ final class SidebarItemRowView: NSView {
         title.font = SidebarStyle.titleFont
         let bh = SidebarStyle.badgeHeight
         let badgeWidth = badge.isHidden ? 0 : badge.preferredWidth
-        let badgeX = b.width - inset * 2 - badgeWidth
+        let badgeX = style == .chip ? b.width : b.width - inset * 2 - badgeWidth
         badge.frame = NSRect(x: badgeX, y: (b.height - bh) / 2, width: badgeWidth, height: bh)
         let th = ceil(title.intrinsicContentSize.height)
-        let textX = iconFrame.maxX + Metrics.space3
+        let textX = iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
         title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, badgeX - Metrics.space2 - textX), height: th)
     }
 

@@ -84,6 +84,9 @@ public nonisolated enum SidebarSectionTunables {
 
     public static var all: [TunableDescriptor] { [look.descriptor, localPrototype.descriptor] }
 
-    /// The live look: the Debug Settings override, else quiet.
-    @MainActor public static var currentLook: SectionsLookVariant { look.override ?? look.defaultValue }
+    /// The live look: the Debug Settings override, else `sidebar.sectionLook`
+    /// in cmux.json (quiet by default).
+    @MainActor public static var currentLook: SectionsLookVariant {
+        look.override ?? SectionsLookVariant(rawValue: DesignSettings.shared.sidebarSections.look) ?? .quiet
+    }
 }

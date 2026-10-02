@@ -165,6 +165,12 @@ import Testing
         #expect(section.showsTitle && section.items.isEmpty)
     }
 
+    @Test func itemUpdateTogglesTheLabel() throws {
+        let doc = try reduce(defaults, .itemUpdate(LayoutItemID("itm_account"), showsLabel: true))
+        #expect(doc.item(LayoutItemID("itm_account"))?.showsLabel == true)
+        #expect(reject(defaults, .itemUpdate(LayoutItemID("itm_nope"), showsLabel: true)) == .unknownItem)
+    }
+
     @Test func emptyPatchIsANoOp() throws {
         #expect(try reduce(defaults, .sectionUpdate(SidebarLayoutDocument.topSectionID, SectionPatch())) == defaults)
     }
@@ -242,6 +248,7 @@ import Testing
             .itemAdd(LayoutItem(id: LayoutItemID("itm_b"), ref: .url("https://cmux.com")), section: LayoutSectionID("sec_top"), index: 1),
             .itemMove(LayoutItemID("itm_b"), section: LayoutSectionID("sec_bottom"), index: 0),
             .itemRemove(LayoutItemID("itm_b")),
+            .itemUpdate(LayoutItemID("itm_account"), showsLabel: true),
             .reset,
         ]
         for op in ops {
