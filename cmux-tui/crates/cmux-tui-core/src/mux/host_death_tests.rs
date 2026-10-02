@@ -311,3 +311,50 @@ fn host_death_never_removes_topology() {
     assert!(executed >= CASES as usize * STEPS / 2, "only {executed} steps executed");
     eprintln!("host_death_never_removes_topology: {CASES} cases, {executed} executed steps");
 }
+
+/// keep-layout ends hosts with a real signal; the workspace store's kept-tab
+/// record keeps the tab through that real exit and through a restart.
+#[cfg(unix)]
+#[test]
+fn kept_tab_survives_a_real_exit_and_a_restart() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-kept-tab-real-exit-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "kept-tab-real-exit";
+    let options = SurfaceOptions {
+        terminal_host_root: Some(crate::terminal_host_runtime::terminal_host_root(&root, session)),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::open_persistent(session, options.clone(), &root).unwrap();
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let (id, incarnation) = (terminal_hex("00", 1), terminal_hex("10", 1));
+    let surface = mux
+        .seed_running_terminal_with_on_exit_for_test(
+            &id,
+            &incarnation,
+            &workspace.key,
+            TerminalOnExit::Close,
+        )
+        .unwrap();
+    let before = topology(&mux);
+    let tabs = tabs_of(&before).into_iter().map(|tab| (tab, None)).collect::<Vec<_>>();
+    {
+        let mut registry = mux.workspace_registry.lock().unwrap();
+        registry.put_kept_tabs(&tabs).unwrap();
+        mux.reload_presentation(&registry).unwrap();
+    }
+    mux.surface(surface).unwrap().record_process_end_for_test(TerminalExit::now(
+        TerminalExitOutcome::Signal { signal: libc::SIGTERM, core_dumped: false },
+    ));
+    mux.surface_exited(surface);
+    let resolved = mux.resolve_terminal(&id).unwrap().unwrap();
+    assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
+    assert_eq!(topology(&mux), before, "a real exit removed a kept tab");
+    mux.shutdown();
+    drop(mux);
+
+    let reopened = Mux::open_persistent(session, options, &root).unwrap();
+    assert_eq!(topology(&reopened), before, "a restart removed a kept tab");
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(root);
+}
