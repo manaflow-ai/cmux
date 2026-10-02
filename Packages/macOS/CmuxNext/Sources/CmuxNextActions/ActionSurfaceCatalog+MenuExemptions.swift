@@ -105,6 +105,7 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.extension.remove", "browser.extension.command", "palette.attemptUpdate",
         ],
         .liveInput: [
+            "browserLinkHints", "browserLinkHintsNewSplit",
             "palette.toggleDictation",
             "toggleTerminalCopyMode", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction",
             "attachTextBoxFile", "sendCtrlFToTerminal", "pasteLastScreenshot", "find", "findInDirectory", "findNext",
