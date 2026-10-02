@@ -164,7 +164,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
     private static func permissionAction(_ name: String, title: String, symbol: String,
                                          shortcut: Shortcut? = nil) -> ActionDescriptor {
         var action = ActionDescriptor(
-            id: "agentPane.permission.\(name)",
+            id: ActionID(rawValue: "agentPane.permission.\(name)"),
             title: title,
             keywords: ["agent", "permission", "tool", name], defaultShortcut: shortcut,
             category: .agents, symbol: symbol, surfaces: [.keyboard],
