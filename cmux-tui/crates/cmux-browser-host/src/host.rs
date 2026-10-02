@@ -286,6 +286,17 @@ mod tests {
         assert!(bundle::REPL_SCRIPTS.iter().any(|(f, _)| *f == "repl-host.js"));
         assert_eq!(bundle::AGENT_SCRIPTS.last().map(|(f, _)| *f), Some("page-agent.js"));
         assert!(agent_bundle().contains("cmux"));
+    }
+
+    #[test]
+    fn the_agent_bundle_wraps_playwright_injected_as_a_module() {
+        // The #15570 install recipe (tests/browser-parity/lib/dev-driver.mjs
+        // agentInstallSource): Playwright's injected script is a CommonJS
+        // module, and page-agent.js reads its factory.
+        let bundle = agent_bundle();
+        assert!(bundle.starts_with("(() => {\nconst module = {};\n"), "{}", &bundle[..80]);
+        assert!(bundle.contains(";const __cmuxInjectedScriptFactory = module.exports.InjectedScript;\n"));
+        assert!(bundle.trim_end().ends_with("})()"));
         assert!(!bundle::GUIDE.is_empty());
     }
 }
