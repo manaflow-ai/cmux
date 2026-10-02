@@ -1,7 +1,7 @@
 import type { Domain, OutboxItem, Principal, Reject, ReduceResult } from "../conversation/engine-types.ts"
 import { takeAddressQuota, type AddressWindow } from "../invites/limits.ts"
 import type { Suppression } from "../invites/policy.ts"
-import { confirmLink, EMPTY_LINK_STATE, noteInbound, requestLink, unlink, type LinkState } from "./text-link.ts"
+import { confirmLink, EMPTY_LINK_STATE, noteInbound, requestLink, unlink, userIdOf, type LinkState } from "./text-link.ts"
 
 /**
  * AddressDO, one per address (home-messaging.md sections 3, 4.3 and 9): the
@@ -67,7 +67,7 @@ export const addressDomain: Domain<AddressHead, Params> = {
   authorize: (head, op, _params, p): Reject | undefined => {
     // The link is opened by a signed-in person; the domain checks it is the account that asked.
     if (op === "address.text_link.confirm") return p.kind === "session" && p.user ? undefined : { code: "forbidden", message: "sign in to link this phone" }
-    if (op === "address.text_link.unlink" && (p.kind === "session" || p.kind === "install")) return undefined
+    if (op === "address.text_link.unlink" && p.kind === "session") return undefined
     if (op === "address.unsuppress") return isAddressOwner(head, p) ? undefined : { code: "forbidden", message: "only the owner of this address may unsuppress it" }
     return p.kind === "system" ? undefined : { code: "forbidden", message: `${op} is a system op` }
   },
@@ -122,7 +122,7 @@ export const addressDomain: Domain<AddressHead, Params> = {
         if (head.suppression) return { ok: true, state: head, value: head.suppression, changed: false }
         const suppression = { reason: reason as Suppression, at: ctx.now }
         // An opt-out also ends texting Chief from this number; linking again needs a new link.
-        const link = head.link ? { ...head.link, binding: null, pending: null } : head.link
+        const link = head.link ? { ...head.link, binding: null, pending: [] } : head.link
         return { ok: true, state: { ...head, suppression, ...(link ? { link } : {}) }, value: suppression }
       }
       case "address.unsuppress": {
@@ -151,15 +151,16 @@ export const addressDomain: Domain<AddressHead, Params> = {
       case "address.text_link.confirm": {
         const { proof } = params
         if (!str(proof, 128)) return refuse("invalid_params")
-        const user = ctx.principal.user!.startsWith("user_") ? ctx.principal.user! : `user_${ctx.principal.user}`
+        const user = userIdOf(ctx.principal.user)!
         const r = confirmLink(head.link ?? EMPTY_LINK_STATE, user, proof, ctx.now)
         // A failed confirm still commits (attempt count, burned link): the reject alone would lose it.
         if (!r.ok) return r.state ? { ok: true, state: { ...head, link: r.state }, value: { linked: false, code: r.code } } : refuse(r.code)
-        return { ok: true, state: { ...head, link: r.state, linked_user: head.linked_user ?? user }, value: { linked: true, expires_at: r.value.expires_at } }
+        // The text binding is separate from `linked_user` (invite routing): a wrong binder never owns the address.
+        return { ok: true, state: { ...head, link: r.state }, value: { linked: true, expires_at: r.value.expires_at } }
       }
       case "address.text_link.unlink": {
         const p = ctx.principal
-        const user = p.kind === "system" ? null : p.user ? (p.user.startsWith("user_") ? p.user : `user_${p.user}`) : "?"
+        const user = p.kind === "system" ? null : (userIdOf(p.user) ?? "?")
         const r = unlink(head.link ?? EMPTY_LINK_STATE, user)
         if (!r.ok) return refuse(r.code)
         if (r.state === (head.link ?? EMPTY_LINK_STATE)) return { ok: true, state: head, value: null, changed: false }
@@ -167,8 +168,15 @@ export const addressDomain: Domain<AddressHead, Params> = {
       }
       case "address.inbound.note": {
         const link = head.link ?? EMPTY_LINK_STATE
-        if (!link.binding) return { ok: true, state: head, value: null, changed: false }
-        return { ok: true, state: { ...head, link: noteInbound(link, ctx.now) }, value: null }
+        const next = noteInbound(link, ctx.now)
+        if (next === link) return { ok: true, state: head, value: null, changed: false }
+        return { ok: true, state: { ...head, link: next }, value: null }
+      }
+      case "address.resubscribe": {
+        // System op for an inbound START (or UNSTOP, or YES while suppressed) from this same number;
+        // lifts only the recipient's own opt-out, never a bounce, complaint, report or admin block.
+        if (head.suppression?.reason !== "opted_out") return { ok: true, state: head, value: null, changed: false }
+        return { ok: true, state: { ...head, suppression: null }, value: null }
       }
       default:
         return refuse("invalid_params", `unknown op ${op}`)

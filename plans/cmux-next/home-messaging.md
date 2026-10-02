@@ -593,21 +593,47 @@ Goal: a person texts the cmux line and talks to their Chief; Chief replies in th
   requests per number per hour. A number bound to one account cannot be requested by another
   until it is unlinked. STOP ends the binding. A binding lasts 180 days and needs a new link
   after 90 days without inbound texts.
+- Limits (security review): 3 link requests per hour per (number, account), 6 per day per
+  number, plus per-account limits in the Worker (5 per day, 2 numbers per day); one pending
+  link per account, so a stranger's request never replaces the owner's link. The Worker answers
+  every request the same way ("if this number can be linked, we sent a text"), so a refusal does
+  not reveal whether a number is bound, suppressed or rate limited. A text never revives an
+  idle or expired binding. The binding is separate from `linked_user` (invite routing), so a
+  wrong binder never owns the address. STOP ends the binding; START or UNSTOP (or YES while
+  suppressed) from the same number lifts only that opt-out (`address.resubscribe`); a late STOP
+  still applies.
+- Link page (backend lead): never confirm on load; show the masked number and the signed-in
+  account, and require a button press; `Referrer-Policy: no-referrer`, no third-party scripts;
+  keep the code out of sign-in redirect URLs (session storage) and remove the fragment with
+  `history.replaceState`; a fresh idempotency key per click, and read `value.linked`. The text
+  names the masked account that asked ("for the cmux account l***@example.com"), so a person
+  who did not ask can tell. Link previews cannot use the code (the fragment never reaches a
+  server, and a preview has no session).
 - Residual risks (it is not foolproof; texts are a weak channel):
+  - Forwarded link or login CSRF: an attacker asks for a link to the victim's number, then
+    gets the victim to forward it or to open it in a browser signed in to the attacker's
+    account. The victim's texts to cmux then reach the attacker's Chief. Mitigations: the text
+    and the page name the requesting account; the button press; nothing else.
   - SIM swap, port-out or a recycled number BEFORE linking: an attacker who receives the
-    user's texts can still only bind the number to the account that asked, so they cannot take
-    the user's account, but they can bind a victim's number to their own account and receive
-    texts the victim sends to cmux. Mitigation: the 180-day expiry, a notice to the previous
-    account when a number is relinked, and refusing numbers bound elsewhere.
+    user's texts can bind the number only to the account that asked (their own), so they cannot
+    take the user's account, but they receive what the victim texts to cmux. Not built yet: a
+    notice to the previous account when a number is relinked.
   - SIM swap, a stolen unlocked phone or a recycled number AFTER linking: whoever controls the
-    number texts with the user's Chief authority (strongest objection to the full default,
-    below). Carrier-change signals are not exposed by the provider (UNVERIFIED); the idle rule
-    and the expiry limit the window only partly.
-  - Forged sender numbers: some gateways can forge an SMS sender; iMessage senders are tied to
-    an Apple account. Texts that arrive as plain SMS get read and reply only.
-  - Phishing look-alikes: the link uses one fixed cmux domain and never a shortener, but users
-    can still be fooled by a look-alike domain in a fake text.
+    number texts with the user's Chief authority (the strongest objection to the full default,
+    below). After a SIM swap the attacker can also register the number for iMessage, so the
+    iMessage rule does not help then. Carrier-change signals are not exposed by the provider
+    (UNVERIFIED); the 90-day idle rule and the 180-day expiry limit the window only partly.
+  - Forged sender numbers: some gateways can forge an SMS sender, so texts that arrive as plain
+    SMS get read and reply only, and in group threads the authority is read and reply too.
+  - The webhook secret: the provider sends a shared secret, not a signature. Anyone who learns
+    it can forge an iMessage from any bound number with full authority. Mitigation to build:
+    before acting with full authority, fetch the message from the provider API by its handle and
+    compare it.
+  - Phishing look-alikes: one fixed cmux domain and never a shortener, but users can still be
+    fooled by a look-alike domain in a fake text.
   - The account itself: a stolen Stack session can link any number the attacker controls.
+  - The unlinked-number auto-reply goes to any sender, including forged ones (once per day per
+    number).
 - Routing: an inbound text from a bound number becomes a `message.send` in the user's chief
   conversation, authored by the user with `origin: remote` and part metadata `via: sms`; MuxDO
   wakes the Chief; the Chief's reply in that conversation goes back out through AddressDO.
