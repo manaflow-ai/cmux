@@ -50,7 +50,7 @@ struct ControlCommandExecutionPolicyTests {
             "agent.restore.admit", "agent.restore.release",
             "agent.message.send", "agent.message.list", "agent.message.claim",
             "agent.message.ack",
-            "agent.message.mark_read", "agent.message.poll",
+            "agent.message.mark_read", "agent.message.poll", "agent.message.settings",
             "browser.download.list", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
@@ -88,7 +88,7 @@ struct ControlCommandExecutionPolicyTests {
             "agent.hibernate", "agent.wake",
             "agent.message.send", "agent.message.list", "agent.message.claim",
             "agent.message.ack",
-            "agent.message.mark_read", "agent.message.poll",
+            "agent.message.mark_read", "agent.message.poll", "agent.message.settings",
         ] {
             #expect(
                 ControlCommandExecutionPolicy(forMethod: method)
