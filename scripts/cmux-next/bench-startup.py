@@ -11,6 +11,10 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
   cold  no daemon for the tag runs: the app starts it (`server ensure`)
   warm  a priming launch leaves the daemon running (keep sessions); only
         the app quits before the measured launch
+  daemon  the daemon side alone, with the tag's bundled cmux-tui: `--version`
+        (process spawn), `server ensure` after only the owner was stopped
+        (state kept, terminal hosts adopted), `server ensure` on an empty
+        state root, then one connection's identify and snapshot round trips
 
   scripts/cmux-next/bench-startup.py --tag nxboot [--tag other] [--runs 5]
       [--mode cold --mode warm] [--json out.json]
@@ -200,6 +204,56 @@ def one_run(tag, mode, timeout):
     return launch.marks
 
 
+def daemon_side(tag, runs):
+    """Times the daemon's own start and first answers (no app)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from bench_cli_storm import Client  # noqa: E402
+    binary = os.path.join(os.path.dirname(os.path.dirname(app_binary(tag))), "Resources/bin/cmux-tui")
+    if app_pids(tag):
+        raise SystemExit(f"tag {tag} has an app running; quit it first")
+    tmp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    state = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui")
+
+    def env(state_dir):
+        return {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR": tmp, "CMUX_TUI_STATE_DIR": state_dir}
+
+    def timed(args, state_dir):
+        started = time.monotonic()
+        out = subprocess.run([binary, *args], env=env(state_dir), capture_output=True, text=True)
+        return (time.monotonic() - started) * 1000, out.stdout
+
+    def owner_pids(session):
+        return pgrep(f"cmux-tui.*--session {session}( |$)")
+
+    rows = {}
+    for _ in range(runs):
+        rows.setdefault("spawn cmux-tui --version", []).append(timed(["--version"], state)[0])
+        session = f"cmux-app-{tag}"
+        stop(owner_pids(session))
+        ms, out = timed(["--session", session, "--json", "server", "ensure"], state)
+        rows.setdefault("server ensure, state kept (adopt hosts)", []).append(ms)
+        socket = json.loads([line for line in out.splitlines() if line.startswith("{")][-1])["socket"]
+        client = Client(socket, timeout=10)
+        for cmd in ("identify", "list-workspaces", "list-personal"):
+            started = time.monotonic()
+            client.call(cmd, cmd_key="cmd")
+            rows.setdefault(f"{cmd} round trip (first connection)", []).append((time.monotonic() - started) * 1000)
+        client.close()
+        ms, _ = timed(["--session", session, "--json", "server", "status"], state)
+        rows.setdefault("server status (running owner)", []).append(ms)
+        fresh = tempfile.mkdtemp(prefix=f"bench-startup-daemon-{tag}-")
+        fresh_session = f"bench-{os.getpid()}"
+        ms, _ = timed(["--session", fresh_session, "--json", "server", "ensure"], fresh)
+        rows.setdefault("server ensure, empty state root", []).append(ms)
+        stop(owner_pids(fresh_session))
+        subprocess.run(["rm", "-rf", fresh])
+    print(f"\n{tag} daemon side ({runs} runs), ms")
+    print(f"  {'phase':<46} {'median':>8} {'max':>8}")
+    for label, values in rows.items():
+        print(f"  {label:<46} {statistics.median(values):>8.0f} {max(values):>8.0f}")
+
+
 def table(runs):
     rows = []
     previous = 0.0
@@ -217,11 +271,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tag", action="append", required=True)
     parser.add_argument("--runs", type=int, default=5)
-    parser.add_argument("--mode", action="append", choices=["cold", "warm"])
+    parser.add_argument("--mode", action="append", choices=["cold", "warm", "daemon"])
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds per launch to reach the first frame")
     parser.add_argument("--json", help="write every run's marks here")
     args = parser.parse_args()
     modes = args.mode or ["cold", "warm"]
+    if "daemon" in modes:
+        modes.remove("daemon")
+        for tag in args.tag:
+            daemon_side(tag, args.runs)
+        if not modes:
+            return
     results = {tag: {mode: [] for mode in modes} for tag in args.tag}
     print(f"load average: {' '.join(f'{x:.0f}' for x in os.getloadavg())}")
     try:
