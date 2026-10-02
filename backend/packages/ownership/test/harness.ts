@@ -110,7 +110,15 @@ export class Violation extends Error {
 
 type ToOwner = { readonly from: number; readonly msg: ClientOut }
 
-export const runSim = (cfg: SimConfig): { steps: number; committed: number } => {
+export interface SimStats {
+  snapshots: number
+  heldReplies: number
+  crashes: number
+  replays: number
+}
+export const emptyStats = (): SimStats => ({ snapshots: 0, heldReplies: 0, crashes: 0, replays: 0 })
+
+export const runSim = (cfg: SimConfig, stats: SimStats = emptyStats()): { steps: number; committed: number } => {
   const r = rng(cfg.seed)
   const tabs = Array.from({ length: cfg.tabs }, (_, i) => `t${i}`)
   const panes = Array.from({ length: cfg.panes }, (_, i) => `p${i}`)
@@ -146,6 +154,7 @@ export const runSim = (cfg: SimConfig): { steps: number; committed: number } => 
   )
 
   const deliver = (target: "all" | string, frame: OwnerFrame) => {
+    if ((frame.t === "result" || frame.t === "reject") && frame.replayed) stats.replays++
     if (frame.t === "request-settled" && !frame.ok && target !== "all") rejectedSeen.add(`${target}|${frame.idempotency_key}`)
     ids.forEach((id, i) => {
       if ((target === "all" || target === id) && clients[i]!.connected) toClient[i]!.push(frame)
@@ -238,6 +247,7 @@ export const runSim = (cfg: SimConfig): { steps: number; committed: number } => 
       engine.submit({ identity: id, install: id }, m.msg.frame, deliver)
     } catch {
       ownerDead = true // crashed inside the commit: the staged op is lost
+      stats.crashes++
     }
   }
   const clientReceive = (i: number, keep: boolean) => {
@@ -246,11 +256,12 @@ export const runSim = (cfg: SimConfig): { steps: number; committed: number } => 
     const idx = r.int(ch.length)
     const f = ch[idx]!
     if (!keep) ch.splice(idx, 1)
-    try {
-      clients[i]!.receive(f)
-    } catch (e) {
-      throw new Violation("MirrorIsPrefix", `client replay failed: ${(e as Error).message}`)
-    }
+    if (f.t === "snapshot") stats.snapshots++
+    const heldBefore = clients[i]!.held.length
+    clients[i]!.receive(f)
+    if (clients[i]!.held.length > heldBefore) stats.heldReplies++
+    // A correct client never sees its reducer refuse a committed op.
+    if (clients[i]!.desyncs > 0) throw new Violation("MirrorIsPrefix", `client ${ids[i]} could not replay a committed op`)
   }
   const restart = () => {
     engine = makeEngine()

@@ -61,7 +61,11 @@ export const drainOutbox = async (env: Env, stream: string, rows: ReadonlyArray<
     await client.query("BEGIN")
     for (const row of rows) {
       const make = statements[row.kind]
-      if (!make) throw new Error(`no projection for ${row.kind}`)
+      // An unknown kind (newer writer than this drain) must not block every later row.
+      if (!make) {
+        console.error(JSON.stringify({ msg: "outbox row skipped: no projection", stream, seq: row.seq, kind: row.kind }))
+        continue
+      }
       const [text, values] = make(row.payload as Record<string, unknown>, stream, row.seq)
       await client.query(text, values)
     }

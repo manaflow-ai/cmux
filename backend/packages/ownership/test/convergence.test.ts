@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { ClientMutants } from "../src/client.ts"
 import type { EngineMutants } from "../src/engine.ts"
-import { runSim, Violation, type SimConfig } from "./harness.ts"
+import { emptyStats, runSim, Violation, type SimConfig } from "./harness.ts"
 
 const base: Omit<SimConfig, "seed"> = {
   steps: 80,
@@ -18,9 +18,10 @@ const SEEDS = Number(process.env.OWNERSHIP_SEEDS ?? 400)
 describe("OwnershipConvergence invariants on the real engine and client", () => {
   it(`holds every safety invariant and converges (${SEEDS} seeds)`, () => {
     let committed = 0
+    const stats = emptyStats()
     for (let seed = 1; seed <= SEEDS; seed++) {
       try {
-        committed += runSim({ ...base, seed }).committed
+        committed += runSim({ ...base, seed }, stats).committed
       } catch (e) {
         if (e instanceof Violation) throw new Error(`seed ${seed}: ${e.message}`)
         throw e
@@ -28,6 +29,11 @@ describe("OwnershipConvergence invariants on the real engine and client", () => 
     }
     // The runs must actually commit ops, or the invariants are vacuous.
     expect(committed).toBeGreaterThan(SEEDS)
+    // Each protocol path the invariants guard must actually run.
+    expect(stats.snapshots).toBeGreaterThan(0)
+    expect(stats.heldReplies).toBeGreaterThan(0)
+    expect(stats.crashes).toBeGreaterThan(0)
+    expect(stats.replays).toBeGreaterThan(0)
   })
 
   it("holds with three clients and more faults", () => {

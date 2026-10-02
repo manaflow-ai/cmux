@@ -21,9 +21,9 @@ export const teamDomain: Domain<TeamState> = {
     if (op !== "team.ensure_personal") {
       if (!principal.user || !state.members[principal.user]) return { code: "auth.forbidden", message: "not a member of this team" }
     }
-    // Install principals present a grant id; the grant lives in UserDO and was
-    // checked at token mint. Admission here checks kind and op ownership only.
-    return admit("cloud:TeamDO", op, principal, () => ({ op_classes: ["read", "mutate-own", "mutate-shared", "execute"], revoked_at: null, expires_at: null }), Date.now())
+    // The grant lives in UserDO. The Worker asks UserDO on every install call
+    // (revocation and grant) and passes the grant's classes; none means refuse.
+    return admit("cloud:TeamDO", op, principal, (p) => (p.grant_classes ? { op_classes: p.grant_classes, revoked_at: null, expires_at: null } : undefined), Date.now())
   },
 
   reduce: (state, op, params, ctx) => {
@@ -32,7 +32,7 @@ export const teamDomain: Domain<TeamState> = {
       case "team.ensure_personal": {
         if (!p.user || !p.team) return reject("auth.forbidden", "needs a user session")
         if (state.team && state.team.id !== p.team) return reject("auth.forbidden", "not this team")
-        const name = p.display_name ?? p.email ?? "Personal"
+        const name = p.display_name ?? "Personal"
         const member: typeof TeamMember.Type = { user: p.user, role: "owner", display_name: name }
         const team = { id: p.team, kind: "personal" as const, display_name: name }
         const same = JSON.stringify(state.team) === JSON.stringify(team) && JSON.stringify(state.members[p.user]) === JSON.stringify(member)

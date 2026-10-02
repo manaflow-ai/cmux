@@ -1,4 +1,4 @@
-import { authenticate } from "./auth.ts"
+import { authenticate, withGrantClasses } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { apiHandler } from "./http.ts"
 
@@ -14,8 +14,11 @@ export { UserDO } from "./user-do.ts"
 const wire = async (request: Request, env: Env, scope: string): Promise<Response> => {
   const protocols = (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((s) => s.trim())
   const token = protocols.find((p) => p.startsWith("bearer."))?.slice("bearer.".length)
-  const principal = await authenticate(env, token)
-  if (!principal?.user || !principal.team) return new Response("unauthenticated", { status: 401 })
+  const authed = await authenticate(env, token)
+  if (!authed?.user || !authed.team) return new Response("unauthenticated", { status: 401 })
+  // TeamDO cannot see UserDO's revocations; resolve the grant first (UserDO checks its own installs).
+  const principal = scope === "team" ? await withGrantClasses(env, authed) : authed
+  if (!principal) return new Response("forbidden", { status: 403 })
   const [ns, entity] = scope === "user" ? [env.USER_DO, principal.user] : scope === "team" ? [env.TEAM_DO, principal.team] : [undefined, undefined]
   if (!ns || !entity) return new Response("not found", { status: 404 })
   const headers = new Headers(request.headers)

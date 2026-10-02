@@ -44,9 +44,12 @@ export interface EngineOptions {
   readonly mutants?: EngineMutants
   /** Test hook: called inside the commit transaction; a throw models a crash before commit. */
   readonly beforeCommit?: () => void
+  /** What subscribers see of the actor in events. Default: the full principal. */
+  readonly eventActor?: (p: Principal) => Principal
 }
 
 const SCHEMA_VERSION = 1
+const ORIGINS = new Set(["user", "cli", "mcp", "script", "remote"])
 
 const MIGRATIONS: ReadonlyArray<string> = [
   `CREATE TABLE IF NOT EXISTS own_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
@@ -164,7 +167,13 @@ export class OwnerEngine<S, P = unknown> {
       : principalIn
     const identity = principal.identity
     const key = frame.idempotency_key
-    const origin: Origin = frame.origin ?? "cli"
+    if (typeof key !== "string" || key.length === 0 || key.length > 128) {
+      const bad = typeof key === "string" ? key : ""
+      deliver(identity, { t: "reject", tx: "", idempotency_key: bad, code: "validation.invalid", message: "idempotency_key is required (1 to 128 characters)", retryable: false, replayed: false })
+      deliver(identity, settled(this.stream, "", bad, 0, false))
+      return
+    }
+    const origin: Origin = ORIGINS.has(frame.origin as string) ? (frame.origin as Origin) : "cli"
     const tx = this.txTag(identity, key)
     const paramsHash = sha256(canonicalJson({ op: frame.op, params: frame.params }))
     const at = this.now()
@@ -183,10 +192,6 @@ export class OwnerEngine<S, P = unknown> {
       retryable: extra.retryable ?? false,
       replayed: false
     })
-
-    if (typeof key !== "string" || key.length === 0 || key.length > 128) {
-      return reply(reject("validation.invalid", "idempotency_key is required (1 to 128 characters)"), 0)
-    }
 
     // 1. Ledger: a decided key answers from the ledger with its original sequence.
     if (!this.options.mutants?.noLedger) {
@@ -233,7 +238,7 @@ export class OwnerEngine<S, P = unknown> {
     const nextSeq = decision.ok && decision.changed ? this.seq + 1 : this.seq
     const event: EventFrame | undefined =
       decision.ok && decision.changed
-        ? { t: "event", stream: this.stream, seq: nextSeq, tx, op: frame.op, params: frame.params, actor: principal, origin, at }
+        ? { t: "event", stream: this.stream, seq: nextSeq, tx, op: frame.op, params: frame.params, actor: this.options.eventActor?.(principal) ?? principal, origin, at }
         : undefined
     const sequence = event ? event.seq : 0
     const out: ResultFrame | RejectFrame = decision.ok
@@ -259,7 +264,7 @@ export class OwnerEngine<S, P = unknown> {
           tx,
           frame.op,
           JSON.stringify(frame.params ?? null),
-          JSON.stringify(principal),
+          JSON.stringify(event!.actor),
           origin,
           at
         )

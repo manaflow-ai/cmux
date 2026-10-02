@@ -6,7 +6,16 @@ import { OwnerDO, type ReadResult } from "./owner-do.ts"
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export class TeamDO extends OwnerDO<TeamState> {
   constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env, teamDomain, "team")
+    // Members see each other's public ids and display name in events, never email,
+    // Stack id, grant or token data.
+    super(ctx, env, teamDomain, "team", (p) => ({
+      identity: p.install ?? `user:${p.user}`,
+      ...(p.kind ? { kind: p.kind } : {}),
+      ...(p.user ? { user: p.user } : {}),
+      ...(p.team ? { team: p.team } : {}),
+      ...(p.install ? { install: p.install } : {}),
+      ...(p.display_name ? { display_name: p.display_name } : {})
+    }))
   }
 
   protected read(state: TeamState, op: string, _params: unknown, principal: Principal): ReadResult {

@@ -57,7 +57,7 @@ const call = async (path: string, token: string | undefined, body?: unknown) => 
   })
   return { status: res.status, json: (await res.json().catch(() => ({}))) as any }
 }
-const op = (token: string, name: string, params: unknown, key = crypto.randomUUID()) => call("/v1/ops", token, { op: name, params, idempotency_key: key, origin: "cli" })
+const op = (token: string, name: string, params: unknown, key: string = crypto.randomUUID()) => call("/v1/ops", token, { op: name, params, idempotency_key: key, origin: "cli" })
 const b64u = (buf: ArrayBuffer) => Buffer.from(buf).toString("base64url")
 
 const session = await signIn()

@@ -39,6 +39,8 @@ export class ProjectionClient<S, P = unknown> {
   readonly settledOk = new Set<string>()
   connected = true
   awaiting = false
+  /** Committed events the local reducer refused (schema skew or a bug); each one triggers a snapshot. */
+  desyncs = 0
   private buffered: Array<EventFrame> = []
   private counter = 0
 
@@ -124,7 +126,7 @@ export class ProjectionClient<S, P = unknown> {
     if (this.mutants.dropAtNextDelta && this.pending.length > 0) this.pending.shift()
     if (e.seq === this.confirmed.seq + 1 || (this.mutants.noGapCheck && e.seq > this.confirmed.seq)) {
       this.applyEvent(e)
-      this.flushHeld()
+      if (!this.awaiting) this.flushHeld()
     } else if (e.seq > this.confirmed.seq + 1) {
       this.buffered.push(e)
       this.requestSnapshot()
@@ -138,8 +140,13 @@ export class ProjectionClient<S, P = unknown> {
       tx: e.tx,
       newId: idFactory(e.tx)
     })
-    // The owner committed this op with the same pure reducer, so it applies.
-    if (!r.ok) throw new Error(`mirror replay rejected committed op ${e.op} at seq ${e.seq}: ${r.code}`)
+    // The owner committed this op with the same pure reducer, so it applies. If it does
+    // not (version skew), resync from a snapshot instead of diverging.
+    if (!r.ok) {
+      this.desyncs++
+      this.requestSnapshot()
+      return
+    }
     this.confirmed = { state: r.state, seq: e.seq }
   }
 

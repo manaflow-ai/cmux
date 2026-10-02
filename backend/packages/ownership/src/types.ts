@@ -17,6 +17,10 @@ export interface Principal {
   readonly stack_user_id?: string
   readonly email?: string | null
   readonly display_name?: string
+  /** Op classes of the principal's grant, resolved by the grant's owner (UserDO) for other owners. */
+  readonly grant_classes?: ReadonlyArray<string>
+  /** Token expiry (ms); long-lived connections close at this time. */
+  readonly expires_at?: number
 }
 
 export type Origin = "user" | "cli" | "mcp" | "script" | "remote"

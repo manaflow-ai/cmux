@@ -55,8 +55,9 @@ const openWire = async (scope: "user" | "team", token: string) => {
     frames.push(JSON.parse(e.data as string))
     waiters.splice(0).forEach((w) => w())
   })
+  ws.addEventListener("close", () => waiters.splice(0).forEach((w) => w()))
   ws.accept()
-  const until = async (pred: (fs: Array<any>) => boolean) => {
+  const until = async (pred: (fs: Array<any>) => boolean): Promise<void> => {
     while (!pred(frames)) await new Promise<void>((r) => waiters.push(r))
   }
   return { ws, frames, until, send: (f: unknown) => ws.send(JSON.stringify(f)) }
@@ -128,6 +129,8 @@ describe("cmux-next API Worker end to end (workerd)", () => {
     // HTTP with the install token: renaming another install is refused by the owner.
     const foreign = await op(jwt, "install.rename", { install: install2, name: "hijack" })
     expect(foreign.json).toMatchObject({ ok: false, error: { code: "auth.forbidden" } })
+    // The debug dump is session-only.
+    expect((await call("/v1/debug/user", jwt)).status).toBe(403)
     // install.revoke is session-only.
     expect((await op(jwt, "install.revoke", { install: install2 })).json.error.code).toBe("auth.forbidden")
 
@@ -138,9 +141,16 @@ describe("cmux-next API Worker end to end (workerd)", () => {
     expect(dir.json.value.members.map((m: any) => m.user)).toEqual([user])
     expect(dir.json.value.hosts.map((h: any) => h.id)).toEqual([host.json.value.id])
 
-    // Revocation: new tokens are refused and the existing token's ops are refused by the owner.
+    // Revocation: new tokens are refused, the existing token's ops are refused by every owner,
+    // and the install's open socket closes at once.
+    let closed: number | undefined
+    wire.ws.addEventListener("close", (e) => (closed = e.code))
     const revoke = await op(session, "install.revoke", { install })
     expect(revoke.json.ok).toBe(true)
+    await wire.until(() => closed !== undefined)
+    expect(closed).toBe(4401)
+    expect((await op(jwt, "host.enroll", { name: "after revoke", platform: "macos" })).status).toBe(403)
+    expect((await call("/v1/read", jwt, { op: "team.directory", params: {} })).status).toBe(403)
     expect((await call("/v1/auth/challenge", undefined, { user, install })).status).toBe(403)
     expect((await op(jwt, "install.rename", { install, name: "after revoke" })).json.error.code).toBe("auth.forbidden")
 
@@ -150,7 +160,6 @@ describe("cmux-next API Worker end to end (workerd)", () => {
       const rows = state.storage.sql.exec("SELECT kind, entity FROM own_outbox ORDER BY id").toArray()
       expect(rows.map((r) => r.kind)).toEqual(["user.upsert", "install.upsert", "install.upsert", "install.upsert", "install.upsert"])
     })
-    wire.ws.close()
   })
 
   it("isolates users: another user's session cannot read or write this user's objects", async () => {

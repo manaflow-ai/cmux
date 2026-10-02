@@ -3,6 +3,7 @@ import type { OwnerFrame, Principal, RejectFrame, ResultFrame, SettledFrame } fr
 import {
   Authorization,
   BadRequest,
+  challengeMessagePrefix,
   CloudApi,
   cloudOpByName,
   CurrentPrincipal,
@@ -14,7 +15,7 @@ import {
 import { Effect, Layer, Redacted } from "effect"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
-import { authenticate, mintAccessToken, publicJwks } from "./auth.ts"
+import { authenticate, mintAccessToken, publicJwks, withGrantClasses } from "./auth.ts"
 import type { Env } from "./env.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
@@ -42,14 +43,22 @@ const teamStub = (team: string) => env.TEAM_DO.get(env.TEAM_DO.idFromName(team))
 
 const unreachable = (e: unknown) => new OwnerUnreachable({ code: "owner.unreachable", message: String(e), retryable: true })
 
-const submitTo = (owner: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string; origin?: string; expected_revision?: string }) =>
-  Effect.tryPromise({
+/** Principal for a given owner: TeamDO calls carry the grant classes UserDO resolved. */
+const principalFor = (owner: string, p: Principal) =>
+  owner === "cloud:UserDO"
+    ? Effect.succeed(p)
+    : Effect.tryPromise({ try: () => withGrantClasses(env, p), catch: unreachable }).pipe(
+        Effect.flatMap((q) => (q ? Effect.succeed(q) : Effect.fail(new Forbidden({ code: "auth.forbidden", message: "install revoked or grant invalid" }))))
+      )
+
+const submitTo = (owner: string, principalIn: Principal, frame: { op: string; params: unknown; idempotency_key: string; origin?: string; expected_revision?: string }) =>
+  Effect.flatMap(principalFor(owner, principalIn), (principal) => Effect.tryPromise({
     try: (): Promise<SubmitResult> => {
       const f = { t: "op" as const, ...frame } as Parameters<ReturnType<typeof userStub>["submit"]>[2]
       return rpc<SubmitResult>(owner === "cloud:UserDO" ? userStub(principal.user!).submit(principal.user!, principal, f) : teamStub(principal.team!).submit(principal.team!, principal, f))
     },
     catch: unreachable
-  })
+  }))
 
 /** Folds the requester frames (result|reject, request-settled) into one HTTP response. */
 const toResponse = (op: string, frames: ReadonlyArray<OwnerFrame>) => {
@@ -82,7 +91,7 @@ const AuthLive = HttpApiBuilder.group(CloudApi, "auth", (handlers) =>
       Effect.gen(function* () {
         const r = yield* Effect.tryPromise({ try: () => rpc<ChallengeResult>(userStub(payload.user).challenge(payload.user, payload.install)), catch: () => new Forbidden({ code: "auth.forbidden", message: "challenge failed" }) })
         if (!r.ok) return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
-        return { install: payload.install, nonce: r.nonce, expires_at: r.expires_at, message_prefix: `cmux-auth-v1\n${env.ENVIRONMENT}\n${payload.install}\n` }
+        return { install: payload.install, nonce: r.nonce, expires_at: r.expires_at, message_prefix: challengeMessagePrefix(env.ENVIRONMENT, payload.install) }
       })
     )
     .handle("token", ({ payload }) =>
@@ -117,12 +126,15 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         const response = toResponse(payload.op, frames)
         // The personal team exists once the user exists (a team of one, identity spec section 2).
         if (payload.op === "user.ensure" && response.ok) {
-          yield* submitTo("cloud:TeamDO", principal, {
+          // Keyed by the user.ensure transaction: a retry of that request replays, a new ensure re-applies.
+          const team = yield* submitTo("cloud:TeamDO", principal, {
             op: "team.ensure_personal",
             params: {},
-            idempotency_key: `ensure-personal:${principal.display_name ?? ""}:${principal.email ?? ""}`,
+            idempotency_key: `ensure-personal:${response.transaction}`,
             origin: "cli"
           })
+          const teamReply = toResponse("team.ensure_personal", team.frames)
+          if (!teamReply.ok) return yield* new OwnerUnreachable({ code: "owner.unreachable", message: `personal team: ${teamReply.error?.message}`, retryable: true })
         }
         return response
       })
@@ -132,12 +144,13 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         const principal = toPrincipal(yield* CurrentPrincipal)
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
+        const reader = yield* principalFor(def.owner, principal)
         const r = yield* Effect.tryPromise({
           try: () =>
             rpc<ReadResult>(
               def.owner === "cloud:UserDO"
-                ? userStub(principal.user!).readOp(principal.user!, principal, payload.op, payload.params)
-                : teamStub(principal.team!).readOp(principal.team!, principal, payload.op, payload.params)
+                ? userStub(reader.user!).readOp(reader.user!, reader, payload.op, payload.params)
+                : teamStub(reader.team!).readOp(reader.team!, reader, payload.op, payload.params)
             ),
           catch: unreachable
         })
@@ -148,6 +161,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
     .handle("debug", () =>
       Effect.gen(function* () {
         const principal = yield* CurrentPrincipal
+        // Human sessions only: the dump holds the ledger and every install's details.
+        if (principal.kind !== "session") return yield* new Forbidden({ code: "auth.forbidden", message: "debug needs a user session" })
         return yield* Effect.tryPromise({ try: () => userStub(principal.user).debug(principal.user), catch: () => new Forbidden({ code: "auth.forbidden", message: "debug failed" }) })
       })
     )

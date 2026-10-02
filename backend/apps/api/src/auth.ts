@@ -42,6 +42,7 @@ const sessionPrincipal = async (env: Env, token: string): Promise<Principal | un
       team: personalTeamIdFor(user),
       stack_user_id: payload.sub,
       email,
+      ...(typeof payload.exp === "number" ? { expires_at: payload.exp * 1000 } : {}),
       ...(name ? { display_name: name } : {})
     }
   } catch {
@@ -95,12 +96,25 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
       audience: "api",
       clockTolerance: 30
     })
-    const { sub, team, inst, grant } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown }
+    const { sub, team, inst, grant, exp } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown }
     if (typeof sub !== "string" || typeof team !== "string" || typeof inst !== "string" || typeof grant !== "string") return undefined
-    return { kind: "install", identity: inst, user: sub, team, install: inst, grant }
+    return { kind: "install", identity: inst, user: sub, team, install: inst, grant, ...(typeof exp === "number" ? { expires_at: exp * 1000 } : {}) }
   } catch {
     return undefined
   }
+}
+
+/**
+ * For owners other than UserDO: asks the grant's owner whether the install is
+ * active and what its grant allows, and carries the classes on the principal.
+ * Undefined means refuse (revoked, unknown, or expired grant).
+ */
+export const withGrantClasses = async (env: Env, p: Principal): Promise<Principal | undefined> => {
+  if (p.kind === "session") return p
+  if (!p.user || !p.install || !p.grant) return undefined
+  const stub = env.USER_DO.get(env.USER_DO.idFromName(p.user))
+  const r = (await stub.installGrant(p.user, p.install, p.grant)) as { ok: true; op_classes: ReadonlyArray<string> } | { ok: false }
+  return r.ok ? { ...p, grant_classes: [...r.op_classes] } : undefined
 }
 
 /** Resolves the bearer token: our install JWT, else a Stack session token. */

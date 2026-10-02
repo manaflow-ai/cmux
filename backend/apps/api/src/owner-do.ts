@@ -22,6 +22,13 @@ export type ReadResult = { readonly ok: true; readonly value: unknown; readonly 
 
 const MAX_BACKOFF_MS = 5 * 60_000
 
+/** A closing socket must not stop delivery to the others (events are committed already). */
+const safeSend = (ws: WebSocket, text: string) => {
+  try {
+    ws.send(text)
+  } catch {}
+}
+
 /**
  * The shared base of every cloud owner (spec 00-overview 7.1): one entity per
  * object, ops through OwnerEngine (ledger, pure reducer, one transaction for
@@ -37,7 +44,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     ctx: DurableObjectState,
     env: Env,
     private readonly domain: Domain<S>,
-    private readonly streamPrefix: string
+    private readonly streamPrefix: string,
+    private readonly eventActor?: (p: Principal) => Principal
   ) {
     super(ctx, env)
     this.store = doSql(ctx.storage)
@@ -54,7 +62,11 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   protected abstract maySubscribe(state: S, principal: Principal): boolean
 
   private open(entity: string): OwnerEngine<S> {
-    if (!this.engine) this.engine = new OwnerEngine(this.store, this.domain, { stream: `${this.streamPrefix}:${entity}` })
+    if (!this.engine)
+      this.engine = new OwnerEngine(this.store, this.domain, {
+        stream: `${this.streamPrefix}:${entity}`,
+        ...(this.eventActor ? { eventActor: this.eventActor } : {})
+      })
     return this.engine
   }
 
@@ -70,9 +82,24 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const text = JSON.stringify(frame)
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null
-      if (a?.subscribed) ws.send(text)
+      if (a?.subscribed) safeSend(ws, text)
     }
   }
+
+  /** Closes every socket whose principal matches (revocation). */
+  protected closeSockets(match: (p: Principal) => boolean, reason: string) {
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() as Attachment | null
+      if (a && match(a.principal)) {
+        try {
+          ws.close(4401, reason)
+        } catch {}
+      }
+    }
+  }
+
+  /** Hook after each committed op (for example: close a revoked install's sockets). */
+  protected afterOp(_principal: Principal, _op: string, _frames: ReadonlyArray<OwnerFrame>) {}
 
   private afterCommit() {
     if (this.engine && this.engine.outboxPending(1).length > 0) void this.ctx.storage.getAlarm().then((t) => (t === null ? this.ctx.storage.setAlarm(Date.now()) : undefined))
@@ -84,6 +111,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const frames: Array<OwnerFrame> = []
     engine.submit(principal, frame, (target, f) => (target === "all" ? this.broadcast(f) : frames.push(f)))
     this.afterCommit()
+    this.afterOp(principal, frame.op, frames)
     return { frames }
   }
 
@@ -109,12 +137,14 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const [client, server] = [pair[0], pair[1]]
     this.ctx.acceptWebSocket(server)
     server.serializeAttachment({ principal, subscribed: false } satisfies Attachment)
-    server.send(JSON.stringify({ t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [engine.stream] }))
+    safeSend(server, JSON.stringify({ t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [engine.stream] }))
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
     const a = ws.deserializeAttachment() as Attachment
+    // A socket lives no longer than its token.
+    if (a.principal.expires_at !== undefined && a.principal.expires_at <= Date.now()) return ws.close(4401, "token expired")
     const row = this.store.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
     if (!row) return ws.close(1011, "unbound")
     const engine = this.open(row.entity)
@@ -122,7 +152,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     try {
       frame = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message))
     } catch {
-      return ws.send(JSON.stringify({ t: "error", code: "validation.invalid", message: "frames are JSON" }))
+      return safeSend(ws, JSON.stringify({ t: "error", code: "validation.invalid", message: "frames are JSON" }))
     }
     switch (frame.t) {
       case "subscribe": {
@@ -133,21 +163,26 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         // Resume by replaying the gap when the client holds no unconfirmed intents and the gap is
         // small; otherwise a snapshot, which carries the decided keys that settle those intents.
         const gap = after !== undefined && after <= engine.currentSeq && engine.currentSeq - after <= 1000 && pending.length === 0
-        if (gap) for (const e of engine.eventsAfter(after)) ws.send(JSON.stringify(e))
-        else ws.send(JSON.stringify(engine.snapshot(a.principal.identity, pending)))
+        if (gap) for (const e of engine.eventsAfter(after)) safeSend(ws, JSON.stringify(e))
+        else safeSend(ws, JSON.stringify(engine.snapshot(a.principal.identity, pending)))
         return
       }
+      case "snapshot.request":
+        safeSend(ws, JSON.stringify(engine.snapshot(a.principal.identity, frame.pending ?? [])))
+        return
       case "unsubscribe":
         a.subscribed = false
         ws.serializeAttachment(a)
         return
       case "op": {
-        engine.submit(a.principal, frame as OpFrame, (target, f) => (target === "all" ? this.broadcast(f) : ws.send(JSON.stringify(f))))
+        const frames: Array<OwnerFrame> = []
+        engine.submit(a.principal, frame as OpFrame, (target, f) => (target === "all" ? this.broadcast(f) : (frames.push(f), safeSend(ws, JSON.stringify(f)))))
         this.afterCommit()
+        this.afterOp(a.principal, (frame as OpFrame).op, frames)
         return
       }
       default:
-        ws.send(JSON.stringify({ t: "error", code: "validation.invalid", message: `unknown frame ${frame.t}` }))
+        safeSend(ws, JSON.stringify({ t: "error", code: "validation.invalid", message: `unknown frame ${frame.t}` }))
     }
   }
 
