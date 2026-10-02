@@ -177,11 +177,67 @@ public struct CloudAPIClient: Sendable {
         _ = try await send("DELETE", "/api/vm/tunnel?deviceId=\(deviceID)", as: Ignored.self)
     }
 
+    public func attachTunnelNetwork(deviceFingerprint: String, networkID: String, tunnelPurpose: String = "browser") async throws -> CloudTunnelNetworkMutation {
+        try await send("POST", "/api/vm/tunnel/network/attach", body: ["deviceFingerprint": deviceFingerprint, "networkId": networkID, "tunnelPurpose": tunnelPurpose], timeout: .seconds(60), as: CloudTunnelNetworkMutation.self)
+    }
+
+    public func detachTunnelNetwork(deviceFingerprint: String, networkID: String, tunnelPurpose: String = "browser") async throws -> CloudTunnelNetworkMutation {
+        try await send("POST", "/api/vm/tunnel/network/detach", body: ["deviceFingerprint": deviceFingerprint, "networkId": networkID, "tunnelPurpose": tunnelPurpose], timeout: .seconds(60), as: CloudTunnelNetworkMutation.self)
+    }
+
+    public func rotateTunnelKey(deviceFingerprint: String, publicKey: String, tunnelPurpose: String = "browser") async throws -> CloudTunnelNetworkMutation {
+        try await send("POST", "/api/vm/tunnel/network/rotate-key", body: ["deviceFingerprint": deviceFingerprint, "clientPublicKey": publicKey, "tunnelPurpose": tunnelPurpose], timeout: .seconds(60), as: CloudTunnelNetworkMutation.self)
+    }
+
+    public func listFirewallRules(vpcID: String? = nil, vmID: String? = nil, tunnelID: String? = nil) async throws -> [CloudFirewallRule] {
+        var parts: [String] = []
+        if let vpcID { parts.append("vpcId=\(queryComponent(vpcID))") }
+        if let vmID { parts.append("vmId=\(queryComponent(vmID))") }
+        if let tunnelID { parts.append("tunnelId=\(queryComponent(tunnelID))") }
+        struct List: Decodable { var rules: [CloudFirewallRule] }
+        return try await send("GET", "/api/vm/firewall\(parts.isEmpty ? "" : "?\(parts.joined(separator: "&"))")", as: List.self).rules
+    }
+
+    public func listNetworks() async throws -> [CloudNetwork] {
+        struct List: Decodable { var networks: [CloudNetwork] }
+        return try await send("GET", "/api/vm/network", as: List.self).networks
+    }
+
+    public func getFirewallRule(_ ruleID: String) async throws -> CloudFirewallRule {
+        try await send("GET", "/api/vm/firewall?ruleId=\(queryComponent(ruleID))", as: CloudFirewallRule.self)
+    }
+
+    public func createFirewallRule(source: CloudFirewallEndpoint, destination: CloudFirewallEndpoint, description: String? = nil) async throws -> CloudFirewallRule {
+        var body: [String: any Sendable] = ["source": endpointBody(source), "destination": endpointBody(destination)]
+        if let description { body["description"] = description }
+        return try await send("POST", "/api/vm/firewall", body: body, timeout: .seconds(60), as: CloudFirewallRule.self)
+    }
+
+    private func endpointBody(_ endpoint: CloudFirewallEndpoint) -> [String: any Sendable] {
+        var body: [String: any Sendable] = [:]
+        if let value = endpoint.vmId { body["vmId"] = value }
+        if let value = endpoint.vpcId { body["vpcId"] = value }
+        if let value = endpoint.tunnelId { body["tunnelId"] = value }
+        if let value = endpoint.cidr { body["cidr"] = value }
+        if let value = endpoint.isPublic { body["public"] = value }
+        if let value = endpoint.port { body["port"] = value }
+        if let value = endpoint.protocolName { body["protocol"] = value }
+        return body
+    }
+
+    public func deleteFirewallRule(_ ruleID: String) async throws {
+        _ = try await send("DELETE", "/api/vm/firewall?ruleId=\(queryComponent(ruleID))", timeout: .seconds(60), as: Ignored.self)
+    }
+
     private func query(_ value: String) -> String {
         // Keep guest path separators readable, but never let a path inject a
         // second query item or fragment into the request URL.
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~/"))
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+
+    private func queryComponent(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(.init(charactersIn: "/?&=#"))) ?? value
     }
 
     // MARK: Transport
