@@ -155,6 +155,7 @@ final class CloudTerminalPaneReservation {
     }
 
     /// Rechecks a saved view after attachment awaits and before any queued input is forwarded.
+    /// Restored panes may replace a deleted tab, but only within the saved workspace.
     func validatedAttachmentPlacement(
         resourceID: SurfaceResourceID,
         remoteTabID: String?,
