@@ -35,12 +35,17 @@ const assets = (origin: string) =>
 /** The bundled font covers Latin; other scripts get the generic headline instead of boxes. */
 const LATIN = /^[ -ɏ]+$/
 
-export const renderInviteCard = async (cardIn: InviteCard | null, origin: string, variant: CardVariant = "conversation"): Promise<Uint8Array> => {
+/** Shipped design (Lawrence, 2026-10-02): minimal. The others stay behind `?v=` for review. */
+export const DEFAULT_CARD_VARIANT: CardVariant = "minimal"
+
+export const renderInviteCard = async (cardIn: InviteCard | null, origin: string, variant: CardVariant = DEFAULT_CARD_VARIANT, square = false): Promise<Uint8Array> => {
   const { bold, medium } = await assets(origin)
   const card = cardIn && LATIN.test(cardIn.first_name) ? cardIn : cardIn ? { ...cardIn, first_name: "Someone" } : null
-  const svg = await satori(<CardFor variant={variant} card={card} />, {
+  const height = square ? 1200 : 630
+  // The square form exists for the minimal design only.
+  const svg = await satori(<CardFor variant={square ? "minimal" : variant} card={card} height={height} />, {
     width: 1200,
-    height: 630,
+    height,
     fonts: [
       { name: "Inter", data: bold, weight: 700, style: "normal" },
       { name: "Inter", data: medium, weight: 500, style: "normal" }
