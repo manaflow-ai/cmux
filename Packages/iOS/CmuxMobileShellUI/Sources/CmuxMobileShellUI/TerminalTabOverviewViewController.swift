@@ -40,6 +40,23 @@ private func configureLiquidGlassButton(
 }
 
 @MainActor
+private func configureLiquidGlassMaterial(
+    _ view: UIVisualEffectView,
+    fallback: UIBlurEffect.Style = .systemMaterial
+) {
+    if #available(iOS 26.0, *) {
+        let glass = UIGlassEffect(style: .regular)
+        glass.interactive = true
+        view.effect = glass
+    } else {
+        view.effect = UIBlurEffect(style: fallback)
+    }
+    // The system effect owns the surface color. A second content fill makes
+    // the material opaque and produces a different result from Safari.
+    view.contentView.backgroundColor = .clear
+}
+
+@MainActor
 final class TerminalTabOverviewViewController: UIViewController {
     private let backgroundView = UIVisualEffectView(effect: nil)
     private let backgroundTint = UIView()
@@ -1105,7 +1122,7 @@ private final class TerminalTabOverviewMenuView: UIView {
     var onAction: (() -> Void)?
 
     private let kind: TerminalTabOverviewMenuKind
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+    private let blurView = UIVisualEffectView(effect: nil)
     private let stack = UIStackView()
 
     init(kind: TerminalTabOverviewMenuKind) {
@@ -1120,7 +1137,7 @@ private final class TerminalTabOverviewMenuView: UIView {
         blurView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         blurView.layer.cornerRadius = 30
         blurView.clipsToBounds = true
-        blurView.contentView.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.24)
+        configureLiquidGlassMaterial(blurView)
         addSubview(blurView)
 
         stack.axis = .vertical
@@ -1182,7 +1199,7 @@ private final class TerminalTabOverviewSearchOverlay: UIView {
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialLight))
     private let searchContainer = UIView()
-    private let searchMaterial = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+    private let searchMaterial = UIVisualEffectView(effect: nil)
     private let searchIcon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
     private let microphoneButton = UIButton(type: .system)
     private let closeButton = UIButton(type: .system)
@@ -1206,7 +1223,7 @@ private final class TerminalTabOverviewSearchOverlay: UIView {
         searchMaterial.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         searchMaterial.layer.cornerRadius = 23
         searchMaterial.clipsToBounds = true
-        searchMaterial.contentView.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.18)
+        configureLiquidGlassMaterial(searchMaterial, fallback: .systemMaterial)
         searchContainer.addSubview(searchMaterial)
 
         searchIcon.tintColor = .label
