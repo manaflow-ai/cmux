@@ -24,6 +24,9 @@ struct CloudLinkFailureMessageTests {
         let unavailableError = CloudMachineLink.LinkError.failureMessage(unavailable.linkFailureMessage)
         #expect(CloudMachineLink.errorText(unavailableError) == unavailable.linkFailureMessage)
 
+        let unavailableReason = machineInfo(linkState: .error, linkError: "cloud_api_unavailable")
+        #expect(unavailableReason.linkFailureMessage == unavailable.linkFailureMessage)
+
         let reasonCode = machineInfo(linkState: .error, linkError: "daemon_not_ready")
         #expect(reasonCode.linkFailureMessage == CloudDiagnosticFailure.network.label)
 
