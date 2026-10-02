@@ -116,10 +116,7 @@ rust-file	cmux-tui/crates/cmux-wg/src/net.rs	1271	59
 rust-file	cmux-tui/crates/ghostty-vt/src/kitty.rs	1368	64
 rust-file	cmux-tui/crates/ghostty-vt/src/terminal.rs	5941	287
 swift-type	CmuxNextApp/WindowManager	1163	0
-swift-type	CmuxNextBrowser/CEFRuntime	1138	0
-swift-type	CmuxNextBrowser/CEFTab	1124	0
 swift-type	CmuxNextDaemon/DaemonConnection	1481	0
-swift-type	CmuxNextDaemon/DaemonStore	1046	0
 swift-type	CmuxNextSidebar/SidebarListView	1101	0
 swift-type	CmuxNextTabs/TabStripView	2138	0
 swift-type	CmuxNextTerminal/TerminalSurfaceView	1382	0

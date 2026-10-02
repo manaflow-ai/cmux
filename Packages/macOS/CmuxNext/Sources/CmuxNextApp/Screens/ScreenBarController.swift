@@ -202,8 +202,7 @@ final class ScreenBarController {
         case .group(let id), .savedGroup(let id):
             return registry.makeContextMenu(for: .screenGroup, target: ActionTargetRef(kind: .screenGroup, id: id.rawValue))
         case .emptyStrip, .newTabButton:
-            return registry.makeContextMenu(for: .screen, entries: [.action("screen.new"), .action("screen.newWith"),
-                                                                     .action("screen.reopenClosed")])
+            return registry.makeContextMenu(for: .screenBar)
         }
     }
 }
