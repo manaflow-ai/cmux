@@ -5278,7 +5278,7 @@
     "signUpSubtitle": "Jedno konto do aplikacji, Cloud i panelu.",
     "continueWithProvider": "Kontynuuj z {provider}",
     "signInWithPasskey": "Zaloguj się kluczem dostępu",
-    "orContinueWith": "Lub kontynuuj przez",
+    "orContinueWith": "Lub kontynuuj za pomocą",
     "emailLabel": "E-mail",
     "emailPlaceholder": "ty@firma.pl",
     "continueWithEmail": "Kontynuuj z e-mailem",
