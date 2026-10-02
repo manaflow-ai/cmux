@@ -336,7 +336,9 @@ test("clearCookies: scoped to the current tab's site unless { all: true }", asyn
       const r = await run(`
         const jar = async () => (await page.context().cookies()).map((c) => c.domain + " " + c.name).sort();
         await page.goto("${primary}/set-cookie");
+        const first = page;
         const other = await tabs.open("${peer}/set-cookie");
+        await tabs.use(first);
         await page.context().addCookies([
           { name: "a1", value: "1", url: "${primary}/" }, { name: "a2", value: "1", url: "${primary}/" },
           { name: "b1", value: "1", url: "${peer}/" }, { name: "b2", value: "1", url: "${peer}/" },

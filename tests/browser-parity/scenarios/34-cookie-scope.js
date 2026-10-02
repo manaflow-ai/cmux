@@ -9,7 +9,9 @@ const site = (c) => {
 };
 const jar = async () => (await page.context().cookies()).filter(site).map((c) => `${site(c)} ${c.name}`).sort();
 await page.goto(`${PRIMARY}/set-cookie`);
+const first = page;
 const peerTab = await tabs.open(`${PEER}/set-cookie`);
+await tabs.use(first);
 await page.context().addCookies([
   { name: "a1", value: "1", url: `${PRIMARY}/` }, { name: "a2", value: "1", url: `${PRIMARY}/` },
   { name: "b1", value: "1", url: `${PEER}/` },

@@ -663,7 +663,19 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     },
     "cookies.get": async ({ urls } = {}) => context.cookies(urls),
     "cookies.set": async ({ cookies }) => context.addCookies(cookies),
-    "cookies.clear": async () => context.clearCookies(),
+    // Scoped as in the app, where tabs use the user's profile: { site } (a
+    // registrable domain: cookies on it or its subdomains) or { all: true },
+    // narrowed by exact name, domain and path. An unscoped clear is refused.
+    "cookies.clear": async ({ site, all, name, domain, path } = {}) => {
+      if (!all && !site) throw new DriverError("invalid", "cookies.clear: pass { site } or { all: true }; the tab's profile is shared with the user");
+      const bareSite = String(site || "").toLowerCase().replace(/^\./, "");
+      for (const c of await context.cookies()) {
+        const host = String(c.domain).toLowerCase().replace(/^\./, "");
+        if (!all && host !== bareSite && !host.endsWith("." + bareSite)) continue;
+        if ((name && c.name !== name) || (domain && c.domain !== domain) || (path && c.path !== path)) continue;
+        await context.clearCookies({ name: c.name, domain: c.domain, path: c.path });
+      }
+    },
     "clipboard.read": async ({ targetId }) => ({ items: tabFor(targetId).clipboard }),
     "clipboard.write": async ({ targetId, items }) => {
       tabFor(targetId).clipboard = items;

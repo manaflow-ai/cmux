@@ -68,6 +68,14 @@ Everything else uses standard Playwright: `page.mouse` replaces ChatGPT `cua`
 coordinates, `page.on("popup")`, `waitForEvent("download")`, `page.pdf()`,
 `page.setViewportSize()`, `frameLocator`, `getByRole`, and so on.
 
+One Playwright call is scoped on purpose: driven tabs use the user's browser
+profile, so `page.context().clearCookies(options)` clears only the cookies
+of that page's site (its registrable domain, as `storageState` scopes), and
+Playwright's `name`, `domain` and `path` filters (strings or RegExps) narrow
+that. `{ all: true }` clears every site. On a tab with no site (`about:blank`)
+it throws unless `{ all: true }` is given or the tab uses a private or proxy
+store, which may be cleared whole.
+
 ## Snapshot
 
 ```

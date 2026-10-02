@@ -120,7 +120,8 @@ Every event carries `targetId`.
 
 | Method | Params |
 | --- | --- |
-| `cookies.get` / `cookies.set` / `cookies.clear` | `{ urls? }`, `{ cookies }`, `{}` |
+| `cookies.get` / `cookies.set` | `{ urls? }`, `{ cookies }` |
+| `cookies.clear` | `{ targetId?, site?, all?, name?, domain?, path? }`. Deletes the cookies of the target tab's store (the active tab's without `targetId`) on `site`, a registrable domain, and its subdomains, or on every site with `all: true`, narrowed by exact `name`, `domain` and `path`. Without `site` or `all` it fails with `invalid` when the store is a persistent profile (the user's cookies), and clears the whole store when it is not (a private tab's, the session's proxy store) |
 | `clipboard.read` / `clipboard.write` | per-tab virtual clipboard `{ items: [{ type, base64 }] }`. Meta+C, Meta+X and Meta+V run the engine's own Copy, Cut and Paste against it, so the page gets trusted `copy`, `cut` and `paste` events with `clipboardData` (every type), and the system clipboard is neither read nor written. On WebKit the general pasteboard lookup is redirected to a private pasteboard for the length of one command |
 
 ## Capabilities

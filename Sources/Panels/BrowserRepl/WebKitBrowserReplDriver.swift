@@ -148,7 +148,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         case "tab.pdf": return try await pdf(params)
         case "cookies.get": return try await cookies(params)
         case "cookies.set": return try await setCookies(params)
-        case "cookies.clear": return try await clearCookies()
+        case "cookies.clear": return try await clearCookies(params)
         case "clipboard.read": return try readClipboard(params)
         case "clipboard.write": return try writeClipboard(params)
         case "auth.request":
@@ -1669,18 +1669,22 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     @MainActor
     private func cookieStore(_ params: [String: Any]) throws -> WKHTTPCookieStore {
+        try cookieDataStore(params).httpCookieStore
+    }
+
+    @MainActor
+    private func cookieDataStore(_ params: [String: Any]) throws -> WKWebsiteDataStore {
         if params["targetId"] != nil {
-            return try panel(params).webView.configuration.websiteDataStore.httpCookieStore
+            return try panel(params).webView.configuration.websiteDataStore
         }
         let panels = try browserPanels()
         let preferred = activeTargetID.flatMap(UUID.init(uuidString:)).flatMap { id in panels.first { $0.id == id } }
             ?? panels.first
         if let preferred {
-            return preferred.webView.configuration.websiteDataStore.httpCookieStore
+            return preferred.webView.configuration.websiteDataStore
         }
         return BrowserProfileStore.shared
             .websiteDataStore(for: BrowserPanel.resolvedProfileID(requested: nil))
-            .httpCookieStore
     }
 
     @MainActor
@@ -1706,10 +1710,22 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return nil
     }
 
+    /// Deletes the cookies `BrowserReplCookieClearScope` selects: the site
+    /// the runtime names (the current tab's) or, with `all`, every site, and
+    /// only those matching `name`, `domain` and `path`. The user's profile is
+    /// never cleared without one of the two; a private or proxy store may be.
     @MainActor
-    private func clearCookies() async throws -> Any? {
-        let store = try cookieStore([:])
-        for cookie in await store.allCookies() {
+    private func clearCookies(_ params: [String: Any]) async throws -> Any? {
+        let dataStore = try cookieDataStore(params)
+        let scope: BrowserReplCookieClearScope
+        do {
+            scope = try BrowserReplCookieClearScope(params: params, storeIsPersistent: dataStore.isPersistent)
+        } catch let refusal as BrowserReplCookieClearScope.Refusal {
+            throw Self.error("invalid", refusal.message)
+        }
+        let store = dataStore.httpCookieStore
+        for cookie in await store.allCookies()
+        where scope.includes(name: cookie.name, domain: cookie.domain, path: cookie.path) {
             await store.deleteCookie(cookie)
         }
         return nil
