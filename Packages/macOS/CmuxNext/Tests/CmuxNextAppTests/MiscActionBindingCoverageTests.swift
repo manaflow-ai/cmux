@@ -36,7 +36,7 @@ struct MiscActionBindingCoverageTests {
         let unported: [ActionID: String] = ["palette.mobileConnect": CloudStrings.mobilePairing]
         for (id, reason) in unported { #expect(reasons[id]! == reason) }
         for id: ActionID in ["newCloudMachine", "cloudKillMachine", "cloudPauseMachine", "cloudResumeMachine", "palette.cloud.deleteSnapshot", "palette.cloud.status", "palette.cloud.tools", "palette.cloud.handoff",
-                             "palette.cloud.promoteTemplate"] {
+                             "palette.cloud.promoteTemplate", "cloudSSH", "cloudExec"] {
             #expect([CloudStrings.noClient, CloudStrings.signInFirst, CloudStrings.localBackend].contains(reasons[id]!))
         }
     }
@@ -51,6 +51,14 @@ struct MiscActionBindingCoverageTests {
         let services = ActionBindingCoverageTests.boundServices()
         #expect(ActionBindingCoverageTests.run(services, "splitBrowserRight") == .refused("needs daemon capability frontend-browser-tabs-v1"))
         #expect(ActionBindingCoverageTests.run(services, "markAllNotificationsRead") == .refused("needs daemon capability notification-ack-v1"))
+    }
+
+    @Test func cloudExecRequiresAndTrimsItsCommand() throws {
+        let invocation = ActionInvocation(arguments: ["command": .string("  uname -a  ")])
+        #expect(try CloudHandlers.commandArgument(invocation) == "uname -a")
+        #expect(throws: ActionFailure.self) {
+            try CloudHandlers.commandArgument(ActionInvocation(arguments: ["command": .string("  ")]))
+        }
     }
 
     @Test func handlersRefuseWithoutATarget() {

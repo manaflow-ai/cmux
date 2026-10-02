@@ -20,6 +20,8 @@ export type AcpmuxHostConfig = {
   cwd?: string;
   /** Text the composer starts with. Shown, never sent by itself. */
   draft?: string;
+  /** A new chat's first prompt, sent once the client connects (onboarding's first task). */
+  prompt?: string;
 };
 
 /** `session/new` params: the host's cwd when it gave one, else acpmux's default. */
@@ -929,8 +931,13 @@ export class AcpmuxDirectClient {
   snapshot(): void {
     this.emit();
   }
+  /** A `session/new` in flight, so a Send during the first prompt's start joins it. */
+  private creating?: Promise<string | undefined>;
   async ensureSession(): Promise<string | undefined> {
-    if (!this.selectedSessionId) await this.create();
+    if (!this.selectedSessionId) {
+      this.creating ??= this.create().finally(() => (this.creating = undefined));
+      await this.creating;
+    }
     return this.selectedSessionId;
   }
   async send(text: string): Promise<string | undefined> {
