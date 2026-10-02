@@ -37,9 +37,6 @@ final class WindowState {
     var workspaceID: String? {
         didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue) } }
     }
-    /// Home (the mux Messages screen) is shown instead of `workspaceID`,
-    /// which stays mounted underneath. Selecting a workspace clears it.
-    var showsHome = false
     /// Workspaces this window showed, most recent first (Switch to Last Used
     /// Workspace, Sort by Last Used). In memory only, at most 64.
     private(set) var workspaceRecency: [String] = []
@@ -76,12 +73,6 @@ final class WindowState {
 }
 
 extension WindowState {
-    /// Shows `workspaceID` (nil: the empty state) in place of Home.
-    func select(_ workspaceID: String?) {
-        showsHome = false
-        self.workspaceID = workspaceID
-    }
-
     /// The state saved for one window.
     convenience init(record: WindowRecord) {
         self.init(id: record.id)

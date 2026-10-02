@@ -88,11 +88,9 @@ final class SidebarBridge {
             }
         }
         selectionObservation = Task { [weak self] in
-            for await (id, home) in Observations({ (state.workspaceID, state.showsHome) }) {
+            for await id in Observations({ state.workspaceID }) {
                 guard let self else { return }
-                // While Home is shown no workspace row is active: the pill sits on Home.
-                if self.model.isHomeActive != home { self.model.isHomeActive = home }
-                let selected = home ? nil : id.map { SidebarWorkspaceID($0) }
+                let selected = id.map { SidebarWorkspaceID($0) }
                 if self.model.activeWorkspaceID != selected {
                     self.model.activeWorkspaceID = selected
                     self.model.selection = selected.map { [$0] } ?? []

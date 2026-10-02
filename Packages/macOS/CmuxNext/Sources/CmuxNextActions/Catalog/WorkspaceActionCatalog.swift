@@ -97,7 +97,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "selectWorkspaceByNumber",
-                title: String(localized: "action.selectHomeOrWorkspaceByNumber", defaultValue: "Select Home or Workspace 1…9", bundle: .module),
+                title: String(localized: "action.selectWorkspaceByNumber", defaultValue: "Select Workspace 1…9", bundle: .module),
                 keywords: ["switch", "index"], defaultShortcut: Shortcut("1", modifiers: [.command]),
                 shortcutFamily: .digits, category: .workspace, symbol: "number", surfaces: [.keyboard, .menu],
                 arguments: [CatalogArgument.indexNumber], targets: [.workspace], cliName: "workspace select-1-9",

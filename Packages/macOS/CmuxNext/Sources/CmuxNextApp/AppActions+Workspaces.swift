@@ -28,18 +28,12 @@ extension AppActions {
         registry.bind("prevSidebarTab") { selectWorkspace(services, offset: -1) }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue, let state = services.windows.active?.state else { return }
-            // Sidebar order across every machine section; digit 1 is Home.
-            let all = services.windows.active?.sidebar.model.allWorkspaces.map(\.id) ?? []
-            switch SidebarNumbering.target(digit: number, workspaces: all) {
-            case .home: HomeNavigation.show(in: state, windows: services.windows)
-            case .workspace(let id): services.windows.show(workspaceID: id.rawValue, in: state)
-            case nil: break
-            }
+            // Sidebar order across every machine section.
+            let all = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
+            guard !all.isEmpty else { return }
+            let pick = number >= 9 ? all[all.count - 1] : all[min(number - 1, all.count - 1)]
+            services.windows.show(workspaceID: pick, in: state)
         })
-        registry.bind("home.show") {
-            guard let state = services.windows.active?.state else { return }
-            HomeNavigation.show(in: state, windows: services.windows)
-        }
         registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }

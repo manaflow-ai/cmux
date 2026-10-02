@@ -220,3 +220,30 @@ Workspace {
   `SidebarModel.isHomeActive` and `.selectHome` (the sections lead's Home item becomes the home
   workspace row), keep `home.show` with the new meaning, keep `SidebarNumbering` until the sections
   lead generalizes it.
+
+## 8. Proposal: move the brain host into `cmux` (for the coordinator to ask Lawrence)
+
+Phase A runs the brain host as a Bun-compiled executable named by `CMUX_NEXT_MUX_HOST` (DEV only,
+outside the bundle). The target is one `cmux` binary (U7) where the brain host is a supervised role
+next to acpmux, with no extra runtime on the Mac. Options:
+
+1. Rust port (recommended). The host's hot paths are small and already typed: the daemon client
+   (`local-conversations-v1`), the acpmux client (`session/new`, `session/prompt` with promptId,
+   `_acpmux/watch`, `_acpmux/attach`), the inbox (wake rules, catch-up from the agent read cursor,
+   turn folding, `turn:<session>:<seq>` reply keys), the supervisor (`mux.parent` children, work
+   cards, `[mux-event]` prompts) and the pid lock. In Rust they become an actor in the acpmux role
+   that talks to the conversation owner in-process (no socket, the owner stamps the mux principal
+   directly) and to acpmux in-process. The OptMem memory (`wake`, `zoom`, `compact`, `toLines`, git
+   file store) is about 300 lines of pure TypeScript and ports directly; compaction keeps using an
+   acpmux summarizer session. The `mux` CLI verbs become `cmux mux memory|agents|hook|compact`.
+   Cost: one owner for the Rust code; the TypeScript stays as the cloud brain (MuxDO) only.
+2. Embed the TypeScript brain in `cmux` (QuickJS-ng, which the browser host already plans to embed
+   per D12). Keeps one brain codebase for cloud and local, but needs Node-like APIs (sockets, child
+   processes, file system, git) bridged into QuickJS; more glue than the port, and slower cold start.
+3. Keep the Bun executable, bundled in `Contents/Resources/bin` (about 60 MB) and supervised by the
+   daemon. Fastest to ship; adds a second runtime and 60 MB to the app; does not reach Linux hosts
+   without a second build.
+
+Recommendation: option 1 for the local host (small, in-process with both owners, no extra runtime);
+keep `packages/brain` in TypeScript for the cloud MuxDO. PATH for agents stays the phase A stand-in
+(user tool directories) until D26 decides the daemon login environment.

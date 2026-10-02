@@ -5,6 +5,10 @@ Cmd-1 through `debug.key`, a message typed into the composer, the mux's reply
 (which must use a cmux tool), and a child agent's report back. Reads state
 only through `debug.home` and `debug.focus`; never sends system input.
 
+Status: written for the phase A window overlay, which did not land. It runs again once
+Home is the `kind: home` workspace with a conversation pane (home.md section 7): then
+Cmd-1 selects that workspace and `debug.home` reports the pane.
+
 Usage: home-e2e.py --tag <tag> [--timeout 600] [--prompt TEXT]
 """
 import argparse, glob, json, os, subprocess, sys, time

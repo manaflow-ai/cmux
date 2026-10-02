@@ -20,7 +20,6 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.openFilesPane",
         ],
         .noObject: [
-            "home.show",
             "openSettings", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
             "palette.openTaskManager", "palette.sleepyMode", "keepMacAwake", "about", "manageLayouts",

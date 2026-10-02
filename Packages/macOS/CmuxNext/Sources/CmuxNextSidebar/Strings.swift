@@ -3,7 +3,6 @@ import Foundation
 
 /// Localized strings. Keys live in Resources/Localizable.xcstrings (en, ja).
 enum Strings {
-    static var home: String { String(localized: "sidebar.home", defaultValue: "Home", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
     static var pinned: String { String(localized: "sidebar.section.pinned", defaultValue: "Pinned", bundle: .module) }
     static var pinnedEmpty: String { String(localized: "sidebar.section.pinned.empty", defaultValue: "Drop here to pin", bundle: .module) }

@@ -1,20 +1,12 @@
 import CmuxNextDaemon
 import CmuxNextSettings
 
-/// `debug.home`: Home per window and the conversation projection
+/// `debug.home`: the local conversation projection
 /// (plans/cmux-next/home.md), for automation on a never-key test window.
 @MainActor
 enum DebugHome {
     static func report(services: AppServices) -> CmuxNextSettings.JSONValue {
         let home = services.home
-        let windows: [CmuxNextSettings.JSONValue] = services.windows.controllers.map { controller in
-            .object([
-                "window": .string(controller.state.id),
-                "shows_home": .bool(controller.state.showsHome),
-                "home_view_installed": .bool(controller.home.view?.superview != nil),
-                "workspace": controller.state.workspaceID.map(CmuxNextSettings.JSONValue.string) ?? .null,
-            ])
-        }
         let conversations: [CmuxNextSettings.JSONValue] = home.conversations.map { summary in
             var row: [String: CmuxNextSettings.JSONValue] = [
                 "id": .string(summary.id), "title": .string(summary.title), "last_seq": .number(Double(summary.lastSeq)),
@@ -34,6 +26,6 @@ enum DebugHome {
             }
             return .object(row)
         }
-        return .object(["available": .bool(home.isAvailable), "windows": .array(windows), "conversations": .array(conversations)])
+        return .object(["available": .bool(home.isAvailable), "conversations": .array(conversations)])
     }
 }

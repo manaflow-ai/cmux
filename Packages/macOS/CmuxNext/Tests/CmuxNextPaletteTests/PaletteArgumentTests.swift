@@ -70,7 +70,7 @@ import Testing
             registry.bind("selectWorkspaceByNumber", invoke: { runs.append($0) })
         }
         let model = controller.model
-        model.query = "select home or workspace"
+        model.query = "select workspace 1"
         await model.settle()
         model.handle(.submit)
         #expect(model.isTextInput)
