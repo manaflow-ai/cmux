@@ -13,7 +13,7 @@ import Testing
     func open(_ source: MockTabSearchSource, query: String = "", style: TabSearchStyle = .recent) -> PaletteModel {
         let model = PaletteModel(persistence: InMemoryFrecencyPersistence())
         let fixed = now
-        model.reset(to: TabSearchPage.make(source: source, style: style, query: query, now: { fixed }))
+        model.reset(to: PalettePageSpec.tabSearch(source: source, style: style, query: query, now: { fixed }))
         return model
     }
 
@@ -42,7 +42,7 @@ import Testing
         var dismissed = false
         model.onDismiss = { dismissed = true }
         let fixed = now
-        model.reset(to: TabSearchPage.make(source: source, style: .recent, now: { fixed }))
+        model.reset(to: PalettePageSpec.tabSearch(source: source, style: .recent, now: { fixed }))
         #expect(model.handle(.closeItem))
         #expect(source.closed == ["tab_2"])
         #expect(!dismissed)
@@ -72,7 +72,7 @@ import Testing
             return "Pinned tabs need confirmation"
         }
         let fixed = now
-        model.reset(to: TabSearchPage.make(source: source, style: .recent, now: { fixed }))
+        model.reset(to: PalettePageSpec.tabSearch(source: source, style: .recent, now: { fixed }))
         #expect(model.handle(.closeItem))
         #expect(model.rows.contains { $0.id == "tab:tab_2" })
         #expect(model.selectedItem?.subtitle == "Pinned tabs need confirmation")

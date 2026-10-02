@@ -15,7 +15,7 @@ enum TabSearchHandlers {
         let watcher = TabSearchWatcher(services: services)
         let page = { (query: String) -> PalettePageSpec in
             watcher.start()
-            return TabSearchPage.make(source: source, query: query)
+            return PalettePageSpec.tabSearch(source: source, query: query)
         }
         services.palette.sources.actionPages["tab.search"] = { page("") }
         registry.bind("tab.search", run: { invocation in
@@ -50,7 +50,7 @@ final class TabSearchWatcher {
                     continue
                 }
                 guard let palette = self.services.palette as PaletteController?, palette.isVisible,
-                      palette.model.currentPageID == TabSearchPage.id else { return self.stop() }
+                      palette.model.currentPageID == PalettePageSpec.tabSearchID else { return self.stop() }
                 palette.model.reload()
             }
         }

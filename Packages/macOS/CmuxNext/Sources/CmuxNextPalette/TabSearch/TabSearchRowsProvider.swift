@@ -37,7 +37,7 @@ final class TabSearchRowsProvider: PaletteProvider {
 
     var immediateItems: [PaletteItem]? {
         guard let source else { return [] }
-        return rows().map { TabSearchPage.item($0, source: source) }
+        return rows().map { PalettePageSpec.tabSearchItem($0, source: source) }
     }
 
     func items() async -> [PaletteItem] { immediateItems ?? [] }

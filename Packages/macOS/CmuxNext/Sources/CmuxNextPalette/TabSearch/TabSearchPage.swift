@@ -23,12 +23,12 @@ public protocol TabSearchSource: AnyObject {
 /// recently closed tabs below. Return focuses and reveals the row's tab or
 /// reopens a closed one; Cmd-W closes the row's tab, or removes a closed
 /// one from the list, and keeps the page open.
-public enum TabSearchPage {
-    public static let id = "tabSearch"
-    static let closeCommandID = "tabSearch.close"
+extension PalettePageSpec {
+    public static let tabSearchID = "tabSearch"
+    static let tabSearchCloseCommandID = "tabSearch.close"
 
     /// `style` nil uses the Debug Settings prototype (`recent` in Release).
-    public static func make(source: any TabSearchSource, style: TabSearchStyle? = nil,
+    public static func tabSearch(source: any TabSearchSource, style: TabSearchStyle? = nil,
                             query: String = "", now: @escaping @MainActor () -> Date = Date.init) -> PalettePageSpec {
         let style = style ?? PaletteTunables.tabSearchStyle.value
         // One snapshot per load: the first provider takes it, the second
@@ -42,13 +42,13 @@ public enum TabSearchPage {
             snapshot.last.filter { !$0.isVisibleWhenQueryEmpty }
         }
         return PalettePageSpec(
-            id: id, title: PaletteStrings.tabSearchTitle, placeholder: PaletteStrings.tabSearchPlaceholder,
+            id: tabSearchID, title: PaletteStrings.tabSearchTitle, placeholder: PaletteStrings.tabSearchPlaceholder,
             symbol: "magnifyingglass", providers: [listed, older], initialQuery: query, ownsCloseKey: true, keepsSectionOrder: true,
             emptyQuerySelection: TabSearchPlan.emptyQuerySelection(rows.filter(\.isVisibleWhenQueryEmpty)))
     }
 
     /// The palette row of `row`, with its commands.
-    static func item(_ row: TabSearchRow, source: any TabSearchSource) -> PaletteItem {
+    static func tabSearchItem(_ row: TabSearchRow, source: any TabSearchSource) -> PaletteItem {
         let entry = row.entry
         let id = entry.id
         let primary: PaletteCommand
@@ -56,12 +56,12 @@ public enum TabSearchPage {
         if entry.isClosed {
             primary = PaletteCommand(id: "reopen", title: PaletteStrings.tabSearchReopen, symbol: "arrow.uturn.backward",
                                      effect: .perform { [weak source] in source?.reopenClosedTab(id: id) })
-            close = PaletteCommand(id: closeCommandID, title: PaletteStrings.tabSearchForget, symbol: "minus.circle", isDestructive: true,
+            close = PaletteCommand(id: tabSearchCloseCommandID, title: PaletteStrings.tabSearchForget, symbol: "minus.circle", isDestructive: true,
                                    effect: .performKeepingOpen { [weak source] in source?.forgetClosedTab(id: id) })
         } else {
             primary = PaletteCommand(id: "focus", title: PaletteStrings.switchToTab, symbol: "return",
                                      effect: .perform { [weak source] in source?.focusTab(id: id) })
-            close = PaletteCommand(id: closeCommandID, title: PaletteStrings.closeTab, symbol: "xmark", isDestructive: true,
+            close = PaletteCommand(id: tabSearchCloseCommandID, title: PaletteStrings.closeTab, symbol: "xmark", isDestructive: true,
                                    effect: .performKeepingOpen { [weak source] in source?.closeTab(id: id) })
         }
         var item = PaletteItem(
