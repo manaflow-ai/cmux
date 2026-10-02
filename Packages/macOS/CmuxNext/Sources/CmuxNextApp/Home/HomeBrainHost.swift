@@ -46,9 +46,7 @@ nonisolated struct HomeBrainHost: Sendable {
 
     var childEnvironment: [String: String] {
         var variables: [String: String] = [
-            // The app's bundled CLI first, so `cmux` in the mux's shell is this build's.
-            "PATH": [Bundle.main.resourceURL?.appendingPathComponent("bin").path, "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"]
-                .compactMap { $0 }.joined(separator: ":"),
+            "PATH": Self.searchPath(home: FileManager.default.homeDirectoryForCurrentUser),
             "CMUX_SOCKET_PATH": controlSocket,
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
             "MUX_HOST_LOG": muxHome.appendingPathComponent("host.log").path,
@@ -61,6 +59,15 @@ nonisolated struct HomeBrainHost: Sendable {
             if let value = ProcessInfo.processInfo.environment[key] { variables[key] = value }
         }
         return variables
+    }
+
+    /// The app's bundled CLI first (so `cmux` in the mux's shell is this build's), then the
+    /// user's tool directories, where acpmux finds agent harnesses such as `sr` (claude-sr),
+    /// then the system. Phase A stand-in for the daemon login environment (spec D26, open).
+    static func searchPath(home: URL) -> String {
+        let user = ["bin", ".local/bin", ".bun/bin", ".cargo/bin"].map { home.appendingPathComponent($0).path }
+        return ([Bundle.main.resourceURL?.appendingPathComponent("bin").path].compactMap { $0 } + user
+            + ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]).joined(separator: ":")
     }
 
     /// Spawns the host through a throwaway shell with job control, so it gets
