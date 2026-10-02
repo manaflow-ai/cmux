@@ -28,6 +28,13 @@ public struct ThemeTokens: Hashable, Sendable {
     /// themes too, so the strips read as quiet bands (a pure black window
     /// has no darker shade; there the strip matches it).
     public var stripBackground: ThemeRGB
+    /// The sidebar's tonal step: a translucent layer over the window's one
+    /// backdrop (the solid background, or the material and its tint), the
+    /// foreground at the same 4% the agent pane's sidebar uses.
+    public var sidebarStep: ThemeRGB
+    /// The tab strip's tonal step over the window's backdrop: black, so
+    /// over the opaque background it composites to `stripBackground`.
+    public var stripStep: ThemeRGB
 
     // Text
     /// Titles and body text: the foreground, pushed to 4.5:1 when needed.
@@ -134,6 +141,8 @@ public struct ThemeTokens: Hashable, Sendable {
             chromeBackground: bg.mixed(toward: fg, isDark ? 0.05 : 0.035),
             elevatedBackground: bg.mixed(toward: fg, isDark ? 0.07 : 0.02),
             stripBackground: bg.mixed(toward: .black, isDark ? 0.22 : 0.05).withAlpha(input.backgroundOpacity),
+            sidebarStep: fg.withAlpha(0.04),
+            stripStep: ThemeRGB.black.withAlpha(isDark ? 0.22 : 0.05),
             textPrimary: primary,
             textSecondary: secondary,
             textTertiary: tertiary,
