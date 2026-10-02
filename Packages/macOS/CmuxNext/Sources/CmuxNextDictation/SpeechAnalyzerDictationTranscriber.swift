@@ -239,10 +239,9 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         guard let analyzerFormat, let continuation = convertedInputContinuation else { return }
         let buffer = input.buffer
         guard buffer.frameLength > 0 else { return }
-        dictationTrace.debug("TRACE in t=\(traceTime(input.bufferStartTime ?? .invalid), privacy: .public) n=\(buffer.frameLength, privacy: .public) sr=\(buffer.format.sampleRate, privacy: .public)")
         if buffer.format == analyzerFormat {
             let result = continuation.yield(
-                timeline.input(buffer, capturedAt: input.bufferStartTime)
+                traceInput(timeline.input(buffer, capturedAt: input.bufferStartTime), buffer, raw: input)
             )
             if case .dropped = result {
                 throw DictationFailure.audioCaptureFailed("converted audio backlog")
@@ -263,7 +262,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         }
         let converted = try converter.convertOne(buffer, to: analyzerFormat)
         let result = continuation.yield(
-            timeline.input(converted, capturedAt: input.bufferStartTime)
+            traceInput(timeline.input(converted, capturedAt: input.bufferStartTime), converted, raw: input)
         )
         if case .dropped = result {
             throw DictationFailure.audioCaptureFailed("converted audio backlog")
@@ -391,4 +390,13 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             await releaseReservedLocale()
         }
     }
+}
+
+// DIAGNOSTIC (scratch only)
+func traceInput(_ analyzerInput: AnalyzerInput, _ buffer: AVAudioPCMBuffer, raw: AnalyzerRawInput) -> AnalyzerInput {
+    var sum: Float = 0
+    if let data = buffer.floatChannelData?[0] { for i in 0..<Int(buffer.frameLength) { sum += data[i] * data[i] } }
+    let rms = buffer.frameLength > 0 ? (sum / Float(buffer.frameLength)).squareRoot() : 0
+    dictationTrace.error("TRACE in cap=\(traceTime(raw.bufferStartTime ?? .invalid), privacy: .public) raw=\(raw.buffer.frameLength, privacy: .public)@\(raw.buffer.format.sampleRate, privacy: .public) fed=\(traceTime(analyzerInput.bufferStartTime ?? .invalid), privacy: .public) n=\(buffer.frameLength, privacy: .public) rms=\(rms, privacy: .public) common=\(buffer.format.commonFormat.rawValue, privacy: .public)")
+    return analyzerInput
 }
