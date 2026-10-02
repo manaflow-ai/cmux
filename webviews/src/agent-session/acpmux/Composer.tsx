@@ -19,6 +19,8 @@ export const COMPOSER_LABELS = {
   commands: "Commands",
   noCommands: "No commands",
   noMatchingCommands: "No matching commands",
+  queue: "Queued prompts",
+  queued: "Queued",
 };
 
 type Props = {
@@ -185,17 +187,30 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   };
   return (
     <form className="acpmux-composer" onSubmit={submit} onBlur={blur}>
-      {open && (
-        <SlashMenu
-          matches={matches}
-          active={selected}
-          empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands}
-          onHover={setActive}
-          onPick={pick}
-        />
+      {snapshot.queue.length > 0 && (
+        <ol className="acpmux-composer-queue" aria-label={COMPOSER_LABELS.queue}>
+          {snapshot.queue.map((entry) => (
+            <li className="acpmux-queued" key={entry.id} title={entry.prompt}>
+              <span className="acpmux-queued-label" aria-hidden="true">
+                {COMPOSER_LABELS.queued}
+              </span>
+              <span className="acpmux-queued-text">{entry.prompt}</span>
+            </li>
+          ))}
+        </ol>
       )}
       <ComposerContext summary={snapshot.summary} />
       <div className="acpmux-composer-box">
+        {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
+        {open && (
+          <SlashMenu
+            matches={matches}
+            active={selected}
+            empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands}
+            onHover={setActive}
+            onPick={pick}
+          />
+        )}
         {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
         <textarea
           ref={textarea}

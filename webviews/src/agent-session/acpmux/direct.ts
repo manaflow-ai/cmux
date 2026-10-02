@@ -539,10 +539,12 @@ export class AcpmuxDirectClient {
     this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), this.withUnseen(session)];
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
-      this.queue = (session.queue ?? this.queue).map((entry: any) => ({
-        id: String(entry.promptId),
-        prompt: String(entry.prompt ?? entry.preview ?? ""),
-      }));
+      // A change that doesn't carry the queue keeps the one already mapped.
+      if (session.queue)
+        this.queue = session.queue.map((entry: any) => ({
+          id: String(entry.promptId),
+          prompt: String(entry.prompt ?? entry.preview ?? ""),
+        }));
     }
     // The picker lists every session, so a change elsewhere still needs a snapshot.
     this.emit("session changed");
