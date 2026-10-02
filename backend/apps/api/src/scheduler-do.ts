@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto"
 import type { Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
 import type { Body, Run } from "@cmux/protocol"
-import { dispatchable, dueFires, matchingEventTriggers, publicRun, schedulerDomain, type SchedulerState } from "./domains/scheduler.ts"
+import { dispatchable, dueFires, matchingEventTriggers, publicRun, schedulerDomain, TERMINAL, type SchedulerState } from "./domains/scheduler.ts"
 import type { Env } from "./env.ts"
 import type { DeliverResult } from "./ingress/automation-hook.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
@@ -26,6 +27,13 @@ export interface RunReport {
 }
 
 const MAX_RETRY_MS = 5 * 60_000
+/**
+ * Server-side watchdog for started runs: a Workflow that Cloudflare stopped, or
+ * whose final report failed, would hold its concurrency slot for ever. Each
+ * started run's instance status is checked at most this often while the run is
+ * not terminal (a bounded server check, not client polling).
+ */
+export const WATCHDOG_MS = 15 * 60_000
 /** Trigger payloads kept for a run's input; larger ones are replaced by a truncation marker. */
 const MAX_INPUT_BYTES = 256 * 1024
 
@@ -43,6 +51,8 @@ const alreadyExists = (e: unknown) => /already exists|already_exists|duplicate/i
 export class SchedulerDO extends OwnerDO<SchedulerState> {
   /** Backoff for fires and dispatches that failed in this instance's lifetime (a scheduling hint, not entity state). */
   private readonly retry = new Map<string, { attempts: number; at: number }>()
+  /** When each started run's Workflow status was last checked. */
+  private readonly checked = new Map<string, number>()
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, schedulerDomain, "scheduler", (p) => ({
@@ -117,12 +127,44 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       }
     }
     for (const r of dispatchable(state)) take(this.retryAt(dispatchKey(r.id)) ?? now)
+    for (const r of Object.values(state.runs)) if (r.dispatched && !TERMINAL.has(r.state)) take((this.checked.get(r.id) ?? r.created_at) + WATCHDOG_MS)
     return at
+  }
+
+  /** Marks started runs dead when their Workflow ended without a final report, and enforces the wall-clock budget. */
+  private async watchdog(now: number) {
+    const engine = this.boundEngine!
+    const due = Object.values(engine.currentState.runs).filter((r) => r.dispatched && !TERMINAL.has(r.state) && (this.checked.get(r.id) ?? r.created_at) + WATCHDOG_MS <= now)
+    for (const r of due.slice(0, 20)) {
+      this.checked.set(r.id, now)
+      const budget = engine.currentState.automations[r.automation]?.budget.wall_clock_seconds
+      let status: string
+      try {
+        const instance = await this.env.AUTOMATION_RUN.get(r.id)
+        if (budget !== undefined && r.started_at !== null && r.started_at + budget * 1000 < now) {
+          await instance.terminate().catch(() => undefined)
+          this.submitSystem("run.report", { run: r.id, state: "failed", step: r.step, error: { code: "budget.wall_clock", message: `ran longer than ${budget} s` } }, `report:${r.id}:failed:budget`)
+          continue
+        }
+        status = (await instance.status()).status
+      } catch (e) {
+        status = /not.?found/i.test(String(e)) ? "unknown" : "check_failed"
+      }
+      if (status === "errored" || status === "terminated" || status === "complete" || status === "unknown") {
+        this.submitSystem(
+          "run.report",
+          { run: r.id, state: "dead", step: r.step, error: { code: "run.dead", message: `the run's Workflow is ${status} without a final report` } },
+          `report:${r.id}:dead:${r.step}`
+        )
+        this.checked.delete(r.id)
+      }
+    }
   }
 
   protected override async onWake(now: number): Promise<void> {
     const engine = this.boundEngine
     if (!engine) return
+    await this.watchdog(now)
     for (const f of dueFires(engine.currentState, now)) {
       const key = fireKey(f.automation, f.trigger, f.scheduled_at)
       if ((this.retryAt(key) ?? 0) > now) continue
@@ -171,7 +213,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     const engine = this.bind(entity)
     const a = Object.values(engine.currentState.automations).find((x) => x.triggers.some((t) => t.id === trigger && t.spec.type === "webhook"))
     if (!a) return { status: "unknown" }
-    const res = this.submitSystem("automation.deliver", { automation: a.id, trigger, delivery_id: delivery }, `deliver:${a.id}:${trigger}:${delivery}`)
+    const res = this.submitSystem("automation.deliver", { automation: a.id, trigger, delivery_id: delivery }, deliverKey(a.id, trigger, delivery))
     const out = res.frames.find((f): f is ResultFrame => f.t === "result")
     if (!out) return { status: "disabled" }
     const value = out.value as { id?: string; state?: string; stale?: boolean }
@@ -188,20 +230,23 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
    * deliver:<automation>:<trigger>:<connection>:<delivery>, so a provider
    * redelivery replays. The payload is kept for the run as its input (capped).
    */
-  async deliverEvent(entity: string, ev: { connection: string; provider: string; event: string; delivery_id: string; payload: unknown }): Promise<{ runs: number }> {
+  async deliverEvent(
+    entity: string,
+    ev: { connection: string; sharing: "private" | "team"; created_by: string; provider: string; event: string; delivery_id: string; payload: unknown }
+  ): Promise<{ runs: number }> {
     const bound = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
     if (!bound || bound.entity !== entity) return { runs: 0 }
     const engine = this.bind(entity)
     let runs = 0
     for (const { automation, trigger } of matchingEventTriggers(engine.currentState, ev)) {
       const delivery = `${ev.connection}:${ev.delivery_id}`
-      const res = this.submitSystem("automation.deliver", { automation, trigger, delivery_id: delivery }, `deliver:${automation}:${trigger}:${delivery}`)
+      const res = this.submitSystem("automation.deliver", { automation, trigger, delivery_id: delivery }, deliverKey(automation, trigger, delivery))
       const out = res.frames.find((f): f is ResultFrame => f.t === "result")
       const value = out?.value as { id?: string; state?: string; stale?: boolean } | undefined
       if (!out || out.replayed || !value?.id || value.stale || value.state === "skipped") continue
       runs++
       const text = JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, body: ev.payload })
-      const input = text.length <= MAX_INPUT_BYTES ? text : JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, truncated: true })
+      const input = new TextEncoder().encode(text).byteLength <= MAX_INPUT_BYTES ? text : JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, truncated: true })
       this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO run_inputs (run, json, created_at) VALUES (?, ?, ?)`, value.id, input, Date.now())
     }
     return { runs }
@@ -216,4 +261,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
 }
 
 const fireKey = (automation: string, trigger: string, scheduledAt: number) => `fire:${automation}:${trigger}:${scheduledAt}`
+/** Ledger keys stay under the engine's 128-character limit: the delivery id goes in hashed. */
+export const deliverKey = (automation: string, trigger: string, delivery: string) =>
+  `deliver:${automation}:${trigger}:${createHash("sha256").update(delivery).digest("base64url").slice(0, 32)}`
 const dispatchKey = (run: string) => `dispatch:${run}`

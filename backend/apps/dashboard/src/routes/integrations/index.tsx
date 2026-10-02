@@ -84,7 +84,7 @@ function Integrations() {
             {(list.data?.connections ?? []).map((c) => (
               <tr key={c.id}>
                 <td>
-                  {LABEL[c.provider]} · {c.account ? c.account.url ? <a href={c.account.url}>{c.account.name}</a> : c.account.name : <span className="muted">not linked yet</span>}
+                  {LABEL[c.provider]} · {c.account ? c.account.url?.startsWith("https://") ? <a href={c.account.url} rel="noreferrer">{c.account.name}</a> : c.account.name : <span className="muted">not linked yet</span>}
                   <br />
                   <code className="muted">{c.id}</code>
                 </td>

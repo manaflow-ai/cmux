@@ -1,4 +1,4 @@
-import { freshTimestamp, hmacHex, timingSafeEqual } from "./verify.ts"
+import { freshTimestamp, hmacHex, sha256Hex, timingSafeEqual } from "./verify.ts"
 
 /**
  * Per-provider webhook verifiers (spec integrations.md). Each takes the raw
@@ -14,6 +14,11 @@ export interface Delivery {
   readonly provider: Provider
   /** Stable provider account key, for example `github:installation:42`, `slack:team:T1`, `linear:org:<uuid>`. */
   readonly account: string
+  /**
+   * Dedupe id from signed content only: Slack's event_id is in the signed body;
+   * GitHub and Linear send their delivery ids in unsigned headers, so the id is
+   * the body hash (their bodies carry unique ids and times).
+   */
   readonly delivery_id: string
   /** Provider event type, for example `pull_request.opened`, `message`, `Issue.create`. */
   readonly event: string
@@ -49,7 +54,8 @@ export const verifyGitHub = async (secret: string, headers: Headers, body: strin
   const installation = (p.installation as { id?: unknown } | undefined)?.id
   if (typeof installation !== "number") return bad(400, "no installation id (only GitHub App webhooks are accepted)")
   const action = typeof p.action === "string" ? `.${p.action}` : ""
-  return { ok: true, delivery: { provider: "github", account: `github:installation:${installation}`, delivery_id: delivery, event: `${event}${action}`, payload: p } }
+  const signed = (await sha256Hex(body)).slice(0, 40)
+  return { ok: true, delivery: { provider: "github", account: `github:installation:${installation}`, delivery_id: `sha256:${signed}`, event: `${event}${action}`, payload: p } }
 }
 
 /**
@@ -90,5 +96,6 @@ export const verifyLinear = async (secret: string, headers: Headers, body: strin
   if (!delivery || typeof org !== "string") return bad(400, "missing Linear-Delivery or organizationId")
   const type = typeof p.type === "string" ? p.type : (headers.get("linear-event") ?? "unknown")
   const action = typeof p.action === "string" ? `.${p.action}` : ""
-  return { ok: true, delivery: { provider: "linear", account: `linear:org:${org}`, delivery_id: delivery, event: `${type}${action}`, payload: p } }
+  const signed = (await sha256Hex(body)).slice(0, 40)
+  return { ok: true, delivery: { provider: "linear", account: `linear:org:${org}`, delivery_id: `sha256:${signed}`, event: `${type}${action}`, payload: p } }
 }

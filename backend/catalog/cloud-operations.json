@@ -6221,8 +6221,7 @@
       "owner": "cloud:SchedulerDO",
       "risk": "read",
       "principals": [
-        "session",
-        "install"
+        "session"
       ],
       "focuses": false,
       "queue_offline": false,
@@ -6241,7 +6240,7 @@
         "expose": "never",
         "group": "automation"
       },
-      "docs": "Read a webhook trigger's endpoint path and signing secret (HMAC-SHA256 over '<x-cmux-timestamp>.<body>', header x-cmux-signature: v1=<hex>).",
+      "docs": "Read a webhook trigger's endpoint path and signing secret (HMAC-SHA256 over '<x-cmux-timestamp>.<body>', header x-cmux-signature: v1=<hex>). Human sessions only: the secret starts runs.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

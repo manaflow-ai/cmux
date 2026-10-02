@@ -7,7 +7,9 @@ import { freshTimestamp, hmacHex, readRawBody, sha256Hex, timingSafeEqual } from
  * Scheme (Stripe-style): headers `x-cmux-timestamp: <unix seconds>`,
  * `x-cmux-signature: v1=<hex HMAC-SHA256(secret, "<timestamp>.<raw body>")>`
  * (several `v1=` values allowed, comma separated) and optional
- * `x-cmux-delivery: <sender id>` for dedupe (default: the body hash).
+ * `x-cmux-delivery: <sender id>` as a label. Dedupe uses the signed content
+ * (timestamp and body) only, so an unsigned header cannot turn a replay into
+ * a new delivery.
  *
  * The per-trigger secret is derived, never stored: HMAC(K, "<team>:<trigger>")
  * with K = HKDF-SHA256 of the API signing key, domain-separated per
@@ -18,7 +20,7 @@ import { freshTimestamp, hmacHex, readRawBody, sha256Hex, timingSafeEqual } from
 export const MAX_AUTOMATION_HOOK_BYTES = 256 * 1024
 const TEAM = /^team_[a-z0-9]{20}$/
 const TRIGGER = /^trg_[a-z0-9]{20}$/
-const DELIVERY = /^[A-Za-z0-9_.:-]{1,200}$/
+const DELIVERY = /^[A-Za-z0-9_.:-]{1,100}$/
 
 const b64uDecode = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), (c) => c.charCodeAt(0))
 
@@ -74,9 +76,11 @@ export const handleAutomationHook = async (request: Request, env: Env, team: str
   for (const s of sigs) valid = timingSafeEqual(s, expected) || valid
   if (!valid) return json(401, { ok: false, code: "auth.unauthenticated", message: "bad signature" })
 
+  // Dedupe only on what the signature covers: an unsigned header could be changed to replay a
+  // captured request inside the window. x-cmux-delivery is kept as a label in the run input.
   const header = request.headers.get("x-cmux-delivery")
-  if (header !== null && !DELIVERY.test(header)) return json(400, { ok: false, code: "validation.invalid", message: "x-cmux-delivery must be 1-200 of [A-Za-z0-9_.:-]" })
-  const delivery = header ?? `sha256:${(await sha256Hex(`${ts}.${body.text}`)).slice(0, 40)}`
+  if (header !== null && !DELIVERY.test(header)) return json(400, { ok: false, code: "validation.invalid", message: "x-cmux-delivery must be 1-100 of [A-Za-z0-9_.:-]" })
+  const delivery = `sha256:${(await sha256Hex(`${ts}.${body.text}`)).slice(0, 40)}`
 
   const contentType = request.headers.get("content-type") ?? ""
   let payload: unknown = body.text
@@ -87,16 +91,17 @@ export const handleAutomationHook = async (request: Request, env: Env, team: str
       return json(400, { ok: false, code: "validation.invalid", message: "body is not JSON" })
     }
   }
-  const input = { content_type: contentType.slice(0, 100), body: payload, received_at: Date.now() }
+  const input = { content_type: contentType.slice(0, 100), body: payload, received_at: Date.now(), ...(header ? { delivery_label: header } : {}) }
 
   const stub = env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(team))
   const r = (await stub.deliverWebhook(team, trigger, delivery, input)) as DeliverResult
+  const label = header ? { label: header } : {}
   switch (r.status) {
     case "unknown":
       return json(404, { ok: false, code: "selector.not_found" })
     case "disabled":
-      return json(409, { ok: false, code: "automation.disabled", delivery })
+      return json(409, { ok: false, code: "automation.disabled", delivery, ...label })
     default:
-      return json(202, { ok: true, delivery, status: r.status, ...(r.run ? { run: r.run } : {}) })
+      return json(202, { ok: true, delivery, ...label, status: r.status, ...(r.run ? { run: r.run } : {}) })
   }
 }

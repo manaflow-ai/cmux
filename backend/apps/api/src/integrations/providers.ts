@@ -23,7 +23,7 @@ export interface Approved {
 
 export class ProviderError extends Error {
   constructor(
-    readonly code: "provider.error" | "integration.unavailable" | "integration.state_invalid" | "needs_reauth",
+    readonly code: "provider.error" | "integration.unavailable" | "integration.state_invalid" | "needs_reauth" | "mutation.indeterminate",
     message: string,
     readonly retryable = false
   ) {
@@ -33,8 +33,6 @@ export class ProviderError extends Error {
 
 export interface CallResult {
   readonly value: unknown
-  /** A refreshed credential to seal in place of the old one. */
-  readonly credential?: Credential
 }
 
 export interface ProviderImpl {
@@ -43,6 +41,12 @@ export interface ProviderImpl {
   readonly authorizeUrl: (env: Env, state: string, scopes: ReadonlyArray<string>, redirectUri: string) => string
   readonly complete: (env: Env, http: Http, p: { code?: string; installation_id?: string; redirectUri: string }) => Promise<Approved>
   readonly call: (env: Env, http: Http, credential: Credential, op: string, params: Record<string, unknown>) => Promise<CallResult>
+  /**
+   * A fresh credential when this one is (about to be) expired, else undefined.
+   * The ConnectionDO seals the result before any provider call uses it and runs
+   * one refresh at a time per connection (rotating refresh tokens are single use).
+   */
+  readonly refresh?: (env: Env, http: Http, credential: Credential) => Promise<Credential | undefined>
 }
 
 const json = async (res: Response): Promise<Record<string, unknown>> => {
@@ -53,9 +57,26 @@ const json = async (res: Response): Promise<Record<string, unknown>> => {
   }
 }
 
-/** Never echoes provider bodies (they can hold tokens or content); status and a short code only. */
-const failed = (provider: string, res: Response, what: string) =>
-  new ProviderError(res.status === 401 ? "needs_reauth" : "provider.error", `${provider} ${what} failed: HTTP ${res.status}`, res.status === 429 || res.status >= 500)
+/**
+ * Never echoes provider bodies (they can hold tokens or content); status and a
+ * short code only. For the call that makes the effect (`effect`), a 5xx may
+ * come after the provider acted, so it is indeterminate, not retryable; only a
+ * 429 (refused before acting) releases the key for a retry.
+ */
+const failed = (provider: string, res: Response, what: string, effect = false) => {
+  if (res.status === 401) return new ProviderError("needs_reauth", `${provider} ${what} failed: HTTP 401`)
+  if (effect && res.status >= 500) return new ProviderError("mutation.indeterminate", `${provider} ${what}: HTTP ${res.status}; the provider may have acted`)
+  return new ProviderError("provider.error", `${provider} ${what} failed: HTTP ${res.status}`, res.status === 429 || (!effect && res.status >= 500))
+}
+
+/** The effect request: a network failure after sending is indeterminate too. */
+const effectCall = async (http: Http, provider: string, req: Request): Promise<Response> => {
+  try {
+    return await http(req)
+  } catch {
+    throw new ProviderError("mutation.indeterminate", `${provider}: the request failed in flight; the provider may have acted`)
+  }
+}
 
 const form = (fields: Record<string, string>) => new URLSearchParams(fields).toString()
 
@@ -123,14 +144,16 @@ export const github: ProviderImpl = {
     if (credential.kind !== "github_installation") throw new ProviderError("provider.error", "wrong credential kind")
     if (op !== "github.issue.comment") throw new ProviderError("provider.error", `github cannot run ${op}`)
     const token = await installationToken(env, http, credential.installation_id)
-    const res = await http(
+    const res = await effectCall(
+      http,
+      "github",
       new Request(`${GH_API}/repos/${params.repo}/issues/${params.issue}/comments`, {
         method: "POST",
         headers: { ...ghHeaders(token), "content-type": "application/json" },
         body: JSON.stringify({ body: params.body })
       })
     )
-    if (!res.ok) throw failed("github", res, "comment")
+    if (!res.ok) throw failed("github", res, "comment", true)
     const b = await json(res)
     return { value: { id: b.id, url: b.html_url } }
   }
@@ -146,15 +169,14 @@ const linearTokenResponse = (b: Record<string, unknown>): Credential => ({
   ...(typeof b.expires_in === "number" ? { expires_at: Date.now() + b.expires_in * 1000 } : {})
 })
 
-const linearGraphql = async (http: Http, token: string, query: string, variables?: unknown) => {
-  const res = await http(
-    new Request("https://api.linear.app/graphql", {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ query, ...(variables ? { variables } : {}) })
-    })
-  )
-  if (!res.ok) throw failed("linear", res, "graphql")
+const linearGraphql = async (http: Http, token: string, query: string, variables?: unknown, effect = false) => {
+  const req = new Request("https://api.linear.app/graphql", {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ query, ...(variables ? { variables } : {}) })
+  })
+  const res = effect ? await effectCall(http, "linear", req) : await http(req)
+  if (!res.ok) throw failed("linear", res, "graphql", effect)
   const b = await json(res)
   if (Array.isArray(b.errors) && b.errors.length > 0) throw new ProviderError("provider.error", "linear graphql returned errors")
   return (b.data ?? {}) as Record<string, any>
@@ -183,34 +205,33 @@ export const linear: ProviderImpl = {
     const scope = Array.isArray(b.scope) ? (b.scope as Array<string>) : String(b.scope ?? "").split(/[ ,]+/).filter(Boolean)
     return { account: { key: `linear:org:${org.id}`, name: org.name ?? org.id, ...(org.urlKey ? { url: `https://linear.app/${org.urlKey}` } : {}) }, scopes_granted: scope.sort(), credential }
   },
-  call: async (env, http, credential, op, params) => {
+  refresh: async (env, http, credential) => {
+    if (credential.kind !== "oauth" || credential.expires_at === undefined || credential.expires_at - 60_000 > Date.now()) return undefined
+    if (!credential.refresh_token) throw new ProviderError("needs_reauth", "Linear token expired and has no refresh token")
+    const res = await http(
+      new Request(LINEAR_TOKEN, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: form({ refresh_token: credential.refresh_token, grant_type: "refresh_token", client_id: env.LINEAR_CLIENT_ID!, client_secret: env.LINEAR_CLIENT_SECRET! })
+      })
+    )
+    const b = await json(res)
+    if (!res.ok || typeof b.access_token !== "string") throw new ProviderError(res.status >= 500 || res.status === 429 ? "provider.error" : "needs_reauth", `Linear refresh failed: HTTP ${res.status}`, res.status >= 500 || res.status === 429)
+    return linearTokenResponse(b)
+  },
+  call: async (_env, http, credential, op, params) => {
     if (credential.kind !== "oauth") throw new ProviderError("provider.error", "wrong credential kind")
     if (op !== "linear.issue.create") throw new ProviderError("provider.error", `linear cannot run ${op}`)
-    let cred = credential
-    let refreshed: Credential | undefined
-    if (cred.expires_at !== undefined && cred.expires_at - 60_000 < Date.now()) {
-      if (!cred.refresh_token) throw new ProviderError("needs_reauth", "Linear token expired and has no refresh token")
-      const res = await http(
-        new Request(LINEAR_TOKEN, {
-          method: "POST",
-          headers: { "content-type": "application/x-www-form-urlencoded" },
-          body: form({ refresh_token: cred.refresh_token, grant_type: "refresh_token", client_id: env.LINEAR_CLIENT_ID!, client_secret: env.LINEAR_CLIENT_SECRET! })
-        })
-      )
-      const b = await json(res)
-      if (!res.ok || typeof b.access_token !== "string") throw new ProviderError("needs_reauth", `Linear refresh failed: HTTP ${res.status}`)
-      cred = linearTokenResponse(b) as typeof cred
-      refreshed = cred
-    }
     const data = await linearGraphql(
       http,
-      cred.access_token,
+      credential.access_token,
       "mutation($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id identifier url title } } }",
-      { input: { teamId: params.team_id, title: params.title, ...(params.description ? { description: params.description } : {}) } }
+      { input: { teamId: params.team_id, title: params.title, ...(params.description ? { description: params.description } : {}) } },
+      true
     )
     const issue = data.issueCreate?.issue as { id?: string; identifier?: string; url?: string } | undefined
     if (!data.issueCreate?.success || !issue) throw new ProviderError("provider.error", "Linear issueCreate did not succeed")
-    return { value: { id: issue.id, identifier: issue.identifier, url: issue.url }, ...(refreshed ? { credential: refreshed } : {}) }
+    return { value: { id: issue.id, identifier: issue.identifier, url: issue.url } }
   }
 }
 
@@ -242,14 +263,16 @@ export const slack: ProviderImpl = {
   call: async (_env, http, credential, op, params) => {
     if (credential.kind !== "oauth") throw new ProviderError("provider.error", "wrong credential kind")
     if (op !== "slack.post_as_bot") throw new ProviderError("provider.error", `slack cannot run ${op}`)
-    const res = await http(
+    const res = await effectCall(
+      http,
+      "slack",
       new Request("https://slack.com/api/chat.postMessage", {
         method: "POST",
         headers: { authorization: `Bearer ${credential.access_token}`, "content-type": "application/json; charset=utf-8" },
         body: JSON.stringify({ channel: params.channel, text: params.text })
       })
     )
-    if (!res.ok) throw failed("slack", res, "chat.postMessage")
+    if (!res.ok) throw failed("slack", res, "chat.postMessage", true)
     const b = await json(res)
     if (b.ok !== true) {
       const err = String(b.error ?? "unknown")

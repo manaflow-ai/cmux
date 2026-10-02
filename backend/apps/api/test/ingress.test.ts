@@ -30,7 +30,7 @@ describe("GitHub", () => {
   const headers = async (b = body) => new Headers({ "x-hub-signature-256": `sha256=${await hmacHex(SECRET, b)}`, "x-github-delivery": "d-1", "x-github-event": "pull_request" })
   it("accepts a signed App delivery", async () => {
     const r = await verifyGitHub(SECRET, await headers(), body)
-    expect(r).toMatchObject({ ok: true, delivery: { provider: "github", account: "github:installation:42", delivery_id: "d-1", event: "pull_request.opened" } })
+    expect(r).toMatchObject({ ok: true, delivery: { provider: "github", account: "github:installation:42", delivery_id: expect.stringMatching(/^sha256:[0-9a-f]{40}$/), event: "pull_request.opened" } })
   })
   it("refuses a tampered body, a wrong secret and non-App hooks", async () => {
     expect((await verifyGitHub(SECRET, await headers(), body.replace("7", "8"))).ok).toBe(false)
@@ -62,7 +62,7 @@ describe("Linear", () => {
   const sign = async (b: string) => new Headers({ "linear-signature": await hmacHex(SECRET, b), "linear-delivery": "ld-1", "linear-event": "Issue" })
   it("accepts a fresh signed delivery", async () => {
     const b = make(now - 1000)
-    expect(await verifyLinear(SECRET, await sign(b), b, now)).toMatchObject({ ok: true, delivery: { account: "linear:org:org-1", delivery_id: "ld-1", event: "Issue.create" } })
+    expect(await verifyLinear(SECRET, await sign(b), b, now)).toMatchObject({ ok: true, delivery: { account: "linear:org:org-1", delivery_id: expect.stringMatching(/^sha256:/), event: "Issue.create" } })
   })
   it("refuses a delivery older than one minute or forged", async () => {
     const b = make(now - 61_000)
