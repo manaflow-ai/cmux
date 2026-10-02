@@ -980,7 +980,7 @@ function AcpmuxPane() {
           onSend={(text) => void callNative("chat.send", { text })}
           onStop={() => void callNative("chat.cancel")}
         />
-        {newChat && (
+        {freshChat && (
           <div className="acpmux-home-area">
             <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
           </div>
