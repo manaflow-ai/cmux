@@ -21,4 +21,4 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-changes-retry:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
 /* The toolbar's options button reads pressed while its menu is open; disabled rows are muted. */
 .acpmux-diff-tool[aria-expanded="true"]{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)));color:var(--agent-text)}
-.acpmux-file-menu-item:disabled{color:var(--agent-muted);background:none}
+.acpmux-file-menu-item[aria-disabled="true"]{color:var(--agent-muted);background:none}

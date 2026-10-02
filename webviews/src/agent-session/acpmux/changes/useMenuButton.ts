@@ -13,7 +13,8 @@ export function useMenuButton() {
     if (refocus) button.current?.focus();
   };
   useLayoutEffect(() => {
-    if (open) menu.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+    // It opens on its first item that runs; a disabled one is still reachable with the arrows.
+    if (open) menu.current?.querySelector<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])')?.focus();
   }, [open]);
   useEffect(() => {
     if (!open) return;
@@ -25,7 +26,7 @@ export function useMenuButton() {
     return () => document.removeEventListener("pointerdown", away, true);
   }, [open]);
   const onKeyDown = (event: React.KeyboardEvent) => {
-    const all = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? [])];
+    const all = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
     const at = all.indexOf(document.activeElement as HTMLElement);
     const focus = (index: number) => all[(index + all.length) % all.length]?.focus();
     if (event.key === "Escape") {

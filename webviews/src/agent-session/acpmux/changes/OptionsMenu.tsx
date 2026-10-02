@@ -1,6 +1,7 @@
 // The changes view's options, behind the toolbar's More button: Refresh, the view toggles as
 // sentences (word wrap, split or unified diff, collapse or expand every file), and Copy git
-// apply command. A row that cannot run here is shown disabled.
+// apply command. A row that cannot run here is shown disabled; it stays in the menu for the
+// keyboard and a screen reader, and does nothing.
 import { More } from "../changeIcons";
 import { useMenuButton } from "./useMenuButton";
 
@@ -41,8 +42,10 @@ export function OptionsMenu({ rows }: { rows: OptionsRow[] }) {
                 role="menuitem"
                 tabIndex={-1}
                 className="acpmux-file-menu-item"
-                disabled={row.disabled}
-                onClick={() => run(row.run)}
+                aria-disabled={row.disabled || undefined}
+                onClick={() => {
+                  if (!row.disabled) run(row.run);
+                }}
               >
                 {row.label}
               </button>

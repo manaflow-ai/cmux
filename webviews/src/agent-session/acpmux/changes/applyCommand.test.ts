@@ -55,7 +55,7 @@ const changeSet: ChangeSet = {
 describe("Copy git apply command", () => {
   test("the command applies a scope's edits, a new file, a deletion and a rename to a clean checkout", () => {
     const command = applyCommand(changeSet);
-    expect(command?.startsWith("git apply <<'CMUX_PATCH'\n")).toBe(true);
+    expect(command?.startsWith(`git -C "$(git rev-parse --show-toplevel)" apply <<'CMUX_PATCH'\n`)).toBe(true);
     const root = repository(base);
     execFileSync("sh", ["-c", command!], { cwd: root, env: isolated(root), stdio: "pipe" });
     expect(readFileSync(join(root, "a.ts"), "utf8")).toBe("one\nTWO\nthree\n");

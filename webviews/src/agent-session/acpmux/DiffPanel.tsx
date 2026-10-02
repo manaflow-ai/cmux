@@ -193,7 +193,10 @@ export function DiffPanel({
     { id: "tree", label: "File tree", icon: <Panels />, pressed: showTree },
   ];
   // Last turn's files come from the transcript, so it neither refreshes nor has git's patches.
-  const command = scope !== "lastTurn" && load.state === "loaded" ? applyCommand(load.changeSet) : undefined;
+  const command = useMemo(
+    () => (scope !== "lastTurn" && load.state === "loaded" ? applyCommand(load.changeSet) : undefined),
+    [scope, load],
+  );
   const options: OptionsRow[] = [
     { label: "Refresh", disabled: scope === "lastTurn", run: retry },
     { label: wrap ? "Disable word wrap" : "Word wrap", run: () => press("wrap") },

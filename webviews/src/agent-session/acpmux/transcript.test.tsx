@@ -1689,7 +1689,7 @@ describe("acpmux turn diff", () => {
       await click(options);
       await click(row("Copy git apply command"));
       expect(copied).toEqual([
-        "git apply <<'CMUX_PATCH'\ndiff --git a/src/main.ts b/src/main.ts\n--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,2 +1,2 @@\n-a\n+A\n b\nCMUX_PATCH\n",
+        `git -C "$(git rev-parse --show-toplevel)" apply <<'CMUX_PATCH'\ndiff --git a/src/main.ts b/src/main.ts\n--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,2 +1,2 @@\n-a\n+A\n b\nCMUX_PATCH\n`,
       ]);
       expect(document.activeElement).toBe(options);
     } finally {
