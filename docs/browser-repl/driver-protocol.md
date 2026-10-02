@@ -37,7 +37,7 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `tab.keep` | `{ targetId }` | |
 | `tab.handleEvents` | `{ targetId, events: ["dialog"\|"filechooser"\|"download"] }` | Replaces the events this session has a handler for in the tab. See below. |
 | `session.name` | `{ name }` | |
-| `session.configure` | `{ userAgent?, extraHTTPHeaders?, permissions?, contentRules?, proxy? }`, each key replacing its value (`null` clears) | `{ proxy }`: whether tabs opened from now on use the proxy. Applies to every tab the session drives and is undone when the session leaves the tab. `contentRules` are WebKit content-blocker rules (the runtime builds them from the domain policy) |
+| `session.configure` | `{ userAgent?, extraHTTPHeaders?, permissions?, proxy? }`, each key replacing its value (`null` clears) | `{ proxy }`: whether tabs opened from now on use the proxy. Applies to every tab the session drives and is undone when the session leaves the tab. Content rules are not accepted here: the driver builds them from the session's domain policy (see "Guards") |
 | `history.search` | `{ queries?, from?, to?, limit }` (times in ms since the epoch) | `[{ url, title, dateVisited }]` newest first, from the history of the profiles the workspace's tabs use |
 
 Tabs the session opened (`tabs.open`, popups) close when the session ends;
@@ -92,7 +92,7 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 | --- | --- |
 | `input.mouse` | `{ targetId, type: "move"\|"down"\|"up"\|"wheel", x, y, button: "left"\|"right"\|"middle", clickCount, modifiers, deltaX?, deltaY? }` |
 | `input.key` | `{ targetId, type: "down"\|"up", key, code, text?, location?, modifiers, autoRepeat? }` |
-| `input.insertText` | `{ targetId, text }` (IME commit into the focused element. On WebKit a `contenteditable` editor gets marked text then its confirmation, so `compositionstart`, `beforeinput`/`input` and `compositionend` fire, trusted, and editors that start an edit only on a keydown or a composition (Google Sheets) take it; a form field gets a plain insert with one `input` event, as Chrome's `Input.insertText`; text with a line break or tab, or focus in an unreadable frame, inserts without a composition) |
+| `input.insertText` | `{ targetId, text }` or, from the runtime, `{ targetId, secret: name }`, which the native session turns into `{ targetId, text, secretName, secretDomains }` (see "Guards") (IME commit into the focused element. On WebKit a `contenteditable` editor gets marked text then its confirmation, so `compositionstart`, `beforeinput`/`input` and `compositionend` fire, trusted, and editors that start an edit only on a keydown or a composition (Google Sheets) take it; a form field gets a plain insert with one `input` event, as Chrome's `Input.insertText`; text with a line break or tab, or focus in an unreadable frame, inserts without a composition) |
 | `input.drag` | `{ targetId, path: [{ x, y }], button, modifiers }` (native drag session so HTML5 drag and drop fires) |
 
 `modifiers` is an array of `Alt`, `Control`, `Meta`, `Shift`. Key names follow
@@ -107,7 +107,7 @@ naming the session that holds the mouse.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `tab.screenshot` | `{ targetId, clip?, fullPage?, format: "png"\|"jpeg"\|"webp", quality? }` | `{ base64, width, height }` |
+| `tab.screenshot` | `{ targetId, clip?, fullPage?, format: "png"\|"jpeg"\|"webp", quality? }` (the session adds `secretMasks`) | `{ base64, width, height }` |
 | `tab.pdf` | `{ targetId, format?, width?, height?, landscape?, printBackground?, margin? }` | `{ base64 }` |
 
 ## Files, dialogs, popups, downloads
@@ -129,6 +129,7 @@ Every event carries `targetId`.
 | `tab.closed` | |
 | `tab.crashed` | (the web content process ended; calls other than navigation fail until a reload or navigation starts a new one) |
 | `tab.navigated` | `{ frameId, url, sameDocument }` |
+| `navigation.blocked` | `{ url, reason }`: the driver cancelled a main-frame navigation of a tab the session created because the domain policy blocks `url` |
 | `tab.loadState` | `{ state: "domcontentloaded"\|"load"\|"networkidle" }` |
 | `dialog.opened` | `{ dialogId, type: "alert"\|"confirm"\|"prompt"\|"beforeunload", message, defaultValue }` (stays open until `dialog.respond`) |
 | `filechooser.opened` | `{ chooserId, frameId, element, multiple }` (the native panel is not shown; see `tab.handleEvents` for which tabs send it) |
@@ -145,6 +146,29 @@ Every event carries `targetId`.
 | `cookies.get` / `cookies.set` | `{ urls? }`, `{ cookies }` |
 | `cookies.clear` | `{ targetId?, site?, all?, name?, domain?, path? }`. Deletes the cookies of the target tab's store (the active tab's without `targetId`) on `site`, a registrable domain, and its subdomains, or on every site with `all: true`, narrowed by exact `name`, `domain` and `path`. Without `site` or `all` it fails with `invalid` when the store is a persistent profile (the user's cookies), and clears the whole store when it is not (a private tab's, the session's proxy store) |
 | `clipboard.read` / `clipboard.write` | per-tab virtual clipboard `{ items: [{ type, base64 }] }`. Meta+C, Meta+X and Meta+V run the engine's own Copy, Cut and Paste against it, so the page gets trusted `copy`, `cut` and `paste` events with `clipboardData` (every type), and the system clipboard is neither read nor written. On WebKit, the general-pasteboard lookups WebKit itself makes (its pasteboard IPC answered through WebCore) get a private pasteboard from the start of one command until WebKit reports it done, also after the call has timed out (5 s, `timeout`), so a late paste or copy never reaches the system clipboard; lookups by any other code, `NSPasteboard.general` included, get the system pasteboard. Commands run one at a time: one that cannot start within 5 s because an earlier one is unfinished fails with `timeout` and does not run |
+
+## Guards
+
+Agent code runs in the REPL's JavaScriptCore context, so the guards are
+native (`BrowserReplBoundary` in the session, and the driver):
+
+- Secrets: values stay in the session. `input.insertText { secret }` reaches
+  the driver as `{ text, secretName, secretDomains }`; the driver types it
+  only when the frame that holds the focused element has an origin
+  (`WKFrameInfo.securityOrigin`, checked in the driver's own content world)
+  matching one of `secretDomains`, else fails with `secret "x" may not be
+  typed into <origin>; its domains are ...`. Captures get `secretMasks
+  [{ value, domains }]`; the driver masks only in frames on those domains.
+  Results, events, fetch responses, output, errors and written text are
+  redacted by the session.
+- Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
+  URL (`blocked`) and `session.configure` content rules, and calls the
+  driver's `setDomainPolicy(policy)` (Swift only). The driver applies the
+  policy's content rules, refuses reads and input (`frame.evaluate`,
+  `input.*`, captures, clipboard, file chooser answers) on a tab that shows
+  a blocked page, cancels main-frame navigations to blocked URLs in tabs
+  the session created (`navigation.blocked`), and never navigates a user's
+  tab away for the policy.
 
 ## Capabilities
 
@@ -170,7 +194,9 @@ structured values cross the boundary as JSON strings.
 | `print(level, text)` | append one output line; `level` is `log`, `info`, `warn`, `error` or `debug`; `text` is already formatted |
 | `setTimer(id, delayMs, repeat)` / `clearTimer(id)` | on fire the app calls `globalThis.__cmuxHostOnTimer(id)`; repeating timers keep firing until cleared |
 | `driverCall(callId, method, paramsJSON)` | the app later calls `globalThis.__cmuxHostOnResult(callId, errorJSON, resultJSON)`; exactly one of the two is `null`; `errorJSON` is `{ code, message }` |
-| `fetch(callId, requestJSON)` | request `{ url, method, headers: [[k, v]], bodyBase64? }`; result via `__cmuxHostOnResult`: `{ url, status, statusText, headers: [[k, v]], bodyBase64, redirected }`. Cookies come from, and `Set-Cookie` goes back to, the attached tab's cookie store (`params.targetId` optional in the request) |
+| `fetch(callId, requestJSON)` | request `{ url, method, headers: [[k, v]], bodyBase64?, targetId?, credentials?, origin? }`; result via `__cmuxHostOnResult`: `{ url, status, statusText, headers: [[k, v]], bodyBase64, redirected }`. Cookies come from, and `Set-Cookie` goes back to, the attached tab's cookie store, for `credentials` `include` (default) always, `same-origin` only for URLs on `origin`, `omit` never. The domain policy is checked on the URL and every redirect hop (`blocked`); a body over 64 MiB fails; the session redacts the URL, headers and a text body |
+| `secrets(op, argsJSON)` | synchronous, `{"ok": value}` or `{"error": {code, message}}`: `set { name, value, domains, totp }`, `load { path }` (read natively) or `load { object }`, `list`, `has { name }`, `delete { name }`, `clear`. No result holds a value |
+| `policy(op, argsJSON)` | synchronous, as `secrets`: `get` → `{ allowed, prohibited, blockIPs, locked }`, `check { url }` → reason or `null`, `set { allowed?, prohibited?, blockIPs?, lock?, title }` (a locked policy refuses) |
 | `fs(op, argsJSON)` | synchronous; returns `{"ok": value}` or `{"error": {"code": "ENOENT"\|"EACCES"\|"EEXIST"\|"ENOTDIR"\|"EISDIR"\|"ENOTEMPTY"\|"EINVAL", "message"}}` |
 | `readResource(relativePath)` | text of a bundled `Resources/browser-repl/` file, or `null` |
 | `tmpdir`, `homedir` | canonical temporary and home directories, for `node:os` |
@@ -200,7 +226,13 @@ Entry points the runtime defines, called by the app:
 - `__cmuxReplEval(code)` returns a Promise; the app awaits it with the eval
   timeout (120 s by default). Rejection is an uncaught error; the
   app formats it with `__cmuxFormatError(error)` when defined, else
-  `error.stack ?? String(error)`, and the CLI exits 1.
+  `error.stack ?? String(error)`, and the CLI exits 1. At the timeout the
+  app answers the caller at once; a script still running is terminated
+  (`JSContextGroupSetExecutionTimeLimit`), then `__cmuxReplCancel(message)`
+  settles the cell so the next one runs.
+- The runtime (`repl-host.js`) keeps `__cmuxNative` in its closures and
+  deletes the global before any cell runs; the entry points above are
+  non-writable.
 - `__cmuxHostOnEvent(name, payloadJSON)` delivers every driver event.
 - `__cmuxHostOnTimer(id)`, `__cmuxHostOnResult(callId, errorJSON, resultJSON)`.
 

@@ -63,8 +63,8 @@ scenario (`key` its golden value), `unit:` a `node --test` file.
 
 | browser-use | cmux | Proof | Verdict |
 | --- | --- | --- | --- |
-| `allowed_domains`, `prohibited_domains`, `block_ip_addresses` | `session.allowedDomains([...], { lock })`, `session.prohibitedDomains([...])`, `session.blockIPAddresses(true)`, `session.blockedNavigations()` | 32-agent-tools `policy-*`; unit: agent-tools `domain patterns` | better: also covers the REPL's `fetch`, `tabs.content` and site tools, and blocks subresources (images, scripts, styles, fonts, media, XHR and fetch, WebSockets, iframes) through a WebKit content rule list in the tabs the session drives, where browser-use filters navigations only (32-agent-tools `policy-subresources`); `{ lock: true }` keeps the agent from lifting it; a port in a pattern must match; unsafe patterns are refused instead of ignored |
-| redirect or link to a blocked domain | the tab goes to `about:blank` and the action, or the next read of or action on the tab (each checks the live URL first), fails | 32-agent-tools `policy-after-link` | same |
+| `allowed_domains`, `prohibited_domains`, `block_ip_addresses` | `session.allowedDomains([...], { lock })`, `session.prohibitedDomains([...])`, `session.blockIPAddresses(true)`, `session.blockedNavigations()` | 32-agent-tools `policy-*`; unit: agent-tools `domain patterns`, `hosts compare…` | better: the policy is kept and enforced by the native session and driver, outside the JavaScript context agent code runs in, so `{ lock: true }` holds even against agent code that replaces runtime objects or calls the driver directly. It covers navigations and new tabs, the REPL's `fetch` (every redirect hop), `tabs.content` and site tools, and blocks subresources (images, scripts, styles, fonts, media, XHR and fetch, WebSockets, iframes) through a WebKit content rule list built natively, where browser-use filters navigations only (32-agent-tools `policy-subresources`). Hosts compare without case, trailing dots or Unicode spelling (Punycode); a port in a pattern must match; unsafe patterns are refused instead of ignored |
+| redirect or link to a blocked domain | in a tab the session opened, the driver cancels the navigation (the tab stays on its page), logs it as `cancelled` and fails the action that caused it; a tab the user owns is never navigated away for the policy: reads of and input on it fail while it shows a blocked page | 32-agent-tools `policy-after-link` | better: browser-use loads the page and then leaves it |
 | `storage_state` load and save | `session.storageState({ path, urls, all })`, `session.setStorageState(stateOrPath)`, `page.context().storageState()` (Playwright's format) | unit: agent-tools `storage state: cookies…`, `storage state: scoped…`, `storage state: registrable…` | better: by default only the current tab's sites (registrable domain: `docs.google.com` saves `google.com` cookies and origins) are saved, so a state file never carries the rest of the user's profile; `{ all: true }` saves the whole profile, `{ urls }` what those URLs see; `page.context().storageState()` scopes to that page. Registrable domains use a built-in list of common multi-label suffixes (`co.uk`, `github.io`, ...), not the full Public Suffix List |
 | downloads tracking, `downloaded_files` | `session.downloads()`, `page.waitForEvent("download")`, `download.path()` | 32-agent-tools `downloads`, 10-files | same |
 | `auto_download_pdfs` | `page.pdf()` or `fetch` the PDF and `fs.writeFileSync` | 14-screenshots, 21-fs | skipped: WebKit shows PDFs inline; saving is one explicit call |
@@ -86,7 +86,18 @@ scenario (`key` its golden value), `unit:` a `node --test` file.
 browser-use's `sensitive_data` keeps credentials out of the model's context:
 the model writes `<secret>name</secret>` and the value is substituted when
 typed, if the page's domain matches. In cmux the model is the caller, so the
-value comes from a file or code it does not print.
+value comes from a file (read by the native session) or code it does not
+print.
+
+Values are kept by the native session, never in the JavaScript context agent
+code runs in: `secret(name)` is a handle, and the session substitutes the
+value only into the driver's text input, where the driver checks the
+focused frame's own origin (WebKit's record, not page script) against the
+secret's domains on every call, including retries. Redaction is native too,
+so replacing runtime objects does not unmask anything. What it cannot stop:
+a filled field belongs to the page, so page scripts, and code the agent
+runs in the page, can read its value and transform it past the masks
+(reversed, split, re-encoded).
 
     secrets.load("~/.config/agent/secrets.json")       // { "example.com": { "user": "...", "pw": "..." } }
     secrets.set("otp", base32Seed, { domains: ["example.com"], totp: true })
@@ -94,11 +105,11 @@ value comes from a file or code it does not print.
 
 | browser-use | cmux | Proof | Verdict |
 | --- | --- | --- | --- |
-| placeholders substituted at type time | `locator.fill(secret(name))`, `locator.type(secret(name))`, `pressSequentially` | unit: agent-tools `secrets: a registered value never appears…` | same |
+| placeholders substituted at type time | `locator.fill(secret(name))`, `locator.type(secret(name))`, `pressSequentially` (the value is inserted in one piece, not key by key) | unit: agent-tools `secrets: a registered value never appears…` | same |
 | domain-scoped secrets (`{ domain: { name: value } }`) | `secrets.load(file \| object)` takes that shape; `secrets.set(name, value, { domains })` | 32-agent-tools `secret-*` | better: the frame that receives the text must match, so a cross-origin iframe on an allowed page cannot get it; a domain-only pattern needs https (or loopback http); a secret without domains is refused (browser-use allows one everywhere) |
 | `bu_2fa_code` TOTP secrets | `{ totp: true }` (or a name ending `bu_2fa_code`) types the current 6-digit code | unit: agent-tools `totp…`, `secrets: a TOTP secret…` | same |
-| values never in the model's context | masked as `<secret:name>` in printed output, the output spill file, error messages, listener errors, every driver result (snapshot, `evaluate`, `inputValue`, title, URL, console, `content()`, `markdown()`, `tabs.content`), `fetch().text()`, exports, the trace and storage state; URL-encoded, JSON and HTML forms too; `keyboard.type(secret)` is refused | unit: agent-tools `secrets: a registered value never appears…`, 32-agent-tools `secret-*`, `output:10` | better: browser-use masks only its own logs, while its DOM state still shows a typed value in a text field |
-| | screenshots, recordings and PDFs: for the length of each capture, a text field whose value holds a registered secret, and any element whose own text holds one, renders with `-webkit-text-security: disc` like a password field, then is restored | 32-agent-tools `secret-screenshot` | better: browser-use's screenshots show a typed value; the check compares field pixels across two secrets and against the same text unregistered. A secret drawn on a canvas or in an image is not masked |
+| values never in the model's context | masked natively as `<secret:name>` in printed output, the output spill file and every file the REPL writes as text, error messages, listener errors, every driver result and event (snapshot, `evaluate`, `inputValue`, title, URL, console, `content()`, `markdown()`, `tabs.content`), `fetch` URLs, headers and text bodies, exports, the trace and storage state; percent-encoded (either hex case, `+` for a space), JSON- and HTML-escaped forms and Base64 that decodes to a value (a Basic `Authorization` header) too; `keyboard.type(secret)` is refused | unit: agent-tools `secrets: a registered value never appears…`, 32-agent-tools `secret-*`, `output:10` | better: browser-use masks only its own logs, while its DOM state still shows a typed value in a text field |
+| | screenshots, recordings and PDFs: for the length of each capture, in frames whose origin is on a secret's domains, a text field whose value holds it, and any element whose own text holds it, renders with `-webkit-text-security: disc` like a password field, then is restored. The driver does this in its own content world; values are never sent to page scripts or to other frames, and concurrent captures keep a per-element count | 32-agent-tools `secret-screenshot`, `secret-screenshot-concurrent` | better: browser-use's screenshots show a typed value; the check compares field pixels across two secrets and against the same text unregistered. A secret drawn on a canvas or in an image, or echoed in a frame of another origin, is not masked |
 
 ## Custom actions, MCP and the agent loop
 

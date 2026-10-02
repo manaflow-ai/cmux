@@ -22,6 +22,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private let sleeper: any BrowserReplSleeping
     private let lock = NSLock()
     private var sink: BrowserReplDriverEventSink?
+    /// Set by `detach()`: later calls fail and in-flight ones undo any
+    /// attachment they made.
+    private var isDetached = false
+    /// The session's domain policy (BrowserReplDomainPolicy). Only the native
+    /// session sets it, through `setDomainPolicy`.
+    private var domainPolicy = BrowserReplDomainPolicy()
+    /// Applies the latest policy's content rules; calls wait for it.
+    private var policyTask: Task<Void, Never>?
 
     // Main-actor state.
     private var activeTargetID: String?
@@ -57,9 +65,59 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     var capabilities: [String] { [] }
 
     func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
-        await Task { @MainActor in
+        if lock.withLock({ isDetached }) { return .failure(Self.closedError) }
+        let work = Task { @MainActor in
             await self.dispatch(method: method, paramsJSON: paramsJSON)
-        }.value
+        }
+        // The session cancels in-flight calls when it closes.
+        return await withTaskCancellationHandler {
+            await work.value
+        } onCancel: {
+            work.cancel()
+        }
+    }
+
+    private static let closedError = BrowserReplDriverError(code: "closed", message: "the REPL session was closed")
+
+    func setDomainPolicy(_ policy: BrowserReplDomainPolicy) {
+        lock.lock()
+        domainPolicy = policy
+        let previous = policyTask
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            await self?.applyDomainPolicy(policy)
+        }
+        policyTask = task
+        lock.unlock()
+    }
+
+    /// Puts the policy's content rules on every tab the session drives and
+    /// gives the navigation guard the policy.
+    @MainActor
+    private func applyDomainPolicy(_ policy: BrowserReplDomainPolicy) async {
+        BrowserReplNavigationGuard.shared.setPolicy(policy, sessionID: sessionID)
+        var options = contextOptions ?? BrowserReplContextOptions()
+        do {
+            let rules = policy.contentRules
+            options.ruleList = try await compileRuleList(rules.isEmpty ? nil : rules)
+        } catch {
+            // A rule list WebKit refuses leaves subresources unblocked; the
+            // navigation, fetch and read checks still apply.
+            options.ruleList = nil
+        }
+        contextOptions = options
+        for attachment in BrowserReplTabAttachments.shared.attachments(forSession: sessionID) {
+            attachment.applyContext(options, sessionID: sessionID)
+        }
+    }
+
+    private var currentPolicy: BrowserReplDomainPolicy { lock.withLock { domainPolicy } }
+
+    /// Methods that read or act on a page; refused while the page is one the
+    /// policy blocks.
+    private static func isGuarded(_ method: String) -> Bool {
+        method == "frame.evaluate" || method.hasPrefix("input.") || method == "tab.screenshot"
+            || method == "tab.pdf" || method.hasPrefix("clipboard.") || method == "filechooser.respond"
     }
 
     func attach(eventSink: @escaping BrowserReplDriverEventSink) {
@@ -67,9 +125,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     func detach() {
-        lock.withLock { sink = nil }
+        lock.withLock {
+            sink = nil
+            isDetached = true
+        }
         let sessionID = self.sessionID
         Task { @MainActor in
+            BrowserReplNavigationGuard.shared.removeSession(sessionID)
             BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
             // The compiled domain-policy list must not outlive the session
             // in WebKit's persistent rule list store.
@@ -90,6 +152,19 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     @MainActor
     private func dispatch(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+        let result = await dispatchAttached(method: method, paramsJSON: paramsJSON)
+        // A call that was in flight when the session closed may have attached
+        // a tab after detach() ran; take it off again.
+        if lock.withLock({ isDetached }) {
+            BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
+            return .failure(Self.closedError)
+        }
+        return result
+    }
+
+    @MainActor
+    private func dispatchAttached(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+        if let pending = lock.withLock({ policyTask }) { await pending.value }
         let params = JSONSerialization.browserReplObject(paramsJSON)
         // Every call on a tab first waits until the tab renders like a focused
         // foreground page; input must not race WebKit's focus update.
@@ -107,6 +182,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
         }
         do {
+            try checkPagePolicy(method: method, params: params)
             let value = try await handle(method: method, params: params)
             if let raw = value as? BrowserReplRawJSON { return .success(raw.text) }
             guard let json = JSONSerialization.browserReplString(value) else {
@@ -172,6 +248,32 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     static func error(_ code: String, _ message: String) -> BrowserReplDriverError {
         BrowserReplDriverError(code: code, message: message)
+    }
+
+    /// Refuses a read or input on a tab whose page the domain policy blocks,
+    /// and a navigation to a blocked URL.
+    @MainActor
+    private func checkPagePolicy(method: String, params: [String: Any]) throws {
+        let policy = currentPolicy
+        guard policy.isActive else { return }
+        if method == "tab.navigate" || method == "tabs.open", let url = params["url"] as? String,
+           let reason = policy.blockReason(url) {
+            throw Self.error("blocked", "\(url) is blocked: \(reason)")
+        }
+        guard Self.isGuarded(method), let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
+              let panel = try? reachablePanel(id), let url = panel.webView.url?.absoluteString,
+              let reason = policy.blockReason(url) else { return }
+        throw Self.error("blocked", "the tab shows \(url), which the domain policy blocks: \(reason); navigate it to an allowed page")
+    }
+
+    /// After a navigation of a tab the user owns: a page the policy blocks is
+    /// left in place (the user's tab is never navigated away) and the call fails.
+    @MainActor
+    private func checkLandedPage(_ panel: BrowserPanel) throws {
+        let policy = currentPolicy
+        guard policy.isActive, let url = panel.webView.url?.absoluteString,
+              let reason = policy.blockReason(url) else { return }
+        throw Self.error("blocked", "navigation to \(url) was blocked: \(reason); the tab is the user's, so it stays there and the session cannot read it")
     }
 
     // MARK: - Tabs
@@ -244,9 +346,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     /// `session.configure`: Playwright browser-context options for the tabs
     /// this session drives. Each given key replaces the previous value; a
-    /// `null` clears it. `{ userAgent, extraHTTPHeaders, permissions,
-    /// contentRules, proxy }`; `contentRules` are WebKit content-blocker rules
-    /// (JSON array) that block subresource loads; `proxy` is
+    /// `null` clears it. `{ userAgent, extraHTTPHeaders, permissions, proxy }`
+    /// (the domain policy's content rules come from `setDomainPolicy`); `proxy` is
     /// `{ server: "http://host:port" | "socks5://host:port", username?,
     /// password?, bypass? }` and applies to tabs opened afterwards, which use
     /// a private data store (no profile cookies).
@@ -276,7 +377,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             options.permissions = Set(names)
         }
         if params.keys.contains("contentRules") {
-            options.ruleList = try await compileRuleList(params["contentRules"])
+            // Content rules come from the session's domain policy
+            // (setDomainPolicy), never from the REPL's JavaScript.
+            throw Self.error("invalid", "session.configure: content rules come from the domain policy")
         }
         if params.keys.contains("proxy") {
             proxyDataStore = try Self.proxyDataStore(params["proxy"] as? [String: Any])
@@ -549,6 +652,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             Self.waitUntil(params),
             remainingMilliseconds: Self.remaining(timeout, since: started)
         )
+        try checkLandedPage(panel)
         var result: [String: Any] = ["url": panel.webView.url?.absoluteString ?? raw]
         if let status = attachment(panel).mainDocumentStatus { result["status"] = status }
         return result
@@ -1516,6 +1620,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let panel = try panel(params)
         let text = params["text"] as? String ?? ""
         guard !text.isEmpty else { return nil }
+        // A secret from the native session: typed only when the focused
+        // frame's own origin is on the secret's domains, checked on every call.
+        if let name = params["secretName"] as? String {
+            let frames = await BrowserReplFrameTree.frames(of: panel.webView)
+            try await BrowserReplSecretGuard.checkSecretTarget(
+                name: name,
+                domains: params["secretDomains"] as? [[String: Any]] ?? [],
+                webView: panel.webView,
+                frames: frames
+            )
+        }
         try await withWindow(panel) { webView, _ in
             await BrowserReplNativeInput.insertText(text, into: webView)
             await BrowserReplNativeInput.roundTrip(webView)
@@ -1672,8 +1787,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let quality = (params["quality"] as? NSNumber)?.doubleValue
         let fullPage = params["fullPage"] as? Bool ?? false
         let clip = params["clip"] as? [String: Any]
+        let masks = params["secretMasks"] as? [[String: Any]] ?? []
         let image: CGImage = try await withWindow(panel) { webView, _ in
-            try await BrowserReplCapture.snapshot(webView: webView, clip: clip, fullPage: fullPage)
+            try await Self.withSecretMasks(masks, webView: webView) {
+                try await BrowserReplCapture.snapshot(webView: webView, clip: clip, fullPage: fullPage)
+            }
         }
         let data = try BrowserReplCapture.encode(image, format: format, quality: quality)
         return ["base64": data.base64EncodedString(), "width": image.width, "height": image.height]
@@ -1682,20 +1800,48 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func pdf(_ params: [String: Any]) async throws -> [String: Any] {
         let panel = try panel(params)
+        let masks = params["secretMasks"] as? [[String: Any]] ?? []
         let data: Data = try await withWindow(panel) { [self] webView, _ in
-            // withWindow only lays a hidden tab out at its viewport size; the
-            // print session runs for a private offscreen window, never this
-            // one. If printing never reports back, fall back to WebKit's
-            // single-page PDF.
-            do {
-                return try await self.withTimeoutThrowing(milliseconds: 20_000, what: "printing") {
-                    try await BrowserReplCapture.printPDF(webView: webView, options: params)
-                }
-            } catch {
-                return try await webView.pdf(configuration: WKPDFConfiguration())
+            try await Self.withSecretMasks(masks, webView: webView) {
+                try await self.printPDF(webView: webView, params: params)
             }
         }
         return ["base64": data.base64EncodedString()]
+    }
+
+    /// Runs `capture` with registered secrets masked in frames on their domains.
+    @MainActor
+    private static func withSecretMasks<T>(
+        _ masks: [[String: Any]],
+        webView: WKWebView,
+        _ capture: () async throws -> T
+    ) async throws -> T {
+        guard !masks.isEmpty else { return try await capture() }
+        let frames = await BrowserReplFrameTree.frames(of: webView)
+        await BrowserReplSecretGuard.setMasks(masks, on: true, webView: webView, frames: frames)
+        do {
+            let value = try await capture()
+            await BrowserReplSecretGuard.setMasks(masks, on: false, webView: webView, frames: frames)
+            return value
+        } catch {
+            await BrowserReplSecretGuard.setMasks(masks, on: false, webView: webView, frames: frames)
+            throw error
+        }
+    }
+
+    @MainActor
+    private func printPDF(webView: WKWebView, params: [String: Any]) async throws -> Data {
+        // withWindow only lays a hidden tab out at its viewport size; the
+        // print session runs for a private offscreen window, never this
+        // one. If printing never reports back, fall back to WebKit's
+        // single-page PDF.
+        do {
+            return try await withTimeoutThrowing(milliseconds: 20_000, what: "printing") {
+                try await BrowserReplCapture.printPDF(webView: webView, options: params)
+            }
+        } catch {
+            return try await webView.pdf(configuration: WKPDFConfiguration())
+        }
     }
 
     // MARK: - Browser state

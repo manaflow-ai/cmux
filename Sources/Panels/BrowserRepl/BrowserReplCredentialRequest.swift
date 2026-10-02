@@ -4,12 +4,16 @@ import WebKit
 /// The native half of `sites.browserAuth.request`, driver method `auth.request`
 /// (docs/browser-repl/site-tools.md, "Secure sign-in").
 ///
-/// Shows a sheet on the browser pane's window that names the page's origin
-/// and asks for the fields the agent described. On Fill it runs the bundle's
-/// `sites/auth-fill.js` in the agent content world of the frame that holds
-/// the fields, passing the typed values as call arguments. The REPL receives
-/// a status and never a value. The REPL is untrusted, so every parameter is
-/// validated here again.
+/// Shows a sheet on the browser pane's window that names the origin of the
+/// frame that holds the fields (WebKit's record of it, not the main frame's
+/// and not anything the REPL sent) and asks for the fields the agent
+/// described. On Fill it runs the bundle's `sites/auth-fill.js` in the
+/// driver's own content world of that frame, which fills only password,
+/// username and one-time-code inputs, passing the typed values as call
+/// arguments. The REPL receives a status and never a value. The REPL is
+/// untrusted, so every parameter is validated here again. The page itself,
+/// and code the agent runs in the page, can read a filled field like any
+/// other, and the sheet says so.
 @MainActor
 enum BrowserReplCredentialRequest {
     struct Field {
@@ -37,18 +41,22 @@ enum BrowserReplCredentialRequest {
             return ["status": "locator_invalid"]
         }
         guard currentOrigin(webView) == origin else { return ["status": "origin_changed"] }
+        // The frame that receives the values, by WebKit's own record.
+        guard let fieldsOrigin = frameOrigin(frameInfo, webView) else { return ["status": "page_changed"] }
         guard let window = hostWindow(for: webView) else { return ["status": "unavailable"] }
         let requested = (params["timeoutMs"] as? NSNumber)?.intValue ?? defaultTimeoutMilliseconds
         let timeout = Duration.milliseconds(min(max(requested, 1_000), maxTimeoutMilliseconds))
 
-        let sheet = BrowserReplCredentialSheet(origin: origin, fields: fields)
+        let sheet = BrowserReplCredentialSheet(origin: fieldsOrigin, pageOrigin: origin, fields: fields)
         let answer = await sheet.present(on: window, timeout: timeout)
         guard case .filled(let values) = answer else {
             return ["status": answer == .expired ? "expired" : "cancelled"]
         }
-        guard currentOrigin(webView) == origin else { return ["status": "origin_changed"] }
+        guard currentOrigin(webView) == origin, frameOrigin(frameInfo, webView) == fieldsOrigin else {
+            return ["status": "origin_changed"]
+        }
         let arguments: [String: Any] = [
-            "__fields": fields.map { ["id": $0.id, "marker": $0.marker] },
+            "__fields": fields.map { ["id": $0.id, "type": $0.type, "marker": $0.marker] },
             "__values": values,
         ]
         do {
@@ -56,7 +64,7 @@ enum BrowserReplCredentialRequest {
                 fillSource,
                 arguments: arguments,
                 in: frameInfo,
-                contentWorld: BrowserReplAgentWorld.world
+                contentWorld: BrowserReplDriverWorld.world
             )
             let status = (result as? [String: Any])?["status"] as? String ?? "page_changed"
             return ["status": status]
@@ -97,6 +105,13 @@ enum BrowserReplCredentialRequest {
             && value.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" }
     }
 
+    /// scheme://host[:port] of the frame that holds the fields (the main
+    /// frame when `frameInfo` is nil), from WebKit's security origin.
+    static func frameOrigin(_ frameInfo: WKFrameInfo?, _ webView: WKWebView) -> String? {
+        guard let frameInfo else { return currentOrigin(webView) }
+        return BrowserReplSecretGuard.origin(of: frameInfo)
+    }
+
     /// scheme://host[:port] of the tab's main frame.
     static func currentOrigin(_ webView: WKWebView) -> String? {
         guard let url = webView.url, let scheme = url.scheme, let host = url.host else { return nil }
@@ -116,8 +131,9 @@ enum BrowserReplCredentialRequest {
     }
 }
 
-/// The credential sheet: the origin, a note that the agent never sees the
-/// values, one field per requested credential, Cancel and Fill.
+/// The credential sheet: the origin of the frame that receives the values,
+/// the page's origin when that frame is embedded from another, a note on who
+/// can read the values, one field per requested credential, Cancel and Fill.
 @MainActor
 final class BrowserReplCredentialSheet: NSObject {
     enum Answer: Equatable {
@@ -133,11 +149,11 @@ final class BrowserReplCredentialSheet: NSObject {
     private var timer: Task<Void, Never>?
     private weak var parent: NSWindow?
 
-    init(origin: String, fields: [BrowserReplCredentialRequest.Field]) {
+    init(origin: String, pageOrigin: String, fields: [BrowserReplCredentialRequest.Field]) {
         self.fields = fields
         panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
         super.init()
-        build(origin: origin)
+        build(origin: origin, pageOrigin: pageOrigin)
     }
 
     func present(on window: NSWindow, timeout: Duration) async -> Answer {
@@ -155,19 +171,32 @@ final class BrowserReplCredentialSheet: NSObject {
         }
     }
 
-    private func build(origin: String) {
+    private func build(origin: String, pageOrigin: String) {
         let title = NSTextField(labelWithString: String(
             format: String(localized: "browser.repl.auth.title", defaultValue: "Sign in to %@"),
             origin
         ))
         title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
         title.lineBreakMode = .byTruncatingMiddle
+        var notes: [NSTextField] = []
+        if pageOrigin != origin {
+            let framed = NSTextField(wrappingLabelWithString: String(
+                format: String(
+                    localized: "browser.repl.auth.embedded",
+                    defaultValue: "This form is in a frame from %1$@, inside a page from %2$@."
+                ),
+                origin, pageOrigin
+            ))
+            framed.preferredMaxLayoutWidth = 380
+            notes.append(framed)
+        }
         let note = NSTextField(wrappingLabelWithString: String(
-            localized: "browser.repl.auth.message",
-            defaultValue: "An agent asked cmux to fill this sign-in form. What you type goes only into the page; the agent never sees it."
+            localized: "browser.repl.auth.notice",
+            defaultValue: "An agent asked cmux to fill this sign-in form. The agent does not receive what you type, but scripts on the page, and code the agent runs in the page, can read the filled fields."
         ))
         note.textColor = .secondaryLabelColor
         note.preferredMaxLayoutWidth = 380
+        notes.append(note)
 
         let grid = NSGridView(numberOfColumns: 2, rows: 0)
         grid.columnSpacing = 8
@@ -202,7 +231,7 @@ final class BrowserReplCredentialSheet: NSObject {
         let buttons = NSStackView(views: [spacer, cancel, fill])
         buttons.orientation = .horizontal
 
-        let stack = NSStackView(views: [title, note, grid, buttons])
+        let stack = NSStackView(views: [title] + notes + [grid, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12

@@ -52,7 +52,7 @@ test("domain patterns: browser-use's syntax, with ports and refusals", () => {
   for (const bad of ["*.*.example.com", "example.*", "ex*ample.com", "", "  "]) assert.throws(() => T.parsePattern(bad, "t"), /t:/, bad);
 });
 
-test("domain patterns: hosts compare without case, trailing dots or Unicode spelling", () => {
+test("hosts compare without case, trailing dots or Unicode spelling in domain patterns", () => {
   const m = (url, pattern, secure = false) => T.urlMatches(url, T.parsePattern(pattern, "t"), secure);
   // A trailing dot names the same host; it must not slip past a pattern.
   assert.equal(m("https://example.com./a", "example.com"), true);

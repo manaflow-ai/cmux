@@ -857,21 +857,23 @@
     Object.freeze(Secret.prototype);
     const isSecret = (v) => v !== null && typeof v === "object" && SecretBrand.has(v);
     const secretsHost = (op, args) => host.secrets(op, args || {});
+    // { name, domains, totp } in that key order, whatever order the host used.
+    const described = (d) => ({ name: d.name, domains: d.domains, totp: d.totp });
     const secrets = Object.freeze({
       // set(name, value, { domains, totp }): the value is typed only into
       // frames on those domains and is masked as <secret:name> everywhere.
       set(name, value, options) {
-        return secretsHost("set", { name, value, domains: options && options.domains, totp: !!(options && options.totp) });
+        return described(secretsHost("set", { name, value, domains: options && options.domains, totp: !!(options && options.totp) }));
       },
       // browser-use's sensitive_data shape: { "<domain pattern>": { name: value } },
       // as an object or a JSON file path (read by the native session, so the
       // values never enter this context). A value { value, totp } is accepted.
       load(source) {
-        if (typeof source === "string") return secretsHost("load", { path: source });
+        if (typeof source === "string") return secretsHost("load", { path: source }).map(described);
         if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("secrets.load: expected { \"<domain pattern>\": { name: value } }");
-        return secretsHost("load", { object: source });
+        return secretsHost("load", { object: source }).map(described);
       },
-      list: () => secretsHost("list"),
+      list: () => secretsHost("list").map(described),
       has: (name) => secretsHost("has", { name }),
       delete: (name) => secretsHost("delete", { name }),
       clear: () => {
@@ -1024,6 +1026,13 @@
           }
           return r;
         }, (e) => {
+          // The driver cancelled this navigation (a redirect to a blocked
+          // page) and reported it while the call was running.
+          const reported = NAVIGATIONS.has(method) && params && params.targetId && blockedTabs.get(params.targetId);
+          if (reported) {
+            blockedTabs.delete(params.targetId);
+            throw new Error(`${TITLES[method] || method}: ${blockedMessage(reported)}; the tab stayed on its page`);
+          }
           // The driver refused a navigation the policy blocks.
           if (e && e.code === "blocked") {
             policyLog.push({ url: String(params.url || ""), reason: String(e.message).replace(/^.* is blocked: /, ""), at: new Date(session.now()).toISOString(), blocked: "before" });

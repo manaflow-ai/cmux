@@ -223,6 +223,12 @@ final class BrowserReplTabAttachment {
         isAttached && ownership.isSessionOwned
     }
 
+    /// The attached session that created this tab, whose domain policy may
+    /// cancel its navigations (BrowserReplNavigationGuard).
+    var creatorSessionID: String? {
+        isAttached && ownership.isSessionOwned ? ownership.creatorSessionID : nil
+    }
+
     func addSink(sessionID: String, sink: @escaping BrowserReplTabEventSink) {
         let wasAttached = isAttached
         sinks[sessionID] = sink

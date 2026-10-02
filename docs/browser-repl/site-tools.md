@@ -194,17 +194,25 @@ skip by accident.
 ## Secure sign-in
 
 `sites.browserAuth.request({ origin, fields, submit })` checks that each
-selector is one visible, enabled text field in the tab's origin and that all
-are in one frame, marks them with a random attribute, and calls the driver's
-`auth.request`. The app shows a sheet on the browser pane's window with the
-origin and one field per request (secure text for passwords). On Fill, the
-app runs `sites/auth-fill.js` in the agent content world of that frame: it
-sets each value with the native setter and dispatches `input` and `change`,
-so framework-controlled fields see it. The REPL receives only a status:
+selector is one visible, enabled credential field (a password input, or a
+username or one-time-code input by type, `autocomplete` or name; a
+requested password only into a password input) in the tab's origin and that
+all are in one frame, marks them with a random attribute, and calls the
+driver's `auth.request`. The app shows a sheet on the browser pane's window
+naming the origin of the frame that holds the fields, from WebKit's record of
+it (and the page's origin when the frame is embedded from another), with one
+field per request (secure text for passwords). On Fill, the app runs
+`sites/auth-fill.js` in its own content world of that frame, which agent
+code cannot script: it checks the credential rule again, sets each value
+with the native setter and dispatches `input` and `change`, so
+framework-controlled fields see it. The REPL receives only a status:
 `submitted`, `cancelled`, `unavailable`, `expired`, `origin_changed`,
-`page_changed`, `locator_invalid` or `submission_failed`. The fill script is
-read from the signed app bundle, never from the REPL, so an agent cannot
-substitute code that receives the values.
+`page_changed`, `locator_invalid` (`not_credential_field` among the reasons)
+or `submission_failed`. The fill script is read from the signed app bundle,
+never from the REPL, so an agent cannot substitute code that receives the
+values. The sheet says what holds: the agent does not receive the values,
+but the page's scripts, and code the agent runs in the page, can read a
+filled field.
 
 ## Decisions for the user
 

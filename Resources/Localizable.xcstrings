@@ -583428,61 +583428,120 @@
         }
       }
     },
-    "browser.repl.auth.message": {
+    "browser.repl.auth.embedded": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An agent asked cmux to fill this sign-in form. What you type goes only into the page; the agent never sees it."
+            "value": "This form is in a frame from %1$@, inside a page from %2$@."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "طلب وكيل من cmux تعبئة نموذج تسجيل الدخول هذا. ما تكتبه يذهب إلى الصفحة فقط؛ ولا يراه الوكيل أبدًا."
+            "value": "هذا النموذج داخل إطار من %1$@، ضمن صفحة من %2$@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Agent hat cmux gebeten, dieses Anmeldeformular auszufüllen. Was du eingibst, geht nur in die Seite; der Agent sieht es nie."
+            "value": "Dieses Formular ist in einem Frame von %1$@, innerhalb einer Seite von %2$@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agente pidió a cmux que rellene este formulario de inicio de sesión. Lo que escribas va solo a la página; el agente nunca lo ve."
+            "value": "Este formulario está en un marco de %1$@, dentro de una página de %2$@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agent a demandé à cmux de remplir ce formulaire de connexion. Ce que vous saisissez va uniquement dans la page ; l’agent ne le voit jamais."
+            "value": "Ce formulaire se trouve dans un cadre de %1$@, à l’intérieur d’une page de %2$@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントが cmux にこのサインインフォームへの入力を依頼しました。入力した内容はページにのみ送られ、エージェントには見えません。"
+            "value": "このフォームは %2$@ のページ内にある %1$@ のフレームにあります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트가 cmux에 이 로그인 양식을 채우도록 요청했습니다. 입력한 내용은 페이지에만 전달되며 에이전트는 절대 볼 수 없습니다."
+            "value": "이 양식은 %2$@ 페이지 안에 있는 %1$@ 프레임에 있습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "有智能体请求 cmux 填写此登录表单。你输入的内容只会进入网页，智能体永远看不到。"
+            "value": "此表单位于来自 %2$@ 的网页中、来自 %1$@ 的框架内。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "有代理程式要求 cmux 填寫此登入表單。你輸入的內容只會送入網頁，代理程式永遠看不到。"
+            "value": "此表單位於來自 %2$@ 的網頁中、來自 %1$@ 的框架內。"
+          }
+        }
+      }
+    },
+    "browser.repl.auth.notice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent asked cmux to fill this sign-in form. The agent does not receive what you type, but scripts on the page, and code the agent runs in the page, can read the filled fields."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب وكيل من cmux تعبئة نموذج تسجيل الدخول هذا. لا يتلقى الوكيل ما تكتبه، لكن البرامج النصية في الصفحة، والتعليمات البرمجية التي يشغلها الوكيل في الصفحة، يمكنها قراءة الحقول المعبأة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent hat cmux gebeten, dieses Anmeldeformular auszufüllen. Der Agent erhält nicht, was du eingibst, aber Skripte der Seite und Code, den der Agent in der Seite ausführt, können die ausgefüllten Felder lesen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente pidió a cmux que rellene este formulario de inicio de sesión. El agente no recibe lo que escribes, pero los scripts de la página y el código que el agente ejecuta en la página pueden leer los campos rellenados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agent a demandé à cmux de remplir ce formulaire de connexion. L’agent ne reçoit pas ce que vous saisissez, mais les scripts de la page, et le code que l’agent exécute dans la page, peuvent lire les champs remplis."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが cmux にこのサインインフォームへの入力を依頼しました。入力した内容はエージェントには送られませんが、ページのスクリプトや、エージェントがページ内で実行するコードは入力済みのフィールドを読み取れます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 cmux에 이 로그인 양식을 채우도록 요청했습니다. 에이전트는 입력한 내용을 받지 않지만, 페이지의 스크립트와 에이전트가 페이지에서 실행하는 코드는 채워진 필드를 읽을 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有智能体请求 cmux 填写此登录表单。智能体不会收到你输入的内容，但网页上的脚本以及智能体在网页中运行的代码可以读取已填写的字段。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有代理程式要求 cmux 填寫此登入表單。代理程式不會收到你輸入的內容，但網頁上的指令碼，以及代理程式在網頁中執行的程式碼，可以讀取已填寫的欄位。"
           }
         }
       }
