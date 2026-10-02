@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CLEANUP="$ROOT_DIR/scripts/cmux-next/clear-stale-scheme-build-state.sh"
-tmp="$(mktemp -d)"
+tmp="$(TMPDIR=/tmp mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 mkdir -p "$tmp/ModuleCache.noindex" \

@@ -43,9 +43,7 @@ status=0
 build || status=$?
 if (( status )) && grep -qE "has been modified since the (module|precompiled) file '" "$log"; then
   echo "check-cmux-scheme-compile: stale precompiled modules in $derived_data; removing them and building again"
-  rm -rf -- "$derived_data/ModuleCache.noindex" \
-    "$derived_data/Build/Intermediates.noindex/ExplicitPrecompiledModules" \
-    "$derived_data/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules"
+  "$repo_root/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$derived_data"
   status=0
   build || status=$?
 fi
