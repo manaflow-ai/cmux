@@ -39,7 +39,7 @@ bun x esbuild "$SRC/acpmux/main.tsx" \
 grep -v '^@import ' "$SRC/shared/styles.css" > "$WORK/styles.css"
 cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/changes/changes.css" \
   "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/searchChats.css" "$SRC/acpmux/markdownField.css" \
-  "$SRC/acpmux/modelPicker.css" >> "$WORK/styles.css"
+  "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" >> "$WORK/styles.css"
 
 # Inline script and style, loopback WebSocket only. No remote loads, no eval.
 CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src ws://127.0.0.1:* ws://localhost:*"
