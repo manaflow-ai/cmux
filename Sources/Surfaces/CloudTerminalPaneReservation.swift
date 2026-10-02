@@ -33,6 +33,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         var remoteRebind: (@Sendable () async -> Bool)?
         var remoteRebindInFlight = false
         var remoteRebindToken: UUID?
+        var remoteRebindTask: Task<Void, Never>?
         var discarded = false
     }
 
@@ -46,6 +47,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         let router = state.withLock { state -> CloudTuiManualIOInputRouter? in
             if let router = state.router { return router }
             guard !state.discarded,
+                  Self.inputByteCount(input) <= 256 * 1024,
                   retainedInputCountLocked(state) < pendingLimit else { return nil }
             if state.remoteSink != nil {
                 appendRemoteLocked([input], to: &state)
@@ -65,6 +67,9 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     func beginRemoteBinding() -> UUID? {
         state.withLock { state in
             guard !state.discarded, state.router == nil else { return nil }
+            if state.remoteBindingPending, let token = state.remoteBindingToken {
+                return token
+            }
             state.remoteBindingPending = true
             let token = UUID()
             state.remoteBindingToken = token
@@ -91,6 +96,8 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteRebind = nil
             state.remoteRebindInFlight = false
             state.remoteRebindToken = nil
+            state.remoteRebindTask?.cancel()
+            state.remoteRebindTask = nil
             promoteRequestedRouterIfReadyLocked(&state)
         }
     }
@@ -110,6 +117,8 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteBindingToken = nil
             state.remoteRebindInFlight = false
             state.remoteRebindToken = nil
+            state.remoteRebindTask?.cancel()
+            state.remoteRebindTask = nil
             if let existing = state.remoteSink, existing.terminalID == terminalID {
                 startRemoteWorkerLocked(&state)
                 promoteRequestedRouterIfReadyLocked(&state)
@@ -164,6 +173,8 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteRebind = nil
             state.remoteRebindInFlight = false
             state.remoteRebindToken = nil
+            state.remoteRebindTask?.cancel()
+            state.remoteRebindTask = nil
             state.router = nil
             state.discarded = true
         }
@@ -219,20 +230,6 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                     break
                 }
             }
-            if let self,
-               let sink = self.remoteSinkForDelivery(epoch: epoch) {
-                do {
-                    try await sink.sender.sendTuiCommandAndAwaitAck(
-                        arguments: CloudTuiRequests.snapshotArguments(socketPath: "")
-                    )
-                } catch {
-                    self.remoteInputFailed(
-                        epoch: epoch,
-                        input: .bytes(Data()),
-                        requeueInput: false
-                    )
-                }
-            }
             self?.remoteWorkerFinished(epoch: epoch, token: token)
         }
     }
@@ -244,7 +241,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         state.remoteRebindInFlight = true
         let token = UUID()
         state.remoteRebindToken = token
-        Task { [weak self] in
+        state.remoteRebindTask = Task { [weak self] in
             let bound = await rebinder()
             self?.remoteRebindFinished(token: token, bound: bound)
         }
@@ -255,6 +252,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             guard !state.discarded, state.remoteRebindToken == token else { return }
             state.remoteRebindInFlight = false
             state.remoteRebindToken = nil
+            state.remoteRebindTask = nil
             if !bound {
                 // One failed recovery attempt falls back to the native mirror.
                 // The ambiguous item was intentionally not replayed; the
@@ -423,6 +421,13 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         case .namedKey(let name):
             guard let key = CloudTuiManualIOInputRouter.protocolKeyName(for: name) else { return nil }
             return CloudTuiRequests.keysArguments(socketPath: "", terminalID: sink.terminalID, keys: [key])
+        }
+    }
+
+    private static func inputByteCount(_ input: TerminalManualInput) -> Int {
+        switch input {
+        case .bytes(let bytes): return bytes.count
+        case .namedKey(let name): return name.utf8.count
         }
     }
 }
