@@ -128,7 +128,11 @@ final class CloudTreeNSOutlineView: NSOutlineView {
               trackingMenus.remove(ObjectIdentifier(menu)) != nil,
               trackingMenus.isEmpty else { return }
         menuPinnedNodeID = nil
-        refreshHover()
+        // The menu owns pointer tracking while it is open, so the window's
+        // last event location can still be the row that opened it. Clear that
+        // stale hover immediately; the next real mouse move restores the row
+        // under the pointer without leaving controls pinned after dismissal.
+        updateHover(at: nil)
     }
 
     @objc private func hoverEnvironmentDidChange(_ notification: Notification) {

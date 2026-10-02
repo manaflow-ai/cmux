@@ -6,8 +6,12 @@ struct CloudTreeRowUpdate {
     let changedNodeIDs: Set<String>
 
     init(previous: [CloudTreeNodeContentSnapshot], next: [CloudTreeNodeContentSnapshot]) {
-        changedNodeIDs = Set(zip(previous, next).compactMap { old, new in
-            old == new ? nil : new.id
+        // Structure and ordering are tracked separately. Compare by stable row
+        // identity so an inserted or reordered descendant cannot make unrelated
+        // rows appear changed through positional zip pairing.
+        let previousByID = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0) })
+        changedNodeIDs = Set(next.compactMap { snapshot in
+            previousByID[snapshot.id] == snapshot ? nil : snapshot.id
         })
     }
 
