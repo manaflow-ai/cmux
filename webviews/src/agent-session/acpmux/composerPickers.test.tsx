@@ -184,6 +184,16 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector("[role=listbox]")).toBeNull();
   });
 
+  test("the menu closes when a key moves focus out of it, as a palette opening does", async () => {
+    await render(snapshot());
+    await act(async () => button("Model")!.click());
+    expect(doc.querySelector("[role=listbox]")).not.toBeNull();
+    const elsewhere = doc.body.appendChild(doc.createElement("input"));
+    await act(async () => elsewhere.focus());
+    expect(doc.querySelector("[role=listbox]")).toBeNull();
+    elsewhere.remove();
+  });
+
   test("a single-section menu is a group named for the control", async () => {
     await render(snapshot());
     await act(async () => button("Model")!.click());

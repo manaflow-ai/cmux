@@ -734,7 +734,7 @@ function AcpmuxPane() {
   }, []);
   // Search chats: the sidebar's search button or Cmd+K, while the pane has focus, open it.
   const [searchingChats, setSearchingChats] = useState(false);
-  const openSearchChats = useCallback(() => setSearchingChats(true), []);
+  const toggleSearchChats = useCallback(() => setSearchingChats((open) => !open), []);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!isSearchChatsKey(event)) return;
@@ -938,7 +938,7 @@ function AcpmuxPane() {
         selectedId={snapshot.sessionId}
         onSelect={selectSession}
         onNewChat={newChat}
-        onSearchChats={openSearchChats}
+        onSearchChats={toggleSearchChats}
         account={account}
       />
       {sidebar === "open" && (

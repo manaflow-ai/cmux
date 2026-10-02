@@ -206,10 +206,16 @@ export function Picker({
       if (!root.current?.contains(event.target as Node)) setOpen(false);
     };
     const blur = () => setOpen(false);
+    // Focus moved elsewhere by a key (a palette opening, a shortcut) closes the menu too.
+    const focusAway = (event: FocusEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
     document.addEventListener("pointerdown", away);
+    document.addEventListener("focusin", focusAway);
     window.addEventListener("blur", blur);
     return () => {
       document.removeEventListener("pointerdown", away);
+      document.removeEventListener("focusin", focusAway);
       window.removeEventListener("blur", blur);
     };
   }, [open]);

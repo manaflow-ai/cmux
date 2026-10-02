@@ -100,15 +100,12 @@ test("the palette focuses its field, narrows as you type, and Enter opens the hi
   expect(picked).toEqual(["old"]);
 });
 
-test("Ctrl+1 through Ctrl+9 open that row, and the first nine rows show their key", async () => {
+test("Ctrl+digit opens nothing: cmux's window shortcuts own it, so rows show no number", async () => {
   const picked: string[] = [];
   const field = await open((id) => picked.push(id));
-  expect([...doc.querySelectorAll(".acpmux-chat-key")].map((node) => node.textContent)).toEqual(["⌃1", "⌃2", "⌃3"]);
+  expect(doc.querySelector(".acpmux-search-chats kbd")).toBeNull();
   await key(field, "2", { ctrlKey: true });
-  // A number past the list, or with Cmd held, opens nothing.
-  await key(field, "7", { ctrlKey: true });
-  await key(field, "1", { ctrlKey: true, metaKey: true });
-  expect(picked).toEqual(["mid"]);
+  expect(picked).toEqual([]);
 });
 
 test("Escape, Tab and a click outside close it, and focus goes back where it was", async () => {
@@ -120,7 +117,15 @@ test("Escape, Tab and a click outside close it, and focus goes back where it was
     () => {},
     () => closed++,
   );
+  // Escape stays with the palette: the narrow sidebar's own Escape (on the document) doesn't see it.
+  let documentEscapes = 0;
+  const spy = (event: KeyboardEvent) => {
+    if (event.key === "Escape") documentEscapes++;
+  };
+  doc.addEventListener("keydown", spy);
   await key(field, "Escape");
+  doc.removeEventListener("keydown", spy);
+  expect(documentEscapes).toBe(0);
   await key(field, "Tab");
   await act(async () => {
     doc.getElementById("outside")!.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
@@ -129,6 +134,31 @@ test("Escape, Tab and a click outside close it, and focus goes back where it was
   await act(async () => root.render(createElement("div", null, createElement("textarea", { id: "prompt" }))));
   expect(doc.activeElement).toBe(doc.getElementById("prompt"));
   doc.getElementById("outside")!.remove();
+});
+
+test("a press on the opener is left to it, and focus falls back to the prompt when its row was hidden", async () => {
+  let closed = 0;
+  const shell = (palette: boolean) =>
+    createElement(
+      "div",
+      null,
+      createElement("button", { id: "opener", "data-search-chats-opener": "" }),
+      createElement("button", { id: "row" }),
+      createElement("form", { className: "acpmux-composer" }, createElement("textarea")),
+      palette && createElement(SearchChats, { sessions, onPick: () => {}, onClose: () => closed++ }),
+    );
+  await act(async () => root.render(shell(false)));
+  const row = doc.getElementById("row")!;
+  row.focus();
+  await act(async () => root.render(shell(true)));
+  await act(async () => {
+    doc.getElementById("opener")!.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+  });
+  expect(closed).toBe(0);
+  // Picking from the narrow sidebar hides it; the row it was opened from can't hold focus.
+  Object.assign(row, { checkVisibility: () => false });
+  await act(async () => root.render(shell(false)));
+  expect(doc.activeElement).toBe(doc.querySelector(".acpmux-composer textarea"));
 });
 
 test("the sidebar's search button opens the palette, and shows only when the pane offers one", async () => {
@@ -156,4 +186,8 @@ test("plain Cmd+K is the palette's key; Shift, Ctrl, Option or an input method's
   expect(isSearchChatsKey(press({ metaKey: true, altKey: true }))).toBe(false);
   expect(isSearchChatsKey(press({ ctrlKey: true }))).toBe(false);
   expect(isSearchChatsKey(press({ metaKey: true, isComposing: true }))).toBe(false);
+  // A held Cmd+K toggles once, and the physical K key counts on a non-Latin layout.
+  expect(isSearchChatsKey(press({ metaKey: true, repeat: true }))).toBe(false);
+  expect(isSearchChatsKey(press({ key: "л", code: "KeyK", metaKey: true }))).toBe(true);
+  expect(isSearchChatsKey(press({ key: "л", code: "KeyL", metaKey: true }))).toBe(false);
 });

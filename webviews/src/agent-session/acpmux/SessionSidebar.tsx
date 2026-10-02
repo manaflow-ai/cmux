@@ -249,6 +249,7 @@ function SessionsView({
             aria-label="Search chats"
             title="Search chats (⌘K)"
             aria-keyshortcuts="Meta+K"
+            data-search-chats-opener=""
             onClick={onSearchChats}
           >
             <ChatsIcon />

@@ -169,5 +169,5 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chat-result{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;font-size:13px;cursor:pointer}
 .acpmux-chat-title{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-chat-project{flex:none;max-width:35%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
-.acpmux-chat-key{flex:none;min-width:22px;color:var(--acpmux-composer-dim);font:inherit;font-size:12px;text-align:right}
 .acpmux-chat-note{display:block;padding:10px;color:var(--acpmux-composer-dim);font-size:13px}
+.acpmux-chat-note:empty{padding:0}

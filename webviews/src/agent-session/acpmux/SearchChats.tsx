@@ -10,17 +10,23 @@ export const SEARCH_CHATS_LABELS = {
 
 /// The palette lists at most this many chats; typing narrows the rest.
 export const SEARCH_CHATS_LIMIT = 50;
-/// Ctrl+1 through Ctrl+9 open the first nine rows.
-const NUMBERED_ROWS = 9;
+/// Marks the controls that open the palette: a press on one is theirs to toggle, not a click away.
+export const SEARCH_CHATS_OPENER = "data-search-chats-opener";
 
 /// Cmd+K toggles the palette while the pane has focus. Nothing else in the pane or the app
 /// binds plain Cmd+K there: the simulator's Cmd+K applies only to a focused simulator, and
 /// terminal clear is Cmd+Shift+K. A key that belongs to an input method's composition is not it.
 export function isSearchChatsKey(
-  event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "isComposing" | "keyCode">,
+  event: Pick<
+    KeyboardEvent,
+    "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "isComposing" | "keyCode" | "repeat"
+  >,
 ) {
-  if (event.isComposing || event.keyCode === 229) return false;
-  return event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k";
+  // A held key repeats; the palette toggles once per press.
+  if (event.isComposing || event.keyCode === 229 || event.repeat) return false;
+  if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
+  // On a non-Latin layout WebKit reports the layout's letter; the physical K key still counts, as in menus.
+  return event.key.toLowerCase() === "k" || (!/^[a-z]$/i.test(event.key) && event.code === "KeyK");
 }
 
 /// The chats a query lists: every word must match (as the sidebar filter), newest first.
@@ -32,7 +38,8 @@ export function searchChats(sessions: AcpmuxSessionEntry[], query: string): Acpm
 
 /// Codex's "Search chats" palette (codex-atlas-clone reference command-menu-chats): a field
 /// over the transcript listing chats, newest first, narrowed as the user types. Arrows move
-/// the highlight, Enter or Ctrl+1..9 opens a chat, and Escape, Tab or a click outside close it.
+/// the highlight, Enter opens a chat, and Escape, Tab or a click outside close it. (Codex's
+/// Ctrl+1..9 is left out: cmux's own window shortcuts take Ctrl+digit before the pane sees it.)
 export function SearchChats({
   sessions,
   selectedId,
@@ -57,12 +64,17 @@ export function SearchChats({
     const before = document.activeElement as HTMLElement | null;
     field.current?.focus();
     const away = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) onCloseRef.current();
+      const target = event.target as Element | null;
+      if (root.current?.contains(target) || target?.closest?.(`[${SEARCH_CHATS_OPENER}]`)) return;
+      onCloseRef.current();
     };
     document.addEventListener("pointerdown", away);
     return () => {
       document.removeEventListener("pointerdown", away);
-      if (before?.isConnected) before.focus();
+      // A control hidden meanwhile (the narrow sidebar closes on a pick) can't take focus; the prompt does.
+      const visible = before?.isConnected && (before.checkVisibility?.() ?? true);
+      const target = visible ? before : document.querySelector<HTMLElement>(".acpmux-composer textarea");
+      target?.focus();
     };
   }, []);
   const onCloseRef = useRef(onClose);
@@ -75,12 +87,7 @@ export function SearchChats({
   const keyDown = (event: React.KeyboardEvent) => {
     // Keys that commit or cancel an input method's text belong to it, not the palette.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-    const numbered = event.ctrlKey && !event.metaKey && !event.altKey && /^[1-9]$/.test(event.key);
-    if (numbered) {
-      event.preventDefault();
-      const index = Number(event.key) - 1;
-      if (index < NUMBERED_ROWS) pick(results[index]);
-    } else if (event.key === "Escape") {
+    if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
       onClose();
@@ -92,6 +99,8 @@ export function SearchChats({
       event.preventDefault();
       pick(results[selected]);
     } else if (event.key === "Tab") {
+      // Closing hands focus back; Tab's own move would carry it past.
+      event.preventDefault();
       onClose();
     }
   };
@@ -144,15 +153,12 @@ export function SearchChats({
             >
               <span className="acpmux-chat-title">{session.displayTitle || sessionTitle(session)}</span>
               {project && <span className="acpmux-chat-project">{project}</span>}
-              {/* Every row keeps the key column, so project names line up past the ninth. */}
-              <kbd className="acpmux-chat-key" aria-hidden="true">
-                {index < NUMBERED_ROWS ? `⌃${index + 1}` : ""}
-              </kbd>
             </div>
           );
         })}
       </div>
-      {note && <output className="acpmux-chat-note">{note}</output>}
+      {/* Always present, so a screen reader announces the text when it appears. */}
+      <output className="acpmux-chat-note">{note ?? ""}</output>
     </dialog>
   );
 }
