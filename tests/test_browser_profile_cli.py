@@ -21,6 +21,7 @@ SURFACE_ID = "22222222-2222-4222-8222-222222222222"
 class FakeCmuxState:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object]]] = []
+        self.enveloped = 0
 
     def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
         self.calls.append((method, params))
@@ -83,7 +84,11 @@ class FakeCmuxState:
 class FakeCmuxHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         while line := self.rfile.readline():
-            request = json.loads(unwrap_capability(line.decode("utf-8")))
+            raw = line.decode("utf-8")
+            bare = unwrap_capability(raw)
+            if bare != raw:
+                self.server.state.enveloped += 1  # type: ignore[attr-defined]
+            request = json.loads(bare)
             try:
                 result = self.server.state.handle(  # type: ignore[attr-defined]
                     request["method"],
@@ -105,8 +110,8 @@ class ThreadedUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamSer
     state: FakeCmuxState
 
 
-def run_cli(cli: str, socket_path: str, arguments: list[str]) -> str:
-    environment = cli_environment()
+def run_cli(cli: str, socket_path: str, arguments: list[str], **overrides: str) -> str:
+    environment = cli_environment(**overrides)
     result = subprocess.run(
         [cli, "--socket", socket_path, *arguments],
         capture_output=True,
@@ -174,8 +179,11 @@ def main() -> int:
                 cli,
                 socket_path,
                 ["browser", "open", "https://example.com", "--profile", "Work Profile"],
+                CMUX_SOCKET_CAPABILITY="synthetic-test-capability",
             )
             assert_last_call(state, "browser.open_split", "Work Profile")
+            if state.enveloped == 0:
+                raise AssertionError("the CLI sent no capability envelope, so unwrap_capability went unexercised")
 
             run_cli(
                 cli,
