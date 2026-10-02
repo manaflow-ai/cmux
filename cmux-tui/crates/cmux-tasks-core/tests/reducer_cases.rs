@@ -350,7 +350,15 @@ fn deleting_a_status_moves_its_tasks() {
 
 fn create_n(w: &mut World, n: usize) {
     for i in 0..n {
-        w.run(&lawrence(), Op::TaskCreate(TaskCreate { id: format!("task_n{i}"), title: format!("t{i}"), ..TaskCreate::default() })).unwrap();
+        w.run(
+            &lawrence(),
+            Op::TaskCreate(TaskCreate {
+                id: format!("task_n{i}"),
+                title: format!("t{i}"),
+                ..TaskCreate::default()
+            }),
+        )
+        .unwrap();
     }
 }
 
@@ -366,8 +374,17 @@ fn thousands_of_appends_and_prepends_keep_keys_short_and_unique() {
     create_n(&mut w, 2_000);
     assert!(longest_key(&w) <= 4, "appends grew keys to {}", longest_key(&w));
     for i in 0..1_000 {
-        let first = w.state.live_tasks().min_by(|a, b| a.sort_key.cmp(&b.sort_key)).unwrap().id.clone();
-        w.run(&lawrence(), Op::TaskMove(TaskMove { task: format!("task_n{}", 1_999 - i), after: None, before: Some(first) })).unwrap();
+        let first =
+            w.state.live_tasks().min_by(|a, b| a.sort_key.cmp(&b.sort_key)).unwrap().id.clone();
+        w.run(
+            &lawrence(),
+            Op::TaskMove(TaskMove {
+                task: format!("task_n{}", 1_999 - i),
+                after: None,
+                before: Some(first),
+            }),
+        )
+        .unwrap();
     }
     assert!(longest_key(&w) <= 4, "prepends grew keys to {}", longest_key(&w));
 }
@@ -381,8 +398,24 @@ fn repeated_inserts_into_one_gap_rebalance() {
     let mut previous = "task_n1".to_owned();
     for i in 0..1_500 {
         let id = format!("task_g{i}");
-        w.run(&lawrence(), Op::TaskCreate(TaskCreate { id: id.clone(), title: "g".to_owned(), ..TaskCreate::default() })).unwrap();
-        w.run(&lawrence(), Op::TaskMove(TaskMove { task: id.clone(), after: Some("task_n0".to_owned()), before: Some(previous.clone()) })).unwrap();
+        w.run(
+            &lawrence(),
+            Op::TaskCreate(TaskCreate {
+                id: id.clone(),
+                title: "g".to_owned(),
+                ..TaskCreate::default()
+            }),
+        )
+        .unwrap();
+        w.run(
+            &lawrence(),
+            Op::TaskMove(TaskMove {
+                task: id.clone(),
+                after: Some("task_n0".to_owned()),
+                before: Some(previous.clone()),
+            }),
+        )
+        .unwrap();
         previous = id;
     }
     let mut order: Vec<_> = w.state.live_tasks().collect();
@@ -398,9 +431,23 @@ fn attach_cannot_bypass_a_claim() {
     let mut w = World::new();
     create(&mut w, "task_a");
     delegate(&mut w, "task_a", "asess_1");
-    w.run(&lawrence(), Op::SessionClaim(SessionClaim { session: "asess_1".to_owned(), host: "mac-1".to_owned() })).unwrap();
+    w.run(
+        &lawrence(),
+        Op::SessionClaim(SessionClaim { session: "asess_1".to_owned(), host: "mac-1".to_owned() }),
+    )
+    .unwrap();
     for host in [None, Some("mac-2".to_owned())] {
-        let err = w.run(&lawrence(), Op::SessionAttach(SessionAttach { session: "asess_1".to_owned(), acp_session: "acp_1".to_owned(), workspace: None, host })).unwrap_err();
+        let err = w
+            .run(
+                &lawrence(),
+                Op::SessionAttach(SessionAttach {
+                    session: "asess_1".to_owned(),
+                    acp_session: "acp_1".to_owned(),
+                    workspace: None,
+                    host,
+                }),
+            )
+            .unwrap_err();
         assert_eq!(err.code, RejectCode::Conflict);
     }
 }
@@ -413,7 +460,17 @@ fn update_cannot_claim_or_start_a_pending_session() {
     create(&mut w, "task_a");
     delegate(&mut w, "task_a", "asess_1");
     for status in [SessionStatus::Claimed, SessionStatus::Working] {
-        let err = w.run(&claude(), Op::SessionUpdate(SessionUpdate { session: "asess_1".to_owned(), status: Some(status), plan: None, pr: None })).unwrap_err();
+        let err = w
+            .run(
+                &claude(),
+                Op::SessionUpdate(SessionUpdate {
+                    session: "asess_1".to_owned(),
+                    status: Some(status),
+                    plan: None,
+                    pr: None,
+                }),
+            )
+            .unwrap_err();
         assert_eq!(err.code, RejectCode::Invalid, "{status:?}");
     }
 }
@@ -424,8 +481,25 @@ fn same_status_update_is_not_a_manual_move() {
     let mut w = World::new();
     create(&mut w, "task_a");
     delegate(&mut w, "task_a", "asess_1");
-    w.run(&lawrence(), Op::TaskUpdate(TaskUpdate { task: "task_a".to_owned(), status: Some("Backlog".to_owned()), ..TaskUpdate::default() })).unwrap();
-    w.run(&lawrence(), Op::SessionAttach(SessionAttach { session: "asess_1".to_owned(), acp_session: "acp_1".to_owned(), workspace: None, host: None })).unwrap();
+    w.run(
+        &lawrence(),
+        Op::TaskUpdate(TaskUpdate {
+            task: "task_a".to_owned(),
+            status: Some("Backlog".to_owned()),
+            ..TaskUpdate::default()
+        }),
+    )
+    .unwrap();
+    w.run(
+        &lawrence(),
+        Op::SessionAttach(SessionAttach {
+            session: "asess_1".to_owned(),
+            acp_session: "acp_1".to_owned(),
+            workspace: None,
+            host: None,
+        }),
+    )
+    .unwrap();
     assert_eq!(w.status_of("task_a"), "st_in_progress");
 }
 
@@ -434,12 +508,52 @@ fn same_status_update_is_not_a_manual_move() {
 fn status_delete_cascade_is_not_a_manual_move() {
     let mut w = World::new();
     create(&mut w, "task_a");
-    w.run(&lawrence(), Op::StatusCreate(StatusCreate { id: "st_next".to_owned(), name: "Next".to_owned(), category: cmux_tasks_core::Category::Backlog, color: None, position: None })).unwrap();
+    w.run(
+        &lawrence(),
+        Op::StatusCreate(StatusCreate {
+            id: "st_next".to_owned(),
+            name: "Next".to_owned(),
+            category: cmux_tasks_core::Category::Backlog,
+            color: None,
+            position: None,
+        }),
+    )
+    .unwrap();
     delegate(&mut w, "task_a", "asess_1");
-    w.run(&lawrence(), Op::StatusDelete(StatusDelete { status: "Backlog".to_owned(), replacement: "Next".to_owned() })).unwrap_err();
-    w.run(&lawrence(), Op::SettingsUpdate(SettingsUpdate { default_status: Some("Todo".to_owned()), ..SettingsUpdate::default() })).unwrap();
-    w.run(&lawrence(), Op::StatusDelete(StatusDelete { status: "Backlog".to_owned(), replacement: "Next".to_owned() })).unwrap();
-    w.run(&lawrence(), Op::SessionAttach(SessionAttach { session: "asess_1".to_owned(), acp_session: "acp_1".to_owned(), workspace: None, host: None })).unwrap();
+    w.run(
+        &lawrence(),
+        Op::StatusDelete(StatusDelete {
+            status: "Backlog".to_owned(),
+            replacement: "Next".to_owned(),
+        }),
+    )
+    .unwrap_err();
+    w.run(
+        &lawrence(),
+        Op::SettingsUpdate(SettingsUpdate {
+            default_status: Some("Todo".to_owned()),
+            ..SettingsUpdate::default()
+        }),
+    )
+    .unwrap();
+    w.run(
+        &lawrence(),
+        Op::StatusDelete(StatusDelete {
+            status: "Backlog".to_owned(),
+            replacement: "Next".to_owned(),
+        }),
+    )
+    .unwrap();
+    w.run(
+        &lawrence(),
+        Op::SessionAttach(SessionAttach {
+            session: "asess_1".to_owned(),
+            acp_session: "acp_1".to_owned(),
+            workspace: None,
+            host: None,
+        }),
+    )
+    .unwrap();
     assert_eq!(w.status_of("task_a"), "st_in_progress");
 }
 
@@ -449,14 +563,71 @@ fn status_delete_cascade_is_not_a_manual_move() {
 fn working_on_one_session_keeps_another_sessions_attention() {
     let mut w = World::new();
     create(&mut w, "task_a");
-    let codex = Principal::Agent(AgentRef { principal: "agt_codex-lawrence".to_owned(), class: AgentClass::Ordinary, harness: "codex".to_owned(), on_behalf_of: "usr_lawrence".to_owned() });
+    let codex = Principal::Agent(AgentRef {
+        principal: "agt_codex-lawrence".to_owned(),
+        class: AgentClass::Ordinary,
+        harness: "codex".to_owned(),
+        on_behalf_of: "usr_lawrence".to_owned(),
+    });
     delegate(&mut w, "task_a", "asess_1");
-    w.run(&lawrence(), Op::TaskDelegate(TaskDelegate { task: "task_a".to_owned(), session: "asess_2".to_owned(), harness: "codex".to_owned(), agent: None, class: None, target: None, prompt: None })).unwrap();
+    w.run(
+        &lawrence(),
+        Op::TaskDelegate(TaskDelegate {
+            task: "task_a".to_owned(),
+            session: "asess_2".to_owned(),
+            harness: "codex".to_owned(),
+            agent: None,
+            class: None,
+            target: None,
+            prompt: None,
+        }),
+    )
+    .unwrap();
     for s in ["asess_1", "asess_2"] {
-        w.run(&lawrence(), Op::SessionAttach(SessionAttach { session: s.to_owned(), acp_session: format!("acp_{s}"), workspace: None, host: None })).unwrap();
+        w.run(
+            &lawrence(),
+            Op::SessionAttach(SessionAttach {
+                session: s.to_owned(),
+                acp_session: format!("acp_{s}"),
+                workspace: None,
+                host: None,
+            }),
+        )
+        .unwrap();
     }
-    w.run(&claude(), Op::SessionUpdate(SessionUpdate { session: "asess_1".to_owned(), status: Some(SessionStatus::AwaitingInput), plan: None, pr: None })).unwrap();
-    w.run(&codex, Op::SessionUpdate(SessionUpdate { session: "asess_2".to_owned(), status: Some(SessionStatus::AwaitingInput), plan: None, pr: None })).unwrap();
-    w.run(&codex, Op::SessionUpdate(SessionUpdate { session: "asess_2".to_owned(), status: Some(SessionStatus::Working), plan: None, pr: None })).unwrap();
-    assert_eq!(w.state.tasks["task_a"].attention, Some(Attention::NeedsInput), "asess_1 still waits for input");
+    w.run(
+        &claude(),
+        Op::SessionUpdate(SessionUpdate {
+            session: "asess_1".to_owned(),
+            status: Some(SessionStatus::AwaitingInput),
+            plan: None,
+            pr: None,
+        }),
+    )
+    .unwrap();
+    w.run(
+        &codex,
+        Op::SessionUpdate(SessionUpdate {
+            session: "asess_2".to_owned(),
+            status: Some(SessionStatus::AwaitingInput),
+            plan: None,
+            pr: None,
+        }),
+    )
+    .unwrap();
+    w.run(
+        &codex,
+        Op::SessionUpdate(SessionUpdate {
+            session: "asess_2".to_owned(),
+            status: Some(SessionStatus::Working),
+            plan: None,
+            pr: None,
+        }),
+    )
+    .unwrap();
+    assert_eq!(
+        w.state.tasks["task_a"].attention,
+        Some(Attention::NeedsInput),
+        "asess_1 still waits for input"
+    );
 }

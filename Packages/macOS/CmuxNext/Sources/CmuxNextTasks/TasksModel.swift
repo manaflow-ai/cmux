@@ -27,6 +27,9 @@ public final class TasksModel {
 
     private let source: any TasksSource
     private var statusByID: [String: TaskStatusItem] = [:]
+    /// Set when the owner became unreachable while intents were pending;
+    /// the next snapshot resends exactly those intents with their keys.
+    private var resendAfterReconnect = false
 
     public init(source: any TasksSource) {
         self.source = source
@@ -102,6 +105,7 @@ public final class TasksModel {
     func handle(_ event: TasksSourceEvent) {
         switch event {
         case let .connection(state):
+            if case .disconnected = state, !pending.isEmpty { resendAfterReconnect = true }
             connection = state
         case let .snapshot(snapshot):
             apply(snapshot)
@@ -126,6 +130,12 @@ public final class TasksModel {
         sessions = Dictionary(uniqueKeysWithValues: snapshot.sessions.map { ($0.id, $0) })
         confirmed = Dictionary(uniqueKeysWithValues: snapshot.tasks.map { ($0.id, $0) })
         connection = .connected
+        // Reconnect: resend only intents sent before the disconnect, with
+        // their keys; the owner's ledger turns a committed one into a replay.
+        if resendAfterReconnect {
+            resendAfterReconnect = false
+            for intent in pending { source.send(intent) }
+        }
     }
 
     private func apply(_ event: TasksEvent) {
@@ -139,9 +149,11 @@ public final class TasksModel {
             statusByID[status.id] = status
             statuses = statusByID.values.sorted { ($0.category.rank, $0.position) < ($1.category.rank, $1.position) }
         case let .label(label):
-            labels[label.id] = label
+            labels[label.id] = label.archived ? nil : label
         case let .project(project):
-            projects[project.id] = project
+            projects[project.id] = project.archived ? nil : project
+        case let .settings(settings):
+            keyPrefix = settings.keyPrefix
         case let .session(session):
             sessions[session.id] = session
         case let .remove(entity, id):

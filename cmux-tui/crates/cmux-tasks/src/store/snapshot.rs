@@ -48,10 +48,14 @@ pub fn load_latest(dir: &Path) -> io::Result<Option<State>> {
         .collect();
     names.sort();
     for path in names.iter().rev() {
-        if let Ok(bytes) = fs::read(path)
-            && let Ok(state) = serde_json::from_slice::<State>(&bytes)
-        {
-            return Ok(Some(state));
+        let parsed = fs::read(path)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| serde_json::from_slice::<State>(&bytes).map_err(|e| e.to_string()));
+        match parsed {
+            Ok(state) => return Ok(Some(state)),
+            // Loud, not silent: an older snapshot plus the log still rebuild
+            // the state, but a snapshot nobody can read is a bug to fix.
+            Err(e) => eprintln!("cmux-tasks: skipping unreadable snapshot {}: {e}", path.display()),
         }
     }
     Ok(None)

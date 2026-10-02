@@ -29,6 +29,7 @@ nonisolated enum TasksWire {
             case "label": change = .label(try TaskLabelItem(from: decoder))
             case "project": change = .project(try TaskProjectItem(from: decoder))
             case "session": change = .session(try TaskSessionItem(from: decoder))
+            case "settings": change = .settings(try TasksSettings(from: decoder))
             default: change = .other
             }
         }

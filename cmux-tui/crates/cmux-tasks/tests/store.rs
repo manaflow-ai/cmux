@@ -106,7 +106,8 @@ fn recovers_across_snapshots_and_rotations() {
     let engine = Engine::open_with(dir.path(), "local", "CMX", clock(), limits).unwrap();
     assert_eq!(engine.state(), &live);
     // A damaged newest snapshot falls back to an older one plus the log.
-    let mut snaps: Vec<_> = fs::read_dir(dir.path().join("snapshots")).unwrap().map(|e| e.unwrap().path()).collect();
+    let mut snaps: Vec<_> =
+        fs::read_dir(dir.path().join("snapshots")).unwrap().map(|e| e.unwrap().path()).collect();
     snaps.sort();
     fs::write(snaps.last().unwrap(), b"{broken").unwrap();
     drop(engine);
