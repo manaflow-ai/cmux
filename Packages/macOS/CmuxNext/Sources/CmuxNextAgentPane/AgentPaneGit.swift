@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A scope of `git.diff` on the session host (cmux-tui `GitDiffScope`).
 public nonisolated enum AgentPaneGitScope: String, CaseIterable, Equatable, Sendable {
