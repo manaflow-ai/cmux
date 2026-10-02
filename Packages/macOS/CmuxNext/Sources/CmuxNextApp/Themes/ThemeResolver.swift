@@ -43,7 +43,7 @@ final class ThemeResolver {
     func resolve(_ spec: ThemeSpec?) -> Resolved? {
         guard let spec, let config = GhosttyRuntime.shared.themeConfig(named: spec.name(isDark: isDark)),
               let colors = config.colors else { return nil }
-        return Resolved(spec: spec, input: ThemeBridge.input(colors), config: config)
+        return Resolved(spec: spec, input: ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride), config: config)
     }
 
     private func appearanceDidChange() {
