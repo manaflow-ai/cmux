@@ -21,6 +21,7 @@ extension SidebarBridge {
         .history: "history.show",
         .bookmarks: "bookmark.manager",
         .appStore: "appStore.show",
+        .customize: "appearance.customize",
     ]
 
     func activateLayoutItem(_ id: LayoutItemID) {
