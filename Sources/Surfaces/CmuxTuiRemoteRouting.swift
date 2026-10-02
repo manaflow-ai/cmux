@@ -2,6 +2,20 @@ import Foundation
 
 /// Pure remote catalog selector and placement resolution shared by the app and CLI.
 enum CmuxTuiRemoteRouting {
+    /// Arguments that preserve a Codex fork's parent association when a detached
+    /// monitor is launched. Shared with the CLI target and app-host tests.
+    static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
+        guard let forkParent = environment["CMUX_AGENT_FORK_PARENT_SESSION_ID"],
+              !forkParent.isEmpty else { return [] }
+        var arguments = ["--fork-parent", forkParent]
+        if let launchID = environment["CMUX_AGENT_FORK_LAUNCH_ID"], !launchID.isEmpty {
+            arguments += ["--fork-launch-id", launchID]
+        }
+        if let ownerPID = environment["CMUX_CODEX_PID"], !ownerPID.isEmpty {
+            arguments += ["--fork-owner-pid", ownerPID]
+        }
+        return arguments
+    }
     /// Every `cmux vm agent` option that takes a value, so the alias walk and
     /// the help scan skip the value instead of reading it as the first provider
     /// argument (or as `--help`).
