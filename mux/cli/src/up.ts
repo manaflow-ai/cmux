@@ -46,10 +46,9 @@ export function shellQuote(value: string): string {
 export function writeSessionDir(dir: string, self: string[], env: Record<string, string>): void {
   mkdirSync(join(dir, ".claude"), { recursive: true });
   writeFileSync(join(dir, "CLAUDE.md"), `${MUX_SYSTEM_PROMPT}\n`);
-  writeFileSync(
-    join(dir, ".claude", "settings.json"),
-    `${JSON.stringify(hookSettings(self, env), null, 2)}\n`,
-  );
+  // `env` also goes to the session's tools, so the mux's own `mux ...` commands use its home.
+  const settings = { ...hookSettings(self, env), env };
+  writeFileSync(join(dir, ".claude", "settings.json"), `${JSON.stringify(settings, null, 2)}\n`);
 }
 
 /** Creates the mux session (claude-sr: our stdio Claude backend through the subrouter) unless it exists. */
@@ -71,13 +70,25 @@ export async function ensureMuxSession(
   }
 }
 
-/** Starts `mux supervise` in the background unless one is running (its pid file says so). */
+interface SupervisorState {
+  pid: number;
+  /** The cmux control socket the supervisor relays to (from the terminal that started it). */
+  cmuxSocket?: string;
+}
+
+/**
+ * Starts `mux supervise` in the background unless one is running for the same
+ * cmux. Run from another cmux app's terminal, it replaces the supervisor, so
+ * the mux controls the app you last ran `mux up` in.
+ */
 export function ensureSupervisor(paths: MuxPaths, self: string[]): number | undefined {
-  const pidFile = join(paths.home, "state", "supervisor.pid");
+  const stateFile = join(paths.home, "state", "supervisor.json");
+  const cmuxSocket = process.env.CMUX_SOCKET_PATH;
   try {
-    const pid = Number(readFileSync(pidFile, "utf8"));
-    process.kill(pid, 0);
-    return undefined;
+    const state = JSON.parse(readFileSync(stateFile, "utf8")) as SupervisorState;
+    process.kill(state.pid, 0);
+    if (!cmuxSocket || state.cmuxSocket === cmuxSocket) return undefined;
+    process.kill(state.pid, "SIGTERM");
   } catch {
     // Not running.
   }
@@ -88,6 +99,31 @@ export function ensureSupervisor(paths: MuxPaths, self: string[]): number | unde
     env: process.env,
   });
   child.unref();
-  if (child.pid) writeFileSync(pidFile, String(child.pid));
+  if (child.pid)
+    writeFileSync(
+      stateFile,
+      JSON.stringify({ pid: child.pid, cmuxSocket } satisfies SupervisorState),
+    );
   return child.pid;
+}
+
+/**
+ * Makes this process the supervisor of record (Home's server runs it in
+ * process, so it keeps the cmux terminal as an ancestor). Stops a detached one.
+ */
+export function claimSupervisor(paths: MuxPaths): void {
+  const stateFile = join(paths.home, "state", "supervisor.json");
+  try {
+    const state = JSON.parse(readFileSync(stateFile, "utf8")) as SupervisorState;
+    if (state.pid !== process.pid) process.kill(state.pid, "SIGTERM");
+  } catch {
+    // None running.
+  }
+  writeFileSync(
+    stateFile,
+    JSON.stringify({
+      pid: process.pid,
+      cmuxSocket: process.env.CMUX_SOCKET_PATH,
+    } satisfies SupervisorState),
+  );
 }

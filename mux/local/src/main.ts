@@ -1,47 +1,33 @@
-import { hostname, homedir, userInfo } from "node:os";
+import { hostname, userInfo } from "node:os";
 import { join, normalize } from "node:path";
-import { mkdirSync } from "node:fs";
+import { AcpmuxClient } from "@mux/acpmux";
 import { messageText } from "@mux/brain";
-import {
-  parseClientFrame,
-  type AccountFrame,
-  type CreateConversationRequest,
-  type ID,
-  type Participant,
-  type ServerFrame,
-  type Viewer,
-} from "@mux/protocol";
-import { acpmuxRunner, firstPrompt, sessionName } from "./agent.ts";
+import { parseClientFrame, type AccountFrame, type ServerFrame, type Viewer } from "@mux/protocol";
+import { lastReply } from "@mux/cli/agents";
+import { serveRelay } from "@mux/cli/cmux-relay";
+import { muxPaths } from "@mux/cli/paths";
+import { Supervisor } from "@mux/cli/supervisor";
+import { claimSupervisor } from "@mux/cli/up";
 import { hostAllowed, originAllowed } from "./guard.ts";
-import { LocalMemory } from "./memory.ts";
-import { LocalStore } from "./store.ts";
+import { MUX_CONVERSATION_ID, MuxView, type AcpmuxEvent } from "./mux-view.ts";
+
+// Home's server: a live Messages view of the one `mux` acpmux session.
+// Start it from a terminal of the cmux app the mux should control: it runs
+// `mux up` with that terminal's environment, which also starts the cmux relay.
 
 const port = Number(process.env.MUX_LOCAL_PORT ?? 47820);
-const dir = process.env.MUX_LOCAL_DIR ?? join(homedir(), ".cmux", "mux");
 const dist = normalize(
   process.env.MUX_WEB_DIST ?? new URL("../../apps/web/dist/", import.meta.url).pathname,
 );
-mkdirSync(join(dir, "work"), { recursive: true });
-
-const store = new LocalStore(join(dir, "mux.db"));
-const memory = new LocalMemory(join(dir, "memory"));
-const agent = acpmuxRunner({
-  harness: process.env.MUX_LOCAL_HARNESS ?? "claude",
-  policy: process.env.MUX_LOCAL_POLICY ?? "approve-all",
-  cwd: join(dir, "work"),
-});
+const muxCli = normalize(new URL("../../cli/src/main.ts", import.meta.url).pathname);
+const session = process.env.MUX_SESSION_NAME ?? "mux";
 const viewer: Viewer = { id: "local-user", displayName: userInfo().username };
-const me: Participant = { kind: "human", id: viewer.id, displayName: viewer.displayName };
-const mux: Participant = { kind: "mux", id: "mux-local", displayName: "mux" };
-
-/** One turn at a time per conversation; acpmux queues too, but replies must post in order. */
-const turns = new Map<ID, Promise<void>>();
-
-/** A socket on one conversation, or on the account-wide event stream (`/api/events`). */
-type SocketData = { conversationId: ID } | { events: true };
-
-/** Topic for "the conversation list changed" (`/api/events`). */
+const view = new MuxView(viewer);
 const LIST_TOPIC = "conversations";
+
+type SocketData = { conversation: true } | { events: true };
+
+let client: AcpmuxClient | undefined;
 
 const server = Bun.serve<SocketData>({
   hostname: "127.0.0.1",
@@ -49,10 +35,8 @@ const server = Bun.serve<SocketData>({
   async fetch(request, server) {
     if (!hostAllowed(request, port) || !originAllowed(request, port))
       return new Response("forbidden", { status: 403 });
-    const url = new URL(request.url);
-    const path = url.pathname;
+    const path = new URL(request.url).pathname;
     if (!path.startsWith("/api/")) return serveStatic(path);
-
     if (path === "/api/auth/config") {
       return Response.json({
         mode: "none",
@@ -74,23 +58,19 @@ const server = Bun.serve<SocketData>({
       ]);
     }
     if (path === "/api/conversations" && request.method === "GET")
-      return Response.json(store.list());
+      return Response.json([summary()]);
+    // Home has one conversation, the mux: "new conversation" opens it.
     if (path === "/api/conversations" && request.method === "POST") {
-      const body = (await request.json().catch(() => ({}))) as CreateConversationRequest;
-      const conversation = store.create(body.title?.trim() || "mux", [me, mux]);
-      listChanged();
-      return Response.json({ conversation }, { status: 201 });
+      return Response.json({ conversation: view.conversation() }, { status: 201 });
     }
     if (path === "/api/events") {
       if (server.upgrade(request, { data: { events: true } })) return undefined;
       return new Response("expected websocket", { status: 426 });
     }
-    const match = path.match(/^\/api\/conversations\/([0-9a-f-]{36})(\/ws)?$/);
-    if (match) {
-      const conversation = store.get(match[1]);
-      if (!conversation) return Response.json({ error: "not found" }, { status: 404 });
-      if (!match[2]) return Response.json(conversation);
-      if (server.upgrade(request, { data: { conversationId: conversation.id } })) return undefined;
+    if (path === `/api/conversations/${MUX_CONVERSATION_ID}`)
+      return Response.json(view.conversation());
+    if (path === `/api/conversations/${MUX_CONVERSATION_ID}/ws`) {
+      if (server.upgrade(request, { data: { conversation: true } })) return undefined;
       return new Response("expected websocket", { status: 426 });
     }
     return Response.json({ error: "not found" }, { status: 404 });
@@ -101,67 +81,151 @@ const server = Bun.serve<SocketData>({
         ws.subscribe(LIST_TOPIC);
         return;
       }
-      ws.subscribe(ws.data.conversationId);
-      const conversation = store.get(ws.data.conversationId);
-      if (conversation)
-        ws.send(JSON.stringify({ type: "snapshot", conversation } satisfies ServerFrame));
+      ws.subscribe(MUX_CONVERSATION_ID);
+      ws.send(
+        JSON.stringify({
+          type: "snapshot",
+          conversation: view.conversation(),
+        } satisfies ServerFrame),
+      );
     },
     message(ws, data) {
       if ("events" in ws.data) return;
       const frame = parseClientFrame(
         typeof data === "string" ? data : new TextDecoder().decode(data),
       );
-      if (!frame)
-        return void ws.send(
-          JSON.stringify({ type: "error", message: "bad frame" } satisfies ServerFrame),
+      if (!frame || frame.type !== "send") return;
+      const text = frame.parts.map((p) => (p.type === "text" ? p.text : "")).join("\n");
+      if (!client) {
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            message: "acpmux is not connected",
+          } satisfies ServerFrame),
         );
-      const id = ws.data.conversationId;
-      if (frame.type === "typing")
-        return publish(id, { type: "typing", participantId: viewer.id, on: frame.on });
-      const message = store.append(id, viewer.id, frame.parts);
-      publish(id, { type: "message", message, clientId: frame.clientId });
-      const title = store.get(id)?.title ?? "mux";
-      void memory.append(`[${title}] ${viewer.displayName}: ${messageText(message)}`);
-      const previous = turns.get(id) ?? Promise.resolve();
-      const next = previous.then(() => turn(id, `${viewer.displayName}: ${messageText(message)}`));
-      turns.set(id, next);
+        return;
+      }
+      // The clientId becomes the acpmux promptId, so the echo replaces the pending bubble.
+      void client.prompt(session, text, frame.clientId).catch((error) => {
+        publish({ type: "error", message: `mux did not take the message: ${String(error)}` });
+      });
     },
     close(ws) {
-      ws.unsubscribe("events" in ws.data ? LIST_TOPIC : ws.data.conversationId);
+      ws.unsubscribe("events" in ws.data ? LIST_TOPIC : MUX_CONVERSATION_ID);
     },
   },
 });
 
-function publish(conversationId: ID, frame: ServerFrame): void {
-  server.publish(conversationId, JSON.stringify(frame));
-  if (frame.type === "message") listChanged();
+function summary() {
+  const last = view.conversation().messages.at(-1);
+  return {
+    id: MUX_CONVERSATION_ID,
+    title: "mux",
+    preview: last ? messageText(last) : "",
+    lastAt: last?.sentAt ?? "",
+  };
 }
 
-function listChanged(): void {
-  server.publish(LIST_TOPIC, JSON.stringify({ type: "conversations" } satisfies AccountFrame));
+function publish(frame: ServerFrame): void {
+  server.publish(MUX_CONVERSATION_ID, JSON.stringify(frame));
+  if (frame.type === "message")
+    server.publish(LIST_TOPIC, JSON.stringify({ type: "conversations" } satisfies AccountFrame));
 }
 
-async function turn(conversationId: ID, text: string): Promise<void> {
-  const conversation = store.get(conversationId);
-  if (!conversation) return;
-  const session = sessionName(conversationId);
-  // The agent got its instructions on this conversation's first turn; acpmux keeps them in its context.
-  const first = !conversation.messages.some((m) => m.senderId === mux.id);
-  publish(conversationId, { type: "typing", participantId: mux.id, on: true });
-  let reply: string;
-  try {
-    await agent.ensure(session);
-    const prompt = first
-      ? `${firstPrompt({ memoryDir: memory.dir, memory: memory.tail(), title: conversation.title })}\n\n${text}`
-      : text;
-    reply = (await agent.send(session, prompt)) || "(no reply)";
-  } catch (error) {
-    reply = `I could not answer that: ${error instanceof Error ? error.message : String(error)}`;
+function apply(event: AcpmuxEvent): void {
+  const change = view.apply(event);
+  if (change.typing !== undefined)
+    publish({ type: "typing", participantId: "mux", on: change.typing });
+  for (const message of change.messages)
+    publish({ type: "message", message, clientId: message.id });
+}
+
+/** A live ACP `session/update` in the shape history records it (kind = the update type). */
+function fromUpdate(params: Record<string, unknown>): AcpmuxEvent {
+  const meta =
+    (params._meta as { acpmux?: { seq?: number; at?: number } } | undefined)?.acpmux ?? {};
+  const update = (params.update ?? {}) as { sessionUpdate?: string };
+  return {
+    seq: meta.seq ?? 0,
+    at: meta.at ?? Date.now(),
+    dir: "in",
+    kind: update.sessionUpdate ?? "",
+    msg: { params },
+  };
+}
+
+/** `mux up` without its detached supervisor: the session and its prompt and hooks. */
+async function muxUp(): Promise<void> {
+  const child = Bun.spawn([process.execPath, muxCli, "up", "--no-supervisor"], {
+    stdin: "ignore",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  if ((await child.exited) !== 0) throw new Error("mux up failed");
+}
+
+/**
+ * The supervisor and cmux relay, in this process: started from a cmux
+ * terminal and long-lived, it keeps that terminal as an ancestor, which is
+ * what cmux's control socket admits.
+ */
+async function superviseInProcess(): Promise<void> {
+  const paths = muxPaths();
+  claimSupervisor(paths);
+  if (process.env.CMUX_SOCKET_PATH) {
+    serveRelay(join(paths.home, "state", "cmux.sock"));
+    console.log(`mux home: relaying cmux commands to ${process.env.CMUX_SOCKET_PATH}`);
+  } else {
+    console.log(
+      "mux home: no CMUX_SOCKET_PATH; start this server in a cmux terminal so the mux can control cmux",
+    );
   }
-  publish(conversationId, { type: "typing", participantId: mux.id, on: false });
-  const message = store.append(conversationId, mux.id, [{ type: "text", text: reply }]);
-  publish(conversationId, { type: "message", message });
-  await memory.append(`[${conversation.title}] me: ${reply}`);
+  for (let backoff = 1_000; ; backoff = Math.min(backoff * 2, 30_000)) {
+    try {
+      const connection = await AcpmuxClient.connect(undefined, "mux-supervisor");
+      const closed = new Promise<void>((resolve) => connection.onClose(resolve));
+      await new Supervisor(connection, lastReply, (line) =>
+        console.log(`mux supervisor: ${line}`),
+      ).start();
+      backoff = 1_000;
+      await closed;
+    } catch (error) {
+      console.log(`mux supervisor: ${String(error)}; retrying`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, backoff));
+  }
+}
+
+/** Follows the mux session's event log: history first, then live events; reconnects with backoff. */
+async function follow(): Promise<void> {
+  for (let backoff = 1_000; ; backoff = Math.min(backoff * 2, 30_000)) {
+    try {
+      const connection = await AcpmuxClient.connect(undefined, "mux-home");
+      const closed = new Promise<void>((resolve) => connection.onClose(resolve));
+      let sessionId = "";
+      connection.onNotification((n) => {
+        if (n.params.sessionId !== sessionId) return;
+        // acpmux's own records arrive as events; agent output arrives as plain ACP updates.
+        if (n.method === "_acpmux/event") apply(n.params as unknown as AcpmuxEvent);
+        if (n.method === "session/update") apply(fromUpdate(n.params));
+      });
+      const attached = await connection.request<{
+        session: { sessionId: string };
+        events: AcpmuxEvent[];
+      }>("_acpmux/attach", { sessionId: session, afterSeq: 0, limit: 100_000 });
+      sessionId = attached.session.sessionId;
+      for (const event of attached.events) apply(event);
+      client = connection;
+      backoff = 1_000;
+      console.log(`mux home: following ${session} (${attached.events.length} events)`);
+      await closed;
+      client = undefined;
+      console.log("mux home: acpmux connection closed; reconnecting");
+    } catch (error) {
+      console.log(`mux home: ${String(error)}; retrying`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, backoff));
+  }
 }
 
 async function serveStatic(path: string): Promise<Response> {
@@ -179,4 +243,7 @@ async function serveStatic(path: string): Promise<Response> {
   );
 }
 
-console.log(`mux local: http://127.0.0.1:${port} (data ${dir})`);
+console.log(`mux home: http://127.0.0.1:${port}`);
+await muxUp();
+void superviseInProcess();
+void follow();

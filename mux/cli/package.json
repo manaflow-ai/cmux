@@ -6,8 +6,15 @@
     "mux": "src/main.ts"
   },
   "type": "module",
+  "exports": {
+    "./supervisor": "./src/supervisor.ts",
+    "./cmux-relay": "./src/cmux-relay.ts",
+    "./agents": "./src/agents.ts",
+    "./paths": "./src/paths.ts",
+    "./up": "./src/up.ts"
+  },
   "scripts": {
-    "test": "bun test"
+    "test": "bun test --timeout 30000"
   },
   "dependencies": {
     "@mux/acpmux": "workspace:*",

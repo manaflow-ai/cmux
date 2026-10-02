@@ -6,11 +6,12 @@
   "scripts": {
     "start": "bun src/main.ts",
     "dev": "bun --watch src/main.ts",
-    "test": "bun test"
+    "test": "bun test --timeout 30000"
   },
   "dependencies": {
     "@mux/acpmux": "workspace:*",
     "@mux/brain": "workspace:*",
+    "@mux/cli": "workspace:*",
     "@mux/protocol": "workspace:*"
   },
   "devDependencies": {

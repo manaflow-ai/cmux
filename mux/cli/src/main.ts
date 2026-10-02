@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { AcpmuxClient } from "@mux/acpmux";
 import { toLines, zoom } from "@mux/brain";
 import { acpmuxCli, lastReply, listAgents, MUX_SESSION, spawnAgent } from "./agents.ts";
+import { relay, serveRelay } from "./cmux-relay.ts";
 import { acpmuxSummarizer, compactUntilDone, takeLock } from "./compactor.ts";
 import { FileMemoryStore } from "./file-store.ts";
 import {
@@ -29,6 +30,7 @@ mux install                    put a \`mux\` launcher in ~/.local/bin (the mux's
 mux claude [args...]           a one-off Claude Code with the mux prompt and memory hooks
 mux agents spawn --cwd DIR [--name N] [--harness H] [--policy P] <prompt>
 mux agents list | prompt NAME <text> | allow NAME [OPTION] | deny NAME
+mux cmux <cmux args>           control the cmux app \`mux up\` last ran in (through the supervisor)
 mux memory recall <regex> [n] | zoom <lo-hi> | note <text> | wake [budget] | path
 mux compact                    build missing memory summaries now
 Env: MUX_HOME (~/.cmux/mux), MUX_HARNESS (claude-sr), MUX_POLICY (approve-all),
@@ -38,6 +40,7 @@ const paths = muxPaths();
 const budget = Number(process.env.MUX_WAKE_BUDGET ?? 96);
 const self = [process.execPath, import.meta.path];
 const sessionDir = join(paths.home, "session");
+const relaySocket = join(paths.home, "state", "cmux.sock");
 const store = () => new FileMemoryStore(paths.memory);
 const hookContext = (): HookContext => ({ store: store(), sessionsDir: paths.sessions, budget });
 const [command, ...rest] = process.argv.slice(2);
@@ -48,7 +51,7 @@ switch (command) {
     await run("acpmux", ["attach", MUX_SESSION]);
     break;
   case "up":
-    await up();
+    await up({ supervisor: !rest.includes("--no-supervisor") });
     break;
   case "install":
     install();
@@ -68,6 +71,12 @@ switch (command) {
   case "agents":
     await runAgents(rest);
     break;
+  case "cmux": {
+    const result = await relay(relaySocket, rest);
+    process.stdout.write(result.stdout);
+    process.stderr.write(result.stderr);
+    process.exit(result.code);
+  }
   case "hook":
     await runHook(rest[0]);
     break;
@@ -82,17 +91,21 @@ switch (command) {
     process.exit(command === "--help" || command === "help" ? 0 : 2);
 }
 
-async function up(): Promise<void> {
+/** `supervisor: false` when the caller (Home's server) runs the supervisor itself. */
+async function up(options: { supervisor: boolean } = { supervisor: true }): Promise<void> {
   writeSessionDir(sessionDir, self, { MUX_HOME: paths.home, MUX_SESSION_NAME: MUX_SESSION });
   const state = await ensureMuxSession(
     sessionDir,
     process.env.MUX_HARNESS ?? "claude-sr",
     process.env.MUX_POLICY ?? "approve-all",
   );
-  const pid = ensureSupervisor(paths, self);
-  console.error(
-    `mux: session ${MUX_SESSION} ${state}; supervisor ${pid ? `started (${pid})` : "running"}`,
-  );
+  const pid = options.supervisor ? ensureSupervisor(paths, self) : undefined;
+  const supervisor = !options.supervisor
+    ? "run by the caller"
+    : pid
+      ? `started (${pid})`
+      : "running";
+  console.error(`mux: session ${MUX_SESSION} ${state}; supervisor ${supervisor}`);
 }
 
 /** A launcher on PATH, so the mux (and you) can run `mux ...` from any shell. */
@@ -121,6 +134,13 @@ async function supervise(): Promise<void> {
   const log = (line: string) => console.log(`${new Date().toISOString()} ${line}`);
   const closed = new Promise<void>((resolve) => client.onClose(resolve));
   await new Supervisor(client, lastReply, log).start();
+  const cmuxSocket = process.env.CMUX_SOCKET_PATH;
+  if (cmuxSocket) {
+    serveRelay(relaySocket);
+    log(`relaying cmux commands to ${cmuxSocket}`);
+  } else {
+    log("no CMUX_SOCKET_PATH: run `mux up` in a cmux terminal so the mux can control cmux");
+  }
   log("watching acpmux");
   await closed;
   log("acpmux connection closed");

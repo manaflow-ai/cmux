@@ -69,6 +69,7 @@
       "dependencies": {
         "@mux/acpmux": "workspace:*",
         "@mux/brain": "workspace:*",
+        "@mux/cli": "workspace:*",
         "@mux/protocol": "workspace:*",
       },
       "devDependencies": {

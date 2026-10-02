@@ -126,8 +126,12 @@ export class AcpmuxClient {
    * Sends a prompt. The returned promise settles when the turn ends; callers
    * that only queue can ignore it as long as the connection stays open.
    */
-  prompt(session: string, text: string): Promise<{ stopReason?: string }> {
-    return this.request("session/prompt", { sessionId: session, prompt: [{ type: "text", text }] });
+  prompt(session: string, text: string, promptId?: string): Promise<{ stopReason?: string }> {
+    return this.request("session/prompt", {
+      sessionId: session,
+      prompt: [{ type: "text", text }],
+      ...(promptId ? { _meta: { acpmux: { promptId } } } : {}),
+    });
   }
 
   cancel(session: string): void {
