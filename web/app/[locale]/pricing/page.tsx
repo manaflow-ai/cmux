@@ -208,12 +208,20 @@ function PricingContent({
 }) {
   const canManageBilling = snapshot.billingManagement === "stripe";
   // An App Store subscriber never gets Stripe checkout for a personal plan:
-  // every personal action becomes "Manage in the App Store".
+  // every personal action becomes "Manage in the App Store", plus Stripe's
+  // "Manage billing" while a Stripe subscription still bills them.
   const appStoreAction = snapshot.billingSource === "apple"
     ? (size?: "compact") => (
-        <SecondaryLink href={APPLE_MANAGE_SUBSCRIPTIONS_URL} size={size}>
-          {t("manageInAppStore")}
-        </SecondaryLink>
+        <div className="space-y-2">
+          <SecondaryLink href={APPLE_MANAGE_SUBSCRIPTIONS_URL} size={size}>
+            {t("manageInAppStore")}
+          </SecondaryLink>
+          {canManageBilling ? (
+            <SecondaryLink href="/api/billing/portal" size={size}>
+              {t("manageBilling")}
+            </SecondaryLink>
+          ) : null}
+        </div>
       )
     : null;
   // Max satisfies every "is Pro" check, so the Pro card must not call a Max
