@@ -22,12 +22,12 @@ use cmux_layout_reducer::LayoutOpKind;
 
 mod batch_close;
 mod column_update;
-mod layout_document;
 mod layout_projection;
+mod published_screen;
 mod structural_move;
 pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget};
-use layout_document::layout_document;
 use layout_projection::sync_layout_column_projection;
+use published_screen::screen_value;
 pub(super) use structural_move::structural_tab_move_plan;
 
 #[derive(Clone, Copy)]
@@ -6090,23 +6090,6 @@ fn workspace_value(
         "name":workspace.name,
         "index":u32::try_from(index).context("workspace index exceeds uint32")?,
         "focused":topology.active_workspace.as_ref() == Some(id),
-    }))
-}
-
-fn screen_value(
-    screen: &RegistryScreen,
-    topology: &ResourceTopologySnapshot,
-    active_workspace: Option<&WorkspacePublicId>,
-    active_screen: Option<&ScreenPublicId>,
-) -> anyhow::Result<Value> {
-    Ok(json!({
-        "id":screen.public_id,
-        "workspace_id":screen.workspace_id,
-        "name":screen.name,
-        "index":u32::try_from(screen.position).context("screen index exceeds uint32")?,
-        "focused":active_workspace == Some(&screen.workspace_id)
-            && active_screen == Some(&screen.public_id),
-        "layout":layout_document(screen, topology)?,
     }))
 }
 
