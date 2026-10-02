@@ -1,5 +1,6 @@
 //! Runs a catalog-gated TypeScript code-mode script through the bundled runner.
 
+use std::borrow::Cow;
 use std::env;
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
@@ -41,6 +42,10 @@ pub(super) fn parse(args: &[String], global: GlobalArgs) -> Result<Plan, UsageEr
 
 pub(super) fn help() -> &'static str {
     "USAGE\n  cmux run <script.ts> [-- <script args>]\n\nRun a TypeScript cmux script in the locked-down code-mode sandbox.\n"
+}
+
+pub(super) fn scope_help(scope: &str) -> Option<Cow<'static, str>> {
+    (scope == "run").then(|| Cow::Borrowed(help()))
 }
 
 pub(super) fn run(plan: Plan) -> i32 {
@@ -100,5 +105,11 @@ mod tests {
             crate::cli::parse(&args),
             Ok(crate::cli::ParsedCommand::Help(Some(scope))) if scope == "docs"
         ));
+    }
+
+    #[test]
+    fn run_scope_help_is_owned_by_code_mode() {
+        assert_eq!(scope_help("run").as_deref(), Some(help()));
+        assert!(scope_help("docs").is_none());
     }
 }
