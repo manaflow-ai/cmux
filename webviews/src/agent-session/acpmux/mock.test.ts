@@ -442,6 +442,15 @@ describe("mock daemon", () => {
       ahead: 1,
       behind: 0,
     });
+    // As on the session host: patches only when asked, a base only where the scope compares
+    // with one, and no scope outside the catalog's five.
+    const plain = await call("git.diff", { sessionId: "mock-session", scope: "committed" });
+    expect(Object.keys(plain.files[0]).sort()).toEqual(["additions", "deletions", "path", "status"]);
+    expect(plain.base).toBe("4be1c2e~1");
+    const staged = await call("git.diff", { sessionId: "mock-session", scope: "staged" });
+    expect("base" in staged).toBe(false);
+    expect(await call("git.diff", { sessionId: "mock-session", scope: "lastTurn" })).toBeUndefined();
+    expect(sent.at(-1)?.error?.message).toBe("Unknown scope lastTurn");
     // Another project's session has no changes; a folder outside git fails to load.
     const { sessions } = await call("_acpmux/watch");
     const other = sessions.find((entry: any) => entry.cwd === "~/code/acpmux").sessionId;
