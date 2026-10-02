@@ -169,16 +169,35 @@ export function visibleRowRange(
   return { first, last };
 }
 
+/// The edited-files card's height for `files` changed files with diffs and `plain` edits listed
+/// without one (styles.css `.acpmux-edited`). A lone file with a diff is named in the head.
+export function editedCardHeight(files: number, plain = 0): number {
+  const entries = files + plain;
+  if (entries <= 1 && plain === 0) return 58;
+  return 58 + 34 * Math.min(entries, 3) + (entries > 3 ? 34 : 0);
+}
+
+/// What an edit without a diff lists as in the edited-files card, deduped.
+export function plainEditLabels(items: readonly AcpmuxActivity[]): string[] {
+  return [
+    ...new Set(items.filter((item) => !item.tool?.diffs?.length).map((item) => item.tool?.inputSummary || item.text)),
+  ];
+}
+
 /// First-layout estimates for rows not yet drawn; a drawn row places by its drawn height. Each
 /// includes the row's bottom padding (`.acpmux-row` in styles.css: 16px for messages, 8px else).
 function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
   if (row.kind === "activity") {
-    // The edited-files list (a title and one line per file), or tool rows (`.cv-tools`: 2px
-    // above 26px rows), which is also how a copy inside an open "Worked for" draws.
-    const edits =
-      row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange").length ?? 0;
-    return edits && !isFoldedCopy(row) ? 8 + 16 * (1 + edits) : Math.max(34, 10 + 26 * (row.items?.length ?? 1));
+    // The edited-files card (App.tsx EditedFilesRow): a 58px head, and 34px for each of the first
+    // three files and for "Show N more"; one file is named in the head. Otherwise tool rows
+    // (`.cv-tools`: 2px above 26px rows), which is also how a copy inside an open "Worked for" draws.
+    const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
+    if (edits.length && !isFoldedCopy(row)) {
+      const files = new Set(edits.flatMap((item) => item.tool?.diffs?.map((diff) => diff.path) ?? [])).size;
+      return 14 + editedCardHeight(files, plainEditLabels(edits).length);
+    }
+    return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
   }
   // The 27px disclosure line.
   if (row.kind === WORKED) return 35;

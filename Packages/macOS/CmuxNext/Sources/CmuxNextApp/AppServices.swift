@@ -149,7 +149,11 @@ final class AppServices {
         }
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)
-        cache.cef.onReady = { [crashRecovery] in crashRecovery.marker?.installHandlers() }
+        cache.cef.onReady = { [crashRecovery] in
+            crashRecovery.marker?.installHandlers()
+            // Chromium resets signal actions at start; SIGTERM stays a quit.
+            QuitSignal.ignoreProcessSignal()
+        }
         cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
             // Chromium wanted a window and has none for that profile (a
             // normal one; an incognito store never gets here): a new browser

@@ -28,19 +28,23 @@ const codex = {
   selected: "#32332d",
 } as const;
 
-/// The pane's colors, each a theme variable with the Codex value behind it.
+/// The pane's colors, each a theme variable with the Codex value behind it. The diffs sit on
+/// the page background, so the changes view is one surface with the transcript. Additions and
+/// deletions read `--acpmux-add` and `--acpmux-del` (styles.css), which a theme can set.
+const addition = `var(--acpmux-add, ${codex.addition})`;
+const deletion = `var(--acpmux-del, ${codex.deletion})`;
 export const diffColors = {
-  bg: `var(--agent-surface-elevated, ${codex.bg})`,
+  bg: `var(--agent-page-bg, ${codex.bg})`,
   fg: `var(--agent-text, ${codex.fg})`,
   muted: `var(--agent-muted, ${codex.muted})`,
   line: `var(--agent-border, ${codex.line})`,
   selected: `var(--agent-card-hover, ${codex.selected})`,
-  addition: codex.addition,
-  deletion: codex.deletion,
-  additionLine: `color-mix(in srgb, ${codex.addition} 22%, transparent)`,
-  deletionLine: `color-mix(in srgb, ${codex.deletion} 22%, transparent)`,
-  additionGutter: `color-mix(in srgb, ${codex.addition} 10%, transparent)`,
-  deletionGutter: `color-mix(in srgb, ${codex.deletion} 10%, transparent)`,
+  addition,
+  deletion,
+  additionLine: `color-mix(in srgb, ${addition} 20%, transparent)`,
+  deletionLine: `color-mix(in srgb, ${deletion} 20%, transparent)`,
+  additionGutter: `color-mix(in srgb, ${addition} 10%, transparent)`,
+  deletionGutter: `color-mix(in srgb, ${deletion} 10%, transparent)`,
   separator: `var(--agent-control, ${codex.separator})`,
 } as const;
 
