@@ -76,21 +76,37 @@ fi
 # source, a tmpfs for transient writes, and one explicitly bound cmux socket.
 # The runner fails closed when this sandbox is unavailable.
 if command -v bwrap >/dev/null 2>&1; then
-  bwrap \
-    --die-with-parent --new-session --unshare-all --clearenv \
-    --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib \
-    --ro-bind /lib64 /lib64 \
-    --ro-bind "$bun" /run/cmux-bun \
-    --ro-bind "$sdk" /run/cmux-sdk \
-    --ro-bind "$script" /run/cmux-script.ts \
-    --ro-bind "$proxy_socket" /run/cmux.sock \
-    ${cloud_relay_pid:+--ro-bind "$cloud_socket" /run/cmux-cloud.sock} \
-    --proc /proc --dev /dev --tmpfs /tmp --chdir /run \
-    --setenv HOME /tmp --setenv CMUX_TUI_SOCKET /run/cmux.sock \
-    --setenv CMUX_TUI_SESSION "$session" \
-    ${cloud_relay_pid:+--setenv CMUX_CLOUD_SOCKET /run/cmux-cloud.sock} \
-    /run/cmux-bun /run/cmux-sdk/code-mode/run.ts \
-    /run/cmux-script.ts "$@" &
+  if [ -n "$cloud_relay_pid" ]; then
+    bwrap \
+      --die-with-parent --new-session --unshare-all --clearenv \
+      --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib \
+      --ro-bind /lib64 /lib64 \
+      --ro-bind "$bun" /run/cmux-bun \
+      --ro-bind "$sdk" /run/cmux-sdk \
+      --ro-bind "$script" /run/cmux-script.ts \
+      --ro-bind "$proxy_socket" /run/cmux.sock \
+      --ro-bind "$cloud_socket" /run/cmux-cloud.sock \
+      --proc /proc --dev /dev --tmpfs /tmp --chdir /run \
+      --setenv HOME /tmp --setenv CMUX_TUI_SOCKET /run/cmux.sock \
+      --setenv CMUX_TUI_SESSION "$session" \
+      --setenv CMUX_CLOUD_SOCKET /run/cmux-cloud.sock \
+      /run/cmux-bun /run/cmux-sdk/code-mode/run.ts \
+      /run/cmux-script.ts "$@" &
+  else
+    bwrap \
+      --die-with-parent --new-session --unshare-all --clearenv \
+      --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib \
+      --ro-bind /lib64 /lib64 \
+      --ro-bind "$bun" /run/cmux-bun \
+      --ro-bind "$sdk" /run/cmux-sdk \
+      --ro-bind "$script" /run/cmux-script.ts \
+      --ro-bind "$proxy_socket" /run/cmux.sock \
+      --proc /proc --dev /dev --tmpfs /tmp --chdir /run \
+      --setenv HOME /tmp --setenv CMUX_TUI_SOCKET /run/cmux.sock \
+      --setenv CMUX_TUI_SESSION "$session" \
+      /run/cmux-bun /run/cmux-sdk/code-mode/run.ts \
+      /run/cmux-script.ts "$@" &
+  fi
   sandbox_pid=$!
   if wait "$sandbox_pid"; then
     status=0
