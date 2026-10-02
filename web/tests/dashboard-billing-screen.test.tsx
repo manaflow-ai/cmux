@@ -138,7 +138,7 @@ describe("dashboard.account.billing", () => {
     const body = await response.json();
     expect(body.selectedTeamId).toBe("user-pro");
     expect(body.team).toBeNull();
-    expect(body.personal.planStatus).toEqual({ isPro: true, planId: "pro", billingManagement: "stripe" });
+    expect(body.personal.planStatus).toEqual({ isPro: true, planId: "pro", billingManagement: "stripe", billingSource: "stripe", manageUrl: null });
     expect(body.personal.subscription).toEqual({
       plan: "pro",
       status: "active",

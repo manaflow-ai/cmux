@@ -7,6 +7,7 @@ import {
   MAX_PLAN_ID,
   GO_PLAN_ID,
   PRO_PLAN_ID,
+  type BillingManagementKind,
 } from "../../services/billing/pro";
 import enMessages from "../../messages/en.json";
 import {
@@ -437,7 +438,7 @@ export type AppPlanSnapshot = {
   developmentPro: boolean;
   planId: string;
   isPro: boolean;
-  billingManagement: "stripe" | "none";
+  billingManagement: BillingManagementKind;
   email: string | null;
 };
 

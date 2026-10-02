@@ -1,4 +1,6 @@
 #if os(iOS)
+import CmuxMobileBilling
+import CmuxMobileBillingUI
 public import CmuxMobileCloud
 import CmuxMobileSupport
 import Foundation
@@ -179,7 +181,11 @@ struct CloudCreateMachineSheet: View {
     let limits: CloudMachineLimits?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    /// App Store billing; when present, upgrade actions open the in-app plans
+    /// sheet instead of the web pricing page.
+    @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var selectedMemoryMb: Int
+    @State private var isPlansSheetPresented = false
 
     init(
         controller: CloudSessionController,
@@ -333,6 +339,13 @@ struct CloudCreateMachineSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .sheet(isPresented: $isPlansSheetPresented, onDismiss: {
+            // A new plan changes the size ladder and machine limits.
+            controller.refreshMachines()
+        }) {
+            MobilePlansSheet(entryPoint: .cloudUpgrade)
+                .environment(billing)
+        }
     }
 
     private static let pricingURL = URL(string: "https://cmux.com/pricing")!
@@ -507,8 +520,12 @@ struct CloudCreateMachineSheet: View {
     }
 
     private func openUpgradePage(planID: String?) {
-        // The mobile app has no native billing checkout surface. Keep the
-        // locked size visible and use the same pricing entrypoint as macOS.
+        // App Store builds sell plans in app (Guideline 3.1.1); the web
+        // pricing page remains only for hosts without a billing model.
+        if billing != nil {
+            isPlansSheetPresented = true
+            return
+        }
         guard let planID, var components = URLComponents(url: Self.pricingURL, resolvingAgainstBaseURL: false) else {
             openURL(Self.pricingURL)
             return

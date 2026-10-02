@@ -1,0 +1,100 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "5C3D7A21",
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21490001",
+      "localizations" : [],
+      "name" : "cmux",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "299.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6749000001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Up to 5 Cloud VMs with up to 16 vCPUs and 32 GB RAM per VM.",
+              "displayName" : "cmux Max",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.cmux.ios.max.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Max Monthly",
+          "subscriptionGroupID" : "21490001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "74.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6749000002",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Up to 5 Cloud VMs with up to 4 vCPUs and 8 GB RAM per VM.",
+              "displayName" : "cmux Pro",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.cmux.ios.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Pro Monthly",
+          "subscriptionGroupID" : "21490001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "14.99",
+          "familyShareable" : false,
+          "groupNumber" : 3,
+          "internalID" : "6749000003",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "1 Cloud VM with 2 vCPUs and 4 GB RAM, 40 VM-hours a month.",
+              "displayName" : "cmux Go",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.cmux.ios.go.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Go Monthly",
+          "subscriptionGroupID" : "21490001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

@@ -25,6 +25,8 @@ import {
   withFreshAccountMetadataUser,
 } from
   "../account/metadataMutation";
+import { activeApplePlanForUser } from "./apple/entitlement";
+import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
 
 export const PRO_PLAN_ID = "pro";
 export const GO_PLAN_ID = "go";
@@ -116,6 +118,8 @@ export type ProMetadataJson =
   | { readonly [key: string]: ProMetadataJson };
 
 export type ProMetadataCustomer = {
+  /** Stack user id; lets the mirror honor the user's Apple subscription. */
+  readonly id?: string;
   readonly clientReadOnlyMetadata?: unknown;
   update(options: {
     clientReadOnlyMetadata: ProMetadataJson;
@@ -127,13 +131,33 @@ export type ProMetadataCustomer = {
  * clientReadOnlyMetadata when a personal subscription is active, and removes
  * it when it lapsed. Returns the normalized metadata snapshot that was
  * written or observed.
+ *
+ * Stripe and Apple share this one mirror, so every write combines both
+ * sources and the higher plan wins: a Stripe lapse keeps an Apple grant, and
+ * a Stripe Go purchase never downgrades an Apple Max. `appleGrant` is the
+ * caller's already-read Apple plan; when omitted it is read here.
  */
 export async function syncProPlanMetadata(
   user: ProMetadataCustomer,
   isPro: boolean,
   lease: AccountDeletionUserMutationLease,
   plan: PersonalPlanId = PRO_PLAN_ID,
+  appleGrant?: PersonalPlanId | null,
 ): Promise<ProMetadataJson> {
+  const applePlan = appleGrant !== undefined
+    ? appleGrant
+    : user.id ? await activeApplePlanForUser(user.id) : null;
+  const effectivePlan = highestPersonalPlanId([isPro ? plan : null, applePlan]);
+  return await writeProPlanMirror(user, effectivePlan, lease);
+}
+
+async function writeProPlanMirror(
+  user: ProMetadataCustomer,
+  effectivePlan: PersonalPlanId | null,
+  lease: AccountDeletionUserMutationLease,
+): Promise<ProMetadataJson> {
+  const isPro = effectivePlan !== null;
+  const plan = effectivePlan ?? PRO_PLAN_ID;
   const raw = user.clientReadOnlyMetadata;
   const metadata: Record<string, unknown> =
     raw && typeof raw === "object" && !Array.isArray(raw)
@@ -198,13 +222,24 @@ export type FreshProMetadataUserMutation = <Result>(
     lease: AccountDeletionUserMutationLease,
   ) => Promise<Result>,
 ) => Promise<Result>;
-export type BillingManagementKind = "stripe" | "none";
+/**
+ * `external`: the plan is billed by the App Store, so the Stripe portal has
+ * nothing to manage. Installed clients already decode all three values.
+ */
+export type BillingManagementKind = "stripe" | "external" | "none";
+/** Who bills the plan in force; `none` for free and operator grants. */
+export type PersonalBillingSource = "stripe" | "apple" | "none";
+/** Seam for the user's granting Apple plan; defaults to the database. */
+export type ActiveApplePlanQuery = (stackUserId: string) => Promise<PersonalPlanId | null>;
 
 export type ProPlanStatus = {
   /** The personal plan in force: free, pro, or max (max satisfies isPro). */
   readonly planId: typeof FREE_PLAN_ID | PersonalPlanId;
   readonly isPro: boolean;
   readonly billingManagement: BillingManagementKind;
+  readonly billingSource: PersonalBillingSource;
+  /** Where the subscriber manages billing outside cmux (the App Store), or null. */
+  readonly manageUrl: string | null;
   readonly metadataPlanId: string | null;
   readonly hasManualVmPlanOverride: boolean;
   readonly metadataChanged: boolean;
@@ -221,6 +256,7 @@ export async function reconcileProPlanMetadata(
   options: {
     hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
     activePersonalPlan?: ActivePersonalPlanQuery;
+    activeApplePlan?: ActiveApplePlanQuery;
     withFreshMetadataUser?: FreshProMetadataUserMutation;
   } = {},
 ): Promise<boolean> {
@@ -233,7 +269,10 @@ export async function reconcileProPlanMetadata(
   if (typeof override === "string" && override.trim()) return false;
 
   const activePlan = user.id
-    ? await resolveActivePersonalPlan(user.id, options)
+    ? highestPersonalPlanId([
+        await resolveActivePersonalPlan(user.id, options),
+        await (options.activeApplePlan ?? activeApplePlanForUser)(user.id),
+      ])
     : null;
   if (!proMirrorNeedsReconcile(activePlan, planIdFromMetadata(metadata))) return false;
   if (!user.id) return false;
@@ -271,6 +310,7 @@ export async function resolveProPlanStatus(
     hasStripeCustomer?: StripeCustomerQuery;
     /** Optional state snapshot used by checkout and deterministic callers. */
     stripeBillingStatus?: StripeBillingStatus | StripeBillingStatusQuery;
+    activeApplePlan?: ActiveApplePlanQuery;
     withFreshMetadataUser?: FreshProMetadataUserMutation;
     /** Runtime environment override used by deterministic callers and tests. */
     environment?: Record<string, string | undefined>;
@@ -284,6 +324,8 @@ export async function resolveProPlanStatus(
       planId: PRO_PLAN_ID,
       isPro: true,
       billingManagement: "none",
+      billingSource: "none",
+      manageUrl: null,
       metadataPlanId,
       hasManualVmPlanOverride,
       metadataChanged: false,
@@ -291,24 +333,34 @@ export async function resolveProPlanStatus(
   }
   const { stripeBillingStatus, activeStripePlan, hasStripeCustomer } =
     await stripeStateForStatus(user.id, options);
+  const activeApplePlan = user.id
+    ? await (options.activeApplePlan ?? activeApplePlanForUser)(user.id)
+    : null;
+  // Stripe and Apple grant through the same mirror; the higher plan wins.
+  const activeSubscriptionPlan = highestPersonalPlanId([activeStripePlan, activeApplePlan]);
   const hasActiveStripePro = activeStripePlan !== null;
-  const planId = personalPlanIdForStatus(activeStripePlan, manualVmPlanOverride(metadata));
+  const planId = personalPlanIdForStatus(activeSubscriptionPlan, manualVmPlanOverride(metadata));
   const isPro = planId !== FREE_PLAN_ID;
-  const billingManagement = billingManagementForStatus(
+  const stripeManagement = billingManagementForStatus(
     stripeBillingStatus,
     hasActiveStripePro,
     hasStripeCustomer,
   );
+  const billingSource = billingSourceForStatus(activeStripePlan, activeApplePlan);
+  // A recoverable Stripe subscription still needs the portal; otherwise an
+  // Apple subscriber manages billing in the App Store.
+  const billingManagement: BillingManagementKind =
+    stripeManagement === "none" && activeApplePlan ? "external" : stripeManagement;
   let metadataChanged = false;
 
   if (
     user.id &&
     !hasManualVmPlanOverride &&
-    proMirrorNeedsReconcile(activeStripePlan, metadataPlanId)
+    proMirrorNeedsReconcile(activeSubscriptionPlan, metadataPlanId)
   ) {
     metadataChanged = await reconcileProMetadataIfAvailable(
       user.id,
-      activeStripePlan,
+      activeSubscriptionPlan,
       options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser,
     );
   }
@@ -317,6 +369,8 @@ export async function resolveProPlanStatus(
     planId,
     isPro,
     billingManagement,
+    billingSource,
+    manageUrl: billingSource === "apple" ? APPLE_MANAGE_SUBSCRIPTIONS_URL : null,
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
@@ -377,6 +431,20 @@ function personalPlanIdForStatus(
   if (activeStripePlan) return activeStripePlan;
   if (!isPaidPlanId(manualOverride)) return FREE_PLAN_ID;
   return manualOverride === MAX_PLAN_ID ? MAX_PLAN_ID : PRO_PLAN_ID;
+}
+
+/**
+ * The source of the plan in force. Apple wins only with a strictly higher
+ * plan, so a tie keeps Stripe (the source cmux can manage).
+ */
+function billingSourceForStatus(
+  activeStripePlan: PersonalPlanId | null,
+  activeApplePlan: PersonalPlanId | null,
+): PersonalBillingSource {
+  if (activeApplePlan && highestPersonalPlanId([activeStripePlan, activeApplePlan]) !== activeStripePlan) {
+    return "apple";
+  }
+  return activeStripePlan ? "stripe" : "none";
 }
 
 /** Whether the Stripe portal has something to manage for this person. */
@@ -484,7 +552,8 @@ async function reconcileFreshProMetadata(
   ) {
     return false;
   }
-  await syncProPlanMetadata(user, activePlan !== null, lease, activePlan ?? PRO_PLAN_ID);
+  // activePlan already combines Stripe and Apple.
+  await writeProPlanMirror(user, activePlan, lease);
   return true;
 }
 
