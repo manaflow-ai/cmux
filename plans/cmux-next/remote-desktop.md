@@ -338,6 +338,8 @@ Client: fleet Mac mini, Apple M4 Pro, macOS 26.5.1, load 4 to 6, hardware H.264 
 | idle 30 s, damage | n/a | n/a | 0 | 0 | n/a | n/a | 0.01 | 0 |
 | idle 30 s, poll | n/a | n/a | 0.006 | 60 | 1.6 | n/a | 4.0 | 78.0 |
 
+Second round (14:15 to 14:24Z, per-sample data): 2560x1600 marker 36.8 / 52.6 / 74.6 ms (host encode 23.5 ms; the client side did not change), 2560x1600 text 81.2 / 143.3 / 376.1 ms (host encode 39 ms, 23 fps). A 1080p marker repeat had the same p50 (23.4 ms) but a p95 of 114 ms: every slow sample was in host-to-client delivery, clustered near 240, 460 and 730 ms, and a host TCP trace matched them to retransmission timeouts (200 ms minimum, then doubling) after single lost downlink packets: a lone small frame gets no duplicate acknowledgements, so TCP cannot fast-retransmit it.
+
 Median marker sample: input to host damage 4.4 ms (one network leg plus inject), damage to capture 0.2 ms, encode 12.8 ms, encoded to client receive 3.8 ms, receive to decoded 2.5 ms. The host software encoder is the largest stage. The client side is 1.6 to 2.5 ms. Most runs had one sample near 900 to 1000 ms on the input leg (cause UNVERIFIED; candidates: a retransmission timeout in the hub's userspace TCP, or the first input after a test app respawn).
 
 ### 15.3 Linux host, in-VPC (the "LAN-like" path) and loopback
@@ -385,7 +387,8 @@ PNGs in the lane's private scratch directory (`ui-variants/`, index.md lists eac
 5. The client is cheap: 1.6 to 2.5 ms receive-to-decoded and under 5 % of one core in every non-stress run.
 6. A cloud-path G2G of 24 ms p50 with software encode and a 7 ms RTT meets the section 2.1 target for `via_cloud_region` (RTT + 35 ms) before display time; adding a display refresh and present (about 8 to 12 ms at 120 Hz, UNVERIFIED) keeps it inside. The hardware-encode LAN target of 30 ms p50 is consistent with the loopback 9.7 ms VideoToolbox number plus capture and display, but it is UNVERIFIED until a macOS host with ScreenCaptureKit and a lit client display are measured.
 7. The key code namespace must be explicit (USB HID usage, section 7); the size in the hello is a request the host may refuse (it answers with the real size); host CPU percentages state their scale.
-8. Session teardown through the userspace WireGuard hub can lose the FIN (the host kept a dead session); the engine uses keepalive and a user timeout, and the question goes to lane 12.
+8. The tail on a real path is set by loss recovery, not by the codec: one lost packet of a small frame cost 240 to 730 ms over TCP (retransmission timeout). This is the measured reason for RD4: media on datagrams with FEC, NACK within the RTT, and "resend the newest frame state" instead of waiting for the lost one; on a TCP carrier (phase 1 fallback, DO relay) the engine sends a tiny follow-up packet after each frame (a tail-loss probe) so the receiver acknowledges and the sender can fast-retransmit.
+9. Session teardown through the userspace WireGuard hub can lose the FIN (the host kept a dead session); the engine uses keepalive and a user timeout, and the question goes to lane 12.
 
 ## 16. Settings (all documented, defaults tested against docs)
 
@@ -433,3 +436,12 @@ Identity, backend and enterprise:
 13. `rd.*` ops in the catalog with their risk classes; `tag:desktop` in the network policy; host desktop capabilities in the `TeamDO` directory; remote desktop audit events in the `TeamDO` audit chain; a team policy key to forbid unattended grants.
 
 iOS (lane 14): 14. The client core (`cmux-rd-core`) in the client xcframework for a later iOS client.
+
+## 20. Open decisions (for Lawrence, through the coordinator)
+
+- D-RD1 Software H.264 encoder for hosts without hardware encode: (a) the GPL encoder linked into `cmux-rd` (GPL-3.0-or-later compatible; best measured latency and, with per-frame rate control, the best text scroll; patent license question), (b) the codec vendor's prebuilt BSD binary downloaded at enable time (patent coverage only for that binary; screen mode is slow and forces IDR on large changes), (c) hardware-only hosts. Recommendation: (a) for phase 1 dogfood, decide (a) or (b) before any public release after a patent review.
+- D-RD2 Apply now for the restricted macOS entitlements (persistent content capture; virtual HID device). Recommendation: yes, approval is reported to take months and unattended Mac hosting depends on it.
+- D-RD3 The private macOS virtual display API for client-sized rendering on server Macs. Recommendation: yes behind a capability check, off on Macs with a person at the console.
+- D-RD4 Pane chrome A, B or C and host indicator I1, I2 or I3 (section 15.5). Recommendation: A, and I1 + I2 + I3 by state.
+- D-RD5 Agents never control through this app (RD8). Recommendation: yes; agents use computer use.
+- D-RD6 RFB as client only (RD9). Recommendation: yes, phase 2.
