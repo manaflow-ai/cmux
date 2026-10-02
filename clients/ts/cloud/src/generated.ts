@@ -96,6 +96,22 @@ export type CronSpec = {
 /** A device (hardware) that groups installs. */
 export type DeviceId = string
 
+export type EnrollmentToken = {
+  readonly id: EnrollmentTokenId
+  readonly label: string
+  readonly allowed_domains: ReadonlyArray<string> | null
+  readonly expires_at: number | null
+  readonly created_by: string
+  readonly created_at: number
+  readonly revoked_at: number | null
+  readonly uses: number
+}
+
+/** base64url(SHA-256(token)) without padding. */
+export type EnrollmentTokenHash = string
+
+export type EnrollmentTokenId = string
+
 export type FeedAction = {
   readonly id: string
   readonly label: string
@@ -265,9 +281,30 @@ export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
 
 export type IntegrationProvider = "github" | "linear" | "slack"
 
+export type ManagedDevice = {
+  readonly install: InstallId
+  readonly user: string
+  readonly via: "token" | "accept"
+  readonly token: EnrollmentTokenId | null
+  readonly at: number
+}
+
 export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
 
 export type Platform = "macos" | "ios" | "linux" | "windows" | "web"
+
+export type PolicyChange = {
+  readonly key: PolicyKey
+  readonly value: {
+    readonly value: unknown
+    readonly mode: PolicyMode
+  } | null
+}
+
+/** A team policy key (spec/enterprise.md 4.2). */
+export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
+
+export type PolicyMode = "enforced" | "default"
 
 /** ES256 (P-256) public key of an install. */
 export type PublicJwk = {
@@ -338,7 +375,7 @@ export type TeamIntegrationPolicy = {
     readonly require_org_admin: boolean
     readonly repo_allowlist: ReadonlyArray<RepoPattern> | null
   }
-  readonly source: "default" | "admin" | "sso" | "mdm"
+  readonly source: "default" | "admin" | "sso" | "mdm" | "team_policy"
   readonly locked: boolean
   readonly updated_at: number | null
   readonly updated_by: string | null
@@ -348,6 +385,135 @@ export type TeamMember = {
   readonly user: UserId
   readonly role: "owner" | "admin" | "member"
   readonly display_name: string
+}
+
+export type TeamPolicy = {
+  readonly version: number
+  readonly values: TeamPolicyValues
+  readonly updated_at: number | null
+  readonly updated_by: string | null
+}
+
+/** Set keys of a team policy; an absent key means the product default and the user's choice. */
+export type TeamPolicyValues = {
+  readonly "github.repoScope"?: {
+    readonly value: "linking_user_repos" | "installation"
+    readonly mode: PolicyMode
+  }
+  readonly "github.requireOrgAdmin"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "github.repoAllowList"?: {
+    readonly value: "none" | ReadonlyArray<RepoPattern>
+    readonly mode: PolicyMode
+  }
+  readonly "integrations.allowedProviders"?: {
+    readonly value: "all" | ReadonlyArray<IntegrationProvider>
+    readonly mode: PolicyMode
+  }
+  readonly "mcp.server"?: {
+    readonly value: "user_choice" | "disabled"
+    readonly mode: PolicyMode
+  }
+  readonly "mcp.remoteTransport"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "apps.install"?: {
+    readonly value: "any" | "allow_list" | "disabled"
+    readonly mode: PolicyMode
+  }
+  readonly "apps.allowedTiers"?: {
+    readonly value: ReadonlyArray<"first-party" | "verified" | "community" | "unverified">
+    readonly mode: PolicyMode
+  }
+  readonly "apps.allowList"?: {
+    readonly value: ReadonlyArray<string>
+    readonly mode: PolicyMode
+  }
+  readonly "apps.forcedInstalls"?: {
+    readonly value: ReadonlyArray<string>
+    readonly mode: PolicyMode
+  }
+  readonly "computerUse.allowed"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "browserAutomation.rawCdp"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "cloud.sandboxes"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "telemetry.level"?: {
+    readonly value: "full" | "crash_only" | "off"
+    readonly mode: PolicyMode
+  }
+  readonly "updates.channel"?: {
+    readonly value: "stable" | "nightly"
+    readonly mode: PolicyMode
+  }
+  readonly "updates.minimumVersion"?: {
+    readonly value: string
+    readonly mode: PolicyMode
+  }
+  readonly "retention.cuaEventsDays"?: {
+    readonly value: number
+    readonly mode: PolicyMode
+  }
+  readonly "retention.cuaFramesDays"?: {
+    readonly value: number
+    readonly mode: PolicyMode
+  }
+  readonly "retention.transcriptDays"?: {
+    readonly value: number
+    readonly mode: PolicyMode
+  }
+  readonly "retention.auditDays"?: {
+    readonly value: number
+    readonly mode: PolicyMode
+  }
+  readonly "sso.enforce"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "sso.enforceForOwners"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "sso.allowGuests"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "sso.sessionMaxAgeHours"?: {
+    readonly value: number
+    readonly mode: PolicyMode
+  }
+  readonly "sso.idleTimeoutHours"?: {
+    readonly value: number
+    readonly mode: PolicyMode
+  }
+  readonly "agents.allowedClasses"?: {
+    readonly value: ReadonlyArray<"mux" | "agent" | "run">
+    readonly mode: PolicyMode
+  }
+  readonly "device.settings"?: {
+    readonly value: Readonly<Record<string, never>>
+    readonly mode: PolicyMode
+  }
+}
+
+export type TeamPolicyVersion = {
+  readonly version: number
+  readonly values: TeamPolicyValues
+  readonly changed: ReadonlyArray<PolicyKey>
+  readonly actor: string | null
+  readonly at: number
+  readonly reason: string | null
+  readonly rollback_of: number | null
 }
 
 export type Trigger = {
@@ -857,6 +1023,36 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
+  /** Make this team the calling install's managing team: with an MDM enrollment token's hash, or without one as the user's explicit acceptance. */
+  readonly "team.device.enroll": {
+    readonly params: {
+      readonly token_hash?: EnrollmentTokenHash
+    }
+    readonly result: ManagedDevice
+  }
+  /** The device-scoped policy for the calling install: values only when this team manages it (decision E3). */
+  readonly "team.device.policy": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly managed: boolean
+      readonly team_name: string
+      readonly version: number
+      readonly defaults: Readonly<Record<string, never>>
+      readonly enforced: Readonly<Record<string, never>>
+      readonly features: Readonly<Record<string, never>>
+      readonly revision: string
+    }
+  }
+  /** Stop managing an install: team admins for any install; the install's user only for an install they accepted (not one enrolled by an MDM token). Agents never. */
+  readonly "team.device.release": {
+    readonly params: {
+      readonly install: InstallId
+    }
+    readonly result: {
+      readonly install: InstallId
+    }
+  }
   /** Read a team's directory: members and enrolled hosts (U2). */
   readonly "team.directory": {
     readonly params: {
@@ -868,6 +1064,73 @@ export interface CloudOps {
       readonly hosts: ReadonlyArray<Host>
       readonly revision: string
     }
+  }
+  /** Create a device enrollment token (owners and admins). The caller generates the token, sends only its SHA-256, and shows the token once. */
+  readonly "team.enrollment_token.create": {
+    readonly params: {
+      readonly label: string
+      readonly token_hash: EnrollmentTokenHash
+      readonly allowed_domains?: ReadonlyArray<string>
+      readonly expires_at?: number
+    }
+    readonly result: EnrollmentToken
+  }
+  /** List enrollment tokens and managed devices (owners and admins). */
+  readonly "team.enrollment_token.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly tokens: ReadonlyArray<EnrollmentToken>
+      readonly devices: ReadonlyArray<ManagedDevice>
+      readonly revision: string
+    }
+  }
+  /** Revoke an enrollment token. Devices already enrolled stay managed. */
+  readonly "team.enrollment_token.revoke": {
+    readonly params: {
+      readonly token: EnrollmentTokenId
+    }
+    readonly result: EnrollmentToken
+  }
+  /** Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
+  readonly "team.policy.get": {
+    readonly params: {
+      readonly version?: number
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly policy: TeamPolicy
+      readonly revision: string
+    }
+  }
+  /** List the last 20 team policy versions, newest first, with actor, reason and changed keys (owners and admins). */
+  readonly "team.policy.history": {
+    readonly params: {
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly versions: ReadonlyArray<TeamPolicyVersion>
+      readonly revision: string
+    }
+  }
+  /** Apply a retained past version's values as a new version (owners and admins). */
+  readonly "team.policy.rollback": {
+    readonly params: {
+      readonly version: number
+      readonly expected_version: number
+      readonly reason?: string
+    }
+    readonly result: TeamPolicy
+  }
+  /** Set or clear team policy keys as one new version (owners and admins). expected_version is the compare-and-swap; a stale version fails with revision.conflict. */
+  readonly "team.policy.update": {
+    readonly params: {
+      readonly changes: ReadonlyArray<PolicyChange>
+      readonly expected_version: number
+      readonly reason?: string
+    }
+    readonly result: TeamPolicy
   }
   /** Create or refresh the caller's user record from the Stack session. */
   readonly "user.ensure": {
@@ -920,7 +1183,17 @@ export const cloudOpMeta = {
   "linear.issue.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "linear.teams.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "slack.post_as_bot": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "team.device.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "team.device.policy": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team.device.release": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.directory": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team.enrollment_token.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.enrollment_token.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team.enrollment_token.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.policy.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.policy.update": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
 } as const satisfies Record<CloudOpName, { class: "read" | "mutation"; owner: string; risk: string }>
 
