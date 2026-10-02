@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Tokens } from "marked";
-import { diffRows, layoutConversation, markdownBlocks, measuredText, visibleLayoutRange, visibleRowRange, type AcpmuxRow, type ConversationLayout } from "./model";
+import { diffRows, layoutConversation, markdownBlocks, measuredText, paneHeader, visibleLayoutRange, visibleRowRange, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "./model";
 
 const row = (id: string, version: number): AcpmuxRow => ({ id, version, at: 0, kind: "assistant", text: id });
 
@@ -85,4 +85,26 @@ test("code spaces and unopenable links are measured as drawn", () => {
   expect(measured("Run `a b` now")).toBe("Run 00 0 now");
   expect(measured("[**b**](mailto:x@y)")).toBe("**b**");
   expect(measured("[**b**](https://example.com)")).toBe("b");
+});
+
+describe("acpmux pane header", () => {
+  const snapshot = (patch: Partial<AcpmuxSnapshot>): AcpmuxSnapshot => ({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connected", isWorking: false, queue: [], catalog: [], canLoadOlder: false, ...patch });
+  const prompt = "Run total.py and tell me what it prints";
+  /// The title repeated the session's first prompt, which the picker and the transcript already show,
+  /// and the status showed the client's last event ("session changed", "tool_call").
+  test("names the agent rather than repeating the prompt, and shows only a status a reader acts on", () => {
+    const base = { summary: { sessionId: "s", title: prompt, harness: "codex" }, catalog: [{ id: "codex", name: "Codex", models: [] }] };
+    expect(paneHeader(snapshot({ ...base, connection: "session changed" }))).toEqual({ title: "Codex", status: "" });
+    expect(paneHeader(snapshot({ ...base, connection: "tool_call", isWorking: true }))).toEqual({ title: "Codex", status: "Working" });
+    expect(paneHeader(snapshot({ ...base, connection: "disconnected" }))).toEqual({ title: "Codex", status: "Reconnecting" });
+    expect(paneHeader(snapshot({ connection: "mock" }))).toEqual({ title: "Agent Chat", status: "Mock" });
+  });
+
+  /// While the daemon is down the pane retries, setting "connecting" or "connecting: <error>"; a turn
+  /// that was running when the connection dropped never ends, so connection trouble wins over Working.
+  test("shows connection trouble while retrying, even during a turn", () => {
+    expect(paneHeader(snapshot({ connection: "connecting" })).status).toBe("Connecting");
+    expect(paneHeader(snapshot({ connection: "connecting: Error: refused" })).status).toBe("Connecting");
+    expect(paneHeader(snapshot({ connection: "disconnected", isWorking: true })).status).toBe("Reconnecting");
+  });
 });
