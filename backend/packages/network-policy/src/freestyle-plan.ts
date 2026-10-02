@@ -55,6 +55,8 @@ export type FsAction =
   | { readonly op: "rule.delete"; readonly ruleId: string; readonly why: string }
   | { readonly op: "tunnel.delete"; readonly tunnelId: string; readonly slug: string; readonly why: string }
   | { readonly op: "vpc.create"; readonly slug: string }
+  /** Only teardown issues this; the planner never deletes a VPC. */
+  | { readonly op: "vpc.delete"; readonly vpcId: string }
   | { readonly op: "tunnel.create"; readonly install: string; readonly slug: string; readonly publicKey: string; readonly vpcId: string; readonly routes: ReadonlyArray<string> }
   | { readonly op: "tunnel.rotate"; readonly install: string; readonly tunnelId: string; readonly publicKey: string }
   | { readonly op: "tunnel.attach"; readonly install: string; readonly tunnelId: string; readonly vpcId: string }
