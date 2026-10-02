@@ -69,7 +69,8 @@ impl Repository {
             return Err(not_a_repository(operation, directory));
         }
         let root = PathBuf::from(root);
-        let overrides = filter_overrides(&root).map_err(|failure| git_failed(operation, &failure))?;
+        let overrides =
+            filter_overrides(&root).map_err(|failure| git_failed(operation, &failure))?;
         Ok(Self { root, overrides })
     }
 

@@ -55,8 +55,7 @@ pub(super) fn run_git(
             command.env_remove(name);
         }
     }
-    command
-        .args(["-c", "core.fsmonitor=false", "-c", "core.quotePath=false"]);
+    command.args(["-c", "core.fsmonitor=false", "-c", "core.quotePath=false"]);
     for setting in overrides {
         command.args(["-c", setting]);
     }

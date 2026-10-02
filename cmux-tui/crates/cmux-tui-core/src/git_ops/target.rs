@@ -38,7 +38,8 @@ pub(super) fn directory(
             "give a path or a workspace, screen, pane, tab or terminal selector",
         ));
     }
-    let resolved = mux.resolve_resource_path(ResourceTarget::Terminal, &terminal(mux, selectors)?)?;
+    let resolved =
+        mux.resolve_resource_path(ResourceTarget::Terminal, &terminal(mux, selectors)?)?;
     let terminal_id =
         resolved.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
     let surface = mux

@@ -7,8 +7,7 @@ use cmux_tui_core::resource::ResourceOperation as Op;
 use serde_json::{Map, Value};
 
 use super::{
-    CommandPlan, Flags, Selectors, UsageError, insert_bounded_u32, request, usage,
-    validate_one_of,
+    CommandPlan, Flags, Selectors, UsageError, insert_bounded_u32, request, usage, validate_one_of,
 };
 
 const SCOPES: &[&str] = &["uncommitted", "unstaged", "staged", "committed", "branch"];

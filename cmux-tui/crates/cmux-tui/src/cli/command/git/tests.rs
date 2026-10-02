@@ -88,10 +88,14 @@ fn git_diff_takes_bounds_a_patch_and_paths() {
 
 #[test]
 fn git_refuses_two_targets_an_unknown_scope_and_bad_bounds() {
-    assert!(rejects(&["git", "status", "--path", "/repo", "--terminal", TERM]).contains("at most one"));
+    assert!(
+        rejects(&["git", "status", "--path", "/repo", "--terminal", TERM]).contains("at most one")
+    );
     assert!(rejects(&["git", "diff", "--scope", "lastTurn"]).contains("--scope"));
     assert!(rejects(&["git", "diff", "--max-files", "0"]).contains("--max-files"));
-    assert!(rejects(&["git", "diff", "--max-patch-bytes", "9999999"]).contains("--max-patch-bytes"));
+    assert!(
+        rejects(&["git", "diff", "--max-patch-bytes", "9999999"]).contains("--max-patch-bytes")
+    );
     assert!(rejects(&["git", "log"]).contains("git action"));
     // Status takes no paths.
     assert!(rejects(&["git", "status", "src"]).contains("git action"));
