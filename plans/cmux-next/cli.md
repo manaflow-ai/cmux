@@ -238,9 +238,16 @@ the CLI requests that came with the merge, with the decision taken.
 11. `send`/`read-screen` on a remote-terminal tab need the daemon side of
     `remote-terminal-tabs-v1`, which is not in cmux-tui yet.
 12. Done: session-qualified ids (`build-box:ws_…`) and `--all-sessions`.
-13. `cmux tab new` (app action) reports `created: []` though it created a tab; the
-    created-object list misses that path.
+13. Done: `cmux tab new` reports the created tab and terminal (an earlier `created: []`
+    was a slow snapshot, not a missing path).
 14. With an explicit `--app-socket` but a different app's `CMUX_*` environment, the daemon
     is found from the environment, not from the named app.
 15. v2 `session.identify` and `capabilities` on `client.metadata.update` (SDK clients
     still fall back to raw v12 for both).
+16. `cmux tab search [--query Q] [--json]` and MCP `tab_search` over the app's read-only
+    `tabs.search` (PR 16796), and a session-host `foreground_process` per terminal (the
+    PTY's foreground process name) so the search matches vim or htop; next pin.
+17. Rust CLI verbs owned by other lanes, landing as their PRs: `cmux status …` and
+    `cmux terminal <t> wait --until …` (status lead), `cmux browser repl|host` (browser
+    lead), `cmux cua …` (CUA lead), `cmux apps …` (app platform), `cmux task …` (tasks,
+    `cmux_tasks::cli::run` mount after this PR merges).
