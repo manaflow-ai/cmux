@@ -43,7 +43,12 @@ struct FirstLaunchTests {
         services.daemon.start {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
         }
-        services.windows.restoreWhenLoaded()
+        // A launch whose restore starts late, as when the whole test process
+        // stalls (CI runs saw every test stall for 24-41 s). Slow is not wrong.
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(21))
+            services.windows.restoreWhenLoaded()
+        }
         let store = services.daemon.store
         defer { try? FileManager.default.removeItem(at: root) }
 
