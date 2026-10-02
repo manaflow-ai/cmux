@@ -29,10 +29,18 @@ final class AppOnboardingServices: OnboardingServices {
         await Task.detached { ThemeChoice.loadCurated(resourcesDirectory: GhosttyRuntime.resourcesDirectory()) }.value
     }
 
+    /// Writes started by `applyAppearance`, so tests can wait for them.
+    private var writes: [Task<Void, Never>] = []
+
+    /// Waits for every write `applyAppearance` started (tests).
+    func flush() async {
+        for write in writes { await write.value }
+    }
+
     func applyAppearance(themeName: String?, density: Density) {
         guard let settings = services.settings else { return }
         let current = selectedThemeName
-        Task {
+        writes.append(Task {
             if themeName != current {
                 if let themeName {
                     try? await settings.set(.string(themeName), at: TerminalThemeSetting.path)
@@ -41,7 +49,7 @@ final class AppOnboardingServices: OnboardingServices {
                 }
             }
             if density != DesignSettings.shared.density { try? await settings.setDensity(density) }
-        }
+        })
     }
 
     func detectBrowsers() async -> [BrowserSource] {
