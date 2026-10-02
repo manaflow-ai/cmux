@@ -1106,6 +1106,9 @@ mod tests {
         let surface = mux.new_workspace(Some("exiting".into()), None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().unwrap();
 
+        surface.record_process_end_for_test(crate::terminal_host_protocol::TerminalExit::now(
+            crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+        ));
         mux.surface_exited(surface.id);
 
         let snapshot = public_session_snapshot(&mux).unwrap();
