@@ -297,6 +297,23 @@ let package = Package(
             dependencies: ["CmuxNextApps"],
             swiftSettings: uiSwiftSettings
         ),
+        // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):
+        // tiers, sandbox profiles, grants and the pure policy, plus the consent
+        // sheet, Settings > Apps > Permissions and first-use prompt prototypes.
+        // No daemon; the App supplies the data source and the style setting.
+        .target(
+            name: "CmuxNextAppPermissions",
+            dependencies: ["CmuxNextApps", "CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAppPermissionsTests",
+            dependencies: ["CmuxNextAppPermissions", "CmuxNextApps"],
+            swiftSettings: uiSwiftSettings
+        ),
         // Tasks (plans/cmux-next/tasks.md): the pane over the team's Tasks
         // owner (a Rust service: cmux-tui/crates/cmux-tasks). A projection:
         // confirmed mirror + intent log; the App supplies the source.
