@@ -248,8 +248,7 @@
   // what prints is at most `maxChars` characters (PRINT_BUDGET by default),
   // because printed output is what an agent pays for in context, and agent
   // harnesses cut or spill tool output past about 30,000 characters (Claude
-  // Code) or 10,000 tokens (Codex). plans/cmux-next/browser-repl/performance.md has the
-  // measurements behind the number.
+  // Code) or 10,000 tokens (Codex).
   //
   // Over budget the tree is condensed, in this order of priority:
   //   1. on-screen controls, the focused element, and the page outline

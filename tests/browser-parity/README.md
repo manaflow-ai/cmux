@@ -3,45 +3,7 @@
 Checks `cmux browser repl` against its one API
 ([plans/cmux-next/browser-repl](../../plans/cmux-next/browser-repl/README.md)): behavior values
 against real Playwright, snapshot and printing formats against reviewed
-cmux goldens, and parity against Aside and ChatGPT for Chrome with
-differential cases. [capabilities.json](capabilities.json) maps every Aside
-and ChatGPT for Chrome capability to the cmux equivalent and the differential
-cases that exercise it.
-
-## Differential cases
-
-`diff/` runs one task three ways: the cmux API (the dev driver or the app),
-Aside's dialect through `aside repl` (one-shot, loopback fixture pages only),
-and ChatGPT for Chrome's through its reference runtime and the user's
-reference client (`~/fun/cmux-browser-cli/scripts/cua-reference-client.ts`:
-one approved `127.0.0.1` origin, the disposable `parity-upload.txt`, tabs in
-the "🧪 cmux parity" group closed after each case, no other origin, raw CDP or
-history). A case (`diff/cases/*.mjs`) lists the reference members and edge
-case it covers, the code per dialect (`$P` is the dialect's Playwright page,
-`$T(ms)` its timeout option, `$LOG` the fixture's event log), what cmux must
-produce (`expect`), and, where cmux differs from a reference on purpose, the
-reason and the check that proves it (`better`). Outcomes are normalized
-(origins, error text to an error class, times to buckets); a verdict per
-reference is `same`, `cmux-better`, `cmux-worse`, `not-applicable` or
-`out-of-scope`. `unit/diff.test.mjs` recomputes every verdict from
-`diff/results/*.json` and fails on any cmux-worse verdict, any missed
-expectation, a member without a same-or-better case, or an edge case in
-[edge-cases.md](../../plans/cmux-next/browser-repl/edge-cases.md) without a case.
-
-```sh
-node tests/browser-parity/diff/run.mjs run --backend cmux-dev     # record the dev driver
-node tests/browser-parity/diff/run.mjs run --backend aside        # live Aside
-node tests/browser-parity/diff/run.mjs run --backend chatgpt      # live ChatGPT for Chrome
-PARITY_CMUX_CLI=<tagged cmux CLI> CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock \
-  node tests/browser-parity/diff/run.mjs run --backend cmux       # the app
-node tests/browser-parity/diff/run.mjs check --backend cmux-dev   # judge now, write nothing
-node tests/browser-parity/diff/run.mjs verdicts                   # totals and gaps
-node tests/browser-parity/diff/run.mjs sync-capabilities          # capabilities.json cases
-node tests/browser-parity/diff/run.mjs report                     # plans/cmux-next/browser-repl/parity-report.md
-```
-
-`--only TEXT` or `--ids a,b` limit a run; results merge into what is recorded.
-Verdicts use the app's result for a case when there is one.
+cmux goldens.
 
 ## Layout
 
@@ -65,20 +27,18 @@ Verdicts use the app's result for a case when there is one.
   scripts removed, stylesheets inlined and pruned to matching rules, fonts and
   remote images replaced, iframes inlined as `srcdoc`. `NAME.oracle.json`
   (`lib/corpus.mjs oracle`) holds what Chrome's Playwright AI snapshot lists
-  as interactive and the text Chrome does not render; `aside-sizes.json`
-  holds the size of Aside's snapshot of each frozen page. Scenario
+  as interactive and the text Chrome does not render; `size-budgets.json`
+  holds the byte budget of each frozen page's snapshot. Scenario
   `27-corpus` checks recall (every Chrome interactive element, same role and
-  name), leaks (no unrendered text) and size (within 10% of Aside) per page.
+  name), leaks (no unrendered text) and size (within the budget) per page.
   Re-capture only on purpose: it changes the pages under test.
 - `fixtures/stress/`: synthetic large pages (`stress.html?kind=cards|table|list|deep|iframes|shadow|text|select|virtual&n=N`),
   built by script so the same query gives the same DOM. Scenario `30-stress`
   checks Playwright behavior on them against the oracle and the print budget.
 - `perf/`: `bench.mjs` times snapshots, diffs and ref resolution per page for
-  cmux (dev driver or a tagged app), Aside, Playwright MCP and ChatGPT's AX
-  renderer; `report.mjs` renders `perf/results/*.json` as the tables in
-  [performance.md](../../plans/cmux-next/browser-repl/performance.md).
-- `reference/`: API surfaces captured from Aside and ChatGPT for Chrome.
-- `unit/`: `node --test` tests for the runtime and for capabilities.json,
+  cmux (dev driver or a tagged app); `report.mjs` renders `perf/results/*.json`
+  as Markdown tables.
+- `unit/`: `node --test` tests for the runtime,
   including `budget.test.mjs` (print budget, diff bounds, output spill) and
   `perf.test.mjs` (scaling and bounded-output guards on the stress pages).
 
@@ -122,28 +82,26 @@ node tests/browser-parity/lib/corpus.mjs capture [--only NAME]
 node tests/browser-parity/lib/corpus.mjs oracle [--only NAME]
 ```
 
-Snapshot bytes on the corpus (cmux-dev, Aside CLI 1.26.916.1741):
+Snapshot bytes on the corpus (cmux-dev):
 
-| Page | cmux | Aside | Chrome AI snapshot |
+| Page | cmux | Budget | Chrome AI snapshot |
 | --- | ---: | ---: | ---: |
-| wikipedia | 63,363 | 68,640 | 210,081 |
-| hackernews | 10,045 | 11,878 | 62,999 |
-| github | 61,467 | 61,635 | 227,801 |
-| mdn | 20,504 | 28,433 | 73,141 |
-| mdn-iframe | 43,843 | 56,365 | 146,590 |
-| npr | 2,500 | 4,835 | 5,561 |
-| bbc | 16,616 | 16,139 | 50,935 |
-| books | 9,165 | 14,974 | 35,677 |
-| vercel | 6,698 | 10,398 | 26,338 |
+| wikipedia | 63,363 | 75,504 | 210,081 |
+| hackernews | 10,045 | 13,065 | 62,999 |
+| github | 61,467 | 67,798 | 227,801 |
+| mdn | 20,504 | 31,276 | 73,141 |
+| mdn-iframe | 43,843 | 62,001 | 146,590 |
+| npr | 2,500 | 5,318 | 5,561 |
+| bbc | 16,616 | 17,752 | 50,935 |
+| books | 9,165 | 16,471 | 35,677 |
+| vercel | 6,698 | 11,437 | 26,338 |
 
-cmux keeps visible text Aside leaves out (card descriptions and times,
-heading anchors, README table cells); on BBC, where that text is a large
-share, cmux is 3% larger. cmux sizes include `[url=host/…]` on off-site
+cmux keeps visible text such as card descriptions and times, heading anchors
+and README table cells. cmux sizes include `[url=host/…]` on off-site
 links. Recall is judged in the engine that renders cmux: each recorded
 element is found by its path and `fixtures/corpus/gt.js` decides there whether
 a user can see it (70 GitHub links an overflow box clips out are not shown in
 Chrome either); no element is exempt otherwise.
 
-Playwright loads from `PARITY_PLAYWRIGHT_DIR`, the ChatGPT app's bundled copy,
-or `node_modules`; WebKit comes from `~/.cache/cmux-parity-browsers`.
+Playwright loads from `PARITY_PLAYWRIGHT_DIR` or `node_modules`; WebKit comes from `~/.cache/cmux-parity-browsers`.
 A record refuses a scenario with an uncaught error, so goldens never hold one.
