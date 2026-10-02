@@ -27,7 +27,10 @@ import Testing
         let path = FileManager.default.temporaryDirectory.appending(path: "cu-\(UUID().uuidString).sock").path
         let source = AppComputerUsePermissionSource(configuration: .init(socketPath: path, machineName: ""))
         let stream = source.permissions()
-        let first = Task { await stream.first { _ in true } }
+        let first = Task { () -> ComputerUsePermissions? in
+            for await value in stream { return value }
+            return nil
+        }
         try? await Task.sleep(for: .milliseconds(300))
         first.cancel()
         #expect(await first.value == nil)
