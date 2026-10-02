@@ -44,6 +44,15 @@ public final class ImportStepModel {
     @ObservationIgnored private var running: ImportPlan?
     @ObservationIgnored private var bases: [String: ImportCounts] = [:]
     public private(set) var rowCounts: [String: ImportCounts] = [:]
+    /// When the last import started (a second click on Import must not also skip the step).
+    @ObservationIgnored private var startedAt: ContinuousClock.Instant?
+
+    /// True just after Import was clicked: the same click repeated (a double
+    /// click, a held Return) is not a Continue.
+    public var justStarted: Bool {
+        guard isImporting, let startedAt else { return false }
+        return ContinuousClock.now - startedAt < .milliseconds(600)
+    }
 
     /// The kinds offered in the one line of checkboxes.
     public static let offeredKinds: [ImportDataKind] = [.bookmarks, .history, .cookies]
@@ -67,6 +76,8 @@ public final class ImportStepModel {
     }
 
     public func redetect() {
+        // Never under a running import: its rows and summary would be lost.
+        guard !isImporting else { return }
         task?.cancel()
         phase = .detecting
         task = Task { [weak self, services] in
@@ -101,7 +112,9 @@ public final class ImportStepModel {
         case .finished(let summary):
             guard running?.items.contains(where: { $0.profile.id == profile.id }) == true else { return .idle }
             if let failure = summary.failures[profile.id] { return .failed(failure) }
-            return .done(rowCounts[profile.id] ?? ImportCounts())
+            // The summary's own batch is exact; progress reports can arrive late or out of order.
+            let batch = summary.batches.first { $0.source.browser == profile.browser && $0.source.profileDirectory == profile.directoryName }
+            return .done(batch?.counts ?? rowCounts[profile.id] ?? ImportCounts())
         default:
             return .idle
         }
@@ -148,6 +161,7 @@ public final class ImportStepModel {
         bases = [:]
         rowCounts = [:]
         phase = .importing(nil)
+        startedAt = .now
         task = Task { [weak self, services] in
             do {
                 let summary = try await services.runImport(plan) { progress in

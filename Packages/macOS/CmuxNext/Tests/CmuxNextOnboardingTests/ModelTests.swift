@@ -119,20 +119,32 @@ import Testing
         let skipped = profile("Profile 3")
         services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [work, side, skipped])]
         services.holdsImport = true
-        services.summary = ImportSummary(batches: [], failures: [side.id: "locked"])
+        func report(_ index: Int, _ profile: BrowserSourceProfile, _ kind: ImportDataKind?, bookmarks: Int, history: Int = 0) -> ImportProgress {
+            ImportProgress(profileIndex: index, profileCount: 2, profile: profile, kind: kind, fraction: 0, counts: ImportCounts(bookmarks: bookmarks, history: history))
+        }
+        // Progress counts are cumulative over the plan: Work brings 5 bookmarks, then Side starts at 5.
+        services.reports = [report(0, work, .bookmarks, bookmarks: 0), report(0, work, nil, bookmarks: 5),
+                            report(1, side, .bookmarks, bookmarks: 5), report(1, side, .history, bookmarks: 8, history: 2)]
+        var workBatch = ImportBatch(source: ImportSourceRecord(browser: .chrome, profileDirectory: "Profile 1", displayName: "Work",
+                                                               proposedProfileID: "w", targetProfileID: "w"))
+        workBatch.history = (0..<7).map { ImportedHistoryEntry(url: URL(string: "https://a.test/\($0)")!, title: nil, visitCount: 1, lastVisit: .now) }
+        services.summary = ImportSummary(batches: [workBatch], failures: [side.id: "locked"])
         let model = OnboardingModel(services: services, start: .importData)
         model.stepDidAppear()
         await settle { model.importer.phase == .ready }
         model.importer.toggle(skipped)
         model.next()
+        model.next()
+        #expect(model.step == .importData, "a second click right after Import does not leave the step")
         await settle { services.importGate != nil }
-        // The mock's one report is the first profile starting on bookmarks: its base.
-        #expect(model.importer.rowState(work) == .importing(.bookmarks, ImportCounts()))
-        #expect(model.importer.rowState(side) == .waiting)
+        #expect(model.importer.rowState(work) == .done(ImportCounts(bookmarks: 5)))
+        #expect(model.importer.rowState(side) == .importing(.history, ImportCounts(bookmarks: 3, history: 2)), "Side's counts start from its first report")
         #expect(model.importer.rowState(skipped) == .idle)
+        model.importer.redetect()
+        #expect(model.importer.isImporting, "Check Again never cancels a running import")
         services.importGate?.resume()
         await settle { model.importer.summary != nil }
-        #expect(model.importer.rowState(work) == .done(ImportCounts()), "a row's first report is its base")
+        #expect(model.importer.rowState(work) == .done(ImportCounts(history: 7)), "the summary's batch is what came over")
         #expect(model.importer.rowState(side) == .failed("locked"))
         #expect(model.importer.rowState(skipped) == .idle)
     }

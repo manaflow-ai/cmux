@@ -54,6 +54,8 @@ public final class OnboardingModel {
         case .importData where importer.canStart:
             importer.start()
             return
+        case .importData where importer.justStarted:
+            return
         case .theme: theme.commit()
         default: break
         }
