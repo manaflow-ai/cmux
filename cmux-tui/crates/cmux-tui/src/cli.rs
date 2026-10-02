@@ -14,8 +14,8 @@ mod lifecycle;
 mod raw;
 mod resolve;
 mod shorthand;
-mod wire;
 mod surface;
+mod wire;
 pub(super) use surface::Surface;
 
 use std::borrow::Cow;

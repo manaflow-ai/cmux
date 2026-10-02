@@ -22,9 +22,9 @@ mod sidebar;
 mod status;
 mod transcript;
 mod transcript_rows;
+pub(crate) use cache::TranscriptCache;
 pub use transcript_rows::transcript_rows;
 use transcript_rows::{transcript_rows_range, working_row};
-pub(crate) use cache::TranscriptCache;
 
 use composer::draw_composer;
 pub(crate) use composer::policy_label;

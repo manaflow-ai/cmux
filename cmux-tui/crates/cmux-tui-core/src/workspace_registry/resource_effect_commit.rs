@@ -3,7 +3,6 @@
 use super::*;
 
 impl WorkspaceRegistry {
-
     /// Stage a legacy workspace row inside a prepared resource effect.
     ///
     /// The outer effect must subsequently commit a full resource projection.
