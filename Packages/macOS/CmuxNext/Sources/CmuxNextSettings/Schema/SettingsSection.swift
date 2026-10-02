@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 
 /// The Settings window's sections, in sidebar order. The raw value is the
@@ -41,7 +42,11 @@ public nonisolated enum SettingsSection: String, Sendable, Hashable, CaseIterabl
 
 /// Localized text of the settings schema (Localizable.xcstrings in this module).
 nonisolated enum SettingsText {
-    static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+    static func text(
+        _ key: StaticString,
+        _ value: String.LocalizationValue,
+        strings: ModuleResourceBundle = .settings
+    ) -> String {
+        strings.text(key, defaultValue: value)
     }
 }

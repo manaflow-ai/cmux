@@ -1,19 +1,8 @@
 public import AppKit
 import GhosttyKit
 
-// Find-in-terminal and accessibility.
+// Accessibility. Find-in-terminal lives in TerminalSession+Find.
 extension TerminalSurfaceView {
-    // MARK: Find
-
-    /// Starts or updates find-in-terminal (Ghostty `search:` binding).
-    public func search(_ needle: String) {
-        performBindingAction("search:\(needle)")
-    }
-
-    public func searchNext() { performBindingAction("navigate_search:next") }
-    public func searchPrevious() { performBindingAction("navigate_search:previous") }
-    public func endSearch() { performBindingAction("end_search") }
-
     // MARK: Accessibility
 
     public override func isAccessibilityElement() -> Bool { true }

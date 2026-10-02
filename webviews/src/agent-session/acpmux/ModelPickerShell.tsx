@@ -1,0 +1,113 @@
+import React, { useEffect, useId, useRef } from "react";
+import { ChevronIcon, PICKER_LABELS } from "./ComposerPickers";
+import type { PickerLayout } from "./modelPickerLayout";
+import { registerPicker } from "./pickerOpeners";
+
+/// The model chip and the popover above it. Focus stays on the chip while the popover is open,
+/// so typing, arrows, digits and Return reach `onKeyDown`; a press elsewhere, the window losing
+/// focus, or focus leaving the chip closes it. The open menu's body names its highlighted row
+/// on the chip (aria-activedescendant) itself.
+export function ModelPickerShell({
+  layout,
+  chip,
+  open,
+  onOpenChange,
+  onKeyDown,
+  onPointerMove,
+  trigger,
+  menu,
+  children,
+}: {
+  /// Unset for the first frame of an opening, while ModelPicker measures the cascade's room.
+  layout?: PickerLayout;
+  chip: string;
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  onKeyDown(event: React.KeyboardEvent): void;
+  onPointerMove?(event: React.PointerEvent): void;
+  trigger: React.RefObject<HTMLButtonElement | null>;
+  menu?: React.RefObject<HTMLDivElement | null>;
+  children: React.ReactNode;
+}) {
+  const root = useRef<HTMLSpanElement>(null);
+  const menuId = useId();
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) onOpenChange(false);
+    };
+    const blur = () => onOpenChange(false);
+    document.addEventListener("pointerdown", away);
+    window.addEventListener("blur", blur);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      window.removeEventListener("blur", blur);
+    };
+  }, [open, onOpenChange]);
+  // Opens the menu (never toggles it shut) and keeps the keys on the chip, as a click does.
+  const show = () => {
+    if (!open) onOpenChange(true);
+    // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt.
+    trigger.current?.focus();
+  };
+  const showRef = useRef(show);
+  showRef.current = show;
+  // Automation opens the menu by its label through the click path, which takes focus off the
+  // prompt first: that closes the slash menu and restores the draft.
+  useEffect(
+    () =>
+      registerPicker(PICKER_LABELS.model, () => {
+        const focused = document.activeElement;
+        // Focus already on the chip stays there: blurring it would close the open menu.
+        if (focused instanceof HTMLElement && !root.current?.contains(focused)) focused.blur();
+        showRef.current();
+      }),
+    [],
+  );
+  return (
+    <span
+      ref={root}
+      className="acpmux-picker acpmux-model"
+      onBlur={(event) => {
+        if (open && !root.current?.contains(event.relatedTarget as Node | null)) onOpenChange(false);
+      }}
+    >
+      <button
+        ref={trigger}
+        type="button"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+        role="combobox"
+        className="acpmux-picker-button"
+        data-menu={PICKER_LABELS.model}
+        aria-label={PICKER_LABELS.model}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        onKeyDown={(event) => {
+          if (open) onKeyDown(event);
+          else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+            event.preventDefault();
+            onOpenChange(true);
+          }
+        }}
+        onClick={() => (open ? onOpenChange(false) : show())}
+      >
+        <span className="acpmux-model-name">{chip}</span>
+        <ChevronIcon />
+      </button>
+      {open && (
+        <div
+          ref={menu}
+          id={menuId}
+          className={`acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-${layout ?? "cascade"}`}
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+          role="menu"
+          aria-label={PICKER_LABELS.model}
+          onPointerMove={onPointerMove}
+        >
+          {children}
+        </div>
+      )}
+    </span>
+  );
+}
