@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite-plus";
 import react from "@vitejs/plugin-react";
 import { cmuxCheckConfig } from "../../../config/vite-plus/check";
 

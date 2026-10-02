@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { ReadScrollbackResult, RenderRow } from "cmux/raw";
 import type { RenderGraphicsModel } from "../src/lib/renderModel";
 import {

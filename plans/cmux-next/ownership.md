@@ -90,7 +90,10 @@ One row per window keyed `(install_id, window_id)`, an `owner` field equal to
 store refuses a write whose `owner` differs. The CLI, TUI and iOS read rows and change
 what a window shows only by asking that app (`cmux tab <id> focus` is app scope). The
 daemon's shared `active*` fields stay defaults for clients with no window and are never
-written by ordinary UI focus. This replaces today's single `windows` subject that
+written by ordinary UI focus. The CLI's `current` resolves, in order: the caller's own terminal
+(`$CMUX_TUI_TERMINAL_ID`), then the attached app's published window record (its key
+window's workspace, focused pane and selected tab), and only with no app attached the
+daemon's default focus. This replaces today's single `windows` subject that
 `WindowStateStore.update` rewrites whole, which lets two Macs on one daemon overwrite
 each other. Implemented by session feat-cmux-next-99 after its catch-up.
 
@@ -166,7 +169,7 @@ mirror. Target, decided by the store inside the commit that causes it:
 | --- | --- |
 | Last tab closed by a client (Cmd-W, CLI, TUI) | remove the tab; the workspace empties and closes (user decision 8.3, same for every client) |
 | Last process exits normally and its tab is not kept (`keep_on_exit` false) | same as above, caused by the session host's typed `exited` event |
-| Terminal host lost (outcome `unknown`: crash, kill, reboot) | nothing is removed: the tab becomes `dead` with a Respawn action, or respawns per policy; the workspace never empties (principle 3) |
+| Terminal host lost (outcome `unknown`: crash, kill, reboot), or a process ended by a signal at or after the daemon began shutting down (logout, `server stop`, SIGTERM to the daemon; the shutdown start is recorded durably so a restarted daemon classifies exits found at adoption) | nothing is removed: the tab becomes `dead` with a Respawn action, or respawns per policy; the workspace never empties (principle 3) |
 | A move, drag or tear-off takes the last tab out | the move op names the source workspace as closing; it closes in the same commit (tear-off is one op) |
 | `workspace.create` | creates the workspace with its first terminal in one op; there is no empty workspace for a client to repair |
 | Legacy empty workspace found at open (older builds, hard kill) | the store gives it a terminal once at open, recorded in the journal |
