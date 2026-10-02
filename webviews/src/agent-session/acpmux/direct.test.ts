@@ -249,6 +249,34 @@ describe("direct client session state", () => {
     expect(await catalog).toEqual([{ id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: undefined }] }]);
   });
 
+  test("a turn that ends in the background is unread until its session is selected, and survives a reread", async () => {
+    const client = await connect();
+    const unread = () =>
+      Object.fromEntries(latest().sessions.map((session) => [session.sessionId, session.unread === true]));
+    const change = (session: Record<string, unknown>) =>
+      ScriptedSocket.current.notify("_acpmux/session_changed", { kind: "updated", session });
+    change({ sessionId: "b", status: "running" });
+    expect(unread()).toEqual({ a: false, b: false });
+    change({ sessionId: "b", status: "idle" });
+    expect(unread()).toEqual({ a: false, b: true });
+    // Later changes and a full reread after a watch lag keep it.
+    change({ sessionId: "b", status: "idle", title: "Renamed" });
+    expect(unread().b).toBe(true);
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: [], watch: true, dropped: 1 });
+    await settle();
+    await settle();
+    expect(ScriptedSocket.current.sent.filter((request) => request.method === "_acpmux/watch")).toHaveLength(2);
+    expect(unread()).toEqual({ a: false, b: true });
+    // The selected session's own turn ending is seen as it happens.
+    change({ sessionId: "a", status: "running" });
+    change({ sessionId: "a", status: "idle" });
+    expect(unread().a).toBe(false);
+    await client.select("b");
+    await settle();
+    expect(unread()).toEqual({ a: false, b: false });
+    client.close();
+  });
+
   test("purging an unselected session refreshes the picker", async () => {
     await connect();
     const before = snapshots.length;
