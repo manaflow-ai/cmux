@@ -1919,6 +1919,36 @@ class RootRunners(unittest.TestCase):
         self.assertFalse(e2e_pool.auto_runner(SMALL, enabled=True, limits=limits, measure=lambda: load, now=NOW,
                                               owned_slots={MINI: 40, ROOT_MINI: 10}).startswith("glaeda-"))
 
+    def test_ui_auto_route_skips_simple_picker_and_uses_gui_label(self):
+        """A media tour's auto pick must reach the UI-aware E2E picker."""
+        with unittest.mock.patch.object(
+                e2e_pool.simple_pool_picker, "pick", side_effect=AssertionError("simple picker bypassed UI routing")), \
+             unittest.mock.patch.object(e2e_pool, "resolve", return_value=GUI_MINI) as resolve:
+            output = io.StringIO()
+            with unittest.mock.patch("sys.stdout", output):
+                e2e_pool.main(
+                    ["--requested", "auto", "--test-filter", "cmuxUITests/DogfoodScenarioUITests",
+                     "--owned", "1", "--owned-ui", "1", "--owned-slots",
+                     json.dumps({MINI: 4, ROOT_MINI: 2, GUI_MINI: 2}), "--pr-xcode-app", PR_XCODE],
+                    env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"},
+                )
+        self.assertEqual(output.getvalue().strip(), GUI_MINI)
+        self.assertEqual(resolve.call_args.kwargs["test_filter"], "cmuxUITests/DogfoodScenarioUITests")
+
+    def test_ui_owned_runner_prefers_an_online_gui_label(self):
+        self.assertEqual(
+            e2e_pool.ui_owned_runner(
+                LARGE,
+                test_filter="cmuxUITests/DogfoodScenarioUITests",
+                owned="1",
+                owned_ui="1",
+                order="",
+                owned_slots=json.dumps({MINI: 4, ROOT_MINI: 2, GUI_MINI: 2}),
+                pr_xcode_app=PR_XCODE,
+            ),
+            GUI_MINI,
+        )
+
 
 MERGE_BASE = "0123456789ab" + "c" * 28
 KEY = MERGE_BASE[:12]
