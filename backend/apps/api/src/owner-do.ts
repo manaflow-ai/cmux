@@ -137,9 +137,16 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return true
   }
 
+  /**
+   * What a subscriber may see of a snapshot: the state through `subscriberView`, and (row
+   * mode) the tail rows. Override to filter the tail rows as well.
+   */
+  protected subscriberSnapshot(snap: ReturnType<OwnerEngine<S>["snapshot"]>, principal: Principal): unknown {
+    return { ...snap, state: this.subscriberView(snap.state as S, principal) }
+  }
+
   private snapshotFor(engine: OwnerEngine<S>, principal: Principal, pending: ReadonlyArray<string>): string {
-    const snap = engine.snapshot(principal.identity, pending)
-    return JSON.stringify({ ...snap, state: this.subscriberView(snap.state as S, principal) })
+    return JSON.stringify(this.subscriberSnapshot(engine.snapshot(principal.identity, pending), principal))
   }
 
 

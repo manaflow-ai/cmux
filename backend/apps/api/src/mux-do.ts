@@ -2,6 +2,7 @@ import type { Domain, Principal } from "@cmux/ownership"
 import { mux } from "@cmux/home-core"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
+import { publicActor } from "./public-actor.ts"
 
 /**
  * MuxDO, one per chief (home-messaging.md sections 3 and 4.3): the chief's wake queue, run by
@@ -10,7 +11,7 @@ import { OwnerDO, type ReadResult } from "./owner-do.ts"
  */
 export class MuxDO extends OwnerDO<mux.MuxHead> {
   constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env, mux.muxDomain as Domain<mux.MuxHead>, "mux", undefined, {
+    super(ctx, env, mux.muxDomain as Domain<mux.MuxHead>, "mux", publicActor, {
       rowMode: { snapshotTable: mux.TABLE_WAKE, snapshotTail: 200 }
     })
   }

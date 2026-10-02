@@ -142,3 +142,57 @@ describe("Home objects: the anonymous invite card (ConversationDO.card)", () => 
   })
 
 })
+
+describe("Home objects: ConversationDO subscribers (membership and history_visible)", () => {
+  const result = (r: { frames: Array<{ t: string }> }) => r.frames.find((f) => f.t === "result" || f.t === "reject")
+
+  it("a since_join member's snapshot starts at its join, and removal closes its socket", async () => {
+    const a = userIdFor(testEnv.STACK_PROJECT_ID, "home-sub-a")
+    const b = userIdFor(testEnv.STACK_PROJECT_ID, "home-sub-b")
+    const address = `addr_${"0".repeat(25)}9`
+    const id = convId()
+    const conv = stub(testEnv.CONVERSATION_DO, id)
+    const owner = session(a)
+    const ok = async (op: string, params: unknown, key: string, who: Principal = owner) =>
+      expect(result(await conv.submit(id, who, { t: "op", op, params, idempotency_key: key }))).toMatchObject({ t: "result" })
+    await ok("conversation.create", { id, kind: "group", title: "Floor", participants: [{ id: a, kind: "human", display_name: "Alice Example" }] }, "c")
+    await ok("conversation.settings.set", { history_visible: "since_join" }, "s")
+    await ok("message.send", { client_msg_id: "m1", parts: [{ type: "text", text: "before 1" }] }, "m1")
+    await ok("message.send", { client_msg_id: "m2", parts: [{ type: "text", text: "before 2" }] }, "m2")
+    const proof = invites.hashInviteSecret("sub-secret")
+    await ok("invite.create", { invite_id: `inv_${"0".repeat(25)}9`, address, channel: "sms", display_name: "Bob", token_hash: invites.hashInviteSecret(proof), locale: "en", copy_variant: "A" }, "i")
+    const bob = { ...session(b), display_name: "Bob" }
+    // A group link used by a user asks the inviter to approve the join.
+    await ok("invite.accept", { proof }, "a", bob)
+    await ok("invite.approve_join", { invite_id: `inv_${"0".repeat(25)}9` }, "ap")
+    await ok("message.send", { client_msg_id: "m3", parts: [{ type: "text", text: "after" }] }, "m3")
+
+    const res = await conv.fetch("https://do/", { headers: { Upgrade: "websocket", "x-cmux-entity": id, "x-cmux-principal": JSON.stringify(bob) } })
+    expect(res.status).toBe(101)
+    const ws = res.webSocket!
+    const frames: Array<any> = []
+    let closed: number | undefined
+    let wake: (() => void) | undefined
+    ws.addEventListener("message", (e) => {
+      frames.push(JSON.parse(e.data as string))
+      wake?.()
+    })
+    ws.addEventListener("close", (e) => {
+      closed = e.code
+      wake?.()
+    })
+    ws.accept()
+    const until = async (pred: () => boolean) => {
+      while (!pred()) await new Promise<void>((r) => (wake = r))
+    }
+    ws.send(JSON.stringify({ t: "subscribe", pending: [] }))
+    await until(() => frames.some((f) => f.t === "snapshot"))
+    const snap = frames.find((f) => f.t === "snapshot")
+    expect(snap.rows.rows.map((r: { row: { parts: Array<{ text: string }> } }) => r.row.parts[0]!.text)).toEqual(["after"])
+
+    // The owner removes Bob: his socket closes, so no later message reaches him.
+    await ok("participants.remove", { participant: b }, "r")
+    await until(() => closed !== undefined)
+    expect(closed).toBe(4401)
+  })
+})
