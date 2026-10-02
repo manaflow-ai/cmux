@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
@@ -64,6 +65,18 @@ final class OnboardingService {
         }
     }
 
+    /// The first task's chat, kept while the window is open so the step
+    /// shows the same chat when the user comes back to it.
+    private var firstTask: (cwd: URL, prompt: String, view: AgentPaneView)?
+
+    func firstTaskView(cwd: URL, prompt: String) -> AgentPaneView? {
+        if let firstTask, firstTask.cwd == cwd, firstTask.prompt == prompt { return firstTask.view }
+        firstTask?.view.close()
+        let view = services.agentTabs.standaloneView(seed: AgentPaneSeed(cwd: cwd.path, prompt: prompt))
+        firstTask = view.map { (cwd, prompt, $0) }
+        return view
+    }
+
     var isShowing: Bool { controller != nil }
     private(set) var gallery: OnboardingGalleryController?
     /// The review tool's state: picks, notes, position
@@ -109,6 +122,9 @@ final class OnboardingService {
         let controller = OnboardingWindowController(model: model)
         controller.onClose = { [weak self] in
             self?.controller = nil
+            // The task's session stays in acpmux (the agent may still be working); only the page closes.
+            self?.firstTask?.view.close()
+            self?.firstTask = nil
         }
         self.controller = controller
         controller.present()

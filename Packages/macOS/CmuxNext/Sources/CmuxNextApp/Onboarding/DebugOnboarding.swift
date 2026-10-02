@@ -11,6 +11,7 @@ import CmuxNextSettings
 ///
 /// `action`: `open` (`step`), `state`, `next`, `back`, `skip`, `close`,
 /// `role` (`role`), `describe` (`text`), `suggest_tasks` (`on`),
+/// `first_task` (`task`: note, chart),
 /// `theme` (`name`, empty for the Ghostty theme), `detect`,
 /// `toggle_profile` (`id`), `toggle_kind` (`kind`), `import`,
 /// `cancel_import`, `claim` (`claim`), `allow` (`pane`: accessibility or
@@ -37,6 +38,7 @@ enum DebugOnboarding {
         case "close": model.finish(completed: false)
         case "role": if let role = params["role"]?.stringValue.flatMap(OnboardingRole.init(rawValue:)) { model.role.select(role) }
         case "describe": model.role.describe(params["text"]?.stringValue ?? "")
+        case "first_task": if let task = params["task"]?.stringValue.flatMap(FirstTask.init(rawValue:)) { model.firstTask.pick(task) }
         case "suggest_tasks": model.role.suggestTasks = params["on"]?.boolValue ?? !model.role.suggestTasks
         case "theme": model.theme.select(params["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 })
         case "detect": model.importer.redetect()
@@ -88,6 +90,9 @@ enum DebugOnboarding {
             .object(["role": profile.role.map { .string($0.rawValue) } ?? .null, "other_role": profile.otherRole.map(JSONValue.string) ?? .null,
                      "suggest_tasks": .bool(profile.suggestTasks)])
         } ?? .null
+        result["first_task"] = model.firstTask.task.map { .string($0.rawValue) } ?? .null
+        result["first_task_folder"] = .string(model.firstTask.folder.url.path)
+        result["first_task_outputs"] = .array(model.firstTask.outputs.map { .string($0.lastPathComponent) })
         result["theme"] = model.theme.selected.map(JSONValue.string) ?? .null
         result["themes"] = .array(model.theme.choices.map { .string($0.name ?? "") })
         result["import_phase"] = .string(phaseName(model.importer.phase))
