@@ -1,3 +1,5 @@
+import type { SlashCommand } from "./slashCommands";
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -42,7 +44,7 @@ export type AcpmuxSnapshot = {
   protocolVersion: number;
   rows: AcpmuxRow[];
   sessions: AcpmuxSessionEntry[];
-  summary?: { sessionId: string; title?: string; name?: string; harness?: string; model?: string; effort?: string; status?: string; modes?: { availableModes: { id: string; name?: string }[]; currentModeId?: string }; configOptions?: { id: string; name?: string; category?: string; currentValue?: string; options: { value: string; name?: string }[] }[] };
+  summary?: { sessionId: string; title?: string; name?: string; harness?: string; model?: string; effort?: string; status?: string; modes?: { availableModes: { id: string; name?: string; description?: string }[]; currentModeId?: string }; configOptions?: { id: string; name?: string; category?: string; currentValue?: string; options: { value: string; name?: string }[] }[] };
   connection: string;
   sessionId?: string;
   isWorking: boolean;
@@ -50,6 +52,8 @@ export type AcpmuxSnapshot = {
   permission?: AcpmuxPermission;
   catalog: { id: string; name: string; models: { id: string; name?: string }[] }[];
   canLoadOlder: boolean;
+  /** The agent's slash commands, for the composer's `/` menu. */
+  commands?: SlashCommand[];
 };
 
 export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: string[] };
