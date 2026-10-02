@@ -6,12 +6,14 @@ import Foundation
 /// Absent or empty means the Ghostty config's theme. Onboarding, the
 /// Settings window and the appearance studio write it; the App applies it
 /// as a Ghostty override, so terminals and chrome follow live.
-public enum AppThemeSetting {
-    public static let configPath = ["appearance", "theme"]
+public struct AppThemeSetting: Sendable {
+    public let configPath = ["appearance", "theme"]
+
+    public init() {}
 
     /// Whether `text` is a theme spec Ghostty can take (`ThemeSpec`): no
     /// characters that could start another config line.
-    public static func isValid(_ text: String) -> Bool {
+    public func isValid(_ text: String) -> Bool {
         ThemeSpec(text) != nil
     }
 
@@ -19,7 +21,7 @@ public enum AppThemeSetting {
     /// diagnostic; a bad value is the same plus a diagnostic. A name this
     /// build does not ship (a newer Ghostty's, a user's own theme file)
     /// loads as written.
-    static func parse(_ root: JSONValue) -> (String?, SettingsDiagnostic?) {
+    func parse(_ root: JSONValue) -> (String?, SettingsDiagnostic?) {
         guard let value = root.value(at: configPath) else { return (nil, nil) }
         let problem = SettingsDiagnostic(kind: .invalidValue, path: "appearance.theme",
                                          message: "expected a Ghostty theme name or \"light:<theme>,dark:<theme>\"")

@@ -119,7 +119,7 @@ struct SettingsOnePageView: View {
             SettingsPageHeader(section: section) { offset in
                 spy.offsets[section] = offset
                 guard !spy.heldByJump else { return }
-                let current = SettingsScrollSpy.section(order: sections, offsets: spy.offsets, line: Metrics.titlebarHeight)
+                let current = SettingsScrollSpy(order: sections, line: Metrics.titlebarHeight).section(offsets: spy.offsets)
                 if let current, current != model.selection { model.selection = current }
             }
             SettingsSectionView(model: model, section: section, filter: filter)
