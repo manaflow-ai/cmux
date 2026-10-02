@@ -28,11 +28,29 @@ pub fn default_socket_path() -> PathBuf {
     base.join("browser-host.sock")
 }
 
-/// Binds the socket, replacing a stale one. Fails if another host answers.
-pub fn bind(path: &Path) -> io::Result<UnixListener> {
+/// Binds the socket, replacing a stale one. One host per socket: a lock
+/// file next to it is held for the process's life, so two hosts started at
+/// once cannot unlink each other's socket. `owns_dir`: the directory is the
+/// host's own (the default path) and is made private (0700).
+pub fn bind(path: &Path, owns_dir: bool) -> io::Result<UnixListener> {
+    use std::os::fd::AsRawFd;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        if owns_dir {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path.with_extension("lock"))?;
+    // SAFETY: flock(2) on an fd we own.
+    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::AddrInUse,
+            format!("a browser host already owns {}", path.display()),
+        ));
     }
     if UnixStream::connect(path).is_ok() {
         return Err(io::Error::new(
@@ -43,17 +61,26 @@ pub fn bind(path: &Path) -> io::Result<UnixListener> {
     let _ = std::fs::remove_file(path);
     let listener = UnixListener::bind(path)?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    // Held until the process exits.
+    std::mem::forget(lock);
     Ok(listener)
 }
 
-/// Serves connections until the listener fails.
+/// Serves connections. A failed accept (for example EMFILE) is skipped.
 pub fn serve(listener: UnixListener, host: Arc<Host>) -> io::Result<()> {
+    // SAFETY: getuid(2) has no failure modes.
+    let uid = unsafe { libc::getuid() };
     for stream in listener.incoming() {
-        let stream = stream?;
+        let Ok(stream) = stream else { continue };
+        // Only this user's processes (the socket is 0600 too).
+        if peer_uid(&stream).is_some_and(|peer| peer != uid) {
+            continue;
+        }
         let host = host.clone();
-        std::thread::Builder::new().name("cmux-browser-host-conn".into()).spawn(move || {
-            let _ = handle(stream, &host);
-        })?;
+        let _ =
+            std::thread::Builder::new().name("cmux-browser-host-conn".into()).spawn(move || {
+                let _ = handle(stream, &host);
+            });
     }
     Ok(())
 }

@@ -30,6 +30,7 @@ mod unix {
     use serde_json::{Value, json};
     use std::io::{BufRead, BufReader, Read, Write};
     use std::os::unix::net::UnixStream;
+    use std::os::unix::process::CommandExt;
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
@@ -118,7 +119,8 @@ mod unix {
     }
 
     fn serve_command(options: &Options) -> i32 {
-        let listener = match bind(&options.socket) {
+        let owns_dir = std::env::var_os("CMUX_BROWSER_HOST_SOCKET").is_none_or(|p| p.is_empty());
+        let listener = match bind(&options.socket, owns_dir) {
             Ok(listener) => listener,
             Err(error) => {
                 eprintln!("cmux-browser-host: {error}");
@@ -149,6 +151,9 @@ mod unix {
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
+            // Its own process group: Ctrl-C in the caller's terminal must
+            // not stop a host that other sessions use.
+            .process_group(0)
             .spawn()
             .map_err(|e| format!("cannot start the browser host: {e}"))?;
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -227,7 +232,7 @@ mod unix {
             &mut stream,
             1,
             "browser.repl.open",
-            json!({"session": options.session, "engine": options.engine}),
+            json!({"session": options.session, "engine": options.engine, "cwd": caller_cwd()}),
         ) {
             eprintln!("{}", error["message"].as_str().unwrap_or("error"));
             return 1;
@@ -277,7 +282,7 @@ mod unix {
                 .unwrap_or(0);
             format!("mcp-{}-{nanos:x}", std::process::id())
         };
-        let open = json!({"session": session, "engine": options.engine});
+        let open = json!({"session": session, "engine": options.engine, "cwd": caller_cwd()});
         if let Err(error) = request(&mut stream, 1, "browser.repl.open", open.clone()) {
             eprintln!("{}", error["message"].as_str().unwrap_or("error"));
             return 1;
@@ -288,8 +293,11 @@ mod unix {
             version: env!("CARGO_PKG_VERSION").to_owned(),
             call_tool: |name: &str, arguments: &Value| -> Result<_, String> {
                 next_id += 1;
-                let mut eval = |code: String| -> Result<Value, String> {
+                let mut eval = |code: String, max_output: Option<u64>| -> Result<Value, String> {
                     let mut params = json!({"session": session, "code": code});
+                    if let Some(max) = max_output {
+                        params["maxOutput"] = json!(max);
+                    }
                     if let Some(ms) = timeout {
                         params["timeoutMs"] = json!(ms);
                     }
@@ -317,12 +325,15 @@ mod unix {
                     }
                     "screenshot" => {
                         let marker = "cmux-mcp-image:";
-                        Ok(screenshot_result(&eval(screenshot_code(arguments, marker))?, marker))
+                        Ok(screenshot_result(
+                            &eval(screenshot_code(arguments, marker), Some(0))?,
+                            marker,
+                        ))
                     }
                     other => {
                         let code = code_for_tool(other, arguments)
                             .ok_or_else(|| format!("Unknown tool: {other}"))?;
-                        Ok(result_of_eval(&eval(code)?))
+                        Ok(result_of_eval(&eval(code, None)?))
                     }
                 }
             },
@@ -341,5 +352,10 @@ mod unix {
             let _ = request(&mut stream, 1, "browser.repl.close", json!({"session": session}));
         }
         0
+    }
+
+    /// The caller's directory, the session's fs root when it is narrow enough.
+    fn caller_cwd() -> String {
+        std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default()
     }
 }

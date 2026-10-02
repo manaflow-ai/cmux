@@ -74,11 +74,18 @@ pub struct Host {
     engines: Arc<dyn Engines>,
     cwd: String,
     sessions: Mutex<BTreeMap<String, Arc<Session>>>,
+    /// Serializes opens, so two opens of one name never start two engines.
+    opening: Mutex<()>,
 }
 
 impl Host {
     pub fn new(engines: Arc<dyn Engines>, cwd: impl Into<String>) -> Host {
-        Host { engines, cwd: cwd.into(), sessions: Mutex::new(BTreeMap::new()) }
+        Host {
+            engines,
+            cwd: cwd.into(),
+            sessions: Mutex::new(BTreeMap::new()),
+            opening: Mutex::new(()),
+        }
     }
 
     fn sessions(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Arc<Session>>> {
@@ -121,6 +128,7 @@ impl Host {
 
     /// Creates the session, or attaches to it when it exists (idempotent by name).
     fn open(&self, caller: &Caller, params: &Value) -> Result<Value, DriverError> {
+        let _opening = self.opening.lock().unwrap_or_else(PoisonError::into_inner);
         let name = Self::session_name(params)?;
         let engine = params.get("engine").and_then(Value::as_str).unwrap_or("auto").to_owned();
         if let Some(existing) = self.sessions().get(&name) {
@@ -152,7 +160,7 @@ impl Host {
         let gate = Arc::new(Gate::new(driver, Grants { raw_cdp }));
         let config = VmConfig {
             session_id: name.clone(),
-            cwd: self.cwd.clone(),
+            cwd: session_root(params.get("cwd").and_then(Value::as_str), &self.cwd, &name),
             memory_limit: DEFAULT_MEMORY_LIMIT,
             capabilities,
             scripts: bundle::REPL_SCRIPTS
@@ -215,13 +223,15 @@ impl Host {
             .and_then(Value::as_u64)
             .map(Duration::from_millis)
             .unwrap_or(DEFAULT_EVAL_TIMEOUT);
+        // Characters, applied by the runtime (which spills the rest to a
+        // file and says so); 0 means no limit.
         let max_output = params
             .get("maxOutput")
             .and_then(Value::as_u64)
             .map(|n| n as usize)
             .unwrap_or(DEFAULT_MAX_OUTPUT);
         let started = std::time::Instant::now();
-        let outcome = session.vm.eval(code, timeout);
+        let outcome = session.vm.eval_with(code, timeout, &json!({"maxOutput": max_output}));
         let duration_ms = started.elapsed().as_millis() as u64;
         let mut stream = session.gate.masker().stream();
         let mut text = String::new();
@@ -230,8 +240,20 @@ impl Host {
             text.push_str(&stream.write("\n"));
         }
         text.push_str(&stream.finish());
-        let truncated = cap(&mut text, max_output);
-        let error = outcome.error.map(|e| session.gate.mask(&e));
+        // A backstop above the runtime's own cap (UTF-8 bytes per character).
+        let truncated =
+            max_output != 0 && cap(&mut text, max_output.saturating_mul(4).saturating_add(1024));
+        let mut error = outcome.error.map(|e| session.gate.mask(&e));
+        // A timed-out cell can leave the runtime waiting on it forever, so
+        // every later cell would queue behind it: start the session afresh.
+        if error.as_deref().is_some_and(|e| e.contains("evaluation timed out")) {
+            self.close(&json!({"session": name}))?;
+            if let Some(text) = &mut error {
+                text.push_str(
+                    "\n(the session was reset: its variables and tabs ended with this cell)",
+                );
+            }
+        }
         Ok(json!({
             "session": name,
             "output": text,
@@ -262,6 +284,27 @@ impl Host {
     }
 }
 
+/// The fs root for a session: the caller's directory when it is a real,
+/// narrow directory (not `/`, not the home directory or an ancestor of it),
+/// else a private directory for the session under the host's state.
+fn session_root(caller: Option<&str>, fallback_base: &str, session: &str) -> String {
+    let broad = |path: &std::path::Path| {
+        let home = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .and_then(|h| h.canonicalize().ok());
+        path == std::path::Path::new("/") || home.as_deref().is_some_and(|h| h.starts_with(path))
+    };
+    if let Some(dir) = caller.map(std::path::Path::new).filter(|p| p.is_absolute())
+        && let Ok(real) = dir.canonicalize()
+        && real.is_dir()
+        && !broad(&real)
+    {
+        return real.display().to_string();
+    }
+    let _ = fallback_base;
+    std::env::temp_dir().join("cmux-browser-host").join("roots").join(session).display().to_string()
+}
+
 /// Cuts `text` to at most `max` bytes on a character boundary; true when cut.
 fn cap(text: &mut String, max: usize) -> bool {
     if text.len() <= max {
@@ -288,6 +331,20 @@ mod tests {
         assert!(text.starts_with("héllo"));
         let mut short = "ok".to_owned();
         assert!(!cap(&mut short, 7));
+    }
+
+    #[test]
+    fn broad_caller_directories_get_a_private_root() {
+        let home = std::env::var("HOME").unwrap();
+        assert!(session_root(Some("/"), "/", "s").contains("cmux-browser-host"));
+        assert!(session_root(Some(&home), "/", "s").contains("cmux-browser-host"));
+        assert!(session_root(Some("relative/dir"), "/", "s").contains("cmux-browser-host"));
+        let narrow = std::env::temp_dir().join(format!("narrow-{}", std::process::id()));
+        std::fs::create_dir_all(&narrow).unwrap();
+        assert_eq!(
+            session_root(Some(narrow.to_str().unwrap()), "/", "s"),
+            narrow.canonicalize().unwrap().display().to_string()
+        );
     }
 
     #[test]
