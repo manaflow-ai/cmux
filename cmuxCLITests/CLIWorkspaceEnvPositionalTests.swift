@@ -88,6 +88,7 @@ struct CLIWorkspaceEnvPositionalTests {
         let params = try #require(request["params"] as? [String: Any])
         #expect(params["workspace_id"] as? String == Self.explicitWorkspaceID)
         #expect(!run.result.stdout.contains("supersecret"))
+        #expect(run.result.stdout.contains("API_TOKEN=su••••"))
     }
 
     @Test func unknownFlagIsRefusedBeforeAnyRequest() throws {
