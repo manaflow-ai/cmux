@@ -24,6 +24,8 @@ import Testing
         CloudFileStubProtocol.reply.withLock { $0 = Data(#"{"rules":[{"id":"rule-1","action":"allow","source":{"public":true},"destination":{"vpcId":"vpc-1","port":443,"protocol":"tcp"}}]}"#.utf8) }
         let rules = try await Self.api().listFirewallRules(vpcID: "vpc/a&b")
         #expect(rules.first?.id == "rule-1")
+        #expect(rules.first?.source.isPublic == true)
+        #expect(rules.first?.destination.protocolName == "tcp")
         #expect(CloudFileStubProtocol.seen.withLock { $0.first?.query?.contains("vpcId=vpc%2Fa%26b") == true })
     }
 }

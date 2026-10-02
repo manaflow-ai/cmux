@@ -9,7 +9,7 @@ public struct CloudFirewallEndpoint: Sendable, Hashable, Codable {
     public var port: Int?
     public var protocolName: String?
 
-    enum CodingKeys: String, CodingKey { case vmId, vpcId, tunnelId, cidr, `public`, port, protocolName = "protocol" }
+    enum CodingKeys: String, CodingKey { case vmId, vpcId, tunnelId, cidr, isPublic = "public", port, protocolName = "protocol" }
 }
 
 public struct CloudNetwork: Sendable, Hashable, Decodable {
