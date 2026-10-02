@@ -70,7 +70,7 @@ final class AppsService {
 
 /// The sink the host holds from launch; the real one attaches when the
 /// control router exists.
-final class DeferredAppSink: AppOperationSink, Sendable {
+nonisolated final class DeferredAppSink: AppOperationSink, Sendable {
     private let inner = Mutex<(any AppOperationSink)?>(nil)
 
     func attach(_ sink: any AppOperationSink) { inner.withLock { $0 = sink } }

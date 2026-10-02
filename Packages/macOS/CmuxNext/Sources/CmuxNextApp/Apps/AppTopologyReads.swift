@@ -6,7 +6,7 @@ import Foundation
 /// App-facing shapes of the control snapshot (the mirror the control
 /// socket answers reads from). Field names follow the cmux-tui resource
 /// ops the samples were written against (`agent.list`, `terminal.get`).
-enum AppTopologyReads {
+nonisolated enum AppTopologyReads {
     static func workspaces(_ topology: ControlTopology) -> AppJSON {
         .array(topology.workspaces.map { ws in
             [
