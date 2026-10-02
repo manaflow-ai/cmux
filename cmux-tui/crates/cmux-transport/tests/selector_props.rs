@@ -1,6 +1,8 @@
 //! Property tests for the path selector (plans/cmux-next/transport.md 15).
 
-use cmux_transport::{PathClass, PathId, PathKind, PathState, ProbeOutcome, Selector, SelectorConfig};
+use cmux_transport::{
+    PathClass, PathId, PathKind, PathState, ProbeOutcome, Selector, SelectorConfig,
+};
 use proptest::prelude::*;
 
 #[derive(Debug, Clone)]
@@ -43,7 +45,11 @@ fn check_invariants(selector: &Selector) {
             let view = selector.path(current).expect("current path exists");
             assert_eq!(view.state, PathState::Alive, "current path {current:?} is not alive");
             if alive.iter().any(|path| path.kind.class() == PathClass::Direct) {
-                assert_eq!(view.kind.class(), PathClass::Direct, "a relay is used while a direct path is alive");
+                assert_eq!(
+                    view.kind.class(),
+                    PathClass::Direct,
+                    "a relay is used while a direct path is alive"
+                );
             }
         }
     }
@@ -128,7 +134,8 @@ fn direct_path_wins_at_once_over_a_faster_relay() {
     selector.add_path(PathId(0), PathKind::DoRelay).expect("fresh");
     selector.add_path(PathId(1), PathKind::DirectWan).expect("fresh");
     selector.on_probe(PathId(0), ProbeOutcome::Answered { rtt_us: 10_000 }).expect("known");
-    let switch = selector.on_probe(PathId(1), ProbeOutcome::Answered { rtt_us: 40_000 }).expect("known");
+    let switch =
+        selector.on_probe(PathId(1), ProbeOutcome::Answered { rtt_us: 40_000 }).expect("known");
     assert_eq!(switch.map(|switch| switch.to), Some(Some(PathId(1))));
 }
 

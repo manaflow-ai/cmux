@@ -119,7 +119,11 @@ impl Selector {
         Ok(self.reselect())
     }
 
-    pub fn on_probe(&mut self, id: PathId, outcome: ProbeOutcome) -> Result<Option<Switch>, SelectorError> {
+    pub fn on_probe(
+        &mut self,
+        id: PathId,
+        outcome: ProbeOutcome,
+    ) -> Result<Option<Switch>, SelectorError> {
         let index = self.find(id).ok_or(SelectorError::UnknownPath(id))?;
         let dead_after = self.config.dead_after_lost;
         let path = &mut self.paths[index];
@@ -172,7 +176,8 @@ impl Selector {
         let (Some(new), Some(old)) = (challenger.rtt_us, incumbent.rtt_us) else {
             return false;
         };
-        let margin = self.config.min_gain_us.max(old.saturating_mul(self.config.min_gain_percent) / 100);
+        let margin =
+            self.config.min_gain_us.max(old.saturating_mul(self.config.min_gain_percent) / 100);
         new.saturating_add(margin) <= old
     }
 
@@ -201,10 +206,9 @@ impl Selector {
     }
 
     fn best_alive(&self) -> Option<&Path> {
-        self.paths
-            .iter()
-            .filter(|path| path.view.state == PathState::Alive)
-            .min_by_key(|path| (path.view.kind.class(), path.view.rtt_us.unwrap_or(u64::MAX), path.view.id))
+        self.paths.iter().filter(|path| path.view.state == PathState::Alive).min_by_key(|path| {
+            (path.view.kind.class(), path.view.rtt_us.unwrap_or(u64::MAX), path.view.id)
+        })
     }
 
     fn reselect(&mut self) -> Option<Switch> {

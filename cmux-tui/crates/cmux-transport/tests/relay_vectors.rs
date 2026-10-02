@@ -34,7 +34,10 @@ fn valid_vectors_round_trip() {
             other => panic!("unknown kind {other}"),
         };
         assert_eq!(frame.kind, kind);
-        assert_eq!(frame.peer, PeerId(hex(field(line, "peer").expect("peer field")).try_into().expect("16 bytes")));
+        assert_eq!(
+            frame.peer,
+            PeerId(hex(field(line, "peer").expect("peer field")).try_into().expect("16 bytes"))
+        );
         assert_eq!(frame.payload, hex(field(line, "payload").expect("payload field")));
         assert_eq!(frame.encode().expect("encodes"), bytes);
         checked += 1;

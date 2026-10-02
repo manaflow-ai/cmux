@@ -28,6 +28,8 @@ pub mod stun;
 
 pub use classify::{DatagramClass, classify};
 pub use path::{PathClass, PathId, PathKind};
-pub use probe::{Probe, ProbeKind, ProbeError};
+pub use probe::{Probe, ProbeError, ProbeKind};
 pub use relay_frame::{FrameKind, PeerId, RelayFrame, RelayFrameError};
-pub use selector::{PathState, PathView, ProbeOutcome, Selector, SelectorConfig, SelectorError, Switch};
+pub use selector::{
+    PathState, PathView, ProbeOutcome, Selector, SelectorConfig, SelectorError, Switch,
+};

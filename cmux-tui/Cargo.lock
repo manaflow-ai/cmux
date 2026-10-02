@@ -866,6 +866,13 @@ name = "cmux-theme-tokens"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-transport"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "cmux-tui"
 version = "0.1.0"
 dependencies = [
