@@ -1,4 +1,5 @@
-import type { Principal } from "@cmux/ownership"
+import type { EventFrame, Principal } from "@cmux/ownership"
+import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.ts"
 import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
@@ -102,6 +103,14 @@ export class TeamDO extends OwnerDO<TeamState> {
   private resetSyncBackoff() {
     this.syncAttempts = 0
     this.syncRetryAt = null
+  }
+
+  protected override subscriberView(state: TeamState, principal: Principal): unknown {
+    return teamSubscriberView(state, principal)
+  }
+
+  protected override mayReceive(state: TeamState, event: EventFrame, principal: Principal): boolean {
+    return teamEventVisible(state, event, principal)
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {
