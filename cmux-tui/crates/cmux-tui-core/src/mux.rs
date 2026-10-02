@@ -2,6 +2,7 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 mod agent_hook_errors;
+mod detached_terminals;
 mod host_close;
 mod idle_close;
 pub(crate) mod layout_invariants;
@@ -16,6 +17,7 @@ mod screen_groups;
 mod sticky_columns;
 mod tab_drag;
 mod tab_groups;
+mod terminal_catalog;
 mod terminal_directory;
 mod terminal_move_topology;
 mod terminal_reap;
@@ -25,6 +27,7 @@ use agent_hook_errors::{
     AGENT_HOOK_RETRY_ERROR, AgentHookTerminalGone, AgentHookTerminalUnavailable,
     agent_hook_retry_class, agent_hook_terminal_gone,
 };
+use terminal_catalog::{insert_terminal_runtime_checked, register_terminal_runtime_checked};
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use presentation::{
@@ -1622,8 +1625,6 @@ pub struct TerminalMoveResult {
     pub changed: bool,
 }
 
-pub(crate) use crate::workspace_registry::DETACHED_TERMINAL_WORKSPACE_KEY;
-
 #[derive(Debug, Clone)]
 struct TerminalReservationRequest {
     terminal_id: TerminalId,
@@ -1637,9 +1638,6 @@ struct TerminalReservationRequest {
     /// argv and cwd it is kept with the creation receipt in the local state
     /// directory so a recovered creation spawns identically.
     env: Vec<(String, String)>,
-    /// A detached terminal (`detached-terminals-v1`) is kept and enters only
-    /// the terminal catalog: it gets no workspace, pane, screen or tab.
-    detached: bool,
 }
 
 /// Longest accepted per-terminal environment: entries and total bytes.
@@ -3402,12 +3400,7 @@ impl Mux {
             if let (Some(record), Some(runtime)) = (frontend, surface.as_browser()) {
                 runtime.set_frontend_location(None, record.title.clone());
             }
-            if let (Some(record), Some(runtime)) = (
-                presentation.remote_terminals.get(browser.public_id.as_str()),
-                surface.as_browser(),
-            ) {
-                runtime.set_frontend_location(None, Some(record.display_title()));
-            }
+            self.restore_remote_terminal_title(&presentation, &browser.public_id, &surface);
             insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
             match browser.reconnect {
                 RegistryBrowserReconnect::Recreate => {
@@ -3429,7 +3422,7 @@ impl Mux {
     ) -> anyhow::Result<Option<RestoredTerminalBinding>> {
         let registry = self.workspace_registry.lock().unwrap();
         let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
-            return Ok(None);
+            return detached_terminals::detached_adoption_binding(&registry, terminal_id);
         };
         drop(registry);
         let state = self.state.lock().unwrap();
@@ -3460,28 +3453,6 @@ impl Mux {
             .as_ref()
             .and_then(|binding| binding.placements.first().map(|(slot, _)| *slot))
             .unwrap_or_else(|| self.next_id());
-        // A detached terminal (`detached-terminals-v1`) whose daemon died
-        // before its resource row committed has no binding. It never had a
-        // tab, so it is adopted as a catalog-only runtime under a new public
-        // id, which the next resource projection persists, instead of being
-        // given a placement in a workspace its sentinel key cannot name.
-        let binding = match binding {
-            None if self
-                .workspace_registry
-                .lock()
-                .unwrap()
-                .terminal_record(&record.terminal_id)?
-                .is_some_and(|terminal| {
-                    terminal.workspace_key == DETACHED_TERMINAL_WORKSPACE_KEY
-                }) =>
-            {
-                Some(RestoredTerminalBinding {
-                    public_id: TerminalPublicId::random()?,
-                    placements: Vec::new(),
-                })
-            }
-            binding => binding,
-        };
         match binding {
             Some(binding) if !binding.placements.is_empty() => {
                 let (_, identity) = binding.placements.first().expect("checked placement");
@@ -3576,8 +3547,7 @@ impl Mux {
             if terminal.is_none()
                 && !template_claimed
                 && options.adopt_template_terminal
-                && !record.workspace_key.is_empty()
-                && record.workspace_key != DETACHED_TERMINAL_WORKSPACE_KEY
+                && detached_terminals::names_a_workspace(&record.workspace_key)
                 && self.state.lock().unwrap().workspaces.is_empty()
                 && terminal_host_record_liveness(&record_path, &record)
                     == TerminalHostLiveness::Live
@@ -4065,25 +4035,8 @@ impl Mux {
         };
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
-        let unpublished_detached = terminal.workspace_key == DETACHED_TERMINAL_WORKSPACE_KEY
-            && registry.terminal_resource_id(terminal_id)?.is_none();
         drop(registry);
-        if unpublished_detached {
-            // A detached terminal adopted after its daemon died before the
-            // creating projection committed: persist its new public id now.
-            // A failure here leaves it for the next projection to persist.
-            let detail = serde_json::json!({"terminal_id":terminal_id, "detached":true});
-            if let Err(error) = self.commit_full_resource_projection_with_mutation(
-                &WorkspaceMutation::local("cmux-tui-detached-adoption"),
-                "raw.terminal.adopt_detached",
-                &detail,
-                detail.clone(),
-            ) {
-                eprintln!(
-                    "cmux-tui: could not publish adopted detached terminal {terminal_id}: {error:#}"
-                );
-            }
-        }
+        self.publish_adopted_detached_terminal(&terminal.workspace_key, terminal_id);
         // Adoption makes the terminal's resource surface available. Retry
         // only hooks scoped to this terminal, not the entire pending table.
         if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
@@ -4861,6 +4814,7 @@ impl Mux {
             // A commit can create the resource row that a shell's first
             // directory report was waiting for.
             self.publish_pending_terminal_directories();
+            self.emit_raw_tree_changed_for(operation);
         }
         Ok(commit)
     }
@@ -8137,7 +8091,7 @@ impl Mux {
         reservation: Option<TerminalReservationRequest>,
     ) -> anyhow::Result<Arc<Surface>> {
         let id = self.next_id();
-        let detached = reservation.as_ref().is_some_and(|reservation| reservation.detached);
+        let detached = workspace_key.is_some_and(detached_terminals::is_detached_key);
         let reservation_env =
             reservation.as_ref().map(|reservation| reservation.env.as_slice()).unwrap_or_default();
         let (opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, reservation_env);
@@ -8288,11 +8242,7 @@ impl Mux {
                         return Err(error);
                     }
                 };
-            let insert_result = insert_created_terminal_checked(
-                &mut self.state.lock().unwrap(),
-                surface.clone(),
-                detached,
-            );
+            let insert_result = self.insert_created_terminal(surface.clone(), detached);
             drop(cell_pixel_lifecycle);
             if let Err(error) = insert_result {
                 let _ = self.persist_terminal_exit(
@@ -8409,11 +8359,7 @@ impl Mux {
                         return Err(error);
                     }
                 };
-            let insert_result = insert_created_terminal_checked(
-                &mut self.state.lock().unwrap(),
-                surface.clone(),
-                detached,
-            );
+            let insert_result = self.insert_created_terminal(surface.clone(), detached);
             drop(cell_pixel_lifecycle);
             if let Err(error) = insert_result {
                 let _ = self.persist_terminal_exit(
@@ -14683,136 +14629,6 @@ impl Mux {
         )
     }
 
-    /// Create a kept terminal with no workspace, pane, screen or tab
-    /// (`detached-terminals-v1`). Its durable row names no workspace
-    /// ([`DETACHED_TERMINAL_WORKSPACE_KEY`]), its runtime enters only the
-    /// terminal catalog, and the creation receipt replays like any other.
-    /// The caller commits the resource projection, which gives it the
-    /// resource-terminal row that a later attach or `terminal.project`
-    /// selects by its public id.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn create_detached_terminal_with_mutation(
-        self: &Arc<Self>,
-        argv: Option<Vec<String>>,
-        cwd: Option<String>,
-        name: Option<String>,
-        size: Option<(u16, u16)>,
-        requested_terminal_id: Option<&str>,
-        expected_generation: Option<&str>,
-        expected_revision: Option<u64>,
-        mutation: &WorkspaceMutation,
-        env: Vec<(String, String)>,
-    ) -> anyhow::Result<TerminalPlacementResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let _creation_execution = self.resource_creation_execution.lock().unwrap();
-        if let Some(terminal_id) = requested_terminal_id {
-            validate_terminal_hex(terminal_id, "invalid_terminal_id")?;
-        }
-        let mut fingerprint = terminal_create_fingerprint(
-            DETACHED_TERMINAL_WORKSPACE_KEY,
-            requested_terminal_id,
-            argv.as_deref(),
-            cwd.as_deref(),
-            name.as_deref(),
-            size,
-            None,
-        )?;
-        // Marks a detached receipt explicitly, beyond its sentinel key.
-        fingerprint["detached"] = Value::Bool(true);
-        let replay =
-            { self.workspace_registry.lock().unwrap().replay_terminal(mutation, &fingerprint)? };
-        if let Some(replay) = replay {
-            let terminal_id = replay.result["terminal_id"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("stored terminal create result is missing id"))?;
-            return self.detached_terminal_result(terminal_id, true);
-        }
-        let terminal_id = match requested_terminal_id {
-            Some(value) => TerminalId::from_hex(value).expect("validated terminal UUID"),
-            None => TerminalId::random()?,
-        };
-        let reservation = TerminalReservationRequest {
-            terminal_id,
-            mutation: mutation.clone(),
-            fingerprint,
-            expected_generation: expected_generation.map(str::to_string),
-            expected_revision,
-            on_exit: TerminalOnExit::default(),
-            env,
-            detached: true,
-        };
-        let surface = self.spawn_surface_with(
-            cwd,
-            argv,
-            size,
-            Some(DETACHED_TERMINAL_WORKSPACE_KEY),
-            Some(reservation),
-        )?;
-        if let Some(name) = name {
-            surface.set_name(Some(name));
-        }
-        let identity = self
-            .resource_terminal_host_identity(&surface)
-            .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
-        self.detached_terminal_result(&identity.terminal_id, false)
-    }
-
-    /// End a detached terminal whose creation failed before its resource
-    /// projection committed. Nothing else would end it (it is kept and has no
-    /// tab), and the caller was told the creation failed. It has no resource
-    /// row yet, so its exit commits to the terminal registry alone, which
-    /// works even when the resource commit that failed keeps failing.
-    pub(crate) fn end_unpublished_detached_terminal(
-        &self,
-        terminal_id: &str,
-        incarnation: Option<&str>,
-    ) -> anyhow::Result<()> {
-        self.persist_terminal_exit(
-            terminal_id,
-            incarnation,
-            &TerminalExit::unknown("detached-create-failed"),
-        )?;
-        let runtime = {
-            let mut state = self.state.lock().unwrap();
-            let public_id = self
-                .catalog_terminal_by_host(&state, terminal_id)?
-                .and_then(|runtime| runtime.terminal_public_id().cloned());
-            public_id.and_then(|public_id| {
-                remove_terminal_content_from_state(self, &mut state, &public_id).0
-            })
-        };
-        if let Some(runtime) = runtime {
-            runtime.kill();
-        }
-        Ok(())
-    }
-
-    fn detached_terminal_result(
-        &self,
-        terminal_id: &str,
-        replayed: bool,
-    ) -> anyhow::Result<TerminalPlacementResult> {
-        let resolved = self
-            .resolve_terminal(terminal_id)?
-            .context("created terminal result has no durable terminal row")?;
-        // No placement: the created surface is the catalog runtime, which the
-        // caller activates and reaps like a placed terminal's surface.
-        let runtime = {
-            let state = self.state.lock().unwrap();
-            self.catalog_terminal_by_host(&state, &resolved.terminal.terminal_id)?
-                .map(|runtime| runtime.id)
-        };
-        Ok(TerminalPlacementResult {
-            placement: None,
-            terminal_id: resolved.terminal.terminal_id,
-            terminal_incarnation: resolved.terminal.incarnation,
-            terminal_revision: resolved.terminal_revision,
-            replayed,
-            created_path: None,
-            created_surface: runtime,
-        })
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn create_terminal_in_workspace_with_mutation(
         self: &Arc<Self>,
@@ -14896,7 +14712,6 @@ impl Mux {
             expected_revision,
             on_exit: on_exit.unwrap_or_default(),
             env,
-            detached: false,
         };
         let (placement, surface, created_path) = self.create_terminal_in_workspace_impl(
             workspace,
@@ -18201,7 +18016,6 @@ impl Mux {
                     expected_revision: None,
                     on_exit: TerminalOnExit::Close,
                     env: Vec::new(),
-                    detached: false,
                 };
                 let surface = self.spawn_surface_in_workspace_reserved(
                     workspace_key,
@@ -19468,31 +19282,6 @@ fn insert_surface_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::R
     Ok(())
 }
 
-/// Publish a newly spawned terminal: an ordinary one as a surface that its
-/// creator then places in a pane; a detached one (`detached-terminals-v1`)
-/// only in the terminal catalog, like a kept terminal whose last tab closed.
-fn insert_created_terminal_checked(
-    state: &mut State,
-    surface: Arc<Surface>,
-    detached: bool,
-) -> anyhow::Result<()> {
-    if !detached {
-        return insert_surface_checked(state, surface);
-    }
-    anyhow::ensure!(surface.kind() == SurfaceKind::Pty, "terminal catalog requires a PTY");
-    anyhow::ensure!(!state.surfaces.contains_key(&surface.id), "duplicate_surface_id");
-    register_terminal_runtime_checked(state, &surface)
-}
-
-fn insert_terminal_runtime_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::Result<()> {
-    anyhow::ensure!(surface.kind() == SurfaceKind::Pty, "terminal catalog requires a PTY");
-    anyhow::ensure!(
-        surface.resource_identity().is_none(),
-        "unplaced terminal runtime cannot carry a tab identity"
-    );
-    register_terminal_runtime_checked(state, &surface)
-}
-
 fn insert_restored_terminal_runtime_checked(
     state: &mut State,
     surface: Arc<Surface>,
@@ -19527,40 +19316,6 @@ fn insert_restored_terminal_runtime_checked(
             .project_terminal(placement, TabResourceIdentity::new(tab_id, content_id.clone()))?;
         insert_surface_checked(state, projected)?;
     }
-    Ok(())
-}
-
-fn register_terminal_runtime_checked(
-    state: &mut State,
-    surface: &Arc<Surface>,
-) -> anyhow::Result<()> {
-    let Some(terminal_id) = surface.terminal_public_id() else {
-        return Ok(());
-    };
-    let runtime_id = surface
-        .terminal_runtime_id()
-        .context("terminal content identity requires a PTY runtime")?;
-    if let Some(existing) = state.terminal_catalog_by_runtime.get(&runtime_id) {
-        anyhow::ensure!(existing == terminal_id, "terminal runtime has two content identities");
-    }
-    if let Some(existing) = state.terminal_catalog.get(terminal_id) {
-        anyhow::ensure!(
-            existing.shares_terminal_runtime(surface),
-            "terminal content identity points at two runtimes"
-        );
-    } else {
-        if let Some(identity) = surface.terminal_host_identity() {
-            for existing in state.terminal_catalog.values().filter(|existing| {
-                existing
-                    .terminal_host_identity()
-                    .is_some_and(|candidate| candidate.terminal_id == identity.terminal_id)
-            }) {
-                anyhow::ensure!(existing.shares_terminal_runtime(surface), "duplicate_terminal_id");
-            }
-        }
-        state.terminal_catalog.insert(terminal_id.clone(), surface.clone());
-    }
-    state.terminal_catalog_by_runtime.insert(runtime_id, terminal_id.clone());
     Ok(())
 }
 
@@ -23556,7 +23311,6 @@ mod tests {
             expected_revision: None,
             on_exit: TerminalOnExit::Close,
             env: Vec::new(),
-            detached: false,
         };
         let result = mux.spawn_surface_in_workspace_reserved(
             &workspace.key,
