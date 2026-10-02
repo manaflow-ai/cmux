@@ -135,8 +135,10 @@ describe("coderouter OpenCode Go proxy", () => {
   test("pinned fetch fails the upload when the client body fails", async () => {
     let upstreamClosed!: () => void;
     const closed = new Promise<void>((resolve) => { upstreamClosed = resolve; });
+    let failUpload!: () => void;
     const server = createServer((request) => {
       request.on("close", () => upstreamClosed());
+      request.once("data", () => failUpload());
       request.resume();
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -145,14 +147,14 @@ describe("coderouter OpenCode Go proxy", () => {
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
           controller.enqueue(new TextEncoder().encode("partial"));
-          setTimeout(() => controller.error(new Error("client went away")), 20);
+          failUpload = () => controller.error(new Error("client went away"));
         },
       });
       const request = __test.pinnedFetch({ address: "127.0.0.1", family: 4 })(
         `http://provider.invalid:${port}/v1/chat`,
         { method: "POST", body, duplex: "half" } as RequestInit,
       );
-      await expect(request).rejects.toThrow();
+      await expect(request).rejects.toThrow("client went away");
       await closed;
     } finally {
       server.closeAllConnections();

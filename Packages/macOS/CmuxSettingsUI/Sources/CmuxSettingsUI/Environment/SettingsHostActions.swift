@@ -8,29 +8,6 @@ public extension Notification.Name {
     static let customSidebarTemplateGalleryRequested = Notification.Name("cmux.settings.customSidebarTemplateGalleryRequested")
 }
 
-/// Holds a gallery request until the progressively mounted Custom Sidebars
-/// section is ready to present it.
-// lint:allow namespace-type — one-shot, main-actor handoff from a host menu to the lazily mounted Custom Sidebars section (#15931); candidate to become an injected SettingsRuntime value.
-@MainActor
-public final class CustomSidebarTemplateGalleryRequest {
-    public static let shared = CustomSidebarTemplateGalleryRequest()
-
-    private var pending = false
-
-    private init() {}
-
-    public func request() {
-        pending = true
-        NotificationCenter.default.post(name: .customSidebarTemplateGalleryRequested, object: nil)
-    }
-
-    public func consume() -> Bool {
-        guard pending else { return false }
-        pending = false
-        return true
-    }
-}
-
 /// Host-supplied callbacks the package's section views invoke for
 /// actions that live outside the catalog — clearing browser history,
 /// opening the user's editor on cmux.json, sending feedback, posting
@@ -45,6 +22,9 @@ public final class CustomSidebarTemplateGalleryRequest {
 /// when no host action is available.
 @MainActor
 public protocol SettingsHostActions: AnyObject {
+    /// Shared request state used by the host and the mounted settings section.
+    var customSidebarTemplateGalleryRequest: CustomSidebarTemplateGalleryRequest { get }
+
     func computersSettingsActions() -> ComputersSettingsActions
     /// A registry snapshot used to populate the per-agent notification sound
     /// matrix. The host owns discovery so newly registered agents appear
@@ -695,6 +675,7 @@ public extension SettingsHostActions {
 /// have to branch on an optional host.
 @MainActor
 public final class NoopSettingsHostActions: SettingsHostActions {
+    public let customSidebarTemplateGalleryRequest = CustomSidebarTemplateGalleryRequest()
     public init() {}
     public func clearBrowserHistory() {}
     public func openConfigInExternalEditor() {}

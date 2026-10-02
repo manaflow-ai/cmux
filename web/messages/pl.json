@@ -427,7 +427,7 @@
         "memberReadOnly": "Ten plan mogą zmieniać tylko administratorzy zespołu.",
         "grantedBody": "Dostęp do Team został przyznany zespołowi {team} przez zespół cmux. Nie ma subskrypcji do zarządzania.",
         "seatsUsed": "Wykorzystano {members} z {seats}",
-        "overSeat": "{team} ma {members} członków i {seats} opłaconych miejsc. Liczba miejsc podąża za liczbą członków, więc subskrypcja aktualizuje się sama.",
+        "overSeat": "{team} ma {members, plural, one {# członka} few {# członków} many {# członków} other {# członka}} i {seats, plural, one {# opłacone miejsce} few {# opłacone miejsca} many {# opłaconych miejsc} other {# opłaconego miejsca}}. Liczba miejsc podąża za liczbą członków, więc subskrypcja aktualizuje się sama.",
         "addSeats": "Dodaj miejsca"
       },
       "teamList": {

@@ -199,6 +199,7 @@ struct cmuxApp: App {
                 configFileURL: configFileURL,
                 computerUseRuntimeService: computerUseRuntimeService,
                 browserDataImportCoordinator: browserDataImportCoordinator,
+                customSidebarTemplateGalleryRequest: CmuxExtensionSidebarSelection.templateGalleryRequest,
                 computersActions: devices.settingsActions,
                 runComputerUseOnboardingAction: { startingPoint in
                     AppDelegate.shared?.computerUseUXCoordinator.presentOnboardingFromSettings(
@@ -209,7 +210,6 @@ struct cmuxApp: App {
             shortcutDefaultResolver: Self.makeShortcutDefaultResolver()
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
-
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])

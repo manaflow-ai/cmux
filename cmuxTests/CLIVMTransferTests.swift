@@ -173,18 +173,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
             return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected command \(command)"])
         }
-
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["vm", "pull", "brave-otter", "work/report.bin", localFile.path],
             environment: environment,
             timeout: 30
         )
-
         wait(for: [serverHandled], timeout: 30)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
@@ -192,11 +189,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let pulled = try Data(contentsOf: localFile)
         XCTAssertEqual(pulled, remoteData, "pulled bytes must match the machine's file")
     }
-
     private static func writeJSON(_ object: Any, to url: URL) throws {
         try JSONSerialization.data(withJSONObject: object).write(to: url)
     }
-
     private static func vmRunWorkKey(forDirectory path: String) -> String {
         let canonical = URL(fileURLWithPath: path).standardizedFileURL.path
         let digest = SHA256.hash(data: Data(canonical.utf8))
@@ -840,7 +835,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testVMWaitBoundsOversizedPollIntervalToCommandDeadline() throws {
+    func testVMWaitPollsAtShortOverrideWithinDeadline() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-wait-infinite-delay")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -873,9 +868,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        // Exercise the shipped CLI's bounded override. The mock answers instantly,
-        // so the fallback cadence allows the second poll before this deadline.
-        environment["CMUX_VM_WAIT_POLL_SECONDS"] = "3600"
+        // CLIVMReadyPollIntervalTests covers parser fallback; this process check
+        // uses a valid short override so the instant mock avoids production cadence.
+        environment["CMUX_VM_WAIT_POLL_SECONDS"] = "0.05"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -885,12 +880,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         wait(for: [serverHandled], timeout: 8)
-        XCTAssertFalse(result.timedOut, "an oversized injected delay must not outlive the command deadline")
+        XCTAssertFalse(result.timedOut, "the valid short override must complete before the command deadline")
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
         XCTAssertEqual(
             state.snapshot().filter { $0.contains(#""method":"vm.status""#) }.count,
             2,
-            "wait must poll again after rejecting the override"
+            "wait must poll status again before reporting ready"
         )
     }
 }

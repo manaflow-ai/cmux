@@ -7,6 +7,7 @@ import CmuxSidebarProviderKit
 import Foundation
 
 enum CmuxExtensionSidebarSelection {
+    @MainActor static let templateGalleryRequest = CustomSidebarTemplateGalleryRequest()
     @MainActor
     private static var inMemoryTemplatePreview: (providerId: String, source: String)?
 
@@ -348,7 +349,7 @@ enum CmuxExtensionSidebarSelection {
             navigationTarget: .customSidebars
         )
         SettingsNavigationRequest.post(.customSidebars, anchorID: "setting:customSidebars:templates", highlight: true)
-        CustomSidebarTemplateGalleryRequest.shared.request()
+        Self.templateGalleryRequest.request()
     }
 
     @MainActor

@@ -1,6 +1,7 @@
-import Testing
 import AppKit
+import CmuxRemoteSession
 import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -15,7 +16,7 @@ import Foundation
             destination: "me@host.example.com",
             port: nil,
             identityFile: nil,
-            sshOptions: []
+            sshOptions: [], remotePastePolicy: RemotePasteFileTransferPolicy(sessionID: UUID(uuidString: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff")!)
         )
     }
 

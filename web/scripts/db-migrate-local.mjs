@@ -2,8 +2,10 @@
 
 import { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const requireFromWeb = createRequire(path.join(process.cwd(), "package.json"));
+const WEB_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const requireFromWeb = createRequire(path.join(WEB_DIR, "package.json"));
 const { Pool } = requireFromWeb("pg");
 const { readMigrationFiles } = requireFromWeb("drizzle-orm/migrator");
 const { getMigrationsToRun } = requireFromWeb("drizzle-orm/migrator.utils");
@@ -14,7 +16,7 @@ if (!connectionString) {
 }
 
 const pool = new Pool({ connectionString, max: 1 });
-const migrations = readMigrationFiles({ migrationsFolder: path.join(process.cwd(), "db/migrations") });
+const migrations = readMigrationFiles({ migrationsFolder: path.join(WEB_DIR, "db/migrations") });
 
 async function applyMigration(client, migration) {
   for (const statement of migration.sql) {
@@ -29,17 +31,23 @@ async function applyMigration(client, migration) {
 async function dropInvalidConcurrentIndex(migration) {
   const indexStatement = migration.sql.find((statement) => /CREATE\s+INDEX\s+CONCURRENTLY/i.test(statement));
   const indexName = indexStatement?.match(
-    /CREATE\s+INDEX\s+CONCURRENTLY(?:\s+IF\s+NOT\s+EXISTS)?\s+"([^"]+)"/i,
+    /CREATE\s+INDEX\s+CONCURRENTLY(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_$]*))/i,
   )?.[1];
-  if (!indexName) return;
+  const unquotedIndexName = indexStatement?.match(
+    /CREATE\s+INDEX\s+CONCURRENTLY(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_$]*))/i,
+  )?.[2];
+  const resolvedIndexName = indexName ?? unquotedIndexName;
+  if (!resolvedIndexName) return;
 
   const existing = await pool.query(
     `select n.nspname as schema_name, c.relname as index_name, i.indisvalid
        from pg_class c
        join pg_namespace n on n.oid = c.relnamespace
        join pg_index i on i.indexrelid = c.oid
-      where c.relname = $1`,
-    [indexName],
+      join pg_class t on t.oid = i.indrelid
+      join pg_namespace tn on tn.oid = t.relnamespace
+      where c.relname = $1 and tn.nspname = 'public' and t.relname = $2`,
+    [resolvedIndexName, indexStatement.match(/\bON\s+(?:"public"\.)?"?([A-Za-z_][A-Za-z0-9_$]*)"?/i)?.[1]],
   );
   const invalid = existing.rows.find((row) => row.indisvalid === false);
   if (!invalid) return;
@@ -61,12 +69,16 @@ try {
       applied_at timestamp with time zone default now()
     )
   `);
+  await pool.query("alter table drizzle.__drizzle_migrations add column if not exists name text");
+  await pool.query("alter table drizzle.__drizzle_migrations add column if not exists applied_at timestamp with time zone default now()");
 
   const applied = await pool.query("select id, hash, created_at, name from drizzle.__drizzle_migrations");
   const pending = getMigrationsToRun({ localMigrations: migrations, dbMigrations: applied.rows });
   for (const migration of pending) {
     const concurrent = migration.sql.some((statement) => /CREATE\s+INDEX\s+CONCURRENTLY/i.test(statement));
     if (concurrent) {
+      const nonConcurrent = migration.sql.filter((statement) => !/^\s*(?:--[^\n]*\n\s*)*CREATE\s+INDEX\s+CONCURRENTLY/i.test(statement));
+      if (nonConcurrent.length > 0) throw new Error(`migration ${migration.name} mixes concurrent index DDL with transactional statements`);
       await dropInvalidConcurrentIndex(migration);
       await applyMigration(pool, migration);
       continue;
@@ -87,4 +99,3 @@ try {
 } finally {
   await pool.end();
 }
-

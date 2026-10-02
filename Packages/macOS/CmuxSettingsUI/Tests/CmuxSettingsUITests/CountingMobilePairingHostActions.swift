@@ -4,6 +4,7 @@ import Foundation
 
 @MainActor
 final class CountingMobilePairingHostActions: SettingsHostActions {
+    let customSidebarTemplateGalleryRequest = CustomSidebarTemplateGalleryRequest()
     var statusReads = 0
     var streamCreations = 0
     var desktopStatusReads = 0
