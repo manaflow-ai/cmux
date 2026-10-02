@@ -12,16 +12,15 @@ enum AgentPaneTheme {
         let page = tokens.contentBackground
         var opaquePage = page
         opaquePage.alpha = 1
-        // The field sits on the page; it keeps the page's opacity so a
-        // translucent window's backdrop shows through it too.
-        var field = tokens.hoverFill.composited(over: opaquePage)
-        field.alpha = page.alpha
         return [
             "isDark": tokens.isDark,
             "pageBackground": css(page),
             "surfaceBackground": css(page),
             "surfaceElevatedBackground": css(tokens.elevatedBackground),
-            "inputBackground": css(field),
+            // The field sits on the page, which already paints the theme's
+            // color; it adds only the hover tint, so a translucent window's
+            // backdrop shows through it as much as through the terminal.
+            "inputBackground": css(tokens.hoverFill),
             "border": css(tokens.separator),
             "borderStrong": css(tokens.paneBorder),
             "text": css(tokens.textPrimary),
@@ -36,9 +35,11 @@ enum AgentPaneTheme {
     }
 
     /// `rgba(r, g, b, a)` with 0-255 channels.
-    /// The color WebKit shows behind and around the page.
+    /// The color WebKit shows behind and around the page: clear for a
+    /// translucent theme, where it would stack under the page's own fill (as
+    /// `WebKitTab` does).
     static func underPageColor(_ tokens: ThemeTokens) -> ThemeRGB {
-        tokens.contentBackground
+        tokens.contentBackground.alpha < 1 ? tokens.contentBackground.withAlpha(0) : tokens.contentBackground
     }
 
     static func css(_ color: ThemeRGB) -> String {
