@@ -541,7 +541,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         // Title line
         cloudImageView.configureSidebarWorkspaceAccessory(
-            symbol: snapshot.remoteWorkspaceBadgeSymbol, label: model.settings.visibleAuxiliaryDetails.showsBranchDirectory ? snapshot.remoteWorkspaceBadgeLabel : nil,
+            symbol: snapshot.remoteWorkspaceBadgeSymbol,
+            label: snapshot.visibleRemoteWorkspaceBadgeLabel(
+                showsBranchDirectory: model.settings.visibleAuxiliaryDetails.showsBranchDirectory,
+                showsSSH: !model.settings.hidesAllDetails && model.settings.showsSSH
+            ),
             pointSize: model.scaled(10), tint: palette.secondary(0.7), weight: .regular
         )
         pinImageView.configureSidebarWorkspaceAccessory(
@@ -747,7 +751,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         setAccessibilityIdentifier("sidebarWorkspace.\(model.workspaceId.uuidString)")
         setAccessibilityLabel(snapshot.accessibilityLabel(
-            index: model.index, workspaceCount: model.accessibilityWorkspaceCount
+            index: model.index, workspaceCount: model.accessibilityWorkspaceCount,
+            showsSSH: !model.settings.hidesAllDetails && model.settings.showsSSH
         ))
     }
 

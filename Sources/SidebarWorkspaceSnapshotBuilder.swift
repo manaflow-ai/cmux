@@ -80,17 +80,55 @@ struct SidebarWorkspaceSnapshotBuilder {
         /// is on (agent status entries then leave `metadataEntries`).
         var compactStatusGlyph: SidebarCompactStatusGlyph? = nil
 
-        var remoteWorkspaceBadgeLabel: String? { deviceWorkspaceLabel ?? cloudWorkspaceLabel }
-        var remoteWorkspaceBadgeSymbol: String { deviceWorkspaceLabel == nil ? "cloud" : "desktopcomputer" }
+        /// Human-readable provenance for the small leading workspace badge.
+        ///
+        /// Cloud and device workspaces already have a stable machine label. A
+        /// plain SSH workspace used to leave this slot empty, which made an
+        /// SSH row look like a local workspace until the reader noticed the
+        /// second-line target. Keep the target in the same identity slot so
+        /// remote workspaces are distinguishable at a glance.
+        var remoteWorkspaceBadgeLabel: String? {
+            if let deviceWorkspaceLabel { return deviceWorkspaceLabel }
+            if let cloudWorkspaceLabel { return cloudWorkspaceLabel }
+            guard let target = remoteWorkspaceSidebarText else { return nil }
+            return String.localizedStringWithFormat(
+                String(localized: "sidebar.sshWorkspace.label", defaultValue: "SSH workspace on %@"),
+                target
+            )
+        }
 
-        func accessibilityLabel(index: Int, workspaceCount: Int) -> String {
+        /// The badge label a row should actually show, given the two settings
+        /// that govern it. Device and cloud provenance pairs with the
+        /// branch/directory line and follows that toggle. An SSH target is
+        /// what `Show SSH` controls, so the SSH arm follows that one instead:
+        /// someone who turned SSH detail off should not get the host back as
+        /// a badge tooltip, and someone who turned it on should still get the
+        /// badge with the directory line off.
+        func visibleRemoteWorkspaceBadgeLabel(showsBranchDirectory: Bool, showsSSH: Bool) -> String? {
+            guard let label = remoteWorkspaceBadgeLabel else { return nil }
+            let isMachineLabel = deviceWorkspaceLabel != nil || cloudWorkspaceLabel != nil
+            return (isMachineLabel ? showsBranchDirectory : showsSSH) ? label : nil
+        }
+
+        var remoteWorkspaceBadgeSymbol: String {
+            if deviceWorkspaceLabel != nil { return "desktopcomputer" }
+            if cloudWorkspaceLabel != nil { return "cloud" }
+            return remoteWorkspaceSidebarText == nil ? "cloud" : "network"
+        }
+
+        /// `showsSSH` mirrors the row's own gate. The cloud and device labels
+        /// stay in here whatever the directory toggle says, which is existing
+        /// deliberate behaviour, but an SSH host has a user-facing opt-out and
+        /// VoiceOver must honour it too.
+        func accessibilityLabel(index: Int, workspaceCount: Int, showsSSH: Bool = true) -> String {
             let position = String(
                 localized: "accessibility.workspacePosition",
                 defaultValue: "\(title), workspace \(index + 1) of \(workspaceCount)"
             )
             let cloudDirectory = cloudWorkspaceLabel == nil ? nil
                 : (compactDirectoryCandidates.first ?? branchDirectoryLines.first?.directory)
-            return [position, remoteWorkspaceBadgeLabel, cloudDirectory].compactMap { $0 }.joined(separator: ", ")
+            let badge = visibleRemoteWorkspaceBadgeLabel(showsBranchDirectory: true, showsSSH: showsSSH)
+            return [position, badge, cloudDirectory].compactMap { $0 }.joined(separator: ", ")
         }
     }
 }

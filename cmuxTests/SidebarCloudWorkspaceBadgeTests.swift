@@ -198,6 +198,113 @@ struct SidebarCloudWorkspaceBadgeTests {
         }
     }
 
+    @Test("Plain SSH workspaces expose a network provenance badge")
+    func sshWorkspaceUsesNetworkBadge() throws {
+        let workspace = Workspace(title: "Enable workspace fan-out", initialSurface: .terminal)
+        defer { workspace.teardownAllPanels() }
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.invalid",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            managedCloudVMID: nil,
+            terminalStartupCommand: nil
+        )
+
+        let snapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults()),
+            showsAgentActivity: false
+        ).makeSnapshot()
+
+        #expect(snapshot.remoteWorkspaceBadgeSymbol == "network")
+        #expect(snapshot.remoteWorkspaceBadgeLabel?.contains("SSH workspace on") == true)
+        #expect(snapshot.remoteWorkspaceBadgeLabel?.contains("dev@example.invalid:2222") == true)
+    }
+
+    @Test("Machine provenance wins over SSH, and badge visibility follows the matching setting")
+    func remoteWorkspaceBadgePrecedenceAndVisibility() throws {
+        let workspace = Workspace(title: "Project", initialSurface: .cloudVMLoading)
+        defer { workspace.teardownAllPanels() }
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.invalid",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            managedCloudVMID: nil,
+            terminalStartupCommand: nil
+        )
+        let factory = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults()),
+            showsAgentActivity: false
+        )
+        let ssh = factory.makeSnapshot()
+        let sshLabel = try #require(ssh.remoteWorkspaceBadgeLabel)
+        #expect(ssh.remoteWorkspaceBadgeSymbol == "network")
+        #expect(sshLabel.contains("dev@example.invalid:2222"))
+        for showsBranchDirectory in [false, true] {
+            #expect(ssh.visibleRemoteWorkspaceBadgeLabel(
+                showsBranchDirectory: showsBranchDirectory, showsSSH: false
+            ) == nil)
+            #expect(ssh.visibleRemoteWorkspaceBadgeLabel(
+                showsBranchDirectory: showsBranchDirectory, showsSSH: true
+            ) == sshLabel)
+        }
+        let hiddenAccessibility = ssh.accessibilityLabel(index: 0, workspaceCount: 1, showsSSH: false)
+        let visibleAccessibility = ssh.accessibilityLabel(index: 0, workspaceCount: 1, showsSSH: true)
+        #expect(!hiddenAccessibility.contains("example.invalid"))
+        #expect(visibleAccessibility.contains("dev@example.invalid:2222"))
+
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
+        let cloud = factory.makeSnapshot()
+        let cloudLabel = try #require(cloud.remoteWorkspaceBadgeLabel)
+        #expect(cloud.remoteWorkspaceBadgeSymbol == "cloud")
+        #expect(cloudLabel.hasPrefix("Cloud workspace on"))
+        #expect(cloudLabel.contains("vivid-newt"))
+        #expect(!cloudLabel.contains("example.invalid"))
+        for showsSSH in [false, true] {
+            #expect(cloud.visibleRemoteWorkspaceBadgeLabel(
+                showsBranchDirectory: false, showsSSH: showsSSH
+            ) == nil)
+            #expect(cloud.visibleRemoteWorkspaceBadgeLabel(
+                showsBranchDirectory: true, showsSSH: showsSSH
+            ) == cloudLabel)
+        }
+
+        workspace.cloudVMBinding = nil
+        let panelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.device(.init(deviceID: UUID().uuidString, tag: "test"))
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: [panelID: .init(machine: machine, kind: .terminal, key: "terminal")],
+            machineNames: [machine.rawValue: "Studio Mac"]
+        )
+        let device = factory.makeSnapshot()
+        let deviceLabel = try #require(device.remoteWorkspaceBadgeLabel)
+        #expect(device.remoteWorkspaceBadgeSymbol == "desktopcomputer")
+        #expect(deviceLabel == device.deviceWorkspaceLabel)
+        #expect(deviceLabel.contains("Studio Mac"))
+        #expect(!deviceLabel.contains("example.invalid"))
+        for showsSSH in [false, true] {
+            #expect(device.visibleRemoteWorkspaceBadgeLabel(
+                showsBranchDirectory: false, showsSSH: showsSSH
+            ) == nil)
+            #expect(device.visibleRemoteWorkspaceBadgeLabel(
+                showsBranchDirectory: true, showsSSH: showsSSH
+            ) == deviceLabel)
+        }
+    }
+
     /// Exercises the real row geometry across selection, density, scaling, and pinning.
     @Test(arguments: [180.0, 280.0], [false, true])
     func cloudBadgeLeadsTitleWithoutDisplacingPin(width: Double, isPinned: Bool) throws {
