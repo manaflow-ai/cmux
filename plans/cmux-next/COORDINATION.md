@@ -8,6 +8,7 @@ One line per landed change to a shared surface (daemon protocol or state, layout
 - Ownership rewrite (session host / workspace store / client view state, strict projection, intent log + universal transaction echo, client identity, daemon-owned workspace lifecycle): ownership lead; design plans/cmux-next/ownership.md, model plans/cmux-next/formal/OwnershipConvergence.tla; step 4 (app intent log): every OptimisticPatch kind migrated (feat-cmux-next-intent-log2); remaining: sidebar model.apply copy, tab strip overrides, LayoutModel overrides, pendingClosed/pendingSelect, WindowManager pending.
 - Typed LayoutOp, daemon tab-conservation validation, proptest, TLA+ model (plans/cmux-next/formal/): tab-loss agent.
 - Sticky column (layout document fields + app) and strip scrollbar: sticky-column lead.
+- Layout model (columns, rows, four edge docks; plans/cmux-next/layout-model.md proposal) and rows: layout model lead (was rows lead), branch feat-cmux-next-layoutmodel.
 - Rows (each column a vertical strip of rows; reducer ops InsertRow, MoveTabToRow, SetRowHeights; daemon `rows-v1`; app vertical strip reducer): rows lead, design plans/cmux-next/rows.md, branch feat-cmux-next-rows.
 - Federation daemon (remote-terminal tabs, detached create, terminal.project delta): branch feat-cmux-next-federation-tui-r8.
 - Upstream cmux-tui test fixes (kitty-shell-cwd, clear-history test env, ReconnectPolicy maximum_duration): branch feat-cmux-next-tui-upstream-fixes.
