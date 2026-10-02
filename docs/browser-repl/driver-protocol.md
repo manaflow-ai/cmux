@@ -35,12 +35,24 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `tab.setViewport` | `{ targetId, width, height }` or `{ targetId, reset: true }` | |
 | `tab.bringToFront` | `{ targetId }` | |
 | `tab.keep` | `{ targetId }` | |
+| `tab.handleEvents` | `{ targetId, events: ["dialog"\|"filechooser"\|"download"] }` | Replaces the events this session has a handler for in the tab. See below. |
 | `session.name` | `{ name }` | |
 | `session.configure` | `{ userAgent?, extraHTTPHeaders?, permissions?, contentRules?, proxy? }`, each key replacing its value (`null` clears) | `{ proxy }`: whether tabs opened from now on use the proxy. Applies to every tab the session drives and is undone when the session leaves the tab. `contentRules` are WebKit content-blocker rules (the runtime builds them from the domain policy) |
 | `history.search` | `{ queries?, from?, to?, limit }` (times in ms since the epoch) | `[{ url, title, dateVisited }]` newest first, from the history of the profiles the workspace's tabs use |
 
 Tabs the session opened (`tabs.open`, popups) close when the session ends;
-`tab.keep` releases one so it stays open. `session.name` shows the tabs the
+`tab.keep` releases one so it stays open.
+
+A tab the session created (`tabs.open`, and popups of such a tab) gets the
+session's behaviors while the session is attached: `dialog.opened`,
+`filechooser.opened` and `download.*` for every dialog, file chooser and
+download, permission requests answered from `session.configure`, and no
+insecure-HTTP prompt. Any other tab the session drives is the user's: those
+events keep the browser's own UI and are not sent, except an event named in
+the session's last `tab.handleEvents` for that tab, which is sent to the
+sessions instead. The runtime sends `tab.handleEvents` whenever a page's
+`dialog`, `filechooser` or `download` listeners change, and its next call on
+the tab waits for it. A download keeps the route it started with. `session.name` shows the tabs the
 session opened, now and later, as `<name> · <page title>`, following title
 changes; a title the user set wins, and the plain title returns when the
 session ends. An empty name removes the label.
@@ -114,7 +126,7 @@ Every event carries `targetId`.
 | `tab.navigated` | `{ frameId, url, sameDocument }` |
 | `tab.loadState` | `{ state: "domcontentloaded"\|"load"\|"networkidle" }` |
 | `dialog.opened` | `{ dialogId, type: "alert"\|"confirm"\|"prompt"\|"beforeunload", message, defaultValue }` (stays open until `dialog.respond`) |
-| `filechooser.opened` | `{ chooserId, frameId, element, multiple }` (native panel suppressed while a REPL session is attached) |
+| `filechooser.opened` | `{ chooserId, frameId, element, multiple }` (the native panel is not shown; see `tab.handleEvents` for which tabs send it) |
 | `download.started` | `{ downloadId, url, suggestedFilename }` |
 | `download.finished` | `{ downloadId, path?, error? }` |
 | `console` | `{ type, text, args?, location? }` |

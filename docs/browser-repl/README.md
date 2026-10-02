@@ -24,9 +24,11 @@ reference ([parity-report.md](parity-report.md)).
    work anywhere a selector works. There is no second format to choose.
 3. **Real input only.** Every click, hover, drag, wheel and key is a native
    event (`isTrusted === true`). There is no synthetic-event fallback.
-4. **Nothing silent.** Dialogs and file choosers without a handler stay open and
-   show in the snapshot until the agent answers them. Ambiguous input failures
-   are reported and never replayed.
+4. **Nothing silent.** In a tab the session opened, dialogs and file choosers
+   without a handler stay open and show in the snapshot until the agent
+   answers them (a user's tab keeps its own UI, see
+   [Sessions and tabs](#sessions-and-tabs)). Ambiguous input failures are
+   reported and never replayed.
 5. **Less to remember.** Top-level `const`/`let` persist across calls, the last
    expression's value prints automatically, and printing a snapshot picks the
    diff or the full tree by size.
@@ -301,6 +303,20 @@ rest. Measurements: [performance.md](performance.md).
   to the focused workspace when the caller is outside cmux or the id is unknown
   to this instance.
 - `tabs.open()` never steals focus. `page.bringToFront()` shows a tab.
+- Session behaviors apply only to tabs the session created: tabs from
+  `tabs.open()` (and `tabs.content`), and popups of those tabs, while the
+  session lasts. In them dialogs and file choosers wait for the agent,
+  downloads stay in the temporary directory for `download.path()`, camera,
+  microphone, geolocation and notification requests are answered from
+  `session.configure({ permissions })`, and plain-http pages load without
+  cmux's prompt. Any other tab is the user's, also one a session drives with
+  `tabs.use()` or one a finished run kept with `page.keep()`: it keeps cmux's
+  own dialogs, file panel, download location, permission prompts and
+  insecure-HTTP prompt. An event the agent registered a handler for on that
+  page (`page.on("dialog")`, `page.on("filechooser")`,
+  `page.waitForEvent("download")` and the like) goes to the session instead,
+  only while the handler is registered. The runtime reports these handlers
+  to the driver with `tab.handleEvents`.
 - A driven tab keeps rendering like a foreground page. Shown in a pane of the
   key window, it stays live in the pane. Hidden, or shown in a window that is
   not key, it renders in a window outside every screen that reports itself as

@@ -534,6 +534,9 @@
   // ---------------------------------------------------------------------------
   // Events
 
+  // Page events whose listeners a session reports to the driver.
+  const HANDLED_EVENTS = ["dialog", "filechooser", "download"];
+
   class EventEmitter {
     constructor() {
       this._listeners = new Map();
@@ -800,6 +803,7 @@
         throw new Error(`${method}: Target page, context or browser has been closed`);
       }
       const crashed = params && typeof params.targetId === "string" && this.pages.get(params.targetId);
+      if (crashed && crashed._handledSync) await crashed._handledSync;
       if (crashed && crashed._crashed) {
         // A crashed page answers only what starts a new web process.
         if (["tab.navigate", "tab.reload", "tab.history"].includes(method)) crashed._crashed = false;
@@ -2181,6 +2185,58 @@
     }
     get id() {
       return this._targetId;
+    }
+    // Listeners for the events a session can take over from the user's UI
+    // are reported to the driver (`tab.handleEvents`): in a user's tab the
+    // session only drives, an event reaches the session only while it has
+    // a listener here (docs/browser-repl/README.md, Sessions and tabs).
+    on(event, handler) {
+      super.on(event, handler);
+      this._syncHandledEvents(event);
+      return this;
+    }
+    once(event, handler) {
+      super.once(event, handler);
+      this._syncHandledEvents(event);
+      return this;
+    }
+    off(event, handler) {
+      super.off(event, handler);
+      this._syncHandledEvents(event);
+      return this;
+    }
+    removeAllListeners(event) {
+      super.removeAllListeners(event);
+      this._syncHandledEvents(event);
+      return this;
+    }
+    emit(event, ...args) {
+      const r = super.emit(event, ...args);
+      // A `once` listener is gone after it ran.
+      this._syncHandledEvents(event);
+      return r;
+    }
+    _syncHandledEvents(event) {
+      if (event !== undefined && !HANDLED_EVENTS.includes(event)) return;
+      // A tab not opened yet will be one this session opened; those route
+      // every event to the session anyway.
+      if (this._closed || this._targetId.startsWith("lazy:")) return;
+      const events = HANDLED_EVENTS.filter((e) => this.listenerCount(e) > 0);
+      const key = events.join(",");
+      if (key === (this._handledKey || "")) return;
+      this._handledKey = key;
+      // Updates go out in order, and the session's next call on this tab
+      // waits for them (Session.call), so a listener added right before an
+      // action is in place when the action's event fires.
+      const targetId = this._targetId;
+      const driver = this._session.driver;
+      const p = (this._handledSync || Promise.resolve())
+        .then(() => driver.call("tab.handleEvents", { targetId, events }))
+        .catch(() => {})
+        .finally(() => {
+          if (this._handledSync === p) this._handledSync = null;
+        });
+      this._handledSync = p;
     }
     _normalizeSelector(selector) {
       if (typeof selector === "string" && REF_PATTERN.test(selector.trim())) return `aria-ref=${selector.trim()}`;

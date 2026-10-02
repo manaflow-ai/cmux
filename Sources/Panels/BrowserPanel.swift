@@ -5834,9 +5834,10 @@ final class BrowserPanel: Panel, ObservableObject {
         if consumeOneTimeInsecureHTTPBypassIfNeeded(for: url) {
             return false
         }
-        // A REPL session drives this tab and nobody can answer the prompt, so
-        // it would hang goto() and link clicks. Browsers load http pages too.
-        if BrowserReplTabAttachments.shared.attachment(for: id) != nil {
+        // A REPL session created this tab and nobody can answer the prompt,
+        // so it would hang goto() and link clicks. Browsers load http pages
+        // too. A user's tab that a session only drives keeps the prompt.
+        if BrowserReplTabAttachments.shared.attachment(for: id)?.appliesSessionPolicies == true {
             return false
         }
         return browserShouldBlockInsecureHTTPURL(url)
@@ -8429,14 +8430,15 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
     var onDownloadCancelled: ((String, Bool, String) -> Void)?
     var onDownloadFailed: ((Error, Bool, String?) -> Void)?
     var savePanelParentWindow: (() -> NSWindow?)?
-    /// The REPL session attached to the owning tab, if any. Its downloads stay
-    /// in the temporary directory and are reported to the session.
+    /// The REPL session attached to the owning tab, if any. Downloads it takes
+    /// (``BrowserReplTabAttachment/routesToSessions(_:)``) stay in the
+    /// temporary directory and are reported to the session.
     var replAttachment: (@MainActor () -> BrowserReplTabAttachment?)?
 
-    /// A driven tab's scripted `data:` downloads come here as WebKit
-    /// downloads, so the session sees them.
+    /// Scripted `data:` downloads of a tab whose downloads go to a REPL
+    /// session come here as WebKit downloads, so the session sees them.
     var routesScriptedDownloadsThroughWebKit: Bool {
-        MainActor.assumeIsolated { replAttachment?() != nil }
+        MainActor.assumeIsolated { replAttachment?()?.routesToSessions(.download) == true }
     }
 
     static let tempDir: URL = {
@@ -8599,7 +8601,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
             }.value
             let suggestedFilename = filenameResolver.suggestedFilename(suggestedFilename: info.suggestedFilename, response: nil, sourceURL: info.sourceURL, imageType: imageType)
 
-            if let attachment = self.replAttachment?(), attachment.keepsDownloadsInTemporaryDirectory {
+            if let attachment = self.replAttachment?(), attachment.keepsDownloadInTemporaryDirectory(id: info.downloadID) {
                 // `download.path()` reads the file where WebKit wrote it; the
                 // session, not a save panel, decides where it goes next.
                 self.onDownloadSaved?(suggestedFilename, info.tempURL, true, info.downloadID)
@@ -8676,8 +8678,8 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
     var closeRequested: ((WKWebView) -> Void)?
 
     /// Geolocation permission (`WKUIDelegatePrivate`). A tab a REPL session
-    /// drives answers from the session's granted permissions; every other tab
-    /// is denied, WebKit's behavior when the delegate does not implement this.
+    /// created answers from the session's granted permissions; every other
+    /// tab is denied, WebKit's behavior when the delegate does not implement this.
     @objc(_webView:requestGeolocationPermissionForOrigin:initiatedByFrame:decisionHandler:)
     func _webView(
         _ webView: WKWebView,
@@ -8994,10 +8996,12 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             decisionHandler(.prompt)
             return
         }
-        // A tab a REPL session drives answers at once, from the permissions
+        // A tab a REPL session created answers at once, from the permissions
         // the session granted (`session.configure`), instead of a sheet
-        // nobody can answer.
-        if let attachment = BrowserReplTabAttachments.shared.attachment(for: owner.id) {
+        // nobody can answer. A user's tab that a session only drives keeps
+        // the sheet.
+        if let attachment = BrowserReplTabAttachments.shared.attachment(for: owner.id),
+           attachment.appliesSessionPolicies {
             let needed: [String]
             switch type {
             case .camera: needed = ["camera"]

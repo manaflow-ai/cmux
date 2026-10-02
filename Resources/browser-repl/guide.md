@@ -144,9 +144,12 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
 ## Dialogs and file choosers
 
 With a `page.on("dialog")` or `page.on("filechooser")` listener (including
-`waitForEvent`), Playwright rules apply. Without one, the dialog or chooser
-stays open and shows in the snapshot. While a JavaScript dialog is open the
-page cannot run script, so page calls fail with a message that says so.
+`waitForEvent`), Playwright rules apply. Without one, in a tab you opened, the
+dialog or chooser stays open and shows in the snapshot. While a JavaScript
+dialog is open the page cannot run script, so page calls fail with a message
+that says so. A tab you did not open (`tabs.use()` of the user's tab) is the
+user's: its dialogs, file choosers, downloads and permission prompts go to
+the user unless you have a listener for that event on the page.
 
     page.dialog()        // { type, message, defaultValue, accept(text?), dismiss() } or null
     page.fileChooser()   // { multiple, setFiles(paths), cancel() } or null

@@ -156,7 +156,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
 
   function register(page) {
     if (tabOf.has(page)) return tabOf.get(page);
-    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit" };
+    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit", creator: null, handled: new Map() };
     tabs.set(tab.targetId, tab);
     tabOf.set(page, tab);
     frameId(tab, page.mainFrame());
@@ -170,12 +170,21 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       emit("pageerror", { targetId, message, stack: e.stack ?? "" });
     });
     page.on("dialog", (d) => {
+      // A user's tab keeps its own UI for dialogs no session handles; this
+      // driver stands in for the user: it lets the page leave on
+      // beforeunload, as cmux does with no session, and dismisses the rest.
+      if (!routesToSessions(tab, "dialog")) {
+        (d.type() === "beforeunload" ? d.accept() : d.dismiss()).catch(() => {});
+        return;
+      }
       const dialogId = `d${nextId++}`;
       dialogs.set(dialogId, d);
       tab.openDialogs++;
       emit("dialog.opened", { targetId, dialogId, type: d.type(), message: d.message(), defaultValue: d.defaultValue() });
     });
     page.on("filechooser", async (c) => {
+      // The user's own file panel: nobody answers it here.
+      if (!routesToSessions(tab, "filechooser")) return;
       const chooserId = `c${nextId++}`;
       choosers.set(chooserId, c);
       const frame = c.element().ownerFrame ? await c.element().ownerFrame() : page.mainFrame();
@@ -184,6 +193,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       emit("filechooser.opened", { targetId, chooserId, frameId: frameId(tab, frame), element, multiple: c.isMultiple() });
     });
     page.on("download", (d) => {
+      // The user's download: it is not reported to the sessions.
+      if (!routesToSessions(tab, "download")) return;
       const downloadId = `dl${nextId++}`;
       downloads.set(downloadId, d);
       emit("download.started", { targetId, downloadId, url: d.url(), suggestedFilename: d.suggestedFilename() });
@@ -224,10 +235,22 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     return tab;
   }
 
+  // Session behaviors apply to tabs a session opened (and their popups)
+  // while it is attached; in any other tab only the events a session
+  // registered a handler for (tab.handleEvents) reach the sessions.
+  function routesToSessions(tab, event) {
+    if (tab.creator && drivers.has(tab.creator)) return true;
+    for (const [driver, events] of tab.handled) if (drivers.has(driver) && events.has(event)) return true;
+    return false;
+  }
+
   context.on("page", async (page) => {
     const tab = register(page);
     const opener = await page.opener().catch(() => null);
-    if (opener && tabOf.has(opener)) tab.openerTargetId = tabOf.get(opener).targetId;
+    if (opener && tabOf.has(opener)) {
+      tab.openerTargetId = tabOf.get(opener).targetId;
+      tab.creator ??= tabOf.get(opener).creator;
+    }
     if (tab.openerTargetId) activeTarget = tab.targetId;
     emit("tab.created", { targetId: tab.targetId, openerTargetId: tab.openerTargetId, url: page.url() });
   });
@@ -431,10 +454,18 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       const page = await context.newPage();
       const tab = register(page);
       tab.blankStart = !url;
+      tab.creator = driver;
       driver.opened.add(tab.targetId);
       if (!background) activeTarget = tab.targetId;
       if (url) await page.goto(url, { waitUntil: "commit" });
       return { targetId: tab.targetId };
+    },
+    "tab.handleEvents": async ({ targetId, events }, driver) => {
+      const known = ["dialog", "filechooser", "download"];
+      if (!Array.isArray(events) || events.some((e) => !known.includes(e))) {
+        throw new DriverError("invalid", `tab.handleEvents: events must be an array of ${known.join(", ")}`);
+      }
+      tabFor(targetId).handled.set(driver, new Set(events));
     },
     "tab.keep": async ({ targetId }, driver) => {
       tabFor(targetId);
@@ -781,6 +812,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       // Ends the session: tabs it opened close unless kept.
       async detach() {
         drivers.delete(driver);
+        for (const tab of tabs.values()) tab.handled.delete(driver);
         for (const targetId of driver.opened) {
           const tab = tabs.get(targetId);
           if (tab) await tab.page.close().catch(() => {});

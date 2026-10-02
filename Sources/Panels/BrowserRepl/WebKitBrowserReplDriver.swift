@@ -124,6 +124,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         case "tabs.close": return try closeTab(params)
         case "tabs.activate", "tab.bringToFront": return try activateTab(params)
         case "tab.keep": return try keepTab(params)
+        case "tab.handleEvents": return try handleEvents(params)
         case "session.name": return try nameSession(params)
         case "session.configure": return try await configureSession(params)
         case "tab.navigate": return try await navigate(params)
@@ -418,7 +419,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
               ) else {
             throw Self.error("invalid", "Could not open a browser tab")
         }
-        attach(panel)
+        attach(panel).markCreated(by: sessionID)
         openedTargetIDs.append(panel.id)
         applySessionLabel(to: panel.id)
         if params["background"] as? Bool != true {
@@ -454,6 +455,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         BrowserReplTabAttachments.shared.panelDidClose(panel.id)
         _ = workspace.closePanel(panel.id, force: true)
         if activeTargetID == panel.id.uuidString { activeTargetID = nil }
+        return nil
+    }
+
+    /// `tab.handleEvents`: the events this session has a handler for in the
+    /// tab. In a user's tab only those reach the session; the rest keep
+    /// cmux's own UI (``BrowserReplTabOwnership``).
+    @MainActor
+    private func handleEvents(_ params: [String: Any]) throws -> Any? {
+        let panel = try panel(params)
+        guard let names = params["events"] as? [String],
+              let events = BrowserReplTabOwnership.events(named: names) else {
+            throw Self.error("invalid", "tab.handleEvents: events must be an array of \(BrowserReplTabEvent.allCases.map(\.rawValue).joined(separator: ", "))")
+        }
+        attachment(panel).setHandledEvents(events, sessionID: sessionID)
         return nil
     }
 

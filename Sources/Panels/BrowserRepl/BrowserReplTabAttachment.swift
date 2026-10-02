@@ -8,10 +8,12 @@ typealias BrowserReplTabEventSink = @MainActor (_ name: String, _ payload: [Stri
 
 /// Tabs that REPL sessions are driving, keyed by browser surface id.
 ///
-/// `BrowserPanel`'s UI and download delegates consult this registry: when a
-/// session is attached to the panel, dialogs, file choosers, popups and
-/// downloads are routed to the session instead of cmux's native UI. Panels
-/// without an attachment keep their normal behavior.
+/// `BrowserPanel`'s UI and download delegates consult this registry: in a tab
+/// a session created, dialogs, file choosers, popups and downloads are routed
+/// to the session instead of cmux's native UI. A user's tab that a session
+/// only drives keeps that UI for every event the session has no handler for
+/// (``BrowserReplTabOwnership``). Panels without an attachment keep their
+/// normal behavior.
 @MainActor
 final class BrowserReplTabAttachments {
     static let shared = BrowserReplTabAttachments()
@@ -166,6 +168,8 @@ final class BrowserReplTabAttachment {
         if challenge.previousFailureCount == 0, let credential = httpCredentials[key] {
             return (.useCredential, credential)
         }
+        // A user's tab keeps its sign-in prompt.
+        guard appliesSessionPolicies else { return nil }
         // No credential, or a wrong one: the navigation fails and names the
         // challenge (see `takeAuthenticationFailure`). Cancelling, unlike
         // loading the page without credentials, leaves the protection space
@@ -191,9 +195,35 @@ final class BrowserReplTabAttachment {
     var sessionIDs: [String] { Array(sinks.keys).sorted() }
     var targetID: String { panelID.uuidString }
 
+    /// Which events the sessions take over in this tab.
+    private var ownership = BrowserReplTabOwnership()
+
+    /// Marks this tab as created by `sessionID` (`tabs.open`, or a popup of
+    /// a tab it created): the session's behaviors apply to it.
+    func markCreated(by sessionID: String) {
+        ownership.markCreated(by: sessionID)
+    }
+
+    /// `tab.handleEvents`: the events `sessionID` has a handler for here.
+    func setHandledEvents(_ events: Set<BrowserReplTabEvent>, sessionID: String) {
+        ownership.setHandledEvents(events, for: sessionID)
+    }
+
+    /// Whether `event` goes to the attached sessions instead of cmux's UI.
+    func routesToSessions(_ event: BrowserReplTabEvent) -> Bool {
+        isAttached && ownership.routesToSessions(event)
+    }
+
+    /// Whether a session created this tab, so permission requests answer
+    /// from `session.configure` and the insecure-HTTP prompt is skipped.
+    var appliesSessionPolicies: Bool {
+        isAttached && ownership.isSessionOwned
+    }
+
     func addSink(sessionID: String, sink: @escaping BrowserReplTabEventSink) {
         let wasAttached = isAttached
         sinks[sessionID] = sink
+        ownership.attach(sessionID: sessionID)
         instrumentCurrentWebView()
         if !wasAttached {
             panel?.reevaluateHiddenWebViewDiscardScheduling(reason: "browser.repl.attach")
@@ -354,6 +384,7 @@ final class BrowserReplTabAttachment {
     func removeSink(sessionID: String) {
         pointerReleased(sessionID: sessionID)
         sinks.removeValue(forKey: sessionID)
+        ownership.detach(sessionID: sessionID)
         if contextSessionID == sessionID { applyContext(BrowserReplContextOptions(), sessionID: nil) }
         if sinks.isEmpty { detachAll() }
     }
@@ -375,9 +406,10 @@ final class BrowserReplTabAttachment {
     }
 
     /// Whether the driving session granted `permission` (`camera`,
-    /// `microphone`, `geolocation`, `notifications`).
+    /// `microphone`, `geolocation`, `notifications`). Grants apply only to
+    /// tabs the session created; a user's tab keeps cmux's own answer.
     func grants(_ permission: String) -> Bool {
-        contextOptions.permissions.contains(permission)
+        appliesSessionPolicies && contextOptions.permissions.contains(permission)
     }
 
     /// Puts the user agent, headers and domain rule list on the panel's
@@ -405,6 +437,7 @@ final class BrowserReplTabAttachment {
     /// Releases held dialogs and choosers and removes page instrumentation.
     func detachAll() {
         sinks.removeAll()
+        ownership = BrowserReplTabOwnership()
         // Playwright dismisses dialogs nobody handles; do the same so a page
         // is never left blocked on a dialog after its session goes away.
         for respond in dialogs.values { respond(false, nil) }
@@ -539,14 +572,15 @@ final class BrowserReplTabAttachment {
     // MARK: - Dialogs
 
     /// Routes a JavaScript dialog to the attached sessions.
-    /// - Returns: `false` when no session is attached; the caller shows its native UI.
+    /// - Returns: `false` when no session takes dialogs in this tab; the
+    ///   caller shows its native UI.
     func handleDialog(
         type: String,
         message: String,
         defaultValue: String?,
         respond: @escaping (Bool, String?) -> Void
     ) -> Bool {
-        guard isAttached else { return false }
+        guard routesToSessions(.dialog) else { return false }
         let id = makeID("d")
         dialogs[id] = respond
         emit("dialog.opened", [
@@ -579,7 +613,7 @@ final class BrowserReplTabAttachment {
         frame: WKFrameInfo,
         respond: @escaping ([URL]?) -> Void
     ) -> Bool {
-        guard isAttached else { return false }
+        guard routesToSessions(.fileChooser) else { return false }
         let id = makeID("c")
         fileChoosers[id] = respond
         let frameID = frame.isMainFrame ? nil : BrowserReplFrameTree.frameID(of: frame)
@@ -668,6 +702,10 @@ final class BrowserReplTabAttachment {
             child = BrowserReplTabAttachments.shared.attach(panel: created, sessionID: sessionID, sink: sink)
         }
         child?.openerTargetID = targetID
+        // A popup of a tab a session created is that session's too.
+        if ownership.isSessionOwned, let creator = ownership.creatorSessionID {
+            child?.markCreated(by: creator)
+        }
         for sink in sinks.values {
             sink("tab.created", [
                 "targetId": created.id.uuidString,
@@ -697,28 +735,27 @@ final class BrowserReplTabAttachment {
         ) else {
             return false
         }
-        var child: BrowserReplTabAttachment?
-        for (sessionID, sink) in sinks {
-            child = BrowserReplTabAttachments.shared.attach(panel: created, sessionID: sessionID, sink: sink)
-        }
-        child?.openerTargetID = targetID
-        for sink in sinks.values {
-            sink("tab.created", [
-                "targetId": created.id.uuidString,
-                "openerTargetId": targetID,
-                "url": url.absoluteString,
-            ])
-        }
+        announcePopup(created, url: url)
         return true
     }
 
     // MARK: - Downloads
 
-    /// Downloads started while a session is attached stay in cmux's temporary
-    /// download directory, so `download.path()` can read them.
-    var keepsDownloadsInTemporaryDirectory: Bool { isAttached }
+    /// Downloads reported to the sessions, by id.
+    private var sessionDownloadIDs: Set<String> = []
 
+    /// Whether download `id` went to the sessions. Those stay in cmux's
+    /// temporary download directory, so `download.path()` can read them;
+    /// every other download takes the user's normal path.
+    func keepsDownloadInTemporaryDirectory(id: String) -> Bool {
+        sessionDownloadIDs.contains(id)
+    }
+
+    /// Reports a download to the sessions when they take downloads in this
+    /// tab; the decision holds for the download's life.
     func downloadDidStart(id: String, url: URL?, suggestedFilename: String) {
+        guard routesToSessions(.download) else { return }
+        sessionDownloadIDs.insert(id)
         emit("download.started", [
             "downloadId": id,
             "url": url?.absoluteString ?? "",
@@ -727,6 +764,7 @@ final class BrowserReplTabAttachment {
     }
 
     func downloadDidFinish(id: String, path: String?, error: String?) {
+        guard sessionDownloadIDs.remove(id) != nil else { return }
         if let path { downloadPaths[id] = path }
         var payload: [String: Any] = ["downloadId": id]
         if let path { payload["path"] = path }
