@@ -123,6 +123,8 @@ const storeTriggers = (inputs: ReadonlyArray<TriggerInput>, previous: Automation
     let next_at: number | null = kept?.next_at ?? null
     if (spec.type === "cron" && (!kept || rescheduleFrom !== undefined)) next_at = nextFire(spec.expr, spec.tz, rescheduleFrom ?? ctx.now)
     if (spec.type !== "cron" && spec.type !== "continue") next_at = null
+    // Re-enabling never resumes a continue chain stopped by disabling; the next run starts one.
+    if (spec.type === "continue" && rescheduleFrom !== undefined) next_at = null
     return { id: kept?.id ?? ctx.newId("trg"), status, spec, next_at }
   })
 }
