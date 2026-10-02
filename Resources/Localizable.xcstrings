@@ -618218,6 +618218,159 @@
           }
         }
       }
+    },
+    "account.callbackApproval.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインしない"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.replace.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを切り替える"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクから cmux にサインインしますか？"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.replace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を別のアカウントに切り替えますか？"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.message.email": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクが cmux に %@ としてサインインするよう求めています。ブラウザで cmux にサインインした直後の場合にのみ続行してください。"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.message.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクが cmux にアカウントへのサインインを求めています。ブラウザで cmux にサインインした直後の場合にのみ続行してください。"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.replace.current": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在 %@ としてサインインしています。続行するとそのセッションが置き換えられ、以降の cmux のアクティビティはリンクのアカウントに属します。このアカウントを自分で選んだ直後でない場合は、「サインインしない」をクリックしてください。"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.replace.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでにサインインしています。続行するとそのセッションが置き換えられ、以降の cmux のアクティビティはリンクのアカウントに属します。このアカウントを自分で選んだ直後でない場合は、「サインインしない」をクリックしてください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
