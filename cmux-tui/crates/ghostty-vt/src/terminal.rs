@@ -2947,6 +2947,71 @@ impl Terminal {
             )
     }
 
+    /// Plain text of the newest block of shell input on the primary screen:
+    /// the cells OSC 133 marks as input (after `B`, until `C`), in the
+    /// contiguous rows that hold input nearest above or at the cursor,
+    /// scanning at most `max_rows` rows up. Ghostty assigns the semantic as
+    /// it parses each byte, so the result does not depend on how output was
+    /// chunked (typeahead, redraws) and survives reflow. `None` on the
+    /// alternate screen or when no input cell is found.
+    pub fn latest_input_text(&mut self, max_rows: u32) -> Option<String> {
+        if self.active_screen() == Screen::Alternate {
+            return None;
+        }
+        let scrollbar = self.scrollbar()?;
+        let (_, cursor_y) = self.cursor_position()?;
+        let active_top = scrollbar.total.checked_sub(u64::from(self.rows()))?;
+        let cursor_row = active_top + u64::from(cursor_y);
+        let lowest = cursor_row.saturating_sub(u64::from(max_rows));
+        let cols = self.cols();
+        let mut first: Option<(u16, u64)> = None;
+        let mut last: Option<(u16, u64)> = None;
+        let mut row = cursor_row;
+        loop {
+            match (self.input_span(row, cols), last) {
+                (Some((start, end)), None) => {
+                    first = Some((start, row));
+                    last = Some((end, row));
+                }
+                (Some((start, _)), Some(_)) => first = Some((start, row)),
+                (None, Some(_)) => break,
+                (None, None) => {}
+            }
+            if row <= lowest {
+                break;
+            }
+            row -= 1;
+        }
+        self.selection_text_absolute(first?, last?)
+    }
+
+    /// First and last column of the cells OSC 133 marks as input in screen
+    /// row `row`.
+    fn input_span(&self, row: u64, cols: u16) -> Option<(u16, u16)> {
+        let mut first = None;
+        let mut last = None;
+        for x in 0..cols {
+            let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, x, row)?;
+            let mut cell = sys::GhosttyCell::default();
+            if check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut cell) }).is_err() {
+                continue;
+            }
+            let mut semantic = sys::GHOSTTY_CELL_SEMANTIC_OUTPUT;
+            let read = check(unsafe {
+                sys::ghostty_cell_get(
+                    cell,
+                    sys::GHOSTTY_CELL_DATA_SEMANTIC_CONTENT,
+                    (&mut semantic as *mut sys::GhosttyCellSemanticContent).cast(),
+                )
+            });
+            if read.is_ok() && semantic == sys::GHOSTTY_CELL_SEMANTIC_INPUT {
+                first.get_or_insert(x);
+                last = Some(x);
+            }
+        }
+        Some((first?, last?))
+    }
+
     /// Monotonic revision of recognized OSC 133 prompt-phase markers.
     pub fn prompt_semantic_revision(&self) -> u64 {
         self.prompt_semantic.revision()
@@ -5039,6 +5104,36 @@ mod tests {
         assert!(!detector.write(&[0xc4]));
         assert!(!detector.write(&[0x9b, b'h']), "UTF-8 continuation must not open CSI");
         assert!(detector.write(b"\x1b\x07c"), "C0 controls must not hide a hard reset");
+    }
+
+    #[test]
+    fn shell_history_latest_input_text_reads_the_submitted_command() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07~/repo % \x1b]133;B\x07make test\r\n\x1b]133;C\x07");
+        assert_eq!(terminal.latest_input_text(32).as_deref().map(str::trim), Some("make test"));
+        // Output after C is not input; the submitted line is still found.
+        terminal.vt_write(b"building\r\nok\r\n");
+        assert_eq!(terminal.latest_input_text(32).as_deref().map(str::trim), Some("make test"));
+    }
+
+    #[test]
+    fn shell_history_latest_input_text_ignores_how_output_was_chunked() {
+        // Prompt, B and typed text in one write (typeahead): the prompt is
+        // never part of the command.
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07ls -la\r\n\x1b]133;C\x07");
+        let text = terminal.latest_input_text(32).unwrap();
+        assert_eq!(text.trim(), "ls -la");
+        assert!(!text.contains('$'));
+    }
+
+    #[test]
+    fn shell_history_latest_input_text_is_none_without_input_or_on_the_alternate_screen() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"plain output\r\n");
+        assert_eq!(terminal.latest_input_text(32), None);
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07vim\r\n\x1b]133;C\x07\x1b[?1049h");
+        assert_eq!(terminal.latest_input_text(32), None);
     }
 
     #[test]

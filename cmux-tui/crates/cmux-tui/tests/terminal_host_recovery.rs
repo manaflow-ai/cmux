@@ -51,6 +51,9 @@ struct RecoveryHarness {
     template_completion_failures: Option<u64>,
     adopt_template_terminal: bool,
     extra_args: Vec<String>,
+    /// `false` launches shells without Ghostty shell integration, so they
+    /// emit no OSC 7 or OSC 133 reports that commit registry revisions.
+    shell_integration: bool,
 }
 
 impl RecoveryHarness {
@@ -70,6 +73,7 @@ impl RecoveryHarness {
             template_completion_failures: None,
             adopt_template_terminal: false,
             extra_args: Vec::new(),
+            shell_integration: true,
             dir,
         };
         harness.restart();
@@ -138,6 +142,7 @@ impl RecoveryHarness {
             template_completion_failures: None,
             adopt_template_terminal: false,
             extra_args: Vec::new(),
+            shell_integration: true,
             dir,
         }
     }
@@ -171,6 +176,9 @@ impl RecoveryHarness {
         }
         if let Some(failures) = self.template_completion_failures {
             command.env("CMUX_TUI_TEST_TEMPLATE_COMPLETION_FAILURES", failures.to_string());
+        }
+        if !self.shell_integration {
+            command.env("CMUX_TUI_SHELL_INTEGRATION", "none");
         }
         if self.adopt_template_terminal {
             command.env("CMUX_TUI_ADOPT_TEMPLATE_TERMINAL", "1");
@@ -3432,7 +3440,12 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
 
 #[test]
 fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts() {
-    let mut harness = RecoveryHarness::start_with_host_ready_delay("public-create-recovery", 2_000);
+    // The exact revision assertions below count creation commits only; a
+    // shell's cwd report would add its own revision.
+    let mut harness = RecoveryHarness::start_unstarted("public-create-recovery");
+    harness.host_ready_delay_ms = Some(2_000);
+    harness.shell_integration = false;
+    harness.restart();
     let create = serde_json::json!({
         "protocol":"cmux.protocol/2",
         "type":"request",
