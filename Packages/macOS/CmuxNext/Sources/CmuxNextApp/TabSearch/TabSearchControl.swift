@@ -11,7 +11,7 @@ import Foundation
 /// Reply: `{"tabs": [{id, state: "open"|"closed", kind, title, url?, cwd?,
 /// process?, workspace_id?, workspace?, window?, machine?, current,
 /// available, last_used?, score}]}`, open tabs first. An open row's `id` is
-/// the tab id (`cmux tab focus|close <id>`); a closed row's is the
+/// the tab id (`cmux app show-tab --target <id>`, `cmux tab <id> close`); a closed row's is the
 /// closed-items record id (`cmux history reopen <id>`).
 enum TabSearchControl {
     nonisolated static let defaultLimit = 50
