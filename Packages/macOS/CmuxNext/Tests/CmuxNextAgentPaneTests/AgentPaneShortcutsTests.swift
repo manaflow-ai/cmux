@@ -21,8 +21,7 @@ import Testing
         #expect(script == #"window.cmuxAcpmuxBridge?.applyShortcuts?.({"agentPane.searchChats":"⌘K"});"#)
     }
 
-    /// A load, the handshake and a rebind each push the labels; an unchanged
-    /// value pushes nothing.
+    /// A change pushes the labels; an unchanged value pushes nothing.
     @Test func aChangePushesTheLabels() throws {
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost())))
         var scripts: [String] = []

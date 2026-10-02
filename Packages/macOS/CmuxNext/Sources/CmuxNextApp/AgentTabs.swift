@@ -79,6 +79,7 @@ final class AgentTabStore {
             guard let self else { return }
             for view in views.values { view.customization = value }
         }
+        shortcuts = AgentPaneShortcuts.read(registry)
         // Rebinds in Settings or cmux.json reach every open page.
         shortcutObservation = Task { [weak self] in
             for await value in Observations({ AgentPaneShortcuts.read(registry) }) {

@@ -1,10 +1,10 @@
-import CmuxNextActions
+public import CmuxNextActions
 import Foundation
 
 /// The app shortcuts the agent page shows in its tooltips and keycaps, as the
 /// user bound them (Settings, `cmux.json`), keyed by action id. Actions with
 /// no shortcut are left out, so the page shows none.
-public struct AgentPaneShortcuts: Equatable, Sendable {
+public nonisolated struct AgentPaneShortcuts: Equatable, Sendable {
     /// The actions the page names.
     static let actions: [ActionID] = ["agentPane.searchChats", "palette.newAgentChat", "palette.toggleDictation"]
 
@@ -16,7 +16,7 @@ public struct AgentPaneShortcuts: Equatable, Sendable {
 
     /// `registry`'s current bindings for ``actions``. Read inside
     /// `Observations` it tracks rebinds.
-    public static func read(_ registry: ActionRegistry) -> AgentPaneShortcuts {
+    @MainActor public static func read(_ registry: ActionRegistry) -> AgentPaneShortcuts {
         var labels: [String: String] = [:]
         for id in actions {
             if let display = registry.shortcutDisplay(for: id) { labels[id.rawValue] = display }
