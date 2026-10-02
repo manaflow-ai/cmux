@@ -228,9 +228,6 @@ let package = Package(
         ),
         // Chromium's EarlyMallocZoneRegistration, run first thing in main.
         .target(name: "CmuxNextMallocZone"),
-        // Resource usage for hover cards and `resources` (CPU and memory per
-        // tab, per workspace, shared processes apart). Pure aggregation and a
-        // sampler that runs only while a card is open.
         // Home (plans/cmux-next/home.md section 3): the native conversation
         // renderer (paged window, prefix-sum layout, background raster,
         // render-server send motion), the conversation list and composer.
@@ -248,6 +245,9 @@ let package = Package(
             dependencies: ["CmuxNextHome", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
+        // Resource usage for hover cards and `resources` (CPU and memory per
+        // tab, per workspace, shared processes apart). Pure aggregation and a
+        // sampler that runs only while a card is open.
         // History (plans/cmux-next/history.md): the location trail, merged
         // history entries, search, agent sessions from the session journal,
         // the per-profile page visit log (SQLite), and the cmux://history page.

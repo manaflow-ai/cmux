@@ -12,7 +12,9 @@ nonisolated enum TranscriptRowKind: Hashable, Sendable {
     /// Time separator: a bold day and a regular time ("Today 12:06 PM").
     case separator(day: String, time: String)
     case bubble(outgoing: Bool, text: String, mentions: [HomeMention], tail: Bool, reactions: [String], failed: Bool)
-    case work(outgoing: Bool, session: String, status: HomeWorkStatus, preview: String?, tail: Bool)
+    case work(outgoing: Bool, session: String, status: HomeWorkStatus, statusText: String, preview: String?, tail: Bool)
+    /// A part the renderer does not draw, as a muted one-line bubble.
+    case fallback(outgoing: Bool, text: String, tail: Bool)
     /// A receipt or status line under a message ("Read 9:41", "Not delivered").
     case label(text: String, detail: String?, outgoing: Bool, tone: LabelTone)
     case retracted(String)
@@ -37,15 +39,26 @@ nonisolated struct TranscriptRow: Hashable, Sendable {
 
     var isBubbleLike: Bool {
         switch kind {
-        case .bubble, .work: true
+        case .bubble, .work, .fallback: true
         default: false
         }
     }
 
     var isOutgoing: Bool {
         switch kind {
-        case .bubble(let outgoing, _, _, _, _, _), .work(let outgoing, _, _, _, _), .label(_, _, let outgoing, _): outgoing
+        case .bubble(let outgoing, _, _, _, _, _), .work(let outgoing, _, _, _, _, _), .label(_, _, let outgoing, _),
+             .fallback(let outgoing, _, _): outgoing
         default: false
+        }
+    }
+
+    /// The message part a bubble-like row draws (re-measurement).
+    var part: HomePart? {
+        switch kind {
+        case .bubble(_, let text, let mentions, _, _, _): .text(text, mentions: mentions)
+        case .work(_, let session, let status, _, let preview, _): .work(session: session, status: status, preview: preview)
+        case .fallback(_, let text, _): .fallback(text)
+        default: nil
         }
     }
 
