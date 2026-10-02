@@ -970,6 +970,8 @@ public final class ComputerUseRuntimeService {
         // its first readiness publication after a host restart.
         if let helperIdentity = ComputerUseHelperIdentity(bundleURL: helperURL).read() {
             onboarding.restore(for: helperIdentity)
+        } else {
+            onboarding.recoverInterruptedOnboarding()
         }
         let nativeListening = await Self.isDaemonListening(
             paths: paths,
