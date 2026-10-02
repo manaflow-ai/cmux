@@ -41,6 +41,14 @@ import Testing
         #expect(old["count"]?.intValue == count)
     }
 
+    /// Old scripts pass `--room`; it reaches the `space` argument.
+    @Test func theOldRoomArgumentStillValidates() throws {
+        let action = try #require(Self.catalog.resolve("workspace move-to-room"))
+        let request = try ControlRouter.validatedRequest(for: action, params: ["args": .object(["room": .string("Work")])], knownKinds: [])
+        #expect(request.arguments["space"] != nil)
+        #expect(request.arguments["room"] == nil)
+    }
+
     @Test func theSpaceArgumentReplacesRoom() throws {
         let rename = try #require(Self.catalog.resolve("space.newWorkspace"))
         #expect(rename.arguments.contains { $0.name == "space" })
