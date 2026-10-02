@@ -35,9 +35,21 @@ import Testing
         #expect(diagnostic.isForCmuxOwnedKey)
     }
 
-    @Test func keylessOrLocationlessDiagnosticsHaveNoKey() {
+    @Test(arguments: ["sidebar-font-size", "surface-tab-bar-font-size"])
+    func parsesKeyWithoutFileLocation(key: String) {
+        let diagnostic = GhosttyConfigDiagnostic(message: "  \(key): unknown field\n")
+
+        #expect(diagnostic.key == key)
+        #expect(diagnostic.isForCmuxOwnedKey)
+        #expect(diagnostic.filePath == nil)
+        #expect(diagnostic.line == nil)
+    }
+
+    @Test func keylessDiagnosticsHaveNoKey() {
         #expect(GhosttyConfigDiagnostic(message: "/u/config:4: invalid syntax: here").key == nil)
-        #expect(GhosttyConfigDiagnostic(message: "sidebar-font-size: unknown field").key == nil)
+        #expect(GhosttyConfigDiagnostic(message: "invalid syntax: here").key == nil)
+        #expect(GhosttyConfigDiagnostic(message: ": unknown field").key == nil)
+        #expect(GhosttyConfigDiagnostic(message: "invalid syntax").key == nil)
     }
 
     @Test func recognizesCmuxInlineFragments() {
@@ -113,34 +125,43 @@ import Testing
     }
 
     @Test func filterDropsEveryCmuxOwnedKeyAndKeepsRealErrors() {
-        let cmuxKeyMessages = GhosttyConfig.cmuxOwnedKeys.sorted().enumerated().map { index, key in
-            "/u/.config/ghostty/config:\(index + 20):\(key): unknown field"
+        let cmuxKeyMessages = GhosttyConfig.cmuxOwnedKeys.sorted().enumerated().flatMap { index, key in
+            [
+                "/u/.config/ghostty/config:\(index + 20):\(key): unknown field",
+                "\(key): unknown field",
+            ]
         }
+        let realErrors = [unknownField, badTheme, "font-sise: unknown field", "invalid syntax: sidebar-font-size"]
 
         let diagnostics = GhosttyConfigDiagnosticsNoticePolicy.userFacingDiagnostics(
-            fromMessages: [cmuxKeyMessages[0], unknownField] + cmuxKeyMessages.dropFirst() + [badTheme]
+            fromMessages: [cmuxKeyMessages[0]] + realErrors + cmuxKeyMessages.dropFirst()
         )
 
-        #expect(diagnostics.map(\.message) == [unknownField, badTheme])
+        #expect(diagnostics.map(\.message) == realErrors)
     }
 
-    @Test func onlyCmuxOwnedKeyDiagnosticsShowNoNotice() {
+    @Test(arguments: [true, false])
+    func onlyCmuxOwnedKeyDiagnosticsShowNoNotice(hasFileLocation: Bool) {
         var policy = GhosttyConfigDiagnosticsNoticePolicy()
         let messages = [
-            "/u/.config/ghostty/config:1:sidebar-font-size: unknown field",
-            "/u/.config/ghostty/config:2:surface-tab-bar-font-size: unknown field",
-        ]
+            "sidebar-font-size: unknown field",
+            "surface-tab-bar-font-size: unknown field",
+        ].enumerated().map { index, message in
+            hasFileLocation ? "/u/.config/ghostty/config:\(index + 1):\(message)" : message
+        }
 
         #expect(policy.decision(forMessages: messages) == .unchanged)
         _ = policy.decision(forMessages: [unknownField])
         #expect(policy.decision(forMessages: messages) == .dismiss)
     }
 
-    @Test func unlistedCountExcludesCmuxOwnedKeys() {
+    @Test(arguments: [true, false])
+    func unlistedCountExcludesCmuxOwnedKeys(hasFileLocation: Bool) {
         var policy = GhosttyConfigDiagnosticsNoticePolicy()
         let real = (1...4).map { "/u/.config/ghostty/config:\($0):key\($0): unknown field" }
-        let messages = ["/u/.config/ghostty/config:9:sidebar-font-size: unknown field"] + real
-            + ["/u/.config/ghostty/config:10:surface-tab-bar-font-size: unknown field"]
+        let prefix = hasFileLocation ? "/u/.config/ghostty/config:9:" : ""
+        let messages = ["\(prefix)sidebar-font-size: unknown field"] + real
+            + ["\(prefix)surface-tab-bar-font-size: unknown field"]
 
         guard case .present(let notice) = policy.decision(forMessages: messages) else {
             Issue.record("expected a notice")
