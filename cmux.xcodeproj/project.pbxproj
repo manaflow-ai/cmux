@@ -1596,6 +1596,7 @@
 		918100000000000000000051 /* CodexHookFailureCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000050 /* CodexHookFailureCandidate.swift */; };
 		918100000000000000000041 /* CodexHookFailureSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000040 /* CodexHookFailureSummary.swift */; };
 		918100000000000000000061 /* CodexHookUserInputCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000060 /* CodexHookUserInputCandidate.swift */; };
+		9181000000000000000000A1 /* CodexMonitorOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9181000000000000000000A0 /* CodexMonitorOwner.swift */; };
 		918100000000000000000091 /* CodexMonitorOwnerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000090 /* CodexMonitorOwnerState.swift */; };
 		9D04DE21C5281E376C0FE450 /* CodexRestoreHookEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 657ECAA4E052C87DFE264F70 /* CodexRestoreHookEvidence.swift */; };
 		256E3FBC057F233E8849DF79 /* CodexRestoreHookEvidenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1D2A327B1DBFC724A70928 /* CodexRestoreHookEvidenceTests.swift */; };
@@ -5933,6 +5934,7 @@
 		918100000000000000000050 /* CodexHookFailureCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHookFailureCandidate.swift; sourceTree = "<group>"; };
 		918100000000000000000040 /* CodexHookFailureSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHookFailureSummary.swift; sourceTree = "<group>"; };
 		918100000000000000000060 /* CodexHookUserInputCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHookUserInputCandidate.swift; sourceTree = "<group>"; };
+		9181000000000000000000A0 /* CodexMonitorOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexMonitorOwner.swift; sourceTree = "<group>"; };
 		918100000000000000000090 /* CodexMonitorOwnerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexMonitorOwnerState.swift; sourceTree = "<group>"; };
 		657ECAA4E052C87DFE264F70 /* CodexRestoreHookEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexRestoreHookEvidence.swift; sourceTree = "<group>"; };
 		7A1D2A327B1DBFC724A70928 /* CodexRestoreHookEvidenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexRestoreHookEvidenceTests.swift"; sourceTree = "<group>"; };
@@ -11833,6 +11835,7 @@
 				918100000000000000000070 /* CodexTranscriptSubagentSignals.swift */,
 				918100000000000000000080 /* CodexTranscriptFailureReadResult.swift */,
 				918100000000000000000090 /* CodexMonitorOwnerState.swift */,
+				9181000000000000000000A0 /* CodexMonitorOwner.swift */,
 				7520C0DF0000000000000006 /* CodexTurnLedgerModels.swift */,
 				7520C0DF0000000000000008 /* CodexTurnLedgerPersistence.swift */,
 				7520C0DF000000000000000A /* CodexTurnLifecycleCoordinator.swift */,
@@ -16758,6 +16761,7 @@
 				918100000000000000000051 /* CodexHookFailureCandidate.swift in Sources */,
 				918100000000000000000041 /* CodexHookFailureSummary.swift in Sources */,
 				918100000000000000000061 /* CodexHookUserInputCandidate.swift in Sources */,
+				9181000000000000000000A1 /* CodexMonitorOwner.swift in Sources */,
 				918100000000000000000091 /* CodexMonitorOwnerState.swift in Sources */,
 				C6209A010000000000000001 /* CodexRestoreValidationResult.swift in Sources */,
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
