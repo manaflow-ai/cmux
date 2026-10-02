@@ -6,7 +6,7 @@ use super::*;
 /// supports (plans/cmux-next/state-ownership.md, section 5). The app scopes
 /// (`app`, `action`, `settings`, `window`, `events`) and `acp` route before
 /// this parser.
-const CMUX_SCOPES: &[&str] = &[
+pub(super) const CMUX_SCOPES: &[&str] = &[
     "server",
     "workspace",
     "screen",

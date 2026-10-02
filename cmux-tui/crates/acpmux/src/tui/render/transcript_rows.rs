@@ -556,7 +556,7 @@ pub(super) fn transcript_rows_range(
                         if let Some(cache) = markdown.as_deref_mut() {
                             let rendered = cache.entry(i).or_insert_with(|| {
                                 let mut rows = Vec::new();
-                                super::markdown::render(
+                                super::super::markdown::render(
                                     text,
                                     width,
                                     "",
@@ -569,7 +569,7 @@ pub(super) fn transcript_rows_range(
                             });
                             rows.extend(rendered.iter().cloned());
                         } else {
-                            super::markdown::render(
+                            super::super::markdown::render(
                                 text,
                                 width,
                                 "",
@@ -600,7 +600,7 @@ pub(super) fn transcript_rows_range(
                                 .trim_matches('*')
                                 .trim();
                             let mut spans = vec![Span::raw("")];
-                            spans.extend(super::shimmer::spans(
+                            spans.extend(super::super::shimmer::spans(
                                 "Thinking",
                                 c.shimmer_base,
                                 c.shimmer_bright,
@@ -806,7 +806,7 @@ pub(super) fn working_row(t: &Transcript, c: &Chrome) -> Row {
         label.push_str(&format!(" · {} queued", queued));
     }
     let mut spans = vec![Span::raw("")];
-    spans.extend(super::shimmer::spans(&label, c.shimmer_base, c.shimmer_bright));
+    spans.extend(super::super::shimmer::spans(&label, c.shimmer_base, c.shimmer_bright));
     let note = t.note.as_deref().map(|n| format!("  {n}")).unwrap_or_default();
     if !note.is_empty() {
         spans.push(Span::styled(note.clone(), c.dim()));

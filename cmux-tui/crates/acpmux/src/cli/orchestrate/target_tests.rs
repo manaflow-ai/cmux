@@ -1,4 +1,3 @@
-
 #[test]
 fn splits_on_the_first_slash_only() {
     assert_eq!(super::split_target("claude"), ("claude".into(), None));

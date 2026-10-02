@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn strings(values: &[&str]) -> Vec<String> {
@@ -199,7 +198,7 @@ fn cmux_refuses_cmux_tui_only_scopes_by_name_in_every_spelling() {
     let catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
     for scope in CMUX_TUI_ONLY_SCOPES {
         assert!(PUBLIC_SCOPES.contains(scope));
-        assert!(!CMUX_SCOPES.contains(scope));
+        assert!(!surface::CMUX_SCOPES.contains(scope));
         for args in [vec![*scope, "list"], vec!["help", scope], vec![*scope, "--help"]] {
             let Err(failure) = parse(&strings(&args), Surface::Cmux) else {
                 panic!("cmux accepted {args:?}");

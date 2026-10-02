@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn journal_record_for_effect(

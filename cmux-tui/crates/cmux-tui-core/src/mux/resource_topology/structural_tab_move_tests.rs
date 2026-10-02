@@ -1,4 +1,3 @@
-
 use super::*;
 
 /// Build a terminal tab fixture with the requested durable placement.

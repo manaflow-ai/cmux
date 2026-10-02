@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn tabs(mux: &Mux, pane: PaneId) -> Vec<SurfaceId> {
