@@ -174,6 +174,38 @@ class TestProgressParserTests(unittest.TestCase):
             "while running t0(), t1(), t2(), t3(), t4() and 3 more",
         )
 
+    def test_build_output_does_not_arm_the_stall_clock(self) -> None:
+        progress = watchdog.TestProgress(clock=lambda: 0.0)
+        for line in ("[1/3] Compiling CmuxTerminal A.swift", "[2/3] Linking CmuxTerminalPackageTests"):
+            progress.feed(line)
+        self.assertFalse(progress.testing)
+        self.assertEqual(progress.events, 0)
+        progress.feed("Build complete! (1.41s)")
+        self.assertTrue(progress.testing)
+        for line in (
+            "Test Suite 'All tests' started at 2026-09-27 05:07:30.309.",
+            "◇ Test a() started.",
+            "✘ Test a() recorded an issue at A.swift:1:1: Expectation failed",
+            "Test Case '-[X.Y testZ]' started.",
+            "still working",
+        ):
+            progress.feed(line)
+        self.assertEqual(progress.events, 5)
+
+    def test_stalled_summary_names_unfinished_tests(self) -> None:
+        state = progress_after("""
+            ◇ Suite "Clipboard write capture" started.
+            ◇ Test selectionWritesRoundTripThroughSelectionPasteboard() started.
+        """)
+        self.assertEqual(
+            watchdog.stalled_summary(state),
+            'selectionWritesRoundTripThroughSelectionPasteboard() (suite "Clipboard write capture")',
+        )
+        self.assertEqual(
+            watchdog.stalled_summary(progress_after("Build complete! (1.41s)")),
+            "no test in flight (last output: Build complete! (1.41s))",
+        )
+
     def test_annotation_escaping(self) -> None:
         self.assertEqual(watchdog.escape_annotation("a%b\nc\r"), "a%25b%0Ac%0D")
         self.assertEqual(watchdog.escape_property("Hung: a,b"), "Hung%3A a%2Cb")
@@ -410,6 +442,55 @@ class WatchdogProcessTests(unittest.TestCase):
             completed.stdout,
         )
 
+    def test_stall_fires_on_output_without_test_progress(self) -> None:
+        pid_file = self.temp / "child.pid"
+        completed = self.watchdog(
+            "--stall-seconds", "1",
+            "--timeout-seconds", "20",
+            "--sample-seconds", "0",
+            "--label", "CmuxTerminal",
+            command=fake_test_command(f"""
+                import os, time
+                open({str(pid_file)!r}, "w").write(str(os.getpid()))
+                print("Build complete! (1.41s)")
+                print("◇ Test passes() started.")
+                print("✔ Test passes() passed after 0.001 seconds.")
+                print("◇ Test selectionWritesRoundTripThroughSelectionPasteboard() started.")
+                while True:
+                    print("log line from a stuck test")
+                    time.sleep(0.1)
+            """),
+        )
+        self.assertEqual(completed.returncode, 124, completed.stdout[-2000:])
+        self.assertIn(
+            "::error title=Hung test in CmuxTerminal::CmuxTerminal: "
+            "selectionWritesRoundTripThroughSelectionPasteboard() made no progress for 1s",
+            completed.stdout,
+        )
+        self.assertNotIn("timed out", completed.stdout)
+        self.assertTrue(wait_for_exit(int(pid_file.read_text())), "stalled child survived")
+
+    def test_stall_clock_waits_for_the_build_and_resets_on_each_event(self) -> None:
+        completed = self.watchdog(
+            "--stall-seconds", "1",
+            "--sample-seconds", "0",
+            command=fake_test_command("""
+                import time
+                print("[1/3] Compiling CmuxTerminal A.swift")
+                time.sleep(1.5)
+                print("[2/3] Linking CmuxTerminalPackageTests")
+                time.sleep(1.5)
+                print("Build complete! (3.00s)")
+                for index in range(4):
+                    print(f"◇ Test t{index}() started.")
+                    time.sleep(0.6)
+                    print(f"✔ Test t{index}() passed after 0.6 seconds.")
+                print("✔ Test run with 4 tests in 1 suite passed after 2.4 seconds.")
+            """),
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout)
+        self.assertNotIn("made no progress", completed.stdout)
+
     def test_missing_sampler_is_reported_not_fatal(self) -> None:
         self.env["PATH"] = os.pathsep.join(
             entry for entry in self.env["PATH"].split(os.pathsep)
@@ -481,7 +562,9 @@ class WatchdogProcessTests(unittest.TestCase):
     def test_requires_a_bound(self) -> None:
         completed = self.watchdog(command=["true"])
         self.assertEqual(completed.returncode, 2)
-        self.assertIn("set --silence-seconds, --timeout-seconds, or both", completed.stderr)
+        self.assertIn(
+            "set --silence-seconds, --stall-seconds, or --timeout-seconds", completed.stderr
+        )
 
 
 if __name__ == "__main__":

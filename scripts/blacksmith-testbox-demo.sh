@@ -9,7 +9,7 @@ set -euo pipefail
 
 WORKFLOW=.github/workflows/cmux-tui-testbox-warmup.yml
 JOB=cmux-tui-rust
-IDLE_TIMEOUT=30
+IDLE_TIMEOUT=15
 APPROVE=1
 STAGES=0
 
@@ -21,7 +21,7 @@ usage: scripts/blacksmith-testbox-demo.sh [options]
                   plain builds (slower, produces evidence JSON)
   --no-approve    do not approve the deployment gate; approve it yourself in
                   the GitHub UI when the script pauses
-  --idle-timeout  minutes before Blacksmith reclaims the box (default 30)
+  --idle-timeout  minutes before Blacksmith reclaims the box (default 15; the keepalive clamps anything larger to 15)
 USAGE
 }
 

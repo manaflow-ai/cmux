@@ -62,8 +62,11 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     let reachabilityProbe: any RemoteHostReachabilityProbing
     let relayCommandRewriter: any RemoteRelayCommandRewriting
     let buildInfo: any RemoteSessionBuildInfoProviding
+    let codexWrapperScript: String?
     let daemonStrings: RemoteDaemonStrings
     let strings: RemoteSessionStrings
+    /// Private per-session directory policy for files uploaded from the clipboard or Finder.
+    let remotePastePolicy: RemotePasteFileTransferPolicy
     /// Sleep seam for every legacy `asyncAfter` delay (reconnect backoff,
     /// relay restart, bootstrap-TTY retry, port-scan coalesce and burst).
     let clock: any RemoteProxyRetryClock
@@ -173,6 +176,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     ///   - buildInfo: App-build inputs (`Bundle.main` stays app-side).
     ///   - daemonStrings: App-localized daemon error strings.
     ///   - strings: App-localized connection-state strings.
+    ///   - remotePastePolicy: Private directory and cleanup policy for uploaded files.
     ///   - clock: Sleep seam driving every retry/backoff delay (production
     ///     default: the continuous clock).
     public init(
@@ -186,9 +190,11 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         reachabilityProbe: any RemoteHostReachabilityProbing,
         relayCommandRewriter: any RemoteRelayCommandRewriting,
         buildInfo: any RemoteSessionBuildInfoProviding,
+        codexWrapperScript: String? = nil,
         daemonStrings: RemoteDaemonStrings,
         strings: RemoteSessionStrings,
-        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
+        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
+        remotePastePolicy: RemotePasteFileTransferPolicy = RemotePasteFileTransferPolicy()
     ) {
         self.host = host
         self.configuration = configuration
@@ -200,8 +206,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         self.reachabilityProbe = reachabilityProbe
         self.relayCommandRewriter = relayCommandRewriter
         self.buildInfo = buildInfo
+        self.codexWrapperScript = codexWrapperScript
         self.daemonStrings = daemonStrings
         self.strings = strings
+        self.remotePastePolicy = remotePastePolicy
         self.clock = clock
         queue.setSpecific(key: queueKey, value: ())
     }

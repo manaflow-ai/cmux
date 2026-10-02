@@ -36,26 +36,38 @@ struct TerminalCustomUploadRunner {
     private let runProcess: ProcessRunner
     /// `DisableFileTransfer` (MDM), injected so tests can force it.
     private let isFileTransferDisabled: () -> Bool
+    /// The `terminal.uploadCommands` rules. The settings catalog (cmux.json) by default,
+    /// injected so tests can supply rules without a settings runtime.
+    private let uploadRules: @MainActor () -> [TerminalUploadCommandRule]
 
     init(
         runProcess: @escaping ProcessRunner = TerminalCustomUploadRunner.spawnCommand,
-        isFileTransferDisabled: @escaping () -> Bool = { ManagedFileTransferPolicy.isDisabled }
-    ) {
-        self.isFileTransferDisabled = isFileTransferDisabled
-        self.runProcess = runProcess
-    }
-
-    /// The command matching `endpoint.destination`, or nil when the built-in
-    /// transport should be used. Reads the `terminal.uploadCommands` rules from the
-    /// settings catalog (cmux.json). Called on the main thread from the drop/paste
-    /// sites, so the catalog is read via `MainActor.assumeIsolated`.
-    private func matchedCommand(for endpoint: Endpoint) -> String? {
-        let rules = MainActor.assumeIsolated {
+        isFileTransferDisabled: @escaping () -> Bool = { ManagedFileTransferPolicy.isDisabled },
+        uploadRules: @escaping @MainActor () -> [TerminalUploadCommandRule] = {
             AppDelegate.shared?.settingsRuntime.map {
                 $0.jsonStore.snapshotValue(for: $0.catalog.terminal.uploadCommands)
             } ?? []
         }
-        return TerminalUploadCommand(rules: rules).command(forDestination: endpoint.destination)
+    ) {
+        self.isFileTransferDisabled = isFileTransferDisabled
+        self.runProcess = runProcess
+        self.uploadRules = uploadRules
+    }
+
+    /// The command matching this endpoint, or nil when the built-in transport should be
+    /// used. A rule matches either `endpoint.destination` or the first usable `HostName`
+    /// in `endpoint.sshOptions`, so a broker alias still matches the host it reaches and
+    /// rules written against the alias keep working.
+    @MainActor
+    private func matchedCommand(for endpoint: Endpoint) -> String? {
+        // Swift 5 mode only warns when a closure handed to DispatchQueue, Timer or
+        // NotificationCenter calls a main-actor function, so the run-time check stays.
+        MainActor.preconditionIsolated()
+        let rules = uploadRules()
+        return TerminalUploadCommand(rules: rules).command(
+            forDestination: endpoint.destination,
+            sshOptions: endpoint.sshOptions
+        )
     }
 
     /// Runs `command` once per file and returns the space-joined string to type
@@ -139,6 +151,7 @@ struct TerminalCustomUploadRunner {
     /// the main queue after the transfer operation is marked finished. Returns
     /// true when it took ownership — the caller must NOT run the built-in
     /// `execute`; false to fall through to the built-in transport unchanged.
+    @MainActor
     @discardableResult
     func handleIfMatched(
         plan: TerminalImageTransferPlan,
@@ -213,6 +226,25 @@ struct TerminalCustomUploadRunner {
         environment: [String: String],
         timeout: TimeInterval,
         operation: TerminalImageTransferOperation
+    ) throws -> (status: Int32, stdout: String, stderr: String) {
+        try spawnCommand(
+            command: command,
+            environment: environment,
+            timeout: timeout,
+            operation: operation,
+            drainTimeout: 2
+        )
+    }
+
+    /// `drainTimeout` bounds each pipe drain after the leader exits (see
+    /// ``finishDrain(_:closing:within:)``). Tests whose command leaves an orphan
+    /// holding the pipes pass a short bound instead of waiting it out.
+    static func spawnCommand(
+        command: String,
+        environment: [String: String],
+        timeout: TimeInterval,
+        operation: TerminalImageTransferOperation,
+        drainTimeout: TimeInterval
     ) throws -> (status: Int32, stdout: String, stderr: String) {
         try operation.throwIfCancelled()
 
@@ -381,8 +413,8 @@ struct TerminalCustomUploadRunner {
         // group, so a group kill can't reach it — could still hold a write end
         // open. Bound the drain, then close our read end to force the reader to
         // return. This can't hang and doesn't signal a possibly-reused pgid.
-        finishDrain(stdoutDrained, closing: stdoutReadFD); stdoutFDs[0] = -1
-        finishDrain(stderrDrained, closing: stderrReadFD); stderrFDs[0] = -1
+        finishDrain(stdoutDrained, closing: stdoutReadFD, within: drainTimeout); stdoutFDs[0] = -1
+        finishDrain(stderrDrained, closing: stderrReadFD, within: drainTimeout); stderrFDs[0] = -1
 
         if operation.isCancelled {
             throw TerminalImageTransferExecutionError.cancelled
@@ -408,10 +440,10 @@ struct TerminalCustomUploadRunner {
         )
     }
 
-    /// Waits up to 2s for `done`, then closes `fd` to force a still-blocked reader
+    /// Waits up to `seconds` for `done`, then closes `fd` to force a still-blocked reader
     /// (a descendant holding the write end) to return — a bounded, hang-free drain.
-    private static func finishDrain(_ done: DispatchSemaphore, closing fd: Int32) {
-        if done.wait(timeout: .now() + 2) == .timedOut {
+    private static func finishDrain(_ done: DispatchSemaphore, closing fd: Int32, within seconds: TimeInterval) {
+        if done.wait(timeout: .now() + seconds) == .timedOut {
             close(fd)
             done.wait()
         } else {

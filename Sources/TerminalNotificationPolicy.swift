@@ -619,7 +619,9 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
             posix_spawnattr_setsigmask(&attributes, &emptyMask),
             operation: "clear inherited signal mask"
         )
-        let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK)
+        // Keep unrelated app descriptors out of hooks. The dup2 actions above
+        // preserve the hook's standard streams.
+        let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_CLOEXEC_DEFAULT)
         try throwIfPOSIXError(posix_spawnattr_setflags(&attributes, flags), operation: "set spawn flags")
         try throwIfPOSIXError(posix_spawnattr_setpgroup(&attributes, 0), operation: "set process group")
         let arguments = ["/bin/sh", "-c", hook.command]
@@ -667,7 +669,7 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         env["CMUX_NOTIFICATION_BODY"] = envelope.notification.body
         env["CMUX_NOTIFICATION_WORKSPACE_ID"] = envelope.notification.workspaceId
         env["CMUX_NOTIFICATION_SURFACE_ID"] = envelope.notification.surfaceId ?? ""
-        // `local`, `ssh-relay:<workspace>`, or `cloud-vm:<machine>`: lets a hook treat
+        // `local`, `ssh-relay:<workspace>`, `cloud-vm:<machine>`, or `device-mac:<device>`: lets a hook treat
         // remote-origin title/body as untrusted text (never interpolate into code).
         env["CMUX_NOTIFICATION_ORIGIN"] = envelope.origin?.value ?? TerminalNotificationOrigin.localWireValue
         env["CMUX_NOTIFICATION_POLICY_JSON"] = String(data: inputData, encoding: .utf8) ?? ""

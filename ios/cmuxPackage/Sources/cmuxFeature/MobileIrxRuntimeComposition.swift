@@ -8,8 +8,18 @@ public import Foundation
 
 /// Owns one v2 control service and endpoint per authenticated team/build identity.
 public actor MobileIrxRuntimeComposition {
+    struct PreparedCachedRuntime: Sendable {
+        let identity: IrxIdentity
+        let key: V2IdentityKey
+        let tuple: V2Identity
+        let stateStore: V2FileStateStore
+        let restored: V2CachedState?
+        let supervisor: IrxEndpointSupervisor
+    }
+
     public enum CompositionError: Error, Sendable {
-        case notSignedIn, unsupportedRoute, peerNotDiscovered, directDialUnavailable, scopeChanged
+        case notSignedIn, unsupportedRoute, peerNotDiscovered, directDialUnavailable, scopeChanged,
+             endpointWarmupTimedOut
     }
     enum DialIntent: Equatable, Sendable {
         case automatic
@@ -36,6 +46,9 @@ public actor MobileIrxRuntimeComposition {
     var controlTask: Task<Void, Never>?
     var foregroundTask: Task<Void, Never>?
     var endpointWarmupTask: Task<Void, Never>?
+    var endpointWarmupEpoch: UInt64?
+    var cachedWarmupTask: Task<Void, Never>?
+    var preparedCachedRuntime: PreparedCachedRuntime?
     var control: V2ControlService?
     var endpointSupervisor: IrxEndpointSupervisor?
     var directEndpointSupervisor: IrxEndpointSupervisor?
@@ -49,6 +62,8 @@ public actor MobileIrxRuntimeComposition {
     var expectedDeviceIDByPeer: [String: String] = [:]
     var controlLaneClaims = MobileIrxControlLaneClaims()
     var claimedEventSessions: [String: String] = [:]
+    /// One server-event lane acceptor per admitted session, keyed by peer.
+    var eventLaneHubs: [String: (sessionID: String, hub: IrxServerEventLaneHub)] = [:]
     var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
     var launchTime = Date()
     var backgroundTime: Date?
@@ -67,6 +82,12 @@ public actor MobileIrxRuntimeComposition {
         installation = MobileIrohV2InstallationStore(configuration: configuration, accessGroup: keychainAccessGroup)
         journal = IrxJournal(subsystem: "dev.cmux.ios", category: "iroh-v2",
             journalFileURL: configuration.stateDirectory.appendingPathComponent("iroh-v2-journal.jsonl"))
+    }
+
+    /// Shared registration ID for this installation's Iroh and Cloud clients.
+    /// Storage failures propagate so callers never create a substitute identity.
+    public func installationDeviceID() async throws -> String {
+        try await installation.deviceID()
     }
 
     func changes() -> AsyncStream<Void> {

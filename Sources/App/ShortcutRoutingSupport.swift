@@ -121,7 +121,7 @@ struct ConfiguredShortcutMatcher {
     }
 
     func matchesTab(event: NSEvent, stroke: ShortcutStroke) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
         return event.keyCode == 48 && flags == stroke.modifierFlags
     }
 
@@ -525,10 +525,11 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
 func shouldRouteCommandPaletteSelectionNavigation(
     delta: Int?,
     isInteractive: Bool,
-    usesInlineTextHandling: Bool
+    usesInlineTextHandling: Bool,
+    isAgentInboxReplyFieldFocused: Bool = false
 ) -> Bool {
     guard delta != nil, isInteractive else { return false }
-    return !usesInlineTextHandling
+    return !usesInlineTextHandling && !isAgentInboxReplyFieldFocused
 }
 
 func shouldConsumeShortcutWhileCommandPaletteVisible(
@@ -805,6 +806,7 @@ func cmuxIsWebInspectorObject(_ object: NSObject) -> Bool {
 private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
     case copy
     case cut
+    case paste
     case selectAll
     case italic
 
@@ -827,6 +829,15 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
                 option: false,
                 control: false,
                 keyCode: 7
+            )
+        case .paste:
+            return StoredShortcut(
+                key: "v",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: 9
             )
         case .selectAll:
             return StoredShortcut(

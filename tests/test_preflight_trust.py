@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import git_fixture_env  # disables git auto maintenance
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -31,6 +32,7 @@ class PreflightTrustTests(unittest.TestCase):
         self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
                         CMUX_FIXTURE_MARKER=str(self.marker), PYTHONDONTWRITEBYTECODE="1")
+        git_fixture_env.without_auto_maintenance(self.env)
         self.git("init", "--quiet", "--initial-branch=main")
         self.git("config", "user.name", "Trust fixture")
         self.git("config", "user.email", "fixture@example.invalid")
@@ -38,7 +40,18 @@ class PreflightTrustTests(unittest.TestCase):
         self.git("remote", "add", "origin", str(self.remote))
         # Copy installed behavior, including the vulnerable hook when running
         # this regression against the before-fix source tree.
-        for relative in ("scripts/git-hooks", "scripts/install-git-hooks.sh", "scripts/verify-push.py"):
+        for relative in (
+            "scripts/git-hooks",
+            "scripts/install-git-hooks.sh",
+            "scripts/merge-xcstrings.py",
+            "scripts/merge-pbxproj.py",
+            "scripts/ci/merge_main_resolver.py",
+            "scripts/ci/validate_test_execution_registry.py",
+            "scripts/ci/test_execution_registry.py",
+            "scripts/ci/workload_entrypoints.py",
+            "scripts/normalize-pbxproj.py",
+            "scripts/verify-push.py",
+        ):
             source, target = SOURCE / relative, self.repo / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             if source.is_dir():
@@ -57,10 +70,15 @@ class PreflightTrustTests(unittest.TestCase):
         self.assertFalse((SOURCE / "scripts/git-hooks/pre-push").exists())
         self.assertFalse((SOURCE / "scripts/verify-push.py").exists())
         self.assertFalse((self.repo / "scripts/git-hooks/pre-push").exists())
+        common = Path(self.git("rev-parse", "--git-common-dir").stdout.strip())
+        if not common.is_absolute():
+            common = self.repo / common
+        installed_hooks = common / "cmux-git-hooks"
         self.assertEqual(
-            self.git("config", "--get", "core.hooksPath").stdout.strip(),
-            "scripts/git-hooks",
+            Path(self.git("config", "--get", "core.hooksPath").stdout.strip()).resolve(),
+            installed_hooks.resolve(),
         )
+        self.assertFalse((installed_hooks / "pre-push").exists())
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,

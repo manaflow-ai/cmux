@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import CmuxFoundation
 
 /// Type of panel content
 public enum PanelType: String, Codable, CaseIterable, Sendable {
@@ -19,6 +20,7 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
     case cloudVMLoading
     case mobilePairing
     case accountSignIn
+    case cloudVPNSetup
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -61,6 +63,10 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
         }
         if rawValue.lowercased() == Self.accountSignIn.rawValue.lowercased() {
             self = .accountSignIn
+            return
+        }
+        if rawValue.lowercased() == Self.cloudVPNSetup.rawValue.lowercased() {
+            self = .cloudVPNSetup
             return
         }
         throw DecodingError.dataCorruptedError(
@@ -121,12 +127,12 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
 
 /// The built-in attention color used when no configured override is valid.
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
-    case notificationBlue
+    case cmuxAccent
 
-    var strokeColor: NSColor {
+    func strokeColor(accent: CmuxAccentColor) -> NSColor {
         switch self {
-        case .notificationBlue:
-            return .systemBlue
+        case .cmuxAccent:
+            return accent.dynamicNSColor
         }
     }
 }
@@ -163,13 +169,13 @@ struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
 
 enum WorkspaceAttentionCoordinator {
     static let notificationRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
+        accent: .cmuxAccent,
         glowOpacity: 0.35,
         glowRadius: 3
     )
 
     static let flashRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
+        accent: .cmuxAccent,
         glowOpacity: 0.6,
         glowRadius: 6
     )
@@ -210,7 +216,7 @@ enum FocusFlashCurve: Equatable {
 enum PanelOverlayRingMetrics {
     static let inset: CGFloat = 2
     static let cornerRadius: CGFloat = 6
-    static let lineWidth: CGFloat = 2.5
+    static let lineWidth: CGFloat = .paneIndicatorStrokeWidth
 
     static func pathRect(in bounds: CGRect) -> CGRect {
         bounds.insetBy(dx: inset, dy: inset)
@@ -246,15 +252,37 @@ struct FocusFlashSegment: Equatable {
     let curve: FocusFlashCurve
 }
 
-enum FocusFlashPattern {
-    static let values: [Double] = [0, 1, 0, 1, 0]
-    static let keyTimes: [Double] = [0, 0.25, 0.5, 0.75, 1]
-    static let duration: TimeInterval = 0.9
-    static let curves: [FocusFlashCurve] = [.easeOut, .easeIn, .easeOut, .easeIn]
+/// The attention flash shape. One short pulse by default: enough to say where
+/// focus or attention landed without replaying a blink on every move between
+/// panes. `notifications.paneFlashDoubleBlink` restores the older double blink.
+struct FocusFlashPattern: Equatable {
+    let values: [Double]
+    let keyTimes: [Double]
+    let duration: TimeInterval
+    let curves: [FocusFlashCurve]
+
+    static let pulse = FocusFlashPattern(
+        values: [0, 1, 0],
+        keyTimes: [0, 0.3, 1],
+        duration: 0.6,
+        curves: [.easeOut, .easeIn]
+    )
+    static let doubleBlink = FocusFlashPattern(
+        values: [0, 1, 0, 1, 0],
+        keyTimes: [0, 0.25, 0.5, 0.75, 1],
+        duration: 0.9,
+        curves: [.easeOut, .easeIn, .easeOut, .easeIn]
+    )
+
+    /// The shape the user has chosen, read when a flash starts.
+    static var current: FocusFlashPattern {
+        NotificationPaneFlashSettings.usesDoubleBlink() ? doubleBlink : pulse
+    }
+
     static let ringInset: Double = Double(PanelOverlayRingMetrics.inset)
     static let ringCornerRadius: Double = Double(PanelOverlayRingMetrics.cornerRadius)
 
-    static var segments: [FocusFlashSegment] {
+    var segments: [FocusFlashSegment] {
         let stepCount = min(curves.count, values.count - 1, keyTimes.count - 1)
         return (0..<stepCount).map { index in
             let startTime = keyTimes[index]
@@ -268,10 +296,10 @@ enum FocusFlashPattern {
         }
     }
 
-    static func opacity(at elapsed: TimeInterval) -> Double {
+    func opacity(at elapsed: TimeInterval) -> Double {
         guard elapsed >= 0, elapsed <= duration else { return 0 }
 
-        for index in 0..<segments.count {
+        for index in 0..<min(curves.count, values.count - 1, keyTimes.count - 1) {
             let startTime = keyTimes[index] * duration
             let endTime = keyTimes[index + 1] * duration
             if elapsed > endTime {
@@ -280,7 +308,7 @@ enum FocusFlashPattern {
 
             let segmentDuration = max(endTime - startTime, 0.0001)
             let rawProgress = max(0, min(1, (elapsed - startTime) / segmentDuration))
-            let curvedProgress = interpolatedProgress(rawProgress, curve: curves[index])
+            let curvedProgress = Self.interpolatedProgress(rawProgress, curve: curves[index])
             let startOpacity = values[index]
             let endOpacity = values[index + 1]
             return startOpacity + ((endOpacity - startOpacity) * curvedProgress)

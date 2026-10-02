@@ -16,6 +16,12 @@ public struct AgentHookDeliveryPolicy: Sendable {
     /// The maximum time a queued hook waits for the app to acknowledge admission.
     public static let admissionResponseTimeoutSeconds: TimeInterval = 0.5
 
+    /// The whole-command budget of a queued hook process. The response
+    /// timeout bounds only socket waits; keychain lookups, stdin, and process
+    /// work are not socket waits. Past this budget the hook answers with its
+    /// neutral response itself, well inside ``declaredTimeoutSeconds``.
+    public static let admissionWallClockSeconds: TimeInterval = 2
+
     /// The timeout declared to agent runtimes for queued hook processes.
     public static let declaredTimeoutSeconds = 5
 
@@ -51,6 +57,12 @@ public struct AgentHookDeliveryPolicy: Sendable {
         "amp": ["title-update", "lifecycle"],
         "claude": ["pre-tool-use", "push-notification", "feed"],
         "codex": ["pre-tool-use", "post-tool-use"],
+        // OMP and Pi run subagents headless inside the parent's process, so a
+        // child has no live bound process of its own. These lifecycle-only
+        // events attribute to the existing parent record and never affect the
+        // agent's next decision.
+        "omp": ["subagent-start", "subagent-stop"],
+        "pi": ["subagent-start", "subagent-stop"],
     ]
 
     /// Creates the shared queued-delivery policy.

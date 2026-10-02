@@ -257,6 +257,36 @@ public struct MobileAuthComposition {
     /// agent's localhost server.
     nonisolated static let apiBaseURLInfoPlistKey = "CMUXApiBaseURL"
 
+    /// Cloud machines live independently of the paired Mac. A development
+    /// build may still use a loopback API origin for Mac pairing, but Cloud
+    /// requests must move to the shared remote control plane in that case.
+    nonisolated static let developmentCloudAPIBaseURL = "https://cmux-staging.vercel.app"
+    nonisolated static let productionCloudAPIBaseURL = "https://cmux.com"
+
+    nonisolated static func cloudAPIBaseURL(
+        authEnvironment: CMUXAuthEnvironment,
+        configuredBaseURL: String
+    ) -> String {
+        if authEnvironment == .production {
+            return productionCloudAPIBaseURL
+        }
+
+        let trimmed = configuredBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed),
+              let host = url.host?.lowercased(),
+              !Self.isLoopbackCloudHost(host) else {
+            return developmentCloudAPIBaseURL
+        }
+        return trimmed
+    }
+
+    private nonisolated static func isLoopbackCloudHost(_ host: String) -> Bool {
+        host == "localhost"
+            || host == "127.0.0.1"
+            || host == "::1"
+            || host == "[::1]"
+    }
+
     /// Merge the Info.plist-baked auth environment into the `LocalConfig.plist`
     /// override table. An explicit LocalConfig entry wins over the bake
     /// (mirroring presence resolution, where the local override table beats the
@@ -408,17 +438,46 @@ public struct MobileAuthComposition {
         #endif
     }
 
-    private static func tokenStore(
+    /// - Parameter simulatorSupportDirectory: Where the simulator build keeps
+    ///   its sandboxed token files. Injected so a test can exercise the
+    ///   unresolvable-directory path; production always passes the default.
+    static func tokenStore(
         appNamespace: MobileIOSAppNamespace?,
         accessGroup: String?,
-        legacyProjectID: String
+        legacyProjectID: String,
+        simulatorSupportDirectory: URL? = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first
     ) -> TokenStoreInit {
-        #if DEBUG && targetEnvironment(simulator)
-        .memory
-        #else
         guard let appNamespace else {
-            return .none
+            // A malformed or test bundle must not leave StackClientApp without
+            // a token store: any authenticated operation would fatalError in
+            // the SDK. Memory storage keeps the failure recoverable (and
+            // deliberately avoids attributing persisted credentials to an
+            // unknown bundle).
+            return .memory
         }
+        #if DEBUG && targetEnvironment(simulator)
+        // Unsigned simulator apps cannot rely on Keychain entitlements. Keep
+        // tokens in this simulator app's sandbox so a process restart exercises
+        // real session restoration. Bundle and Stack project remain isolated.
+        guard let support = simulatorSupportDirectory else {
+            // Same reasoning as a missing app identity above: .none leaves
+            // StackClientApp with a NullTokenStore, so the next authenticated
+            // operation fatalErrors. Losing the session on relaunch is
+            // recoverable; trapping the process is not.
+            return .memory
+        }
+        let projectComponent = Data(legacyProjectID.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return .custom(FileStackTokenStore(directory: support
+            .appendingPathComponent("cmux-simulator-auth", isDirectory: true)
+            .appendingPathComponent(appNamespace.bundleIdentifier, isDirectory: true)
+            .appendingPathComponent("project-\(projectComponent)", isDirectory: true)))
+        #else
         return .custom(
             KeychainStackTokenStore(
                 service: appNamespace.keychainService(

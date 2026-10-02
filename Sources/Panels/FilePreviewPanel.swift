@@ -943,7 +943,8 @@ enum FilePreviewKindResolver {
 
     private static let textExtensions: Set<String> = [
         "bash", "c", "cc", "cfg", "conf", "cpp", "cs", "css", "csv", "cts", "env",
-        "fish", "go", "h", "hpp", "htm", "html", "ini", "java", "js", "json",
+        "erl", "ex", "exs", "fish", "go", "h", "hpp", "hrl", "htm", "html", "ini",
+        "java", "js", "json",
         "jsx", "kt", "log", "m", "markdown", "md", "mdx", "mm", "mts", "plist",
         "py", "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "tsv", "txt",
         "xml", "yaml", "yml", "zsh"
@@ -1879,9 +1880,9 @@ struct FilePreviewPanelView: View {
     private func triggerFocusFlashAnimation() {
         focusFlashAnimationGeneration &+= 1
         let generation = focusFlashAnimationGeneration
-        focusFlashOpacity = FocusFlashPattern.values.first ?? 0
+        focusFlashOpacity = FocusFlashPattern.current.values.first ?? 0
 
-        for segment in FocusFlashPattern.segments {
+        for segment in FocusFlashPattern.current.segments {
             DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
                 guard focusFlashAnimationGeneration == generation else { return }
                 withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {

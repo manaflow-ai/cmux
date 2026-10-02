@@ -3,6 +3,26 @@ import Carbon.HIToolbox
 import Darwin
 import Testing
 
+@Suite("Composed prompt submit keys")
+struct ComposedPromptSubmitKeyTests {
+    @Test("Active providers override an earlier Claude launch", arguments:
+        ["codex", "opencode", "pi", "cursor", "grok", "gemini"]
+    )
+    func activeProviderOverridesLaunch(_ provider: String) {
+        let context = "initialCommand:claude\nrestoredAgent:claude\nagentPIDKey:\(provider).123"
+        #expect(TextBoxAgentDetection.composedPromptSubmitKey(
+            containsNewline: true, context: context
+        ) == "return")
+    }
+
+    @Test("Active Claude keeps its multiline submit chord")
+    func activeClaude() {
+        #expect(TextBoxAgentDetection.composedPromptSubmitKey(
+            containsNewline: true, context: "initialCommand:opencode\nagentPIDKey:claude.123"
+        ) == "ctrl+enter")
+    }
+}
+
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)

@@ -705,7 +705,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         let patchText = try String(contentsOf: patchSidecarURL, encoding: .utf8)
         let viewerConfig = try diffViewerConfig(from: html)
         let viewerPayload = try diffViewerPayload(from: viewerConfig)
-        let viewerAssets = try diffViewerAssets(from: viewerConfig)
         let transport = try XCTUnwrap(viewerPayload["transport"] as? [String: Any])
         XCTAssertEqual([transport["kind"] as? String, transport["endpoint"] as? String], ["webKit", "cmuxDiff"])
         XCTAssertEqual(transport["protocolVersion"] as? Int, 1)
@@ -730,18 +729,15 @@ final class CMUXOpenCommandTests: XCTestCase {
         let appModuleRequestPath = try diffViewerAppModuleRequestPath(from: html)
         XCTAssertTrue(appModuleRequestPath.hasPrefix("/assets/cmux-webviews-app-"), appModuleRequestPath)
         XCTAssertTrue(appModuleRequestPath.hasSuffix("/main.mjs"), appModuleRequestPath)
-        let assetDirectory = viewerFileURL.deletingLastPathComponent()
-            .appendingPathComponent("assets", isDirectory: true)
-            .appendingPathComponent("pierre-diffs-1.2.7-trees-1.0.0-beta.4", isDirectory: true)
         let appAssetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent(String(appModuleRequestPath.dropFirst()))
             .deletingLastPathComponent()
         XCTAssertFalse(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs.deflate").path))
-        XCTAssertEqual(viewerAssets["diffsModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/diffs.mjs")
-        XCTAssertEqual(viewerAssets["treesModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/trees.mjs")
-        XCTAssertEqual(viewerAssets["workerPoolModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-pool.mjs")
-        XCTAssertEqual(viewerAssets["workerModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js")
+        // The highlight worker is a chunk of the webviews bundle; the page no
+        // longer receives a separate worker asset URL.
+        XCTAssertNil(viewerConfig["assets"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("chunks/diff-worker.mjs.deflate").path))
         let appearance = try XCTUnwrap(viewerPayload["appearance"] as? [String: Any])
         XCTAssertEqual(appearance["backgroundOpacity"] as? Double, 0.42)
         XCTAssertTrue(html.contains("\"fontFamily\":\"Unit Mono\""), html)
@@ -763,9 +759,13 @@ final class CMUXOpenCommandTests: XCTestCase {
             file["request_path"] as? String == appModuleRequestPath &&
                 file["mime_type"] as? String == "text/javascript"
         })
+        let workerRequestPath = appModuleRequestPath.replacingOccurrences(of: "/main.mjs", with: "/chunks/diff-worker.mjs")
         XCTAssertTrue(files.contains { file in
-            file["request_path"] as? String == "/assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js" &&
+            file["request_path"] as? String == workerRequestPath &&
                 file["mime_type"] as? String == "text/javascript"
+        })
+        XCTAssertFalse(files.contains { file in
+            (file["request_path"] as? String)?.contains("worker-pool/") == true
         })
         XCTAssertFalse(html.contains("hello.txt"), html)
         XCTAssertFalse(html.contains("<\\/script> marker"), html)
@@ -1769,6 +1769,110 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(try posixPermissions(at: snapshotFile), 0o600)
     }
 
+    func testAgentTurnDiffBaselineBoundsLargeUntrackedPathLists() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        let stateURL = rootURL.appendingPathComponent("state", isDirectory: true)
+        let artifactsURL = repoURL.appendingPathComponent("artifacts", isDirectory: true)
+        try FileManager.default.createDirectory(at: artifactsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "tracked\n".write(to: repoURL.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
+        try runGit(["add", "tracked.txt"], in: repoURL)
+        try runGit(["commit", "-m", "initial"], in: repoURL)
+        for index in 0..<600 {
+            try "artifact \(index)\n".write(
+                to: artifactsURL.appendingPathComponent("artifact-\(index).txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let workspaceId = UUID().uuidString.lowercased()
+        let surfaceId = UUID().uuidString.lowercased()
+        let socketPath = makeSocketPath("hook-diff")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "surface.list" {
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": surfaceId,
+                                "ref": "surface:1",
+                                "index": 1,
+                                "focused": true
+                            ] as [String: Any]
+                        ]
+                    ]
+                )
+            }
+            return Self.v2Response(id: id, ok: true, result: [:])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["hooks", "codex", "prompt-submit", "--workspace", workspaceId, "--surface", surfaceId],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
+                "PWD": repoURL.path
+            ],
+            currentDirectoryURL: repoURL,
+            stdinText: String(
+                data: try JSONSerialization.data(withJSONObject: [
+                    "session_id": "session-large-untracked",
+                    "cwd": repoURL.path,
+                    "hook_event_name": "UserPromptSubmit",
+                ], options: [.sortedKeys]),
+                encoding: .utf8
+            )
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let storeData = try Data(contentsOf: stateURL.appendingPathComponent("agent-turn-diff-baselines.json"))
+        let store = try JSONSerialization.jsonObject(with: storeData, options: []) as? [String: Any]
+        let records = try XCTUnwrap(store?["records"] as? [[String: Any]])
+        let record = try XCTUnwrap(records.first)
+        XCTAssertEqual(record["untrackedPaths"] as? [String], ["artifacts/"])
+        XCTAssertNil(record["untrackedPathsOmitted"])
+
+        try "new\n".write(to: repoURL.appendingPathComponent("new-turn-file.txt"), atomically: true, encoding: .utf8)
+        let lastTurn = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--last-turn"],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId
+            ],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(lastTurn.patch.contains("new-turn-file.txt"), lastTurn.patch)
+        XCTAssertFalse(lastTurn.patch.contains("artifacts/artifact-"), lastTurn.patch)
+    }
+
     func testAgentTurnDiffBaselineUsesEmptyTreeForUnbornGitRepo() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
@@ -2556,7 +2660,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         )
     }
 
-    private func runDiffCLIAndReadHTML(
+    func runDiffCLIAndReadHTML(
         cliPath: String,
         arguments: [String],
         environmentOverrides: [String: String] = [:],
@@ -2747,21 +2851,12 @@ final class CMUXOpenCommandTests: XCTestCase {
         return try XCTUnwrap(object as? [String: Any])
     }
 
-    private func diffViewerPayload(from html: String) throws -> [String: Any] {
+    func diffViewerPayload(from html: String) throws -> [String: Any] {
         try diffViewerPayload(from: diffViewerConfig(from: html))
     }
 
     private func diffViewerPayload(from config: [String: Any]) throws -> [String: Any] {
         try XCTUnwrap(config["payload"] as? [String: Any])
-    }
-
-    private func diffViewerAssets(from config: [String: Any]) throws -> [String: String] {
-        let assets = try XCTUnwrap(config["assets"] as? [String: Any])
-        var result: [String: String] = [:]
-        for (key, value) in assets {
-            result[key] = try XCTUnwrap(value as? String)
-        }
-        return result
     }
 
     private func diffViewerOptionPayload(
@@ -2816,7 +2911,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         return result
     }
 
-    private func runGit(_ arguments: [String], in directory: URL) throws {
+    func runGit(_ arguments: [String], in directory: URL) throws {
         let result = runGitProcess(arguments, in: directory)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -2965,29 +3060,13 @@ final class CMUXOpenCommandTests: XCTestCase {
     }
 
     private func writeTestDiffViewerAssets(resourcesURL: URL, appMain: String) throws {
-        let diffViewerURL = resourcesURL
-            .appendingPathComponent("markdown-viewer", isDirectory: true)
-            .appendingPathComponent("diff-viewer", isDirectory: true)
         let appURL = resourcesURL
             .appendingPathComponent("markdown-viewer", isDirectory: true)
             .appendingPathComponent("webviews-app", isDirectory: true)
-        let workerPoolURL = diffViewerURL.appendingPathComponent("worker-pool", isDirectory: true)
-        try FileManager.default.createDirectory(at: workerPoolURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: appURL, withIntermediateDirectories: true)
-        try DeflatedAssetTestSupport.writeText("export const diffsFixture = true;\n",
-            to: diffViewerURL.appendingPathComponent("diffs.mjs", isDirectory: false),
-            addingDeflateExtension: true
-        )
-        try DeflatedAssetTestSupport.writeText("export const treesFixture = true;\n",
-            to: diffViewerURL.appendingPathComponent("trees.mjs", isDirectory: false),
-            addingDeflateExtension: true
-        )
-        try DeflatedAssetTestSupport.writeText("export const workerPoolFixture = true;\n",
-            to: workerPoolURL.appendingPathComponent("worker-pool.mjs", isDirectory: false),
-            addingDeflateExtension: true
-        )
+        let chunksURL = appURL.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: chunksURL, withIntermediateDirectories: true)
         try DeflatedAssetTestSupport.writeText("self.cmuxWorkerFixture = true;\n",
-            to: workerPoolURL.appendingPathComponent("worker-portable.js", isDirectory: false),
+            to: chunksURL.appendingPathComponent("diff-worker.mjs", isDirectory: false),
             addingDeflateExtension: true
         )
         try DeflatedAssetTestSupport.writeText(appMain,

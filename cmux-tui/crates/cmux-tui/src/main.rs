@@ -11,11 +11,16 @@ mod agent_browser_provider;
 mod agent_hook_install;
 mod app;
 mod browser_input;
+#[cfg(unix)]
+mod claude_wrapper;
 mod cli;
 mod client_log;
 #[cfg(unix)]
 mod coderouter_usage;
 mod config;
+// The agent hook helper, also built as the standalone `cmux-tui-hook`.
+#[path = "bin/cmux-tui-hook.rs"]
+mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
@@ -1524,12 +1529,20 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     Ok(())
 }
 
-fn main() {
+fn main() -> std::process::ExitCode {
+    // Hook helper mode for hosts that received only this binary (see
+    // `agent_hook_install::HOOK_MODE_ARG`). It runs inside a provider's hook,
+    // so it touches no daemon, log, or config state.
+    let mut arguments = std::env::args().skip(1);
+    if arguments.next().as_deref() == Some(agent_hook_install::HOOK_MODE_ARG) {
+        return hook_helper::run_cli(arguments.collect(), &[agent_hook_install::HOOK_MODE_ARG]);
+    }
     run_main();
     // Reached only by the normal return paths, which never call
     // client_log::exit; flush so the last queued records (final status,
     // shutdown diagnostics) reach the client log on every platform.
     client_log::flush_for_exit();
+    std::process::ExitCode::SUCCESS
 }
 
 /// Cloud snapshot template settings, set by the Cloud VM boot supervisor for
@@ -1564,8 +1577,19 @@ fn take_cloud_template_env() {
     let _ = CLOUD_TEMPLATE_ENV.set(settings);
 }
 
+/// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
     take_cloud_template_env();
+    // The pane's `claude` shim lands here. Dispatch before the signal
+    // handlers and argv decoding: the wrapper execs Claude with arguments
+    // that need not be UTF-8 or valid cmux-tui flags.
+    #[cfg(unix)]
+    {
+        let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+        if let Some(wrapper_args) = claude_wrapper::invocation(&args) {
+            client_log::exit(claude_wrapper::run(wrapper_args));
+        }
+    }
     // Pin the launch directory before any subsystem can move the process:
     // new terminals default to it (not $HOME) for the daemon's lifetime.
     cmux_tui_core::platform::capture_launch_cwd();
@@ -1724,9 +1748,9 @@ fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
 }
 
 fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Result<()> {
-    let socket_path = match args.socket {
-        Some(path) => path,
-        None => cmux_tui_core::server::try_default_socket_path(&args.session)?,
+    let (socket_path, socket_is_derived) = match args.socket {
+        Some(path) => (path, false),
+        None => (cmux_tui_core::server::try_default_socket_path(&args.session)?, true),
     };
     let messages = &localization::catalog().attach;
     let terminal = args
@@ -1738,9 +1762,9 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
         })
         .transpose()?;
     let remote = if terminal.is_some() {
-        RemoteSession::connect_for_terminal_attach(&socket_path)?
+        RemoteSession::connect_session_for_terminal_attach(&socket_path, socket_is_derived)?
     } else {
-        RemoteSession::connect(&socket_path)?
+        RemoteSession::connect_session(&socket_path, socket_is_derived)?
     };
     let surface_only = if let Some(terminal) = terminal.as_ref() {
         let tree = remote.refresh_tree()?;
@@ -1817,13 +1841,17 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
     if args.provider_cli_requested() {
         anyhow::bail!("relay cannot also select a machine provider");
     }
-    let socket_path = match args.socket {
-        Some(path) => path,
-        None => cmux_tui_core::server::try_default_socket_path(&args.session)?,
+    let (socket_path, socket_is_derived) = match args.socket {
+        Some(path) => (path, false),
+        None => (cmux_tui_core::server::try_default_socket_path(&args.session)?, true),
     };
-    let stream = cmux_tui_core::platform::transport::connect(&socket_path).map_err(|error| {
-        anyhow::anyhow!("cannot connect relay to session socket {}: {error}", socket_path.display())
-    })?;
+    let stream = cmux_tui_core::server::connect_session_socket(&socket_path, socket_is_derived)
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "cannot connect relay to session socket {}: {error}",
+                socket_path.display()
+            )
+        })?;
     let mut reader = stream.try_clone_box()?;
     let mut writer = stream;
 
@@ -1978,6 +2006,7 @@ impl Drop for LocalOwnerEventLoop {
     }
 }
 
+/// Starts the session server: surface environment, state root, mux, and listeners.
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -2006,9 +2035,10 @@ fn run_server(
         Some(path) => path,
         None => cmux_tui_core::server::try_default_socket_path(&args.session)?,
     };
+    let socket_is_derived = args.socket.is_none();
     if args.should_attach_existing(&ws_addr, &ws_token)
         && socket_path.exists()
-        && let Ok(remote) = RemoteSession::connect(&socket_path)
+        && let Ok(remote) = RemoteSession::connect_session(&socket_path, socket_is_derived)
     {
         return run_connected_session_client(
             socket_path,
@@ -2077,6 +2107,12 @@ fn run_server(
         surface_options
             .extra_env
             .push(("CMUX_TUI_HOOK".into(), helper.to_string_lossy().into_owned()));
+    }
+    // `claude` resolves to a shim that adds the session's agent hooks, even
+    // under launchers with their own settings and config directory.
+    #[cfg(unix)]
+    if let Some(path) = claude_wrapper::pane_path() {
+        surface_options.extra_env.push(("PATH".into(), path));
     }
 
     let state_root = if args.ephemeral {
@@ -2264,6 +2300,21 @@ fn run_server(
     // other host resolves no source and gets no poller.
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    // Closes terminals whose idle-close policy (`set-terminal-idle-policy`)
+    // has elapsed with no attached view.
+    let idle_terminal_reaper = match cmux_tui_core::start_idle_terminal_reaper(
+        Arc::downgrade(&mux),
+        cmux_tui_core::IDLE_CLOSE_REAP_INTERVAL,
+    ) {
+        Ok(reaper) => Some(reaper),
+        Err(error) => {
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: idle terminal reaper unavailable: {error}"
+            );
+            None
+        }
+    };
 
     let machine_runtime = (config.machine_sidebar.enabled
         || !config.machine_sidebar.create_sources.is_empty()
@@ -2292,7 +2343,7 @@ fn run_server(
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime, mux.clone(), config)
     } else {
-        match RemoteSession::connect(&socket_path)
+        match RemoteSession::connect_session(&socket_path, socket_is_derived)
             .context("connect the interactive client to its session server")
         {
             Ok(remote) => run_tui_with_owner(
@@ -2306,6 +2357,9 @@ fn run_server(
         }
     };
     let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
+    if let Some(reaper) = idle_terminal_reaper {
+        reaper.stop();
+    }
     #[cfg(unix)]
     if let Some(poller) = machine_usage_poller {
         poller.stop();
@@ -2572,7 +2626,7 @@ fn start_detached_owner_session(
             }
         }
     }
-    let remote = RemoteSession::connect(&socket_path)
+    let remote = RemoteSession::connect_session(&socket_path, spec.socket_is_derived)
         .context("connect the interactive client to its detached session owner")?;
     run_connected_session_client(
         socket_path,

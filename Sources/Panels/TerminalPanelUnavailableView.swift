@@ -25,5 +25,6 @@ struct TerminalPanelUnavailableView: View {
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: appearance.contentBackgroundColor))
+        .ghosttyDialogTheme()
     }
 }
