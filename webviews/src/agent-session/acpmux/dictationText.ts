@@ -158,20 +158,26 @@ function remainder(text: string, anchor: DictationAnchor): { rest: string; glued
 
 const graphemes = (text: string) => Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text), (part) => part.segment);
 
-/// Where `handed` ends in `next`, or -1 when that is unclear (a revision then adds nothing): the
-/// latest place its last item follows its second-to-last one, or else its last item when that
-/// appears exactly once on both sides ("I'm going" as "I am going").
+/// Where `handed` ends in `next`, or -1 when that is unclear (a revision then adds nothing): where
+/// its last item follows its second-to-last one, when the revision has that pair as often as the
+/// handed text (the latest); else its last item when that appears exactly once on both sides ("I'm
+/// going" as "I am going"). An anchor short of half the handed text is a copy, not its end.
 function anchorAfter(handed: string[], next: string[], same: (a: string, b: string) => boolean): number {
   const last = handed.at(-1), before = handed.at(-2);
   if (last === undefined) return -1;
-  if (before !== undefined) {
-    for (let index = next.length - 1; index > 0; index -= 1) {
-      if (same(next[index]!, last) && same(next[index - 1]!, before)) return index;
-    }
+  const pairs = (items: string[]) => items.flatMap((item, index) =>
+    (index > 0 && before !== undefined && same(item, last) && same(items[index - 1]!, before) ? [index] : []));
+  const mine = pairs(handed), theirs = pairs(next);
+  let at = -1;
+  if (theirs.length > 0) {
+    if (theirs.length === mine.length) at = theirs.at(-1)!;
+  } else {
+    const once = (items: string[]) => items.flatMap((item, index) => (same(item, last) ? [index] : []));
+    const lastMine = once(handed), lastTheirs = once(next);
+    if (lastMine.length === 1 && lastTheirs.length === 1) at = lastTheirs[0]!;
   }
-  const mine = handed.filter((item) => same(item, last)).length;
-  const theirs = next.flatMap((item, index) => (same(item, last) ? [index] : []));
-  return mine === 1 && theirs.length === 1 ? theirs[0]! : -1;
+  if (at < 0 || plain(next.slice(0, at + 1).join("")).length * 2 < plain(handed.join("")).length) return -1;
+  return at;
 }
 
 /// Whole words: a word boundary goes before them.
