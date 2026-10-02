@@ -10,7 +10,7 @@ import { ChevronLeft, CollapseAll, Panels, SplitView, Wrap } from "./changeIcons
 import { ChangedFilesTree } from "./changes/ChangedFilesTree";
 import { Counts } from "./changes/Counts";
 import { EditBlock, type DiffLayout } from "./changes/EditBlock";
-import type { FileActions } from "./changes/FileHeader";
+import type { FileActions, OpenTarget } from "./changes/FileHeader";
 import { LoadState } from "./changes/LoadState";
 import { changeSetFiles, type ChangeScope, type ChangesSource } from "./changes/model";
 import { ScopeMenu } from "./changes/ScopeMenu";
@@ -45,11 +45,14 @@ export function DiffPanel({
   initialPath,
   onClose,
   source,
+  onOpenFile,
 }: {
   files: TurnFile[];
   initialPath?: string;
   onClose: () => void;
   source?: ChangesSource;
+  /// Asks the host to open a changed file; rejects with the host's reason when it can't.
+  onOpenFile?: (path: string, where: OpenTarget) => Promise<unknown>;
 }) {
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
@@ -135,8 +138,18 @@ export function DiffPanel({
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [onClose]);
+  // Why the last open failed, until the next one.
+  const [openFailure, setOpenFailure] = useState<string>();
+  const openFile = useStableCallback((path: string, where: OpenTarget) => {
+    setOpenFailure(undefined);
+    const opening = onOpenFile ? onOpenFile(path, where) : Promise.reject(new Error("The file could not be opened."));
+    opening.catch((error: unknown) =>
+      setOpenFailure(error instanceof Error && error.message ? error.message : "The file could not be opened."),
+    );
+  });
   const on = useMemo<FileActions>(
     () => ({
+      openFile,
       toggleCollapsed: (path) => {
         revealing.current = undefined;
         setCollapsed((current) => {
@@ -160,7 +173,7 @@ export function DiffPanel({
         setCollapsed(flip);
       },
     }),
-    [viewed],
+    [viewed, openFile],
   );
   const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.path));
   const press = (tool: Tool) => {
@@ -226,6 +239,11 @@ export function DiffPanel({
           ))}
         </div>
       </header>
+      {openFailure && (
+        <div className="acpmux-diff-notice" role="alert">
+          {openFailure}
+        </div>
+      )}
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">
           {scopeState ? (

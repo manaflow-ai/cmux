@@ -99,6 +99,8 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
 /// The changes view reads git scopes from whoever runs the session: the acpmux client
 /// (or the mock daemon), else the native host.
 const changesSource: ChangesSource = { scopeDiff: (scope) => callNative("git.scope.diff", { scope }) };
+/// The host opens a changed file in a tab beside the agent or in the editor (`file.open`).
+const openChangedFile = (path: string, where: "tab" | "editor") => callNative("file.open", { path, where });
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
@@ -979,7 +981,13 @@ function AcpmuxPane() {
             />
           )}
           {diffView && diffFiles && (
-            <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} source={changesSource} />
+            <DiffPanel
+              files={diffFiles}
+              initialPath={diffView.path}
+              onClose={closeDiff}
+              source={changesSource}
+              onOpenFile={openChangedFile}
+            />
           )}
         </div>
         {snapshot.permission?.pending && (

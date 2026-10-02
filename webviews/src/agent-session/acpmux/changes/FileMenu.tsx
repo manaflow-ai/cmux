@@ -1,5 +1,5 @@
 // A changed file's More menu, after the per-file menu in Codex's changes view: Copy path,
-// and Collapse file (Expand file when folded). It is a menu button: it opens on its first
+// Open file in a tab, and Collapse file (Expand file when folded). It is a menu button: it opens on its first
 // item, arrows move through the items, Enter or Space runs one, and Escape, Tab or a press
 // elsewhere closes it.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -11,11 +11,13 @@ export function FileMenu({
   name,
   collapsed,
   onToggleCollapsed,
+  onOpenInTab,
 }: {
   path: string;
   name: string;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  onOpenInTab: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
@@ -39,6 +41,7 @@ export function FileMenu({
   const items = [
     // The copy can fall back to a selection copy, which takes focus; focus returns after it.
     { label: "Copy path", run: () => copyText(path) },
+    { label: "Open file in a tab", run: onOpenInTab },
     { label: collapsed ? "Expand file" : "Collapse file", run: onToggleCollapsed },
   ];
   const onKeyDown = (event: React.KeyboardEvent) => {

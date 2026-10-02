@@ -19,3 +19,5 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-changes-retry{margin-top:10px;height:28px;padding:0 12px;border:0;border-radius:8px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default}
 .acpmux-changes-retry:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-changes-retry:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
+/* Why a file did not open, under the changes header until the next open. */
+.acpmux-diff-notice{padding:7px 14px;border-bottom:1px solid var(--agent-border);color:var(--agent-text);background:color-mix(in srgb,var(--agent-danger) 14%,transparent);font-size:12px}
