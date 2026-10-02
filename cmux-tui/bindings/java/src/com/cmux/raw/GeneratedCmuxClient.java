@@ -338,6 +338,11 @@ public abstract class GeneratedCmuxClient {
         return GetCellPixelsResult.fromWire(result);
     }
 
+    public final Object getFrontendBrowserHistory(GetFrontendBrowserHistoryRequest request) throws CmuxException {
+        Object result = execute(Commands.GET_FRONTEND_BROWSER_HISTORY, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final FrontendProjection getFrontendProjection(GetFrontendProjectionRequest request) throws CmuxException {
         Object result = execute(Commands.GET_FRONTEND_PROJECTION, request.toWire());
         return FrontendProjection.fromWire(result);
@@ -811,6 +816,11 @@ public abstract class GeneratedCmuxClient {
     public final EmptyResult setDefaultColors(SetDefaultColorsRequest request) throws CmuxException {
         Object result = execute(Commands.SET_DEFAULT_COLORS, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final Object setFrontendBrowserHistory(SetFrontendBrowserHistoryRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_FRONTEND_BROWSER_HISTORY, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final Object setPersonalTerminal(SetPersonalTerminalRequest request) throws CmuxException {

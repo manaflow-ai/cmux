@@ -16,7 +16,6 @@ nonisolated extension RefusalStrings {
     static var groupAtEdge: String { text("handlers.refusal.groupAtEdge", "the group is already at the edge") }
     static var closedTabPaneGone: String { text("handlers.refusal.closedTabPaneGone", "the closed tab's pane is gone and no pane is focused") }
     static var browserReopenNeedsWindow: String { text("handlers.refusal.browserReopenNeedsWindow", "browser tabs reopen only in a pane shown in a window") }
-    static var noWindowForFind: String { text("handlers.refusal.noWindowForFind", "no window for the find prompt") }
     static var browserFindClosesWithEscape: String { text("handlers.refusal.browserFindClosesWithEscape", "the browser find bar closes with Escape") }
     static var nothingSelected: String { text("handlers.refusal.nothingSelected", "nothing is selected") }
     static var noActiveFind: String { text("handlers.refusal.noActiveFind", "no find is active; use Find first") }
@@ -39,6 +38,9 @@ nonisolated extension RefusalStrings {
     static var settingsNotLoaded: String { text("handlers.refusal.settingsNotLoaded", "cmux.json is not loaded yet") }
     static var debugSettingsUnavailable: String {
         text("handlers.refusal.debugSettingsUnavailable", "Debug Settings exist only in DEV and NIGHTLY builds")
+    }
+    static func noSuchSettingsEntry(_ key: String) -> String {
+        format("handlers.refusal.noSuchSettingsEntry", "no setting %@ in Settings", key)
     }
     static var settingArgumentRequired: String { text("handlers.refusal.settingArgumentRequired", "setting is required (a dotted cmux.json path)") }
     static func settingManaged(_ key: String) -> String {

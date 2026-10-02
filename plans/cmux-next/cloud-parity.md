@@ -85,4 +85,17 @@ The relay slice order is:
 4. Add VPC, WireGuard tunnel, and firewall operations from `spec/network-policy.md`, then domains/TLS, identities/tokens, and read-only account/team/billing views. Each group gets catalog entries before UI surfaces.
 5. Keep CUA behind its separately authenticated `cua-host` relay. It is not part of the Cloud bearer-token path or the first Cloud relay slice.
 
+### Relay implementation status and merge gate
+
+The first relay slices are implemented in separate PRs so each can be tested with the fake Freestyle driver and recorded fixtures:
+
+- #16956: host-owned typed relay, lifecycle (including pause/resume), snapshots, exec, and filesystem operations.
+- #16948: private network, tunnel, and firewall operations.
+- #16959 and #16960: catalog allowlisting and the protocol `script` origin for generic relay mutations.
+- #16961: namespaced VM domain verification and publication CRUD/verification routes.
+
+The host broker admits only operations in the dedicated relay catalog, plus full-catalog entries explicitly marked `remote_relay: "allow"`. Bearer credentials stay in the host process; bwrap receives only the relay socket. Domain and publication routes use fixed backend paths and never invoke a provider CLI.
+
+Cloud merges are gated on #16944's action-catalog repair and its green Swift test. Until that lands, new Cloud work should remain in reviewable PRs and must not merge into `feat-cmux-next`. Any PR that adds an action updates the protocol catalog, action surfaces, and inventory together and waits for Swift test green. The next relay slices are SSH/SCP transport, TLS rules/certificates, identities and tokens, and read-only account/team/billing views.
+
 Tests use the fake Freestyle driver and recorded fixtures behind the backend in local mode. No live credentials or production machines are required; a live test team is only needed if a backend integration check cannot be represented by those fixtures.

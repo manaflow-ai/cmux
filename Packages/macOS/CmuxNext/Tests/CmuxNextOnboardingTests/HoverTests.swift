@@ -44,7 +44,7 @@ import Testing
     }
 
     /// The fill's alpha as drawn now; 0 when there is none.
-    func fillAlpha(_ hover: OnboardingHover) -> CGFloat {
+    func fillAlpha(_ hover: ChromeHover) -> CGFloat {
         hover.shownFill?.alpha ?? 0
     }
 
@@ -54,10 +54,10 @@ import Testing
     }
 
     @Test func theFillIsOneTonalStepPerState() {
-        #expect(OnboardingHover.fillColor(.init()) == nil)
-        #expect(OnboardingHover.fillColor(.init(hovering: true)) == Palette.hoverFill)
-        #expect(OnboardingHover.fillColor(.init(hovering: true, pressed: true)) == Palette.pressedFill)
-        #expect(OnboardingHover.fillColor(.init(focused: true)) == nil, "focus is an outline, not a fill")
+        #expect(ChromeHover.fillColor(.init()) == nil)
+        #expect(ChromeHover.fillColor(.init(hovering: true)) == Palette.hoverFill)
+        #expect(ChromeHover.fillColor(.init(hovering: true, pressed: true)) == Palette.pressedFill)
+        #expect(ChromeHover.fillColor(.init(focused: true)) == nil, "focus is an outline, not a fill")
     }
 
     @Test(arguments: [true, false])
@@ -154,7 +154,7 @@ import Testing
         row.mouseEntered(with: h.event(.mouseEntered, at: inside, in: row))
         row.mouseDown(with: h.event(.leftMouseDown, at: inside, in: row))
         row.mouseUp(with: h.event(.leftMouseUp, at: inside, in: row))
-        #expect(row.hover.state == OnboardingHover.State() && toggles == 0)
+        #expect(row.hover.state == ChromeHover.State() && toggles == 0)
     }
 
     @Test func aCheckRowHoversInsideItsBoundsAndClicksItsBox() {
@@ -189,7 +189,7 @@ import Testing
         row.mouseDown(with: h.event(.leftMouseDown, at: inside, in: row))
         box.isEnabled = false
         row.syncEnabled()
-        #expect(row.hover.state == OnboardingHover.State())
+        #expect(row.hover.state == ChromeHover.State())
         #expect(fillAlpha(row.hover) == 0)
         row.mouseUp(with: h.event(.leftMouseUp, at: inside, in: row))
         #expect(box.state == .off)
