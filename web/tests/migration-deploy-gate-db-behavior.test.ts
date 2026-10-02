@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,9 +15,11 @@ const webDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const gateScript = path.join(webDir, "tools/migration-deploy-gate.mjs");
 
 function runGate(): { code: number; out: string } {
-  const result = Bun.spawnSync(["bun", gateScript], {
+  const result = spawnSync("bun", [gateScript], {
+    encoding: "utf8",
     cwd: webDir,
     env: {
+      NODE_ENV: "production",
       PATH: process.env.PATH ?? "",
       HOME: process.env.HOME ?? "",
       VERCEL: "1",
@@ -26,7 +29,7 @@ function runGate(): { code: number; out: string } {
       DATABASE_URL: process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL || "",
     },
   });
-  return { code: result.exitCode ?? -1, out: `${result.stdout.toString()}${result.stderr.toString()}` };
+  return { code: result.status ?? -1, out: `${result.stdout}${result.stderr}` };
 }
 
 describe("migration deploy gate against a migrated database", () => {
