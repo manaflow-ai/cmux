@@ -2,43 +2,43 @@ import { unstable_rethrow } from "next/navigation";
 import { connection } from "next/server";
 import { getTranslations } from "next-intl/server";
 import { cache, Suspense, type ReactNode } from "react";
-import { SiteHeader } from "../components/site-header";
-import { Link } from "../../../i18n/navigation";
-import { ProCtaLink } from "../components/pro-cta-link";
-import { ProWelcomeBanner } from "../components/pro-welcome-banner";
+import { SiteHeader } from "../../components/site-header";
+import { Link } from "../../../../i18n/navigation";
+import { ProCtaLink } from "../../components/pro-cta-link";
+import { ProWelcomeBanner } from "../../components/pro-welcome-banner";
 import {
   MAX_CHECKOUT_URL,
   GO_CHECKOUT_URL,
   PRO_CHECKOUT_URL,
   TEAM_CHECKOUT_URL,
   withCheckoutInterval,
-} from "../../lib/billing";
+} from "../../../lib/billing";
 import {
   CHECKOUT_SOURCE_PARAM,
   CHECKOUT_SOURCE_PRICING_PAGE,
   checkoutAttributionParamsFrom,
   withCheckoutAttribution,
-} from "../../../services/analytics/checkoutAttribution";
-import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
-import { getStackServerApp, isStackConfigured } from "../../lib/stack";
+} from "../../../../services/analytics/checkoutAttribution";
+import { DOWNLOAD_CONFIRMATION_HREF } from "../../../lib/download";
+import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 import {
   MAX_PLAN_ID,
   GO_PLAN_ID,
   resolveProPlanStatus,
   type BillingManagementKind,
   type PersonalBillingSource,
-} from "../../../services/billing/pro";
-import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "../../../services/billing/apple/config";
+} from "../../../../services/billing/pro";
+import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "../../../../services/billing/apple/config";
 import {
   buildAlternates,
   openGraphDefaults,
   twitterSummary,
-} from "../../../i18n/seo";
-import { pricingSeoCopy } from "../../../i18n/audited-seo";
+} from "../../../../i18n/seo";
+import { pricingSeoCopy } from "../../../../i18n/audited-seo";
 import {
   fallbackContentLocales,
   hasFallbackContent,
-} from "../../../i18n/locale-availability";
+} from "../../../../i18n/locale-availability";
 import {
   CurrentPlanBadge,
   DisabledButton,
@@ -53,20 +53,20 @@ import {
   visibleProFeatures,
   type CompareRow,
   type FaqItem,
-} from "../../components/pricing-shared";
+} from "../../../components/pricing-shared";
 import {
   PricingCheckoutButton,
   PricingView,
-} from "../../components/pricing-checkout";
-import { PricingAudienceSelector } from "../../components/pricing-audience-selector";
+} from "../../../components/pricing-checkout";
+import { PricingAudienceSelector } from "../../../components/pricing-audience-selector";
 import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
-} from "../../../services/billing/plans";
-import { isVaultEnabled } from "../../../services/vault/config";
-import { isGoPlanEnabled } from "../../../services/billing/goPlanFlag";
+} from "../../../../services/billing/plans";
+import { isVaultEnabled } from "../../../../services/vault/config";
+import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;

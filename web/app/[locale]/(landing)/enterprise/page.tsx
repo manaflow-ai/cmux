@@ -1,7 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "../../../i18n/seo";
-import { SiteHeader } from "../components/site-header";
+import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "../../../../i18n/seo";
+import { SiteHeader } from "../../components/site-header";
 import { EnterpriseContactForm } from "./enterprise-contact-form";
 
 export async function generateMetadata({

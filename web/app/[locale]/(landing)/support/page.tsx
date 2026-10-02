@@ -1,8 +1,8 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "../../../i18n/seo";
-import { Link } from "../../../i18n/navigation";
-import { SiteHeader } from "../components/site-header";
+import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "../../../../i18n/seo";
+import { Link } from "../../../../i18n/navigation";
+import { SiteHeader } from "../../components/site-header";
 import { SupportContactForm } from "./support-contact-form";
 
 export async function generateMetadata({

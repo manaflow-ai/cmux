@@ -111,7 +111,7 @@ mock.module("../db/client", () => ({
   }),
 }));
 
-const { default: PricingPage } = await import("../app/[locale]/pricing/page");
+const { default: PricingPage } = await import("../app/[locale]/(landing)/pricing/page");
 
 describe("localized pricing page", () => {
   test("hides Go and all annual offers when the Go rollout is disabled", async () => {
