@@ -432,8 +432,7 @@
   left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
   right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
 }
-.acpmux-permission,
-.acpmux-queue {
+.acpmux-permission {
   padding-left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
   padding-right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
 }
