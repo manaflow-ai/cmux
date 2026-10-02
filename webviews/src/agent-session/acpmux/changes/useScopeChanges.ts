@@ -21,7 +21,7 @@ export function useScopeChanges(source: ChangesSource | undefined, scope: Change
     const settle = (load: ChangesLoad) => {
       if (current) setResult({ key, load });
     };
-    const asked = source ? source.scopeDiff(scope) : Promise.reject(new Error("No session host"));
+    const asked = source ? source.diff(scope) : Promise.reject(new Error("No session host"));
     asked.then(
       (value) => {
         const changeSet = readChangeSet(value, scope);

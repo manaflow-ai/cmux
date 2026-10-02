@@ -11,8 +11,8 @@ enum RoomMoveHandlers {
     typealias Bind = (ActionID, @escaping @MainActor (ActionInvocation) throws -> Void) -> Void
 
     static func bind(_ bind: Bind, context: AppActionContext) {
-        bind("workspace.moveToRoom") { invocation in
-            guard let room = try context.optionalRoom(invocation["room"]) else {
+        bind("workspace.moveToSpace") { invocation in
+            guard let room = try context.optionalRoom(invocation["space"]) else {
                 throw ActionFailure.invalidTarget(RoomStrings.roomArgumentRequired)
             }
             let (workspace, key) = try context.workspace(invocation)
@@ -28,15 +28,15 @@ enum RoomMoveHandlers {
             let target = room.id, session = qualified.session
             machines.local.send("pin-workspace") { try await $0.pinWorkspace(session: session, key: key, to: target) }
         }
-        bind("workspace.duplicateToRoom") { invocation in
-            guard let room = try context.optionalRoom(invocation["room"]) else {
+        bind("workspace.duplicateToSpace") { invocation in
+            guard let room = try context.optionalRoom(invocation["space"]) else {
                 throw ActionFailure.invalidTarget(RoomStrings.roomArgumentRequired)
             }
             let (workspace, _) = try context.workspace(invocation)
             duplicate(workspace, into: room.id, context)
         }
-        bind("workspaceGroup.moveToRoom") { invocation in
-            guard let room = try context.optionalRoom(invocation["room"]) else {
+        bind("workspaceGroup.moveToSpace") { invocation in
+            guard let room = try context.optionalRoom(invocation["space"]) else {
                 throw ActionFailure.invalidTarget(RoomStrings.roomArgumentRequired)
             }
             let group = try context.personalGroup(invocation)
@@ -74,7 +74,7 @@ enum RoomMoveHandlers {
                 }
                 return nil
             } catch {
-                return ActionWorkFailure("workspace.duplicateToRoom", error)
+                return ActionWorkFailure("workspace.duplicateToSpace", error)
             }
         })
     }

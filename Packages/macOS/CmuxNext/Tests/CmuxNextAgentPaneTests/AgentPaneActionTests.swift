@@ -50,4 +50,14 @@ import Testing
         #expect(!registry.openAgentFile(path: "/repo/Retry.swift", target: .editor, pane: "pane-1"))
         #expect(asked.count == 2)
     }
+
+    @Test func continueInUsesTheFrontendCommand() throws {
+        let page = FileManager.default.temporaryDirectory.appendingPathComponent("agent-pane-continue-in-test.html")
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page)))
+        defer { view.close() }
+        var scripts: [String] = []
+        view.evaluateScript = { scripts.append($0) }
+        view.showContinueIn()
+        #expect(scripts == ["window.cmuxAcpmuxBridge?.command?.(\"continueIn\");"])
+    }
 }

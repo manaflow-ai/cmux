@@ -49,6 +49,9 @@ public final class StatusIndicatorLayer {
     private var nativeLayer: CALayer?
     /// The pixel side the native mask was rendered for.
     private var nativeSide: CGFloat = 0
+    /// Braille spinner frames (masks) for the current size and font.
+    private var brailleLayer: CALayer?
+    private var brailleFrames: [CGImage] = []
 
     public init() {
         layer.actions = Self.noActions
@@ -89,7 +92,7 @@ public final class StatusIndicatorLayer {
 
     /// The animation running now (tests, diagnostics).
     public var runningAnimation: StatusIndicatorPlan.Animation? {
-        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse")] {
+        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (brailleLayer?.mask, "frames")] {
             if let sublayer, sublayer.animation(forKey: key) != nil {
                 return StatusIndicatorPlan.Animation(key: key)
             }
@@ -111,7 +114,7 @@ public final class StatusIndicatorLayer {
         if glyphChanged { rebuild() }
         applyColors()
         // New loop timing or pulse depth: restart the running animation.
-        if configChanged { glyphLayer?.removeAllAnimations(); nativeLayer?.removeAllAnimations() }
+        if configChanged { removeAllAnimations() }
         updateAnimation()
     }
 
@@ -140,9 +143,9 @@ public final class StatusIndicatorLayer {
         let thickness = config.settings.thickness
         switch plan.glyph {
         case .none:
-            removeGlyph(); removeTrack(); removeNative()
+            removeGlyph(); removeTrack(); removeNative(); removeBraille()
         case .arc:
-            removeTrack(); removeNative()
+            removeTrack(); removeNative(); removeBraille()
             let shape = makeGlyph(frame: rect)
             shape.path = CGPath(ellipseIn: shape.bounds.insetBy(dx: thickness / 2, dy: thickness / 2), transform: nil)
             shape.fillColor = nil
@@ -150,7 +153,7 @@ public final class StatusIndicatorLayer {
             shape.strokeStart = 0
             shape.strokeEnd = config.arcLength
         case .ring(let progress):
-            removeNative()
+            removeNative(); removeBraille()
             let track = makeTrack(frame: rect)
             track.path = ringPath(in: track.bounds, thickness: thickness)
             track.lineWidth = thickness
@@ -162,7 +165,7 @@ public final class StatusIndicatorLayer {
             shape.strokeStart = 0
             shape.strokeEnd = progress
         case .native:
-            removeGlyph(); removeTrack()
+            removeGlyph(); removeTrack(); removeBraille()
             let native = makeNative(frame: rect)
             let scale = contentsScale
             if nativeSide != rect.width * scale {
@@ -170,14 +173,14 @@ public final class StatusIndicatorLayer {
                 native.mask?.contents = NativeSpinnerImage.image(side: rect.width, scale: scale)
             }
         case .dot:
-            removeTrack(); removeNative()
+            removeTrack(); removeNative(); removeBraille()
             let shape = makeGlyph(frame: rect)
             let side = rect.width * config.dotScale
             shape.path = CGPath(ellipseIn: CGRect(x: (rect.width - side) / 2, y: (rect.height - side) / 2, width: side, height: side), transform: nil)
             shape.lineWidth = 0
             shape.strokeEnd = 1
         case .check:
-            removeTrack(); removeNative()
+            removeTrack(); removeNative(); removeBraille()
             let shape = makeGlyph(frame: rect)
             shape.path = checkPath(in: shape.bounds.insetBy(dx: rect.width * 0.16, dy: rect.height * 0.2))
             shape.fillColor = nil
@@ -185,6 +188,15 @@ public final class StatusIndicatorLayer {
             shape.lineJoin = .round
             shape.strokeStart = 0
             shape.strokeEnd = 1
+        case .braille:
+            removeGlyph(); removeTrack(); removeNative()
+            let braille = makeBraille(frame: rect)
+            let frames = BrailleSpinnerImage.images(side: rect.width, scale: contentsScale, family: config.terminalFontFamily)
+            if frames != brailleFrames {
+                brailleFrames = frames
+                braille.mask?.removeAllAnimations()
+                braille.mask?.contents = frames.first
+            }
         }
     }
 
@@ -256,6 +268,26 @@ public final class StatusIndicatorLayer {
         return native
     }
 
+    private func makeBraille(frame: CGRect) -> CALayer {
+        let braille = brailleLayer ?? {
+            let braille = CALayer()
+            braille.actions = Self.noActions
+            let mask = CALayer()
+            mask.actions = Self.noActions
+            mask.contentsGravity = .resizeAspect
+            braille.mask = mask
+            layer.addSublayer(braille)
+            brailleLayer = braille
+            return braille
+        }()
+        if braille.frame != frame {
+            braille.frame = frame
+            braille.mask?.frame = braille.bounds
+        }
+        braille.mask?.contentsScale = contentsScale
+        return braille
+    }
+
     private func removeGlyph() {
         glyphLayer?.removeFromSuperlayer()
         glyphLayer = nil
@@ -270,6 +302,18 @@ public final class StatusIndicatorLayer {
         nativeLayer?.removeFromSuperlayer()
         nativeLayer = nil
         nativeSide = 0
+    }
+
+    private func removeBraille() {
+        brailleLayer?.removeFromSuperlayer()
+        brailleLayer = nil
+        brailleFrames = []
+    }
+
+    private func removeAllAnimations() {
+        glyphLayer?.removeAllAnimations()
+        nativeLayer?.removeAllAnimations()
+        brailleLayer?.mask?.removeAllAnimations()
     }
 
     // MARK: Color and motion
@@ -292,18 +336,19 @@ public final class StatusIndicatorLayer {
         }
         trackLayer?.strokeColor = color
         nativeLayer?.backgroundColor = color
+        brailleLayer?.backgroundColor = color
     }
 
     private func updateAnimation() {
         let wanted = plan.animation
         guard wanted != runningAnimation else { return }
-        glyphLayer?.removeAllAnimations()
-        nativeLayer?.removeAllAnimations()
+        removeAllAnimations()
         guard let wanted, let target = animationTarget(for: wanted) else { return }
         let animation: CAAnimation? = switch wanted {
         case .spin: Motion.spinAnimation()
         case .step: Motion.stepAnimation(steps: config.nativeSteps)
         case .pulse: Motion.pulseAnimation(low: Float(config.pulseLow))
+        case .frames: Motion.framesAnimation(brailleFrames)
         }
         if let animation { target.add(animation, forKey: wanted.key) }
     }
@@ -311,6 +356,7 @@ public final class StatusIndicatorLayer {
     private func animationTarget(for animation: StatusIndicatorPlan.Animation?) -> CALayer? {
         switch animation {
         case .step?: nativeLayer
+        case .frames?: brailleLayer?.mask
         case .spin?, .pulse?: glyphLayer
         case nil: nil
         }
@@ -323,6 +369,7 @@ extension StatusIndicatorPlan.Animation {
         case .spin: "spin"
         case .step: "step"
         case .pulse: "pulse"
+        case .frames: "frames"
         }
     }
 
@@ -331,6 +378,7 @@ extension StatusIndicatorPlan.Animation {
         case "spin": self = .spin
         case "step": self = .step
         case "pulse": self = .pulse
+        case "frames": self = .frames
         default: return nil
         }
     }

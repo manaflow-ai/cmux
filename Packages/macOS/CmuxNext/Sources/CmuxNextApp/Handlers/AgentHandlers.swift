@@ -51,6 +51,19 @@ enum AgentHandlers {
             }
             view.showSearchChats()
         })
+        // Continue in… is a user-facing chooser. Headless callers use the
+        // acpmux-owned CLI operation, so automation cannot open this UI unless
+        // it explicitly requests focus.
+        registry.bind("agentPane.continueIn", run: { invocation in
+            guard invocation.allowsViewChange else {
+                return context.refuse(MiscHandlerStrings.continueInNeedsFocus)
+            }
+            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                  let view = context.services.agentTabs.existingView(key) else {
+                return context.refuse(MiscHandlerStrings.noAgentChat)
+            }
+            view.showContinueIn()
+        })
         registry.bindUnavailable(["palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
         registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))
         registry.bindUnavailable(

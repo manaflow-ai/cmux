@@ -29,7 +29,7 @@ extension SettingsWindowService {
 
     private static func action(_ level: SettingsThemeLevel, reset: Bool) -> ActionID {
         switch level {
-        case .room: reset ? "room.clearTheme" : "room.setTheme"
+        case .room: reset ? "space.clearTheme" : "space.setTheme"
         case .workspace: reset ? "workspace.clearTheme" : "workspace.setTheme"
         case .terminal: reset ? "terminal.clearTheme" : "terminal.setTheme"
         }

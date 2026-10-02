@@ -16,21 +16,21 @@ enum RoomHandlers {
                 try run(invocation)
             })
         }
-        bind("room.new") { try create(invocation: $0, context) }
-        bind("room.newWindow") { invocation in
+        bind("space.new") { try create(invocation: $0, context) }
+        bind("space.newWindow") { invocation in
             let room = try context.room(invocation)
             let windows = context.services.windows!
             let windowID = UUID().uuidString.lowercased()
             windows.state(for: windowID).enterProfile(room.id)
             Task { await windows.createWorkspace(into: windowID) }
         }
-        bind("room.newWorkspace") { invocation in
+        bind("space.newWorkspace") { invocation in
             let room = try context.room(invocation)
             let windows = context.services.windows!
             let target = windows.targetWindow(preferring: windows.active?.state.id)
             Task { _ = try? await windows.createWorkspace(WorkspaceSpawn(profile: room.id), into: target) }
         }
-        bind("room.rename") { invocation in
+        bind("space.rename") { invocation in
             let room = try context.room(invocation)
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
                 update(room.id, context) { try await $0.updateProfile($1, name: name) }
@@ -40,7 +40,7 @@ enum RoomHandlers {
                 }
             }
         }
-        bind("room.setColor") { invocation in
+        bind("space.setColor") { invocation in
             guard let raw = invocation["color"]?.stringValue, let color = GroupColor(rawValue: raw) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.colorMustBeOneOf(GroupColor.allCases.map(\.rawValue).joined(separator: ", ")))
             }
@@ -48,16 +48,16 @@ enum RoomHandlers {
             update(room.id, context) { try await $0.updateProfile($1, color: .set(color.rawValue)) }
         }
         for color in GroupColor.allCases {
-            bind(ActionID(rawValue: "room.color.\(color.rawValue)")) { invocation in
+            bind(ActionID(rawValue: "space.color.\(color.rawValue)")) { invocation in
                 let room = try context.room(invocation)
                 update(room.id, context) { try await $0.updateProfile($1, color: .set(color.rawValue)) }
             }
         }
-        bind("room.clearColor") { invocation in
+        bind("space.clearColor") { invocation in
             let room = try context.room(invocation)
             update(room.id, context) { try await $0.updateProfile($1, color: .clear) }
         }
-        bind("room.setIcon") { invocation in
+        bind("space.setIcon") { invocation in
             let room = try context.room(invocation)
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
                 update(room.id, context) { try await $0.updateProfile($1, icon: .set(icon)) }
@@ -69,25 +69,25 @@ enum RoomHandlers {
                 throw ActionFailure.invalidTarget(RoomStrings.iconArgumentRequired)
             }
         }
-        bind("room.clearIcon") { invocation in
+        bind("space.clearIcon") { invocation in
             let room = try context.room(invocation)
             update(room.id, context) { try await $0.updateProfile($1, icon: .clear) }
         }
-        bind("room.setDefaults") { invocation in
+        bind("space.setDefaults") { invocation in
             let room = try context.room(invocation)
             let defaults = try RoomDefaultsArguments.parse(invocation)
             update(room.id, context) { try await $0.updateProfile($1, defaults: defaults.isEmpty ? .clear : .set(defaults)) }
         }
-        bind("room.delete") { invocation in
+        bind("space.delete") { invocation in
             let room = try context.room(invocation)
             guard !room.isDefault else { throw ActionFailure.invalidTarget(RoomStrings.defaultCannotBeDeleted) }
             let moveTo = try context.optionalRoom(invocation["moveTo"])?.id
             let id = room.id
             context.services.machines.local.send("delete-profile") { _ = try await $0.deleteProfile(id, moveTo: moveTo) }
         }
-        bind("room.moveLeft") { try move(invocation: $0, by: -1, context) }
-        bind("room.moveRight") { try move(invocation: $0, by: 1, context) }
-        bind("room.move") { invocation in
+        bind("space.moveLeft") { try move(invocation: $0, by: -1, context) }
+        bind("space.moveRight") { try move(invocation: $0, by: 1, context) }
+        bind("space.move") { invocation in
             let room = try context.room(invocation)
             guard let position = invocation["index"]?.intValue else { throw ActionFailure.invalidTarget(RoomStrings.roomArgumentRequired) }
             let order = context.services.machines.local.store.profileIDs
@@ -98,15 +98,15 @@ enum RoomHandlers {
             let id = room.id
             context.services.machines.local.send("move-profile") { try await $0.moveProfile(id, to: insertion) }
         }
-        bind("room.next") { _ in try step(1, context) }
-        bind("room.previous") { _ in try step(-1, context) }
-        bind("room.selectByNumber") { invocation in
+        bind("space.next") { _ in try step(1, context) }
+        bind("space.previous") { _ in try step(-1, context) }
+        bind("space.selectByNumber") { invocation in
             guard let number = invocation["index"]?.intValue, let state = context.activeWindow?.state else { return }
             let order = context.services.machines.local.store.profileIDs
             let pick = number >= 9 ? order[order.count - 1] : order[min(number - 1, order.count - 1)]
             context.services.windows.switchProfile(pick, in: state)
         }
-        bind("room.switch") { invocation in
+        bind("space.switch") { invocation in
             let room = try context.room(invocation)
             let window = try context.window(invocation)
             context.services.windows.switchProfile(room.id, in: window.state)
@@ -128,13 +128,13 @@ enum RoomHandlers {
         let id = ProfileID.generate()
         let services = context.services
         services.registry.track(Task {
-            guard let connection = services.machines.local.connection else { return ActionWorkFailure("room.new", DaemonError.notConnected) }
+            guard let connection = services.machines.local.connection else { return ActionWorkFailure("space.new", DaemonError.notConnected) }
             do {
                 _ = try await connection.createProfile(name: name, id: id, color: color.rawValue, icon: icon, browserProfileID: browser)
                 if let active, let state = services.windows.states[active.id] { services.windows.switchProfile(id, in: state) }
                 return nil
             } catch {
-                return ActionWorkFailure("room.new", error)
+                return ActionWorkFailure("space.new", error)
             }
         })
     }
