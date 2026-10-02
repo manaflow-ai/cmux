@@ -444,6 +444,12 @@
   --cv-card-ring: color-mix(in srgb, var(--cv-fg) 10%, transparent);
   --cv-card-fill: color-mix(in srgb, var(--cv-fg) 4%, transparent);
 }
+/* appearance.borders none (data-borders on the root, applyAgentTheme): code and tool cards keep
+   their fill and lose the ring. */
+:root[data-borders="none"] {
+  --cv-codeblock-ring: transparent;
+  --cv-card-ring: transparent;
+}
 
 /* "Worked for 15s ›": one muted disclosure line over a hairline. */
 .cv-worked {
