@@ -21,7 +21,7 @@ public protocol CloudTuiCommandRunning: Sendable {
 /// no retry is attempted after the bytes have been handed to that channel.
 public nonisolated protocol CloudTuiUntrackedCommandSending: Sendable {
     func sendUntrackedTuiCommand(arguments: CloudTuiRequest) async throws
-    public func sendTuiCommandAndAwaitAck(arguments: CloudTuiRequest) async throws
+    func sendTuiCommandAndAwaitAck(arguments: CloudTuiRequest) async throws
 }
 
 extension CloudMachineLink: CloudTuiCommandRunning {
