@@ -15,8 +15,10 @@ Object.assign(globals, {
   cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
-// A narrow pane: the session list is an overlay.
-Object.assign(dom.window, { matchMedia: () => ({ matches: false }) });
+/// The pane width query. Starts narrow, so the session list is an overlay; `resize` flips it.
+const media = { matches: false, listeners: new Set<() => void>(), addEventListener(_: string, listener: () => void) { media.listeners.add(listener); }, removeEventListener(_: string, listener: () => void) { media.listeners.delete(listener); } };
+const resize = (wide: boolean) => { media.matches = wide; for (const listener of media.listeners) listener(); };
+Object.assign(dom.window, { matchMedia: () => media });
 afterAll(() => Object.assign(globals, saved));
 
 const { act, createElement } = await import("react");
@@ -56,6 +58,35 @@ test("in a narrow pane the session overlay takes focus and closes on Escape, the
     await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".acpmux-session-row")].find((row) => row.textContent === "First")!.click());
     expect(shell().getAttribute("data-sidebar")).toBe("auto");
     expect(selected).toEqual(["a"]);
+  } finally {
+    await act(async () => root.unmount());
+    delete host.cmuxAcpmuxActions;
+  }
+});
+
+test("a resize across the threshold resets the list and keeps the toggle in step", async () => {
+  const host = dom.window as unknown as { cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>> };
+  host.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "test" }) };
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const shell = () => container.querySelector(".acpmux-shell")!;
+  const toggle = () => container.querySelector<HTMLButtonElement>(".acpmux-sidebar-toggle")!;
+  try {
+    media.matches = true;
+    await act(async () => root.render(createElement(AcpmuxApp)));
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    // Closed and reopened beside the transcript: "open" must not become an overlay once the pane narrows.
+    await act(async () => toggle().click());
+    await act(async () => toggle().click());
+    expect(shell().getAttribute("data-sidebar")).toBe("open");
+    await act(async () => resize(false));
+    expect(shell().getAttribute("data-sidebar")).toBe("auto");
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+    // One click opens the overlay in the narrow pane.
+    await act(async () => toggle().click());
+    expect(shell().getAttribute("data-sidebar")).toBe("open");
+    await act(async () => resize(true));
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
   } finally {
     await act(async () => root.unmount());
     delete host.cmuxAcpmuxActions;
