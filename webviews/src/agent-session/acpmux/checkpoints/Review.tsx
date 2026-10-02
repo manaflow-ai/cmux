@@ -35,7 +35,7 @@ export function CheckpointReview({
   const [copied, setCopied] = useState(false);
   const candidates = list?.candidates ?? [];
   const selected =
-    selection?.list === list
+    selection && selection.list === list
       ? selection.paths
       : new Set(candidates.filter((candidate) => candidate.eligible).map((candidate) => candidate.path));
   const toggle = (path: string) => {
