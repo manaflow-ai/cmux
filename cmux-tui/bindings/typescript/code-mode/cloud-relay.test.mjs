@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 const relayCatalog = JSON.parse(readFileSync(fileURLToPath(new URL("../../../../backend/catalog/cloud-relay-operations.json", import.meta.url)), "utf8"));
+const cloudCatalog = JSON.parse(readFileSync(fileURLToPath(new URL("../../../../backend/catalog/cloud-operations.json", import.meta.url)), "utf8"));
 
 test("Cloud broker uses fixed VM routes and keeps bearer out of the request body", async () => {
   const calls = [];
@@ -44,6 +45,14 @@ test("local fixture driver can exercise lifecycle without credentials or live ma
 test("broker rejects unknown operations instead of accepting arbitrary URLs", async () => {
   const broker = createCloudBroker({ catalog: relayCatalog, fixture: {} });
   await assert.rejects(() => broker.request("http://attacker.test", {}), /not in the catalog/);
+});
+
+test("host allowlist does not inherit catalog operations marked deny", async () => {
+  const merged = { operations: { ...relayCatalog.operations, ...cloudCatalog.operations } };
+  const allowed = new Set(Object.keys(relayCatalog.operations));
+  const broker = createCloudBroker({ catalog: merged, allowedOperations: allowed, fixture: { "vm.pause": { id: "vm_fixture", status: "paused" } } });
+  await assert.rejects(() => broker.request("domain.list", {}), /not in the catalog/);
+  assert.deepEqual(await broker.request("vm.pause", { vm_id: "vm_fixture" }), { id: "vm_fixture", status: "paused" });
 });
 
 test("host relay serves typed requests over a Unix socket", async () => {
