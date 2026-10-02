@@ -593905,55 +593905,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nيعرض رسائل الوكلاء، الأحدث أولًا. بدون --surface، يعرض الرسائل لكل\nالأسطح. يضع --mark-read علامة مقروءة على الرسائل المعروضة."
+            "value": "الاستخدام: cmux agent inbox [--surface <target>] [--state queued|delivered|read|failed] [--limit <n>] [--mark-read] [--json]\n\nيعرض رسائل الوكلاء، الأحدث أولًا. بدون --surface، يعرض الرسائل لكل\nالأسطح. يضع --mark-read علامة مقروءة على الرسائل المعروضة."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nListet Agent-Nachrichten auf, neueste zuerst. Ohne --surface werden Nachrichten für\nalle Oberflächen aufgelistet. --mark-read markiert die aufgelisteten Nachrichten als gelesen."
+            "value": "Verwendung: cmux agent inbox [--surface <target>] [--state queued|delivered|read|failed] [--limit <n>] [--mark-read] [--json]\n\nListet Agent-Nachrichten auf, neueste zuerst. Ohne --surface werden Nachrichten für\nalle Oberflächen aufgelistet. --mark-read markiert die aufgelisteten Nachrichten als gelesen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nList agent messages, newest first. Without --surface, lists messages for\nevery surface. --mark-read marks the listed messages read."
+            "value": "Usage: cmux agent inbox [--surface <target>] [--state queued|delivered|read|failed] [--limit <n>] [--mark-read] [--json]\n\nList agent messages, newest first. Without --surface, lists messages for\nevery surface. --mark-read marks the listed messages read."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nLista los mensajes de agentes, del más reciente al más antiguo. Sin --surface, lista los mensajes de\ntodas las superficies. --mark-read marca como leídos los mensajes listados."
+            "value": "Uso: cmux agent inbox [--surface <target>] [--state queued|delivered|read|failed] [--limit <n>] [--mark-read] [--json]\n\nLista los mensajes de agentes, del más reciente al más antiguo. Sin --surface, lista los mensajes de\ntodas las superficies. --mark-read marca como leídos los mensajes listados."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nListe les messages d'agent, du plus récent au plus ancien. Sans --surface, liste les messages de\ntoutes les surfaces. --mark-read marque les messages listés comme lus."
+            "value": "Utilisation : cmux agent inbox [--surface <target>] [--state queued|delivered|read|failed] [--limit <n>] [--mark-read] [--json]\n\nListe les messages d'agent, du plus récent au plus ancien. Sans --surface, liste les messages de\ntoutes les surfaces. --mark-read marque les messages listés comme lus."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nエージェントのメッセージを新しい順に一覧表示します。--surface を指定しないと\nすべてのサーフェスのメッセージを表示します。--mark-read は表示したメッセージを既読にします。"
+            "value": "使い方: cmux agent inbox [--surface <target>] [--state queued|delivered|read|failed] [--limit <n>] [--mark-read] [--json]\n\nエージェントのメッセージを新しい順に一覧表示します。--surface を指定しないと\nすべてのサーフェスのメッセージを表示します。--mark-read は表示したメッセージを既読にします。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\n에이전트 메시지를 최신순으로 나열합니다. --surface가 없으면\n모든 표면의 메시지를 나열합니다. --mark-read는 나열된 메시지를 읽음으로 표시합니다."
+            "value": "사용법: cmux agent inbox [--surface <target>] [--state queued|delivered|read|failed] [--limit <n>] [--mark-read] [--json]\n\n에이전트 메시지를 최신순으로 나열합니다. --surface가 없으면\n모든 표면의 메시지를 나열합니다. --mark-read는 나열된 메시지를 읽음으로 표시합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\n列出代理消息，最新的在前。未指定 --surface 时，列出\n所有表面的消息。--mark-read 会将列出的消息标记为已读。"
+            "value": "用法： cmux agent inbox [--surface <target>] [--state queued|delivered|read|failed] [--limit <n>] [--mark-read] [--json]\n\n列出代理消息，最新的在前。未指定 --surface 时，列出\n所有表面的消息。--mark-read 会将列出的消息标记为已读。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\n列出代理訊息，最新的在前。未指定 --surface 時，列出\n所有表面的訊息。--mark-read 會將列出的訊息標為已讀。"
+            "value": "用法： cmux agent inbox [--surface <target>] [--state queued|delivered|read|failed] [--limit <n>] [--mark-read] [--json]\n\n列出代理訊息，最新的在前。未指定 --surface 時，列出\n所有表面的訊息。--mark-read 會將列出的訊息標為已讀。"
           }
         }
       }
@@ -594259,55 +594259,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "State must be queued, delivered or read."
+            "value": "State must be queued, delivered, read or failed."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يجب أن تكون الحالة queued أو delivered أو read."
+            "value": "يجب أن تكون الحالة queued أو delivered أو read أو failed."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Status muss queued, delivered oder read sein."
+            "value": "Der Status muss queued, delivered, read oder failed sein."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El estado debe ser queued, delivered o read."
+            "value": "El estado debe ser queued, delivered, read o failed."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "L'état doit être queued, delivered ou read."
+            "value": "L'état doit être queued, delivered, read ou failed."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "状態は queued、delivered、read のいずれかにしてください。"
+            "value": "状態は queued、delivered、read、failed のいずれかにしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "상태는 queued, delivered, read 중 하나여야 합니다."
+            "value": "상태는 queued, delivered, read, failed 중 하나여야 합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "状态必须是 queued、delivered 或 read。"
+            "value": "状态必须是 queued、delivered、read 或 failed。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "狀態必須是 queued、delivered 或 read。"
+            "value": "狀態必須是 queued、delivered、read 或 failed。"
           }
         }
       }
@@ -607986,6 +607986,950 @@
           "stringUnit": {
             "state": "translated",
             "value": "捲動至底部"
+          }
+        }
+      }
+    },
+    "cli.agentMessages.globalOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent messages are turned off for all of cmux (agentMessages.enabled is false)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رسائل الوكلاء متوقفة في cmux بالكامل (قيمة agentMessages.enabled هي false)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Nachrichten sind für ganz cmux ausgeschaltet (agentMessages.enabled ist false)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los mensajes de agentes están desactivados en todo cmux (agentMessages.enabled es false)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les messages d'agents sont désactivés pour tout cmux (agentMessages.enabled vaut false)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 全体でエージェントメッセージがオフです（agentMessages.enabled が false）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 전체에서 에이전트 메시지가 꺼져 있습니다(agentMessages.enabled가 false)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整个 cmux 的代理消息都已关闭（agentMessages.enabled 为 false）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整個 cmux 的代理訊息都已關閉（agentMessages.enabled 為 false）。"
+          }
+        }
+      }
+    },
+    "cli.agentMessages.workspaceOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its workspace has messages off, so it receives none."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الرسائل متوقفة في مساحة العمل التي يتبع لها، لذا لا يتلقى أي رسالة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In seinem Workspace sind Nachrichten ausgeschaltet, daher erhält es keine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su espacio de trabajo tiene los mensajes desactivados, así que no recibe ninguno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les messages sont désactivés pour son espace de travail, il n'en reçoit donc aucun."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所属するワークスペースでメッセージがオフのため、メッセージは届きません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "속한 워크스페이스의 메시지가 꺼져 있어 메시지를 받지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它所在的工作区已关闭消息，因此不会收到任何消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它所在的工作區已關閉訊息，因此不會收到任何訊息。"
+          }
+        }
+      }
+    },
+    "cli.agentMessages.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messages to %@ are off."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الرسائل إلى %@ متوقفة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachrichten an %@ sind aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los mensajes a %@ están desactivados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les messages vers %@ sont désactivés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ へのメッセージはオフです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 대한 메시지가 꺼져 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发给 %@ 的消息已关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳給 %@ 的訊息已關閉。"
+          }
+        }
+      }
+    },
+    "cli.agentMessages.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messages to %@ are on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الرسائل إلى %@ مفعّلة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachrichten an %@ sind an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los mensajes a %@ están activados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les messages vers %@ sont activés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ へのメッセージはオンです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 대한 메시지가 켜져 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发给 %@ 的消息已开启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳給 %@ 的訊息已開啟。"
+          }
+        }
+      }
+    },
+    "cli.help.agentMessages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agent messages [on|off|status] [<target>] [--workspace] [--json]\n\nTurn agent messages off or on for one agent, or show whether it gets\nthem. Turning messages off for an agent refuses new messages to it and\nmarks the ones already queued for it as failed.\n\n<target> is resolved like cmux agent message: a workspace or surface id\nor ref, or a workspace title. Without one, the command applies to the\nsurface it runs in. --workspace applies to every surface in the\nworkspace instead.\n\nWithout --workspace, a workspace target means the one agent surface it\nresolves to now. That surface stays off even if a different surface\nbecomes the workspace's agent later.\n\nTo turn agent messages off everywhere, set agentMessages.enabled to\nfalse in ~/.config/cmux/cmux.json or turn off Settings > Automation >\nAgent Messages.\n\nExamples:\n  cmux agent messages off\n  cmux agent messages on workspace:3\n  cmux agent messages off --workspace cmux-remote-status"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux agent messages [on|off|status] [<target>] [--workspace] [--json]\n\nيوقف رسائل الوكلاء أو يفعّلها لوكيل واحد، أو يعرض ما إذا كان يستقبلها.\nإيقافها يرفض الرسائل الجديدة إليه ويضع علامة فشل على الرسائل\nالمنتظرة له.\n\nيُحلّ <target> كما في cmux agent message: معرّف\nمساحة عمل أو سطح أو مرجعه، أو عنوان مساحة عمل.\nبدونه يُطبَّق الأمر على السطح الذي يعمل فيه.\nيُطبَّق --workspace بدلًا من ذلك على كل الأسطح في مساحة العمل.\n\nبدون --workspace، يعني هدف مساحة العمل سطح الوكيل الوحيد الذي\nيُحلّ إليه الآن. يبقى هذا السطح موقوفًا حتى لو صار سطح آخر\nوكيل مساحة العمل لاحقًا.\n\nلإيقاف رسائل الوكلاء في كل مكان، اضبط\nagentMessages.enabled على false في\n~/.config/cmux/cmux.json أو أوقف الإعدادات > الأتمتة > رسائل الوكلاء.\n\nأمثلة:\n  cmux agent messages off\n  cmux agent messages on workspace:3\n  cmux agent messages off --workspace cmux-remote-status"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux agent messages [on|off|status] [<target>] [--workspace] [--json]\n\nSchaltet Agent-Nachrichten für einen Agenten aus oder ein oder zeigt, ob er sie\nerhält. Ausschalten weist neue Nachrichten an ihn ab und markiert die bereits\nfür ihn eingereihten als fehlgeschlagen.\n\n<target> wird wie bei cmux agent message aufgelöst: eine Workspace- oder\nOberflächen-ID bzw. -Referenz oder ein Workspace-Titel. Ohne Angabe gilt der\nBefehl für die Oberfläche, in der er läuft. --workspace gilt stattdessen für\nalle Oberflächen im Workspace.\n\nOhne --workspace meint ein Workspace-Ziel die eine Agent-Oberfläche, zu der\nes jetzt aufgelöst wird. Diese bleibt aus, auch wenn später eine andere\nOberfläche der Agent des Workspace wird.\n\nUm Agent-Nachrichten überall auszuschalten, setze agentMessages.enabled in\n~/.config/cmux/cmux.json auf false oder schalte Einstellungen > Automatisierung >\nAgent-Nachrichten aus.\n\nBeispiele:\n  cmux agent messages off\n  cmux agent messages on workspace:3\n  cmux agent messages off --workspace cmux-remote-status"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux agent messages [on|off|status] [<target>] [--workspace] [--json]\n\nDesactiva o activa los mensajes de agentes para un agente, o muestra si los\nrecibe. Desactivarlos rechaza los mensajes nuevos para él y marca como\nfallidos los que ya estaban en cola.\n\n<target> se resuelve como en cmux agent message: un ID o referencia de espacio\nde trabajo o superficie, o un título de espacio de trabajo. Sin él, el comando\nse aplica a la superficie donde se ejecuta. --workspace se aplica en cambio a\ntodas las superficies del espacio de trabajo.\n\nSin --workspace, un destino de espacio de trabajo indica la única superficie\nde agente a la que se resuelve ahora. Esa superficie sigue desactivada aunque\notra superficie pase después a ser el agente del espacio de trabajo.\n\nPara desactivar los mensajes de agentes en todas partes, establece\nagentMessages.enabled en false en ~/.config/cmux/cmux.json o desactiva\nAjustes > Automatización > Mensajes de agentes.\n\nEjemplos:\n  cmux agent messages off\n  cmux agent messages on workspace:3\n  cmux agent messages off --workspace cmux-remote-status"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux agent messages [on|off|status] [<target>] [--workspace] [--json]\n\nDésactive ou active les messages d'agents pour un agent, ou indique s'il les\nreçoit. Les désactiver refuse les nouveaux messages qui lui sont destinés et\nmarque comme échoués ceux déjà en file d'attente.\n\n<target> est résolu comme pour cmux agent message : un ID ou une référence\nd'espace de travail ou de surface, ou un titre d'espace de travail. Sans cible,\nla commande s'applique à la surface où elle s'exécute. --workspace s'applique\nà la place à toutes les surfaces de l'espace de travail.\n\nSans --workspace, une cible d'espace de travail désigne la seule surface\nd'agent vers laquelle elle se résout maintenant. Cette surface reste désactivée\nmême si une autre surface devient plus tard l'agent de l'espace de travail.\n\nPour désactiver les messages d'agents partout, définissez agentMessages.enabled\nsur false dans ~/.config/cmux/cmux.json ou désactivez Réglages > Automatisation >\nMessages d'agents.\n\nExemples :\n  cmux agent messages off\n  cmux agent messages on workspace:3\n  cmux agent messages off --workspace cmux-remote-status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux agent messages [on|off|status] [<target>] [--workspace] [--json]\n\n1 つのエージェントへのエージェントメッセージをオフまたはオンにするか、受け取るか\nどうかを表示します。オフにすると、そのエージェントへの新しいメッセージを拒否し、\nすでにキューにあるメッセージを失敗にします。\n\n<target> は cmux agent message と同じように解決されます: ワークスペースか\nサーフェスの ID または参照、またはワークスペースのタイトル。省略すると、\nコマンドを実行したサーフェスに適用されます。--workspace を付けると、\nワークスペース内のすべてのサーフェスに適用されます。\n\n--workspace を付けない場合、ワークスペースの指定は、いま解決される 1 つの\nエージェントサーフェスを指します。後で別のサーフェスがワークスペースの\nエージェントになっても、そのサーフェスはオフのままです。\n\nエージェントメッセージをすべてオフにするには、~/.config/cmux/cmux.json で\nagentMessages.enabled を false にするか、設定 > 自動化 > エージェントメッセージを\nオフにしてください。\n\n例:\n  cmux agent messages off\n  cmux agent messages on workspace:3\n  cmux agent messages off --workspace cmux-remote-status"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux agent messages [on|off|status] [<target>] [--workspace] [--json]\n\n에이전트 하나의 에이전트 메시지를 끄거나 켜고, 메시지를 받는지 보여 줍니다.\n끄면 그 에이전트에게 오는 새 메시지를 거부하고 이미 대기 중인 메시지를\n실패로 표시합니다.\n\n<target>은 cmux agent message와 같은\n방식으로 해석됩니다: 워크스페이스나 표면의 ID 또는 참조, 또는\n워크스페이스 제목. 지정하지 않으면 명령이 실행되는 표면에\n적용됩니다. --workspace는 대신 워크스페이스의 모든 표면에 적용됩니다.\n\n--workspace 없이 워크스페이스를 지정하면 지금 해석되는 에이전트 표면\n하나에만 적용됩니다. 나중에 다른 표면이 워크스페이스의 에이전트가 되어도\n그 표면은 꺼진 상태로 남습니다.\n\n모든 곳에서 에이전트 메시지를 끄려면 ~/.config/cmux/cmux.json에서\nagentMessages.enabled를 false로 설정하거나 설정 > 자동화 > 에이전트 메시지를\n끄세요.\n\n예시:\n  cmux agent messages off\n  cmux agent messages on workspace:3\n  cmux agent messages off --workspace cmux-remote-status"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux agent messages [on|off|status] [<target>] [--workspace] [--json]\n\n为单个代理关闭或开启代理消息，或显示它\n是否会收到消息。关闭后会拒绝发给它的新\n消息，并将已排队给它的消息标记为失败。\n\n<target> 的解析方式与 cmux agent\nmessage 相同：工作区或表面的 ID 或引用，\n或工作区标题。未指定时，命令作用于它运行所在的表面。--workspace\n则改为 作用于工作区中的所有表面。\n\n不加 --workspace 时，工作区目标指的是它当前解析到的\n那一个代理表面。即使之后另一个表面成为该工作区的代理，\n这个表面仍保持关闭。\n\n若要在所有地方关闭代理消息，请在\n~/.config/cmux/cmux.json 中将\nagentMessages.enabled 设为 false，或关闭“设置 > 自动化 > 代理消息”。\n\n示例：\n  cmux agent messages off\n  cmux agent messages on workspace:3\n  cmux agent messages off --workspace cmux-remote-status"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux agent messages [on|off|status] [<target>] [--workspace] [--json]\n\n為單一代理關閉或開啟代理訊息，或顯示它\n是否會收到訊息。關閉後會拒絕傳給它的新\n訊息，並將已排隊給它的訊息標為失敗。\n\n<target> 的解析方式與 cmux agent\nmessage 相同：工作區或表面的 ID 或參照，\n或工作區標題。未指定時，指令套用到它執行所在的表面。--workspace\n則改為 套用到工作區中的所有表面。\n\n不加 --workspace 時，工作區目標指的是它目前解析到的\n那一個代理表面。即使之後另一個表面成為該工作區的代理，\n這個表面仍保持關閉。\n\n若要在所有地方關閉代理訊息，請在\n~/.config/cmux/cmux.json 中將\nagentMessages.enabled 設為 false，或關閉「設定 > 自動化 > 代理訊息」。\n\n範例：\n  cmux agent messages off\n  cmux agent messages on workspace:3\n  cmux agent messages off --workspace cmux-remote-status"
+          }
+        }
+      }
+    },
+    "cli.help.agents.messages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent messages [on|off|status] [<target>] [--workspace]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent messages [on|off|status] [<target>] [--workspace]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent messages [on|off|status] [<target>] [--workspace]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent messages [on|off|status] [<target>] [--workspace]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent messages [on|off|status] [<target>] [--workspace]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent messages [on|off|status] [<target>] [--workspace]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent messages [on|off|status] [<target>] [--workspace]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent messages [on|off|status] [<target>] [--workspace]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent messages [on|off|status] [<target>] [--workspace]"
+          }
+        }
+      }
+    },
+    "settings.automation.agentMessages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Messages"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رسائل الوكلاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Nachrichten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensajes de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messages d'agents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントメッセージ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 메시지"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理訊息"
+          }
+        }
+      }
+    },
+    "agentInbox.state.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not delivered"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تُسلَّم"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht zugestellt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No entregado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non remis"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未配信"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전달 안 됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未投递"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未遞送"
+          }
+        }
+      }
+    },
+    "command.agentMessagesOff.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn Off Agent Messages for This Tab"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف رسائل الوكلاء لهذه العلامة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Nachrichten für diesen Tab ausschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivar mensajes de agentes en esta pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactiver les messages d'agents pour cet onglet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブのエージェントメッセージをオフにする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 탭의 에이전트 메시지 끄기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭此标签页的代理消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉此分頁的代理訊息"
+          }
+        }
+      }
+    },
+    "command.agentMessagesOn.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn On Agent Messages for This Tab"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تفعيل رسائل الوكلاء لهذه العلامة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Nachrichten für diesen Tab einschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activar mensajes de agentes en esta pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer les messages d'agents pour cet onglet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブのエージェントメッセージをオンにする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 탭의 에이전트 메시지 켜기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启此标签页的代理消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟此分頁的代理訊息"
+          }
+        }
+      }
+    },
+    "agentMessage.error.messagesDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent messages are turned off (agentMessages.enabled is false)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رسائل الوكلاء متوقفة (قيمة agentMessages.enabled هي false)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Nachrichten sind ausgeschaltet (agentMessages.enabled ist false)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los mensajes de agentes están desactivados (agentMessages.enabled es false)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les messages d'agents sont désactivés (agentMessages.enabled vaut false)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントメッセージはオフです（agentMessages.enabled が false）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 메시지가 꺼져 있습니다(agentMessages.enabled가 false)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理消息已关闭（agentMessages.enabled 为 false）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理訊息已關閉（agentMessages.enabled 為 false）。"
+          }
+        }
+      }
+    },
+    "agentMessage.error.recipientDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recipient %@ has messages disabled."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المستلم %@ أوقف الرسائل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empfänger %@ hat Nachrichten deaktiviert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El destinatario %@ tiene los mensajes desactivados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le destinataire %@ a désactivé les messages."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受信者 %@ はメッセージを無効にしています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수신자 %@의 메시지가 꺼져 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收件方 %@ 已停用消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收件者 %@ 已停用訊息。"
+          }
+        }
+      }
+    },
+    "agentMessage.error.workspaceDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recipient workspace %@ has messages disabled."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة العمل المستلمة %@ أوقفت الرسائل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empfänger-Workspace %@ hat Nachrichten deaktiviert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El espacio de trabajo destinatario %@ tiene los mensajes desactivados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'espace de travail destinataire %@ a désactivé les messages."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受信先ワークスペース %@ はメッセージを無効にしています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수신 워크스페이스 %@의 메시지가 꺼져 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收件工作区 %@ 已停用消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收件工作區 %@ 已停用訊息。"
+          }
+        }
+      }
+    },
+    "socket.agentMessage.error.invalidScope": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scope must be surface or workspace."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون النطاق surface أو workspace."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Bereich muss surface oder workspace sein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El ámbito debe ser surface o workspace."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La portée doit être surface ou workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スコープは surface または workspace にしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "범위는 surface 또는 workspace여야 합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "范围必须是 surface 或 workspace。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範圍必須是 surface 或 workspace。"
+          }
+        }
+      }
+    },
+    "socket.agentMessage.error.missingSettingsTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Give a target workspace or surface, or run this inside a cmux surface."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد مساحة عمل أو سطحًا هدفًا، أو شغّل هذا داخل سطح cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib einen Ziel-Workspace oder eine Zieloberfläche an oder führe dies in einer cmux-Oberfläche aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica un espacio de trabajo o una superficie de destino, o ejecuta esto dentro de una superficie de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez un espace de travail ou une surface cible, ou exécutez ceci dans une surface cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象のワークスペースかサーフェスを指定するか、cmux のサーフェス内で実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상 워크스페이스나 표면을 지정하거나 cmux 표면 안에서 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请指定目标工作区或表面，或在 cmux 表面中运行此命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請指定目標工作區或表面，或在 cmux 表面中執行此指令。"
+          }
+        }
+      }
+    },
+    "socket.agentMessage.error.settingNotSaved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The setting was not changed: cmux could not save it to the message journal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتغير الإعداد: تعذّر على cmux حفظه في سجل الرسائل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Einstellung wurde nicht geändert: cmux konnte sie nicht im Nachrichtenjournal speichern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El ajuste no se cambió: cmux no pudo guardarlo en el registro de mensajes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le réglage n'a pas été modifié : cmux n'a pas pu l'enregistrer dans le journal des messages."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定は変更されませんでした: cmux がメッセージジャーナルに保存できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정이 바뀌지 않았습니다: cmux가 메시지 저널에 저장하지 못했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置未更改：cmux 无法将它保存到消息日志。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定未變更：cmux 無法將它儲存到訊息日誌。"
           }
         }
       }
