@@ -174,7 +174,11 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
       )
         onEffort(effort.id, pickedEffort);
     },
-    onModel,
+    // A plain model pick replaces any combo still waiting on its effort.
+    onModel: (id) => {
+      pending.current = undefined;
+      onModel(id);
+    },
   });
   const usage = summary?.usage;
 

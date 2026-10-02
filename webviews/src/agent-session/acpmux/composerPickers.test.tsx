@@ -223,6 +223,24 @@ describe("acpmux composer pickers", () => {
     await render(long({ model: "astra", configOptions: [{ ...effort, currentValue: "medium" }] }));
     expect(calls).toEqual(["model astra", "effort reasoning_effort high", "model astra"]);
     await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    // A combo still waiting when the pane switches sessions doesn't follow into the other session.
+    await act(async () => button("Model")!.click());
+    await pickRecent(1);
+    await render(long({ sessionId: "t", model: "astra", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    // A plain pick through More models drops a waiting combo's effort.
+    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    await act(async () => button("Model")!.click());
+    await pickRecent(1);
+    await act(async () => button("Model")!.click());
+    await pickRecent(2);
+    await act(async () => {
+      [...doc.querySelectorAll("[role=option]")]
+        .find((option) => option.textContent === "6 Astra")!
+        .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+    await render(long({ model: "astra", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    expect(calls.filter((call) => call.startsWith("effort"))).toEqual(["effort reasoning_effort high"]);
+    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
     calls.length = 0;
     // More models opens the full list in place; typing filters it and Enter picks.
     await key(model, "ArrowDown");
