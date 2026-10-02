@@ -25,7 +25,7 @@ struct CloudMachineSurfacePresentation {
             text = String(localized: "cloudTree.displays.loading", defaultValue: "Discovering displays…")
             style = .connecting
         case .error:
-            text = info.linkError ?? String(localized: "cloudTree.displays.failed", defaultValue: "Couldn’t discover displays. Refresh to retry.")
+            text = info.linkFailureMessage
             style = .error
         case .asleep:
             text = String(localized: "cloudTree.displays.asleep", defaultValue: "Displays unavailable while the machine sleeps")

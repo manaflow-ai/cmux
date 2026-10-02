@@ -31,6 +31,7 @@ WEB_VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "web-validation.yml"
 BROWSER_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-browser.yml"
 REMOTE_DAEMON_WORKFLOW = ROOT / ".github" / "workflows" / "remote-daemon.yml"
 GUARD_JOBS = (
+    "workflow-guard-submodule-forward-only",
     "workflow-guard-tests",
     "workflow-guard-history",
     "workflow-guard-cli-scripts",
@@ -42,6 +43,7 @@ GUARD_ROUTE_JOBS = {
     "linux_guard_cli": "workflow-guard-cli-scripts",
     "linux_guard_source": "workflow-guard-source-lints",
 }
+GUARD_ALWAYS_JOBS = ("workflow-guard-submodule-forward-only",)
 WEB_JOBS = (
     "web-subarea-scope",
     "web-typecheck",
@@ -62,7 +64,6 @@ MACOS_JOBS = (
     "release-admission",
     "release-build",
 )
-CI_STATUS_FALLBACK_WORKFLOW = ROOT / ".github" / "workflows" / "ci-status-fallback.yml"
 PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
 
 spec = importlib.util.spec_from_file_location("detect_ci_change_areas", HELPER)
@@ -633,6 +634,7 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
         "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
         " || github.event_name == 'pull_request'"
         " && github.event.pull_request.head.repo.full_name != github.repository"
+        " && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
         " && 'blacksmith-4vcpu-ubuntu-2404'"
         " || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
     ) in admission
@@ -1100,6 +1102,18 @@ def test_macos_ios_package_closure_matches_current_desktop_graph() -> None:
             "Packages/iOS/CmuxMobileTransport",
         }
     )
+
+
+def test_ios_package_tests_skip_macos_compile_but_keep_package_lane() -> None:
+    # Tests are never compiled into the desktop app target. Shared iOS
+    # packages still need their dedicated package-test lane, so only the
+    # macOS area is neutralized here.
+    actual = module.classify_files([
+        "Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCTransportDrainTests.swift"
+    ])
+    assert actual.macos is False, actual
+    assert actual.release_build is False, actual
+    assert actual.swift_packages is True, actual
 
 
 def test_ios_package_routing_follows_desktop_dependency_closure() -> None:
@@ -1998,9 +2012,6 @@ def test_ci_label_only_reruns_preserve_inflight_compile() -> None:
     )
     assert expected in workflow
 
-    fallback = CI_STATUS_FALLBACK_WORKFLOW.read_text(encoding="utf-8")
-    assert "  workflow_dispatch: {}" in fallback
-    assert "  pull_request:" not in fallback
 
 
 def detect_step_script(workflow_path: Path = CI_WORKFLOW) -> str:
@@ -2268,7 +2279,10 @@ def run_guard_status(
     results: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     route_inputs = dict.fromkeys(GUARD_ROUTE_JOBS, "true") if inputs is None else dict(inputs)
-    job_results = dict.fromkeys(GUARD_ROUTE_JOBS.values(), "success")
+    job_results = {
+        **dict.fromkeys(GUARD_ROUTE_JOBS.values(), "success"),
+        **dict.fromkeys(GUARD_ALWAYS_JOBS, "success"),
+    }
     if results:
         job_results.update(results)
     script = workflow_job_step_script(
@@ -3297,7 +3311,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
-    assert "if: ${{ always() }}" in block
+    assert "if: ${{ !cancelled() }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 
 
@@ -3309,7 +3323,7 @@ def test_required_tests_status_waits_for_platform_workflows() -> None:
         assert f"      - {job_name}" in block
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
-    assert "if: ${{ always() }}" in block
+    assert "if: ${{ !cancelled() }}" in block
     assert 'macos_route not in {"true", "false"}' in block
     assert 'macos_result != "success"' in block
     assert 'web_result not in {"success", "skipped"}' in block
@@ -3862,7 +3876,11 @@ def test_linux_failure_still_blocks_tests_after_macos_succeeds() -> None:
         needs["linux-preflight"]["result"] = outcome
         result = run_tests_gate(needs)
         assert result.returncode != 0, outcome
-        assert f"linux preflight did not pass: {outcome}" in result.stderr
+        if outcome == "cancelled":
+            assert "cancelled: linux-preflight" in result.stderr
+            assert "this run was stopped before it reported a test verdict" in result.stderr
+        else:
+            assert f"linux preflight did not pass: {outcome}" in result.stderr
 
 
 def test_macos_status_accepts_compile_only_prior_admission_skip() -> None:
@@ -4732,25 +4750,28 @@ def product_runner_output(key: str) -> str:
     # pr_runner_pool.gui_label() of the same owned pick, so the same Xcode.
     shard = "inputs.pr_shard_runner || " if "shard-" in key else ""
     gui = "inputs.pr_gui_runner || "
-    return ("${{ (github.run_attempt > 1 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, " + key + ")) "
+    return ("${{ (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || " + shard + gui + "needs.macos-compile-admission.outputs.runner }}")
 
 
 PRODUCT_RUNNER_OUTPUT = product_runner_output(PRODUCT_RUNNER_KEYS["app-host-unit-tests"])
-# Attempt 1 of compile admission may take the pinned labels admission-placement
-# outputs (scripts/ci/admission_placement.py, spread-first) or
-# pr_admission_runner carries (pr_runner_pool.py, warm affinity), a JSON array
-# whose first label is always pr_root_runner; CMUX_PRODUCT_RUNNER restates it,
-# the root label, which the consumers take.
-PINNED_ADMISSION = "(needs.admission-placement.outputs.runner || inputs.pr_admission_runner)"
-WARM_ADMISSION = f"github.run_attempt == 1 && {PINNED_ADMISSION} && fromJSON{PINNED_ADMISSION}"
+# Compile admission may take the pinned labels admission-placement outputs in
+# this attempt (scripts/ci/admission_placement.py, spread-first) or, on attempt
+# 1, those pr_admission_runner carries (pr_runner_pool.py, warm affinity), a
+# JSON array whose first label is always pr_root_runner; CMUX_PRODUCT_RUNNER
+# restates it, the root label, which the consumers take.
+WARM_ADMISSION = ("needs.admission-placement.outputs.attempt == github.run_attempt && "
+                  "needs.admission-placement.outputs.runner && fromJSON(needs.admission-placement.outputs.runner) || "
+                  "github.run_attempt == 1 && inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner)")
+WARM_ADMISSION_FIRST = WARM_ADMISSION.replace("fromJSON(needs.admission-placement.outputs.runner)",
+                                              "fromJSON(needs.admission-placement.outputs.runner)[0]") + "[0]"
 
 
 def admission_route(runs_on: str) -> str:
     """Compile admission's runs-on without its warm labels: the route its consumers restate."""
     return runs_on.replace(WARM_ADMISSION + " || ", "")
 PRODUCT_XCODE_OUTPUT = "${{ needs.macos-compile-admission.outputs.xcode_app }}"
-# Attempt 1 may take the root label late-placement chose once admission
+# A consumer may take the label late-placement chose in this attempt once admission
 # finished (scripts/ci/late_placement.py). That label is derived from the
 # admission's own xcode_app output, so it keeps the consumer on the producer's
 # Xcode; late_placement_route strips it only while that stays true.
@@ -4767,7 +4788,8 @@ def late_placement_route(workflow: dict, name: str, runs_on: str) -> str:
     steps = [step for step in late.get("steps", []) if step.get("id") == "place"]
     if not steps or (steps[0].get("env") or {}).get("ADMISSION_XCODE_APP") != PRODUCT_XCODE_OUTPUT:
         return runs_on
-    prefix = ("${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')["
+    prefix = ("${{ needs.late-placement.outputs.attempt == github.run_attempt && "
+              "fromJSON(needs.late-placement.outputs.runners || '{}')["
               + LATE_KEYS.get(name, "") + "] || ")
     return runs_on.replace(prefix.removeprefix("${{ "), "", 1)
 
@@ -4782,7 +4804,7 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     """
     producer = workflow["jobs"]["macos-compile-admission"]
     violations = []
-    if (producer["env"].get("CMUX_PRODUCT_RUNNER") or "").replace(WARM_ADMISSION + "[0]", WARM_ADMISSION) \
+    if (producer["env"].get("CMUX_PRODUCT_RUNNER") or "").replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
             != producer["runs-on"]:
         violations.append("macos-compile-admission: CMUX_PRODUCT_RUNNER does not restate runs-on")
     outputs = producer.get("outputs", {})
@@ -4852,7 +4874,7 @@ def test_product_consumer_guard_follows_a_new_admission_route() -> None:
     for key in ("CMUX_PRODUCT_RUNNER", "CMUX_CI_XCODE_APP"):
         assert pull_request in producer["env"][key], key
         producer["env"][key] = producer["env"][key].replace(pull_request, new_route, 1)
-    producer["runs-on"] = producer["env"]["CMUX_PRODUCT_RUNNER"].replace(WARM_ADMISSION + "[0]", WARM_ADMISSION)
+    producer["runs-on"] = producer["env"]["CMUX_PRODUCT_RUNNER"].replace(WARM_ADMISSION_FIRST, WARM_ADMISSION)
     violations = product_consumer_route_violations(workflow)
     assert [line.split(":", 1)[0] for line in violations] == ["tests-build-and-lag"], violations
 
@@ -5745,8 +5767,19 @@ def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> 
                               else 'print("Ran 1 test in 0.001s\\nOK")\n' if category == "tests"
                               else "pass\n")
             target.chmod(0o755)
-        for name in ("verify-local.py", "verification_receipt.py"):
+        # Other static-preflight steps run their own validators; stub them too.
+        for path in sorted(set(re.findall(r"scripts/[\w./-]+\.(?:py|sh)", "\n".join(scripts)))):
+            target = repo / path
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("#!/usr/bin/env bash\nexit 0\n" if target.suffix == ".sh" else "pass\n")
+                target.chmod(0o755)
+        for name in ("verify-local.py", "verification_receipt.py", "check-agent-hook-docs.py"):
             shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
+        for relative_path in ("CLI/CMUXCLI+AgentHookCatalog.swift", "docs/agent-hooks.md"):
+            destination = repo / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative_path, destination)
         generator = repo / "scripts/generate-cmux-config-schema.py"
         generator.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / "scripts/generate-cmux-config-schema.py", generator)
@@ -5801,6 +5834,7 @@ def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
     assert 'CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"' in app_host
     assert "CMUX_APP_HOST_CAPTURE_XCRESULTS" in console_runner
     assert "CMUX_APP_HOST_RESULT_BUNDLE_ROOT" in console_runner
+    assert "CMUX_CI_RUNTIME_SOURCE_ROOT" in console_runner
     assert "- name: Collect app-host failure diagnostics" in app_host
     assert "- name: Upload app-host failure diagnostics" in app_host
     assert "run: scripts/ci/collect-app-host-diagnostics.sh" in app_host
@@ -5825,7 +5859,7 @@ def test_linux_aggregate_preserves_all_routed_results() -> None:
     assert "      - web" in block
     for web_job in WEB_JOBS:
         assert f"      - {web_job}" not in block
-    assert "if: ${{ always() }}" in block
+    assert "!cancelled()" in block
     assert 'guard_routes = (' in block
     assert 'bad[f"guards.{route}"]' in block
     assert 'bad["guards"] = f"{guard_result} (one or more guard routes=true)"' in block
@@ -6148,14 +6182,12 @@ def test_package_lane_fleet_step_is_opt_in_and_restates_its_runner() -> None:
         "github.event_name == 'pull_request' && "
         "!(inputs.full_suite == 'true' && inputs.release_build == 'true')"
     )
-    fork = (
-        "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name "
-        "!= github.repository && 'blacksmith-6vcpu-macos-15' || "
-    )
-    assert fork + via_step + " && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || " in job["runs-on"], job["runs-on"]
+    assert "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository" in job["runs-on"]
+    assert "!contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15'" in job["runs-on"]
+    assert via_step + " && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY" in job["runs-on"]
     assert job["env"]["PACKAGE_TESTS_VIA_STEP"] == (
         "${{ github.repository_owner == 'manaflow-ai' && "
-        "github.event.pull_request.head.repo.full_name == github.repository && "
+        "(github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)) && "
         "vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != '' && " + via_step + " && '1' || '0' }}"
     )
 
@@ -6328,7 +6360,7 @@ def test_r2_transport_is_an_explicit_optional_remote_broker() -> None:
 
 PR_LANE_XCODE_PIN = (
     "${{ github.event_name == 'pull_request' "
-    "&& (inputs.pr_xcode_app || github.event.pull_request.head.repo.full_name == github.repository "
+    "&& (inputs.pr_xcode_app || contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) "
     "&& vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) "
     "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
 )
@@ -6349,12 +6381,12 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     # (tests/test_seed_derived_data.py evaluates both against the seeder).
     admission_pin = PR_LANE_XCODE_PIN.replace(
         "github.event_name == 'pull_request'",
-        "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')",
+        "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')",
         1,
     ).replace(
-        # A fork pull request leaves the lane's pin; main's dispatch keeps it.
-        "github.event.pull_request.head.repo.full_name == github.repository",
-        "(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)",
+        # A fork pull request leaves the lane's pin; manual dispatch keeps it.
+        "contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)",
+        "(github.event_name != 'pull_request' || contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name))",
         1,
     )
     for job_name, pin in [
@@ -6375,9 +6407,9 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     package_block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
     assert "vars.MACOS_RUNNER_PR" not in package_block
     assert (
-        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
-        "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || "
-        "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && "
+        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && "
+        "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
+        "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
         "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) && "
         "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
     ) in package_block
@@ -6389,7 +6421,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
 
     release_block = workflow_job_block("release-build", MACOS_WORKFLOW)
     assert (
-        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
+        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
         "&& (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}"
     ) in release_block
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block
@@ -6750,7 +6782,7 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     # the venv.
     # preflight needs YAML traversal for the macOS runner identity guard.
     assert (
-        "if: ${{ matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
+        "if: ${{ matrix.group == 'preflight' || (matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true') || matrix.group == 'app-host-execution' || "
         "matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || "
         "matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}"
     ) in prepare_block

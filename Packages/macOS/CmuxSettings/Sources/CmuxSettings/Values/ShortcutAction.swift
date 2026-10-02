@@ -29,6 +29,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case reopenPreviousSession
     case goToWorkspace
     case commandPalette
+    case agentInbox
     case commandPaletteNext
     case commandPalettePrevious
     case sendFeedback
@@ -114,6 +115,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case sendCtrlFToTerminal
     /// Pastes the path of the newest screenshot into the focused terminal.
     case pasteLastScreenshot
+    /// Makes the focused shared terminal's grid follow this Mac's window.
+    case sizeTerminalToMyWindow
     /// Clears the focused terminal's visible screen while preserving scrollback.
     case clearScreenKeepScrollback
 
@@ -224,6 +227,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case diffViewerNextHunk
     /// Jumps to the previous hunk inside the focused diff viewer.
     case diffViewerPreviousHunk
+    /// Toggles the "Viewed" mark on the current file inside the focused diff viewer.
+    case diffViewerToggleViewed
 
     // MARK: Simulator
     /// Presses the Home button in the focused Simulator pane.
@@ -278,6 +283,7 @@ extension ShortcutAction {
              .diffViewerPreviousFile,
              .diffViewerNextHunk,
              .diffViewerPreviousHunk,
+             .diffViewerToggleViewed,
              .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return true
@@ -313,14 +319,15 @@ extension ShortcutAction {
             return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
         case .renameTab, .renameWorkspace:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-        case .sendCtrlFToTerminal, .pasteLastScreenshot, .clearScreenKeepScrollback:
+        case .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .focusHistoryBack, .focusHistoryForward:
             return .not(.atom(.browserFocus))
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
              .toggleBrowserDesignMode, .diffViewerOpenFileSearch, .diffViewerNextFile,
-             .diffViewerPreviousFile, .diffViewerNextHunk, .diffViewerPreviousHunk:
+             .diffViewerPreviousFile, .diffViewerNextHunk, .diffViewerPreviousHunk,
+             .diffViewerToggleViewed:
             return .atom(.browserFocus)
         case .diffViewerScrollDown, .diffViewerScrollUp,
              .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,

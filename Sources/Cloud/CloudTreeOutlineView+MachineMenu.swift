@@ -19,18 +19,8 @@ extension CloudTreeOutlineView.Coordinator {
             self?.applyMachineOrder(machines)
         })
         items.append(contentsOf: machineReorderMenuItems(id: id))
-        if machine.freeAccess == .expired {
-            items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect\u{2026}")) { actions.promptUpgrade() })
-        } else {
-            items.append(item(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) { nodeActions.newTerminal(.cloud(id), nil) })
-            items.append(item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { nodeActions.newWorkspace(.cloud(id)) })
-            if machine.isDesktop {
-                items.append(item(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
-                    nodeActions.project(SurfaceResourceID(machine: .cloud(id), kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
-                })
-            }
-            items.append(item(String(localized: "cloudTree.menu.openFullClient", defaultValue: "Open Full cmux-tui Client")) { actions.runCommand(id, ["vm", "tui"]) })
-        }
+        let verbs = machineMenuVerbs
+        items.append(contentsOf: CloudMenuAppKitRenderer.items(verbs.openEntries(machine)))
         if machine.freeAccess != .expired, machine.capabilities.sizing {
             items.append(CloudTreeResizeMenu.item(machine: machine, id: id, action: actions))
         }
@@ -48,21 +38,29 @@ extension CloudTreeOutlineView.Coordinator {
         }
         items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
         items.append(.separator())
-        items.append(item(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) { actions.promptRename(id, machine.label) })
-        if let address = machine.privateAddress {
-            items.append(item(String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { [nodeActions] in nodeActions.copyToPasteboard(address) })
-        }
-        items.append(item(String(localized: "machines.menu.status", defaultValue: "Status")) { actions.runCommand(id, ["vm", "status"]) })
-        // Only verbs this provider can honor: a Checkpoint that answers 502 is not a verb.
-        if machine.capabilities.snapshot {
-            items.append(item(String(localized: "machines.menu.checkpoint", defaultValue: "Checkpoint")) { actions.runCommand(id, ["vm", "snapshot"]) })
-        }
-        if machine.capabilities.fork {
-            items.append(item(String(localized: "machines.menu.fork", defaultValue: "Fork")) { actions.runCommand(id, ["vm", "fork"]) })
-        }
+        items.append(contentsOf: CloudMenuAppKitRenderer.items(verbs.manageEntries(machine)))
         items.append(.separator())
-        items.append(item(String(localized: "machines.menu.delete", defaultValue: "Delete…")) { actions.confirmDelete(id) })
+        items.append(contentsOf: CloudMenuAppKitRenderer.items(verbs.deleteEntries(machine)))
         return items
+    }
+
+    /// The sidebar binds the shared machine verbs to the tree: shells and
+    /// workspaces open through the catalog into the selected workspace.
+    var machineMenuVerbs: CloudMachineMenuVerbs {
+        let actions = machineActions
+        let nodeActions = nodeActions
+        return CloudMachineMenuVerbs(
+            openShell: { nodeActions.newTerminal(.cloud($0), nil) },
+            newWorkspace: { nodeActions.newWorkspace(.cloud($0)) },
+            openDesktop: { id in
+                nodeActions.project(SurfaceResourceID(machine: .cloud(id), kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
+            },
+            runCommand: actions.runCommand,
+            promptRename: actions.promptRename,
+            copyToPasteboard: nodeActions.copyToPasteboard,
+            confirmDelete: actions.confirmDelete,
+            promptUpgrade: actions.promptUpgrade
+        )
     }
 
     /// A running create can be cancelled immediately; a failed one offers

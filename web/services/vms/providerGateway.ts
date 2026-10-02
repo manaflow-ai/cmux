@@ -215,8 +215,12 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   deleteHomeVolume: (provider, volumeName) =>
     providerEffect(provider, "deleteHomeVolume", async () => {
       const impl = getProvider(provider);
-      // Providers without persistent volumes have nothing to delete.
-      if (!impl.deleteHomeVolume) return;
+      // A caller only reaches this seam with an explicitly owned volume. Do
+      // not report success when the current driver cannot delete legacy
+      // storage: durable cleanup must remain pending for retry/operator work.
+      if (!impl.deleteHomeVolume) {
+        throw new VmOperationUnsupportedError({ provider, operation: "deleteHomeVolume" });
+      }
       await impl.deleteHomeVolume(volumeName);
     }),
   listVolumes: (provider, options) =>

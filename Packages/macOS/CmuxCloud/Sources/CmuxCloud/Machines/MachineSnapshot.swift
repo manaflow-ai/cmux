@@ -11,6 +11,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         capabilities: VMCapabilities = .all,
         activity: Activity,
         createdAt: Date? = nil,
+        createdBy: VMCreator? = nil,
         label: String? = nil,
         slug: String? = nil,
         freeAccess: FreeAccessState = .unrestricted,
@@ -26,6 +27,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         self.capabilities = capabilities
         self.activity = activity
         self.createdAt = createdAt
+        self.createdBy = createdBy
         self.label = label
         self.slug = slug
         self.freeAccess = freeAccess
@@ -66,6 +68,9 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     public var capabilities: VMCapabilities = .all
     public let activity: Activity
     public let createdAt: Date?
+    /// Who made this machine; nil for machines the surface catalog discovered
+    /// on its own and on control planes that do not send an author.
+    public let createdBy: VMCreator?
     /// User-chosen label; nil when the machine has no label.
     public let label: String?
     /// Server-generated three-word name; nil for machines older than naming.
@@ -85,6 +90,11 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     public var isPinned: Bool = false
     /// Coding-agent update setting; nil when the server predates it.
     public var agentUpdates: CloudAgentUpdates?
+
+    /// Whether a new Cloud workspace can be created here. A machine past its
+    /// free-access window is locked (the backend refuses access verbs), so it
+    /// is never a workspace destination until the plan is upgraded.
+    public var acceptsNewWorkspaces: Bool { freeAccess != .expired }
 
     /// The label when set, else the generated name, else the machine id.
     public var displayName: String {

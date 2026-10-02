@@ -16,6 +16,10 @@ struct CloudTreeBuildInputs: Equatable {
     var devicesSection: CloudTreeDevicesSection = .init()
     var showsCloudVPNWarning = false
     var canCreateCloudMachine = false
+    /// Whether the last fleet read succeeded and this Mac is online. The listed
+    /// machines can outlive a failed read, but a resolved New Workspace re-reads
+    /// the fleet, so a failing read leaves it no destination.
+    var cloudFleetListIsCurrent = true
     var cloudMachinesUsage: CloudMachinesUsage? = nil
     var localeIdentifier: String = Locale.current.identifier
 

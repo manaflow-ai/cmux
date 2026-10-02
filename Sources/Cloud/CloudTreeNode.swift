@@ -70,10 +70,20 @@ final class CloudTreeNode: NSObject {
         /// hover "+" (New Machine, Cmd-Y), false while Cloud Machines is off and the
         /// header stands alone; `usage` is the plan's machine count, nil until it loads.
         case cloudMachinesSection(canCreateMachine: Bool, usage: CloudMachinesUsage? = nil)
+        case createAction(CloudTreeCreateAction)
         /// My Devices guidance and independent discovery actions, also shown with peers.
         case devicesEmpty(CloudTreeDevicesSection)
         /// Port discovery is demand-driven when the user opens the Ports group.
         var refreshesOnExpansion: Bool { switch self { case .portsGroup, .displaysPool: true; default: false } }
+        /// The identity glyph a top-level section header carries once for all of
+        /// its rows, so the machine and device rows under it show no repeated icon.
+        var sectionHeaderSymbol: String? {
+            switch self {
+            case .cloudMachinesSection: "cloud"
+            case .devicesSection: "desktopcomputer"
+            default: nil
+            }
+        }
     }
     let id: String
     private(set) var kind: Kind
@@ -82,7 +92,6 @@ final class CloudTreeNode: NSObject {
     var resourceSection: CloudTreeMachineResourceSection?
     /// For workspace rows: everything the workspace holds, in the order it opens.
     private var explicitDragGroup: SurfaceResourceGroup?
-
     init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil, isPinned: Bool = false) {
         self.id = id
         self.kind = kind
@@ -126,6 +135,7 @@ final class CloudTreeNode: NSObject {
         case .device: return "device"
         case .devicesSection: return "devicesSection"
         case .cloudMachinesSection: return "cloudMachinesSection"
+        case .createAction: return "createAction"
         case .devicesEmpty: return "devicesEmpty"
         }
     }
@@ -163,10 +173,9 @@ final class CloudTreeNode: NSObject {
         case .port(let resource, _, _): return resource.machine
         case .browser(let row): return row.resource.machine
         case .device(let row): return row.machine
-        // The section is a header over several machines; the id keeps it
-        // addressable (expansion, debug logs) without naming any one of them.
         case .devicesSection, .devicesEmpty: return .cloud("devices-section")
         case .cloudMachinesSection: return .cloud("cloud-machines-section")
+        case .createAction(let action): return action.machine
         }
     }
     var isMachineRow: Bool {
@@ -175,7 +184,6 @@ final class CloudTreeNode: NSObject {
         default: return false
         }
     }
-
     /// The text a quick-search (`/`) matches against.
     var searchableTitle: String {
         switch kind {
@@ -189,20 +197,19 @@ final class CloudTreeNode: NSObject {
         case .localWorkspace(let row): return row.title
         case .terminal(let row): return row.displayTitle
         case .display(let resource, _, let remoteView):
-            let title = remoteView?.name?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let title, !title.isEmpty { return title }
-            return resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title
+            return CloudTreeResourceName(resource: resource, remoteView: remoteView).displayName
         case .browsersGroup: return String(localized: "cloudTree.group.browsers", defaultValue: "Browsers")
-        case .browser(let row): return row.resource.title
+        case .browser(let row): return CloudTreeResourceName(resource: row.resource, remoteView: row.remoteView).browserName
         case .portsGroup: return String(localized: "cloudTree.group.ports", defaultValue: "Ports")
         case .resourcesPool: return String(localized: "cloudTree.group.resources", defaultValue: "Resources")
         case .resource(_, let row): return row.title
         case .port(let resource, let url, _):
-            return CloudTreePortPresentation(resource: resource, url: url).title
+            return CloudTreePortPresentation(resource: resource).title
         case .placeholder(_, let placeholder): return placeholder.text
         case .device(let row): return row.searchableTitle
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")
         case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines")
+        case .createAction(let action): return action.title
         case .devicesEmpty(let section):
             return section.count == 0
                 ? String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
@@ -225,25 +232,27 @@ final class CloudTreeNode: NSObject {
                 remoteWorkspaceID: view.workspace.id
             )
         }
-        if case .browser(let row) = kind,
-           let view = row.remoteView {
-            return SurfaceResourceGroup(
-                title: row.resource.title,
-                placements: [SurfaceResourcePlacement(resource: row.resource.id, remoteView: view)],
-                remoteWorkspaceID: view.workspace.id
-            )
-        }
+        // No `.browser` branch: `isDragSource` admits only terminals and
+        // displays, and `CloudTreeDragRegistration` is the only reader of a leaf
+        // row's group, so a browser row never gets here. Granting browsers a
+        // projection capability is a separate decision, not a naming fix.
         if case .display(let resource, _, let view) = kind,
            let view {
+            // The group's title names the local workspace the drag produces, so
+            // it has to be the name the row is showing. Reading `resource.title`
+            // raw dropped a rename on the way out: a display renamed to "Docs"
+            // landed under its bare resource title instead. An empty title was
+            // never nameless — `localWorkspaceTitle(hostName:)` falls back to
+            // the machine — it just lost the name the user typed.
+            let name = CloudTreeResourceName(resource: resource, remoteView: view)
             return SurfaceResourceGroup(
-                title: resource.title,
+                title: name.displayName,
                 placements: [SurfaceResourcePlacement(resource: resource.id, remoteView: view)],
                 remoteWorkspaceID: view.workspace.id
             )
         }
         return dragResource.map { SurfaceResourceGroup(single: $0) }
     }
-
     /// Whether a native drag may export a pane projection. Only terminals and
     /// displays leave the tree; machine and descendant ordering admit internal-only row
     /// drags without granting an external projection capability.
@@ -260,7 +269,7 @@ final class CloudTreeNode: NSObject {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
         case .display(let resource, _, _), .port(let resource, _, _): return resource
-        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .resourcesPool, .resource, .placeholder, .device, .devicesSection, .devicesEmpty, .cloudMachinesSection:
+        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .resourcesPool, .resource, .placeholder, .device, .devicesSection, .devicesEmpty, .cloudMachinesSection, .createAction:
             return nil
         }
     }
@@ -422,12 +431,13 @@ enum CloudTreeNodeBuilder {
             for resource in snapshot.resources where resource.remoteViews?.count == 1 {
                 singleViewResources.insert(resource.id)
             }
-
             for projection in snapshot.projections {
                 openResources.insert(projection.resource)
                 workspaceCountsByResource[projection.resource, default: [:]][projection.workspaceID, default: 0] += 1
                 if let remoteWorkspaceID = projection.remoteWorkspaceID {
-                    if let remoteTabID = projection.remoteTabID, !remoteTabID.isEmpty {
+                    if CloudTreeNodeBuilder.hasCloudDisplayMembershipProjection(projection, snapshot: snapshot, workspaceID: remoteWorkspaceID) {
+                        workspaceOnly[RemoteWorkspaceIdentity(resource: projection.resource, workspaceID: remoteWorkspaceID), default: []].append(projection.workspaceID)
+                    } else if let remoteTabID = projection.remoteTabID, !remoteTabID.isEmpty {
                         let identity = RemotePlacementIdentity(
                             resource: projection.resource,
                             workspaceID: remoteWorkspaceID,
@@ -435,7 +445,8 @@ enum CloudTreeNodeBuilder {
                         )
                         openPlacements.insert(identity)
                         exact[identity, default: []].append(projection.workspaceID)
-                    } else if let views = resourceByID[projection.resource]?.remoteViews {
+                    } else if let views = resourceByID[projection.resource]?.remoteViews,
+                              !views.allSatisfy(\.isCloudDisplayMembershipView) {
                         // Intermediate builds persisted the workspace id before
                         // they persisted tab ids. Recover the tab only when the
                         // current graph has one unambiguous view in that
@@ -486,7 +497,6 @@ enum CloudTreeNodeBuilder {
                 }
             }
         }
-
         func isOpen(_ resource: SurfaceResourceID, remoteView: SurfaceRemoteView?) -> Bool {
             guard let remoteView else { return openResources.contains(resource) }
             let identity = RemotePlacementIdentity(
@@ -781,9 +791,9 @@ enum CloudTreeNodeBuilder {
                     ))
                 }
             case .error:
-                children.append(placeholder(machine, text: info.linkError ?? String(localized: "cloudTree.placeholder.linkError", defaultValue: "Link failed"), style: .error))
+                children.append(placeholder(machine, text: info.linkFailureMessage, style: .error))
             case .unavailable:
-                children.append(placeholder(machine, text: info.linkError ?? String(localized: "cloudTree.placeholder.unavailable", defaultValue: "Sessions unavailable on this machine"), style: .dimmed))
+                children.append(placeholder(machine, text: info.linkFailureMessage, style: .dimmed))
             case .offline:
                 children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.deviceOffline", defaultValue: "Offline — its workspaces return when it does"), style: .dimmed))
             case .connected, .notApplicable:
@@ -876,7 +886,7 @@ enum CloudTreeNodeBuilder {
         for workspace in info.remoteWorkspaces ?? [] {
             byWorkspace[workspace.id] = RemoteWorkspaceRows(workspace: workspace)
         }
-        for resource in resources {
+        for resource in snapshot.cloudWorkspaceResources(on: machine) {
             for placement in remotePlacements(of: resource) {
                 var rows = byWorkspace[placement.workspace.id] ?? RemoteWorkspaceRows(workspace: placement.workspace)
                 switch resource.kind {

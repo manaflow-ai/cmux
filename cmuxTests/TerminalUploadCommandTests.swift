@@ -252,9 +252,9 @@ import Testing
         // fall back to the escaped remote path — not yield "" (a spurious failure).
         let emitted = TerminalUploadCommand.emittedText(
             commandStdout: "\u{1b}\u{01}\u{02}",
-            remotePath: "/tmp/cmux-drop-x.png"
+            remotePath: "/tmp/cmux-paste-x.png"
         )
-        #expect(emitted.contains("cmux-drop"))
+        #expect(emitted.contains("cmux-paste-x.png"))
     }
 
     // MARK: - Environment
@@ -389,7 +389,7 @@ import Testing
             return
         }
         // Falls back to the cmux-chosen remote path (escaped).
-        #expect(text.contains("cmux-drop"))
+        #expect(text.contains("cmux-paste"))
     }
 
     @Test func cancelledOperationFailsClosed() {
@@ -406,7 +406,7 @@ import Testing
         }
     }
 
-    // MARK: - Real /bin/sh process — exercises the default spawnCommand path
+    // MARK: - Real /bin/sh process, through spawnCommand
 
     @Test func realProcessCapturesLargeOutputWithoutDeadlock() {
         // Output far larger than a pipe buffer, from a pipeline (so the writer is a
@@ -452,8 +452,18 @@ import Testing
     @Test func realProcessDoesNotHangOnBackgroundedChild() {
         // The shell exits immediately but leaves a backgrounded process holding the
         // stdout write end; the bounded drain must still return with the echoed
-        // output rather than waiting on the orphan.
-        let result = TerminalCustomUploadRunner().runSync(
+        // output rather than waiting on the orphan. The orphan holds both pipes
+        // for the whole drain bound, so a short bound proves the same return.
+        let runner = TerminalCustomUploadRunner(runProcess: { command, environment, timeout, operation in
+            try TerminalCustomUploadRunner.spawnCommand(
+                command: command,
+                environment: environment,
+                timeout: timeout,
+                operation: operation,
+                drainTimeout: 0.5
+            )
+        })
+        let result = runner.runSync(
             fileURLs: [URL(fileURLWithPath: "/tmp/a.png")],
             endpoint: endpoint(),
             command: "sleep 30 & echo done",

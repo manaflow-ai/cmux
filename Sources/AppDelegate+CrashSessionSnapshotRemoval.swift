@@ -131,26 +131,21 @@ extension AppDelegate {
         }
     }
 
-    private nonisolated static var crashOnlyPrimarySnapshotRemovalDefaultsKey: String {
-        "cmux.session.crashOnlyPrimarySnapshotRemoval.v1"
-    }
-
     nonisolated static func markCrashOnlyPrimarySnapshotRemoval(
         defaults: UserDefaults = .standard
     ) {
-        defaults.setIfChanged(true, forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
+        SessionSnapshotPersistenceWriter.markCrashOnlyPrimarySnapshotRemoval(defaults: defaults)
     }
 
     nonisolated static func hasCrashOnlyPrimarySnapshotRemovalMarker(
         defaults: UserDefaults = .standard
     ) -> Bool {
-        defaults.bool(forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
+        SessionSnapshotPersistenceWriter.hasCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults)
     }
 
     nonisolated static func clearCrashOnlyPrimarySnapshotRemovalMarker(
         defaults: UserDefaults = .standard
     ) {
-        // Called on every autosave write; skip the no-op removal notification.
-        defaults.removeObjectIfPresent(forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
+        SessionSnapshotPersistenceWriter.clearCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults)
     }
 }

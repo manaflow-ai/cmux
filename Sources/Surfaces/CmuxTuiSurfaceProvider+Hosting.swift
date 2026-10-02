@@ -9,6 +9,7 @@ extension CmuxTuiSurfaceProvider {
     convenience init(
         summary: VMSummary,
         fileAccessTeamScope: AuthenticatedTeamScope? = nil,
+        ownerTeamID: String? = nil,
         links: CloudMachineLinkManager,
         catalog: SurfaceCatalog,
         portForwards: CloudHubPortForwarder? = nil,
@@ -16,12 +17,10 @@ extension CmuxTuiSurfaceProvider {
         portAccessStore: CloudPortAccessStore? = nil,
         displayCoordinator: CloudDisplayCoordinator? = nil,
         browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() },
-        loadPortSummary: @escaping @MainActor (String) async throws -> VMSummary = { id in
-            guard let client = VMClient.shared else { throw CmuxTuiSurfaceProvider.ProviderError.notSignedIn }
-            return try await client.status(id: id)
-        }
+        loadPortSummary: (@MainActor (String) async throws -> VMSummary)? = nil
     ) {
-        self.init(summary: .cloud(summary), fileAccessTeamScope: fileAccessTeamScope, links: links, catalog: catalog,
+        self.init(summary: .cloud(summary), fileAccessTeamScope: fileAccessTeamScope, ownerTeamID: ownerTeamID,
+                  links: links, catalog: catalog,
                   portForwards: portForwards, attachmentClock: attachmentClock,
                   portAccessStore: portAccessStore, displayCoordinator: displayCoordinator,
                   browserPolicy: browserPolicy, loadPortSummary: loadPortSummary)

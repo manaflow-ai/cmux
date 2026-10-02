@@ -227,7 +227,9 @@ struct CloudPortsVPNAffordanceTests {
             let content = CloudPortsStatusContent(frame: NSRect(x: 0, y: 0, width: width, height: height))
             content.configure(presentation: status, style: .defaultStyle) {}
             content.layoutSubtreeIfNeeded()
-            let labels = descendants(of: content).compactMap { $0 as? NSTextField }
+            // Only the row's own labels: on macOS 15 a titled NSButton has an extra
+            // NSTextField descendant that AppKit sizes, not this row.
+            let labels = content.subviews.compactMap { $0 as? NSTextField }
             #expect(labels.count == 2)
             for label in labels {
                 let cell = try #require(label.cell)

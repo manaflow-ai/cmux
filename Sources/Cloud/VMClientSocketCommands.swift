@@ -389,6 +389,9 @@ extension TerminalController {
                 let status = resume
                     ? try await VMClient.shared.resume(id: vmId)
                     : try await VMClient.shared.pause(id: vmId)
+                if !resume {
+                    await CmuxTuiSurfaceProviderRegistry.shared.machineBecameInactive(vmId, status: status)
+                }
                 return ["id": vmId, "status": status]
             }
         case "vm.reflection":
@@ -813,7 +816,9 @@ extension TerminalController {
         return .success(kind)
     }
 
-    private nonisolated static func socketWorkerVMSummaryPayload(_ vm: VMSummary) -> [String: Any] {
+    /// Internal rather than private so `CloudMachineCreatorTests` can check
+    /// that a relayed client is sent the same machine facts a direct one gets.
+    nonisolated static func socketWorkerVMSummaryPayload(_ vm: VMSummary) -> [String: Any] {
         var payload: [String: Any] = [
             "id": vm.id,
             "provider": vm.provider,
@@ -821,17 +826,9 @@ extension TerminalController {
             "kind": vm.resolvedKind.rawValue,
             // What the provider can honor; the list response is authoritative and
             // older action responses retain the model's compatibility defaults.
-            "capabilities": [
-                "snapshot": vm.capabilities.snapshot,
-                "restore": vm.capabilities.restore,
-                "fork": vm.capabilities.fork,
-                "exec": vm.capabilities.exec,
-                "stats": vm.capabilities.stats,
-                "ports": vm.capabilities.ports,
-                "desktop": vm.capabilities.desktop,
-                "sizing": vm.capabilities.sizing,
-                "persistentHome": vm.capabilities.persistentHome,
-            ],
+            // Reuse the model's wire representation so newer capability fields,
+            // including attach transports, cannot be dropped by this summary.
+            "capabilities": vm.capabilities.jsonObject,
             "status": vm.status,
             "createdAt": vm.createdAt,
         ]
@@ -840,6 +837,19 @@ extension TerminalController {
         }
         if let slug = vm.slug, !slug.isEmpty {
             payload["slug"] = slug
+        }
+        if let createdBy = vm.createdBy {
+            // A known account with no recorded name sends an explicit null for
+            // the name, the same shape the HTTP response uses, so a consumer
+            // written against `/api/vm` decodes this without a second case.
+            // No author at all sends no key, where the backend sends
+            // `"createdBy": null`; both live readers treat absent and null the
+            // same, so this is narrower than the wire format rather than a
+            // second meaning.
+            payload["createdBy"] = [
+                "userId": createdBy.userId,
+                "displayName": createdBy.displayName.map { $0 as Any } ?? NSNull(),
+            ]
         }
         if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
             payload["freeAccessExpiresAt"] = freeAccessExpiresAt
