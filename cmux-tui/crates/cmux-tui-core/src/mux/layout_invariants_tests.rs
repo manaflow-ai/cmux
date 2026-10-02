@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 
 use super::*;
-use crate::mux::{Mux, ScreenDestination, TabDropEdge, TabGroupDestination};
+use crate::mux::{LayoutUndoResult, Mux, ScreenDestination, TabDropEdge, TabGroupDestination};
 use crate::resource::ResourceOperation;
 use crate::resource_mutation::ResourceMutationPlan;
 use crate::workspace_registry::{ResourcePatch, WorkspaceMutation};
@@ -197,6 +197,27 @@ fn terminal_registry_move_keeps_durable_topology_in_step() {
     assert_durable_matches_memory(&mux);
 }
 
+/// Undo of a cross-pane tab move puts the tab back in its origin pane. When
+/// the pane it moved into has meanwhile lost every other tab, putting it
+/// back must not leave that pane empty in the layout (I3).
+#[test]
+fn undo_of_a_tab_move_never_leaves_an_empty_pane() {
+    let (mux, [first, second, third]) = two_pane_mux("layout-invariants-undo-empty");
+    let origin = pane_of(&mux, first);
+    let other = pane_of(&mux, third);
+    assert_eq!(mux.move_tab_with_undo(second, other, 1, None), (true, true));
+    // The pane's own tab leaves; only the moved tab remains there.
+    assert!(mux.move_tab(third, origin, 0));
+    assert_eq!(mux.with_state(|state| state.panes[&other].tabs.clone()), vec![second]);
+    let before = mux.with_state(Clone::clone);
+    let undone = mux.undo_layout(origin, None, false);
+    let after = mux.with_state(Clone::clone);
+    let violations = check_state(&project(&after));
+    assert!(violations.is_empty(), "undo ({undone:?}) broke the layout: {violations:?}");
+    assert!(transition_problems(&project(&before), None, &after).is_empty());
+    assert_durable_matches_memory(&mux);
+}
+
 /// Everything observable about the layout, for "unchanged" assertions.
 fn fingerprint(state: &State) -> String {
     let workspaces = state
@@ -343,6 +364,9 @@ enum Op {
         pane: usize,
         index: usize,
     },
+    Undo {
+        pane: usize,
+    },
     Close {
         tab: usize,
     },
@@ -422,6 +446,7 @@ fn op() -> impl Strategy<Value = Op> {
             .prop_map(|(tab, workspace)| Op::TerminalToWorkspace { tab, workspace }),
         2 => (pick.clone(), pick.clone(), insertion_index())
             .prop_map(|(tab, pane, index)| Op::ReplayedMove { tab, pane, index }),
+        1 => pick.clone().prop_map(|pane| Op::Undo { pane }),
         1 => pick.prop_map(|tab| Op::Close { tab }),
     ]
 }
@@ -721,6 +746,10 @@ fn run(
             // The replay must leave everything as the first request did.
             Outcome::Rejected
         }
+        Op::Undo { pane } => match mux.undo_layout(pane_at(pane).unwrap(), None, false) {
+            Ok(LayoutUndoResult::Undone { .. }) => Outcome::Accepted,
+            Ok(LayoutUndoResult::ConfirmationRequired { .. }) | Err(_) => Outcome::Rejected,
+        },
         Op::Close { tab: t } => {
             let surface = tab(t);
             match mux.close_surface(surface) {
