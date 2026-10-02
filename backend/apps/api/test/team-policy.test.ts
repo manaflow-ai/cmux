@@ -237,6 +237,28 @@ const settleIntegration = (session: string, stub: DurableObjectStub, ok: (v: any
 const settleTeamPolicy = (session: string, stub: DurableObjectStub, ok: (p: any) => boolean) =>
   settle(async () => ok((await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.policy), stub)
 
+describe("SSO/MDM lock notices and release (TeamDO)", () => {
+  const sys = (): ReduceContext => ({ principal: { identity: "system:team", kind: "system" }, now: 9_000 + txn, tx: `tx${++txn}`, newId: (p) => `${p}_${String(txn).padStart(20, "0")}` })
+  it("records notices by version, lets only admins release, and audits the release", () => {
+    let s = baseState()
+    const locked = teamDomain.reduce(s, "team.policy.integration_lock", { managed_by: "mdm", version: 2 }, sys())
+    if (!locked.ok) throw new Error(locked.message)
+    s = locked.state as TeamState
+    expect(s.integration_managed_by).toBe("mdm")
+    // A late, older notice changes nothing.
+    expect(teamDomain.reduce(s, "team.policy.integration_lock", { managed_by: null, version: 1 }, sys())).toMatchObject({ ok: true, changed: false })
+    expect(run(s, "team.integration.release_lock", {}, ctx(MEMBER))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(run(s, "team.integration.release_lock", {}, ctx(OWNER, { kind: "agent", agent: "agent_x" }))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    const released = run(s, "team.integration.release_lock", { reason: "moved IdP" }, ctx())
+    if (!released.ok) throw new Error(released.message)
+    expect(released.value).toEqual({ released: "mdm" })
+    expect(released.outbox?.map((o) => o.kind)).toEqual(["audit.append"])
+    expect((released.state as TeamState).integration_release_requested).toBe(1)
+    // Without a lock there is nothing to release.
+    expect(run(baseState(), "team.integration.release_lock", {}, ctx())).toMatchObject({ ok: false, code: "selector.not_found" })
+  })
+})
+
 describe("team policy over the API (workerd)", () => {
   it("the team owner sets policy with an idempotency key, members read it, retries replay", async () => {
     const session = await sessionToken("stack-policy-owner")
@@ -399,7 +421,7 @@ describe("team policy over the API (workerd)", () => {
     await settleIntegration(session, teamStub, (v) => v.source === "team_policy")
     // An SSO lock appears in ConnectionDO (nothing writes these yet: its own system op).
     const connStub = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team)) as unknown as DurableObjectStub
-    const inDO: (stub: DurableObjectStub, fn: (instance: any) => Promise<void>) => Promise<void> = runInDurableObject as any
+    const inDO: (stub: DurableObjectStub, fn: (instance: any, state: any) => Promise<void>) => Promise<void> = runInDurableObject as any
     await inDO(connStub, async (instance) => {
       const res = instance.submitSystem("integration.policy.apply_managed", { source: "sso", policy: { allowed_providers: null, github: { scope: "linking_user_repos", require_org_admin: true, repo_allowlist: ["acme/api"] } }, applied_by: "ssoc_test" }, "sso-lock-2")
       expect(res.frames.some((f: any) => f.t === "reject")).toBe(false)

@@ -77,4 +77,19 @@ export const TeamPolicyRollback = def({
   mcp: { expose: "never", group: "team" }
 })
 
-export const policyOps = [TeamPolicyGet, TeamPolicyHistory, TeamPolicyUpdate, TeamPolicyRollback] as const
+export const TeamIntegrationReleaseLock = def({
+  name: "team.integration.release_lock",
+  owner: "cloud:TeamDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "team_policy",
+  principals: ["session"],
+  params: Schema.Struct({ reason: Schema.optionalKey(PolicyReason) }),
+  result: Schema.Struct({ released: Schema.Literals(["sso", "mdm"]) }),
+  errors: [...mutationErrors, "selector.not_found"],
+  docs: "Release the SSO or MDM lock on the team's integration policy (owners and admins; audited). The team policy then applies again.",
+  cli: { path: "team integration release-lock", visible: true },
+  mcp: { expose: "never", group: "team" }
+})
+
+export const policyOps = [TeamIntegrationReleaseLock, TeamPolicyGet, TeamPolicyHistory, TeamPolicyUpdate, TeamPolicyRollback] as const

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { canonicalJson, LEDGER_RETENTION_MS, type OwnerFrame, type Principal, type RejectFrame } from "@cmux/ownership"
 import { cloudOpByName, PENDING_CONNECTION_TTL_MS, type Connection, type IntegrationProvider } from "@cmux/protocol"
-import { connectionsDomain, expiredForgets, githubRepoAllowed, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
+import { connectionsDomain, expiredForgets, githubRepoAllowed, lockNoticePending, lockOf, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
 import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
 import { aadFor, open, seal, type SealedSecret } from "./integrations/crypto.ts"
@@ -104,6 +104,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (expiry) times.push(expiry.at)
     const forget = expiredForgets(state).find((p) => !skip.has(`forget:${p.connection}`))
     if (forget) times.push(forget.at)
+    if (lockNoticePending(state)) times.push(Math.max(_now, this.noticeRetryAt ?? _now))
     return times.length === 0 ? null : Math.min(...times)
   }
 
@@ -121,10 +122,51 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     }
   }
 
+  /** Backoff for lock notices to TeamDO (in memory: a restart retries at once). */
+  private noticeRetryAt: number | null = null
+  private noticeAttempts = 0
+
+  /**
+   * Tells TeamDO about the latest SSO/MDM lock change until it acknowledges
+   * (durable: the pending change is state, the alarm retries with backoff).
+   */
+  private async deliverLockNotice(team: string, now: number) {
+    const state = this.boundEngine?.currentState
+    if (!state || !lockNoticePending(state)) return
+    if (this.noticeRetryAt !== null && now < this.noticeRetryAt) return
+    const version = state.lock_version ?? 0
+    try {
+      const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team))
+      const r = (await stub.integrationLockChanged(team, lockOf(policyOf(state)), version)) as { ok: boolean; message?: string }
+      if (!r.ok) throw new Error(r.message ?? "refused")
+      this.runSystem("integration.policy.lock_acked", { version }, `lock-acked:${version}`)
+      this.noticeAttempts = 0
+      this.noticeRetryAt = null
+    } catch (e) {
+      this.noticeAttempts += 1
+      this.noticeRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.noticeAttempts)
+      console.error(JSON.stringify({ msg: "lock notice to TeamDO failed", team, version, error: String(e) }))
+    }
+  }
+
+  /**
+   * RPC from TeamDO after an admin's audited team.integration.release_lock:
+   * drops the SSO/MDM lock (values stay); the lock notice then flows back.
+   */
+  async releaseManagedLock(team: string, requestedBy: string, idempotencyKey: string): Promise<{ ok: boolean; message?: string }> {
+    this.bind(team)
+    const res = this.submitSystem("integration.policy.release_managed", { requested_by: requestedBy }, idempotencyKey)
+    const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
+    if (rej) return { ok: false, message: rej.message }
+    return { ok: true }
+  }
+
   /** Expires pending connections whose lifetime ended and drops long-expired ones; keys make repeated alarms replays. */
   protected override async onWake(now: number): Promise<void> {
     const engine = this.boundEngine
     if (!engine) return
+    const entity = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]?.entity
+    if (entity) await this.deliverLockNotice(entity, now)
     const skip = this.skipped()
     for (const p of pendingExpiries(engine.currentState)) {
       if (p.at > now) break

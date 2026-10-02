@@ -70,6 +70,32 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
   ],
+  ...(["team.policy.integration_lock", "team.integration.release_done"] as const).map(
+    (name) =>
+      [
+        name,
+        {
+          name,
+          owner: "cloud:TeamDO",
+          class: "mutation",
+          risk: "mutate-shared",
+          target: "team_policy",
+          principals: ["system"],
+          params:
+            name === "team.policy.integration_lock"
+              ? Schema.Struct({ managed_by: Schema.NullOr(Schema.Literals(["sso", "mdm"])), version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)) })
+              : Schema.Struct({ request: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)) }),
+          result: Schema.Unknown,
+          errors: [],
+          docs:
+            name === "team.policy.integration_lock"
+              ? "Internal: ConnectionDO's SSO/MDM lock changed (notice with ConnectionDO's lock version)."
+              : "Internal: ConnectionDO released the lock for this release request.",
+          cli: { path: "", visible: false },
+          mcp: { expose: "never", group: "internal" }
+        } as CloudOpDef
+      ] as const
+  ),
   ...(["team.policy.integration_seed", "team.policy.integration_synced"] as const).map(
     (name) =>
       [

@@ -24,7 +24,18 @@ export interface ConnectionsState {
   readonly connections: Readonly<Record<string, Connection>>
   /** Absent in objects created before policies; read through `policyOf`. */
   readonly policy?: TeamIntegrationPolicy
+  /** Counts changes of the SSO/MDM lock (appears, changes source, released); TeamDO is told each one. */
+  readonly lock_version?: number
+  /** The last lock_version TeamDO acknowledged. */
+  readonly lock_acked?: number
 }
+
+/** The SSO or MDM source holding the policy, or null. */
+export const lockOf = (p: TeamIntegrationPolicy): "sso" | "mdm" | null => (p.source === "sso" || p.source === "mdm" ? p.source : null)
+/** True while TeamDO has not acknowledged the latest lock change. */
+export const lockNoticePending = (s: ConnectionsState) => (s.lock_version ?? 0) > (s.lock_acked ?? 0)
+const withLockChange = (state: ConnectionsState, next: TeamIntegrationPolicy): ConnectionsState =>
+  lockOf(policyOf(state)) === lockOf(next) ? { ...state, policy: next } : { ...state, policy: next, lock_version: (state.lock_version ?? 0) + 1 }
 
 export const policyOf = (s: ConnectionsState): TeamIntegrationPolicy => s.policy ?? DEFAULT_INTEGRATION_POLICY
 
@@ -202,7 +213,22 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         if (d.value.source === "team_policy" && (held.source === "sso" || held.source === "mdm")) return { ok: true, state, value: held, changed: false }
         // A managed policy starts from the default (not from admin edits) and locks.
         const next = merged(DEFAULT_INTEGRATION_POLICY, d.value.policy, d.value.source, d.value.applied_by, ctx.now)
-        return { ok: true, state: { ...state, policy: next }, value: next }
+        return { ok: true, state: withLockChange(state, next), value: next }
+      }
+
+      case "integration.policy.release_managed": {
+        const held = policyOf(state)
+        if (!lockOf(held)) return { ok: true, state, value: held, changed: false }
+        const by = (params as { requested_by?: unknown })?.requested_by
+        // The values stay; only the lock goes. TeamDO then pushes its policy (source team_policy).
+        const next: TeamIntegrationPolicy = { ...held, source: "admin", locked: false, updated_at: ctx.now, updated_by: typeof by === "string" ? by : "team admin" }
+        return { ok: true, state: withLockChange(state, next), value: next }
+      }
+
+      case "integration.policy.lock_acked": {
+        const v = (params as { version?: unknown })?.version
+        if (typeof v !== "number" || v <= (state.lock_acked ?? 0)) return { ok: true, state, value: { version: v }, changed: false }
+        return { ok: true, state: { ...state, lock_acked: Math.min(v, state.lock_version ?? 0) }, value: { version: v } }
       }
 
       default:

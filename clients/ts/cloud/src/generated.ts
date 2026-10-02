@@ -1128,6 +1128,15 @@ export interface CloudOps {
     }
     readonly result: EnrollmentToken
   }
+  /** Release the SSO or MDM lock on the team's integration policy (owners and admins; audited). The team policy then applies again. */
+  readonly "team.integration.release_lock": {
+    readonly params: {
+      readonly reason?: string
+    }
+    readonly result: {
+      readonly released: "sso" | "mdm"
+    }
+  }
   /** Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
   readonly "team.policy.get": {
     readonly params: {
@@ -1229,6 +1238,7 @@ export const cloudOpMeta = {
   "team.enrollment_token.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.enrollment_token.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.enrollment_token.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.integration.release_lock": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.policy.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
