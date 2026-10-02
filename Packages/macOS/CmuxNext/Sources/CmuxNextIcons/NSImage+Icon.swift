@@ -20,6 +20,8 @@ extension NSImage {
             image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
                 .withSymbolConfiguration(configuration)
                 ?? NSImage(size: NSSize(width: side, height: side))
+            // Lay out like a pack icon: a side x side box.
+            image.size = NSSize(width: side, height: side)
         }
         image.isTemplate = true
         return image

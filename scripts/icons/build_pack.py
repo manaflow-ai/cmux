@@ -180,6 +180,8 @@ def parse_path(d):
                 segs.append(("Z",))
                 cur, last_c, last_q = start, None, None
                 continue
+        if cmd is None or cmd.upper() == "Z":
+            raise ValueError(f"path data has a number without a command: {d!r}")
         n = ARITY[cmd.upper()]
         a = toks[i:i + n]
         i += n
@@ -330,29 +332,39 @@ def geometry(el, tag):
     raise ValueError(f"unsupported element <{tag}>")
 
 
-def walk(el, style, m, masks, out, in_mask=False):
-    tag = el.tag.split("}")[-1]
-    if tag in ("defs", "mask", "title", "desc"):
-        return
+def inherit(style, el):
     style = dict(style)
     for k in INHERITED:
         if k in el.attrib:
             style[k] = el.attrib[k]
+    return style
+
+
+def walk(el, style, m, masks, out, root_style, in_mask=False):
+    tag = el.tag.split("}")[-1]
+    if tag in ("defs", "mask", "title", "desc"):
+        return
+    style = inherit(style, el)
     for k in ("opacity", "fill-opacity", "stroke-opacity"):
         if k in el.attrib:
             style[k] = float(style.get(k, 1.0)) * float(el.attrib[k])
     m = multiply(m, parse_transform(el.attrib.get("transform")))
     mask_ref = re.match(r"url\(#([^)]+)\)", el.attrib.get("mask", ""))
+    if mask_ref and (out or in_mask):
+        # A clear layer erases everything drawn before it, so a masked element must come first.
+        raise ValueError("a masked element must be the first drawn content")
     if tag in ("svg", "g"):
         for child in el:
-            walk(child, style, m, masks, out, in_mask)
+            walk(child, style, m, masks, out, root_style, in_mask)
     else:
         emit(el, tag, style, m, out, in_mask)
     if mask_ref:
         mask = masks[mask_ref.group(1)]
-        base = {k: v for k, v in style.items() if k == "stroke-width"}
+        # Mask content inherits from the mask's own ancestors (the root), in the user space of the
+        # element that references it.
+        base = inherit(root_style, mask)
         for child in mask:
-            walk(child, base, IDENTITY, masks, out, in_mask=True)
+            walk(child, base, m, masks, out, root_style, in_mask=True)
 
 
 def emit(el, tag, style, m, out, in_mask):
@@ -360,6 +372,8 @@ def emit(el, tag, style, m, out, in_mask):
     d = serialize(segs)
     accent = "accent" in style.get("class", "")
     fill, stroke = color_kind(style.get("fill", "black")), color_kind(style.get("stroke"))
+    if not in_mask and "white" in (fill, stroke):
+        raise ValueError("white paint outside a mask would draw as ink")
     width = float(style.get("stroke-width", 1)) * scale_of(m)
     common = {}
     if not in_mask:
@@ -404,7 +418,7 @@ def layers(svg):
     masks = {el.attrib["id"]: el for el in root.iter() if el.tag.split("}")[-1] == "mask"}
     out = []
     # SVG defaults: fill black, no stroke. Root attributes override through walk().
-    walk(root, {"fill": "black"}, IDENTITY, masks, out)
+    walk(root, {"fill": "black"}, IDENTITY, masks, out, inherit({"fill": "black"}, root))
     return out
 
 

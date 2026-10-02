@@ -8,7 +8,7 @@ export const ACCENT_COLOR = "var(--agent-accent, currentColor)";
 const MASK_BOUNDS = { x: -24, y: -24, width: 72, height: 72 } as const;
 
 const strokeProps = (layer: IconLayer) => ({
-  strokeWidth: layer.w ?? 1,
+  strokeWidth: layer.w ?? 1.5,
   strokeLinecap: layer.cap ?? "round",
   strokeLinejoin: layer.join ?? "round",
   strokeDasharray: layer.dash?.join(" "),
