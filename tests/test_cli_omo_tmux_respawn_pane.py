@@ -137,6 +137,8 @@ class FakeCmuxState:
                     "ref": "pane:1",
                     "index": 1,
                     "focused": not self.split_created,
+                    "surface_ids": [SURFACE_ID, SELECTED_SOURCE_SURFACE_ID],
+                    "selected_surface_id": SELECTED_SOURCE_SURFACE_ID,
                 }
             ]
             if self.split_created:
@@ -146,6 +148,8 @@ class FakeCmuxState:
                         "ref": "pane:2",
                         "index": 2,
                         "focused": True,
+                        "surface_ids": [SUBAGENT_SURFACE_ID],
+                        "selected_surface_id": SUBAGENT_SURFACE_ID,
                     }
                 )
             return {"panes": panes}
