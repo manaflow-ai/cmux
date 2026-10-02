@@ -30,10 +30,17 @@ export function TrustFolderDialog({
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
   const trustButton = useRef<HTMLButtonElement>(null);
+  const scrim = useRef<HTMLDivElement>(null);
   const titleId = React.useId();
   const bodyId = React.useId();
 
   useEffect(() => {
+    // Modal: the rest of the pane takes no focus, clicks or typing until the user answers.
+    const others = [...(scrim.current?.parentElement?.children ?? [])].filter(
+      (node): node is HTMLElement =>
+        node !== scrim.current && node instanceof HTMLElement && !node.hasAttribute("inert"),
+    );
+    for (const node of others) node.setAttribute("inert", "");
     trustButton.current?.focus();
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -42,7 +49,10 @@ export function TrustFolderDialog({
       cancelRef.current();
     };
     document.addEventListener("keydown", escape, true);
-    return () => document.removeEventListener("keydown", escape, true);
+    return () => {
+      document.removeEventListener("keydown", escape, true);
+      for (const node of others) node.removeAttribute("inert");
+    };
   }, []);
   const cancelRef = useRef(onCancel);
   cancelRef.current = onCancel;
@@ -61,7 +71,7 @@ export function TrustFolderDialog({
   };
 
   return (
-    <div className="acpmux-trust-scrim">
+    <div ref={scrim} className="acpmux-trust-scrim">
       <dialog open className="acpmux-trust" aria-modal="true" aria-labelledby={titleId} aria-describedby={bodyId}>
         <button type="button" className="acpmux-trust-close" aria-label={TRUST_LABELS.close} onClick={onCancel}>
           <svg width={14} height={14} viewBox="0 0 16 16" aria-hidden="true" focusable="false">

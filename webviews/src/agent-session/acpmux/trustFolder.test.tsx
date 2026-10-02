@@ -51,6 +51,8 @@ test("a trust reply reads as its folder and level; only an unknown folder asks, 
     await needsTrust({ get: () => Promise.reject(new Error("no such method")), set: async () => ({}) }, "/a"),
   ).toBe(false);
   expect(await needsTrust({ get: async () => ({}), set: async () => ({}) }, "/a")).toBe(false);
+  // A host that never answers lets the send go once the wait runs out.
+  expect(await needsTrust({ get: () => new Promise(() => {}), set: async () => ({}) }, "/a", 10)).toBe(false);
 });
 
 const snapshot = (): AcpmuxSnapshot => ({
@@ -107,9 +109,12 @@ test("a send waits on confirmSend: no keeps the prompt, yes sends it once, and a
   expect(sent).toEqual([]);
   expect(prompt.value).toBe("Fix the build");
   await key(prompt, "Enter");
+  // The dialog took focus; sending from Enter hands it back to the prompt.
+  (doc.activeElement as HTMLElement | null)?.blur();
   await act(async () => answer!(true));
   expect(sent).toEqual(["Fix the build"]);
   expect(prompt.value).toBe("");
+  expect(doc.activeElement).toBe(prompt);
   await act(async () => typeInto(prompt, "Then the tests"));
   await key(prompt, "Enter");
   await act(async () => fail!(new Error("host gone")));
@@ -123,19 +128,26 @@ test("the dialog names the folder and the agent, focuses Trust folder, and Escap
   let saving: { resolve(): void; reject(error: Error): void } | undefined;
   await act(async () =>
     root.render(
-      createElement(TrustFolderDialog, {
-        cwd: "/Users/me/code/billing-service",
-        agent: "Claude Code",
-        onTrust: () => {
-          trusted++;
-          return new Promise<void>((resolve, reject) => {
-            saving = { resolve, reject };
-          });
-        },
-        onCancel: () => cancelled++,
-      }),
+      createElement(
+        "section",
+        null,
+        createElement("main", { id: "pane" }, createElement("textarea")),
+        createElement(TrustFolderDialog, {
+          cwd: "/Users/me/code/billing-service",
+          agent: "Claude Code",
+          onTrust: () => {
+            trusted++;
+            return new Promise<void>((resolve, reject) => {
+              saving = { resolve, reject };
+            });
+          },
+          onCancel: () => cancelled++,
+        }),
+      ),
     ),
   );
+  // Modal: the rest of the pane is inert while it asks.
+  expect(doc.getElementById("pane")!.hasAttribute("inert")).toBe(true);
   const dialog = doc.querySelector("dialog.acpmux-trust")!;
   expect(doc.getElementById(dialog.getAttribute("aria-labelledby")!)!.textContent).toBe("Trust this folder?");
   expect(dialog.querySelector(".acpmux-trust-path")!.textContent).toBe("/Users/me/code/billing-service");
@@ -158,6 +170,8 @@ test("the dialog names the folder and the agent, focuses Trust folder, and Escap
   await act(async () => dialog.querySelector<HTMLButtonElement>(".acpmux-trust-close")!.click());
   await act(async () => dialog.querySelector<HTMLButtonElement>(".acpmux-trust-secondary")!.click());
   expect(cancelled).toBe(3);
+  await act(async () => root.render(createElement("section", null, createElement("main", { id: "pane" }))));
+  expect(doc.getElementById("pane")!.hasAttribute("inert")).toBe(false);
 });
 
 test("the mock daemon knows the worked projects as trusted, and remembers a folder once it is set", async () => {

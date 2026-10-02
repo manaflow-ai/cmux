@@ -20,13 +20,26 @@ export function readTrust(value: unknown): FolderTrust | undefined {
   return { cwd: reply.cwd, level: reply.level as TrustLevel };
 }
 
+/// How long a send waits on the folder's trust before going without asking.
+export const TRUST_READ_TIMEOUT_MS = 1500;
+
 /// Whether to ask before the first prompt in `cwd`: only when the folder reads "unknown". A
-/// folder already decided, or a host that can't say (no reply, a failed read), never blocks a send.
-export async function needsTrust(source: TrustSource, cwd: string | undefined): Promise<boolean> {
+/// folder already decided, or a host that can't say (no reply in time, a failed read), never blocks a send.
+export async function needsTrust(
+  source: TrustSource,
+  cwd: string | undefined,
+  timeoutMs = TRUST_READ_TIMEOUT_MS,
+): Promise<boolean> {
   if (!cwd) return false;
+  let timer: number | undefined;
+  const late = new Promise<undefined>((resolve) => {
+    timer = window.setTimeout(resolve, timeoutMs);
+  });
   try {
-    return readTrust(await source.get(cwd))?.level === "unknown";
+    return readTrust(await Promise.race([source.get(cwd), late]))?.level === "unknown";
   } catch {
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }

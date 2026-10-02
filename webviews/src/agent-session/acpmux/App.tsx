@@ -655,14 +655,32 @@ function AcpmuxPane() {
   // A new chat centers its composer under the hero, as Codex's home does.
   const freshChat = isNewChat(snapshot);
   // The first prompt in a folder the user hasn't decided on waits behind "Trust this folder?".
-  const [trustAsk, setTrustAsk] = useState<{ cwd: string; agent: string; answer(go: boolean): void }>();
-  const sendContext = useRef({ freshChat, cwd: snapshot.summary?.cwd, harness: snapshot.summary?.harness });
-  sendContext.current = { freshChat, cwd: snapshot.summary?.cwd, harness: snapshot.summary?.harness };
+  const [trustAsk, setTrustAsk] = useState<{
+    sessionId?: string;
+    cwd: string;
+    agent: string;
+    answer(go: boolean): void;
+  }>();
+  const sendContext = useRef({
+    freshChat,
+    sessionId: snapshot.sessionId,
+    cwd: snapshot.summary?.cwd,
+    harness: snapshot.summary?.harness,
+  });
+  sendContext.current = {
+    freshChat,
+    sessionId: snapshot.sessionId,
+    cwd: snapshot.summary?.cwd,
+    harness: snapshot.summary?.harness,
+  };
   const confirmSend = useCallback(async () => {
-    const { freshChat: fresh, cwd, harness } = sendContext.current;
+    const { freshChat: fresh, sessionId, cwd, harness } = sendContext.current;
     if (!fresh || !cwd || !(await needsTrust(trustSource, cwd))) return true;
+    // The chat changed while the folder was read: the prompt stays in the composer, unsent.
+    if (sendContext.current.sessionId !== sessionId || sendContext.current.cwd !== cwd) return false;
     return new Promise<boolean>((resolve) =>
       setTrustAsk({
+        sessionId,
         cwd,
         agent: harness ? agentName(harness) : TRUST_LABELS.agent,
         answer: (go) => {
@@ -672,6 +690,12 @@ function AcpmuxPane() {
       }),
     );
   }, []);
+  // A question about one chat's folder never answers for another: switching chats cancels it.
+  const sessionId = snapshot.sessionId;
+  const sessionCwd = snapshot.summary?.cwd;
+  useEffect(() => {
+    if (trustAsk && (trustAsk.sessionId !== sessionId || trustAsk.cwd !== sessionCwd)) trustAsk.answer(false);
+  }, [trustAsk, sessionId, sessionCwd]);
   // Codex's turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(() => turnView(snapshot.rows, expanded), [snapshot.rows, expanded]);
   // The open changes view: a turn of one session, and the control that opened it.
