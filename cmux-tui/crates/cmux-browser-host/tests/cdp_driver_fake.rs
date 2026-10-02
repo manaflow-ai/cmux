@@ -101,7 +101,11 @@ impl FakeWire {
             | "Input.dispatchKeyEvent"
             | "Input.insertText"
             | "Emulation.setDeviceMetricsOverride"
-            | "Runtime.releaseObjectGroup" => json!({}),
+            | "Runtime.releaseObjectGroup"
+            | "Fetch.enable"
+            | "Fetch.disable"
+            | "Fetch.failRequest"
+            | "Fetch.continueRequest" => json!({}),
             "Page.getFrameTree" => {
                 let target = target_of(&session);
                 json!({"frameTree": {
@@ -658,4 +662,40 @@ fn unknown_methods_and_browser_level_raw_cdp_are_refused() {
         .unwrap_err();
     assert_eq!(raw.code, ErrorCode::Forbidden);
     assert_eq!(h.driver.capabilities(), vec!["cdp"]);
+}
+
+#[test]
+fn a_request_filter_intercepts_and_decides_every_request() {
+    let h = Harness::new();
+    let target = h.open(None);
+    let filter: cmux_browser_host::driver::RequestFilter = std::sync::Arc::new(|url: &str| {
+        url.contains("evil.test").then(|| "not in session.allowedDomains (example.com)".to_owned())
+    });
+    let mark = h.mark();
+    assert!(h.driver.set_request_filter(Some(filter)));
+    let enabled = h.sent_since(mark);
+    assert!(enabled.iter().any(|(m, p)| m == "Fetch.enable" && p["patterns"][0]["urlPattern"] == "*"), "{enabled:?}");
+    let session = format!("S{}", &target[1..]);
+    let mark = h.mark();
+    for (id, url) in [("r1", "https://evil.test/beacon"), ("r2", "https://example.com/app.js")] {
+        h._conn.receive(&json!({"sessionId": session, "method": "Fetch.requestPaused", "params": {"requestId": id, "request": {"url": url}, "resourceType": "Script"}}).to_string());
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let sent = h.sent_since(mark);
+        if sent.len() >= 2 {
+            assert!(sent.contains(&("Fetch.failRequest".to_string(), json!({"requestId": "r1", "errorReason": "BlockedByClient"}))), "{sent:?}");
+            assert!(sent.contains(&("Fetch.continueRequest".to_string(), json!({"requestId": "r2"}))), "{sent:?}");
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "no decisions sent: {sent:?}");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    // New tabs get interception before they run.
+    let mark = h.mark();
+    h.open(None);
+    assert!(h.methods_since(mark).iter().any(|m| m == "Fetch.enable"));
+    let mark = h.mark();
+    assert!(h.driver.set_request_filter(None));
+    assert!(h.methods_since(mark).iter().any(|m| m == "Fetch.disable"));
 }

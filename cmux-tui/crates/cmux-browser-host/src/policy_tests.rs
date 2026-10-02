@@ -120,3 +120,11 @@ fn prohibited_domains_and_ip_blocking_apply_to_subresources() {
     assert!(policy.subresource_refusal(&url("http://[::1]/")).is_some());
     assert!(policy.subresource_refusal(&url("data:image/png;base64,AA")).is_none());
 }
+
+#[test]
+fn a_trailing_dot_does_not_escape_prohibited_domains() {
+    let mut policy = Policy::default();
+    policy.set(Writer::Owner, layer(None, &["evil.com"]), false).unwrap();
+    assert!(policy.navigation_refusal("https://evil.com./x").is_some());
+    assert!(policy.navigation_refusal("https://sub.evil.com./").is_none(), "no wildcard");
+}
