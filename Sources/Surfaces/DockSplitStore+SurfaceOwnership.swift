@@ -1,4 +1,5 @@
 import CmuxCloud
+import Bonsplit
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -13,15 +14,23 @@ extension DockSplitStore {
         return surfaceOwnershipPolicy.rejection(for: nil) == nil
     }
 
-    func surfaceDropRejection(_ transfer: PaneDragTransfer, source: PaneTransferSourceResolver.Source) -> SurfaceTransferRejection? {
+    func surfaceDropRejection(
+        _ transfer: PaneDragTransfer,
+        source: PaneTransferSourceResolver.Source,
+        policy: SurfaceOwnershipPolicy? = nil
+    ) -> SurfaceTransferRejection? {
+        let ownershipPolicy = policy ?? surfaceOwnershipPolicy
         switch source {
         case .surfaceResources(let group):
-            return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: surfaceOwnershipPolicy)
+            return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: ownershipPolicy)
         case .surface:
-            let machine = transfer.isFromCurrentProcess ? AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId) : nil
-            return surfaceOwnershipPolicy.rejection(for: machine)
+            guard transfer.isFromCurrentProcess else { return ownershipPolicy.rejection(for: nil) }
+            // A Dock surface split or reordered within this Dock stays on its machine.
+            if surfaceIdToPanelId[TabID(uuid: transfer.tabId)] != nil { return nil }
+            guard let app = AppDelegate.shared else { return ownershipPolicy.rejection(for: nil) }
+            return app.ownershipRejection(forBonsplitTab: transfer.tabId, policy: ownershipPolicy)
         case .vaultSession, .filePreview, .rightSidebarTool:
-            return surfaceOwnershipPolicy.rejection(for: .local)
+            return ownershipPolicy.rejection(for: .local)
         }
     }
 
@@ -29,12 +38,12 @@ extension DockSplitStore {
         if transfer.origin == .dock(workspaceId) { return true }
         return surfaceOwnershipPolicy.rejection(for: transfer.surfaceMachine
             ?? SurfaceCatalog.shared.machineOwningPanel(transfer.panelId)
-            ?? transfer.panel.transferredSurfaceMachine) == nil
+            ?? transfer.panel.transferredSurfaceMachine, kind: AppDelegate.shared?.surfaceResourceKind(for: transfer.panel)) == nil
     }
 
     func acceptsRestoredDisplay(_ snapshot: SessionPanelSnapshot) -> Bool {
         if let resource = snapshot.browser?.cloudResource {
-            return surfaceOwnershipPolicy.rejection(for: resource.machine) == nil
+            return surfaceOwnershipPolicy.rejection(for: resource.machine, kind: resource.kind) == nil
         }
         if let raw = snapshot.browser?.urlString, URL(string: raw)?.path == "/vnc.html" {
             return scope == .global || surfaceOwnershipPolicy.rejection(for: nil) == nil

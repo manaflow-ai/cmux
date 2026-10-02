@@ -18,7 +18,8 @@ public final class CloudWorkspaceCoordinator {
     /// - Parameters:
     ///   - machinePinStore: The one store shared with every Machines panel.
     ///   - allowsOperation: Reads live feature and account availability.
-    ///   - loadMachines: Loads the complete authenticated fleet in its reported order.
+    ///   - loadMachines: Loads the authenticated fleet in its reported order,
+    ///     keeping only machines that can receive a new workspace.
     ///   - createWorkspace: Creates on the exact machine and projects into the captured window.
     public init(
         machinePinStore: CloudMachinePinStore,
