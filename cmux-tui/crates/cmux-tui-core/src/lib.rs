@@ -47,6 +47,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+mod session_shutdown;
 mod shell_history;
 mod shell_integration;
 mod short_id;

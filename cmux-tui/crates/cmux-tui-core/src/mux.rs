@@ -2712,7 +2712,7 @@ pub struct Mux {
     shutting_down: AtomicBool,
     /// When this owner's session (and the previous owner's) was shutting
     /// down: signal exits then are host losses (`session-shutdown`).
-    session_shutdown: crate::terminal_end::SessionShutdownClock,
+    session_shutdown: crate::session_shutdown::SessionShutdownClock,
     /// Called after `request_daemon_shutdown`, so the owner loop that waits
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
@@ -2971,7 +2971,12 @@ impl Mux {
     ) -> anyhow::Result<Arc<Self>> {
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
-        let previous_owner_shutdown = registry.owner_shutdown_start()?;
+        let session_shutdown = crate::session_shutdown::SessionShutdownClock::open(
+            registry
+                .session_journal_database_path()
+                .map(|database| crate::session_shutdown::owner_shutdown_marker_path(&database)),
+            crate::session_shutdown::unix_now_ms(),
+        );
         let RestoredResourceState { mut state, next_id, contents } =
             restore_resource_state(snapshot, topology)?;
         let RestoredPublicProjections {
@@ -3148,10 +3153,7 @@ impl Mux {
             ),
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
-            session_shutdown: crate::terminal_end::SessionShutdownClock::new(
-                previous_owner_shutdown,
-                crate::terminal_end::unix_now_ms(),
-            ),
+            session_shutdown,
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
@@ -3187,12 +3189,6 @@ impl Mux {
         mux.materialize_restored_browsers(&contents)?;
         #[cfg(unix)]
         mux.adopt_terminal_hosts()?;
-        if previous_owner_shutdown.is_some() {
-            // Startup reconciliation classified the exits the previous
-            // session's shutdown left; later adoption uses the in-memory
-            // window.
-            mux.workspace_registry.lock().unwrap().clear_owner_shutdown_start()?;
-        }
         {
             let mut state = mux.state.lock().unwrap();
             state.rebuild_resource_indexes();
@@ -12290,16 +12286,10 @@ impl Mux {
 
     /// Record, once and durably, when this owner's session began shutting
     /// down, so the next owner classifies signal exits from then on as host
-    /// losses (`session-shutdown`).
-    fn begin_session_shutdown(&self) {
-        let Some(at_ms) = self.session_shutdown.begin(crate::terminal_end::unix_now_ms()) else {
-            return;
-        };
-        if let Err(error) =
-            self.workspace_registry.lock().unwrap().record_owner_shutdown_start(at_ms)
-        {
-            eprintln!("cmux-tui: could not record the session shutdown start: {error:#}");
-        }
+    /// losses (`session-shutdown`). The owner's loop calls it as soon as a
+    /// termination signal wakes it, before any teardown.
+    pub fn begin_session_shutdown(&self) {
+        self.session_shutdown.begin(crate::session_shutdown::unix_now_ms());
     }
 
     /// Install the callback that `request_daemon_shutdown` runs after it
