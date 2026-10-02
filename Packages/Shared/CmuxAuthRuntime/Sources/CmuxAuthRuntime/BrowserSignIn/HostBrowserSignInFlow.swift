@@ -43,6 +43,7 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var activeAttemptID: UInt64?
     @ObservationIgnored private var handedOffAttemptID: UInt64?
     @ObservationIgnored private var activeCallbackState: String?
+    @ObservationIgnored private var activeAttemptSelectsAccount = false
     @ObservationIgnored private var pendingManualCallbackState: String?
     @ObservationIgnored private var pendingFallbackCallbackState: String?
     @ObservationIgnored private var signOutGeneration: UInt64 = 0
@@ -86,17 +87,21 @@ public final class HostBrowserSignInFlow {
 
     /// Start a browser sign-in without awaiting the result (Settings button).
     /// Reuses a handed-off attempt; otherwise cancels the previous popup.
+    /// - Parameter selectAccount: `true` (Switch Account) asks the hosted page
+    ///   to confirm which account to use even when the browser is signed in.
+    ///   It never reuses a handed-off attempt, whose page did not ask.
     @discardableResult
-    public func beginSignIn() -> Task<Bool, Never> {
-        log.log("auth.browser.beginSignIn signedIn=\(coordinator.isAuthenticated) signingIn=\(isSigningIn)")
-        if let activeAttemptID,
+    public func beginSignIn(selectAccount: Bool = false) -> Task<Bool, Never> {
+        log.log("auth.browser.beginSignIn signedIn=\(coordinator.isAuthenticated) signingIn=\(isSigningIn) selectAccount=\(selectAccount)")
+        if !selectAccount,
+           let activeAttemptID,
            handedOffAttemptID == activeAttemptID,
            let activeAttemptTask {
             isPresentingSignIn = true
             signInIsSlow = true
             return activeAttemptTask
         }
-        return startAttempt()
+        return startAttempt(selectAccount: selectAccount)
     }
 
     /// The hosted sign-in URL for a manual fallback.
@@ -110,7 +115,7 @@ public final class HostBrowserSignInFlow {
     public var activeAttemptSignInURL: URL? {
         guard let activeCallbackState else { return nil }
         pendingFallbackCallbackState = activeCallbackState
-        return makeSignInURL(activeCallbackState)
+        return attemptSignInURL(activeCallbackState)
     }
 
     /// Run a browser sign-in attempt with a deadline for `auth.begin_sign_in`.
@@ -185,13 +190,28 @@ public final class HostBrowserSignInFlow {
         _ = await deadline.resolve(attempt, timeout: timeout)
     }
 
+    /// The active attempt's hosted sign-in URL. Switch Account adds
+    /// `prompt=select_account`, so every surface that opens the attempt (the
+    /// popup and the default-browser fallback) lands on the account chooser.
+    private func attemptSignInURL(_ callbackState: String) -> URL {
+        let url = makeSignInURL(callbackState)
+        guard activeAttemptSelectsAccount,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        var items = components.queryItems ?? []
+        items.removeAll { $0.name == "prompt" }
+        items.append(URLQueryItem(name: "prompt", value: "select_account"))
+        components.queryItems = items
+        return components.url ?? url
+    }
+
     // MARK: - Attempt lifecycle
 
-    private func startAttempt() -> Task<Bool, Never> {
+    private func startAttempt(selectAccount: Bool = false) -> Task<Bool, Never> {
         if let activeAttemptID {
             log.log("auth.browser.attempt.replace previous=\(activeAttemptID)")
         }
         cancelActiveAttempt()
+        activeAttemptSelectsAccount = selectAccount
         lastFailure = nil
         nextAttemptID &+= 1
         let attemptID = nextAttemptID
@@ -242,7 +262,7 @@ public final class HostBrowserSignInFlow {
             activeSessionContinuation = continuation
             activeSessionContinuationAttemptID = attemptID
             let callbackState = activeCallbackState ?? callbackStateGenerator.make()
-            let signInURL = makeSignInURL(callbackState)
+            let signInURL = attemptSignInURL(callbackState)
             let scheme = callbackScheme()
             log.log("auth.browser.session.create id=\(attemptID) signInURL=\(signInURL.absoluteString) callbackScheme=\(scheme)")
             let session = sessionFactory.makeSession(signInURL: signInURL, callbackScheme: scheme) { result in
@@ -258,7 +278,7 @@ public final class HostBrowserSignInFlow {
                     self.signInIsSlow = true
                     if self.handedOffAttemptID != attemptID, let state = self.activeCallbackState {
                         self.log.log("auth.browser.handoff.continueInDefaultBrowser attempt=\(attemptID)")
-                        if self.openExternalURL(self.makeSignInURL(state)) {
+                        if self.openExternalURL(self.attemptSignInURL(state)) {
                             // Browser launched: keep the attempt parked so the
                             // eventual cmux://auth-callback resumes it. Open at
                             // most once per attempt.
