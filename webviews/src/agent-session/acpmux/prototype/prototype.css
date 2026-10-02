@@ -10,7 +10,7 @@ body {
   background: var(--proto-wallpaper, #11111b) center / cover;
 }
 .proto-window {
-  /* Catppuccin Mocha accents for room and browser profile colors. */
+  /* Catppuccin Mocha accents for space and browser profile colors. */
   --proto-mauve: #cba6f7;
   --proto-peach: #fab387;
   --proto-green: #a6e3a1;
@@ -101,9 +101,9 @@ body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  animation: proto-room-in 0.18s ease-out;
+  animation: proto-space-in 0.18s ease-out;
 }
-@keyframes proto-room-in {
+@keyframes proto-space-in {
   from {
     opacity: 0;
     transform: translateX(6px);
@@ -148,10 +148,10 @@ body {
 }
 .proto-workspace.is-active,
 .proto-workspace-tab.is-active {
-  background: color-mix(in srgb, var(--room-accent, var(--agent-text)) 13%, transparent);
+  background: color-mix(in srgb, var(--space-accent, var(--agent-text)) 13%, transparent);
 }
 .proto-workspace.is-flash {
-  background: color-mix(in srgb, var(--room-accent, var(--agent-accent)) 26%, transparent);
+  background: color-mix(in srgb, var(--space-accent, var(--agent-accent)) 26%, transparent);
   transition: none;
 }
 .proto-workspace-title,
@@ -405,15 +405,15 @@ body {
   border-radius: 50%;
 }
 
-/* Rooms: plain dots at the bottom center of the sidebar, the current one stronger (data-model.md 7). */
-.proto-rooms {
+/* Spaces: plain dots at the bottom center of the sidebar, the current one stronger (data-model.md 7). */
+.proto-spaces {
   display: flex;
   flex: none;
   justify-content: center;
   height: 40px;
   border-top: 0.5px solid var(--agent-border);
 }
-.proto-room-dot {
+.proto-space-dot {
   display: grid;
   place-items: center;
   width: 26px;
@@ -422,24 +422,24 @@ body {
   border: 0;
   background: none;
 }
-.proto-room-dot i {
+.proto-space-dot i {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: color-mix(in srgb, var(--dot) 45%, transparent);
   transition: transform 0.15s;
 }
-.proto-room-dot:hover i {
+.proto-space-dot:hover i {
   background: color-mix(in srgb, var(--dot) 75%, transparent);
 }
-.proto-room-dot[aria-selected="true"] i {
+.proto-space-dot[aria-selected="true"] i {
   background: var(--dot);
   transform: scale(1.45);
 }
-.proto-room-add {
+.proto-space-add {
   color: var(--agent-muted) !important;
 }
-.proto-room-add svg {
+.proto-space-add svg {
   width: 14px;
   height: 14px;
 }
@@ -555,7 +555,7 @@ body {
   .proto-mini {
     animation: none;
   }
-  .proto-room-dot i {
+  .proto-space-dot i {
     transition: none;
   }
 }
