@@ -16192,6 +16192,7 @@ impl Mux {
             }
             let previous_active = state.active_pane();
             let key = state.workspaces[index].key.clone();
+            registry.read_state(|db| crate::state::home_store::refuse_close_key(db, &key))?;
             let mut desired = self.registry_projection(&state);
             desired.remove(index);
             let desired_active_workspace = if state.active_workspace == index {

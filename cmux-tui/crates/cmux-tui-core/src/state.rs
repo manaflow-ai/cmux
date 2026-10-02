@@ -1,6 +1,6 @@
 //! The workspace-store side of the daemon (plans/cmux-next/OWNERSHIP-PRINCIPLES.md):
 //! the v2 state operations and their storage. Workspace identity, ephemeral
-//! workspaces, workspace status, progress and log, tab pins, tab state and
+//! workspaces, the home workspace (`workspace-kind-v1`), workspace status, progress and log, tab pins, tab state and
 //! tab groups, saved tab groups, personal workspace groups, placements and
 //! rooms, screen metadata and screen groups, closed history, and window
 //! records.
@@ -13,6 +13,10 @@
 pub(crate) mod closed_history;
 pub(crate) mod closed_history_store;
 pub(crate) mod commit;
+pub(crate) mod home;
+pub(crate) mod home_store;
+#[cfg(test)]
+mod home_tests;
 pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
 pub(crate) mod personal;
@@ -32,6 +36,7 @@ pub(crate) mod window_records;
 pub(crate) mod workspace;
 pub(crate) mod workspace_status_store;
 
+pub(crate) use home_store::error_code as home_error_code;
 pub(crate) use personal::PersonalChange;
 pub(crate) use screens::ScreenChange;
 pub(crate) use workspace::WorkspaceStatusChange;

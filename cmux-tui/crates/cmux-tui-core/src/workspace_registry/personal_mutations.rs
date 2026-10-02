@@ -777,6 +777,7 @@ impl WorkspaceRegistry {
                 )?;
             }
         }
+        crate::state::home_store::require_home_first(tx)?;
         let after = find(&read_workspaces(tx)?)
             .ok_or_else(|| anyhow::anyhow!("personal workspace vanished"))?;
         let changed = before.as_ref() != Some(&after);

@@ -11,7 +11,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
 
     assert_eq!(cases.len(), 174);
     let catalog = operation_catalog();
-    assert_eq!(catalog["operations"].as_object().unwrap().len(), 184);
+    assert_eq!(catalog["operations"].as_object().unwrap().len(), 185);
     let mut seen = std::collections::BTreeSet::new();
     let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
     for (args, expected) in &cases {
@@ -93,6 +93,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "window_record.list"
                         | "window_record.put"
                         | "window_record.delete"
+                        // The hosting app creates its home workspace; the
+                        // CLI never offers it (workspace-kind-v1).
+                        | "workspace.ensure_home"
             )
         })
         .map(String::as_str)

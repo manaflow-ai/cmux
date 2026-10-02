@@ -209,6 +209,8 @@ pub enum ResourceOperation {
     WorkspaceGet,
     #[serde(rename = "workspace.create")]
     WorkspaceCreate,
+    #[serde(rename = "workspace.ensure_home")]
+    WorkspaceEnsureHome,
     #[serde(rename = "workspace.rename")]
     WorkspaceRename,
     #[serde(rename = "workspace.move")]
@@ -672,6 +674,7 @@ impl ResourceOperation {
             Self::WorkspaceList => "workspace.list",
             Self::WorkspaceGet => "workspace.get",
             Self::WorkspaceCreate => "workspace.create",
+            Self::WorkspaceEnsureHome => "workspace.ensure_home",
             Self::WorkspaceRename => "workspace.rename",
             Self::WorkspaceMove => "workspace.move",
             Self::WorkspaceFocus => "workspace.focus",
@@ -1308,6 +1311,8 @@ pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
     "creation.conflict",
     "cursor.gap",
     "cursor.invalid",
+    "home.not_closable",
+    "home.pinned_first",
     "idempotency.conflict",
     "local.io",
     "mutation.indeterminate",

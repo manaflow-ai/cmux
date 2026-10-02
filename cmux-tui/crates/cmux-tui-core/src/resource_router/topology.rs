@@ -289,7 +289,7 @@ fn create_workspace(
             correlation_key,
             expected_revision(&request.fields)?,
             &mutation,
-            ephemeral,
+            crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
         )
         .map_err(resource_operation_error)?;
     let workspace_id = result_id(&commit.result, "workspace.create", "workspace")?;

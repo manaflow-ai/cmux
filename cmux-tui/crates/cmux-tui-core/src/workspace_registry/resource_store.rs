@@ -4051,7 +4051,7 @@ fn tombstone_resource_workspace(
     for screen in screens {
         tombstone_resource_screen(transaction, &screen, revision)?;
     }
-
+    crate::state::home_store::refuse_close_id(transaction, workspace_id)?;
     transaction.execute(
         "UPDATE resource_workspaces
          SET active_screen_id = NULL, updated_revision = ?1, deleted_revision = ?1

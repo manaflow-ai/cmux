@@ -40,7 +40,9 @@ pub(crate) fn create_closed_history_schema(transaction: &Transaction<'_>) -> any
     Ok(())
 }
 
-fn queue_change(transaction: &Transaction<'_>, change: &Value) -> anyhow::Result<()> {
+/// Queue one public state change into the current transaction's journal
+/// batch (also used by the home placement of `workspace-kind-v1`).
+pub(crate) fn queue_change(transaction: &Transaction<'_>, change: &Value) -> anyhow::Result<()> {
     transaction.execute(
         "INSERT INTO state_pending_changes(change_json) VALUES(?1)",
         [serde_json::to_string(change)?],
