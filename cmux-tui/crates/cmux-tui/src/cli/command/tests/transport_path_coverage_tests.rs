@@ -7,7 +7,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
     const PANE: &str = "pane_00000000000000000000000000000006";
     const TERMINAL: &str = "term_00000000000000000000000000000008";
     // The case list is shared with `cmux mcp`'s parity test (command/cases.rs).
-    let cases = super::super::cases::safe_operation_cases();
+    let cases = cases::safe_operation_cases();
 
     assert_eq!(cases.len(), 171);
     let catalog = operation_catalog();
