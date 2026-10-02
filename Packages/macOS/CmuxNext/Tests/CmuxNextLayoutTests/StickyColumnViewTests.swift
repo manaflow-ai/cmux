@@ -129,9 +129,10 @@ struct StickyColumnViewTests {
         runToRest(view)
         // Reproduces #16607: the idle delay elapses before the check, as it
         // did when a loaded runner stalled the settle loop past 1.2 s.
-        await clock.sleepers(atLeast: 1)
-        clock.advance(by: StripScrollbarView.idleDelay)
-        await settle { screen.scrollbar?.isShown == false }
+        await settle {
+            clock.advance(by: StripScrollbarView.idleDelay)
+            return screen.scrollbar?.isShown == false
+        }
         #expect(screen.scrollbar?.isShown == true)
         let report = screen.scrollbarReport
         // The track spans the strip's uncovered range only.
