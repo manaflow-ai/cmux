@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createFrameBatch } from "../src/lib/frameBatch";
 
 describe("animation-frame batching", () => {

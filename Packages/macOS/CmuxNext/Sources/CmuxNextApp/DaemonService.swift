@@ -24,6 +24,8 @@ final class DaemonService {
     /// restarted or was handed off to a newer build after the first connect.
     var identity: DaemonIdentity? { store.identity }
     @ObservationIgnored private var runTask: Task<Void, Never>?
+    /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
+    @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?
     @ObservationIgnored private var reconciling: Task<Void, Never>?
     @ObservationIgnored private var queuedReconcile: Task<Void, Never>?
     @ObservationIgnored private let scheduler = FrameBatcher(owner: "DaemonStore.drain")
@@ -211,6 +213,7 @@ final class DaemonService {
         startupDeadlineTimer = nil
         lastStartupError = nil
         startup = .connected
+        relaunchKeptLayoutIfNeeded(connection)
     }
 
     /// Records a failed first-connect attempt. Shows as unavailable once the
@@ -355,6 +358,8 @@ final class DaemonService {
         activationObserver = nil
         runTask?.cancel()
         runTask = nil
+        keptLayoutRelaunch?.cancel()
+        keptLayoutRelaunch = nil
         // task-owner: teardown hop; close() is idempotent and finishes the store pump
         if let connection { Task { await connection.close() } }
         connection = nil

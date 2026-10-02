@@ -58,6 +58,7 @@ public final class LayoutRootView: NSView {
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.frame(dt) ?? false }
         context.overlayNeedsSync = { [weak self] in self?.syncOverlay() }
+        highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
         registerForDraggedTypes([LayoutTabDrag.pasteboardType])
