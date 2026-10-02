@@ -38,6 +38,7 @@ import { TurnActionsContext, type TurnActions } from "./conversation/turnActions
 import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { DateLine } from "./conversation/DateLine";
 import { SearchChats } from "./SearchChats";
+import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 
@@ -64,6 +65,8 @@ declare global {
       }): void;
       /// An app action for the page (CmuxNextAgentPane AgentPaneView): "searchChats" toggles Search chats.
       command?(name: string): void;
+      /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
+      applyShortcuts?(labels: Record<string, string>): void;
     };
     cmuxAcpmuxRegistry?: {
       register(
@@ -789,8 +792,10 @@ function AcpmuxPane() {
     void callNative("chat.new").catch(() => undefined);
   }, []);
   // Search chats opens from the app's agentPane.searchChats action (Cmd-K by default, editable in
-  // Settings and cmux.json), which calls the bridge's command("searchChats").
+  // Settings and cmux.json), which calls the bridge's command("searchChats"). The host pushes the
+  // live bindings through applyShortcuts, so labels follow a rebind.
   const [searching, setSearching] = useState(false);
+  const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   // While the narrow-pane overlay is open, Escape closes it and focus moves into it.
   useEffect(() => {
     if (sidebar !== "open" || wide) return;
@@ -844,6 +849,9 @@ function AcpmuxPane() {
       },
       applyTheme(theme) {
         applyAgentTheme(theme as never);
+      },
+      applyShortcuts(labels) {
+        setShortcuts(readShortcuts(labels));
       },
       applyCustomization(customization) {
         if ("themeCSS" in customization) {
@@ -981,105 +989,107 @@ function AcpmuxPane() {
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot);
   return (
-    <section className="acpmux-shell" data-sidebar={sidebar}>
-      <SessionSidebar
-        sessions={snapshot.sessions}
-        selectedId={snapshot.sessionId}
-        onSelect={selectSession}
-        onNewChat={newChat}
-        account={account}
-      />
-      {sidebar === "open" && (
-        <button
-          type="button"
-          className="acpmux-sidebar-scrim"
-          aria-label="Close sessions"
-          tabIndex={-1}
-          onClick={closeOverlay}
-        />
-      )}
-      <div className="acpmux-main" data-new-chat={freshChat ? "" : undefined}>
-        <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
-          <header className="acpmux-header">
-            <div>
-              <button
-                type="button"
-                className="acpmux-sidebar-toggle"
-                ref={sidebarToggle}
-                aria-label="Sessions"
-                title="Sessions"
-                aria-controls="acpmux-sidebar"
-                aria-expanded={sidebarShown}
-                onClick={toggleSidebar}
-              />
-              <strong className="acpmux-title">{header.title}</strong>
-              {header.status && <span className="acpmux-status">{header.status}</span>}
-            </div>
-          </header>
-          {freshChat ? (
-            <EmptyState project={projectName(snapshot.summary?.cwd)} />
-          ) : (
-            <TurnActionsContext.Provider value={turnActions}>
-              <VirtualTranscript
-                rows={transcriptRows}
-                canLoadOlder={snapshot.canLoadOlder}
-                expanded={expanded}
-                registry={registry}
-                onOpenDiff={openDiff}
-                onToggleActivity={(id) =>
-                  setExpanded((current) => {
-                    const next = new Set(current);
-                    if (next.has(id)) next.delete(id);
-                    else next.add(id);
-                    return next;
-                  })
-                }
-              />
-            </TurnActionsContext.Provider>
-          )}
-          {diffView && diffFiles && (
-            <DiffPanel
-              files={diffFiles}
-              initialPath={diffView.path}
-              onClose={closeDiff}
-              source={changesSource}
-              onOpenFile={openChangedFile}
-            />
-          )}
-        </div>
-        {snapshot.permission?.pending && (
-          <div className="acpmux-permission">
-            <PermissionCard permission={snapshot.permission} />
-          </div>
-        )}
-        {/* Between the hero and the docked composer. */}
-        {freshChat && (
-          <div className="acpmux-home-area">
-            <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
-          </div>
-        )}
-        <Composer
-          snapshot={composerSnapshot}
-          chips={ComposerChips}
-          draft={draft}
-          onSend={(text) => void callNative("chat.send", { text })}
-          onStop={() => void callNative("chat.cancel")}
-        />
-      </div>
-      {searching && (
-        <SearchChats
+    <ShortcutsContext.Provider value={shortcuts}>
+      <section className="acpmux-shell" data-sidebar={sidebar}>
+        <SessionSidebar
           sessions={snapshot.sessions}
-          onClose={() => setSearching(false)}
-          onSelect={(sessionId) => {
-            setSearching(false);
-            selectSession(sessionId);
-          }}
-          onNewChat={() => {
-            setSearching(false);
-            newChat();
-          }}
+          selectedId={snapshot.sessionId}
+          onSelect={selectSession}
+          onNewChat={newChat}
+          account={account}
         />
-      )}
-    </section>
+        {sidebar === "open" && (
+          <button
+            type="button"
+            className="acpmux-sidebar-scrim"
+            aria-label="Close sessions"
+            tabIndex={-1}
+            onClick={closeOverlay}
+          />
+        )}
+        <div className="acpmux-main" data-new-chat={freshChat ? "" : undefined}>
+          <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
+            <header className="acpmux-header">
+              <div>
+                <button
+                  type="button"
+                  className="acpmux-sidebar-toggle"
+                  ref={sidebarToggle}
+                  aria-label="Sessions"
+                  title="Sessions"
+                  aria-controls="acpmux-sidebar"
+                  aria-expanded={sidebarShown}
+                  onClick={toggleSidebar}
+                />
+                <strong className="acpmux-title">{header.title}</strong>
+                {header.status && <span className="acpmux-status">{header.status}</span>}
+              </div>
+            </header>
+            {freshChat ? (
+              <EmptyState project={projectName(snapshot.summary?.cwd)} />
+            ) : (
+              <TurnActionsContext.Provider value={turnActions}>
+                <VirtualTranscript
+                  rows={transcriptRows}
+                  canLoadOlder={snapshot.canLoadOlder}
+                  expanded={expanded}
+                  registry={registry}
+                  onOpenDiff={openDiff}
+                  onToggleActivity={(id) =>
+                    setExpanded((current) => {
+                      const next = new Set(current);
+                      if (next.has(id)) next.delete(id);
+                      else next.add(id);
+                      return next;
+                    })
+                  }
+                />
+              </TurnActionsContext.Provider>
+            )}
+            {diffView && diffFiles && (
+              <DiffPanel
+                files={diffFiles}
+                initialPath={diffView.path}
+                onClose={closeDiff}
+                source={changesSource}
+                onOpenFile={openChangedFile}
+              />
+            )}
+          </div>
+          {snapshot.permission?.pending && (
+            <div className="acpmux-permission">
+              <PermissionCard permission={snapshot.permission} />
+            </div>
+          )}
+          {/* Between the hero and the docked composer. */}
+          {freshChat && (
+            <div className="acpmux-home-area">
+              <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
+            </div>
+          )}
+          <Composer
+            snapshot={composerSnapshot}
+            chips={ComposerChips}
+            draft={draft}
+            onSend={(text) => void callNative("chat.send", { text })}
+            onStop={() => void callNative("chat.cancel")}
+          />
+        </div>
+        {searching && (
+          <SearchChats
+            sessions={snapshot.sessions}
+            onClose={() => setSearching(false)}
+            onSelect={(sessionId) => {
+              setSearching(false);
+              selectSession(sessionId);
+            }}
+            onNewChat={() => {
+              setSearching(false);
+              newChat();
+            }}
+          />
+        )}
+      </section>
+    </ShortcutsContext.Provider>
   );
 }
