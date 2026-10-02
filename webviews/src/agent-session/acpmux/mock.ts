@@ -1,6 +1,8 @@
 import { stricterTrust, type HarnessTrust, type TrustLevel } from "./folderTrust";
 import type { AcpmuxHostConfig, EventRecord } from "./direct";
 import { FORK_OP } from "./operations";
+import { HANDOFF_OPS } from "./handoff/protocol";
+import { MockHandoffs } from "./handoff/mock";
 import {
   claudeModels,
   codexModels,
@@ -159,6 +161,32 @@ export class MockAcpmuxSocket {
   ]);
   /// acpmux's own record, which `acp.trust.set` writes; the agents' files never change.
   private trust = new Map<string, TrustLevel>([["~/code/atlas-web", "trusted"]]);
+  private handoffs = new MockHandoffs(
+    () => this.sessions,
+    (source, harness) => {
+      const created: Record<string, any> = {
+        ...newSessionSummary(`mock-session-${this.sessions.length + 1}`, source.cwd, Date.now()),
+        harness,
+        enforcement: source.enforcement,
+      };
+      this.sessions.push(created);
+      this.touch(created.sessionId, {}, false);
+      return created.sessionId;
+    },
+    (id) => {
+      const events = this.events.filter((event) => event.sessionId === id);
+      return {
+        seq: events.at(-1)?.seq ?? 0,
+        text: events.map((event) => JSON.stringify(event.msg)).join("\n") || "Continue this repository task.",
+      };
+    },
+    (id, text, promptId) => this.prompt(id, text, promptId),
+    (id) => {
+      const session = this.sessions.find((s) => s.sessionId === id);
+      this.sessions = this.sessions.filter((s) => s.sessionId !== id);
+      this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "purged", session } });
+    },
+  );
   private events: EventRecord[] = [];
   private seq = 0;
   private turns = 0;
@@ -237,7 +265,8 @@ export class MockAcpmuxSocket {
     if (request.id === undefined) return;
     void this.answer(request.method, request.params ?? {}).then(
       (result) => this.deliver({ jsonrpc: "2.0", id: request.id, result }),
-      (error: Error) => this.deliver({ jsonrpc: "2.0", id: request.id, error: { message: error.message } }),
+      (error: Error) =>
+        this.deliver({ jsonrpc: "2.0", id: request.id, error: { message: error.message, data: (error as any).data } }),
     );
   }
 
@@ -249,10 +278,16 @@ export class MockAcpmuxSocket {
 
   private async answer(method: string, params: Record<string, any>): Promise<unknown> {
     const target = String(params.sessionId ?? sessionId);
+    if (Object.values(HANDOFF_OPS).includes(method as any)) return this.handoffs.answer(method, params);
     switch (method) {
       // The mock serves forks, so the pane's fork action can be tried before acpmux ships it.
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { operations: [FORK_OP] } } };
+        return {
+          protocolVersion: 1,
+          _meta: {
+            acpmux: { operations: [FORK_OP, ...Object.values(HANDOFF_OPS)], handoff: { maxCapsuleBytes: 65536 } },
+          },
+        };
       case FORK_OP:
         return this.fork(target, Number(params.throughSeq));
       case "_acpmux/watch":
@@ -265,7 +300,10 @@ export class MockAcpmuxSocket {
         if (this.sessions.find((entry) => entry.sessionId === target)?.unread)
           this.touch(target, { unread: false }, false);
         return {
-          session: this.sessions.find((entry) => entry.sessionId === target),
+          session: {
+            ...this.sessions.find((entry) => entry.sessionId === target),
+            enforcement: { policy: "default", label: "native_policy", isolation: "unverified", detail: null },
+          },
           events: this.events.filter((event) => event.sessionId === target),
         };
       }
@@ -282,6 +320,7 @@ export class MockAcpmuxSocket {
           String(params.cwd ?? from?.cwd ?? "~/code/cmux"),
           Date.now(),
         );
+        if (params._meta?.acpmux?.harness) created.harness = params._meta.acpmux.harness;
         // It runs on the same machine, with the harness's model the catalog offers.
         if (from?.host) Object.assign(created, { host: from.host, hostKind: from.hostKind });
         if (this.script) created.model = scriptHarnesses[0]!.models[0]!.id;

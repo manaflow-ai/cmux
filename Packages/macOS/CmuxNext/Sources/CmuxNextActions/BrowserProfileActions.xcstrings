@@ -263,133 +263,133 @@
         }
       }
     },
-    "action.browserProfile.clearRoomDefault" : {
+    "action.browserProfile.clearSpaceDefault" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Clear Room Browser Profile"
+            "value" : "Clear Space Browser Profile"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "مسح ملف تعريف المتصفح للغرفة"
+            "value" : "مسح ملف تعريف المتصفح للمساحة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ukloni profil preglednika sobe"
+            "value" : "Ukloni profil preglednika prostora"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ryd rummets browserprofil"
+            "value" : "Ryd områdets browserprofil"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Browserprofil des Raums entfernen"
+            "value" : "Browserprofil des Spaces entfernen"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Quitar perfil de navegador de la sala"
+            "value" : "Quitar perfil de navegador del espacio"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Effacer le profil de navigateur de la salle"
+            "value" : "Effacer le profil de navigateur de l’espace"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Rimuovi profilo browser della stanza"
+            "value" : "Rimuovi profilo browser dello spazio"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ルームのブラウザプロファイルを消去"
+            "value" : "スペースのブラウザプロファイルを消去"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "សម្អាតប្រវត្តិរូបកម្មវិធីរុករករបស់បន្ទប់"
+            "value" : "សម្អាតប្រវត្តិរូបកម្មវិធីរុករករបស់លំហ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "룸 브라우저 프로필 지우기"
+            "value" : "스페이스 브라우저 프로필 지우기"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Fjern rommets nettleserprofil"
+            "value" : "Fjern områdets nettleserprofil"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Wyczyść profil przeglądarki pokoju"
+            "value" : "Wyczyść profil przeglądarki obszaru"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Limpar Perfil do Navegador da Sala"
+            "value" : "Limpar Perfil do Navegador do Espaço"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Сбросить профиль браузера комнаты"
+            "value" : "Сбросить профиль браузера области"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ล้างโปรไฟล์เบราว์เซอร์ของห้อง"
+            "value" : "ล้างโปรไฟล์เบราว์เซอร์ของพื้นที่"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Oda Tarayıcı Profilini Temizle"
+            "value" : "Alan Tarayıcı Profilini Temizle"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Скинути профіль браузера кімнати"
+            "value" : "Скинути профіль браузера простору"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Xóa hồ sơ trình duyệt của phòng"
+            "value" : "Xóa hồ sơ trình duyệt của không gian"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "清除房间浏览器配置文件"
+            "value" : "清除空间浏览器配置文件"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "清除房間瀏覽器設定檔"
+            "value" : "清除空間瀏覽器設定檔"
           }
         }
       }
@@ -2097,133 +2097,133 @@
         }
       }
     },
-    "action.browserProfile.setRoomDefault" : {
+    "action.browserProfile.setSpaceDefault" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Set Room Browser Profile…"
+            "value" : "Set Space Browser Profile…"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "تعيين ملف تعريف المتصفح للغرفة…"
+            "value" : "تعيين ملف تعريف المتصفح للمساحة…"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Postavi profil preglednika sobe…"
+            "value" : "Postavi profil preglednika prostora…"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Angiv rummets browserprofil…"
+            "value" : "Angiv områdets browserprofil…"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Browserprofil des Raums festlegen …"
+            "value" : "Browserprofil des Spaces festlegen …"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Definir perfil de navegador de la sala…"
+            "value" : "Definir perfil de navegador del espacio…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Définir le profil de navigateur de la salle…"
+            "value" : "Définir le profil de navigateur de l’espace…"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Imposta profilo browser della stanza…"
+            "value" : "Imposta profilo browser dello spazio…"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ルームのブラウザプロファイルを設定…"
+            "value" : "スペースのブラウザプロファイルを設定…"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "កំណត់ប្រវត្តិរូបកម្មវិធីរុករករបស់បន្ទប់…"
+            "value" : "កំណត់ប្រវត្តិរូបកម្មវិធីរុករករបស់លំហ…"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "룸 브라우저 프로필 설정…"
+            "value" : "스페이스 브라우저 프로필 설정…"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Angi rommets nettleserprofil …"
+            "value" : "Angi områdets nettleserprofil …"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ustaw profil przeglądarki pokoju…"
+            "value" : "Ustaw profil przeglądarki obszaru…"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Definir Perfil do Navegador da Sala…"
+            "value" : "Definir Perfil do Navegador do Espaço…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Задать профиль браузера комнаты…"
+            "value" : "Задать профиль браузера области…"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ตั้งโปรไฟล์เบราว์เซอร์ของห้อง…"
+            "value" : "ตั้งโปรไฟล์เบราว์เซอร์ของพื้นที่…"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Oda Tarayıcı Profilini Ayarla…"
+            "value" : "Alan Tarayıcı Profilini Ayarla…"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Задати профіль браузера кімнати…"
+            "value" : "Задати профіль браузера простору…"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Đặt hồ sơ trình duyệt của phòng…"
+            "value" : "Đặt hồ sơ trình duyệt của không gian…"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "设置房间浏览器配置文件…"
+            "value" : "设置空间浏览器配置文件…"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "設定房間瀏覽器設定檔…"
+            "value" : "設定空間瀏覽器設定檔…"
           }
         }
       }

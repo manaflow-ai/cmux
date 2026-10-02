@@ -3,6 +3,10 @@ import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
+import { HandoffClient } from "./handoff/client";
+import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
+import { sessionEnforcement } from "./handoff/review";
+import type { HandoffReviewInput } from "./handoff/review";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -16,6 +20,8 @@ export type AcpmuxHostConfig = {
   cwd?: string;
   /** Text the composer starts with. Shown, never sent by itself. */
   draft?: string;
+  /** A new chat's first prompt, sent once the client connects (onboarding's first task). */
+  prompt?: string;
 };
 
 /** `session/new` params: the host's cwd when it gave one, else acpmux's default. */
@@ -32,7 +38,7 @@ export type EventRecord = {
   msg: Record<string, any>;
 };
 type Session = Record<string, any> & { sessionId: string };
-type Reply = { id: number; result?: any; error?: { message?: string } };
+type Reply = { id: number; result?: any; error?: { message?: string; data?: unknown } };
 type Notification = { method: string; params?: any };
 type Listener = (snapshot: AcpmuxSnapshot) => void;
 
@@ -211,7 +217,10 @@ export type OpenSocket = (url: URL) => WebSocket;
 export class AcpmuxDirectClient {
   private socket?: WebSocket;
   private nextRequest = 1;
-  private pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
+  private pending = new Map<
+    number,
+    { resolve: (value: any) => void; reject: (error: Error) => void; timer?: ReturnType<typeof setTimeout> }
+  >();
   private events: EventRecord[] = [];
   private rows = new Map<string, AcpmuxRow>();
   private sessions: Session[] = [];
@@ -235,6 +244,11 @@ export class AcpmuxDirectClient {
   private turnOpen = false;
   /// acpmux lists `acp.session.fork` among the operations it serves.
   private canFork = false;
+  private handoffSupported = false;
+  readonly handoff = new HandoffClient(
+    (method, params) => this.request(method, params, 15000),
+    () => this.emit(),
+  );
   private forking = false;
   private streamingAssistant?: string;
   private streamingAssistantMessageId?: string;
@@ -306,6 +320,7 @@ export class AcpmuxDirectClient {
           reject(new Error("acpmux WebSocket closed before connect"));
           return;
         }
+        this.handoff.disconnect();
         this.rejectPending();
         this.emit("disconnected");
         if (!this.hasConnected || this.closed) return;
@@ -324,6 +339,7 @@ export class AcpmuxDirectClient {
         clientCapabilities: {},
       });
       this.canFork = servesOperation(initialized, FORK_OP);
+      this.handoffSupported = supportsHandoff(initialized);
       const watched = await this.request("_acpmux/watch", { enabled: true });
       this.sessions = this.reread(watched?.sessions);
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
@@ -376,6 +392,7 @@ export class AcpmuxDirectClient {
     this.pendingPermission = undefined;
     this.commands = [];
     this.commandsApplied = false;
+    this.handoff.select(this.selectedSessionId);
   }
 
   private scheduleReconnect(): void {
@@ -399,7 +416,8 @@ export class AcpmuxDirectClient {
       const request = this.pending.get(message.id);
       if (!request) return;
       this.pending.delete(message.id);
-      if (message.error) request.reject(new Error(message.error.message ?? "acpmux request failed"));
+      if (request.timer) clearTimeout(request.timer);
+      if (message.error) request.reject(new AcpmuxRpcError(message.error));
       else request.resolve(message.result);
       return;
     }
@@ -531,11 +549,17 @@ export class AcpmuxDirectClient {
     return this.request("git.status", { sessionId: this.selectedSessionId });
   }
 
-  private request(method: string, params: Record<string, unknown>): Promise<any> {
+  private request(method: string, params: Record<string, unknown>, deadline?: number): Promise<any> {
     if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("acpmux WebSocket is not open"));
     const id = this.nextRequest++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = deadline
+        ? setTimeout(() => {
+            this.pending.delete(id);
+            reject(new Error("Continuation request timed out. Read its saved state before retrying."));
+          }, deadline)
+        : undefined;
+      this.pending.set(id, { resolve, reject, timer });
       this.socket!.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
     });
   }
@@ -567,6 +591,15 @@ export class AcpmuxDirectClient {
     this.events = mergeEventRecords(page, this.events);
     this.rebuild();
     this.attachedGeneration = generation;
+    if (this.handoffSupported) {
+      this.handoff.select(sessionId);
+      try {
+        await this.handoff.refresh();
+      } catch {
+        /* No mutation until a recovery read succeeds. */
+      }
+    }
+    if (generation !== this.selectionGeneration) return [];
     this.emit("attached");
     return page;
   }
@@ -592,7 +625,8 @@ export class AcpmuxDirectClient {
     if (params?.kind === "purged" && session?.sessionId) {
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
       this.unseen.delete(session.sessionId);
-      if (session.sessionId === this.selectedSessionId) this.selectFallbackSession("session purged");
+      if (session.sessionId === this.selectedSessionId && this.handoff.state.busy !== "discarding")
+        this.selectFallbackSession("session purged");
       else this.emit("session purged");
       return;
     }
@@ -885,6 +919,7 @@ export class AcpmuxDirectClient {
             model: summary.model,
             effort: effort?.currentValue,
             status: summary.status,
+            enforcement: sessionEnforcement(summary.enforcement),
             modes: summary.modes,
             configOptions: summary.configOptions,
           }
@@ -893,6 +928,8 @@ export class AcpmuxDirectClient {
       sessionId: this.selectedSessionId,
       isWorking: this.turnOpen || summary?.status === "running",
       canFork: this.canFork,
+      canHandoff: this.handoffSupported,
+      handoff: this.handoff.state,
       queue: this.queue,
       permission: this.pendingPermission,
       catalog: [],
@@ -904,11 +941,27 @@ export class AcpmuxDirectClient {
   snapshot(): void {
     this.emit();
   }
+  /** A `session/new` in flight, so a Send during the first prompt's start joins it. */
+  private creating?: Promise<string | undefined>;
   async ensureSession(): Promise<string | undefined> {
-    if (!this.selectedSessionId) await this.create();
+    if (!this.selectedSessionId) {
+      this.creating ??= this.create().finally(() => (this.creating = undefined));
+      await this.creating;
+    }
     return this.selectedSessionId;
   }
   async send(text: string): Promise<string | undefined> {
+    const record = this.handoff.state.record;
+    if (
+      this.handoffSupported &&
+      this.selectedSessionId &&
+      (!this.handoff.state.ready ||
+        (record?.target.sessionId === this.selectedSessionId &&
+          record.state !== "started" &&
+          record.state !== "discarded" &&
+          !this.handoff.state.receipt))
+    )
+      throw new Error("Review the continuation before sending a prompt.");
     const sessionId = await this.ensureSession();
     if (!sessionId) return undefined;
     const promptId = crypto.randomUUID();
@@ -938,6 +991,28 @@ export class AcpmuxDirectClient {
     }
     return sessionId;
   }
+  async continueIn(harness: string): Promise<string | undefined> {
+    if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;
+    const generation = this.selectionGeneration;
+    const record = await this.handoff.prepare(harness);
+    if (!record || generation !== this.selectionGeneration) return;
+    return this.select(record.target.sessionId);
+  }
+  saveHandoff(review: HandoffReviewInput) {
+    return this.handoff.save(review);
+  }
+  startHandoff(review: HandoffReviewInput) {
+    return this.handoff.start(review);
+  }
+  async discardHandoff(): Promise<string | undefined> {
+    const generation = this.selectionGeneration;
+    const record = await this.handoff.discard();
+    if (!record || generation !== this.selectionGeneration) return;
+    return this.select(record.source.sessionId);
+  }
+  refreshHandoff() {
+    return this.handoff.refresh();
+  }
   async cancel(): Promise<void> {
     if (this.selectedSessionId)
       this.socket?.send(
@@ -958,10 +1033,11 @@ export class AcpmuxDirectClient {
     await this.attach(sessionId, generation);
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
-  async create(harness?: string): Promise<string | undefined> {
-    const result = await this.request("session/new", newSessionParams(this.host, harness));
-    // The inherited cwd is the first chat's; later new chats start where acpmux defaults.
-    if (result?.sessionId) this.host = { ...this.host, cwd: undefined };
+  /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
+  async create(harness?: string, cwd?: string): Promise<string | undefined> {
+    const result = await this.request("session/new", newSessionParams(cwd ? { cwd } : this.host, harness));
+    // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
+    if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
     if (result?.sessionId) return this.select(String(result.sessionId));
     return undefined;
   }
@@ -1038,7 +1114,10 @@ export class AcpmuxDirectClient {
     this.rejectPending();
   }
   private rejectPending(): void {
-    for (const request of this.pending.values()) request.reject(new Error("acpmux WebSocket closed"));
+    for (const request of this.pending.values()) {
+      if (request.timer) clearTimeout(request.timer);
+      request.reject(new Error("acpmux WebSocket closed"));
+    }
     this.pending.clear();
   }
 }

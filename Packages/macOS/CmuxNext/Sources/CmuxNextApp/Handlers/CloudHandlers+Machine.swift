@@ -3,14 +3,37 @@ import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
 
-// Per-machine actions: open, terminal, rename, kill, copy, resize, status,
-// ports, tools, handoff, snapshot, promote to template, restore, fork.
+// Per-machine actions: open, terminal, rename, kill, pause/resume, copy,
+// resize, status, ports, tools, handoff, snapshot, promote to template,
+// restore, fork, and snapshot deletion.
 extension CloudHandlers {
     static func bindMachineActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud!
         bind("cloudOpenMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             run("open machine", context) { show(try await firstWorkspace(on: session, context), context) }
+        }
+        bind("cloudSSH", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            guard session.daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
+            runTracked("open Cloud SSH terminal", context) {
+                let anchor = try await terminalAnchor(on: session, context)
+                guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
+                let created = try await connection.newTab(in: anchor.pane.handle, options: SpawnOptions(workspace: anchor.key))
+                if invocation.allowsViewChange { reveal(created.surface, in: anchor.pane, workspaceID: anchor.id, context) }
+            }
+        }
+        bind("cloudExec", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            let command = try commandArgument(invocation)
+            guard session.daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
+            runTracked("exec on Cloud machine", context) {
+                let anchor = try await terminalAnchor(on: session, context)
+                guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
+                let created = try await connection.newTab(in: anchor.pane.handle, options: SpawnOptions(workspace: anchor.key))
+                try await connection.send(created.surface, text: command + "\n")
+                if invocation.allowsViewChange { reveal(created.surface, in: anchor.pane, workspaceID: anchor.id, context) }
+            }
         }
         bind("cloudNewTerminal", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
@@ -33,6 +56,18 @@ extension CloudHandlers {
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             run("kill machine", context) { try await cloud.deleteMachine(session.machineID) }
+        }
+        bind("cloudPauseMachine", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            runTracked("pause machine", context) {
+                try await cloud.pauseMachine(session.machineID)
+            }
+        }
+        bind("cloudResumeMachine", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            runTracked("resume machine", context) {
+                try await cloud.resumeMachine(session.machineID)
+            }
         }
         bind("cloudCopyMachineID", registry, reason: reason) { invocation in CloudPresenter.copy(try machine(invocation, context).machineID) }
         bind("cloudCopyPort", registry, reason: reason) { invocation in
@@ -89,6 +124,16 @@ extension CloudHandlers {
             run("snapshot machine", context) {
                 let snapshot = try await cloud.api.snapshot(session.machineID, name: nil)
                 CloudPresenter.show(CloudStrings.snapshotTitle, CloudStrings.snapshotBody(snapshot.id), copyable: true, in: window(context))
+            }
+        }
+        bind("palette.cloud.deleteSnapshot", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            guard let snapshot = invocation["snapshot"]?.stringValue, !snapshot.isEmpty else {
+                throw ActionFailure(message: CloudStrings.snapshotRequired)
+            }
+            runTracked("delete snapshot", context) {
+                try await cloud.api.deleteSnapshot(session.machineID, snapshotID: snapshot)
+                await cloud.refresh()
             }
         }
         // The old app's `cmux vm promote-template`: a snapshot named after the

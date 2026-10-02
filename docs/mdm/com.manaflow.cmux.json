@@ -26,6 +26,24 @@
       "title" : "When Quitting",
       "type" : "string"
     },
+    "appearance.backgroundBlur" : {
+      "description" : "appearance.backgroundBlur",
+      "enum" : [
+        "frosted",
+        "glass",
+        "glass-clear",
+        "none"
+      ],
+      "title" : "Material",
+      "type" : "string"
+    },
+    "appearance.backgroundOpacity" : {
+      "description" : "How much of the theme color covers the material behind the window.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Opacity",
+      "type" : "number"
+    },
     "appearance.borders" : {
       "default" : "default",
       "description" : "None removes every border, hairline and separator in the app.",
@@ -84,6 +102,7 @@
         "arc",
         "native",
         "dot",
+        "braille",
         "none"
       ],
       "title" : "Style",
