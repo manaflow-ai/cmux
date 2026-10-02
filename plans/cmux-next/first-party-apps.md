@@ -1,0 +1,164 @@
+# First-party cmux apps, app tiers and the app sandbox
+
+Status: proposal 1, lane 3 lead, 2026-10-02. Inputs (binding): cmux-next-spec `spec/app-platform.md` (draft 1), decisions D50 (first-party apps), D51 (three tiers), D52 (security and complete sandboxing), P5 (no studied-product names in public repos), `spec/identity-and-permissions.md` (grants, approval modes), plans/cmux-next/app-platform.md (implementation plan), OWNERSHIP-PRINCIPLES.md, skills/cmux-next-feature. Only the coordinator writes the spec; this file is the lane 3 proposal ("spec proposal: first-party apps").
+
+## 1. Summary for agents
+
+- Five first-party apps run on the app platform and use only the public app API (the generated `cmux` global, the view builders, the manifest): **search**, **inbox**, **notes**, **coderouter** (UI and onboarding for CodeRouter) and **usage** (plan usage and limits in the macOS menu bar). They are the platform's proof: anything they cannot do with the public API is a platform gap (section 3), never a private hook.
+- Sources live in `first-party-apps/<name>/` (manifest `cmux-app.json`, `src/main.ts`, built `dist/main.js`, bun tests, preview fixtures, README). App ids are `cmux/<name>`. `bun first-party-apps/build.ts [--check]` packs and validates all of them.
+- Each app has two or three design variants, selected by the app setting `variant` (marked `x-cmux-devOnly`, a DEV/NIGHTLY switch) and the palette command "Next <App> Variant". Lawrence picks after dogfood.
+- Three tiers (D51): first-party, Verified, unverified (section 4). One sandbox model for all tiers, with a "complete sandbox" switch any user can turn on for any app (D52, section 5).
+- Operations that do not exist yet are called with `cmux.call("<family>.<verb>")` and listed per app as "Proposed operations"; they answer `operation.unsupported` until an owner implements them, and the apps show what is missing.
+
+## 2. The apps
+
+| App | What it does | Contributions | Core scopes | Recommended variant |
+| --- | --- | --- | --- | --- |
+| search | finds workspaces, tabs, terminal text, browser pages, notes, inbox items and files, and opens the result | command `search` (palette, MCP), sidebar section, pane kind | `workspace:read`, `terminal:read`, `browser:read`, proposed `history:read`, `fs:read` (granted roots) | see section 8 |
+| inbox | one triage list: cmux notifications, agents that wait or finished, connected-service work items (review requests, failing checks); open, done, snooze | sidebar section, status item (count), commands, pane kind | `notification:read`, `notification:write`, `agent:read`, `workspace:write` (open), `integration:github:read` | see section 8 |
+| notes | markdown notes, global and per workspace; quick capture; agents read and append through MCP tools | sidebar section, commands (MCP), pane kind, search provider | storage (proposed documents store), `workspace:read` | see section 8 |
+| coderouter | CodeRouter status, provider accounts, keys, usage, routing, test request; first-run onboarding | sidebar section, status item, commands, pane kinds (dashboard, onboarding) | proposed `coderouter:read`, `coderouter:write`, restricted `coderouter:keys` | see section 8 |
+| usage | per provider and account: session and weekly windows, percent used, reset time, pace, warnings | status item (menu bar), sidebar section, commands (MCP) | proposed `usage:read`, `notification:write` | see section 8 |
+
+## 3. Platform API gaps (what these five apps need)
+
+Priority: P0 = an app cannot do its core job without it; P1 = the app works but worse; P2 = later. "Owner" is who must build it (OWNERSHIP-PRINCIPLES: the owner of the data serves the op and checks the grant).
+
+### 3.1 Surfaces and contributions
+
+| # | Gap | Needed by | Proposal | Owner | Pri |
+| --- | --- | --- | --- | --- | --- |
+| S1 | Pane kinds are phase 2 and not mounted | search, inbox, notes, coderouter | mount `paneKinds[].render` as a tab kind `app:<app>#<pane>` (layout record in the workspace store, scene from the app host); pull forward to phase 1 for first-party apps | app platform lead + tabs | P0 |
+| S2 | No macOS menu-bar placement for status items | usage | `statusItems[].placement = "menuBar"`: one NSStatusItem per contribution, title scene of one row (text, symbol, tiny meters), click opens the contribution's `menu` export as a popover; user can hide it; at most 2 per app | app platform lead | P0 |
+| S3 | No way to present a popover, sheet or panel from a scene | usage, coderouter, inbox | `cmux.ui.present(export, {as: "popover"\|"sheet"\|"panel", anchor?})` returning a mount; dismissed by the client; origin user only | app platform lead | P1 |
+| S4 | `searchProviders` is phase 3 | search, notes, inbox | `contributes.searchProviders[{id, title, query: <export>}]`: the host fans a query out to providers with a deadline and merges typed results `{id, title, subtitle, symbol, source, score, open: {action, args}}`; apps never call each other directly | app platform lead | P0 for search |
+| S5 | Commands exposed to agents | notes, inbox, search, usage | implement the generated MCP tool per command for apps holding `mcp:expose` (spec 6.5), with the command's `arguments` schema; agent calls run with the intersection of agent and app grants | app platform lead + MCP owner | P0 |
+| S6 | Onboarding contribution | coderouter | `contributes.onboarding[{id, title, render, after?}]`: a step the first-run flow and Settings > Accounts can show; progress stored by the app | onboarding owner | P1 |
+| S7 | Badges on a section header, the Dock and the status item | inbox, usage | scene prop `badge` on the contribution root, read by the section header; `notification.badge` is not an app op | sidebar sections lead | P1 |
+| S8 | Keyboard shortcuts for app commands | search, notes | app commands appear in KeyboardShortcutSettings and `cmux.json` keymaps under their global id | actions lead | P1 |
+| S9 | Mount context lacks the client's current workspace | notes (scratchpad), search (scope) | mount `ctx.workspace`, `ctx.window` and a `client.current` read (per-client view record, published by the client, OWNERSHIP-PRINCIPLES) | app platform lead | P1 |
+
+### 3.2 Scene nodes (renderer)
+
+| # | Gap | Needed by | Proposal | Pri |
+| --- | --- | --- | --- | --- |
+| N1 | No multi-line editor | notes | `TextEditor(value, {placeholder, onEdit, onSubmit?, syntax: "plain"\|"markdown"})`; text, selection, undo and IME stay in the client; the app gets debounced `edit {text, revision}` | P0 |
+| N2 | No rich text | search (match highlight), notes (preview) | `Text` accepts `runs: [{text, weight?, color?, monospaced?, highlight?}]`; and a read-only `Markdown(text)` node (no HTML, no remote images) | P0 for search |
+| N3 | No meter or gauge | usage, coderouter | `Meter({value, limit?, tick?, tone})`: a thin bar with an optional pace tick; stacked variant for the menu bar | P0 for usage |
+| N4 | No toggle, picker, segmented control | all | `Toggle`, `Picker(options)`, `Segmented(options)` with `onChange` | P1 |
+| N5 | No list selection or keyboard navigation | search, inbox | `List({items, selection, onSelect, onActivate})`: arrow keys, Return, type-to-select owned by the client | P0 for search |
+| N6 | No host-owned secret field | coderouter | `SecureField({target: {op, param}})`: the client sends the typed value straight to the op through the host; the VM never sees it (section 5.6) | P0 for coderouter |
+| N7 | No sparkline or small chart | usage, coderouter | `Sparkline(values)` | P2 |
+| N8 | No table or grid | coderouter, usage | `Grid(columns, rows)` | P2 |
+
+### 3.3 Data and operations
+
+| # | Gap | Needed by | Proposal (smallest primitive) | Owner | Risk / scope | Pri |
+| --- | --- | --- | --- | --- | --- | --- |
+| D1 | Change events with payloads | inbox, search, usage | `notification.changed`, `agent.changed`, `workspace.changed`, `tab.changed` streams with typed payloads and `invalidated_by` catalog metadata so `cmux.live` refreshes without polling | daemon (D7 catalog) | read | P0 |
+| D2 | Terminal text search | search | `terminal.search {query, regex?, case_sensitive?, terminals?, limit}` -> `[{terminal, tab, line, column, preview}]`, cancellable, capped | session host (transcripts) | read, `terminal:read` | P0 |
+| D3 | Browser history search | search | `browser.history.search {query, limit}` | browser history store | read, new `history:read` | P1 |
+| D4 | File search and read in granted roots | search, notes (folder option) | `fs.search {root, query, include?, exclude?, limit}`, `fs.read {path}`, `fs.write {path, text, expected_revision}`; roots are workspace folders or user-picked folders bound to the grant (section 5.3) | session host on the machine that has the files | read / mutate-own, `fs:read`, `fs:write` | P0 for search |
+| D5 | Document storage larger than KV | notes | `app.documents.list/get/put/delete {id, body, expected_revision}`: per-app documents, 50 MiB local, synced through `UserDO` with per-document revisions (compare-and-set, conflict copy) | app supervisor (local) + `UserDO` (sync) | mutate-own, own data | P0 for notes |
+| D6 | Provider usage without credentials | usage, coderouter | `usage.list {provider?}` -> `[{provider, account, plan, windows: [{kind, label, percent, used?, limit?, resets_at, pace}], fetched_at, stale, error}]`, `usage.refresh`, event `usage.changed`; the owner reads credentials, fetches with backoff and stops while no subscriber is visible | native usage service (in the app, later the daemon) | read, `usage:read` | P0 for usage |
+| D7 | CodeRouter control plane | coderouter | `coderouter.status`, `coderouter.accounts.list/connect/remove/share`, `coderouter.keys.list/create/revoke`, `coderouter.usage.get`, `coderouter.route.test`; cloud catalog entries; `connect` and `keys.create` take or return opaque handles only | CodeRouter control plane (cloud) + native accounts service (detection) | read / mutate-own / mutate-shared; `coderouter:read`, `coderouter:write`, restricted `coderouter:keys` | P0 for coderouter |
+| D8 | Integration gateway not implemented in the host | inbox, search | implement `integration.request` through `ConnectionDO` (D39); today the host answers `operation.unsupported` | integrations lead | read / send-external | P0 for inbox |
+| D9 | Current client view | notes, search | `client.current` -> `{window, workspace, tab}` from the client's own published record | client | read, `workspace:read` | P1 |
+
+### 3.4 Runtime
+
+| # | Gap | Needed by | Proposal | Pri |
+| --- | --- | --- | --- | --- |
+| R1 | No app localization | all | `l10n/<lang>.json` in the bundle, `t(key, fallback, args)` in the runtime, `cmux.app.locale`; the validator checks every key has en and ja | P0 (cmux rule: all strings localized) |
+| R2 | Dev-only settings | all (variants) | settings schema key `x-cmux-devOnly: true`: shown and honored only in DEV and NIGHTLY builds | P1 |
+| R3 | Visibility | inbox, usage, search | `ctx.visible()` signal per mount; `cmux.timer.every` pauses while no mount of the app is visible (spec 5.2 says so; the prototype engine does not do it yet) | P1 |
+| R4 | Background work without a mount | inbox (snooze wake-up), usage (threshold warnings) | declarative `contributes.notificationRules` evaluated by the host on events (no app code running), else `activation: ["onEvent:<stream>"]` that starts the app for one handler turn with a budget | P1 |
+| R5 | Secret handles | coderouter | opaque `secret_…` handles: created by host UI or ops, usable only as a param of ops that declare `accepts_secret_handle`, displayable only by host UI (`ui.secret.reveal`, `clipboard.writeSecret`), never readable by the VM | P0 for coderouter |
+| R6 | Approval prompts from the host | coderouter, inbox (agent reply) | per-scope approval modes from grants (`none`, `per_session`, `per_call`); the host shows the prompt and the call waits (deadline 2 min) | P1 |
+
+## 4. Tiers (D51)
+
+| | first-party | Verified | unverified |
+| --- | --- | --- | --- |
+| Who | publisher `cmux` (also `manaflow-ai`), built from this repo | a publisher whose GitHub owner identity cmux verified | anyone: attested store release, direct repo install, or `local/` development app |
+| Review | cmux code review (this repo's merge gate) and the release signature | identity + Sigstore attestation bound to repo, workflow and commit + automated scan (manifest, scopes, bundle) + human review of the code for every version that adds `execute`, `external` or restricted scopes | attestation if present, automated checks only |
+| Store | featured, bundled with cmux (runs offline, updated with cmux or the store) | listed, searchable, badge "Verified" | hidden from search until staff set a tier (D45); install by id or URL after a warning |
+| Default grant at install | required scopes granted without a sheet, listed in Settings > Apps; optional scopes ask when first used | consent sheet listing every scope with its reason; `execute` and `external` scopes unchecked by default | consent sheet; read scopes only by default; `execute`, `external` and `net:` scopes each need an explicit toggle and default to approval `per_session` |
+| Restricted scopes (`coderouter:keys`, `usage:read`, `fs:write`, `mcp:expose`, `clipboard:write`) | allowed | only those the human review approved for that version | never |
+| Default sandbox (section 5) | Standard | Standard | Contained (and the store offers "Install sandboxed") |
+| Updates (D49 `sameScopes`) | with cmux or automatically | automatic only when the scope set is unchanged AND the version is reviewed when it needs review; otherwise the old version keeps running | automatic only when scopes and code hash allowlist are unchanged; otherwise ask |
+| Limits per VM | 64 MiB, 250 ms per evaluation, 64 pending calls | 32 MiB, 250 ms, 64 | 16 MiB, 100 ms, 16, net calls rate-limited to 1/s burst 10 |
+| Team policy (`apps.allowedTiers`, allowlist, forced sandbox) | can be disabled per app, never forced on | allowed by default | off by default for teams that set a policy |
+
+Rules that hold for every tier:
+- No tier gets a private API. First-party apps use the same generated `cmux` global and the same scope checks; the only difference is which scopes a tier may hold and the defaults.
+- `money`, `destructive`, grant, install, policy, account and credential ops are never callable by any app (spec 6.5 "never").
+- The tier is a property of the listing version (owner `AppDO`), shown everywhere the app appears (store, Settings > Apps, consent, the permissions sheet), and copied into the install record so a revoked Verified status takes effect at the next grant check.
+
+## 5. The app sandbox (D52)
+
+### 5.1 Model
+
+An app's reach is one **grant** (identity-and-permissions.md section 4, grantee `app:<id>`, issuer the user or a team admin) plus one **sandbox profile**. The grant lists scopes with an approval mode each and optional resource selectors. The profile caps what the grant can contain and sets the OS-level containment of the app host. Effective reach = grant ∩ profile ∩ installing user's own rights ∩ team policy ∩ (for an agent calling the app's MCP tools) the agent's grant.
+
+| Axis | What an app can reach | How it is granted | Enforced by |
+| --- | --- | --- | --- |
+| cmux operations | catalog ops whose scope it holds (`workspace:read`, `terminal:execute`, ...); resource selectors narrow them (only these workspaces, only this room, only this machine) | consent sheet, Settings > Apps > Permissions | the owner of each op (authoritative); the supervisor and runtime filter early |
+| Network | only `net:<host>` hosts it holds, HTTPS only, through the supervisor; no cookies, no user credentials, `Authorization` stripped unless the host is granted; credentialed calls only through `cmux.integrations.*` (token stays in the gateway) | per host, listed with the reason | supervisor egress gate; OS sandbox denies all sockets in the app host |
+| Files | none by default. The bundle (read-only, implicit). The app's own storage and documents through ops (no paths). Granted roots: a workspace folder (`fs:read:workspace`) or a folder the user picks in a host file panel (`fs:read:<bookmark>`, `fs:write:<bookmark>`) | the host file panel (powerbox style: the app asks, the user picks, the app never names a path it was not given) | the session host serving `fs.*` (realpath inside the root, no symlink escape, size caps); OS sandbox denies file reads outside the bundle cache |
+| Processes | never spawns anything. Commands run only through cmux ops that run in a visible terminal (`workspace.run`, `pane.run`, `terminal.input.*`, risk `execute`) | explicit toggle, strong warning, approval `per_session` default | the session host; OS sandbox denies `process-exec` and `fork` |
+| Secrets | never inside the VM (section 5.6) | n/a | the host and the gateway |
+| Clipboard | write only, `clipboard:write`; never read | toggle | the client |
+| Notifications | `notification:write` (posts carry the app as source and can be muted per app) | toggle | daemon notification ledger |
+| Agents | `mcp:expose` offers the app's commands as MCP tools | toggle | MCP server: agent grant ∩ app grant |
+| UI | only where the user placed a contribution; never focus, selection or scroll changes outside a user tap turn (origin rule) | placement | client + origin check |
+| Resources | memory, evaluation time, pending calls, timers, scene nodes, storage quota per tier | fixed per tier, Debug tunables | app host |
+
+### 5.2 Profiles
+
+| Profile | Network | Files | cmux ops | Storage | Agents (MCP) | Default for |
+| --- | --- | --- | --- | --- | --- | --- |
+| Standard | granted `net:` hosts | granted roots | granted scopes | local + synced | if granted | first-party, Verified |
+| Contained | granted `net:` hosts, each with approval `per_session` | none | read scopes; write needs a toggle; `execute` and `external` approval `per_call` | local only | off | unverified |
+| Complete sandbox | none | none (bundle only) | only the scopes the user turns on by hand in the permissions sheet (all off at first) | local only | off | user choice for any app ("Run sandboxed"); team policy may force it for tiers |
+
+"Complete sandbox" is the D52 option: no network, no file system, no cmux ops beyond granted scopes. It is a per-app switch any user can set at install ("Install sandboxed") or later (Settings > Apps > <app> > "Run sandboxed"). The app keeps running; every refused call returns `scope.missing` and the app must show what it cannot do (first-party apps do this in every variant, which the bun tests check). Switching the profile is a grant change (user origin only) and applies live.
+
+### 5.3 File roots
+
+A root is a grant resource selector `{kind: "workspaceFolder", workspace}` or `{kind: "bookmark", id}` (a security-scoped bookmark held by the host, never shown to the app as a path; the app sees an opaque root id and relative paths). `fs.*` ops run in the session host of the machine that has the files, so a remote workspace's folder is read on that machine. Writes need `fs:write` on that root (restricted scope). Hidden and VCS internals (`.git/`, `.env*`, `*.pem`, `id_*`) are excluded from `fs.search` and `fs.read` by default; a root may opt in per pattern only through the user.
+
+### 5.4 Grant and revoke (user-visible)
+
+- Install: consent sheet (tier badge, publisher, scopes grouped by axis with the manifest reasons, risk tone per scope with no blue: neutral for read, warning for write and network, danger for execute and external), profile picker (Standard / Contained / Complete sandbox, default by tier), Install.
+- Settings > Apps > <app> > Permissions: every scope with its reason and a toggle, approval mode per scope (Always / Ask once per session / Ask every time), resource selectors (workspaces, rooms, machines), network hosts, file roots (add with the file panel, remove), profile switch, "Revoke all and disable", "Remove app data". The same data as JSON: `cmux apps permissions <id> --json` (read for agents; changes are user-origin only, never MCP).
+- First use of an optional scope: an inline prompt in the app's own surface (the host renders it, the app cannot draw a fake one) with Allow once / Allow / Deny.
+- Activity: a per-app log of op calls by scope (op, origin, result, time; never params with content), kept 7 days locally, shown under Permissions and by `cmux apps logs <id> --calls`.
+- Revocation is immediate: the grant revision increments; owners check the revision on every op; the supervisor cancels in-flight calls and closes subscriptions under the revoked scope; mounted surfaces re-render with `scope.missing`. Storage is kept unless the user removes app data; uninstall removes storage and the grant in one op (spec section 8).
+
+### 5.5 Enforcement layers
+
+1. Owners (authoritative): every op owner checks `actor = app:<id>@<version>` against the grant revision (spec 10). Until owner-side checks land, only first-party and `local/` apps run (spec 14), and only on the prototype engine.
+2. Supervisor: egress gate, file roots, approvals, rate limits, activity log, secret handles.
+3. OS sandbox of the app host process (Rust host, phase 10): a seatbelt profile generated from the profile (deny network, deny `process-exec`/`fork`, deny file reads outside the bundle cache and the runtime, deny mach lookups except none, no IOKit); Linux: seccomp + Landlock. The JavaScriptCore prototype engine runs in-process and has no OS layer, which is why it never loads Verified or unverified apps.
+4. Runtime: the `ops` list at init (courtesy only).
+
+### 5.6 Secrets (no secret in the VM)
+
+- Input: `SecureField({target})` (N6) or an op that opens a host sheet (`accounts.connect`); the value goes from the client to the owner op; the VM gets a `secret_…` handle or nothing.
+- Output: ops that create secrets (CodeRouter keys) return a handle plus a redacted label (`crk_…a1b2`); only host UI shows the value once (`ui.secret.reveal {handle}`, user origin) or copies it (`clipboard.writeSecret {handle}`, user origin, clears after 60 s).
+- Credentialed HTTP: `cmux.integrations.<provider>.request` (gateway); `cmux.net.fetch` never attaches user credentials.
+
+## 6. How prototypes are built and shown
+
+- App code: `first-party-apps/<name>/src/*.ts`, pure model functions tested with bun (`bun test first-party-apps/<name>/test`), render tests with the runtime's FakeHost.
+- Screenshots: a private harness renders one contribution with the real native renderer (CmuxNextApps scene renderer, JavaScriptCore prototype engine) offscreen from fixture-backed operations and writes PNGs; it never shows a window or takes focus. Screens are kept in hq scratch, not in this repo.
+- In the tagged app: the prototype registry loads bundled samples only; first-party apps reach a tagged build when `scripts/cmux-next/sync-app-runtime.sh` also copies `first-party-apps/*` (request to the app platform lead) and pane kinds mount (S1). Until then the in-app path is UNVERIFIED.
+
+## 7. Decisions for Lawrence (through the coordinator)
+
+See the lane 3 report; each has a recommendation.
+
+## 8. Per-app results
+
+Filled in when each app's prototype lands (PR, variants, screenshots, recommendation, UNVERIFIED).
