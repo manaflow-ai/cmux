@@ -2244,6 +2244,7 @@ peer_agent() {
   cmux_pa_timeout=""
   cmux_pa_permission_mode="prompt"
   cmux_pa_json=0
+  cmux_pa_had_delimiter=0
   while [ "\$#" -gt 0 ]; do
     case "\$1" in
       --agent) [ "\$#" -ge 2 ] || die "vm agent: --agent needs claude, codex, opencode, or pi" 2; cmux_pa_agent="\$2"; shift 2 ;;
@@ -2261,7 +2262,7 @@ peer_agent() {
       --timeout) [ "\$#" -ge 2 ] || die "vm agent: --timeout needs seconds" 2; cmux_pa_timeout="\$2"; cmux_pa_wait=1; shift 2 ;;
       --timeout=*) cmux_pa_timeout="\${1#--timeout=}"; cmux_pa_wait=1; shift ;;
       --json) cmux_pa_json=1; shift ;;
-      --) shift; break ;;
+      --) cmux_pa_had_delimiter=1; shift; break ;;
       claude|codex|opencode|pi) if [ -z "\$cmux_pa_agent" ]; then cmux_pa_agent="\$1"; shift; else break; fi ;;
       *) break ;;
     esac
@@ -2281,7 +2282,7 @@ peer_agent() {
       ;;
     *) die_message 2 peerPermissionModeUnsupported "\$cmux_pa_permission_mode" ;;
   esac
-  if [ "\$cmux_pa_permission_mode" = "full-access" ] && [ "\$#" -gt 0 ] && [ "\$1" != "--" ]; then
+  if [ "\$cmux_pa_permission_mode" = "full-access" ] && [ "\$cmux_pa_had_delimiter" -eq 0 ] && [ "\$#" -gt 0 ]; then
     case "\$1" in
       -*|mcp|config|doctor|update|install|auth|setup-token|plugin|agents|exec|e|login|logout|apply|resume|completion|debug|sandbox|cloud|app-server|features|run|serve|web|models|upgrade|agent|session|export|import|github|acp|list)
         die_message 2 peerPermissionModePassThroughUnsupported
