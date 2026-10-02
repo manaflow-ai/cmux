@@ -84,7 +84,7 @@ nonisolated extension ActionSurfaceCatalog {
         "newCloudWorkspace", "newCloudMachine", "palette.cloud.fork", "palette.cloud.snapshot",
         "palette.cloud.restore", "palette.cloud.promoteTemplate", "palette.cloud.status", "palette.cloud.ports",
         "palette.cloud.handoff", "cloudNewTerminal", "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine",
-        "cloudDiagnostics", "palette.auth.signIn", "palette.auth.signOut", "accounts.show", "accounts.refresh",
+        "cloudDiagnostics", "cloudPauseMachine", "cloudResumeMachine", "palette.cloud.deleteSnapshot", "palette.auth.signIn", "palette.auth.signOut", "accounts.show", "accounts.refresh",
         "accounts.reauthenticate", "accounts.connect", "accounts.remove", "remote.connect", "remote.newWorkspace",
         "remote.openTerminalHere", "remote.reconnect", "remote.disconnect", "remote.install", "remote.forget",
         "reloadConfiguration", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal", "palette.toggleSetting",

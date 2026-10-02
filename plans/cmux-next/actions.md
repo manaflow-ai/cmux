@@ -31,9 +31,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 <!-- generated: action surfaces -->
 
-## Counts (710 actions)
+## Counts (713 actions)
 
-Palette 707, CLI verbs 410, right-click 402, MCP tools 356.
+Palette 710, CLI verbs 413, right-click 405, MCP tools 359.
 
 ## Menus
 
@@ -47,7 +47,7 @@ Palette 707, CLI verbs 410, right-click 402, MCP tools 356.
 - **sidebarBackground**: newTab newBrowserWorkspace openFolder newWorkspaceGroup [new] > (workspace.newAtTop workspace.newAtBottom workspace.newOnMachine room.new reopenClosedWorkspace reopenPreviousSession | newCloudWorkspace remote.connect | sidebar.home.add sidebar.item.add sidebar.section.add) | [group] > (workspaceGroup.collapseAll workspaceGroup.expandAll) | [move] > (workspace.sortByName workspace.sortByLastUsed workspace.sortByDirectory) | toggleSidebar appStore.show | sidebar.layout.reset
 - **terminalSelection**: terminalCopy terminalPaste terminal.selectAll useSelectionForFind terminal.sendText | [split] > (splitRight splitDown splitLeft splitUp) [agent] > (palette.forkAgentConversationRight palette.forkAgentConversationNewTab palette.forkAgentConversationLeft palette.forkAgentConversationTop palette.forkAgentConversationBottom palette.forkAgentConversationNewWorkspace) | [options] > (clearScreenKeepScrollback resetTerminal terminal.clear) | toggleSplitZoom | palette.terminalOpenDirectory
 - **browserPage**: browserBack browserForward browserReload browserHardReload | browserTheme[choices] [options] > (toggleBrowserFocusMode toggleBrowserDesignMode) | bookmark.addPage | toggleBrowserDeveloperTools [tools] > (palette.browserOpenDefault browserScreenshotPage browserScreenshotSection | browser.pageInfo > (browser.pageInfo browser.pageInfo.connection browser.pageInfo.certificate | browser.pageInfo.setPermission browser.pageInfo.resetPermissions | browser.pageInfo.cookies browser.pageInfo.manageSiteData browser.pageInfo.deleteSiteData | browser.pageInfo.siteSettings browser.pageInfo.aboutThisPage) showBrowserJavaScriptConsole inspectBrowserElement | browser.extensions.menu browser.extensions.manage browser.extensions.webStore browser.extensions.loadUnpacked)
-- **cloudMachine**: cloudNewTerminal cloudOpenMachine | cloudRenameMachine | [connection] > (cloudResizeMachine palette.cloud.status palette.cloud.snapshot palette.cloud.fork palette.cloud.handoff palette.cloud.ports palette.cloud.promoteTemplate palette.cloud.restore) | palette.cloud.tools [copy] > (cloudCopyMachineID cloudCopyLink cloudCopyPort) | cloudKillMachine
+- **cloudMachine**: cloudNewTerminal cloudOpenMachine | cloudRenameMachine | [connection] > (cloudResizeMachine palette.cloud.status palette.cloud.snapshot palette.cloud.fork palette.cloud.handoff palette.cloud.ports palette.cloud.promoteTemplate palette.cloud.restore cloudPauseMachine cloudResumeMachine | palette.cloud.deleteSnapshot) | palette.cloud.tools [copy] > (cloudCopyMachineID cloudCopyLink cloudCopyPort) | cloudKillMachine
 - **sshMachine**: remote.newWorkspace | remote.reconnect remote.disconnect remote.install | remote.forget
 - **newTab**: newSurface openBrowser.chromium browserProfile.newTab palette.newAgentChat
 - **profile**: room.newWindow room.newWorkspace | room.new | room.rename [appearance] > (room.setColor > (room.color.grey room.color.blue room.color.red room.color.yellow room.color.green room.color.pink room.color.purple room.color.cyan room.color.orange | room.clearColor) room.setIcon room.clearIcon room.setTheme[choices] room.clearTheme) [options] > (room.setDefaults browserProfile.setRoomDefault browserProfile.clearRoomDefault) | [move] > (room.moveLeft room.moveRight) | room.delete

@@ -10,7 +10,6 @@ use cmux_tui_core::resource::{
 use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
-
 pub(super) enum ParsedCommand {
     Help(Option<String>),
     Docs(super::docs::Plan),
