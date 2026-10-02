@@ -1,6 +1,7 @@
 mod client;
 mod handles;
 mod id;
+mod journal_plugin;
 mod model;
 mod ops;
 mod options;
@@ -17,6 +18,11 @@ pub use id::{
     AgentId, BrowserId, ConnectedClientId, FrontendProjectionId, MachineId, NotificationId,
     OpaqueId, PairingRequestId, PaneId, ScreenId, Selector, SessionId, SidebarViewId, SplitId,
     StreamId, TabId, TerminalId, WorkspaceId,
+};
+pub use journal_plugin::{
+    AgentPluginEventSchema, AgentPluginIngress, AgentPluginListResult, AgentPluginManifest,
+    AgentPluginSubject, JournalAppendResult, JournalEventSchema, JournalEventSubject,
+    JournalIngress, JournalProducerListResult, JournalProducerManifest, JournalProducerPutResult,
 };
 pub use model::{
     AgentSnapshot, AgentSnapshotSource, BrowserSnapshot, BrowserSource, BrowserStatus,

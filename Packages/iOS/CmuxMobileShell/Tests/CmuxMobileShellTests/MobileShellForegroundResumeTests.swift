@@ -16,6 +16,7 @@ import Testing
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing foreground resume"
     )
@@ -55,6 +56,7 @@ import Testing
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing long foreground resume"
     )
@@ -80,6 +82,7 @@ import Testing
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing foreground phase order"
     )
@@ -179,6 +182,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing a foreground probe timeout"
     )

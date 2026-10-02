@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 
 /// Keeps every open native pane of this machine attached.

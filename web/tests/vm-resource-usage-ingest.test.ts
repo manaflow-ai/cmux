@@ -1,3 +1,4 @@
+import { vmToken } from "./vm-authorization-fixture";
 import { expect, test } from "bun:test";
 import { makeVmResourceUsageHandler } from "../services/vms/resourceUsageIngest";
 import { VM_RESOURCE_USAGE_KEY } from "../services/vms/resourceUsage";
@@ -7,11 +8,12 @@ import type { VmPrincipalRow } from "../services/vms/vmPrincipalContract";
 const vm: VmPrincipalRow = { id: "self", providerVmId: "provider-self", provider: "freestyle", userId: "owner",
   ownerTeamId: "team", billingTeamId: "team", billingPlanId: "pro", displayName: null, slug: null, imageId: "image", imageVersion: null,
   status: "running", createdAt: new Date(0), providerMetadata: { networkId: "keep" } };
+const signedToken = await vmToken("self", "team", "owner");
 function harness(metadata = vm.providerMetadata, failStore = false) {
   const writes: unknown[] = [];
   const handler = makeVmResourceUsageHandler({
     authenticate: (request) => requireVmPrincipal(request, {
-      authenticate: async (token) => token === "valid" ? { teamId: "team", stackUserId: "owner", vmId: "self" } : null,
+      authenticate: async (token) => token === signedToken ? { teamId: "team", stackUserId: "owner", vmId: "self" } : null,
       loadVm: async () => ({ ...vm, providerMetadata: metadata }),
     }),
     now: () => 100000,
@@ -24,7 +26,7 @@ function harness(metadata = vm.providerMetadata, failStore = false) {
 }
 function request(body: unknown, token = "valid", id = "self") {
   return new Request("https://cmux.test/api/vm/resource-usage/self", { method: "POST",
-    headers: { "x-coderouter-route-token": token, "x-cmux-vm-id": id, "content-type": "application/json" },
+    headers: { "x-cmux-authorization": `Bearer ${token === "valid" ? signedToken : token}`, "x-cmux-vm-id": id, "content-type": "application/json" },
     body: JSON.stringify(body) });
 }
 test("edge-authenticated report writes only the caller's gauges and server timestamp", async () => {
@@ -32,7 +34,7 @@ test("edge-authenticated report writes only the caller's gauges and server times
   expect((await handler(request({ cpuPercent: 20, memoryUsedMb: 1024, diskUsedMb: 4096, vmId: "other", receivedAt: 1 }))).status).toBe(204);
   expect(writes).toEqual([{ id: "self", usage: { cpuPercent: 20, memoryUsedMb: 1024, diskUsedMb: 4096 }, receivedAt: 100000 }]);
 });
-test.each([["bad", "self"], ["valid", "other"]])("rejects absent/forged guest identity", async ([token, id]) => {
+test.each([["bad", "self"], ["invalid", "other"]])("rejects absent/forged guest identity", async ([token, id]) => {
   const { handler, writes } = harness();
   expect((await handler(request({ cpuPercent: 50 }, token, id))).status).toBe(401);
   expect(writes).toEqual([]);

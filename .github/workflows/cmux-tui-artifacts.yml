@@ -42,8 +42,8 @@ on:
     inputs:
       macos_runner:
         # A branch dogfood publish only needs its commit-addressed objects; let
-        # it build the macOS targets on an idle self-hosted label (for example
-        # tart-macos-15) instead of waiting behind the shared hosted queue.
+        # it build the macOS targets on an idle self-hosted label instead of
+        # waiting behind the shared hosted queue.
         description: "Optional macOS runner label override for this publish"
         required: false
         default: ""
@@ -79,22 +79,28 @@ jobs:
       # This lane publishes the raw cmux-tui, cmux-relay, and chatmux-relay
       # binaries. The Cloudflare Worker is a separate deployment artifact and
       # its npm audit must not block these commit-addressed files.
-      build_cloudflare_relay: false
       # The Rust machine relay has no Windows PTY backend yet. Keep Windows on
       # the Node rollback lane until a tested backend exists; do not publish a
       # misleading Rust machine package or manifest entry.
       include_windows: false
-      # Empty on push and by default, which keeps the reusable workflow's own
-      # macOS runner selection.
-      macos_runner: ${{ inputs.macos_runner || '' }}
+      # Post-merge publication is off the PR critical path, so its two macOS
+      # Rust legs run on the background lane (free GitHub-hosted capacity)
+      # unless a dispatch names a runner. See docs/ci-runners.md.
+      macos_runner: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
 
   publish:
+    # R2 upload credentials only. A commit-addressed cmux-tui build is not a
+    # production release: cmux-next pins daemon builds from helper branches.
+    # The artifacts environment's deployment branch policy allows main,
+    # feat-cmux-next and cmux-tui-pin-*; signing, Sparkle, Homebrew and Apple
+    # secrets stay in the release environment.
+    environment: artifacts
     name: publish to R2
     # PR runs of this workflow only validate the build; publishing is
     # main-push or manual dispatch.
     if: github.event_name != 'pull_request'
     needs: build
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -520,8 +526,9 @@ jobs:
             local prefix="$2"
             local cache="$3"
             local write_once="${4:-false}"
-            for file in "$directory"/*; do
-              upload_args=()
+            upload_file() {
+              local file="$1"
+              local -a upload_args=()
               if [[ "$write_once" == "true" ]]; then
                 upload_args+=(--write-once)
               fi
@@ -531,7 +538,12 @@ jobs:
                 --bucket cmux-binaries \
                 --key "$prefix/$(basename "$file")" \
                 --cache-control "$cache"
+            }
+            for file in "$directory"/*; do
+              [[ "$(basename "$file")" == manifest.json ]] && continue
+              upload_file "$file"
             done
+            upload_file "$directory/manifest.json"
           }
           publish_prefix assets/cmux-tui "cmux-tui/latest" "no-cache, no-store, must-revalidate" false
           publish_prefix assets/cmux-relay "cmux-relay/latest" "no-cache, no-store, must-revalidate" false

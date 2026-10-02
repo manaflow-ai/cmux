@@ -8,7 +8,31 @@ enum GhosttyGotoSplitRoute {
     case next
 }
 
+extension GhosttyGotoSplitRoute {
+    /// The rebindable cmux shortcut that performs this pane focus move.
+    var shortcutAction: KeyboardShortcutSettings.Action {
+        switch self {
+        case .direction(.left): return .focusLeft
+        case .direction(.right): return .focusRight
+        case .direction(.up): return .focusUp
+        case .direction(.down): return .focusDown
+        case .previous: return .focusPreviousPane
+        case .next: return .focusNextPane
+        }
+    }
+
+    /// The Dock command for this move when the Dock owns keyboard focus.
+    var dockCommand: DockShortcutCommand {
+        switch self {
+        case .direction(let direction): return .focusPane(direction)
+        case .previous: return .cyclePaneFocus(forward: false)
+        case .next: return .cyclePaneFocus(forward: true)
+        }
+    }
+}
+
 extension KeyboardShortcutSettings.Action {
+    /// Selects whether an action resolves through the Dock, responder, or main workspace.
     var dockShortcutRoutingDisposition:
         DockShortcutRoutingDisposition {
         switch self {
@@ -19,7 +43,7 @@ extension KeyboardShortcutSettings.Action {
              .moveSurfaceToPaneLeft, .moveSurfaceToPaneRight,
              .moveSurfaceToPaneUp, .moveSurfaceToPaneDown,
              .selectSurfaceByNumber,
-             .focusHistoryBack, .focusHistoryForward,
+             .focusHistoryBack, .focusHistoryForward, .focusHistoryLast,
              .renameTab,
              .closeTab, .closeOtherTabsInPane,
              .reopenClosedBrowserPanel,
@@ -27,10 +51,11 @@ extension KeyboardShortcutSettings.Action {
              .toggleTerminalCopyMode,
              .focusTextBoxInput, .attachTextBoxFile,
              .sendCtrlFToTerminal,
+             .pasteLastScreenshot,
              .clearScreenKeepScrollback,
              .focusLeft, .focusRight, .focusUp, .focusDown,
              .focusPreviousPane, .focusNextPane,
-             .splitRight, .splitDown, .toggleSplitZoom,
+             .splitRight, .splitDown, .newPaneAutoLayout, .toggleSplitZoom,
              .resizePaneLeft, .resizePaneRight, .resizePaneUp, .resizePaneDown,
              .equalizeSplits,
              .splitBrowserRight, .splitBrowserDown,
@@ -46,6 +71,7 @@ extension KeyboardShortcutSettings.Action {
              .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias,
              .saveFilePreview,
+             .toggleFileEditorWordWrap,
              .browserBack, .browserForward,
              .browserReload, .browserHardReload,
              .browserZoomIn, .browserZoomOut, .browserZoomReset,
@@ -66,7 +92,8 @@ extension KeyboardShortcutSettings.Action {
              .simulatorRotateRight,
              .simulatorToggleAppearance,
              .simulatorToggleSoftwareKeyboard,
-             .diffViewerNextFile, .diffViewerPreviousFile:
+             .diffViewerNextFile, .diffViewerPreviousFile,
+             .diffViewerNextHunk, .diffViewerPreviousHunk, .diffViewerToggleViewed:
             .focusResolved
 
         case .openSettings, .openTeamPicker, .reloadConfiguration,
@@ -75,7 +102,7 @@ extension KeyboardShortcutSettings.Action {
              .toggleSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine,
              .saveLayoutTemplate, .openFolder,
              .reopenPreviousSession, .goToWorkspace,
-             .commandPalette, .sendFeedback,
+             .commandPalette, .agentInbox, .sendFeedback,
              .showNotifications, .jumpToUnread, .toggleUnread,
              .markOldestUnreadAndJumpNext,
              .markAllNotificationsRead, .clearAllNotifications,
@@ -96,6 +123,7 @@ extension KeyboardShortcutSettings.Action {
              .newWorkspaceGroup, .groupSelectedWorkspaces,
              .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedWorkspace,
+             .sizeTerminalToMyWindow,
              .increaseWorkspaceTerminalFontSize,
              .decreaseWorkspaceTerminalFontSize,
              .resetWorkspaceTerminalFontSize,
@@ -158,6 +186,23 @@ extension AppDelegate {
         return focusedDockStoreForShortcut(
             preferredWindow: preferredWindow
         )
+    }
+
+    /// Focuses the TextBox composer from a menu or command entrypoint. The
+    /// terminal panel owns the same focus toggle as the keyboard shortcut:
+    /// the first invocation reveals/focuses TextBox and the next returns focus
+    /// to the terminal.
+    @discardableResult
+    func performFocusTextBoxInputShortcut(preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        if let dock = focusedDockStoreForShortcut(
+            action: .focusTextBoxInput,
+            preferredWindow: targetWindow
+        ) {
+            return dock.performShortcutCommand(.focusTextBoxInput)
+        }
+        return activeTabManagerForCommands(preferredWindow: targetWindow)?
+            .focusFocusedTerminalTextBoxInputOrTerminal() ?? false
     }
 
     /// Creates a New Terminal / New Browser surface in the focused Dock pane.
@@ -252,6 +297,71 @@ extension AppDelegate {
         }
         if !store.performShortcutCommand(command) { NSSound.beep() }
         return true
+    }
+
+    /// Moves pane focus in the main workspace area. The focus shortcuts and
+    /// the command palette both end here, so they share one mutation path.
+    ///
+    /// - Returns: Whether a pane focus move was attempted.
+    @discardableResult
+    static func moveMainAreaPaneFocus(
+        _ route: GhosttyGotoSplitRoute,
+        tabManager: TabManager?,
+        window: NSWindow?
+    ) -> Bool {
+        cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: window)
+        switch route {
+        case .direction(let direction):
+            tabManager?.movePaneFocus(direction: direction)
+            return tabManager != nil
+        case .previous:
+            return tabManager?.cyclePaneFocus(forward: false) ?? false
+        case .next:
+            return tabManager?.cyclePaneFocus(forward: true) ?? false
+        }
+    }
+
+    /// Runs a pane focus move from a non-keyboard entrypoint (command
+    /// palette). Like the keyboard shortcut, the focused Dock gets the move
+    /// first; otherwise the main workspace area moves focus.
+    ///
+    /// - Returns: Whether the move was handled.
+    @discardableResult
+    func performPaneFocusShortcut(
+        _ route: GhosttyGotoSplitRoute,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        if let dock = focusedDockStoreForShortcut(
+            action: route.shortcutAction,
+            preferredWindow: targetWindow
+        ) {
+            dock.noteKeyboardFocusIntent(window: targetWindow)
+            return dock.performShortcutCommand(route.dockCommand)
+        }
+        return AppDelegate.moveMainAreaPaneFocus(
+            route,
+            tabManager: activeTabManagerForCommands(preferredWindow: targetWindow),
+            window: targetWindow
+        )
+    }
+
+    /// Toggles terminal copy mode from a non-keyboard entrypoint (command
+    /// palette): the focused Dock terminal first, then the focused main-area
+    /// terminal, matching the `toggleTerminalCopyMode` shortcut.
+    ///
+    /// - Returns: Whether a focused terminal toggled copy mode.
+    @discardableResult
+    func performToggleTerminalCopyModeShortcut(preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        if let dock = focusedDockStoreForShortcut(
+            action: .toggleTerminalCopyMode,
+            preferredWindow: targetWindow
+        ) {
+            return dock.performShortcutCommand(.toggleTerminalCopyMode)
+        }
+        return activeTabManagerForCommands(preferredWindow: targetWindow)?
+            .toggleFocusedTerminalCopyMode() ?? false
     }
 
     func matchesLegacyNextSurfaceShortcut(event: NSEvent) -> Bool {

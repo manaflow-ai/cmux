@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Foundation
 import WebKit
 
@@ -43,7 +44,20 @@ extension BrowserPanel {
         }
         cancelPendingInteractiveBrowserPrompts(reason: "webContentProcessTerminated")
 
-        webContentState = .terminated(recoveryURL: hasRecoveryTarget ? recoveryURL : nil)
+        // WebKit keeps the back/forward list after the process dies, so a pane
+        // hidden at the time restores that state when shown. One that was
+        // shown waits for an explicit reload, so a page that crashes its
+        // process cannot reload itself in a loop.
+        webContentState = .terminated(
+            recoveryURL: hasRecoveryTarget ? recoveryURL : nil,
+            restoresWhenShown: wasRenderable && !isWebViewVisibleInUI
+        )
+        // The terminated WebContent process can no longer deliver either the native
+        // navigation delegate commit or the isolated document-ready bridge. Revoke the
+        // generation's readiness before detaching callbacks so socket workers cannot
+        // continue treating the dead document as executable.
+        automationDocumentReadiness.invalidate()
+        hasCommittedDocumentSinceWebViewReplacement = false
         detachTerminatedWebViewCallbacks(terminatedWebView)
         if wasRenderable {
             closeBackgroundPreloadHost(reason: "webContentRecovery")
@@ -57,7 +71,7 @@ extension BrowserPanel {
         cmuxDebugLog(
             "browser.webcontent.terminated panel=\(id.uuidString.prefix(5)) " +
             "renderable=\(wasRenderable ? 1 : 0) recoveryURL=\(recoveryURLString ?? "nil") " +
-            "manualRecovery=\(hasRecoverableWebContentTermination ? 1 : 0)"
+            "restoresWhenShown=\(webContentState.restoresWhenShown ? 1 : 0)"
         )
 #endif
     }
@@ -65,7 +79,7 @@ extension BrowserPanel {
     func detachTerminatedWebViewCallbacks(_ terminatedWebView: WKWebView) {
         detachWebViewObservers()
         tearDownReactGrabMessageHandler(for: terminatedWebView, reason: "webContentProcessTerminated")
-        tearDownMediaPlaybackMessageHandler(for: terminatedWebView)
+        tearDownMediaPlaybackMessageHandler(for: terminatedWebView); tearDownPageRestoration(for: terminatedWebView)
         webAuthnCoordinator.tearDown(from: terminatedWebView)
         terminatedWebView.configuration.userContentController.removeScriptMessageHandler(
             forName: BrowserSSLTrustBypassMessageHandler.name
@@ -119,8 +133,6 @@ extension BrowserPanel {
         )
 #endif
 
-        detachWebViewObservers()
-        clearBrowserFocusMode(reason: reason)
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
@@ -130,12 +142,8 @@ extension BrowserPanel {
         estimatedProgress = 0
         cancelPendingInteractiveBrowserPrompts(reason: reason)
         closeBackgroundPreloadHost(reason: reason)
-        BrowserWindowPortalRegistry.detach(webView: oldWebView)
-        webAuthnCoordinator.tearDown(from: oldWebView); oldWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
-        oldWebView.navigationDelegate = nil
-        oldWebView.uiDelegate = nil
-        if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
+        tearDownWebViewBeforeReplacement(oldWebView, reason: reason)
 
         let replacement = makeReplacementWebView(
             profileID: profileID,
@@ -232,4 +240,26 @@ extension BrowserPanel {
         webContentState = .active
     }
 
+    /// Turns a pane whose process died while hidden into a discarded pane,
+    /// so the caller's restore brings back its last session state instead of
+    /// showing the Reload overlay.
+    ///
+    /// - Returns: Whether the pane was converted.
+    @discardableResult
+    func discardWebViewTerminatedWhileHidden(now: Date = Date()) -> Bool {
+        guard webContentState.restoresWhenShown, !isClosingWebViewLifecycle else { return false }
+        dropWebViewForDiscard(reason: Self.hiddenWebContentTerminationDiscardReason, now: now)
+        return true
+    }
+
+    static let hiddenWebContentTerminationDiscardReason = "webcontent_terminated_hidden"
+}
+
+extension BrowserPanel.WebContentState {
+    /// Whether the process died while the pane was hidden, so showing the
+    /// pane restores its page instead of waiting for a reload.
+    var restoresWhenShown: Bool {
+        if case .terminated(_, let restoresWhenShown) = self { return restoresWhenShown }
+        return false
+    }
 }

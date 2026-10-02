@@ -25,7 +25,7 @@ extension ContentView {
             CommandPaletteCommandContribution(
                 commandId: commandPaletteComputerUseOpenSetupCommandId,
                 title: constant(
-                    String(localized: "computerUse.onboarding.windowTitle", defaultValue: "Computer Use Setup")
+                    String(localized: "computerUse.onboarding.windowTitle", defaultValue: "cmux Computer Use Setup")
                 ),
                 subtitle: subtitle,
                 keywords: [

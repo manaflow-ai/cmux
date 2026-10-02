@@ -40,11 +40,12 @@ struct TerminalScrollBarGutterStabilityTests {
             )
             window.contentView?.addSubview(hostedView)
             hostedView.frame = window.contentView?.bounds ?? .zero
-            // The hosted view leaves the style to AppKit, which derives it from
-            // the system preference; pin it on the scroll view itself, the
-            // object AppKit tiles by, so the test is the same on every Mac.
-            let scrollView = hostedView.subviews.compactMap { $0 as? NSScrollView }.first
-            scrollView?.scrollerStyle = scrollerStyle
+            // The scroll view derives its style from "Show scroll bars"; model
+            // the setting that selects `scrollerStyle` on this scroll view only,
+            // so the test is the same on every Mac.
+            let scrollView = hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first
+            let preference = scrollerStyle == .legacy ? "Always" : "WhenScrolling"
+            scrollView?.showScrollBarsPreference = { preference }
             hostedView.needsLayout = true
             hostedView.layoutSubtreeIfNeeded()
         }
@@ -91,5 +92,53 @@ struct TerminalScrollBarGutterStabilityTests {
 
         #expect(withHistory == harness.paneWidth)
         #expect(afterReset == harness.paneWidth)
+    }
+
+    @Test("Automatic keeps the overlay scroller when AppKit resolves legacy")
+    func automaticIgnoresAppKitLegacyResolution() throws {
+        let harness = Harness(scrollerStyle: .overlay)
+        let scrollView = try #require(harness.hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first)
+        scrollView.showScrollBarsPreference = { "Automatic" }
+
+        // A mouse becomes the only pointing device: AppKit writes legacy into
+        // every scroll view and posts the preference change.
+        scrollView.scrollerStyle = .legacy
+        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        harness.hostedView.layoutSubtreeIfNeeded()
+
+        #expect(scrollView.scrollerStyle == .overlay)
+        #expect(harness.contentWidth(after: Self.emptyHistory) == harness.paneWidth, "Automatic reserved a legacy gutter")
+        #expect(harness.contentWidth(after: Self.withHistory) == harness.paneWidth)
+    }
+
+    @Test("AppKit's legacy scroller remains visible")
+    func legacyPresentationRespectsAppKit() throws {
+        // "Show scroll bars: Always" selects legacy. Once selected, AppKit
+        // owns its presentation. Pin only this scroll view's style so
+        // concurrent tests retain the process's unmodified preferences.
+        let harness = Harness(scrollerStyle: .legacy)
+        let scrollView = try #require(harness.hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first)
+        let scroller = try #require(scrollView.verticalScroller)
+        let width = harness.contentWidth(after: Self.withHistory)
+        #expect(scroller.alphaValue == 1, "Do not hide the legacy scrollbar AppKit selected")
+        #expect(harness.contentWidth(after: Self.emptyHistory) == width)
+        #expect(scroller.alphaValue == 1)
+        #expect(scrollView.scrollerStyle == .legacy)
+    }
+
+    @Test("Unrelated defaults notifications do not reconcile terminal geometry")
+    func unrelatedDefaultsLeavePendingLayoutAlone() {
+        let harness = Harness(scrollerStyle: .legacy)
+        // Model a pending pane layout. A defaults notification must not apply
+        // the full geometry path and resize the terminal before layout does.
+        harness.hostedView.surfaceView.frame.size.width -= 20
+        let pendingFrame = harness.hostedView.surfaceView.frame
+
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard
+        )
+
+        #expect(harness.hostedView.surfaceView.frame == pendingFrame)
     }
 }

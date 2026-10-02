@@ -4,6 +4,9 @@ import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileBrowserStream
+import CmuxMobileCloud
+import CmuxMobileCloudBridge
+import CmuxMobileCloudUI
 import CmuxMobileRPC
 import CmuxPhonePush
 import CmuxMobileShell
@@ -35,9 +38,11 @@ private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mo
 /// `@Environment` instead of `AuthManager.shared`.
 public struct CMUXMobileRootScene: View {
     private let runtime: CMUXMobileRuntime
-    private let auth: MobileAuthComposition
+    private let macListAuthState: MobileMacListAuthState
+    let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
+    private let analyticsClientID: String?
     private let terminalLatencyObserver: any MobileTerminalLatencyObserving
     package let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
@@ -49,8 +54,7 @@ public struct CMUXMobileRootScene: View {
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
     private let featureFlags: MobileFeatureFlags
-    /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
-    /// the shell store (dial ordering) and the Settings/onboarding UI.
+    /// The legacy connection-method choice used only by onboarding and migration UI.
     private let connectionMethodStore: MobileConnectionMethodStore
     /// The one-time Auto-Connect migration eligibility and acknowledgement.
     private let autoConnectMigrationStore: MobileAutoConnectMigrationStore
@@ -86,6 +90,19 @@ public struct CMUXMobileRootScene: View {
     /// Injected as a plain environment value through
     /// `\.mobileWebAppSession`.
     private let webAppSession: MobileWebAppSessionBroker
+    /// The Cloud section's tunnel and link owner, built once per scene and
+    /// injected through `\.cloudSessionController`. Nil when the build has
+    /// no API origin, which hides the Cloud entry.
+    @State private var cloudSessionController: CloudSessionController?
+    /// Publishes Cloud machines' workspaces into the shell store. Built with
+    /// the controller so both live for the app's lifetime.
+    @State private var cloudWorkspaceBridge: CloudWorkspaceBridge?
+    /// The optional system VPN. Nil when this build does not embed the packet
+    /// tunnel extension, which hides its switch.
+    @State private var cloudSystemVPNController: CloudSystemVPNController?
+    /// Foreground state for the Cloud tunnel: the lease only holds while the
+    /// scene is active, since iOS suspends the in-process tunnel's socket.
+    @Environment(\.scenePhase) private var scenePhase
     #endif
     /// Per-terminal composer drafts for the app session, so an unsent message
     /// survives keyboard dismiss and terminal switches. In-memory only for now;
@@ -117,8 +134,7 @@ public struct CMUXMobileRootScene: View {
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
     ///   - featureFlags: The live PostHog-backed mobile feature flags.
-    ///   - connectionMethodStore: The shared Auto-Connect vs Tailscale choice
-    ///     used by both connection routing and Settings.
+    ///   - connectionMethodStore: The legacy onboarding and migration choice.
     ///   - autoConnectMigrationStore: The versioned, one-time migration
     ///     eligibility and acknowledgement injected into the root view.
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
@@ -139,9 +155,11 @@ public struct CMUXMobileRootScene: View {
     ///     Diagnostics export.
     public init(
         runtime: CMUXMobileRuntime,
+        macListAuthState: MobileMacListAuthState? = nil,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        analyticsClientID: String? = nil,
         terminalLatencyObserver: any MobileTerminalLatencyObserving = NoopMobileTerminalLatencyObserver(),
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
@@ -156,13 +174,16 @@ public struct CMUXMobileRootScene: View {
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog,
+        cloudDeviceID: @escaping @Sendable () async -> String?,
         appLog: AppLog? = nil,
         v2Configuration: MobileIrohV2Configuration? = nil
     ) {
         self.runtime = runtime
+        self.macListAuthState = macListAuthState ?? MobileMacListAuthState()
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.analyticsClientID = analyticsClientID
         self.terminalLatencyObserver = terminalLatencyObserver
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
@@ -192,21 +213,32 @@ public struct CMUXMobileRootScene: View {
             apiBaseURL: auth.config.apiBaseURL,
             projectID: auth.config.stack.projectId
         )
+        let cloudComposition = MobileCloudComposition(auth: auth, deviceID: cloudDeviceID)
+        let controller = cloudComposition.makeController()
+        _cloudSessionController = State(initialValue: controller)
+        _cloudWorkspaceBridge = State(
+            initialValue: controller.map(cloudComposition.makeWorkspaceBridge(controller:))
+        )
+        _cloudSystemVPNController = State(initialValue: cloudComposition.makeSystemVPNController())
     }
     #else
     /// Creates the root scene (non-iOS: no push).
     public init(
         runtime: CMUXMobileRuntime,
+        macListAuthState: MobileMacListAuthState? = nil,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        analyticsClientID: String? = nil,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         self.runtime = runtime
+        self.macListAuthState = macListAuthState ?? MobileMacListAuthState()
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.analyticsClientID = analyticsClientID
         self.terminalLatencyObserver = NoopMobileTerminalLatencyObserver()
         self.signOutHook = signOutHook
         self.personalIrohRouteCatalog = nil
@@ -341,6 +373,19 @@ public struct CMUXMobileRootScene: View {
         return scopedStore
     }
 
+    #if os(iOS)
+    private var cloudShellLeaseWanted: Bool {
+        auth.coordinator.isAuthenticated
+            && !auth.coordinator.isRestoringSession
+            && !(cloudSessionController?.machines.elements.isEmpty ?? true)
+    }
+
+    private var cloudAccountScope: String? {
+        guard let userID = auth.coordinator.currentUser?.id else { return nil }
+        return [auth.config.apiBaseURL, userID, auth.coordinator.resolvedTeamID ?? ""].joined(separator: "|")
+    }
+    #endif
+
     public var body: some View {
         applyingRootEnvironment(to: content)
     }
@@ -356,8 +401,9 @@ public struct CMUXMobileRootScene: View {
             // window and the ToastCenter environment.
             .toastHost(toastCenter, haptics: displaySettings.haptics)
             .environment(auth.coordinator)
+            .environment(macListAuthState)
             .analytics(analytics)
-            .analyticsClientID(analytics.anonymousID)
+            .analyticsClientID(analyticsClientID)
             .environment(\.mobileDiagnosticLog, diagnosticLog)
             .environment(\.mobileAppLog, appLog)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
@@ -371,6 +417,117 @@ public struct CMUXMobileRootScene: View {
             .environment(whatsNewCenter)
             .environment(macCompatCenter)
             .environment(\.mobileWebAppSession, webAppSession)
+            .environment(\.cloudSessionController, cloudSessionController)
+            .environment(\.cloudSystemVPNController, cloudSystemVPNController)
+            // The shell owns no Cloud code; it mounts what is supplied here.
+            .environment(
+                \.mobileCloudTabContent,
+                cloudSessionController == nil
+                    ? nil
+                    : MobileCloudTabContent(
+                        content: { CloudPrimaryTabView() },
+                        embedded: { CloudPrimaryTabView(embedsNavigationStack: false) }
+                    )
+            )
+            .onChange(of: cloudSessionController?.machines.elements ?? [], initial: true) { _, machines in
+                // Every machine the account owns joins the workspace list;
+                // the Computers sheet is where one is hidden again.
+                cloudWorkspaceBridge?.setAdmittedMachines(machines)
+            }
+            .onChange(of: cloudAccountScope, initial: true) { _, scope in
+                cloudSessionController?.setVisibilityScope(scope)
+                // Keyed on the signed-in account and team, not on session
+                // restore: a fresh sign-in never toggles restore, so a
+                // restore-keyed fetch would run once while signed out and never
+                // again. Machines are team-scoped, so a team switch refetches.
+                // The list is a plain API read and must load without visiting
+                // the Cloud tab: with no paired Mac, the tab scaffold only
+                // mounts once a Cloud machine is known.
+                guard !auth.coordinator.isRestoringSession else { return }
+                guard scope != nil, auth.coordinator.isAuthenticated else { return }
+                cloudSessionController?.refreshMachines()
+                cloudSystemVPNController?.setScope(
+                    scope,
+                    teamID: auth.coordinator.resolvedTeamID
+                )
+            }
+            .onChange(of: auth.coordinator.isAuthenticated) { _, authenticated in
+                guard !authenticated, !auth.coordinator.isRestoringSession else { return }
+                cloudSessionController?.setVisibilityScope(nil)
+                cloudSessionController?.resetForSignOut()
+                cloudWorkspaceBridge?.resetForSignOut()
+                // Signed out: one account's private routes never outlive its
+                // session, so the saved VPN is removed.
+                cloudSystemVPNController?.setScope(nil)
+            }
+            .onChange(of: auth.coordinator.isRestoringSession) { _, restoring in
+                // A cached session finishing restore does not change the scope
+                // key when the user was already known, so fetch here as well.
+                guard !restoring else { return }
+                guard auth.coordinator.isAuthenticated else {
+                    cloudSessionController?.setVisibilityScope(nil)
+                    cloudSessionController?.resetForSignOut()
+                    cloudWorkspaceBridge?.resetForSignOut()
+                    cloudSystemVPNController?.setScope(nil)
+                    return
+                }
+                cloudSessionController?.setVisibilityScope(cloudAccountScope)
+                cloudSessionController?.refreshMachines()
+                cloudSystemVPNController?.setScope(
+                    cloudAccountScope,
+                    teamID: auth.coordinator.resolvedTeamID
+                )
+            }
+            .onChange(of: cloudShellLeaseWanted, initial: true) { _, wanted in
+                // Cloud terminals open from the Workspaces tab, where no Cloud
+                // screen is visible, so the shell holds the tunnel. Only while
+                // the account owns a machine: an account without one never
+                // enrolls a tunnel peer.
+                cloudSessionController?.setShellLease(wanted)
+            }
+            .onChange(of: scenePhase, initial: true) { _, phase in
+                switch phase {
+                case .active:
+                    cloudSessionController?.sceneWillEnterForeground()
+                    // The VPN may have been changed from Settings meanwhile.
+                    if let vpn = cloudSystemVPNController { Task { await vpn.refresh() } }
+                case .background: cloudSessionController?.sceneDidEnterBackground()
+                default: break
+                }
+            }
+            .onChange(of: cloudSessionController?.connectionRetryGeneration) { _, _ in
+                // The user asked to try again; failed links were dropped, so
+                // re-reading each catalog dials them fresh.
+                guard let bridge = cloudWorkspaceBridge else { return }
+                for machine in bridge.admittedMachines {
+                    bridge.refreshCatalog(for: machine)
+                }
+            }
+            .onChange(of: cloudSessionController?.tunnel) { _, phase in
+                // A catalog read attempted before the tunnel was up published
+                // the machine as reconnecting. Nothing else re-reads it, so
+                // without this the rows would stay that way until the machine
+                // list happened to change.
+                guard let bridge = cloudWorkspaceBridge else { return }
+                guard case .ready = phase else {
+                    // The controller closes its machine links with the tunnel,
+                    // so the bridge's attachments are dead and must not be
+                    // sent into.
+                    bridge.linksDidBecomeUnavailable()
+                    return
+                }
+                for machine in bridge.admittedMachines {
+                    bridge.refreshCatalog(for: machine)
+                }
+            }
+            #if DEBUG
+            .environment(
+                \.mobileWhatsNewPresentationPolicy,
+                MobileWhatsNewPresentationPolicy(
+                    suppressLaunchPresentation: UITestConfig.suppressWhatsNewLaunch
+                )
+            )
+            #endif
             #endif
     }
 
@@ -378,8 +535,18 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if UITestConfig.taskComposerPreviewEnabled {
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_DECISION_PREVIEW"] == "1" {
+            AgentFeedDecisionPreviewView()
+        } else if ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_FULL_TEXT_PREVIEW"] == "1" {
+            AgentFeedFullTextPreviewView(
+                failsOnce: ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_FULL_TEXT_FAIL_ONCE"] == "1"
+            )
+        } else if ProcessInfo.processInfo.environment["CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE"] == "1" {
+            ComputerPickerPersistencePreviewView()
+        } else if UITestConfig.taskComposerPreviewEnabled {
             TaskComposerAccessibilityPreviewView()
+        } else if UITestConfig.pushTabNavigationPreviewEnabled {
+            PushTabNavigationPreviewView()
         } else if UITestConfig.notificationFeedPreviewEnabled {
             NotificationFeedPreviewView()
         } else if UITestConfig.whatsNewPreviewEnabled {
@@ -410,15 +577,40 @@ public struct CMUXMobileRootScene: View {
         let browserStreamStore = BrowserStreamStore()
         let simulatorStreamStore = MobileSimulatorStreamStore()
         #if os(iOS)
+        let store = makeStore(
+            browserStreamEvents: browserStreamStore,
+            simulatorStreamStore: simulatorStreamStore
+        )
+        // Cloud machines contribute their workspaces to the same store a
+        // paired Mac writes to, so they appear in the Workspaces tab and open
+        // into the same detail screen, terminal and composer.
+        cloudWorkspaceBridge?.attach(to: store)
         return CMUXMobileAppView(
-            store: makeStore(
-                browserStreamEvents: browserStreamStore,
-                simulatorStreamStore: simulatorStreamStore
-            ),
+            store: store,
             browserStreamStore: browserStreamStore,
             simulatorStreamStore: simulatorStreamStore,
             onboardingStore: onboardingStore,
-            signOutHook: signOutHook
+            signOutHook: MobileSignOutHook {
+                // Reset, not detach: the bridge stays attached to the live
+                // store so the next sign-in publishes without a relaunch.
+                cloudSessionController?.resetForSignOut()
+                cloudWorkspaceBridge?.resetForSignOut()
+                let cloudServerTeardown = cloudSystemVPNController?.serverTeardown()
+                let cloudLocalTeardown = cloudSystemVPNController.map { controller in
+                    { @Sendable in _ = await controller.waitForPendingOperationAndGate() }
+                }
+                cloudSystemVPNController?.setScope(nil)
+                let existingServerTeardown = signOutHook.begin()
+                return { accessToken, refreshToken in
+                    if let cloudLocalTeardown {
+                        await cloudLocalTeardown()
+                    }
+                    if let cloudServerTeardown {
+                        await cloudServerTeardown(accessToken, refreshToken)
+                    }
+                    await existingServerTeardown(accessToken, refreshToken)
+                }
+            }
         )
         #else
         return CMUXMobileAppView(
@@ -439,7 +631,7 @@ public struct CMUXMobileRootScene: View {
         let accessGroup = auth.keychainAccessGroup
         return MobilePhonePushKeyExchangeHooks(
             makeDescriptor: {
-                let key = try PhonePushKeyStore.current(
+                let key = try PhonePushKeyMaterial.current(
                     bundleID: bundleID,
                     accessGroup: accessGroup
                 )
@@ -460,7 +652,7 @@ public struct CMUXMobileRootScene: View {
                     macInstanceTag: context.macInstanceTag,
                     macBuildID: context.macBuildID
                 )
-                PhonePushPeerKeyStore.pin(
+                PhonePushPeerKeyStore().pin(
                     descriptor.publicKey,
                     keyID: descriptor.keyID,
                     for: tuple
@@ -514,14 +706,14 @@ public struct CMUXMobileRootScene: View {
         #endif
         let store = CMUXMobileShellStore(
             runtime: runtime,
+            macListAuthState: macListAuthState,
             pairedMacStore: backedUpPairedMacStore,
-            connectionMethodStore: connectionMethodStore,
             buildCompatibilityPolicy: buildCompatibilityPolicy,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
             personalIrohForget: resolvedPersonalIrohForget,
-            presence: nil,
+            presence: nil, workspacePresenceAnnouncer: makeWorkspacePresenceAnnouncer(),
             identityProvider: identityProvider,
             phonePushKeyExchangeHooks: makePhonePushKeyExchangeHooks(),
             teamIDProvider: { await coordinator.resolvedTeamID },
@@ -541,8 +733,16 @@ public struct CMUXMobileRootScene: View {
                 diagnosticLog: diagnosticLog
             ),
             browserStreamEvents: browserStreamEvents,
-            simulatorStreamStore: simulatorStreamStore
+            simulatorStreamStore: simulatorStreamStore,
+            // SSH hosts and keys are device-local and account-independent
+            // (docs/prd/ios-direct-ssh.md D5): Application Support, never
+            // cleared by sign-out.
+            sshComputers: MobileSSHComputers(
+                directory: URL.applicationSupportDirectory.appending(path: "ssh", directoryHint: .isDirectory)
+            ),
+            workspaceSnapshotStore: MobileWorkspaceSnapshotStore(defaults: .standard)
         )
+        Task { await store.startSSHComputers() }
         #if os(iOS)
         // Install the cached (or baked) Mac minimum-version list before the
         // store is handed to any view, so the first stored-Mac reconnect can

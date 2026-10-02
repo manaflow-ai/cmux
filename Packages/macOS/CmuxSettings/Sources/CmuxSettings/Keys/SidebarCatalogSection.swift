@@ -33,6 +33,12 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowWorkspaceDescription"
     )
 
+    public let workspaceDescriptionColorHex = DefaultsKey<String>(
+        id: "sidebar.workspaceDescriptionColor",
+        defaultValue: "",
+        userDefaultsKey: "sidebarWorkspaceDescriptionColorHex"
+    )
+
     /// Bool-backed to match the legacy in-app store. The on-disk key
     /// `sidebarBranchVerticalLayout` is written as a Bool by every
     /// shipped cmux build; using an enum here would silently revert
@@ -132,6 +138,16 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowProgress"
     )
 
+    /// Whether sidebar workspace rows append coding-agent usage (model,
+    /// context-window percentage, estimated API cost) to the agent status
+    /// entry (`sidebar.showAgentUsage`). Defaults to off: sampling reads the
+    /// agent transcript off the main actor after hook events.
+    public let showAgentUsage = DefaultsKey<Bool>(
+        id: "sidebar.showAgentUsage",
+        defaultValue: false,
+        userDefaultsKey: "sidebarShowAgentUsage"
+    )
+
     /// Whether sidebar workspace rows show the loading spinner for running
     /// coding agents and manual `cmux workspace loading` loaders
     /// (`sidebar.showAgentActivity`). Defaults to on.
@@ -156,6 +172,25 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         id: "sidebar.notificationBadgePosition",
         defaultValue: .leading,
         userDefaultsKey: "sidebarNotificationBadgePosition"
+    )
+
+    /// Whether coding-agent status entries reported by agent hooks (for
+    /// example Claude Code's "Running") render as a tinted glyph on the
+    /// workspace title line instead of their own metadata row
+    /// (`sidebar.compactAgentStatus`). Defaults to off; other status entries
+    /// keep their rows either way.
+    public let compactAgentStatus = DefaultsKey<Bool>(
+        id: "sidebar.compactAgentStatus",
+        defaultValue: false,
+        userDefaultsKey: "sidebarCompactAgentStatus"
+    )
+
+    /// `sidebar.compactAgentStatus` glyph overrides: SF Symbol names keyed by
+    /// state (`needsInput`, `terminal`, `pullRequestMerged`, ...).
+    public let compactStatusIcons = DefaultsKey<[String: String]>(
+        id: "sidebar.compactStatusIcons",
+        defaultValue: [:],
+        userDefaultsKey: "sidebarCompactStatusIcons"
     )
 
     public let showCustomMetadata = DefaultsKey<Bool>(

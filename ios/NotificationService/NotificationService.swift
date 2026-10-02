@@ -1,6 +1,12 @@
 import CmuxPhonePush
 import Foundation
+import OSLog
 import UserNotifications
+
+private let notificationServiceLog = Logger(
+    subsystem: "ai.manaflow.cmux",
+    category: "notification-service"
+)
 
 final class NotificationService: UNNotificationServiceExtension {
     private var contentHandler: ((UNNotificationContent) -> Void)?
@@ -21,11 +27,11 @@ final class NotificationService: UNNotificationServiceExtension {
             return
         }
         suppressOnExpiration = true
-        guard let installation = try? PhonePushKeyStore.current(
+        guard let installation = try? PhonePushKeyMaterial.current(
             bundleID: Bundle.main.object(forInfoDictionaryKey: "CMUXHostBundleIdentifier") as? String ?? "dev.cmux.ios",
             accessGroup: Bundle.main.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
         ) else {
-            finishSuppressed(content)
+            finishSuppressed(content, reason: "key_material_unavailable")
             return
         }
         let candidates = raw.compactMap { try? JSONSerialization.data(withJSONObject: $0) }
@@ -35,16 +41,19 @@ final class NotificationService: UNNotificationServiceExtension {
                 && $0.tuple.iosInstallationID == installation.installationID
                 && $0.tuple.iosBuildID == (Bundle.main.object(forInfoDictionaryKey: "CMUXHostBundleIdentifier") as? String ?? "dev.cmux.ios")
         }) else {
-            finishSuppressed(content)
+            finishSuppressed(content, reason: "no_envelope_for_installation")
             return
         }
-        guard PhonePushActiveAccountStore.current() == envelope.tuple.accountID,
-              let sender = PhonePushPeerKeyStore.pinnedDescriptor(for: envelope.tuple),
-              let senderPublicKey = Optional(sender.publicKey) else {
-            finishSuppressed(content)
+        guard PhonePushActiveAccountStore().current() == envelope.tuple.accountID else {
+            finishSuppressed(content, reason: "account_mismatch")
             return
         }
-        guard let data = try? PhonePushCrypto.decrypt(
+        guard let sender = PhonePushPeerKeyStore().pinnedDescriptor(for: envelope.tuple) else {
+            finishSuppressed(content, reason: "sender_not_pinned")
+            return
+        }
+        let senderPublicKey = sender.publicKey
+        guard let data = try? PhonePushCrypto().decrypt(
             envelope: envelope,
             tuple: envelope.tuple,
             recipientInstallationID: installation.installationID,
@@ -53,12 +62,12 @@ final class NotificationService: UNNotificationServiceExtension {
             senderPublicKey: senderPublicKey,
             privateKey: installation.privateKey
         ), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            finishSuppressed(content)
+            finishSuppressed(content, reason: "decrypt_failed")
             return
         }
         guard let expiration = object["expirationEpochSeconds"] as? NSNumber,
               expiration.doubleValue > Date().timeIntervalSince1970 else {
-            finishSuppressed(content)
+            finishSuppressed(content, reason: "expired")
             return
         }
         if let title = object["title"] as? String { content.title = title }
@@ -78,7 +87,7 @@ final class NotificationService: UNNotificationServiceExtension {
 
     override func serviceExtensionTimeWillExpire() {
         if suppressOnExpiration {
-            finishSuppressed(deliveredContent ?? UNMutableNotificationContent())
+            finishSuppressed(deliveredContent ?? UNMutableNotificationContent(), reason: "time_expired")
         } else {
             finish(deliveredContent ?? UNMutableNotificationContent())
         }
@@ -90,7 +99,11 @@ final class NotificationService: UNNotificationServiceExtension {
         contentHandler(content)
     }
 
-    private func finishSuppressed(_ content: UNMutableNotificationContent) {
+    /// Without the notification-filtering entitlement iOS ignores empty
+    /// content and shows the payload's own alert. For a notify push that is
+    /// the generic "An agent needs your attention" placeholder.
+    private func finishSuppressed(_ content: UNMutableNotificationContent, reason: String) {
+        notificationServiceLog.error("encrypted push not opened: \(reason, privacy: .public)")
         content.title = ""
         content.subtitle = ""
         content.body = ""

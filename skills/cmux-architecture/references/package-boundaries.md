@@ -28,7 +28,7 @@ A lower package cannot extend a higher-owned type without inverting the dependen
 - one `XCSwiftPackageProductDependency`
 - one `PBXBuildFile` linked in the Frameworks phase of every target that imports it
 
-App-target packages link into **both** `cmux` and `cmux-unit` so tests can import and inject them. A package linked by the app but not `cmux-unit` compiles the app and fails the test target. Copy a recent leaf package for the exact shape, then run:
+App-target packages link into **both** `cmux` and `cmuxTests` (the target the `cmux-unit` scheme runs) so tests can import and inject them. A package linked by the app but not `cmuxTests` compiles the app and fails the test target. Copy a recent leaf package for the exact shape, then run:
 
 ```bash
 scripts/normalize-pbxproj.py

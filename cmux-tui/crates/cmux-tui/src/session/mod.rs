@@ -20,8 +20,9 @@ use cmux_tui_core::server::{
     CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
     FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MACHINE_USAGE_CAPABILITY,
     MAX_CREATION_SELECTOR_FALLBACKS, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
-    VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
+    SHARED_SIZING_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
+use cmux_tui_core::sizing_policy::{TerminalSizingPolicy, TerminalSizingState};
 use cmux_tui_core::{
     BrowserFrameUpdate, BrowserStatus, ClearHistoryFailure, GuardedMouseEncode, LayoutRatioError,
     LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEventReceiver, PaneId,
@@ -85,6 +86,7 @@ pub(crate) fn apply_config_to_local_owner(mux: &Mux, config: &crate::config::Con
         crate::config::apply_browser_to_surface_options(config, options);
     });
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+    mux.configure_journal_plugin(config.agents.plugin.clone());
 }
 
 #[derive(Clone)]
@@ -336,7 +338,18 @@ pub struct AgentInfo {
     pub state: String,
     pub source: String,
     pub session: Option<String>,
+    /// The reporting adapter id (`claude`, `codex`, ...), when known.
+    #[serde(default)]
+    pub agent: Option<String>,
     pub updated_at_ms: u64,
+}
+
+/// A terminal's shared-sizing state as this frontend sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SurfaceSizeState {
+    pub state: TerminalSizingState,
+    /// This frontend's own participant id in `state`, when attached.
+    pub self_participant: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -621,12 +634,19 @@ impl Session {
         self.set_client_sizing(surface, client, true, true)
     }
 
+    /// Focus on a terminal. Under shared sizing this is activity only
+    /// (`note-size-activity`): the legacy `set-client-sizing` would clear a
+    /// counts choice another participant made for this view. Daemons without
+    /// `shared-sizing-v1` keep the legacy exclusive claim.
     pub fn claim_terminal_geometry(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
                 .claim_terminal_geometry(surface, 0)
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface}")),
+            Session::Remote(remote) if remote.supports_capability(SHARED_SIZING_CAPABILITY) => {
+                remote.request(json!({"cmd": "note-size-activity", "surface": surface})).map(|_| ())
+            }
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
@@ -666,6 +686,79 @@ impl Session {
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "detach-client", "client": client})).map(|_| ())
             }
+        }
+    }
+
+    /// The latest shared-sizing state of a terminal and this frontend's own
+    /// participant id in it (docs/shared-terminal-sizing.md). `None` before
+    /// the host published one, or when the host lacks `shared-sizing-v1`.
+    pub fn size_state(&self, surface: SurfaceId) -> Option<SurfaceSizeState> {
+        match self {
+            Session::Local(mux) => Some(SurfaceSizeState {
+                state: mux.terminal_size_state(surface)?,
+                self_participant: mux.terminal_view_participant_id(surface, 0),
+            }),
+            Session::Remote(remote) => remote.size_state(surface),
+        }
+    }
+
+    /// `set-size-policy {surface, policy}`.
+    pub fn set_size_policy(
+        &self,
+        surface: SurfaceId,
+        policy: TerminalSizingPolicy,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .set_terminal_size_policy(surface, Some(policy))
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal")),
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "set-size-policy", "surface": surface, "policy": policy}))
+                .map(|_| ()),
+        }
+    }
+
+    /// `set-size-counts {surface, participant, counts}`; `None` restores the
+    /// automatic rule.
+    pub fn set_size_counts(
+        &self,
+        surface: SurfaceId,
+        participant: &str,
+        counts: Option<bool>,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .set_terminal_size_counts(surface, participant, counts)
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}")),
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "set-size-counts",
+                    "surface": surface,
+                    "participant": participant,
+                    "counts": counts,
+                }))
+                .map(|_| ()),
+        }
+    }
+
+    /// `detach-client {client: <participant>, surface}`: disconnects one
+    /// participant of this terminal: a relay sub-view alone, the own view of
+    /// a client with `sizing-view-detach-v1` (a Mac keeps its connection and
+    /// the phones it relays), otherwise its whole client.
+    pub fn disconnect_size_participant(
+        &self,
+        surface: SurfaceId,
+        participant: &str,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                cmux_tui_core::server::detach_size_participant(mux, 0, participant, Some(surface))
+            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "detach-client", "client": participant, "surface": surface}))
+                .map(|_| ()),
         }
     }
 
@@ -979,6 +1072,7 @@ impl Session {
                     state: agent.state.as_str().to_string(),
                     source: agent.source.as_str().to_string(),
                     session: agent.session,
+                    agent: agent.agent,
                     updated_at_ms: agent.updated_at_ms,
                 })
                 .collect(),
@@ -3193,5 +3287,46 @@ mod tests {
             }})),
             None
         );
+    }
+
+    /// Against a `shared-sizing-v1` daemon, focusing a terminal is activity
+    /// only: it must not send the legacy `set-client-sizing`, which clears a
+    /// "not counted" choice another participant (the Mac) made for this TUI.
+    #[test]
+    fn shared_sizing_focus_keeps_a_counts_choice_made_elsewhere() {
+        use cmux_tui_core::sizing_policy::TerminalDeviceKind;
+
+        let mux = Mux::new("shared-sizing-focus-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let dir = std::path::PathBuf::from(format!("/tmp/cmux-szf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("mux.sock");
+        cmux_tui_core::server::serve(mux.clone(), Some(socket.clone())).unwrap();
+        let session = Session::Remote(super::RemoteSession::connect(&socket).unwrap());
+        session.refresh_tree().unwrap();
+        assert!(matches!(
+            session.try_surface_sized(surface.id, Some((100, 40))).unwrap(),
+            super::SurfaceAttach::Attached(_)
+        ));
+        let tui = || {
+            mux.terminal_size_state(surface.id)
+                .unwrap()
+                .participants
+                .iter()
+                .find(|row| {
+                    row.participant.device_kind == TerminalDeviceKind::Tui
+                        && row.participant.id != "c0"
+                })
+                .map(|row| row.participant.clone())
+                .expect("the remote TUI joined shared sizing")
+        };
+        let id = tui().id;
+        mux.set_terminal_size_counts(surface.id, &id, Some(false)).unwrap();
+
+        session.claim_terminal_geometry(surface.id).unwrap();
+
+        assert_eq!(tui().counts_override, Some(false));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

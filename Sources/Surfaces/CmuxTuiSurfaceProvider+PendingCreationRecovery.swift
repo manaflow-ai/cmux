@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Read-your-write overlays for Cloud terminal creation and rename receipts.
@@ -6,12 +7,6 @@ import Foundation
 /// daemon graph catches up with a mutation response.
 @MainActor
 extension CmuxTuiSurfaceProvider {
-    struct PendingRemoteCreation {
-        var resource: SurfaceResource
-        var receipt: CloudVMCursor?
-        let tabID: String?
-    }
-
     /// Merges pending mutation receipts into derived rows until an accepted
     /// graph reaches each receipt. The canonical graph is never edited here.
     /// A generation change, or a cursorless snapshot after a versioned receipt,

@@ -40,4 +40,3 @@ public struct SocketControlPolicyResolution: Equatable, Sendable {
         isManaged ? source.rawValue : nil
     }
 }
-

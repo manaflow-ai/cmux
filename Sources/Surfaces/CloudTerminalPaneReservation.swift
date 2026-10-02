@@ -1,4 +1,7 @@
 import os
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import Foundation
 
@@ -137,6 +140,11 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             startRemoteRebindLocked(&state)
             promoteRequestedRouterIfReadyLocked(&state)
         }
+    }
+
+    /// Device mirrors adopt the same pane with their own byte router.
+    func attach(_ router: DeviceTerminalInputRouter) {
+        attach { router.enqueue($0) }
     }
 
     /// Drops queued input and stops forwarding. A later `attach` resumes forwarding.

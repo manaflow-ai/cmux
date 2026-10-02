@@ -11,9 +11,8 @@ public import Observation
 /// that Mac yet. A missing build is treated as possibly too old until the Mac
 /// advertises its version.
 ///
-/// A process-wide shared instance is the seam here because the writer lives
-/// in `cmuxFeature` (the transport composition) and the readers live in
-/// `CmuxMobileShellUI`, packages with no injection path between them today.
+/// The app composition owns one instance and injects it into the transport,
+/// shell store, and SwiftUI environment so account boundaries clear one state.
 @MainActor
 @Observable
 public final class MobileMacListAuthState {
@@ -99,8 +98,6 @@ public final class MobileMacListAuthState {
             self.identityGeneration = identityGeneration
         }
     }
-
-    public static let shared = MobileMacListAuthState()
 
     /// Every directory entry retains its app, endpoint, binding, and generation.
     public private(set) var entriesByIdentity: [Identity: Entry] = [:]

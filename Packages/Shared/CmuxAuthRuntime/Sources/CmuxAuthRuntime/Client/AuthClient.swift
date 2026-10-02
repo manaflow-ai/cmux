@@ -11,6 +11,12 @@ public protocol AuthClient: Sendable {
     /// The current Stack access token, or `nil` when there is no live session.
     func accessToken() async -> String?
 
+    /// Resolves access with typed cancellation/deadline failures when supported.
+    /// - Parameter forceRefresh: Bypasses the cached token after server rejection.
+    /// - Returns: A usable access token, or nil when unavailable.
+    /// - Throws: Cancellation or a classified transient refresh failure.
+    func resolvedAccessToken(forceRefresh: Bool) async throws -> String?
+
     /// The current Stack refresh token, or `nil` when there is no live session.
     func refreshToken() async -> String?
 

@@ -938,17 +938,20 @@ struct CodexAppServerSessionTests {
         expectTrue(defaultParams["sandboxPolicy"] is NSNull)
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func testCodexSubmitBlocksReentrantTurnWhileWriteIsPending() async throws {
         var sentLines: [String] = []
         var pendingTurnWrite: CheckedContinuation<Void, Never>?
+        let turnWriteStarted = AsyncStream<Void>.makeStream()
         let session = CodexAppServerSession(
             workingDirectory: nil,
             writeData: { data in
                 let line = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
-                if line.contains(#""method":"turn/start""#) {
+                let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                if object?["method"] as? String == "turn/start" {
                     await withCheckedContinuation { continuation in
                         pendingTurnWrite = continuation
+                        turnWriteStarted.continuation.yield(())
                     }
                 }
                 sentLines.append(line)
@@ -964,11 +967,7 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
 
         let firstSubmit = Task { try await session.submit("first prompt") }
-        var spins = 0
-        while pendingTurnWrite == nil, spins < 100_000 {
-            spins += 1
-            await Task.yield()
-        }
+        _ = await turnWriteStarted.stream.first(where: { _ in true })
         #expect(pendingTurnWrite != nil, "turn/start write never became pending")
 
         await expectThrowsErrorAsync {
@@ -983,13 +982,19 @@ struct CodexAppServerSessionTests {
         expectEqual(input.first?["text"] as? String, "first prompt")
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func testCodexApprovalRequestsOnlyAutoApproveForFullAccessMode() async throws {
-        var sentLines: [String] = []
+        var responsesByID: [String: [String: Any]] = [:]
+        let responses = AsyncStream<Void>.makeStream()
+        var responseIterator = responses.stream.makeAsyncIterator()
         let session = CodexAppServerSession(
             workingDirectory: nil,
             writeData: { data in
-                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+                if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let id = object["id"] as? String {
+                    responsesByID[id] = object
+                    responses.continuation.yield(())
+                }
             },
             outputSink: { _, _ in }
         )
@@ -1005,6 +1010,9 @@ struct CodexAppServerSessionTests {
             #"{"id":"cmd-1","method":"item/commandExecution/requestApproval","params":{"threadId":"thread-1"}}"# + "\n")
         session.consumeStdout(
             #"{"id":"perm-1","method":"item/permissions/requestApproval","params":{"permissions":{"network":{"enabled":true}}}}"# + "\n")
+        while responsesByID["cmd-1"] == nil || responsesByID["perm-1"] == nil {
+            _ = await responseIterator.next()
+        }
         await expectThrowsErrorAsync {
             try await session.submit("blocked full access prompt", permissionMode: .fullAccess)
         }
@@ -1014,21 +1022,24 @@ struct CodexAppServerSessionTests {
             #"{"id":"cmd-2","method":"item/commandExecution/requestApproval","params":{"threadId":"thread-1"}}"# + "\n")
         session.consumeStdout(
             #"{"id":"perm-2","method":"item/permissions/requestApproval","params":{"permissions":{"network":{"enabled":true}}}}"# + "\n")
+        while responsesByID["cmd-2"] == nil || responsesByID["perm-2"] == nil {
+            _ = await responseIterator.next()
+        }
 
-        let defaultCommandResponse = jsonLine(sentLines[4])
+        let defaultCommandResponse = try #require(responsesByID["cmd-1"])
         let defaultCommandResult = try #require(defaultCommandResponse["result"] as? [String: Any])
         expectEqual(defaultCommandResult["decision"] as? String, "decline")
 
-        let defaultPermissionResponse = jsonLine(sentLines[5])
+        let defaultPermissionResponse = try #require(responsesByID["perm-1"])
         let defaultPermissionResult = try #require(defaultPermissionResponse["result"] as? [String: Any])
         let defaultPermissions = try #require(defaultPermissionResult["permissions"] as? [String: Any])
         expectTrue(defaultPermissions.isEmpty)
 
-        let fullAccessCommandResponse = jsonLine(sentLines[7])
+        let fullAccessCommandResponse = try #require(responsesByID["cmd-2"])
         let fullAccessCommandResult = try #require(fullAccessCommandResponse["result"] as? [String: Any])
         expectEqual(fullAccessCommandResult["decision"] as? String, "acceptForSession")
 
-        let fullAccessPermissionResponse = jsonLine(sentLines[8])
+        let fullAccessPermissionResponse = try #require(responsesByID["perm-2"])
         let fullAccessPermissionResult = try #require(fullAccessPermissionResponse["result"] as? [String: Any])
         let fullAccessPermissions = try #require(fullAccessPermissionResult["permissions"] as? [String: Any])
         let networkPermissions = try #require(fullAccessPermissions["network"] as? [String: Any])

@@ -32,8 +32,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
 #if DEBUG
         if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame"
             || method == "remote.tmux.test_perturb_divider"
-            || method == "remote.tmux.root_frames"
-            || method == "remote.tmux.window" {
+            || method == "remote.tmux.root_frames" {
             self = .socketWorker(mainThreadCallable: false)
             return
         }
@@ -77,6 +76,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
+        // Agent session recovery reads the journal (SQLite), the hook stores
+        // and transcripts; only the open-session scan and workspace creation
+        // hop to the main actor.
+        "session.agent_recovery.list",
+        "session.agent_recovery.restore",
         "auth.status",
         "auth.sign_in_url",
         "auth.begin_sign_in",
@@ -84,6 +88,15 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "auth.team.list",
         "auth.team.use",
         "auth.team.create",
+        "auth.team.members",
+        "auth.team.invite",
+        "auth.team.invite_link",
+        "auth.team.revoke_invite",
+        "auth.team.remove_member",
+        "auth.team.open_members",
+        "auth.team.invitations",
+        "auth.team.accept_invite",
+        "auth.team.decline_invite",
         "feedback.submit",
         // `feed.jump` awaits its actor-owned hook-session lookup while the
         // socket worker waits for the response.
@@ -100,6 +113,18 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "agent.restore.admit",
         // Releases only the tokenized claim owned by a failed restore exec.
         "agent.restore.release",
+        // Manual hibernation awaits a transcript snapshot and a fresh process
+        // census before teardown; wake shares the lane so both verbs route alike.
+        "agent.hibernate",
+        "agent.wake",
+        // Agent messages: store reads and appends with at most one
+        // main-actor hop for target resolution or the delivery hold.
+        "agent.message.send",
+        "agent.message.list",
+        "agent.message.claim",
+        "agent.message.ack",
+        "agent.message.mark_read",
+        "agent.message.poll", "agent.message.settings",
         "browser.download.list", "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
@@ -108,15 +133,24 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
-        // Provider discovery may read configuration or run `opencode models`;
-        // it must never hold the main actor while waiting for process I/O.
-        "mobile.task.models.list",
+        // Provider discovery reads config or runs `opencode models`; chat
+        // send/interrupt await terminal input. Neither may hold the main actor.
+        "mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt",
+        // Prompt submission suspends between paste and Enter while agent
+        // editors commit the paste. The socket worker awaits the final result.
+        "mobile.terminal.paste",
+        "terminal.paste",
         // `mobile.terminal.set_font` only validates params and emits a push
         // event via thread-safe MobileHostService statics, so it runs on the worker
         // like the other mobile data-plane verbs. Without this entry the policy
         // routes it to the main-actor processV2Command switch, which lacks the
         // case, and the control socket returns method_not_found.
         "mobile.terminal.set_font",
+        // Shared terminal sizing verbs are dispatched by the worker switch and
+        // hop to MainActor for the one store mutation (TerminalSharingStore).
+        "terminal.size_state", "terminal.size_policy.set", "terminal.size_to_me",
+        "terminal.size_counts.set", "terminal.participant.disconnect",
+        "terminal.participants.disconnect_others",
         // Same profile as set_font: UserDefaults reads/writes plus a push
         // event through thread-safe MobileHostService statics.
         "mobile.compatible_tags.get",
@@ -125,8 +159,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // surfaces. Keep them on the worker lane so markdown/file-preview panes
         // reach TerminalController's mobile.panel.artifact.* dispatcher instead
         // of the main-actor switch returning method_not_found.
+        // `mobile.panel.artifact.fetch` is deliberately absent: it needs the
+        // authenticated mobile RPC execution context, so the local control
+        // socket answers method_not_found instead of bypassing
+        // artifact-transfer authorization (the worker switch has no case for it).
         "mobile.panel.artifact.stat",
-        "mobile.panel.artifact.fetch",
         "mobile.panel.artifact.thumbnail",
         "system.top",
         "system.memory",
@@ -155,14 +192,18 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // never runs inline on the main thread, and no in-process main-thread
         // caller needs it.
         "surface.read_text",
+        // `surface.input_state` reads the screen through the render-grid
+        // export in one short `v2MainSync` hop (`cmux send` asks it before
+        // typing). App-side for the same reason as `surface.read_text`.
+        "surface.input_state",
         // Selection providers own AppKit/WebKit state on the main actor, then
         // return one immutable snapshot for response shaping on this worker.
         // The async bridge must never be entered inline by a main-thread caller.
         "surface.read_selection",
-        // The surface catalog verbs await main-actor catalog work that can sit on the
-        // network (a cloud provider materializing a pane); like `vm.*` they park the
-        // worker instead of holding the main actor.
+        // Surface verbs park the worker while awaiting catalog or provider work.
         "surface.catalog",
+        // Current-work captures owners once, then reduces/encodes off-main without refresh.
+        "current.list",
         "surface.project",
         "surface.new_terminal",
         // SSH-session attach resolves ownership and reads the remote PTY
@@ -173,7 +214,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
         // lane like the other workspace reads below.
         "workspace.env",
-        "workspace.remote.pty_sessions",
+        "workspace.ssh.open", "workspace.remote.pty_sessions",
         "workspace.remote.pty_close",
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
@@ -189,7 +230,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "remote.tmux.attach",
         "remote.tmux.detach",
         "remote.tmux.state",
-        "remote.tmux.mirror", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+        "remote.tmux.mirror", "remote.tmux.window",
+        "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",
@@ -198,6 +240,18 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // compositor before falling back to AppKit. Keep that wait on the
         // socket worker so WebKit-backed panels can render on the main actor.
         "debug.window.screenshot",
+        // Window recording samples ScreenCaptureKit on a schedule for as long
+        // as the clip lasts. The sampling loop must never own the main actor:
+        // the window it is filming has to keep drawing.
+        "window.record.start",
+        "window.record.stop",
+        "window.record.status",
+        "window.record.note",
+        "window.record.list",
+        // A still runs the same ScreenCaptureKit capture once. The window being
+        // shot has to draw while the capture waits, so it stays off the main
+        // actor too.
+        "window.screenshot",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via
@@ -232,6 +286,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.focus",
         "browser.type",
         "browser.fill",
+        "browser.set_input_files",
         "browser.press",
         "browser.keydown",
         "browser.keyup",

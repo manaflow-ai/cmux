@@ -47,10 +47,12 @@ final class SidebarRowTextAccessibilityLink: NSAccessibilityElement {
     }
 
     /// Detaches a proxy that no longer represents the owner's current text.
-    func invalidate() {
+    func invalidate(notify: Bool = true) {
         guard owner != nil else { return }
-        NSAccessibility.post(element: self, notification: .uiElementDestroyed)
         owner = nil
         setAccessibilityParent(nil)
+        if notify {
+            NSAccessibility.post(element: self, notification: .uiElementDestroyed)
+        }
     }
 }

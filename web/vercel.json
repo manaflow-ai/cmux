@@ -50,6 +50,10 @@
     {
       "path": "/api/cron/push-token-revocations",
       "schedule": "37 * * * *"
+    },
+    {
+      "path": "/api/cron/team-seats",
+      "schedule": "11,41 * * * *"
     }
   ]
 }

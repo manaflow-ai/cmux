@@ -24,12 +24,14 @@ public struct IrxRelayCredential: Codable, Equatable, Sendable {
 }
 
 /// Pure refresh-policy decisions, unit-testable without clocks or network.
-public enum IrxRelayCredentialPolicy {
+public struct IrxRelayCredentialPolicy: Sendable {
+    public init() {}
+
     /// Refresh at min(server refreshAfter, expiry - 120s): earlier than the
     /// legacy stack's expiry-60s so one slow broker call or a short suspension
     /// never eats the entire margin. Jitter (0..10s, caller-supplied) prevents
     /// synchronized fleets.
-    public static func refreshDate(
+    public func refreshDate(
         for credential: IrxRelayCredential,
         jitter: TimeInterval
     ) -> Date {
@@ -41,7 +43,7 @@ public enum IrxRelayCredentialPolicy {
     /// On mint failure, use bounded exponential backoff independent of token
     /// expiry. A validated server Retry-After value remains an authoritative
     /// floor.
-    public static func retryDelay(
+    public func retryDelay(
         expiresAt: Date,
         now: Date,
         retryAfterSeconds: Int? = nil,

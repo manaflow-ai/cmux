@@ -30,12 +30,12 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
     FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_SMART_RENDERER,
-    FLAG_VIEWER_SIZE_ACKS, Frame, HostLaunchFailure, HostLaunchFailureKind,
-    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
-    MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
-    RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
-    encode_host_launch_failure, encode_terminal_exit, read_frame,
-    wait_for_native_child_status_with_reap_result, write_frame,
+    FLAG_TERMINAL_METADATA, FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY, Frame,
+    HostLaunchFailure, HostLaunchFailureKind, KITTY_IMAGE_ALIAS_COUNT_LEN,
+    KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION, MAX_FRAME_PAYLOAD,
+    MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED,
+    TerminalExit, decode_host_launch_failure, decode_terminal_exit, encode_host_launch_failure,
+    encode_terminal_exit, read_frame, wait_for_native_child_status_with_reap_result, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 4;
@@ -158,6 +158,14 @@ pub struct TerminalHostRecord {
     /// accept fire-and-forget input but cannot confirm PTY delivery.
     #[serde(default)]
     pub supports_input_ack: bool,
+    /// Additive snapshot capability. Missing/false records use the v4
+    /// snapshot layout without the optional generic terminal metadata tail.
+    #[serde(default)]
+    pub supports_terminal_metadata: bool,
+    /// Additive handshake capability. Missing/false records belong to hosts
+    /// that reject a ClientHello carrying `FLAG_VIEWER_SIZE_PRIORITY`.
+    #[serde(default)]
+    pub supports_viewer_size_priority: bool,
 }
 
 impl std::fmt::Debug for TerminalHostRecord {
@@ -175,6 +183,8 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_clear_history", &self.supports_clear_history)
             .field("supports_terminate_ack", &self.supports_terminate_ack)
             .field("supports_input_ack", &self.supports_input_ack)
+            .field("supports_terminal_metadata", &self.supports_terminal_metadata)
+            .field("supports_viewer_size_priority", &self.supports_viewer_size_priority)
             .finish()
     }
 }
@@ -230,6 +240,10 @@ pub struct HostSnapshot {
     pub pid: Option<u32>,
     pub command: Vec<String>,
     pub cwd: Option<String>,
+    /// Optional generic terminal metadata restored at the same snapshot
+    /// boundary. It is sent only when the client and host negotiate the
+    /// `FLAG_TERMINAL_METADATA` capability.
+    pub osc_progress: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -260,6 +274,8 @@ pub struct RendererGrant {
     pub token: String,
     pub rights: CapabilityRights,
     pub protocol_version: u16,
+    /// The host accepts `FLAG_VIEWER_SIZE_PRIORITY` in a renderer ClientHello.
+    pub supports_viewer_size_priority: bool,
 }
 
 impl std::fmt::Debug for RendererGrant {
@@ -270,6 +286,7 @@ impl std::fmt::Debug for RendererGrant {
             .field("incarnation", &self.incarnation)
             .field("token", &"[REDACTED]")
             .field("rights", &self.rights)
+            .field("supports_viewer_size_priority", &self.supports_viewer_size_priority)
             .finish()
     }
 }
@@ -1946,6 +1963,7 @@ mod unix {
                 token: encode_hex(&payload),
                 rights: CapabilityRights::RENDERER,
                 protocol_version: self.protocol_version,
+                supports_viewer_size_priority: self.record.supports_viewer_size_priority,
             })
         }
 
@@ -2079,18 +2097,23 @@ mod unix {
         // canonical identity and owner capability.
         let uid = fs::metadata(root)?.uid();
         let endpoint_root = PathBuf::from("/tmp").join(format!("cmux-th-{uid}"));
-        prepare_private_dir(&endpoint_root)?;
+        prepare_endpoint_dir(&endpoint_root)?;
         let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
         let record_path =
             crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
         if record_path.exists() || endpoint.exists() {
             anyhow::bail!("terminal host identity already exists");
         }
-        let command = options
-            .command
-            .clone()
-            .filter(|command| !command.is_empty())
-            .unwrap_or_else(|| vec![crate::platform::default_shell()]);
+        let shell_launch = match options.command.clone().filter(|command| !command.is_empty()) {
+            Some(command) => {
+                crate::shell_integration::ShellLaunch { command, env: options.extra_env.clone() }
+            }
+            None => crate::shell_integration::integrate_default_shell(
+                vec![crate::platform::default_shell()],
+                options.extra_env.clone(),
+            ),
+        };
+        let command = shell_launch.command;
         let launch = HostLaunch {
             endpoint: endpoint.to_string_lossy().into_owned(),
             record_path: record_path.to_string_lossy().into_owned(),
@@ -2101,7 +2124,7 @@ mod unix {
             scrollback: options.scrollback,
             cwd: options.cwd.clone().or_else(crate::platform::default_terminal_cwd),
             command,
-            extra_env: options.extra_env.clone(),
+            extra_env: shell_launch.env,
             default_colors,
             kitty_graphics_limits,
         };
@@ -2285,10 +2308,20 @@ mod unix {
                 || record.supports_clear_history
                 || record.supports_terminate_ack
                 || record.supports_input_ack
+                || record.supports_terminal_metadata
+                || record.supports_viewer_size_priority
             {
                 anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
             }
         } else {
+            if record.record_version < HOST_RECORD_VERSION && record.supports_terminal_metadata {
+                anyhow::bail!(
+                    "legacy terminal-host record advertises terminal metadata without support"
+                );
+            }
+            if record.record_version < HOST_RECORD_VERSION && record.supports_viewer_size_priority {
+                anyhow::bail!("pre-v4 terminal-host record advertises viewer-size priority");
+            }
             if record.record_version == 2 && record.supports_terminate_ack {
                 anyhow::bail!("version 2 terminal-host record advertises terminate receipts");
             }
@@ -2759,19 +2792,28 @@ mod unix {
         };
         let mut hello_frame = hello.into_frame(1);
         hello_frame.version = protocol_version;
+        let terminal_metadata_requested =
+            protocol_version == PROTOCOL_VERSION && record.supports_terminal_metadata;
         if smart_renderer {
             hello_frame.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        }
+        if terminal_metadata_requested {
+            hello_frame.flags |= FLAG_TERMINAL_METADATA;
         }
         write_frame(&mut stream, &hello_frame)?;
         let hello_frame = read_required_frame(&mut stream, "host hello")?;
         if hello_frame.kind != MessageKind::HostHello
             || hello_frame.version != protocol_version
             || hello_frame.flags
-                & !(FLAG_VIEWER_SIZE_ACKS | FLAG_SMART_RENDERER | FLAG_LAUNCH_ACTIVATION_REQUIRED)
+                & !(FLAG_VIEWER_SIZE_ACKS
+                    | FLAG_SMART_RENDERER
+                    | FLAG_LAUNCH_ACTIVATION_REQUIRED
+                    | FLAG_TERMINAL_METADATA)
                 != 0
             || hello_frame.request_id != 1
             || hello_frame.sequence != 0
             || (smart_renderer && hello_frame.flags & FLAG_SMART_RENDERER == 0)
+            || (!terminal_metadata_requested && hello_frame.flags & FLAG_TERMINAL_METADATA != 0)
         {
             anyhow::bail!("terminal host rejected owner handshake");
         }
@@ -2787,6 +2829,7 @@ mod unix {
         {
             anyhow::bail!("terminal-host record identity does not match live host");
         }
+        let terminal_metadata_negotiated = hello_frame.flags & FLAG_TERMINAL_METADATA != 0;
         let snapshot_frame = read_required_frame(&mut stream, "terminal snapshot")?;
         if snapshot_frame.kind != MessageKind::Snapshot
             || snapshot_frame.version != protocol_version
@@ -2795,7 +2838,11 @@ mod unix {
         {
             anyhow::bail!("terminal host did not send an initial snapshot");
         }
-        let mut snapshot = decode_snapshot_for_version(&snapshot_frame.payload, protocol_version)?;
+        let mut snapshot = decode_snapshot_for_version(
+            &snapshot_frame.payload,
+            protocol_version,
+            terminal_metadata_negotiated,
+        )?;
         let colors_frame = read_required_frame(&mut stream, "terminal color state")?;
         if colors_frame.kind != MessageKind::Colors
             || colors_frame.version != protocol_version
@@ -2849,11 +2896,19 @@ mod unix {
         Ok(attachment)
     }
 
+    /// Connect to a host endpoint. Hosts run as this user, so a listener
+    /// owned by anyone else never receives the owner capability.
     fn connect_with_retry(path: &Path) -> anyhow::Result<UnixStream> {
         let deadline = Instant::now() + HOST_CONNECT_RETRY_WINDOW;
         loop {
             match UnixStream::connect(path) {
-                Ok(stream) => return Ok(stream),
+                Ok(stream) => {
+                    crate::platform::require_unix_peer_uid(
+                        &stream,
+                        crate::platform::effective_uid(),
+                    )?;
+                    return Ok(stream);
+                }
                 Err(error) => {
                     let now = Instant::now();
                     if now >= deadline {
@@ -3034,6 +3089,42 @@ mod unix {
     fn prepare_private_dir(path: &Path) -> anyhow::Result<()> {
         fs::create_dir_all(path)?;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+        Ok(())
+    }
+
+    /// The shared `/tmp` directory that holds host sockets. Every user can
+    /// create names there, so the directory must be a real one this user owns.
+    fn prepare_endpoint_dir(path: &Path) -> anyhow::Result<()> {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                anyhow::bail!(
+                    "terminal host endpoint directory is not a directory: {}",
+                    path.display()
+                );
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std_io::ErrorKind::NotFound => fs::create_dir_all(path)?,
+            Err(error) => return Err(error.into()),
+        }
+        let metadata = fs::symlink_metadata(path)?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_dir()
+            || metadata.uid() != crate::platform::effective_uid()
+        {
+            anyhow::bail!(
+                "terminal host endpoint directory is not this user's: {}",
+                path.display()
+            );
+        }
+        if metadata.mode() & 0o077 != 0 {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+            if fs::symlink_metadata(path)?.mode() & 0o077 != 0 {
+                anyhow::bail!(
+                    "terminal host endpoint directory is not private: {}",
+                    path.display()
+                );
+            }
+        }
         Ok(())
     }
 
@@ -3472,6 +3563,10 @@ mod unix {
         owner_token: CapabilityToken,
         capabilities: CapabilityStore,
         term: Mutex<Terminal>,
+        /// Generic metadata parsed from the same ordered PTY bytes as the
+        /// authoritative terminal. Snapshot code takes this after `term`,
+        /// preserving one metadata boundary for reconnecting mirrors.
+        terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
         default_colors: Mutex<DefaultColors>,
         stream_progress: TerminalStreamProgress,
         writer: Mutex<Box<dyn Write + Send>>,
@@ -3482,7 +3577,7 @@ mod unix {
         cwd: Option<String>,
         size: Mutex<(u16, u16)>,
         cell_pixels: Mutex<(u16, u16)>,
-        viewer_sizes: Mutex<HashMap<u64, (u16, u16)>>,
+        viewer_sizes: Mutex<ViewerSizes>,
         taps: Mutex<HashMap<u64, HostTap>>,
         broadcast_lock: Mutex<()>,
         sequence: AtomicU64,
@@ -3946,6 +4041,7 @@ mod unix {
                     // command submitter publishes the smart resync marker
                     // while it still owns source order.
                     self.broadcast(MessageKind::Output, clear.clone());
+                    self.stream_progress.notify();
                     ParserClearHistoryResult::Cleared(clear)
                 }
                 ClearHistoryTransition::Blocked => ParserClearHistoryResult::Blocked,
@@ -3961,9 +4057,7 @@ mod unix {
             self.smart.remove(client);
             let _ = mutate_viewer_sizes(
                 &self.viewer_sizes,
-                |viewer_sizes| {
-                    viewer_sizes.remove(&client);
-                },
+                |viewer_sizes| viewer_sizes.remove_client(client),
                 |desired| self.apply_viewer_minimum(desired, false, None).map(|_| ()),
             );
         }
@@ -4009,7 +4103,7 @@ mod unix {
             mutate_viewer_sizes(
                 &self.viewer_sizes,
                 |viewer_sizes| {
-                    viewer_sizes.insert(client, (cols, rows));
+                    viewer_sizes.sizes.insert(client, (cols, rows));
                 },
                 |desired| {
                     acknowledgement_queued =
@@ -4023,9 +4117,7 @@ mod unix {
         fn remove_viewer_size(&self, client: u64) {
             let _ = mutate_viewer_sizes(
                 &self.viewer_sizes,
-                |viewer_sizes| {
-                    viewer_sizes.remove(&client);
-                },
+                |viewer_sizes| viewer_sizes.release(client),
                 |desired| self.apply_viewer_minimum(desired, false, None).map(|_| ()),
             );
         }
@@ -4105,7 +4197,7 @@ mod unix {
                     encode_resize(
                         size.0,
                         size.1,
-                        &replay.bytes,
+                        &replay.self_contained_bytes(),
                         &replay.kitty_image_aliases,
                         next,
                         replay.kitty_state,
@@ -4196,7 +4288,7 @@ mod unix {
             let resize_payload = match encode_resize(
                 size.0,
                 size.1,
-                &replay.bytes,
+                &replay.self_contained_bytes(),
                 &replay.kitty_image_aliases,
                 cell_pixels,
                 replay.kitty_state,
@@ -4408,7 +4500,7 @@ mod unix {
                             encode_resize(
                                 cols,
                                 rows,
-                                &replay.bytes,
+                                &replay.self_contained_bytes(),
                                 &replay.kitty_image_aliases,
                                 cell_pixels,
                                 replay.kitty_state,
@@ -4764,23 +4856,51 @@ mod unix {
             .then_some(exit))
     }
 
+    /// Viewer geometry reservations and the clients that negotiated
+    /// `FLAG_VIEWER_SIZE_PRIORITY` for the lifetime of their connection.
+    #[derive(Debug, Clone, Default, PartialEq, Eq)]
+    struct ViewerSizes {
+        sizes: HashMap<u64, (u16, u16)>,
+        preferred: HashSet<u64>,
+    }
+
+    impl ViewerSizes {
+        /// Per-dimension minimum over preferred sizes, or over every size when
+        /// no preferred client currently reports one.
+        fn desired(&self) -> Option<(u16, u16)> {
+            let minimum =
+                |left: (u16, u16), right: (u16, u16)| (left.0.min(right.0), left.1.min(right.1));
+            self.sizes
+                .iter()
+                .filter_map(|(client, size)| self.preferred.contains(client).then_some(*size))
+                .reduce(minimum)
+                .or_else(|| self.sizes.values().copied().reduce(minimum))
+        }
+
+        /// ReleaseViewer drops the size but keeps priority for the connection.
+        fn release(&mut self, client: u64) {
+            self.sizes.remove(&client);
+        }
+
+        fn remove_client(&mut self, client: u64) {
+            self.sizes.remove(&client);
+            self.preferred.remove(&client);
+        }
+    }
+
     /// Keep viewer mutation, minimum reduction, and the resulting PTY resize
     /// in one critical section. If the guard were released after reduction,
     /// an older large resize could run after a newer small resize and leave
     /// the host at a size that no longer matches its viewer set.
     fn mutate_viewer_sizes(
-        viewer_sizes: &Mutex<HashMap<u64, (u16, u16)>>,
-        mutation: impl FnOnce(&mut HashMap<u64, (u16, u16)>),
+        viewer_sizes: &Mutex<ViewerSizes>,
+        mutation: impl FnOnce(&mut ViewerSizes),
         apply: impl FnOnce(Option<(u16, u16)>) -> anyhow::Result<()>,
     ) -> anyhow::Result<()> {
         let mut viewer_sizes = viewer_sizes.lock().unwrap();
         let previous = viewer_sizes.clone();
         mutation(&mut viewer_sizes);
-        let desired = viewer_sizes
-            .values()
-            .copied()
-            .reduce(|left, right| (left.0.min(right.0), left.1.min(right.1)));
-        if let Err(error) = apply(desired) {
+        if let Err(error) = apply(viewer_sizes.desired()) {
             *viewer_sizes = previous;
             return Err(error);
         }
@@ -5110,6 +5230,8 @@ mod unix {
             supports_clear_history: true,
             supports_terminate_ack: true,
             supports_input_ack: true,
+            supports_terminal_metadata: true,
+            supports_viewer_size_priority: true,
         };
         let record_root = Path::new(&launch.record_path)
             .parent()
@@ -5290,6 +5412,7 @@ mod unix {
             owner_token: bootstrapped.owner_token(),
             capabilities: CapabilityStore::new(64),
             term: Mutex::new(term),
+            terminal_metadata: Mutex::new(crate::terminal_metadata::TerminalMetadata::default()),
             default_colors: Mutex::new(launch.default_colors),
             stream_progress: TerminalStreamProgress::default(),
             writer: Mutex::new(pty_writer),
@@ -5300,7 +5423,7 @@ mod unix {
             cwd: launch.cwd.clone(),
             size: Mutex::new((launch.cols, launch.rows)),
             cell_pixels: Mutex::new(cell_pixels),
-            viewer_sizes: Mutex::new(HashMap::new()),
+            viewer_sizes: Mutex::new(ViewerSizes::default()),
             taps: Mutex::new(HashMap::new()),
             broadcast_lock: Mutex::new(()),
             sequence: AtomicU64::new(0),
@@ -5358,6 +5481,7 @@ mod unix {
                                 .cursor_activity()
                                 .expect("valid host terminals expose cursor activity");
                             let normalized = term.vt_write_with_normalized(&bytes).into_owned();
+                            parser_host.terminal_metadata.lock().unwrap().observe_output(&bytes);
                             let title = title_changed
                                 .swap(false, Ordering::AcqRel)
                                 .then(|| term.title().unwrap_or_default());
@@ -5383,10 +5507,12 @@ mod unix {
                             // snapshot cannot include output that its boundary
                             // still describes as unapplied.
                             parser_host.smart.mark_applied(source_cursor);
+                            // Keep the host stream watermark on the same side
+                            // of the terminal lock as the applied bytes.
+                            parser_host.stream_progress.notify();
                             title
                         };
                         parser_host.note_parser_progress();
-                        parser_host.stream_progress.notify();
                         parser_host.parser_budget.release(accounted_bytes);
                         if let Some(title) = title {
                             parser_host.broadcast(MessageKind::Title, title.into_bytes());
@@ -5428,7 +5554,6 @@ mod unix {
                             .map_err(|error| error.to_string());
                         if matches!(result, Ok(ParserClearHistoryResult::Cleared(_))) {
                             parser_host.note_parser_progress();
-                            parser_host.stream_progress.notify();
                         }
                         flush_pending_responses();
                         let _ = response.send(result);
@@ -5571,7 +5696,14 @@ mod unix {
         let hello_frame = read_required_frame(&mut stream, "client hello")?;
         if hello_frame.kind != MessageKind::ClientHello
             || hello_frame.sequence != 0
-            || hello_frame.flags & !(FLAG_VIEWER_SIZE_ACKS | FLAG_SMART_RENDERER) != 0
+            || hello_frame.flags
+                & !(FLAG_VIEWER_SIZE_ACKS
+                    | FLAG_SMART_RENDERER
+                    | FLAG_TERMINAL_METADATA
+                    | FLAG_VIEWER_SIZE_PRIORITY)
+                != 0
+            || (hello_frame.flags & FLAG_TERMINAL_METADATA != 0
+                && hello_frame.version != PROTOCOL_VERSION)
         {
             anyhow::bail!("terminal-host client did not send ClientHello");
         }
@@ -5594,15 +5726,26 @@ mod unix {
         let smart_renderer = selected_version >= SMART_RENDERER_PROTOCOL_VERSION
             && hello_frame.flags & FLAG_SMART_RENDERER != 0
             && matches!(hello.role, ClientRole::Renderer | ClientRole::Admin);
+        let terminal_metadata =
+            selected_version == PROTOCOL_VERSION && hello_frame.flags & FLAG_TERMINAL_METADATA != 0;
+        let viewer_size_priority = hello_frame.flags & FLAG_VIEWER_SIZE_PRIORITY != 0
+            && hello.role == ClientRole::Renderer
+            && granted_rights.contains(CapabilityRights::RESIZE);
         let mut hello_response = Frame::new(MessageKind::HostHello, response.encode());
         if viewer_size_acks {
             hello_response.flags |= FLAG_VIEWER_SIZE_ACKS;
+        }
+        if viewer_size_priority {
+            hello_response.flags |= FLAG_VIEWER_SIZE_PRIORITY;
         }
         if activation_required {
             hello_response.flags |= FLAG_LAUNCH_ACTIVATION_REQUIRED;
         }
         if smart_renderer {
             hello_response.flags |= FLAG_SMART_RENDERER;
+        }
+        if terminal_metadata {
+            hello_response.flags |= FLAG_TERMINAL_METADATA;
         }
         hello_response.request_id = hello_frame.request_id;
         write_frame(&mut stream, &hello_response)?;
@@ -5684,6 +5827,7 @@ mod unix {
                 crate::surface::VT_REPLAY_MAX_BYTES,
             )?;
             let colors = term.color_overrides();
+            let osc_progress = host.terminal_metadata.lock().unwrap().osc_progress().to_owned();
             let (cols, rows) = *size;
             let cell_pixels = *cell_pixels;
             debug_assert_eq!((term.cols(), term.rows()), (cols, rows));
@@ -5694,11 +5838,16 @@ mod unix {
             // A renderer needs an initial reservation until it reports its
             // measured grid. Admin and read-only mirror connections are
             // management/observation channels and must never pin the PTY to
-            // the snapshot size merely by connecting.
+            // the snapshot size merely by connecting. Priority starts with the
+            // reservation so other viewers cannot move the grid before this
+            // renderer reports its measured size.
             if hello.role == ClientRole::Renderer
                 && granted_rights.contains(CapabilityRights::RESIZE)
             {
-                viewer_sizes.insert(client, (cols, rows));
+                viewer_sizes.sizes.insert(client, (cols, rows));
+                if viewer_size_priority {
+                    viewer_sizes.preferred.insert(client);
+                }
             }
             let (snapshot_sequence, replay_gap) = if smart_renderer {
                 match host.smart.subscribe(client, tap.clone()) {
@@ -5715,7 +5864,7 @@ mod unix {
                     cols,
                     rows,
                     cell_pixels,
-                    replay: replay.bytes,
+                    replay: replay.self_contained_bytes().into_owned(),
                     kitty_image_aliases: replay.kitty_image_aliases,
                     kitty_state: replay.kitty_state,
                     sequence_boundary: 0,
@@ -5728,6 +5877,7 @@ mod unix {
                         &host.owner_token,
                         selected_version,
                     ),
+                    osc_progress,
                 },
                 colors,
                 snapshot_sequence,
@@ -5748,7 +5898,11 @@ mod unix {
         if !activation_required {
             launch_owner.stream_ready();
         }
-        let mut snapshot_frame = Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
+        let include_terminal_metadata = hello_response.flags & FLAG_TERMINAL_METADATA != 0;
+        let mut snapshot_frame = Frame::new(
+            MessageKind::Snapshot,
+            encode_snapshot_for_version(&snapshot, selected_version, include_terminal_metadata)?,
+        );
         snapshot_frame.sequence = snapshot_sequence;
         write_frame(&mut stream, &snapshot_frame)?;
         let mut colors_frame =
@@ -6063,6 +6217,25 @@ mod unix {
     }
 
     fn encode_snapshot(snapshot: &HostSnapshot) -> anyhow::Result<Vec<u8>> {
+        encode_snapshot_for_version(snapshot, PROTOCOL_VERSION, false)
+    }
+
+    fn encode_snapshot_for_version(
+        snapshot: &HostSnapshot,
+        protocol_version: u16,
+        include_terminal_metadata: bool,
+    ) -> anyhow::Result<Vec<u8>> {
+        if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
+            anyhow::bail!("unsupported terminal-host snapshot protocol {protocol_version}");
+        }
+        if include_terminal_metadata && protocol_version < PROTOCOL_VERSION {
+            anyhow::bail!("terminal metadata requires the current snapshot protocol");
+        }
+        if snapshot.osc_progress.chars().count() > crate::terminal_metadata::MAX_PROGRESS_CHARS
+            || snapshot.osc_progress.chars().any(char::is_control)
+        {
+            anyhow::bail!("terminal-host OSC progress is out of range");
+        }
         let (cols, rows) = normalize_terminal_geometry(snapshot.cols, snapshot.rows)?;
         snapshot
             .kitty_state
@@ -6085,6 +6258,9 @@ mod unix {
         output.extend_from_slice(&snapshot.cell_pixels.0.max(1).to_le_bytes());
         output.extend_from_slice(&snapshot.cell_pixels.1.max(1).to_le_bytes());
         encode_kitty_replay_state(&mut output, snapshot.kitty_state)?;
+        if include_terminal_metadata {
+            put_string(&mut output, &snapshot.osc_progress)?;
+        }
         if output.len() > MAX_FRAME_PAYLOAD {
             anyhow::bail!("terminal-host snapshot payload is too large");
         }
@@ -6100,19 +6276,23 @@ mod unix {
 
     #[cfg(test)]
     fn decode_snapshot(payload: &[u8]) -> anyhow::Result<HostSnapshot> {
-        decode_snapshot_for_version(payload, PROTOCOL_VERSION)
+        decode_snapshot_for_version(payload, PROTOCOL_VERSION, false)
     }
 
     pub fn decode_host_snapshot_payload(payload: &[u8]) -> anyhow::Result<HostSnapshot> {
-        decode_snapshot_for_version(payload, PROTOCOL_VERSION)
+        decode_snapshot_for_version(payload, PROTOCOL_VERSION, false)
     }
 
     fn decode_snapshot_for_version(
         payload: &[u8],
         protocol_version: u16,
+        include_terminal_metadata: bool,
     ) -> anyhow::Result<HostSnapshot> {
         if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
             anyhow::bail!("unsupported terminal-host snapshot protocol {protocol_version}");
+        }
+        if include_terminal_metadata && protocol_version < PROTOCOL_VERSION {
+            anyhow::bail!("terminal metadata requires the current snapshot protocol");
         }
         let mut decoder = PayloadDecoder::new(payload);
         let (cols, rows) = normalize_terminal_geometry(decoder.u16()?, decoder.u16()?)?;
@@ -6147,6 +6327,20 @@ mod unix {
         } else {
             KittyReplayState::disabled()
         };
+        let osc_progress = if include_terminal_metadata {
+            if !decoder.has_remaining() {
+                anyhow::bail!("terminal-host snapshot omitted negotiated metadata");
+            }
+            let value = decoder.string()?;
+            if value.chars().count() > crate::terminal_metadata::MAX_PROGRESS_CHARS
+                || value.chars().any(char::is_control)
+            {
+                anyhow::bail!("terminal-host OSC progress is out of range");
+            }
+            value
+        } else {
+            String::new()
+        };
         pty_size(cols, rows, cell_pixels)?;
         decoder.finish()?;
         Ok(HostSnapshot {
@@ -6161,6 +6355,7 @@ mod unix {
             pid,
             command,
             cwd,
+            osc_progress,
         })
     }
 
@@ -6497,6 +6692,10 @@ mod unix {
             }
             Ok(())
         }
+
+        fn has_remaining(&self) -> bool {
+            self.offset < self.payload.len()
+        }
     }
 
     fn put_bytes(output: &mut Vec<u8>, bytes: &[u8]) -> anyhow::Result<()> {
@@ -6691,6 +6890,7 @@ mod unix {
                 owner_token: CapabilityToken::random().unwrap(),
                 capabilities: CapabilityStore::new(64),
                 term: Mutex::new(term),
+                terminal_metadata: Mutex::new(crate::terminal_metadata::TerminalMetadata::default()),
                 default_colors: Mutex::new(DefaultColors::default()),
                 stream_progress: TerminalStreamProgress::default(),
                 writer: Mutex::new(Box::new(std::io::sink())),
@@ -6703,7 +6903,7 @@ mod unix {
                 cwd: None,
                 size: Mutex::new((80, 24)),
                 cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
-                viewer_sizes: Mutex::new(HashMap::new()),
+                viewer_sizes: Mutex::new(ViewerSizes::default()),
                 taps: Mutex::new(HashMap::new()),
                 broadcast_lock: Mutex::new(()),
                 sequence: AtomicU64::new(0),
@@ -6781,6 +6981,7 @@ mod unix {
                 owner_token: CapabilityToken::random().unwrap(),
                 capabilities: CapabilityStore::new(64),
                 term: Mutex::new(term),
+                terminal_metadata: Mutex::new(crate::terminal_metadata::TerminalMetadata::default()),
                 default_colors: Mutex::new(DefaultColors::default()),
                 stream_progress: TerminalStreamProgress::default(),
                 writer: Mutex::new(Box::new(std::io::sink())),
@@ -6793,7 +6994,7 @@ mod unix {
                 cwd: None,
                 size: Mutex::new((80, 24)),
                 cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
-                viewer_sizes: Mutex::new(HashMap::new()),
+                viewer_sizes: Mutex::new(ViewerSizes::default()),
                 taps: Mutex::new(HashMap::new()),
                 broadcast_lock: Mutex::new(()),
                 sequence: AtomicU64::new(0),
@@ -6856,6 +7057,8 @@ mod unix {
                 supports_clear_history: true,
                 supports_terminate_ack: true,
                 supports_input_ack: true,
+                supports_terminal_metadata: true,
+                supports_viewer_size_priority: true,
             };
             let record_path = record.record_path(&root);
             let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
@@ -6881,6 +7084,8 @@ mod unix {
                 supports_clear_history: false,
                 supports_terminate_ack: false,
                 supports_input_ack: true,
+                supports_terminal_metadata: false,
+                supports_viewer_size_priority: false,
             };
             let record_path = std::env::temp_dir().join(format!(
                 "cmux-input-ack-surface-{}-{}.json",
@@ -6904,6 +7109,7 @@ mod unix {
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: false,
@@ -7120,6 +7326,7 @@ mod unix {
                 pid: Some(42),
                 command: vec!["/bin/cat".into()],
                 cwd: Some("/tmp".into()),
+                osc_progress: String::new(),
             };
             let payload = encode_snapshot(&snapshot).unwrap();
 
@@ -7136,6 +7343,60 @@ mod unix {
         }
 
         #[test]
+        fn snapshot_payload_round_trip_preserves_negotiated_terminal_metadata() {
+            let snapshot = HostSnapshot {
+                cols: 80,
+                rows: 24,
+                cell_pixels: (9, 18),
+                replay: b"replay".to_vec(),
+                kitty_image_aliases: Vec::new(),
+                kitty_state: KittyReplayState::disabled(),
+                sequence_boundary: 0,
+                colors: TerminalColorOverrides::default(),
+                pid: None,
+                command: Vec::new(),
+                cwd: None,
+                osc_progress: "4;1;50".into(),
+            };
+            let payload = encode_snapshot_for_version(&snapshot, PROTOCOL_VERSION, true).unwrap();
+            let decoded = decode_snapshot_for_version(&payload, PROTOCOL_VERSION, true).unwrap();
+            assert_eq!(decoded.osc_progress, snapshot.osc_progress);
+            assert!(
+                decode_snapshot(&payload).is_err(),
+                "a metadata tail must not be accepted without negotiation"
+            );
+        }
+
+        #[test]
+        fn host_snapshot_negotiates_terminal_metadata_at_the_stream_boundary() {
+            let host = exited_host_fixture();
+            assert!(host.terminal_metadata.lock().unwrap().set_osc_progress("4;1;50"));
+            let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+            client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let server = thread::spawn({
+                let host = host.clone();
+                move || serve_client(host, server_stream)
+            });
+
+            let mut hello = snapshot_boundary_client_hello(&host, false).unwrap();
+            hello.flags |= FLAG_TERMINAL_METADATA;
+            write_frame(&mut client_stream, &hello).unwrap();
+            let host_hello = read_required_frame(&mut client_stream, "host hello").unwrap();
+            assert_eq!(host_hello.flags & FLAG_TERMINAL_METADATA, FLAG_TERMINAL_METADATA);
+            let snapshot_frame = read_required_frame(&mut client_stream, "snapshot").unwrap();
+            let snapshot =
+                decode_snapshot_for_version(&snapshot_frame.payload, PROTOCOL_VERSION, true)
+                    .unwrap();
+            assert_eq!(snapshot.osc_progress, "4;1;50");
+            assert_eq!(
+                read_required_frame(&mut client_stream, "colors").unwrap().kind,
+                MessageKind::Colors
+            );
+            drop(client_stream);
+            assert!(server.join().unwrap().is_ok());
+        }
+
+        #[test]
         fn snapshot_payload_matches_the_cross_language_current_golden_bytes() {
             let snapshot = HostSnapshot {
                 cols: 1,
@@ -7149,6 +7410,7 @@ mod unix {
                 pid: None,
                 command: Vec::new(),
                 cwd: None,
+                osc_progress: String::new(),
             };
 
             assert_eq!(
@@ -7175,11 +7437,13 @@ mod unix {
                 pid: Some(42),
                 command: vec!["/bin/cat".into()],
                 cwd: Some("/tmp".into()),
+                osc_progress: String::new(),
             };
             let snapshot_payload = encode_snapshot(&snapshot).unwrap();
             let v2_snapshot_len = snapshot_payload.len() - KITTY_REPLAY_STATE_ENCODED_LEN;
-            let decoded = decode_snapshot_for_version(&snapshot_payload[..v2_snapshot_len], 2)
-                .expect("protocol-v2 snapshots end after cell metrics");
+            let decoded =
+                decode_snapshot_for_version(&snapshot_payload[..v2_snapshot_len], 2, false)
+                    .expect("protocol-v2 snapshots end after cell metrics");
             assert_eq!(decoded.replay, snapshot.replay);
             assert_eq!(decoded.kitty_image_aliases, snapshot.kitty_image_aliases);
             assert_eq!(decoded.cell_pixels, snapshot.cell_pixels);
@@ -7193,6 +7457,7 @@ mod unix {
             let decoded = decode_snapshot_for_version(
                 &snapshot_payload[..v1_snapshot_len],
                 LEGACY_PROTOCOL_VERSION,
+                false,
             )
             .expect("protocol-v1 snapshots end before Kitty aliases");
             assert_eq!(decoded.replay, snapshot.replay);
@@ -7334,6 +7599,7 @@ mod unix {
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: false,
@@ -7388,6 +7654,7 @@ mod unix {
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: true,
@@ -7655,6 +7922,7 @@ mod unix {
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: true,
@@ -7704,6 +7972,7 @@ mod unix {
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: false,
@@ -8003,6 +8272,8 @@ mod unix {
                 legacy.record_version = version;
                 legacy.supports_terminate_ack = version >= 3;
                 legacy.supports_input_ack = false;
+                legacy.supports_terminal_metadata = false;
+                legacy.supports_viewer_size_priority = false;
                 validate_terminal_host_record(&record_path, &legacy).unwrap();
                 legacy.supports_input_ack = true;
                 assert!(
@@ -8031,6 +8302,8 @@ mod unix {
             legacy.supports_clear_history = false;
             legacy.supports_terminate_ack = false;
             legacy.supports_input_ack = false;
+            legacy.supports_terminal_metadata = false;
+            legacy.supports_viewer_size_priority = false;
             let legacy_path = legacy.record_path(root);
             write_record(&legacy_path, &legacy).unwrap();
 
@@ -8063,17 +8336,19 @@ mod unix {
             assert_eq!(normalize_terminal_geometry(u16::MAX, 1).unwrap(), (10_000, 1));
             assert!(normalize_terminal_geometry(10_000, 10_000).is_err());
 
-            let viewers = Mutex::new(HashMap::from([(1, (80, 24))]));
+            let viewers = Mutex::new(ViewerSizes::default());
+            viewers.lock().unwrap().sizes.insert(1, (80, 24));
             let error = mutate_viewer_sizes(
                 &viewers,
-                |sizes| {
-                    sizes.insert(2, (70, 20));
+                |set| {
+                    set.sizes.insert(2, (70, 20));
                 },
                 |_| anyhow::bail!("injected PTY resize failure"),
             )
             .unwrap_err();
             assert!(error.to_string().contains("injected PTY"));
-            assert_eq!(*viewers.lock().unwrap(), HashMap::from([(1, (80, 24))]));
+            assert_eq!(viewers.lock().unwrap().sizes, HashMap::from([(1, (80, 24))]));
+            assert!(viewers.lock().unwrap().preferred.is_empty());
         }
 
         #[test]
@@ -8149,7 +8424,10 @@ mod unix {
             let hellos = server.join().unwrap();
             assert_eq!(
                 hellos,
-                vec![(PROTOCOL_VERSION, FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS)]
+                vec![(
+                    PROTOCOL_VERSION,
+                    FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS | FLAG_TERMINAL_METADATA
+                )]
             );
 
             let _ = fs::remove_file(endpoint);
@@ -8184,6 +8462,7 @@ mod unix {
                     pid: None,
                     command: vec!["/bin/cat".into()],
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: false,
@@ -8300,6 +8579,7 @@ mod unix {
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: true,
@@ -8419,6 +8699,7 @@ mod unix {
                     bytes: decoded.replay,
                     kitty_image_aliases: decoded.kitty_image_aliases,
                     kitty_state: decoded.kitty_state,
+                    pending_sequence: Vec::new(),
                 })
                 .unwrap();
             assert!(mirror.kitty_graphics_snapshot().unwrap().images.is_empty());
@@ -8459,6 +8740,7 @@ mod unix {
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: false,
@@ -8577,6 +8859,7 @@ mod unix {
                     pid: Some(42),
                     command: vec!["/bin/cat".into()],
                     cwd: Some("/tmp".into()),
+                    osc_progress: String::new(),
                 };
                 let mut payload = encode_snapshot(&snapshot).unwrap();
                 payload.truncate(
@@ -8625,6 +8908,10 @@ mod unix {
         #[test]
         fn smart_owner_negotiation_falls_back_to_a_live_legacy_host() {
             let (record_path, record, lease) = record_fixture("legacy-fallback");
+            let mut record = record;
+            // This fixture models a current-protocol host from before the
+            // optional metadata extension. It must not receive the new tail.
+            record.supports_terminal_metadata = false;
             let endpoint = PathBuf::from(&record.endpoint);
             prepare_private_dir(endpoint.parent().unwrap()).unwrap();
             let _ = fs::remove_file(&endpoint);
@@ -8695,6 +8982,7 @@ mod unix {
                     pid: None,
                     command: vec!["/bin/sh".into()],
                     cwd: None,
+                    osc_progress: String::new(),
                 };
                 let mut snapshot_frame =
                     Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
@@ -9481,7 +9769,7 @@ mod unix {
 
         #[test]
         fn viewer_resize_apply_order_cannot_invert_reduced_sizes() {
-            let viewer_sizes = Arc::new(Mutex::new(HashMap::new()));
+            let viewer_sizes = Arc::new(Mutex::new(ViewerSizes::default()));
             let applied = Arc::new(Mutex::new(Vec::new()));
             let (first_applying_tx, first_applying_rx) = std::sync::mpsc::channel();
             let (release_first_tx, release_first_rx) = std::sync::mpsc::channel();
@@ -9492,8 +9780,8 @@ mod unix {
                 thread::spawn(move || {
                     mutate_viewer_sizes(
                         &viewer_sizes,
-                        |sizes| {
-                            sizes.insert(1, (120, 40));
+                        |set| {
+                            set.sizes.insert(1, (120, 40));
                         },
                         |desired| {
                             first_applying_tx.send(()).unwrap();
@@ -9516,9 +9804,9 @@ mod unix {
                     second_attempting_tx.send(()).unwrap();
                     mutate_viewer_sizes(
                         &viewer_sizes,
-                        |sizes| {
+                        |set| {
                             second_mutating_tx.send(()).unwrap();
-                            sizes.insert(2, (80, 24));
+                            set.sizes.insert(2, (80, 24));
                         },
                         |desired| {
                             applied.lock().unwrap().push(desired.unwrap());
@@ -9539,11 +9827,171 @@ mod unix {
                 viewer_sizes
                     .lock()
                     .unwrap()
+                    .sizes
                     .values()
                     .copied()
                     .reduce(|left, right| (left.0.min(right.0), left.1.min(right.1))),
                 Some((80, 24))
             );
+        }
+
+        fn apply_viewer_mutation(
+            viewers: &Mutex<ViewerSizes>,
+            mutation: impl FnOnce(&mut ViewerSizes),
+        ) -> Option<(u16, u16)> {
+            let mut applied = None;
+            mutate_viewer_sizes(viewers, mutation, |desired| {
+                applied = desired;
+                Ok(())
+            })
+            .unwrap();
+            applied
+        }
+
+        #[test]
+        fn viewer_size_priority_absent_keeps_the_per_dimension_minimum() {
+            let viewers = Mutex::new(ViewerSizes::default());
+            let desired = apply_viewer_mutation(&viewers, |set| {
+                set.sizes.insert(1, (80, 24));
+                set.sizes.insert(2, (120, 20));
+            });
+            assert_eq!(desired, Some((80, 20)));
+        }
+
+        #[test]
+        fn viewer_size_priority_larger_preferred_viewer_wins_until_it_releases_or_leaves() {
+            let viewers = Mutex::new(ViewerSizes::default());
+            let desired = apply_viewer_mutation(&viewers, |set| {
+                set.sizes.insert(1, (80, 24));
+            });
+            assert_eq!(desired, Some((80, 24)));
+
+            let desired = apply_viewer_mutation(&viewers, |set| {
+                set.sizes.insert(2, (120, 40));
+                set.preferred.insert(2);
+            });
+            assert_eq!(desired, Some((120, 40)));
+
+            // A smaller legacy report no longer reduces the grid.
+            let desired = apply_viewer_mutation(&viewers, |set| {
+                set.sizes.insert(1, (60, 20));
+            });
+            assert_eq!(desired, Some((120, 40)));
+
+            let desired = apply_viewer_mutation(&viewers, |set| set.release(2));
+            assert_eq!(desired, Some((60, 20)));
+
+            // Priority belongs to the connection, so a later report regains it.
+            let desired = apply_viewer_mutation(&viewers, |set| {
+                set.sizes.insert(2, (100, 30));
+            });
+            assert_eq!(desired, Some((100, 30)));
+
+            let desired = apply_viewer_mutation(&viewers, |set| set.remove_client(2));
+            assert_eq!(desired, Some((60, 20)));
+            let viewers = viewers.lock().unwrap();
+            assert_eq!(viewers.sizes, HashMap::from([(1, (60, 20))]));
+            assert!(viewers.preferred.is_empty());
+        }
+
+        #[test]
+        fn viewer_size_priority_reduces_only_among_preferred_viewers() {
+            let viewers = Mutex::new(ViewerSizes::default());
+            let desired = apply_viewer_mutation(&viewers, |set| {
+                set.sizes.insert(1, (40, 10));
+                set.sizes.insert(2, (120, 40));
+                set.sizes.insert(3, (100, 50));
+                set.preferred.extend([2, 3]);
+            });
+            assert_eq!(desired, Some((100, 40)));
+
+            let desired = apply_viewer_mutation(&viewers, |set| set.remove_client(2));
+            assert_eq!(desired, Some((100, 50)));
+
+            let desired = apply_viewer_mutation(&viewers, |set| set.release(3));
+            assert_eq!(desired, Some((40, 10)));
+
+            let desired = apply_viewer_mutation(&viewers, |set| set.remove_client(1));
+            assert_eq!(desired, None);
+        }
+
+        #[test]
+        fn viewer_size_priority_failed_apply_rolls_back_preferred_membership() {
+            let viewers = Mutex::new(ViewerSizes::default());
+            viewers.lock().unwrap().sizes.insert(1, (80, 24));
+            let before = viewers.lock().unwrap().clone();
+            let error = mutate_viewer_sizes(
+                &viewers,
+                |set| {
+                    set.sizes.insert(2, (120, 40));
+                    set.preferred.insert(2);
+                },
+                |desired| {
+                    assert_eq!(desired, Some((120, 40)));
+                    anyhow::bail!("injected PTY resize failure")
+                },
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("injected PTY"));
+            assert_eq!(*viewers.lock().unwrap(), before);
+        }
+
+        #[test]
+        fn viewer_size_priority_is_negotiated_only_for_resizing_renderers() {
+            let preferred = FLAG_VIEWER_SIZE_ACKS | FLAG_VIEWER_SIZE_PRIORITY;
+            let legacy = FLAG_VIEWER_SIZE_ACKS;
+            let ttl = Duration::from_secs(1);
+            for (role, rights, flags, reserved, negotiated) in [
+                (ClientRole::Renderer, CapabilityRights::RENDERER, preferred, true, true),
+                (ClientRole::Renderer, CapabilityRights::RENDERER, legacy, true, false),
+                (ClientRole::Renderer, CapabilityRights::READ, preferred, false, false),
+                (ClientRole::Admin, CapabilityRights::ADMIN, preferred, false, false),
+            ] {
+                let host = exited_host_fixture();
+                let token = if role == ClientRole::Admin {
+                    host.owner_token
+                } else {
+                    host.capabilities.mint(host.terminal_id, rights, ttl).unwrap()
+                };
+                let mut hello = ClientHello {
+                    min_version: PROTOCOL_VERSION,
+                    max_version: PROTOCOL_VERSION,
+                    role,
+                    requested_rights: rights,
+                    terminal_id: host.terminal_id,
+                    token,
+                }
+                .into_frame(1);
+                hello.flags = flags;
+                let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+                client_stream.set_read_timeout(Some(ttl)).unwrap();
+                let server_host = host.clone();
+                let server = thread::spawn(move || {
+                    serve_client_with_snapshot_timeout(server_host, server_stream, ttl)
+                });
+
+                write_frame(&mut client_stream, &hello).unwrap();
+                let host_hello = read_required_frame(&mut client_stream, "host hello").unwrap();
+                assert_eq!(host_hello.kind, MessageKind::HostHello);
+                assert_eq!(
+                    host_hello.flags & FLAG_VIEWER_SIZE_PRIORITY != 0,
+                    negotiated,
+                    "{role:?} {rights:?} flags {flags:#x}"
+                );
+                let snapshot = read_required_frame(&mut client_stream, "snapshot").unwrap();
+                assert_eq!(snapshot.kind, MessageKind::Snapshot);
+                let colors = read_required_frame(&mut client_stream, "colors").unwrap();
+                assert_eq!(colors.kind, MessageKind::Colors);
+                {
+                    let viewers = host.viewer_sizes.lock().unwrap();
+                    assert_eq!(viewers.sizes.get(&1).copied(), reserved.then_some((80, 24)));
+                    assert_eq!(viewers.preferred.contains(&1), negotiated);
+                }
+
+                let _ = client_stream.shutdown(std::net::Shutdown::Both);
+                server.join().unwrap().unwrap();
+                assert_eq!(*host.viewer_sizes.lock().unwrap(), ViewerSizes::default());
+            }
         }
 
         #[test]
@@ -9675,6 +10123,32 @@ mod unix {
                 .unwrap()
                 .is_none()
             );
+        }
+
+        #[test]
+        fn private_socket_terminal_host_endpoint_dir_refuses_a_symlink() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-endpoint-dir-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            let target = root.join("target");
+            fs::create_dir_all(&target).unwrap();
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+            let alias = root.join("alias");
+            std::os::unix::fs::symlink(&target, &alias).unwrap();
+
+            let refused = prepare_endpoint_dir(&alias);
+            let target_mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+            let owned = root.join("owned");
+            let created = prepare_endpoint_dir(&owned);
+            let owned_mode = fs::metadata(&owned).map(|metadata| metadata.mode() & 0o777);
+            let _ = fs::remove_dir_all(&root);
+
+            assert!(refused.is_err(), "a symlinked endpoint directory must be refused");
+            assert_eq!(target_mode, 0o755, "the symlink target must stay untouched");
+            created.unwrap();
+            assert_eq!(owned_mode.unwrap(), 0o700);
         }
 
         #[test]

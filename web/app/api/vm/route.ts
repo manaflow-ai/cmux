@@ -1,12 +1,19 @@
+import {
+  creatorFor,
+  creatorUserIds,
+  readCreatorNames,
+  withCallerName,
+} from "../../../services/vms/creators";
 import { normalizedDisplayName } from "../../../services/vms/displayName";
+import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../services/vms/teamDirectory";
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
 
 import type { Span } from "@opentelemetry/api";
+import * as Effect from "effect/Effect";
 import { preconnectCloudDb } from "../../../db/client";
 import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
-  unauthorized,
   verifyRequest,
   type AuthedUser,
 } from "../../../services/vms/auth";
@@ -59,6 +66,7 @@ import {
   vmMemoryRequiresPlanResponse,
   vmMemoryUnavailableResponse,
   resolveVmProvisioningAccountScope,
+  reverifyVmRequestForTeam,
   runAfterResponse,
   type VmWorkflowErrorOverrides,
 } from "../../../services/vms/routeHelpers";
@@ -75,7 +83,6 @@ import {
   measureVmAsync,
   VmTimingRecorder,
 } from "../../../services/vms/timings";
-import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 
 
@@ -139,6 +146,20 @@ export async function GET(request: Request): Promise<Response> {
       const freeAccessWindowDays = listEntitlements && !isPaidVmPlan(listEntitlements.planId)
         ? vmFreeAccessWindowDays()
         : 0;
+      // Who made each machine. A team list is scoped by owner team, so this is
+      // the only thing separating one member's machines from another's.
+      const creatorNames = await readCreatorNames({
+        userIds: creatorUserIds(entries),
+        teamId: billingTeamId,
+        caller: user,
+        onFailure: (error) => setSpanAttributes(span, {
+          "cmux.vm.creator_lookup_error": error instanceof Error ? error.name : "unknown",
+        }),
+      });
+      // A migration lagging in one environment turns every row into "Unknown"
+      // with nothing else to show for it. This, with the lookup error above,
+      // separates that from nobody having set a name.
+      setSpanAttributes(span, { "cmux.vm.creator_names": creatorNames.size });
       const vms = entries.map((entry) => ({
         id: entry.providerVmId,
         provider: entry.provider,
@@ -152,6 +173,10 @@ export async function GET(request: Request): Promise<Response> {
         createdAt: entry.createdAt,
         displayName: entry.displayName,
         slug: entry.slug,
+        // The account that made this machine, for display. `displayName` is
+        // null when nothing has recorded a name for that account; clients fall
+        // back to "Unknown", never to the raw id.
+        createdBy: creatorFor(entry, creatorNames),
         // The machine's address on its owner's private network (reachable over
         // the WireGuard tunnel); null for machines created before private
         // networking. Clients surface it as "Copy IP Address".
@@ -160,6 +185,9 @@ export async function GET(request: Request): Promise<Response> {
         // (epoch ms); null on paid plans or when the window is disabled. Clients
         // render countdowns from this instead of re-deriving the policy.
         freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
+        // Contract recorded when the provider attached cmux-tui. This is
+        // rollout metadata, not a live daemon probe.
+        cmuxTuiContract: entry.cmuxTuiContract,
       }));
       const limits = listEntitlements
         ? {
@@ -291,7 +319,10 @@ export async function POST(request: Request): Promise<Response> {
         memoryMb,
         imageSize: imageSelection.size ?? undefined,
         modelPlane,
+        teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         timing,
+        // Keep the `vm.created` ledger write off New Machine's critical path.
+        deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), {
         request,
         onError: createErrorResponders(entitlements),
@@ -310,6 +341,16 @@ export async function POST(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(created.provider),
         displayName: created.displayName,
         slug: created.slug,
+        // Same field the list carries. A client that appends this response to
+        // its list instead of re-reading would otherwise show one row with no
+        // author sitting among rows that have one.
+        createdBy: creatorFor(created, withCallerName(new Map(), user)),
+        // The private address and attach contract let the app dial the new
+        // machine's baked daemon directly. Without them, New Machine pays a
+        // fleet list re-read plus a whole POST /attach-endpoint round trip
+        // (~2 s measured) for data this response already had.
+        address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
+        cmuxTuiContract: created.cmuxTuiContract,
       });
     },
   );
@@ -561,20 +602,16 @@ async function resolveCreateAccount(input: {
   readonly body: CreateBody;
 }): Promise<CreateAccountScope> {
   const { request, span, timing } = input;
-  let user = input.user;
   const requestedBillingTeamId = input.body.billingTeamId || requestedVmTeamIdFromRequest(request);
-  if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-    let refreshedUser: AuthedUser | null;
-    try {
-      refreshedUser = await measureVmAsync(timing, "auth", () =>
-        verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
-      );
-    } catch (error) {
-      return { ok: false, response: authProviderErrorResponse(error, "/api/vm.create.team-auth") };
-    }
-    if (!refreshedUser) return { ok: false, response: unauthorized() };
-    user = refreshedUser;
-  }
+  const reverified = await reverifyVmRequestForTeam({
+    request,
+    user: input.user,
+    requestedBillingTeamId,
+    authErrorLabel: "/api/vm.create.team-auth",
+    measure: (run) => measureVmAsync(timing, "auth", run),
+  });
+  if (!reverified.ok) return reverified;
+  let user = reverified.user;
   // Read-time reconcile: a Stripe subscription change is corrected here
   // right before paid limits apply. Best-effort — billing reads must
   // not block VM creation, so the whole reconcile races a hard

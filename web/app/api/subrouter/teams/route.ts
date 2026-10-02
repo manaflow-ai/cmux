@@ -1,4 +1,9 @@
-import { authenticateRequestRouteToken, ROUTE_TOKEN_HEADER, VM_ID_HEADER } from "../../../../services/coderouter/routeTokenAuth";
+import {
+  authenticateRequestRouteToken,
+  ROUTE_TOKEN_HEADER,
+  VM_AUTHORIZATION_HEADER,
+  VM_ID_HEADER,
+} from "../../../../services/coderouter/routeTokenAuth";
 import {
   browserMutationOriginAllowed,
   jsonResponse,
@@ -18,10 +23,17 @@ import {
 } from "../../../../services/subrouter/routeHelpers";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import { getStackServerApp } from "../../../lib/stack";
+import {
+  billingCatalogTeams,
+  type TeamCatalogBilling,
+} from "../../../../services/billing/teamCatalog";
+import type { AuthorizedSubrouterTeam } from "../../../../services/subrouter/routeHelpers";
+
+type CatalogTeam = AuthorizedSubrouterTeam & Partial<TeamCatalogBilling>;
 
 
 export async function GET(request: Request): Promise<Response> {
-  return organizationsGet(request, authorizedSubrouterTeams);
+  return organizationsGet(request, (user) => billingCatalogTeams(user, (userId) => getStackServerApp().getUser(userId)));
 }
 
 /** Create a Stack Auth team for the authenticated user and return its summary. */
@@ -77,16 +89,19 @@ export async function PATCH(request: Request): Promise<Response> {
   ) return jsonResponse({ error: "forbidden" }, 403);
   try {
     return await withSubrouterAuthorizationDeadline(async (signal) => {
-      const user = await verifySubrouterRequest(request, signal, {
-        allowCookie: true,
-        listAllTeams: true,
-      });
-      if (!user) return unauthorized();
-
       const payload = await request.json().catch(() => null) as { teamId?: unknown } | null;
       const teamId = typeof payload?.teamId === "string"
         ? payload.teamId.trim()
         : "";
+      const user = await verifySubrouterRequest(request, signal, {
+        allowCookie: true,
+        // Selection only needs to authorize the requested team. Listing the
+        // caller's complete membership adds a paginated Stack round trip
+        // to every switch, which is especially visible on the first request.
+        requestedTeamId: teamId,
+      });
+      if (!user) return unauthorized();
+
       if (!teamId || (!user.teamIds.includes(teamId) && teamId !== user.id)) {
         return jsonResponse({ error: "team_not_found" }, 403);
       }
@@ -108,12 +123,17 @@ export async function PATCH(request: Request): Promise<Response> {
 }
 
 export async function organizationsGet(request: Request,
-  listTeams: (user: AuthedUser) => ReturnType<typeof authorizedSubrouterTeams> | Promise<ReturnType<typeof authorizedSubrouterTeams>>,
+  listTeams: (user: AuthedUser) => readonly CatalogTeam[] | Promise<readonly CatalogTeam[]> = authorizedSubrouterTeams,
+  authenticate: typeof authenticateRequestRouteToken = authenticateRequestRouteToken,
 ): Promise<Response> {
-  if (request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
-    const auth = await authenticateRequestRouteToken(request);
+  if (
+    request.headers.has(VM_AUTHORIZATION_HEADER) ||
+    request.headers.has(VM_ID_HEADER) ||
+    request.headers.has(ROUTE_TOKEN_HEADER)
+  ) {
+    const auth = await authenticate(request);
     if (!auth.ok) return jsonResponse({ error: auth.reason }, 401);
-    if (!auth.identity.vmId) return jsonResponse({ error: "vm_bound_token_required" }, 403);
+    if (!auth.identity.vmId || auth.identity.machine === "chatmux") return jsonResponse({ error: "vm_bound_token_required" }, 403);
     return jsonResponse({ selectedTeamId: auth.identity.teamId, fixed: true,
       teams: [{ id: auth.identity.teamId, name: auth.identity.teamId, personal: auth.identity.teamId === auth.identity.stackUserId,
         permissions: { use: true, manageAccounts: false } }] });
@@ -142,6 +162,7 @@ export async function organizationsGet(request: Request,
             use: team.use,
             manageAccounts: team.manageAccounts,
           },
+          ...catalogBillingFields(team),
         });
       }
       selectedTeamId ??= stackSelectedTeamId;
@@ -164,4 +185,15 @@ export async function organizationsGet(request: Request,
     }
     throw error;
   }
+}
+
+/** Billing fields ride along only when the catalog source computed them. */
+function catalogBillingFields(team: CatalogTeam): Partial<TeamCatalogBilling> {
+  if (team.role === undefined) return {};
+  return {
+    planId: team.planId ?? null,
+    seats: team.seats ?? null,
+    role: team.role,
+    canManageBilling: team.canManageBilling ?? false,
+  };
 }

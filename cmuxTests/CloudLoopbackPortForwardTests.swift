@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import Network
 import Testing
@@ -259,10 +260,18 @@ struct CloudLoopbackPortForwardTests {
         defer { hub.stop() }
         hub.replyCode = 0x05
         let dialer = FakeHubDialer(endpoint: hub.endpoint)
-        let forward = try CloudLoopbackPortForward(target: CloudPortForwardTarget(host: "10.0.0.7", port: 1), dialer: dialer)
+        let clock = SidebarTestManualClock()
+        let forward = try CloudLoopbackPortForward(
+            target: CloudPortForwardTarget(host: "10.0.0.7", port: 1),
+            dialer: dialer,
+            relay: CloudPortForwardRelay(dialer: dialer, clock: clock)
+        )
         let localPort = try await forward.start()
         let client = try await Self.client(port: localPort)
         try? await client.sendAll(Data("hello".utf8))
+        #expect(await Self.waitUntil { !hub.connectTargets.isEmpty })
+        await clock.waitUntilSleeping(for: .seconds(15))
+        clock.advance(by: .seconds(15))
         let ended: Bool
         do {
             let (data, isComplete) = try await client.receiveChunk()

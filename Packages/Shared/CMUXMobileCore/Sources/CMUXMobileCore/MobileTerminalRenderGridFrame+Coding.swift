@@ -29,5 +29,6 @@ extension MobileTerminalRenderGridFrame {
         case deltaBaseHistoryRows = "delta_base_history_rows"
         case deltaBaseRenderRevision = "delta_base_render_revision"
         case rowSpaceRevision = "row_space_revision"
+        case hostTiming = "host_timing"
     }
 }

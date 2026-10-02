@@ -38,7 +38,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { cleanupPrivateLinkResource as cleanup } from "../devbox-private-link-cleanup";
 import { startPrivateLinkClient } from "../devbox-private-link-process";
-import { resolveCmuxTuiSource } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { FREESTYLE_NETWORK_FIREWALL_RULES, FreestyleProvider } from "../../services/vms/drivers/freestyle";
 import { ProviderError } from "../../services/vms/drivers/types";
 import type { GuestPromptIdentity } from "../../services/vms/guestPrompt";
@@ -186,7 +185,7 @@ function terminalId(runOutput: string): string {
   return id;
 }
 
-/** `terminal … screen wait` answers `{matched:false}` with exit 0 when its timeout expires. */
+/** `terminal … screen wait` answers `{matched:false}` when its timeout expires (exit 1 from newer cmux-tui builds, exit 0 from older ones). */
 function requireMatched(waitOutput: string): void {
   const parsed = JSON.parse(waitOutput) as Record<string, unknown>;
   const value = (parsed.value as Record<string, unknown> | undefined) ?? parsed;
@@ -450,7 +449,7 @@ function bench() {
     }
     // The production driver on the same bounded client, so its create,
     // attach and destroy requests settle within the polling deadline too.
-    const provider = new FreestyleProvider({ client: providerClient, resolveDaemonSource: resolveCmuxTuiSource });
+    const provider = new FreestyleProvider({ client: providerClient });
     const networking = provider.privateNetworking;
     const root = yield* Effect.acquireRelease(
       Effect.sync(() => mkdtempSync(path.join(tmpdir(), "cmux-bench-link-"))),

@@ -1,3 +1,4 @@
+import CmuxCloud
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxPhonePush
@@ -145,10 +146,10 @@ final class PhoneReplyInboxClient {
     }
 
     private func recordRetryAfter(_ response: HTTPURLResponse) async {
-        let seconds = CmxRetryAfterPolicy.seconds(
+        let seconds = CmxRetryAfterPolicy().seconds(
             from: response,
-            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
-        ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+            defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+        ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
         await retryAfterGate.extend(by: seconds)
     }
 

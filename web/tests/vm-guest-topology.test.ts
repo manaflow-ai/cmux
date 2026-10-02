@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { runChild } from "./helpers/run-child";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -106,8 +107,9 @@ async function fixture(peer: boolean) {
   return {
     graph,
     read: () => JSON.parse(readFileSync(join(dir, "graph.json"), "utf8")),
-    run: (args: string[], env = {}) => spawnSync("sh", [shim, ...(peer ? ["vm", args[0], args[1], "peer", ...args.slice(2)] : args)], {
-      encoding: "utf8", timeout: 10_000,
+    /** Runs the guest shim, routed through the peer when the fixture is a peer. */
+    run: (args: string[], env = {}) => runChild("sh", [shim, ...(peer ? ["vm", args[0], args[1], "peer", ...args.slice(2)] : args)], {
+      timeout: 10_000,
       env: { NODE_ENV: "test", PATH: process.env.PATH, HOME: dir, CMUX_TUI_BIN: daemon, CMUX_TUI_TERMINAL_ID: "term_agent", ...env },
     }),
     runInTerminal: (script: string, ids: string[]) => {
@@ -167,7 +169,7 @@ for (const peer of [false, true]) describe(`guest topology (${peer ? "peer" : "l
         ["workspace", "move", "ws_task", "--index", "1"],
         ["tab", "focus", "tab_b"],
       ]) {
-        const run = f.run(args);
+        const run = await f.run(args);
         expect(run.stderr).toBe(""); expect(run.status).toBe(0);
       }
       const state = f.read();
@@ -185,7 +187,7 @@ for (const peer of [false, true]) describe(`guest topology (${peer ? "peer" : "l
   test("renames every placement with exact empty-name and UInt64 revision handling", async () => {
     const f = await fixture(peer);
     try {
-      const run = f.run(["terminal", "rename", peer ? "term_agent" : "current", "", "--json"]);
+      const run = await f.run(["terminal", "rename", peer ? "term_agent" : "current", "", "--json"]);
       expect(run.status).toBe(0);
       expect(JSON.parse(run.stdout)).toMatchObject({terminal_id: "term_agent", tab_ids: ["tab_a", "tab_b"], name: "", revision: "9007199254740995"});
       expect(f.read().tabs.slice(0, 2).map((t: {name: string}) => t.name)).toEqual(["", ""]);
@@ -195,7 +197,7 @@ for (const peer of [false, true]) describe(`guest topology (${peer ? "peer" : "l
   test("reports partial rename on conflict and never retries or changes unrelated terminals", async () => {
     const f = await fixture(peer);
     try {
-      const run = f.run(["terminal", "rename", "term_agent", "Review"], { CONFLICT_TAB: "tab_b" });
+      const run = await f.run(["terminal", "rename", "term_agent", "Review"], { CONFLICT_TAB: "tab_b" });
       expect(run.status).toBe(1); expect(run.stderr).toContain("1 placement");
       expect(f.read().tabs.map((t: {name?: string}) => t.name)).toEqual(["Review", undefined, undefined]);
       expect(f.calls()).toHaveLength(3);
@@ -205,9 +207,9 @@ for (const peer of [false, true]) describe(`guest topology (${peer ? "peer" : "l
   test("rejects missing targets, bad receipt generations, and surplus rename arguments", async () => {
     const f = await fixture(peer);
     try {
-      expect(f.run(["terminal", "rename", "term_missing", "Review"]).status).toBe(1);
-      expect(f.run(["tab", "rename", "tab_a", "Name", "surplus"]).status).toBe(2);
-      const run = f.run(["terminal", "rename", "term_agent", "Review"], { RECEIPT_GENERATION: "restarted" });
+      expect((await f.run(["terminal", "rename", "term_missing", "Review"])).status).toBe(1);
+      expect((await f.run(["tab", "rename", "tab_a", "Name", "surplus"])).status).toBe(2);
+      const run = await f.run(["terminal", "rename", "term_agent", "Review"], { RECEIPT_GENERATION: "restarted" });
       expect(run.status).toBe(1); expect(run.stderr).toContain("receipt");
       expect(f.read().tabs[1].name).toBeUndefined();
     } finally { await f.cleanup(); }
@@ -218,14 +220,14 @@ for (const peer of [false, true]) test(`topology rejects invalid moves and prese
   const f = await fixture(peer);
   try {
     const before = f.read();
-    const invalid = f.run(["tab", "move", "tab_a", "--workspace", "ws_task", "--screen", "screen_a", "--pane", "missing", "--index", "0"]);
+    const invalid = await f.run(["tab", "move", "tab_a", "--workspace", "ws_task", "--screen", "screen_a", "--pane", "missing", "--index", "0"]);
     expect(invalid.status).toBe(2);
     expect(f.read()).toEqual(before);
     if (!peer) {
-      expect(f.run(["tab", "tab_a", "rename", "--name", "Raw syntax"]).status).toBe(0);
+      expect((await f.run(["tab", "tab_a", "rename", "--name", "Raw syntax"])).status).toBe(0);
       expect(f.read().tabs[0].name).toBe("Raw syntax");
     }
-    const missing = f.run(["workspace", "rename", "ws_task"]);
+    const missing = await f.run(["workspace", "rename", "ws_task"]);
     expect(missing.status).toBe(2);
     expect(missing.stderr).toContain("cmux workspace help");
   } finally { await f.cleanup(); }
@@ -234,17 +236,17 @@ for (const peer of [false, true]) test(`topology rejects invalid moves and prese
 test("workspace close normalizes selector-first and safe host-compatible forms", async () => {
   const f = await fixture(false);
   try {
-    const invalid = f.run(["workspace", "close", "--workspace", "ws_other", "--focus", "true"]);
+    const invalid = await f.run(["workspace", "close", "--workspace", "ws_other", "--focus", "true"]);
     expect(invalid.status).toBe(2);
     expect(invalid.stderr).toContain("--focus false");
     expect(f.read()).toEqual(f.graph);
     expect(f.calls()).toEqual([]);
 
-    const closed = f.run(["workspace", "ws_task", "close", "--json"]);
+    const closed = await f.run(["workspace", "ws_task", "close", "--json"]);
     expect(closed.status).toBe(0);
     expect(f.read().workspaces.map((workspace: { id: string }) => workspace.id)).not.toContain("ws_task");
 
-    const compatible = f.run(["workspace", "close", "--workspace", "ws_other", "--focus", "false", "--json"]);
+    const compatible = await f.run(["workspace", "close", "--workspace", "ws_other", "--focus", "false", "--json"]);
     expect(compatible.status).toBe(0);
     expect(f.read().workspaces).toHaveLength(0);
     expect(f.calls()).toEqual([
@@ -259,7 +261,7 @@ for (const peer of [false, true]) describe(`guest workspace close contract (peer
   test("close help does not require a target or invoke the daemon", async () => {
     const f = await fixture(peer);
     try {
-      const result = f.run(["workspace", "close", "--help"]);
+      const result = await f.run(["workspace", "close", "--help"]);
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("workspace close --workspace <selector>");
       expect(f.calls()).toEqual([]);
@@ -269,7 +271,7 @@ for (const peer of [false, true]) describe(`guest workspace close contract (peer
   test.each(["--focus", "--workspace"])("preserves option-like idempotency keys (%s)", async key => {
     const f = await fixture(peer);
     try {
-      const result = f.run(["workspace", "close", "ws_task", "--idempotency-key", key]);
+      const result = await f.run(["workspace", "close", "ws_task", "--idempotency-key", key]);
       expect(result.status).toBe(0);
       expect(f.calls()).toEqual([[...f.route, "workspace", "ws_task", "close", "--idempotency-key", key]]);
     } finally { await f.cleanup(); }
@@ -279,7 +281,7 @@ for (const peer of [false, true]) describe(`guest workspace close contract (peer
     const f = await fixture(peer);
     try {
       const options = ["--expected-revision", f.graph.session.revision, "--idempotency-key", "close:task", "--json"];
-      const result = f.run(["workspace", "close", "ws_task", ...options]);
+      const result = await f.run(["workspace", "close", "ws_task", ...options]);
       expect(result.status).toBe(0);
       expect(result.stderr).toBe("");
       expect(f.calls()).toEqual([[...f.route, "workspace", "ws_task", "close", ...options]]);
@@ -290,8 +292,8 @@ for (const peer of [false, true]) describe(`guest workspace close contract (peer
   test("accepts compatible options in either order without changing routing", async () => {
     const f = await fixture(peer);
     try {
-      const first = f.run(["workspace", "close", "--json", "--focus", "false", "--workspace", "ws_task"]);
-      const second = f.run(["workspace", "close", "--workspace=ws_other", "--focus=false"]);
+      const first = await f.run(["workspace", "close", "--json", "--focus", "false", "--workspace", "ws_task"]);
+      const second = await f.run(["workspace", "close", "--workspace=ws_other", "--focus=false"]);
       expect(first.status).toBe(0);
       expect(second.status).toBe(0);
       expect(f.calls()).toEqual([
@@ -313,7 +315,7 @@ for (const peer of [false, true]) describe(`guest workspace close contract (peer
         ["--workspace"],
         ["ws_task", "--unexpected", "value"],
       ]) {
-        expect(f.run(["workspace", "close", ...args]).status).toBe(2);
+        expect((await f.run(["workspace", "close", ...args])).status).toBe(2);
         expect(f.read()).toEqual(f.graph);
       }
     } finally { await f.cleanup(); }
@@ -344,13 +346,14 @@ describe("in-terminal close loop", () => {
   });
 });
 
-test("topology help is localized and works before daemon installation", () => {
+test("topology help is localized and works before daemon installation", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cmux-topology-help-"));
   try {
     const shim = join(dir, "cmux"); writeFileSync(shim, GUEST_CMUX_SHIM);
     for (const noun of ["workspace", "pane", "tab", "terminal"]) {
       for (const args of [[noun, "--help"], ["vm", noun, "--help"]]) {
-        const run = spawnSync("sh", [shim, ...args], {encoding: "utf8", timeout: 5_000,
+        const run = await runChild("sh", [shim, ...args], {
+          timeout: 5_000,
           env: {NODE_ENV: "test", HOME: dir, PATH: process.env.PATH, CMUX_TUI_BIN: join(dir, "absent"), LC_ALL: "ja_JP.UTF-8"}});
         expect(run.status).toBe(0); expect(run.stdout).toContain("配置");
       }
@@ -362,10 +365,10 @@ describe("guest workspace reuse", () => {
   test.each([false, true])("local/peer reuse keeps exact names and uses revision-fenced creation (peer=%s)", async (peer) => {
     const f = await fixture(peer);
     try {
-      const existing = f.run(["workspace", "new", "--name", "task", "--reuse", "--no-open", "--json"]);
+      const existing = await f.run(["workspace", "new", "--name", "task", "--reuse", "--no-open", "--json"]);
       expect(existing.status).toBe(0);
       expect(JSON.parse(existing.stdout)).toMatchObject({value: {id: "ws_task"}, existing: true});
-      const created = f.run(["workspace", "new", "--name", "new", "--reuse", "--json"]);
+      const created = await f.run(["workspace", "new", "--name", "new", "--reuse", "--json"]);
       expect(created.status).toBe(0);
       expect(JSON.parse(created.stdout)).toMatchObject({value: {id: "ws_created"}, existing: false});
       expect(f.calls().filter(call => call.includes("create"))[0]).toContain("--expected-revision");
@@ -375,7 +378,7 @@ describe("guest workspace reuse", () => {
   test("a concurrent creator is discovered after a revision conflict", async () => {
     const f = await fixture(false);
     try {
-      const result = f.run(["workspace", "new", "--name", "raced", "--reuse", "--json"], {CONCURRENT_CREATE: "1"});
+      const result = await f.run(["workspace", "new", "--name", "raced", "--reuse", "--json"], {CONCURRENT_CREATE: "1"});
       expect(result.status).toBe(0);
       expect(JSON.parse(result.stdout)).toMatchObject({value: {name: "raced"}, existing: true});
       expect(f.calls().filter(call => call.includes("create"))).toHaveLength(1);
@@ -384,7 +387,8 @@ describe("guest workspace reuse", () => {
   test("non-conflict failures never retry creation", async () => {
     const f = await fixture(false);
     try {
-      const result = f.run(["workspace", "new", "--name", "failure", "--reuse"], {CREATE_FAILURE: "1"});
+      const result = await f.run(["workspace", "new", "--name", "failure", "--reuse"], {CREATE_FAILURE: "1"});
+      expect(result.signal).toBeNull();
       expect(result.status).not.toBe(0);
       expect(f.calls().filter(call => call.includes("create"))).toHaveLength(1);
       expect(f.read().workspaces).toHaveLength(2);

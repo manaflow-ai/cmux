@@ -174,7 +174,7 @@ public struct MobileAuthComposition {
             isTokenStorageAvailable: { await MainActor.run { availability.isAvailable } },
             onSignedIn: { await deferredSignIn.run() }
         )
-        let pushIdentity = try? PhonePushKeyStore.current(
+        let pushIdentity = try? PhonePushKeyMaterial.current(
             bundleID: bundle.bundleIdentifier ?? "",
             accessGroup: keychainAccessGroup
         )
@@ -187,7 +187,7 @@ public struct MobileAuthComposition {
             pushKeyID: pushIdentity?.keyID,
             pushPublicKey: pushIdentity?.publicKeyData.base64EncodedString(),
             pushIdentityProvider: {
-                guard let identity = try? PhonePushKeyStore.current(
+                guard let identity = try? PhonePushKeyMaterial.current(
                     bundleID: bundle.bundleIdentifier ?? "",
                     accessGroup: keychainAccessGroup
                 ) else { return nil }
@@ -200,10 +200,6 @@ public struct MobileAuthComposition {
             session: .shared
         )
         deferredSignIn.set {
-            let accountID = await MainActor.run { coordinator.currentUser?.id }
-            if let accountID {
-                PhonePushActiveAccountStore.set(accountID)
-            }
             await push.syncTokenIfPossible()
         }
         self.coordinator = coordinator
@@ -224,16 +220,12 @@ public struct MobileAuthComposition {
         let pushRegistration = self.pushRegistration
         protectedDataAvailability.startObserving { [coordinator, taskOwner, pushRegistration] in
             taskOwner.revalidateSession(using: coordinator) {
-                if let accountID = coordinator.currentUser?.id {
-                    PhonePushActiveAccountStore.set(accountID)
-                } else {
-                    PhonePushActiveAccountStore.clear()
-                }
                 Task {
                     await pushRegistration.syncTokenIfPossible()
                 }
             }
         }
+        taskOwner.mirrorActiveAccount(from: coordinator)
         coordinator.start()
         taskOwner.observeRestore(using: coordinator)
     }
@@ -264,6 +256,36 @@ public struct MobileAuthComposition {
     /// tag so auth, trust-broker, and device routes cannot drift to another
     /// agent's localhost server.
     nonisolated static let apiBaseURLInfoPlistKey = "CMUXApiBaseURL"
+
+    /// Cloud machines live independently of the paired Mac. A development
+    /// build may still use a loopback API origin for Mac pairing, but Cloud
+    /// requests must move to the shared remote control plane in that case.
+    nonisolated static let developmentCloudAPIBaseURL = "https://cmux-staging.vercel.app"
+    nonisolated static let productionCloudAPIBaseURL = "https://cmux.com"
+
+    nonisolated static func cloudAPIBaseURL(
+        authEnvironment: CMUXAuthEnvironment,
+        configuredBaseURL: String
+    ) -> String {
+        if authEnvironment == .production {
+            return productionCloudAPIBaseURL
+        }
+
+        let trimmed = configuredBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed),
+              let host = url.host?.lowercased(),
+              !Self.isLoopbackCloudHost(host) else {
+            return developmentCloudAPIBaseURL
+        }
+        return trimmed
+    }
+
+    private nonisolated static func isLoopbackCloudHost(_ host: String) -> Bool {
+        host == "localhost"
+            || host == "127.0.0.1"
+            || host == "::1"
+            || host == "[::1]"
+    }
 
     /// Merge the Info.plist-baked auth environment into the `LocalConfig.plist`
     /// override table. An explicit LocalConfig entry wins over the bake
@@ -406,25 +428,56 @@ public struct MobileAuthComposition {
         return previous != resolvedProjectID
     }
 
+    /// The Simulator only ever mints sandbox device tokens, so a Release build
+    /// running there must register as sandbox or APNs rejects every push.
     private static var apnsEnvironment: String {
-        #if DEBUG
+        #if DEBUG || targetEnvironment(simulator)
         "sandbox"
         #else
         "production"
         #endif
     }
 
-    private static func tokenStore(
+    /// - Parameter simulatorSupportDirectory: Where the simulator build keeps
+    ///   its sandboxed token files. Injected so a test can exercise the
+    ///   unresolvable-directory path; production always passes the default.
+    static func tokenStore(
         appNamespace: MobileIOSAppNamespace?,
         accessGroup: String?,
-        legacyProjectID: String
+        legacyProjectID: String,
+        simulatorSupportDirectory: URL? = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first
     ) -> TokenStoreInit {
-        #if DEBUG && targetEnvironment(simulator)
-        .memory
-        #else
         guard let appNamespace else {
-            return .none
+            // A malformed or test bundle must not leave StackClientApp without
+            // a token store: any authenticated operation would fatalError in
+            // the SDK. Memory storage keeps the failure recoverable (and
+            // deliberately avoids attributing persisted credentials to an
+            // unknown bundle).
+            return .memory
         }
+        #if DEBUG && targetEnvironment(simulator)
+        // Unsigned simulator apps cannot rely on Keychain entitlements. Keep
+        // tokens in this simulator app's sandbox so a process restart exercises
+        // real session restoration. Bundle and Stack project remain isolated.
+        guard let support = simulatorSupportDirectory else {
+            // Same reasoning as a missing app identity above: .none leaves
+            // StackClientApp with a NullTokenStore, so the next authenticated
+            // operation fatalErrors. Losing the session on relaunch is
+            // recoverable; trapping the process is not.
+            return .memory
+        }
+        let projectComponent = Data(legacyProjectID.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return .custom(FileStackTokenStore(directory: support
+            .appendingPathComponent("cmux-simulator-auth", isDirectory: true)
+            .appendingPathComponent(appNamespace.bundleIdentifier, isDirectory: true)
+            .appendingPathComponent("project-\(projectComponent)", isDirectory: true)))
+        #else
         return .custom(
             KeychainStackTokenStore(
                 service: appNamespace.keychainService(
@@ -438,7 +491,7 @@ public struct MobileAuthComposition {
     }
 
     private static func keychainAccessGroup(in bundle: Bundle) -> String? {
-        MobileKeychainAccessGroupPolicy.resolve(
+        String.cmuxKeychainAccessGroup(from:
             bundle.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
         )
     }
@@ -470,6 +523,7 @@ private final class MobileAuthTaskOwner {
     private let shouldObserveCachedRestore: Bool
     private var restoreTask: Task<Void, Never>?
     private var revalidationTask: Task<Void, Never>?
+    private var activeAccountMirrorTask: Task<Void, Never>?
 
     init(
         diagnosticLog: DiagnosticLog?,
@@ -482,6 +536,17 @@ private final class MobileAuthTaskOwner {
     func recordRestoreStarted() {
         guard shouldObserveCachedRestore else { return }
         diagnosticLog?.recordAppEvent(.authRestoreStarted)
+    }
+
+    /// The notification service extension reads the active account from the
+    /// shared keychain. Mirroring the auth stream covers a restored session at
+    /// launch, sign-in, account switches, and sign-out through one path.
+    func mirrorActiveAccount(from coordinator: AuthCoordinator) {
+        activeAccountMirrorTask?.cancel()
+        let identities = coordinator.authenticatedSessionIdentities()
+        activeAccountMirrorTask = Task { @MainActor in
+            await PhonePushActiveAccountStore().mirror(identities)
+        }
     }
 
     func observeRestore(using coordinator: AuthCoordinator) {
@@ -515,5 +580,6 @@ private final class MobileAuthTaskOwner {
     deinit {
         restoreTask?.cancel()
         revalidationTask?.cancel()
+        activeAccountMirrorTask?.cancel()
     }
 }

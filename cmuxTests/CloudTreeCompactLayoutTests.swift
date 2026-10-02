@@ -1,5 +1,8 @@
+import CmuxCloud
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -11,7 +14,38 @@ import Testing
 @MainActor
 @Suite("Compact Cloud outline", .serialized)
 struct CloudTreeCompactLayoutTests {
-    @Test("Machine spacing matches leaf rows while narrow rows retain accessible identities",
+    /// #13291: direct SwiftUI SF Symbol rasters can stay blank on Intel Macs
+    /// through a sidebar or appearance refresh. Cloud row glyphs must go
+    /// through the appearance-resolved AppKit renderer and keep visible ink.
+    @Test("Cloud tree glyphs use appearance-resolved AppKit rendering",
+          arguments: CloudTreeStyle.presets, [false, true])
+    func rowIconsUseResolvedRenderer(style: CloudTreeStyle, dimmed: Bool) throws {
+        let size = max(24, style.iconSlot)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: size, height: 28),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSHostingView(
+            rootView: CloudTreeRowIcon(style: style, systemName: "folder.fill", tint: .blue, dimmed: dimmed)
+                .frame(width: size, height: 28)
+        )
+        window.contentView = host
+        defer { window.contentView = nil }
+
+        for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
+            window.appearance = NSAppearance(named: appearanceName)
+            host.needsLayout = true
+            host.layoutSubtreeIfNeeded()
+
+            let resolvedViews = descendants(of: host).compactMap { $0 as? CmuxResolvedIconImageView }
+            #expect(!resolvedViews.isEmpty, "\(style.id) must use the resolved AppKit icon renderer")
+            #expect(visiblePixelCount(in: host) > 0, "\(style.id) must keep visible glyph pixels")
+        }
+    }
+
+    @Test("Folder and terminal spacing match while narrow rows, machine included, retain accessible identities",
           arguments: [220.0, 380.0], [75, 100, 150, 200])
     func iconLabelSpacing(width: Double, percent: Int) throws {
         let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
@@ -27,7 +61,7 @@ struct CloudTreeCompactLayoutTests {
         let template = try #require(fixture.nodes(titles: ["workspace-1"]).first)
         let machine = MachineSnapshot(
             id: fixture.machine.rawValue, provider: "fixture", image: "fixture", isDesktop: false,
-            activity: .ready, createdAt: nil, label: "early-plum-alpaca", isDefault: true
+            activity: .ready, createdAt: nil, label: "early-plum-alpaca"
         )
         let root = CloudTreeNode(id: template.id, kind: .machine(machine, nil), children: template.children)
         fixture.coordinator.apply(nodes: [root])
@@ -53,29 +87,32 @@ struct CloudTreeCompactLayoutTests {
                 #expect(cell.accessibilityLabel()?.contains(node.searchableTitle) == true)
                 return cell
             }
-            if width == 220, percent == 200 {
-                // The unchanged leaf rows cannot fit title ink at this width
-                // and zoom, even before #13072. Capture the clipping and check
-                // full accessible identities; there is no visible gap to measure.
+            if width == 220, percent >= 150 {
+                // The narrow rows cannot fit title ink at this width and zoom.
+                // Capture the clipping and check full accessible identities;
+                // there is no visible gap to measure.
                 #if compiler(>=6.2)
-                Attachment.record("Leaf titles are clipped at 220pt/200%; spacing is not measurable. Accessible identities checked.",
-                                  named: "icon-spacing-220-200-pinned-\(pinned).txt")
+                Attachment.record("Leaf titles are clipped at 220pt/\(percent)%; spacing is not measurable. Accessible identities checked.",
+                                  named: "icon-spacing-220-\(percent)-pinned-\(pinned).txt")
                 #endif
                 continue
             }
-            let gaps = try cells.map { try iconLabelGap(in: $0, pinned: pinned) }
+            // A Cloud machine row has no glyph of its own (#16189): the Cloud
+            // Machines header names the kind. Only the leaves have a gap to match.
+            let gaps = try cells.dropFirst().map { try iconLabelGap(in: $0, pinned: pinned) }
             #expect(abs(gaps[0] - gaps[1]) <= tolerance,
-                    "Machine and folder glyph side bearings may differ slightly, not their spacing: \(gaps)")
-            #expect(abs(gaps[0] - gaps[2]) <= tolerance,
-                    "Machine and terminal must have comparable visible gaps: \(gaps)")
+                    "Folder and terminal must have comparable visible gaps: \(gaps)")
             #if compiler(>=6.2)
-            Attachment.record("machine/folder/terminal gaps in points: \(gaps)",
+            Attachment.record("folder/terminal gaps in points: \(gaps)",
                               named: "icon-spacing-\(Int(width))-\(percent)-pinned-\(pinned).txt")
             #endif
         }
     }
 
-    @Test("Cloud, locked, local and pending machine titles share the folder icon column",
+    /// Cloud machine states share their own glyph-free column; see
+    /// `CloudSidebarSectionIdentityIconTests`. This Mac is not a Cloud machine
+    /// and keeps its laptop glyph on the folder icon column.
+    @Test("This Mac's title shares the folder icon column",
           arguments: CloudTreeStyle.presets, [75, 100, 150, 200])
     func machineVariants(style: CloudTreeStyle, percent: Int) throws {
         let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
@@ -89,21 +126,9 @@ struct CloudTreeCompactLayoutTests {
         fixture.window.setContentSize(NSSize(width: 380, height: 620))
         fixture.coordinator.apply(style: style)
         let title = "early-plum-alpaca"
-        let machine = MachineSnapshot(
-            id: "fixture", provider: "fixture", image: "fixture", isDesktop: false,
-            activity: .ready, createdAt: nil, label: title
-        )
-        var locked = machine
-        locked.freeAccess = .expired
-        let pending = MachineCreateOperation(
-            id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(name: title),
-            startedAt: Date(timeIntervalSince1970: 0), phase: .failed(output: "fixture")
-        )
         let kinds: [CloudTreeNode.Kind] = [
             .localWorkspace(CloudTreeLocalWorkspaceRow(workspaceID: UUID(), title: title, terminalCount: 0, isSelected: true)),
-            .machine(machine, nil), .machine(locked, nil),
-            .localMachine(CloudTreeLocalMachineRow(name: title, terminalCount: 0, browserCount: 0)),
-            .pendingMachine(pending)
+            .localMachine(CloudTreeLocalMachineRow(name: title, terminalCount: 0, browserCount: 0))
         ]
         let nodes = kinds.enumerated().map { CloudTreeNode(id: "variant-\($0.offset)", kind: $0.element) }
         fixture.coordinator.apply(nodes: nodes)
@@ -113,20 +138,41 @@ struct CloudTreeCompactLayoutTests {
         let starts = try nodes.map { node in
             let cell = try #require(outline.view(atColumn: 0, row: outline.row(forItem: node), makeIfNecessary: true))
             let ink = try inkColumns(in: cell)
-            try #require(ink.runs.count >= 2)
-            return CGFloat(ink.runs[1].lowerBound) / ink.scale
+            // A hollow glyph can contain several disconnected ink-column runs.
+            // Locate title ink beyond the rendered icon, rather than assuming
+            // the second run belongs to the title.
+            let iconBounds = try #require(
+                descendants(of: cell).compactMap { view -> CGRect? in
+                    guard view is CmuxResolvedIconImageView else { return nil }
+                    return cell.convert(view.bounds, from: view)
+                }.min(by: { $0.minX < $1.minX }),
+                "Expected an appearance-resolved row icon"
+            )
+            #expect(iconBounds.width > 0)
+            let titleRun = try #require(
+                ink.runs.first { CGFloat($0.lowerBound) / ink.scale >= iconBounds.maxX },
+                "Expected title ink after the row icon"
+            )
+            return CGFloat(titleRun.lowerBound) / ink.scale
         }
         // Sections insets the whole machine identity 6pt inside its band.
         // Preserve that decoration while comparing the shared icon column.
         let bandInset: CGFloat = style.machineBand ? 6 : 0
+        // Every row lays its title out on the same magnified column, but that
+        // column can fall between backing pixels (37.5pt in sections at 150%),
+        // so each title snaps to one neighbour or the other, and a heavier title
+        // crosses the ink threshold a pixel early. Ink edges are whole pixels:
+        // round the allowance to that grid, as `iconLabelSpacing` does.
+        let pixelsPerPoint = fixture.window.backingScaleFactor
+        let tolerance = (CGFloat(percent) / 100 * pixelsPerPoint).rounded() / pixelsPerPoint
         for start in starts.dropFirst() {
-            #expect(abs(start - starts[0] - bandInset) <= CGFloat(percent) / 100,
+            #expect(abs(start - starts[0] - bandInset) <= tolerance,
                     "Every machine state reserves the same title column as a folder: \(starts)")
         }
     }
 
     @Test("Folders start as close to their carets as plain section headings",
-          arguments: [220.0, 360.0], [100, 150])
+          arguments: [220.0, 360.0], [50, 100, 150])
     func compactRows(width: Double, percent: Int) throws {
         let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
         UserDefaults.standard.set(percent, forKey: GlobalFontMagnification.percentKey)
@@ -149,7 +195,7 @@ struct CloudTreeCompactLayoutTests {
         let sectionGap = try leadingGap(section, in: outline)
         #expect(abs(folderGap - sectionGap) <= 4 * scale,
                 "Folder and header use the same close spacing, allowing glyph side bearings: \(folderGap), \(sectionGap)")
-        #expect(folderGap <= 6 * scale, "No reserved unread column between caret and folder")
+        #expect(folderGap <= 6 * scale, "Read rows do not reserve an empty unread column")
         for row in 0..<outline.numberOfRows {
             #expect(abs(outline.rect(ofRow: row).height - 22 * scale) <= 0.5)
         }
@@ -173,7 +219,7 @@ struct CloudTreeCompactLayoutTests {
         fixture.container.layoutSubtreeIfNeeded()
         let after = outline.frameOfOutlineCell(atRow: row)
         #expect(before.size == after.size, "Collapsing must not resize the caret column")
-        #expect(abs(after.width - CloudTreeRowGrid.disclosureSlot * scale) <= 0.5)
+        #expect(abs(after.width - CloudTreeStyle.compact.rowGrid.disclosureSlot * scale) <= 0.5)
         try fixture.attachScreenshot(named: "compact-tree-collapsed-\(Int(width))-\(percent)")
         let reopenedButton = try #require(descendants(of: outline).compactMap { $0 as? NSButton }.first {
             $0.identifier == NSOutlineView.disclosureButtonIdentifier && outline.row(for: $0) == row
@@ -184,6 +230,19 @@ struct CloudTreeCompactLayoutTests {
 
     private func descendants(of view: NSView) -> [NSView] {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    private func visiblePixelCount(in view: NSView) -> Int {
+        view.layoutSubtreeIfNeeded()
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return 0 }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        var count = 0
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide where (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.01 {
+                count += 1
+            }
+        }
+        return count
     }
 
     /// Measure the actual empty columns between glyph ink and title ink, not

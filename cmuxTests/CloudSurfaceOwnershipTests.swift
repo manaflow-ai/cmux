@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -14,7 +15,72 @@ import Testing
 struct CloudSurfaceOwnershipTests {
     private let machine = SurfaceMachineID.cloud("ownership-b")
 
-    @Test("Cloud pane hover rejects local and foreign resources", arguments: SurfaceResourceKind.allCases)
+    @Test("A retired destination fails closed before ownership policy lookup")
+    func missingDestinationRejectsValidation() {
+        let catalog = SurfaceCatalog()
+        let destination = SurfaceDestination.workspace(id: UUID(), placement: .tab)
+        #expect(throws: SurfaceCatalogError.self) {
+            try catalog.validateOwnership(
+                of: [SurfaceResourceID(machine: machine, kind: .display, key: "display:1")],
+                at: destination
+            )
+        }
+    }
+
+    @Test("Saved display identities are checked before catalog mutation")
+    func rejectsForeignCatalogRestore() throws {
+        let workspace = cloudWorkspace()
+        defer { workspace.teardownAllPanels() }
+        let catalog = catalog(for: workspace)
+        let panelID = try #require(workspace.focusedPanelId)
+        for owner in [SurfaceMachineID.cloud("ownership-a"), .local] {
+            let record = SurfaceProjectionRecord(panelID: panelID,
+                resource: SurfaceResourceID(machine: owner, kind: .display, key: "display:1"))
+            catalog.restore([record], workspaceID: workspace.id)
+            #expect(catalog.projectionRecords(forWorkspace: workspace.id).isEmpty)
+            #expect(catalog.machineOwningPanel(panelID) == nil)
+            #expect(workspace.cloudVMID == machine.rawValue)
+        }
+    }
+
+    @Test("A delayed display materialization cannot commit after the destination changes owner",
+          arguments: [false, true])
+    func checksOwnerAfterMaterialization(reuseExisting: Bool) async throws {
+        let workspace = cloudWorkspace()
+        defer { workspace.teardownAllPanels() }
+        let catalog = catalog(for: workspace)
+        let provider = CloudPlacementTestProvider(machine: machine)
+        provider.beforeMaterialization = {
+            workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "ownership-a", isBase: false)
+        }
+        catalog.register(provider)
+        let display = resource(machine, kind: .display)
+        catalog.upsert(display)
+        do {
+            _ = try await catalog.project(display.id, into: .workspace(id: workspace.id, placement: .tab),
+                focus: false, reuseExisting: reuseExisting)
+            Issue.record("A delayed projection committed into a differently owned workspace")
+        } catch {}
+        #expect(catalog.snapshot.projections.isEmpty)
+        #expect(workspace.cloudVMID == "ownership-a")
+    }
+
+    @Test("An offline display retains provenance without materializing into a rebound workspace")
+    func checksOwnerWhenPendingRestoreResolves() throws {
+        let workspace = cloudWorkspace()
+        defer { workspace.teardownAllPanels() }
+        let catalog = catalog(for: workspace)
+        let panelID = try #require(workspace.focusedPanelId)
+        let display = resource(machine, kind: .display)
+        catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: display.id)], workspaceID: workspace.id)
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "ownership-a", isBase: false)
+        catalog.upsert(display)
+        #expect(catalog.projection(forPanel: panelID) == nil)
+        #expect(catalog.machineOwningPanel(panelID) == machine)
+        #expect(workspace.cloudVMID == "ownership-a")
+    }
+
+    @Test("Cloud pane hover rejects foreign terminal/display resources and accepts browsers", arguments: SurfaceResourceKind.allCases)
     func rejectsForeignResourceHover(kind: SurfaceResourceKind) throws {
         let workspace = cloudWorkspace()
         defer { workspace.teardownAllPanels() }
@@ -24,13 +90,13 @@ struct CloudSurfaceOwnershipTests {
         )
         for source in [SurfaceMachineID.local, .cloud("ownership-a")] {
             let group = SurfaceResourceGroup(single: resource(source, kind: kind))
-            #expect(!workspace.canPerformPortalPaneDrop(transfer, source: .surfaceResources(group)))
+            #expect(workspace.canPerformPortalPaneDrop(transfer, source: .surfaceResources(group)) == (kind == .browser))
         }
         let sameMachine = SurfaceResourceGroup(single: resource(machine, kind: kind))
         #expect(workspace.canPerformPortalPaneDrop(transfer, source: .surfaceResources(sameMachine)))
     }
 
-    @Test("Rejected resource drops do not dispatch or alter layout", arguments: SurfaceResourceKind.allCases)
+    @Test("Rejected resource drops do not dispatch or alter layout", arguments: [SurfaceResourceKind.terminal, .display])
     func rejectsForeignResourceDrop(kind: SurfaceResourceKind) throws {
         let workspace = cloudWorkspace()
         defer { workspace.teardownAllPanels() }
@@ -51,7 +117,7 @@ struct CloudSurfaceOwnershipTests {
         }
     }
 
-    @Test("Catalog rejects ownership before materializing or focusing", arguments: SurfaceResourceKind.allCases)
+    @Test("Catalog rejects ownership before materializing or focusing", arguments: [SurfaceResourceKind.terminal, .display])
     func catalogRejectsForeignResources(kind: SurfaceResourceKind) async throws {
         let workspace = cloudWorkspace()
         defer { workspace.teardownAllPanels() }
@@ -107,7 +173,7 @@ struct CloudSurfaceOwnershipTests {
             let workspace = isCloud ? cloudWorkspace() : Workspace()
             defer { workspace.teardownAllPanels() }
             let catalog = catalog(for: workspace)
-            let source: SurfaceMachineID = isCloud ? machine : .local
+            let source: SurfaceMachineID = isCloud && kind != .browser ? machine : .local
             let provider = CloudPlacementTestProvider(machine: source)
             catalog.register(provider)
             let item = resource(source, kind: kind)

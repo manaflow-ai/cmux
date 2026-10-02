@@ -1,4 +1,32 @@
 {
+  "actions.discovery.menuTitle": {
+    "source": "Actions · cmux.json…",
+    "identityLocales": {
+      "fr": {
+        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
+        "values": [
+          "Actions · cmux.json…"
+        ]
+      }
+    }
+  },
+  "actions.discovery.dialogTitle": {
+    "source": "Actions · cmux.json",
+    "identityLocales": {
+      "fr": {
+        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
+        "values": [
+          "Actions · cmux.json"
+        ]
+      }
+    }
+  },
+  "mobile.ios106PairingUpdate.releaseLabel": {
+    "source": "1.0.6 · September 2026",
+    "identityLocales": {
+      "de": "September has the same spelling in German; the version and date are invariant."
+    }
+  },
   "cloudTree.resources.provisionedCPU": {
     "source": "%@ vCPU · %@",
     "identityLocales": {
@@ -80,29 +108,133 @@
     "class": "format",
     "source": "%1$@: %2$@"
   },
+  "notification.remoteRelay.title": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
   "agent.kimi.displayName": {
-    "class": "brand",
-    "source": "Kimi Code"
+    "source": "Kimi Code",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "agent.ollama.displayName": {
-    "class": "brand",
-    "source": "Ollama"
+    "source": "Ollama",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "agentSession.panel.title": {
     "class": "format",
     "source": "%@ · %@"
   },
   "agentSession.provider.claude": {
-    "class": "brand",
-    "source": "Claude Code"
+    "source": "Claude Code",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "agentSession.provider.codex": {
-    "class": "brand",
-    "source": "Codex"
+    "source": "Codex",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "agentSession.provider.opencode": {
-    "class": "brand",
-    "source": "OpenCode"
+    "source": "OpenCode",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "agentSession.renderer.react": {
     "class": "brand",
@@ -243,12 +375,52 @@
     "source": "[--profile <name|uuid>]"
   },
   "cli.claude-hook.notification.title": {
-    "class": "brand",
-    "source": "Claude Code"
+    "source": "Claude Code",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "cli.codexMonitor.notification.title": {
-    "class": "brand",
-    "source": "Codex"
+    "source": "Codex",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "cli.error.clearNotificationsUsage": {
     "class": "syntax",
@@ -305,6 +477,14 @@
   "cli.sidebar.report.ok": {
     "source": "OK %@ [%@] %@",
     "class": "format"
+  },
+  "cli.usage.record": {
+    "class": "syntax",
+    "source": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+  },
+  "cli.usage.shot": {
+    "class": "syntax",
+    "source": "shot [--format png|jpg] [--jpg] [--scale <n>] [--max-width <n>] [--quality <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--caption <text>] [--window <id|ref|index>]"
   },
   "cli.usage.readScreen": {
     "class": "syntax",
@@ -415,6 +595,10 @@
   "cloudTree.node.desktop.detail.screen": {
     "class": "format",
     "source": "%1$@ · %2$@"
+  },
+  "cloudTree.group.cloudMachines.usage": {
+    "class": "format",
+    "source": "%1$d/%2$d"
   },
   "cloudTree.stats.cpu": {
     "class": "format",
@@ -547,16 +731,76 @@
     "source": "cmux"
   },
   "command.cmuxConfig.defaultClaudeCodeTitle": {
-    "class": "brand",
-    "source": "Claude Code"
+    "source": "Claude Code",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "command.cmuxConfig.defaultCodexTitle": {
-    "class": "brand",
-    "source": "Codex"
+    "source": "Codex",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "command.cmuxConfig.defaultOpenCodeTitle": {
-    "class": "brand",
-    "source": "OpenCode"
+    "source": "OpenCode",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "command.cmuxConfig.issue.schemaError.detail": {
     "class": "format",
@@ -1002,7 +1246,8 @@
       "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "dock.source.title": {
@@ -1014,7 +1259,8 @@
       "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "emptyPanel.action.browser": {
@@ -1348,16 +1594,100 @@
     }
   },
   "machines.agent.claude": {
-    "class": "brand",
-    "source": "Claude Code"
+    "source": "Claude Code",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "machines.agent.codex": {
-    "class": "brand",
-    "source": "Codex"
+    "source": "Codex",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "machines.agent.opencode": {
-    "class": "brand",
-    "source": "OpenCode"
+    "source": "OpenCode",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "machines.agent.pi": {
+    "source": "Pi",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "machines.freeAccess.upgrade": {
     "source": "Upgrade",
@@ -1546,7 +1876,8 @@
       "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "menu.help.notifications": {
@@ -1728,13 +2059,9 @@
       "de": "Reviewed native word, technical abbreviation, or SaaS tier name with the same spelling in this context."
     }
   },
-  "pricing.native.compare.concurrent.free": {
-    "class": "format",
-    "source": "1"
-  },
   "pricing.native.compare.concurrent.paid": {
     "class": "format",
-    "source": "50"
+    "source": "5"
   },
   "pricing.native.compare.support.community": {
     "source": "Community",
@@ -1849,13 +2176,18 @@
       "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "rightSidebar.mode.feed": {
     "source": "Feed",
     "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ar": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "es": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "zh-Hant": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "zh-Hans": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "rightSidebar.mode.machines": {
@@ -1866,32 +2198,172 @@
     }
   },
   "sessionIndex.agent.claude": {
-    "class": "brand",
-    "source": "Claude Code"
+    "source": "Claude Code",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "sessionIndex.agent.codex": {
-    "class": "brand",
-    "source": "Codex"
+    "source": "Codex",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "sessionIndex.agent.grok": {
-    "class": "brand",
-    "source": "Grok"
+    "source": "Grok",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "sessionIndex.agent.hermesAgent": {
-    "class": "brand",
-    "source": "Hermes Agent"
+    "source": "Hermes Agent",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "sessionIndex.agent.opencode": {
-    "class": "brand",
-    "source": "OpenCode"
+    "source": "OpenCode",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "sessionIndex.agent.pi": {
-    "class": "brand",
-    "source": "Pi"
+    "source": "Pi",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "sessionIndex.agent.rovodev": {
-    "class": "brand",
-    "source": "Rovo Dev"
+    "source": "Rovo Dev",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "sessionIndex.checkpoints.forkShort": {
     "source": "Fork",
@@ -2005,18 +2477,6 @@
       "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
-  "settings.betaFeatures.dock": {
-    "source": "Dock",
-    "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "es": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
-    }
-  },
   "settings.betaFeatures.extensions": {
     "source": "Extensions",
     "identityLocales": {
@@ -2026,7 +2486,11 @@
   "settings.betaFeatures.feed": {
     "source": "Feed",
     "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ar": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "es": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "zh-Hant": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "zh-Hans": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "settings.betaFeatures.workspaceTodosChecklistStyle.inline": {
@@ -2156,6 +2620,18 @@
       "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
       "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
       "ja": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.computers.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "settings.computers.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
   "settings.config.source.cmux": {
@@ -2371,6 +2847,14 @@
     "class": "technical",
     "source": "cmux.json"
   },
+  "globalSearch.kind.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
   "settings.section.terminal": {
     "source": "Terminal",
     "identityLocales": {
@@ -2421,6 +2905,16 @@
     "class": "technical",
     "source": "pt"
   },
+  "settings.terminal.ghostty.scrollbackLimit.unit": {
+    "class": "technical",
+    "source": "MB"
+  },
+  "settings.terminal.ghostty.cursorStyle.block": {
+    "source": "Block",
+    "identityLocales": {
+      "de": "Block is the German word for a block cursor shape and has the same spelling as English."
+    }
+  },
   "settings.terminal.tabBarFontSize.points": {
     "class": "format",
     "source": "%@ pt"
@@ -2430,12 +2924,52 @@
     "source": "Codex --yolo"
   },
   "settings.textBox.submitAction.opencode": {
-    "class": "brand",
-    "source": "OpenCode"
+    "source": "OpenCode",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "settings.textBox.submitAction.pi": {
-    "class": "brand",
-    "source": "Pi"
+    "source": "Pi",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "settings.workspaceColors.base": {
     "source": "Base: %@",
@@ -2449,6 +2983,18 @@
     "identityLocales": {
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
+  },
+  "shortcut.keymap.preset.iterm2": {
+    "class": "brand",
+    "source": "iTerm2"
+  },
+  "shortcut.keymap.preset.terminal": {
+    "class": "brand",
+    "source": "Terminal.app"
+  },
+  "shortcut.keymap.summary.change": {
+    "class": "format",
+    "source": "%1$@: %2$@ → %3$@"
   },
   "shortcut.recorder.pendingChord": {
     "class": "format",
@@ -2831,60 +3377,340 @@
     "source": "you@example.com"
   },
   "taskManager.agent.amp": {
-    "class": "brand",
-    "source": "Amp"
+    "source": "Amp",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "taskManager.agent.claudeCode": {
-    "class": "brand",
-    "source": "Claude Code"
+    "source": "Claude Code",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "taskManager.agent.codebuddy": {
-    "class": "brand",
-    "source": "CodeBuddy"
+    "source": "CodeBuddy",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "taskManager.agent.codex": {
-    "class": "brand",
-    "source": "Codex"
+    "source": "Codex",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "taskManager.agent.copilot": {
-    "class": "brand",
-    "source": "Copilot"
+    "source": "Copilot",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "taskManager.agent.cursor": {
-    "class": "brand",
-    "source": "Cursor"
+    "source": "Cursor",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "taskManager.agent.factory": {
-    "class": "brand",
-    "source": "Factory"
+    "source": "Factory",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "taskManager.agent.gemini": {
-    "class": "brand",
-    "source": "Gemini"
+    "source": "Gemini",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "taskManager.agent.grok": {
-    "class": "brand",
-    "source": "Grok"
+    "source": "Grok",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "taskManager.agent.hermesAgent": {
-    "class": "brand",
-    "source": "Hermes Agent"
+    "source": "Hermes Agent",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "taskManager.agent.opencode": {
-    "class": "brand",
-    "source": "OpenCode"
+    "source": "OpenCode",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "taskManager.agent.pi": {
-    "class": "brand",
-    "source": "Pi"
+    "source": "Pi",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "taskManager.agent.qoder": {
-    "class": "brand",
-    "source": "Qoder"
+    "source": "Qoder",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "taskManager.agent.rovodev": {
-    "class": "brand",
-    "source": "Rovo Dev"
+    "source": "Rovo Dev",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "taskManager.column.cpu": {
     "class": "technical",
@@ -2938,12 +3764,52 @@
     "source": "Codex --yolo"
   },
   "textbox.submitAction.opencode": {
-    "class": "brand",
-    "source": "OpenCode"
+    "source": "OpenCode",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "textbox.submitAction.pi": {
-    "class": "brand",
-    "source": "Pi"
+    "source": "Pi",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   },
   "theme.system": {
     "source": "System",
@@ -3283,6 +4149,253 @@
           ", active"
         ]
       }
+    }
+  },
+  "cli.workflow.literal.codex": {
+    "source": "codex",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.claude": {
+    "source": "claude",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal..cmux/cmux.json": {
+    "source": ".cmux/cmux.json",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.~/.config/cmux/cmux.json": {
+    "source": "~/.config/cmux/cmux.json",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal..cmux/dock.json": {
+    "source": ".cmux/dock.json",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.actions.workspaceCommand": {
+    "source": "actions.workspaceCommand",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.ui.newWorkspace.action": {
+    "source": "ui.newWorkspace.action",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.ui.newWorkspace.contextMenu": {
+    "source": "ui.newWorkspace.contextMenu",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.commands[].workspace.layout": {
+    "source": "commands[].workspace.layout",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.actions.agent": {
+    "source": "actions.agent",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.ui.surfaceTabBar.buttons": {
+    "source": "ui.surfaceTabBar.buttons",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux markdown": {
+    "source": "cmux markdown",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux feed tui --opentui": {
+    "source": "cmux feed tui --opentui",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux reload-config": {
+    "source": "cmux reload-config",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux docs workflows --json": {
+    "source": "cmux docs workflows --json",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux layout list --json": {
+    "source": "cmux layout list --json",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux layout get <name>": {
+    "source": "cmux layout get <name>",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux layout open <name> --cwd <project>": {
+    "source": "cmux layout open <name> --cwd <project>",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux layout save <name> --description \"<what this creates>\"": {
+    "source": "cmux layout save <name> --description \"<what this creates>\"",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux layout delete <name>": {
+    "source": "cmux layout delete <name>",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cloudMenu.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Standard German UI term with the same spelling."
+    }
+  },
+  "cloudMenu.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Product name cmux Cloud keeps its English spelling in this language.",
+      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
+      "es": "Product name cmux Cloud keeps its English spelling in this language."
+    }
+  },
+  "menu.cloud.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Product name cmux Cloud keeps its English spelling in this language.",
+      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
+      "es": "Product name cmux Cloud keeps its English spelling in this language."
+    }
+  },
+  "sidebar.agentStatus.glyph.tooltip": {
+    "source": "%1$@: %2$@",
+    "identityLocales": {
+      "ar": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "de": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
+    }
+  },
+  "terminalSharing.device.mac": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "terminalSharing.device.iphone": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "terminalSharing.device.ipad": {
+    "class": "brand",
+    "source": "iPad"
+  },
+  "terminalSharing.participant.personDevice": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
+  },
+  "terminalSharing.device.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "Browser is the standard German UI term with the same spelling; a translated entry is still required."
+    }
+  },
+  "settings.section.textBox": {
+    "source": "TextBox",
+    "identityLocales": {
+      "fr": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "ko": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
+    }
+  },
+  "settings.betaFeatures.dock": {
+    "source": "Dock",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "es": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "mobile.tabs.cloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "cmux Cloud is a product name; German uses the English word unchanged.",
+      "fr": "cmux Cloud is a product name; French uses the English word unchanged.",
+      "es": "cmux Cloud is a product name; Spanish uses the English word unchanged.",
+      "zh-Hant": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "zh-Hans": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ko": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ja": "cmux Cloud is a product name, left in Latin script in this locale."
+    }
+  },
+  "mobile.cloud.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "cmux Cloud is a product name; German uses the English word unchanged.",
+      "fr": "cmux Cloud is a product name; French uses the English word unchanged.",
+      "es": "cmux Cloud is a product name; Spanish uses the English word unchanged.",
+      "zh-Hant": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "zh-Hans": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ko": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ja": "cmux Cloud is a product name, left in Latin script in this locale."
+    }
+  },
+  "mobile.cloud.machines.header": {
+    "source": "Machines",
+    "identityLocales": {
+      "fr": "\"Machines\" is spelled identically in French."
+    }
+  },
+  "mobile.cloud.create.kind": {
+    "source": "Type",
+    "identityLocales": {
+      "fr": "\"Type\" is spelled identically in French."
+    }
+  },
+  "mobile.cloud.create.base": {
+    "source": "Base",
+    "identityLocales": {
+      "fr": "\"Base\" is spelled identically in French.",
+      "es": "\"Base\" is spelled identically in Spanish."
+    }
+  },
+  "mobile.cloud.create.desktop": {
+    "source": "Desktop",
+    "identityLocales": {
+      "de": "\"Desktop\" is the established German loanword, spelled identically."
+    }
+  },
+  "cli.help.agents.messages": {
+    "source": "agent messages [on|off|status] [<target>] [--workspace]",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "bs": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "da": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "it": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "km": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "nb": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pl": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pt-BR": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ru": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "th": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "tr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "uk": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
     }
   }
 }

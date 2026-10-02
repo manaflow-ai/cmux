@@ -7,6 +7,185 @@ struct RemoteCLIRelayPolicyTests {
     private let tokenHex = "00112233445566778899aabbccddeeff"
     private let relayID = "relay-policy"
 
+    @Test("core discovery uses canonical RPC names and the authenticated relay", arguments: [
+        "system.ping", "system.capabilities", "workspace.list"
+    ])
+    func forwardsCoreDiscovery(method: String) throws {
+        try withServer { port, unixServer in
+            let exchange = try runPolicyRelayExchange(port: port, relayID: relayID,
+                tokenHex: tokenHex, commandLine: "{\"id\":\"core\",\"method\":\"\(method)\",\"params\":{}}")
+            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
+            #expect(unixServer.requests.count == 1)
+        }
+    }
+
+    @Test("unsupported core aliases and malformed discovery never reach the Mac")
+    func deniesUnsafeCoreDiscovery() throws {
+        try withServer { port, unixServer in
+            for request in [
+                #"{"method":"ping","params":{}}"#,
+                #"{"method":"capabilities","params":{}}"#,
+                #"{"method":"workspace.list.extra","params":{}}"#,
+                #"{"method":"workspace.list","params":{"window_id":"window:1"}}"#,
+                #"{"method":"workspace.list","params":{"workspace_id":null}}"#,
+                #"{"method":"workspace.list","params":{"workspace_ids":[]}}"#,
+                #"{"method":"workspace.list","params":{"metadata":[{"command":"id"}]}}"#,
+                #"{"method":"workspace.list","params":[]}"#,
+                #"{"method":"workspace.list","params":"invalid"}"#,
+                #"{"method":"workspace.list""#,
+                "list_workspaces"
+            ] {
+                let exchange = try runPolicyRelayExchange(port: port, relayID: relayID,
+                    tokenHex: tokenHex, commandLine: request)
+                expectDenial(exchange, unixServer, request)
+            }
+        }
+    }
+
+    @Test("agent message methods allow targets owned by the remote session")
+    func allowsOwnedAgentMessageTargets() throws {
+        let workspace = UUID()
+        let surface = UUID()
+        try withServer(
+            workspaceAliases: [workspace: workspace],
+            surfaceAliases: [surface: surface]
+        ) { port, unixServer in
+            for (id, method, params) in [
+                ("m1", "agent.message.poll", [
+                    "surface_id": surface.uuidString,
+                    "poller_key": "poller",
+                ]),
+                ("m2", "agent.message.claim", [
+                    "surface_id": surface.uuidString,
+                    "via": "hook",
+                ]),
+                ("m3", "agent.message.mark_read", [
+                    "surface_id": surface.uuidString,
+                ]),
+                ("m4", "agent.message.list", [
+                    "surface": surface.uuidString,
+                ]),
+                ("m5", "agent.message.send", [
+                    "target": workspace.uuidString,
+                    "body": "hello",
+                ]),
+            ] {
+                let request: [String: Any] = [
+                    "id": id,
+                    "method": method,
+                    "params": params,
+                ]
+                let data = try JSONSerialization.data(withJSONObject: request)
+                let exchange = try runPolicyRelayExchange(
+                    port: port,
+                    relayID: relayID,
+                    tokenHex: tokenHex,
+                    commandLine: String(decoding: data, as: UTF8.self)
+                )
+                #expect(exchange.responseLines.first?["ok"] as? Bool == true, "\(method): \(exchange.rawResponse)")
+            }
+            #expect(unixServer.requests.count == 5)
+        }
+    }
+
+    @Test("agent message send rejects an unowned target")
+    func deniesUnownedAgentMessageTarget() throws {
+        let ownedWorkspace = UUID()
+        let unownedWorkspace = UUID()
+        try withServer(workspaceAliases: [ownedWorkspace: ownedWorkspace]) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"m6","method":"agent.message.send","params":{"target":"\(unownedWorkspace.uuidString)","body":"hello"}}
+                """
+            )
+            expectDenial(exchange, unixServer, "unowned agent message target")
+        }
+    }
+
+    @Test("agent message send requires a target")
+    func deniesMissingAgentMessageTarget() throws {
+        try withServer { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: #"{"id":"m7","method":"agent.message.send","params":{"body":"hello"}}"#
+            )
+            expectDenial(exchange, unixServer, "missing agent message target")
+        }
+    }
+
+    @Test("agent message mark_read rejects unscoped message ids", arguments: ["id", "ids"])
+    func deniesUnscopedAgentMessageIDs(key: String) throws {
+        let surface = UUID()
+        try withServer(surfaceAliases: [surface: surface]) { port, unixServer in
+            let value: Any = key == "id" ? "message-id" : ["message-id"]
+            let request: [String: Any] = [
+                "id": "m8-\(key)",
+                "method": "agent.message.mark_read",
+                "params": [
+                    "surface_id": surface.uuidString,
+                    key: value,
+                ],
+            ]
+            let data = try JSONSerialization.data(withJSONObject: request)
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: String(decoding: data, as: UTF8.self)
+            )
+            expectDenial(exchange, unixServer, "mark_read \(key)")
+        }
+    }
+
+    @Test("agent message send rejects replies through the relay")
+    func deniesAgentMessageReplyTo() throws {
+        try withServer { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: #"{"id":"m9","method":"agent.message.send","params":{"reply_to":"message-id","body":"hello"}}"#
+            )
+            expectDenial(exchange, unixServer, "agent message reply_to")
+        }
+    }
+
+    @Test("agent message send rejects spoofed sender ids", arguments: [
+        "sender_surface_id", "sender_workspace_id"
+    ])
+    func deniesSpoofedAgentMessageSenderID(key: String) throws {
+        let ownedWorkspace = UUID()
+        let ownedSurface = UUID()
+        let unownedID = UUID()
+        try withServer(
+            workspaceAliases: [ownedWorkspace: ownedWorkspace],
+            surfaceAliases: [ownedSurface: ownedSurface]
+        ) { port, unixServer in
+            let request: [String: Any] = [
+                "id": "m10-\(key)",
+                "method": "agent.message.send",
+                "params": [
+                    "target": ownedWorkspace.uuidString,
+                    "body": "hello",
+                    key: unownedID.uuidString,
+                ],
+            ]
+            let data = try JSONSerialization.data(withJSONObject: request)
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: String(decoding: data, as: UTF8.self)
+            )
+            expectDenial(exchange, unixServer, "spoofed \(key)")
+        }
+    }
+
     private func withServer(
         workspaceAliases: [UUID: UUID] = [:],
         surfaceAliases: [UUID: UUID] = [:],
@@ -106,6 +285,59 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    @Test("terminal.paste to an owned remote surface is forwarded")
+    func allowsAliasedTerminalPaste() throws {
+        let workspace = UUID()
+        let surface = UUID()
+        try withServer(
+            workspaceAliases: [workspace: workspace],
+            surfaceAliases: [surface: surface]
+        ) { port, unixServer in
+            for submitKey in ["none", "return"] {
+                let exchange = try runPolicyRelayExchange(
+                    port: port,
+                    relayID: relayID,
+                    tokenHex: tokenHex,
+                    commandLine: """
+                    {"id":"paste-\(submitKey)","method":"terminal.paste","params":{"workspace_id":"\(workspace.uuidString)","surface_id":"\(surface.uuidString)","text":"line one\\nline two","submit_key":"\(submitKey)"}}
+                    """
+                )
+                #expect(exchange.responseLines.first?["ok"] as? Bool == true, "\(submitKey): \(exchange.rawResponse)")
+            }
+            #expect(unixServer.requests.count == 2)
+        }
+    }
+
+    @Test("terminal.paste with command params, fallback selectors, or other submit keys is denied")
+    func deniesUnsafeTerminalPaste() throws {
+        let workspace = UUID()
+        let surface = UUID()
+        try withServer(
+            workspaceAliases: [workspace: workspace],
+            surfaceAliases: [surface: surface]
+        ) { port, unixServer in
+            let target = #""workspace_id":"\#(workspace.uuidString)","surface_id":"\#(surface.uuidString)""#
+            for params in [
+                #"{\#(target),"text":"x","submit_key":"none","command":"touch /tmp/pwned"}"#,
+                #"{\#(target),"text":"x","submit_key":"none","initial_command":"touch /tmp/pwned"}"#,
+                #"{\#(target),"text":"x","submit_key":"none","window_id":"window:1"}"#,
+                #"{\#(target),"text":"x","submit_key":"ctrl+enter"}"#,
+                #"{\#(target),"text":"x"}"#,
+                #"{\#(target),"text":7,"submit_key":"none"}"#,
+                #"{"workspace_id":"\#(workspace.uuidString)","surface_id":17,"text":"x","submit_key":"none"}"#,
+            ] {
+                let request = #"{"id":"paste-deny","method":"terminal.paste","params":\#(params)}"#
+                let exchange = try runPolicyRelayExchange(
+                    port: port,
+                    relayID: relayID,
+                    tokenHex: tokenHex,
+                    commandLine: request
+                )
+                expectDenial(exchange, unixServer, request)
+            }
+        }
+    }
+
     @Test("methods outside the relay allowlist are denied")
     func deniesNonAllowlistedMethod() throws {
         try withServer { port, unixServer in
@@ -116,6 +348,58 @@ struct RemoteCLIRelayPolicyTests {
                 commandLine: #"{"id":"p5","method":"system.exec","params":{"command":"id"}}"#
             )
             expectDenial(exchange, unixServer, "non-allowlisted method")
+        }
+    }
+
+    @Test("browser uploads cannot read local files through the remote relay")
+    func deniesBrowserFileInputEvenOnOwnedSurface() throws {
+        let alias = (remote: UUID(), local: UUID())
+        try withServer(surfaceAliases: [alias.remote: alias.local]) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"upload","method":"browser.set_input_files","params":{"surface_id":"\(alias.remote.uuidString)","selector":"input","files":["/tmp/private.csv"]}}
+                """
+            )
+            expectDenial(exchange, unixServer, "local file upload through remote relay")
+        }
+    }
+
+    /// `workspace.reorder` has no relay parameter contract, so the method gate
+    /// denies it before any selector is read.
+    ///
+    /// The selectors below are UUIDs on purpose. Ref-form selectors such as
+    /// `workspace:1` are rejected by the *selector* gate
+    /// (`RemoteRelayCommandPolicy.malformedSelector`) whether or not the method
+    /// is allowlisted, so a ref-form payload reports `remote_relay_denied`
+    /// either way and this test would stay green through exactly the
+    /// regression it exists to catch. With UUIDs, the method gate is the only
+    /// thing left denying these, so allowlisting `workspace.reorder` turns them
+    /// into `ALLOW` and fails the test.
+    @Test("workspace.reorder has no relay contract")
+    func workspaceReorderHasNoRelayContract() {
+        #expect(
+            RemoteRelayRoutingSchema().parameters(for: "workspace.reorder") == nil,
+            "workspace.reorder must stay absent from the relay routing schema"
+        )
+    }
+
+    @Test("workspace.reorder is denied through a relay", arguments: [
+        #"{"id":"p5r","method":"workspace.reorder","params":{"workspace_id":"1EA7D9C4-0000-4000-8000-00000000A001","index":0}}"#,
+        #"{"id":"p5r","method":"workspace.reorder","params":{"workspace_id":"1EA7D9C4-0000-4000-8000-00000000A001","before_workspace_id":"1EA7D9C4-0000-4000-8000-00000000A002"}}"#,
+        #"{"id":"p5r","method":"workspace.reorder","params":{"workspace_id":"1EA7D9C4-0000-4000-8000-00000000A001","after_workspace_id":"1EA7D9C4-0000-4000-8000-00000000A002"}}"#,
+    ])
+    func deniesWorkspaceReorder(commandLine: String) throws {
+        try withServer { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: commandLine
+            )
+            expectDenial(exchange, unixServer, "workspace.reorder")
         }
     }
 
@@ -260,6 +544,30 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    /// A relayed `create_for_target` with `effects` reaches the local socket with the override intact.
+    @Test("notification.create_for_target carrying an effects override is forwarded")
+    func allowsNotificationCreateForTargetWithEffects() throws {
+        let localWorkspace = UUID()
+        let localSurface = UUID()
+        try withServer(
+            workspaceAliases: [localWorkspace: localWorkspace],
+            surfaceAliases: [localSurface: localSurface]
+        ) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"p15","method":"notification.create_for_target","params":{"workspace_id":"\(localWorkspace.uuidString)","surface_id":"\(localSurface.uuidString)","title":"Done","effects":{"desktop":false}}}
+                """
+            )
+            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
+            #expect(unixServer.requests.count == 1)
+            let forwarded = try #require(unixServer.requests.first)
+            #expect(String(decoding: forwarded, as: UTF8.self).contains("\"effects\":{\"desktop\":false}"))
+        }
+    }
+
     @Test("relay does not learn ownership from unsolicited create responses")
     func createdSurfaceIsImmediatelyUsable() throws {
         // The package relay never treats response fields as an ownership grant;
@@ -274,16 +582,6 @@ struct RemoteCLIRelayPolicyTests {
             workspaceAliases: [workspaceAlias.remote: workspaceAlias.local],
             responseBody: createResponse
         ) { port, unixServer in
-            let split = try runPolicyRelayExchange(
-                port: port,
-                relayID: relayID,
-                tokenHex: tokenHex,
-                commandLine: """
-                {"id":"c1","method":"surface.split","params":{"workspace_id":"\(workspaceAlias.remote.uuidString)","direction":"right"}}
-                """
-            )
-            #expect(split.responseLines.first?["ok"] as? Bool == true)
-
             let send = try runPolicyRelayExchange(
                 port: port,
                 relayID: relayID,
@@ -296,7 +594,7 @@ struct RemoteCLIRelayPolicyTests {
                 send.responseLines.first?["ok"] as? Bool == true,
                 "the created surface must be drivable immediately: \(send.rawResponse)"
             )
-            #expect(unixServer.requests.count == 2)
+            #expect(unixServer.requests.count == 1)
         }
     }
 

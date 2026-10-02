@@ -158,6 +158,32 @@ const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((valu
     });
   }
 });
+const coderouterPublicOrigin = z.string().url().superRefine((value, context) => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "CMUX_CODEROUTER_PUBLIC_ORIGIN must be a valid origin",
+    });
+    return;
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "CMUX_CODEROUTER_PUBLIC_ORIGIN must be an origin-only HTTPS URL",
+    });
+  }
+});
 const stackEnv = (
   value: string | undefined,
   fallback: string
@@ -186,18 +212,29 @@ export const env = createEnv({
   server: {
     RESEND_API_KEY: z.string().min(1),
     CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
+    CMUX_TEAM_INVITE_FROM_EMAIL: z.string().email().optional(),
     // Rate-limit rule ids are all optional: an unset id means that route runs
     // without rate limiting (the operator removed the limits deliberately).
     CMUX_BILLING_RECOVERY_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Team invite, invite-link, team-create, join, and accept routes.
+    CMUX_TEAM_INVITE_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Native ingress gates run before Stack verification, so provider outages
     // cannot turn reconnect/readiness fan-out into an auth-request storm.
     CMUX_PUSH_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: z.string().min(1).optional(),
-    // The deployed handoff route fails closed when this limiter is absent.
+    // Native app and CodeRouter handoff routes fail closed when this limiter
+    // (and the existing feedback fallback) is absent.
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Canonical origin returned with CodeRouter route tokens. Deployed
+    // non-preview runtimes must set this; handoff exchange never trusts a
+    // forwarded/request host in production.
+    CMUX_CODEROUTER_PUBLIC_ORIGIN: requireVercelNonPreviewValue(
+      "CMUX_CODEROUTER_PUBLIC_ORIGIN",
+      coderouterPublicOrigin,
+    ),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
     // APNs push (iOS notifications). Optional: the app boots without them; the
     // push route returns a clear "not configured" error until they are set.
@@ -222,6 +259,10 @@ export const env = createEnv({
     // unavailable.
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
     STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+    // Svix signing secret (`whsec_...`) for the Stack Auth webhook endpoint
+    // `/api/webhooks/stack`. Optional: when unset the route answers 503 and
+    // team removal is enforced only by the reconcile cron.
+    STACK_WEBHOOK_SECRET: z.string().min(1).optional(),
     // Price-id overrides carry the amount in their name, and every retired
     // name fails env validation instead of silently pinning checkout to a
     // grandfathered Price (Stripe amounts are immutable; see plans.ts).
@@ -387,6 +428,11 @@ export const env = createEnv({
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: z.string().max(256).optional(),
     CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT: irohBindingLimit.optional(),
     CMUX_IROH_DEV_BINDING_DEVICE_LIMIT: irohBindingLimit.optional(),
+    // Explicit opt-in for the hosted DEV relay limiter exemption. The route
+    // still requires the development Stack project, a tagged debug namespace,
+    // and membership in CMUX_IROH_DEV_RATE_LIMIT_BYPASS_TEAM_IDS.
+    CMUX_IROH_DEV_RATE_LIMIT_BYPASS_ENABLED: z.enum(["0", "1"]).optional(),
+    CMUX_IROH_DEV_RATE_LIMIT_BYPASS_TEAM_IDS: z.string().max(8_192).optional(),
     // Self-hosted relay fleet. Preview and local builds remain credential-free,
     // while every deployed non-preview runtime must be able to mint endpoint-
     // bound credentials, sign the fleet policy, and enforce its account limit.
@@ -423,15 +469,20 @@ export const env = createEnv({
       process.env.CMUX_BILLING_RECOVERY_RATE_LIMIT_ID,
     ),
     CMUX_FEEDBACK_FROM_EMAIL: trimEnv(process.env.CMUX_FEEDBACK_FROM_EMAIL),
+    CMUX_TEAM_INVITE_FROM_EMAIL: trimEnv(process.env.CMUX_TEAM_INVITE_FROM_EMAIL),
     CMUX_FEEDBACK_RATE_LIMIT_ID: trimEnv(process.env.CMUX_FEEDBACK_RATE_LIMIT_ID),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID),
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
+    CMUX_TEAM_INVITE_RATE_LIMIT_ID: trimEnv(process.env.CMUX_TEAM_INVITE_RATE_LIMIT_ID),
     CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
     CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID,
     ),
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID,
+    ),
+    CMUX_CODEROUTER_PUBLIC_ORIGIN: trimEnv(
+      process.env.CMUX_CODEROUTER_PUBLIC_ORIGIN,
     ),
     CMUX_APNS_KEY_P8: trimEnv(process.env.CMUX_APNS_KEY_P8),
     CMUX_APNS_KEY_ID: trimEnv(process.env.CMUX_APNS_KEY_ID),
@@ -444,6 +495,7 @@ export const env = createEnv({
     CMUX_PRO_FROM_EMAIL: trimEnv(process.env.CMUX_PRO_FROM_EMAIL),
     STRIPE_SECRET_KEY: trimEnv(process.env.STRIPE_SECRET_KEY),
     STRIPE_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_WEBHOOK_SECRET),
+    STACK_WEBHOOK_SECRET: trimEnv(process.env.STACK_WEBHOOK_SECRET),
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),
     STRIPE_PRO_MONTHLY_50_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_50_PRICE_ID),
     STRIPE_PRO_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_PRICE_ID),
@@ -529,6 +581,12 @@ export const env = createEnv({
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS),
     CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT: trimEnv(process.env.CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT),
     CMUX_IROH_DEV_BINDING_DEVICE_LIMIT: trimEnv(process.env.CMUX_IROH_DEV_BINDING_DEVICE_LIMIT),
+    CMUX_IROH_DEV_RATE_LIMIT_BYPASS_ENABLED: trimEnv(
+      process.env.CMUX_IROH_DEV_RATE_LIMIT_BYPASS_ENABLED,
+    ),
+    CMUX_IROH_DEV_RATE_LIMIT_BYPASS_TEAM_IDS: trimEnv(
+      process.env.CMUX_IROH_DEV_RATE_LIMIT_BYPASS_TEAM_IDS,
+    ),
     CMUX_RELAY_JWT_PRIVATE_KEY_PEM: trimEnv(process.env.CMUX_RELAY_JWT_PRIVATE_KEY_PEM),
     CMUX_RELAY_POLICY_KEY_ID: trimEnv(process.env.CMUX_RELAY_POLICY_KEY_ID),
     CMUX_RELAY_POLICY_PRIVATE_KEY_PEM: trimEnv(process.env.CMUX_RELAY_POLICY_PRIVATE_KEY_PEM),

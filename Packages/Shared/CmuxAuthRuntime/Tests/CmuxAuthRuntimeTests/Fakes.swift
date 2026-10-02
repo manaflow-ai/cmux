@@ -17,8 +17,10 @@ final class FakeKeyValueStore: CMUXAuthKeyValueStore, @unchecked Sendable {
 
 /// Scriptable ``AuthClient`` recording calls and returning canned results.
 actor FakeAuthClient: AuthClient {
+    var rejectsRefreshOnAccess = false
     var access: String?
     var refresh: String?
+    private let signInRefreshToken: String?
     /// Result of ``forceRefreshAccessToken()``. When `nil` (the default), the
     /// fake returns the current ``access`` to preserve the original behavior;
     /// set it explicitly to script a force-refresh outcome independent of the
@@ -29,6 +31,10 @@ actor FakeAuthClient: AuthClient {
     private(set) var lastSelectedTeamID: String?
     var serverSelectedTeamID: String?
     var nextCreatedTeamID = "team-created"
+    private(set) var teamSelectionCount = 0
+    private(set) var teamCreateCount = 0
+    private var nextTeamSelectionGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
+    private var nextTeamCreateGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
     var throwOnCurrentUser: (any Error)?
     var throwOnListTeams: (any Error)?
     var nonce = "nonce-123"
@@ -46,12 +52,14 @@ actor FakeAuthClient: AuthClient {
     var mintedAccessToken: String?
     private(set) var lastMintedRefreshToken: String?
 
-    init(access: String? = nil, refresh: String? = nil, user: CMUXAuthUser? = nil) {
+    init(access: String? = nil, refresh: String? = nil, user: CMUXAuthUser? = nil, signInRefreshToken: String? = nil) {
         self.access = access
         self.refresh = refresh
         self.user = user
+        self.signInRefreshToken = signInRefreshToken
     }
 
+    func setRejectsRefreshOnAccess(_ value: Bool) { rejectsRefreshOnAccess = value }
     func setUser(_ user: CMUXAuthUser?) { self.user = user }
     func setTokens(access: String?, refresh: String?) {
         self.access = access
@@ -63,6 +71,12 @@ actor FakeAuthClient: AuthClient {
     func setTeams(_ teams: [CMUXAuthTeam]) { self.teams = teams }
     func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
     func setNonce(_ nonce: String) { self.nonce = nonce }
+    func holdNextTeamSelection(started: TestPhaseSignal, release: TestContinuationBlocker) {
+        nextTeamSelectionGate = (started, release)
+    }
+    func holdNextTeamCreate(started: TestPhaseSignal, release: TestContinuationBlocker) {
+        nextTeamCreateGate = (started, release)
+    }
 
     /// Mirrors the live SDK store: a fresh stored access token is returned
     /// as-is; a STALE one (``setStoredAccessTokenStale(_:)``) is refreshed from
@@ -70,6 +84,7 @@ actor FakeAuthClient: AuthClient {
     /// recorded in ``lastMintedRefreshToken``, and PERSISTED into the store so
     /// a repeat read reuses it instead of re-minting.
     func accessToken() async -> String? {
+        if rejectsRefreshOnAccess { access = nil; refresh = nil; return nil }
         if storedAccessIsStale, let refresh {
             mintedAccessTokenCount += 1
             lastMintedRefreshToken = refresh
@@ -104,11 +119,25 @@ actor FakeAuthClient: AuthClient {
     func selectedTeamID() async throws -> String? { serverSelectedTeamID }
 
     func setSelectedTeam(id: String?) async throws {
+        teamSelectionCount += 1
+        let gate = nextTeamSelectionGate
+        nextTeamSelectionGate = nil
+        if let gate {
+            await gate.started.markStarted()
+            await gate.release.wait()
+        }
         lastSelectedTeamID = id
         serverSelectedTeamID = id
     }
 
     func createTeam(displayName: String) async throws -> CMUXAuthTeam {
+        teamCreateCount += 1
+        let gate = nextTeamCreateGate
+        nextTeamCreateGate = nil
+        if let gate {
+            await gate.started.markStarted()
+            await gate.release.wait()
+        }
         let team = CMUXAuthTeam(id: nextCreatedTeamID, displayName: displayName)
         teams.append(team)
         lastSelectedTeamID = team.id
@@ -126,6 +155,7 @@ actor FakeAuthClient: AuthClient {
     func signInWithCredential(email: String, password: String) async throws {
         signedInWithCredential = (email, password)
         access = "access"
+        if let signInRefreshToken { refresh = signInRefreshToken }
     }
 
     func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {

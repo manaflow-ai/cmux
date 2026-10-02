@@ -309,6 +309,7 @@ extension DockSplitStore {
             customTitleSource: titleMetadata.customTitleSource,
             manuallyUnread: wasManuallyUnread,
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
+            promptState: preservedTransfer?.promptState,
             restorableAgent: transferredRestorableAgent,
             restorableAgentResumeState: transferredResumeState,
             restoredAgentCompletedGeneration: transferredCompletedGeneration,
@@ -377,7 +378,7 @@ extension DockSplitStore {
         atIndex index: Int? = nil,
         focus: Bool = true
     ) -> UUID? {
-        guard !isRetired else { return nil }
+        guard !isRetired, acceptsDetachedSurface(detached) else { return nil }
         guard containsPane(paneId.id), panels[detached.panelId] == nil else { return nil }
         let panel = detached.panel
         panel.retainTransferredSurfaceMachine(detached.surfaceMachine)
@@ -471,7 +472,7 @@ extension DockSplitStore {
         insertFirst: Bool,
         focus: Bool = true
     ) -> UUID? {
-        guard !isRetired else { return nil }
+        guard !isRetired, acceptsDetachedSurface(detached) else { return nil }
         guard containsPane(paneId.id), panels[detached.panelId] == nil else {
             return nil
         }
@@ -575,8 +576,8 @@ extension DockSplitStore {
                     window: NSApp.keyWindow ?? NSApp.mainWindow
                 )
             }
+            scheduleDockPortalReconcile(reason: reconcileReason)
         }
-        scheduleDockPortalReconcile(reason: reconcileReason)
     }
 
     /// Returns the Bonsplit tab kind for a transferred Dock panel.

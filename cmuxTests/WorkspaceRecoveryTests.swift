@@ -1,3 +1,4 @@
+import CmuxSettings
 import CmuxWorkspaces
 import Foundation
 import Testing
@@ -307,9 +308,13 @@ struct WorkspaceRecoveryTests {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let store = fixture.store
+        // Read settings from the fixture suite, not UserDefaults.standard:
+        // app-host test processes on one machine share the standard domain,
+        // so another run's inheritance toggle would change the directory here.
         let manager = TabManager(
             initialWorkingDirectory: directory,
             autoWelcomeIfNeeded: false,
+            settings: UserDefaultsSettingsClient(defaults: fixture.defaults),
             workspaceCustomizationStore: store
         )
         let sourceWorkspace = try #require(manager.selectedWorkspace)

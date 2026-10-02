@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CMUXAuthCore
 import CmuxIrohTransport
 import CmuxAuthRuntime
 import CmuxSettings
@@ -12,6 +13,19 @@ import Testing
 #endif
 
 struct MobileHostServiceSettingsTests {
+    @Test("Mac discovery and hosting never enable the iOS pairing setting", arguments: [false, true], [false, true])
+    func macPreferencesDoNotEnablePhonePairing(discovery: Bool, incoming: Bool) throws {
+        let suiteName = "MobileHostServiceSettingsTests.mac-isolation.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
+        defaults.set(discovery, forKey: DevicesCatalogSection().discoveryEnabled.userDefaultsKey)
+        defaults.set(incoming, forKey: DevicesCatalogSection().incomingAccessEnabled.userDefaultsKey)
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
+        defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
+    }
+
     @Test(arguments: [BuildFlavor.dev, .nightly, .stable])
     func pairingRequiresExplicitOptInAndPreservesHistoricalChoice(buildFlavor: BuildFlavor) throws {
         let suiteName = "MobileHostServiceSettingsTests.v2.\(UUID().uuidString)"
@@ -240,5 +254,85 @@ private final class MobileHostRuntimeProbe: MobileHostPairingRuntime {
                 Task { @MainActor in self?.subscribers.removeValue(forKey: id) }
             }
         }
+    }
+}
+
+@Suite(.timeLimit(.minutes(1)))
+@MainActor
+struct MobilePairingAuthDeadlineRecoveryTests {
+    @Test("Team loading can finish after the pairing deadline", arguments: [false, true], [false, true])
+    func teamScopeRecoversAfterDeadline(duringBootstrap: Bool, closeBeforeRecovery: Bool) async throws {
+        let suite = "MobilePairingAuthDeadlineRecoveryTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let session = CMUXAuthSessionCache(keyValueStore: defaults, key: "session")
+        session.setHasTokens(true)
+        let user = CMUXAuthIdentityStore(keyValueStore: defaults, key: "user")
+        try user.save(MobilePairingRecoveryAuthClient.user)
+        let client = MobilePairingRecoveryAuthClient()
+        let auth = AuthCoordinator(
+            client: client,
+            sessionCache: session,
+            userCache: user,
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "team"),
+            anchor: AuthPresentationContextProvider(),
+            config: AuthConfig(
+                stack: CMUXAuthConfig(projectId: "fixture", publishableClientKey: "fixture"),
+                magicLinkCallbackURL: "http://127.0.0.1:1/callback", apiBaseURL: "http://127.0.0.1:1"
+            ),
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false, mockDataEnabled: false,
+                environment: [:], includesDevAuth: false
+            ),
+            clock: SidebarTestManualClock()
+        )
+        if !duringBootstrap { await client.failTeams(true) }
+        auth.start()
+        if !duringBootstrap {
+            await auth.awaitBootstrapped()
+            await client.failTeams(false)
+        }
+        let runtime = MobileHostRuntimeProbe(state: .init(
+            phase: .ready, boundPort: 58465, preferredPort: 58465,
+            hasAuthenticatedRegistration: true
+        ))
+        let clock = SidebarTestManualClock()
+        let model = MobilePairingModel(
+            host: MobileHostService(defaults: defaults, runtime: runtime),
+            coordinator: auth,
+            isListeningEnabled: { true },
+            preparationClock: clock,
+            preparationTimeout: .seconds(30)
+        )
+        defer { model.stopObserving() }
+        let refresh = Task { await model.refresh() }
+        await client.waitForTeamRequest(duringBootstrap ? 1 : 2)
+        await clock.waitUntilSleeping()
+        let deadline = try #require(model.preparationTimeoutTask)
+        clock.advance(by: .seconds(30))
+        await deadline.value
+        guard case .failed = model.state else {
+            Issue.record("The deadline should expose recovery while team loading is pending")
+            await client.completeTeamRequest()
+            await refresh.value
+            return
+        }
+        let failed = model.state
+        if closeBeforeRecovery { model.stopObserving() }
+        await client.completeTeamRequest()
+        await refresh.value
+        #expect(auth.authenticatedTeamScope != nil)
+        if closeBeforeRecovery {
+            #expect(model.state == failed)
+            #expect(runtime.startCount == 0)
+        } else {
+            guard case .ready = model.state else {
+                Issue.record("A team that loads after the deadline must recover the open pairing sheet")
+                await auth.signOut()
+                return
+            }
+            #expect(runtime.startCount == 1)
+        }
+        await auth.signOut()
     }
 }

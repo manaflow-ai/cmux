@@ -5,7 +5,12 @@ import Foundation
 /// can never block re-admission (the old stack held a dead QUIC session ~85s
 /// and blocked the relaunched app).
 public actor IrxServerSessionRegistry {
-    private var sessionsByDevice: [String: (session: String, connection: IrxConnection)] = [:]
+    private typealias Entry = (
+        session: String,
+        connection: IrxConnection,
+        stillAuthorized: @Sendable (_ remoteEndpointIDHex: String) -> Bool
+    )
+    private var sessionsByDevice: [String: Entry] = [:]
     private let journal: IrxJournal
 
     public init(journal: IrxJournal) {
@@ -35,7 +40,8 @@ public actor IrxServerSessionRegistry {
             return false
         }
         let previous = sessionsByDevice.updateValue(
-            (sessionID, connection), forKey: deviceID)
+            (session: sessionID, connection: connection, stillAuthorized: stillAuthorized),
+            forKey: deviceID)
         if let previous {
             journal.record(
                 "registry", "superseded",
@@ -56,6 +62,29 @@ public actor IrxServerSessionRegistry {
     public func closeAll(code: IrxCloseCode) async {
         let entries = Array(sessionsByDevice)
         for (deviceID, entry) in entries {
+            await entry.connection.close(code: code, origin: .local)
+            if sessionsByDevice[deviceID]?.session == entry.session {
+                sessionsByDevice[deviceID] = nil
+            }
+        }
+    }
+
+    /// Re-runs every live session's own admission check (directory
+    /// enforcement after a lease apply): a peer that is revoked, delisted, or
+    /// whose admitted identity no longer matches the directory is cut NOW
+    /// with `code`, not at its next request.
+    public func closeUnauthorized(code: IrxCloseCode) async {
+        let entries = Array(sessionsByDevice)
+        for (deviceID, entry) in entries
+        where !entry.stillAuthorized(entry.connection.remoteEndpointIDHex) {
+            journal.record(
+                "registry", "list-enforced-close",
+                [
+                    "device": deviceID,
+                    "session": entry.session,
+                    "code": code.rawValue,
+                ]
+            )
             await entry.connection.close(code: code, origin: .local)
             if sessionsByDevice[deviceID]?.session == entry.session {
                 sessionsByDevice[deviceID] = nil

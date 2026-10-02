@@ -53,3 +53,11 @@ new_sqlite_classes = ["AccountControlPlane"]
 [[routes]]
 pattern = "presence.cmux.dev"
 custom_domain = true
+
+[[durable_objects.bindings]]
+name = "WORKSPACE_PRESENCE"
+class_name = "WorkspacePresence"
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["WorkspacePresence"]

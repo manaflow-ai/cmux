@@ -77,11 +77,45 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// it is always reachable regardless of the button row's scroll position.
     private weak var composerButton: UIButton?
     private weak var accessoryArrowNub: TerminalArrowNubView?
+    private var accessoryOffsetNeedsReconciliation = false
+
+    /// Decides how the shortcut-row offset should react to a layout change.
+    /// UIKit owns the offset during a drag, deceleration, or edge bounce. A
+    /// deferred layout change clamps stale bounds after that interaction ends.
+    func accessoryOffsetDecision(
+        geometryChanged: Bool,
+        interactionActive: Bool,
+        previousOffset: CGFloat,
+        currentOffset: CGFloat,
+        minimumOffset: CGFloat,
+        maximumOffset: CGFloat,
+        wasAtLeadingEdge: Bool,
+        wasAtTrailingEdge: Bool,
+        preserveEdge: Bool = true
+    ) -> AccessoryOffsetDecision {
+        guard geometryChanged else { return .leaveUnchanged }
+        guard !interactionActive else { return .deferUntilScrollEnds }
+
+        let targetOffset: CGFloat
+        if !preserveEdge,
+           currentOffset < minimumOffset - 0.5 || currentOffset > maximumOffset + 0.5 {
+            targetOffset = min(max(currentOffset, minimumOffset), maximumOffset)
+        } else if wasAtLeadingEdge {
+            targetOffset = minimumOffset
+        } else if wasAtTrailingEdge {
+            targetOffset = maximumOffset
+        } else {
+            targetOffset = min(max(previousOffset, minimumOffset), maximumOffset)
+        }
+
+        guard abs(currentOffset - targetOffset) > 0.5 else { return .leaveUnchanged }
+        return .set(targetOffset)
+    }
     /// The armed/sticky modifier state machine, extracted into the testable
     /// ``TerminalInputModifierState`` reducer. This view is now a dumb
     /// first-responder that forwards taps into the reducer and reads its state
     /// back for byte encoding and button styling.
-    private var modifierState = TerminalInputModifierState()
+    var modifierState = TerminalInputModifierState()
     private var controlAccessoryArmed: Bool { modifierState.isArmed(.control) }
     private var alternateAccessoryArmed: Bool { modifierState.isArmed(.alternate) }
     private var commandAccessoryArmed: Bool { modifierState.isArmed(.command) }
@@ -390,7 +424,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let scrollView = AccessoryEdgeFadeScrollView()
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
+        scrollView.delegate = self
+        // Keep UIKit's native horizontal drag, deceleration, and edge-bounce
+        // physics. Offset preservation below must never replace that gesture
+        // state with an immediate clamp.
+        scrollView.bounces = true
         scrollView.alwaysBounceHorizontal = true
+        scrollView.decelerationRate = .normal
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         // The scroll view's FRAME starts flush at the composer button's
         // trailing edge; the 4pt visual gap the frame constant used to carry
@@ -582,9 +622,22 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let rightInset = max(0, insets.right)
         let scrollView = accessoryStackView?.superview as? UIScrollView
         let previousOffset = scrollView?.contentOffset.x ?? 0
+        let previousBoundsSize = scrollView?.bounds.size
+        let previousContentSize = scrollView?.contentSize
+        let previousAdjustedContentInset = scrollView?.adjustedContentInset
         let wasAtLeadingEdge = scrollView.map { scroll in
             previousOffset <= -scroll.adjustedContentInset.left + 1
         } ?? true
+        let wasAtTrailingEdge = scrollView.map { scroll in
+            let minimumOffset = -scroll.adjustedContentInset.left
+            let maximumOffset = max(
+                minimumOffset,
+                scroll.contentSize.width
+                    - scroll.bounds.width
+                    + scroll.adjustedContentInset.right
+            )
+            return previousOffset >= maximumOffset - 1
+        } ?? false
 
         accessoryBackgroundLeadingConstraint?.constant = leftInset
         accessoryBackgroundTrailingConstraint?.constant = -rightInset
@@ -603,6 +656,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             // pinned to the new minimum, and a mid-scroll position is
             // preserved, clamped to the new valid range.
             guard let scrollView else { return }
+            let geometryChanged = previousBoundsSize != scrollView.bounds.size
+                || previousContentSize != scrollView.contentSize
+                || previousAdjustedContentInset != scrollView.adjustedContentInset
             let minimumOffset = -scrollView.adjustedContentInset.left
             let maximumOffset = max(
                 minimumOffset,
@@ -610,15 +666,69 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                     - scrollView.bounds.width
                     + scrollView.adjustedContentInset.right
             )
-            let targetOffset = wasAtLeadingEdge
-                ? minimumOffset
-                : min(max(previousOffset, minimumOffset), maximumOffset)
-            guard abs(scrollView.contentOffset.x - targetOffset) > 0.5 else { return }
-            scrollView.setContentOffset(
-                CGPoint(x: targetOffset, y: scrollView.contentOffset.y),
-                animated: false
+            let interactionActive = scrollView.isTracking
+                || scrollView.isDragging
+                || scrollView.isDecelerating
+            guard geometryChanged || accessoryOffsetNeedsReconciliation else { return }
+            let decision = accessoryOffsetDecision(
+                geometryChanged: true,
+                interactionActive: interactionActive,
+                previousOffset: previousOffset,
+                currentOffset: scrollView.contentOffset.x,
+                minimumOffset: minimumOffset,
+                maximumOffset: maximumOffset,
+                wasAtLeadingEdge: wasAtLeadingEdge,
+                wasAtTrailingEdge: wasAtTrailingEdge,
+                preserveEdge: !accessoryOffsetNeedsReconciliation
             )
+            switch decision {
+            case .deferUntilScrollEnds:
+                accessoryOffsetNeedsReconciliation = true
+            case .leaveUnchanged:
+                accessoryOffsetNeedsReconciliation = false
+            case let .set(targetOffset):
+                accessoryOffsetNeedsReconciliation = false
+                scrollView.setContentOffset(
+                    CGPoint(x: targetOffset, y: scrollView.contentOffset.y),
+                    animated: false
+                )
+            }
         }
+    }
+
+    private func reconcileAccessoryOffsetAfterScroll() {
+        guard accessoryOffsetNeedsReconciliation,
+              let scrollView = accessoryStackView?.superview as? UIScrollView,
+              !scrollView.isTracking,
+              !scrollView.isDragging,
+              !scrollView.isDecelerating else {
+            return
+        }
+
+        let minimumOffset = -scrollView.adjustedContentInset.left
+        let maximumOffset = max(
+            minimumOffset,
+            scrollView.contentSize.width
+                - scrollView.bounds.width
+                + scrollView.adjustedContentInset.right
+        )
+        let decision = accessoryOffsetDecision(
+            geometryChanged: true,
+            interactionActive: false,
+            previousOffset: scrollView.contentOffset.x,
+            currentOffset: scrollView.contentOffset.x,
+            minimumOffset: minimumOffset,
+            maximumOffset: maximumOffset,
+            wasAtLeadingEdge: false,
+            wasAtTrailingEdge: false,
+            preserveEdge: false
+        )
+        accessoryOffsetNeedsReconciliation = false
+        guard case let .set(targetOffset) = decision else { return }
+        scrollView.setContentOffset(
+            CGPoint(x: targetOffset, y: scrollView.contentOffset.y),
+            animated: false
+        )
     }
 
     /// Build (or rebuild) the SCROLLABLE button row: the user's configured order
@@ -1117,7 +1227,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             // and background styling so resting custom icons stay white and
             // armed built-ins keep their blue active state.
             let restingForeground = themeChromeColor
-            let activeForeground = UIColor.systemBlue.terminalReadableForeground
+            let activeForeground = UIColor.terminalAccessoryActiveForeground
             config.imageColorTransformer = UIConfigurationColorTransformer { _ in
                 armed || sticky ? activeForeground : restingForeground
             }
@@ -1131,11 +1241,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         config.contentInsets = Self.accessoryButtonContentInsets
         button.configuration = config
         if let actionButton = button as? AccessoryActionButton {
-            actionButton.stickyLockBorderColor = UIColor.systemBlue.terminalReadableForeground
+            actionButton.stickyLockBorderColor = UIColor.terminalAccessoryActiveForeground
             // On iOS 26 the armed and sticky states share the same prominent-glass blue fill, so the double-tap *lock* is
-            // distinguished by a white capsule border drawn over the glass (see
+            // distinguished by an appearance-aware capsule border drawn over the glass (see
             // ``AccessoryActionButton/isStickyLocked``). On earlier OSes the
-            // flat style already renders the locked white stroke through the
+            // flat style already renders the locked contrasting stroke through the
             // background configuration, so the layer border stays off to avoid
             // a doubled stroke.
             if #available(iOS 26.0, *) {
@@ -1148,7 +1258,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     private func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
         let activeBackground = UIColor.systemBlue
-        let activeForeground = activeBackground.terminalReadableForeground
+        let activeForeground = UIColor.terminalAccessoryActiveForeground
         if #available(iOS 26.0, *) {
             var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
             config.baseForegroundColor = armed || sticky ? activeForeground : themeChromeColor
@@ -1685,4 +1795,19 @@ extension TerminalInputTextView {
     // hook is a no-op because there is no document placeholder to strip.
     func insertDictationResultPlaceholder() -> Any { "" }
     func removeDictationResultPlaceholder(_ placeholder: Any, willInsertResult: Bool) {}
+}
+
+extension TerminalInputTextView: UIScrollViewDelegate {
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        guard let accessoryScrollView = accessoryStackView?.superview as? UIScrollView,
+              scrollView === accessoryScrollView,
+              !decelerate else { return }
+        reconcileAccessoryOffsetAfterScroll()
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        guard let accessoryScrollView = accessoryStackView?.superview as? UIScrollView,
+              scrollView === accessoryScrollView else { return }
+        reconcileAccessoryOffsetAfterScroll()
+    }
 }

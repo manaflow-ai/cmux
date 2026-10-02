@@ -1,4 +1,5 @@
 import CmuxCloudImagePaste
+import CmuxCloudTui
 import Foundation
 import Testing
 
@@ -91,7 +92,7 @@ struct CloudImagePasteMirrorIntegrationTests {
         let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         #expect(identify.cmd == "identify")
         fixture.send(["id": identify.id, "ok": true, "data": [
-            "protocol": 12, "capabilities": ["view-attachment-lease-v1", CloudImagePasteCoordinator.capability]
+            "protocol": 12, "capabilities": ["view-attachment-lease-v1", "terminal-pending-sequence-v1", CloudImagePasteCoordinator.capability]
         ]])
         let clientInfo = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         #expect(clientInfo.cmd == "set-client-info")

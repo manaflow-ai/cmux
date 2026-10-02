@@ -1,14 +1,21 @@
 import Foundation
 import Testing
 import CmuxAuthRuntime
+import CmuxMobileShellModel
 @testable import CmuxIrxTransport
 @testable import cmuxFeature
 
 @Suite(.timeLimit(.minutes(1)))
 struct MobileIrxRuntimeLifecycleTests {
+    /// How long to wait for an event that should arrive promptly. Alone these
+    /// tests finish in ~25 ms, but the full simulator suite runs hundreds of
+    /// tests in parallel and has stalled this one for ~6 s. A regression still
+    /// fails: the blocked close is released only after the waits return.
+    private static let eventBudget: Duration = .seconds(15)
+
     @Test
     func endpointReadyPublishesRuntimeChanges() async {
-        let composition = makeComposition()
+        let composition = await makeComposition()
         let updates = await composition.changes()
         var initial = updates.makeAsyncIterator()
         _ = await initial.next()
@@ -19,7 +26,7 @@ struct MobileIrxRuntimeLifecycleTests {
                 return await iterator.next() != nil
             }
             group.addTask {
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: Self.eventBudget)
                 return false
             }
             let result = await group.next() ?? false
@@ -32,7 +39,7 @@ struct MobileIrxRuntimeLifecycleTests {
 
     @Test(arguments: [false, true])
     func nextScopeDoesNotWaitForOldSocketClose(signOutHook: Bool) async throws {
-        let composition = makeComposition()
+        let composition = await makeComposition()
         let previous = scope(generation: 1)
         let next = scope(generation: 2)
         let started = AsyncStream<Void>.makeStream()
@@ -54,7 +61,7 @@ struct MobileIrxRuntimeLifecycleTests {
                 http: { _ in throw V2ControlFailure.stopped }, stackAccessToken: { _ in "test" },
                 sign: { _ in Data() }),
             store: V2FileStateStore(rootDirectory: composition.configuration.stateDirectory,
-                fileManager: FileManager())
+                fileManager: FileManager(), identityKey: V2IdentityKey())
         )
         await control.installLifecycleTestSocket(socket)
         await composition.installLifecycleTestRuntime(scope: previous, control: control)
@@ -86,7 +93,7 @@ struct MobileIrxRuntimeLifecycleTests {
                 return await iterator.next() != nil
             }
             group.addTask {
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: Self.eventBudget)
                 return false
             }
             let result = await group.next() ?? false
@@ -100,6 +107,7 @@ struct MobileIrxRuntimeLifecycleTests {
             teamID: "team", generation: generation)
     }
 
+    @MainActor
     private func makeComposition() -> MobileIrxRuntimeComposition {
         MobileIrxRuntimeComposition(
             configuration: MobileIrohV2Configuration(
@@ -112,7 +120,8 @@ struct MobileIrxRuntimeLifecycleTests {
                 displayName: "Test",
                 stateDirectory: FileManager.default.temporaryDirectory
                     .appendingPathComponent("cmux-iroh-runtime-tests-\(UUID().uuidString)")
-            )
+            ),
+            macListAuthState: MobileMacListAuthState()
         )
     }
 }

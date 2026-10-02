@@ -20,6 +20,15 @@ public enum ManagedDevicePolicyKey: String, CaseIterable, Sendable {
     /// listener, connection admission, and device pairing.
     case disableRemoteControl = "DisableRemoteControl"
 
+    /// Disables discovery of other account Macs in the My Devices surfaces.
+    /// Incoming access to this Mac is controlled independently by
+    /// ``disableIncomingDeviceAccess``.
+    case disableDeviceDiscovery = "DisableDeviceDiscovery"
+
+    /// Disables this Mac accepting incoming account-device or iOS sessions.
+    /// Outbound discovery and control remain available unless separately denied.
+    case disableIncomingDeviceAccess = "DisableIncomingDeviceAccess"
+
     /// Disables cmux Cloud Machines and the cmux-managed private network. This
     /// is a tier-0 administrator gate: the sidebar, Settings, palette, session
     /// restore, the surface registry, Cloud VM service calls, the tunnel, and

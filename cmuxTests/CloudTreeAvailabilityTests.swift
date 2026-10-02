@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -43,6 +45,62 @@ struct CloudTreeAvailabilityTests {
             localWorkspaces: []
         )
         #expect(catalogOnly.map(\.id) == ["machine:ghost"])
+    }
+
+    @Test
+    func testUnavailableMachineRowsDoNotExposeDiagnosticTokens() {
+        let info = machineInfo(
+            .cloud("unreachable-fox"),
+            linkState: .unavailable,
+            linkError: "cloud_api_unavailable",
+            hasDesktop: false
+        )
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: "unreachable-fox")],
+            snapshot: SurfaceCatalogSnapshot(machines: [info], resources: [], projections: []),
+            localWorkspaces: []
+        )
+        let tokenPattern = #"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$"#
+        let rowTexts = CloudTreeNodeBuilder.flattened(nodes).compactMap { node -> String? in
+            guard case .placeholder(_, let placeholder) = node.kind else { return nil }
+            return placeholder.text
+        }
+        #expect(rowTexts.allSatisfy { $0.range(of: tokenPattern, options: .regularExpression) == nil })
+
+        let displayInfo = machineInfo(
+            .cloud("unreachable-fox"),
+            linkState: .error,
+            linkError: "cloud_api_unavailable",
+            hasDesktop: false
+        )
+        let displayNode = CloudMachineSurfacePresentation.emptyDisplays(info: displayInfo)
+        if case .placeholder(_, let placeholder) = displayNode.kind {
+            #expect(placeholder.text.range(of: tokenPattern, options: .regularExpression) == nil)
+        } else {
+            Issue.record("Expected a display placeholder")
+        }
+    }
+
+    @Test
+    func testConnectingMachineStillRendersAReceiptWorkspace() {
+        let machine = SurfaceMachineID.cloud("cold-create")
+        let workspace = SurfaceRemoteWorkspace(id: "ws-receipt", name: "New workspace", index: 0, focused: false)
+        var info = machineInfo(machine, linkState: .connecting, hasDesktop: false, remoteWorkspaces: [workspace])
+        var snapshot = SurfaceCatalogSnapshot(
+            machines: [info], resources: [], projections: []
+        )
+        snapshot.pendingWorkspaceCreations = [machine: [workspace.id: UUID()]]
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: machine.rawValue)], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false
+        )
+        let flattened = CloudTreeNodeBuilder.flattened(nodes)
+        #expect(flattened.contains { node in
+            if case .workspace(_, let row, _, _, let openIn) = node.kind {
+                return row.id == workspace.id && openIn != nil
+            }
+            return false
+        })
+        _ = info
     }
 
 

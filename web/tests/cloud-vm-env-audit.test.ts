@@ -43,17 +43,18 @@ type Manifest = {
   }>;
 };
 
-type Readiness = {
+// One leg of the coherence audit: the provider it checked, the env var and
+// image it resolved (with where the image came from), and anything missing.
+interface ProviderAuditLeg {
   provider: string;
   envVar: string | null;
   image: string | null;
   imageSource?: string;
   problems: string[];
-};
+}
 
-type Coherence = {
-  selected: Readiness | null;
-  codeDefault: Readiness | null;
+// The configured default and, when it differs, the code default each get a leg.
+type Coherence = Record<"selected" | "codeDefault", ProviderAuditLeg | null> & {
   problems: string[];
 };
 
@@ -459,6 +460,8 @@ describe("free-provisioning override audit", () => {
         if (allow !== undefined) env.CMUX_VM_ALLOW_FREE_PROVISIONING = allow;
         if (legacy !== undefined) env.CMUX_VM_REQUIRE_PRO = legacy;
         expect(isFreeProvisioningAllowed(env)).toBe(isVmFreeProvisioningAllowed(env));
+        const production = { ...env, VERCEL_ENV: "production" };
+        expect(isFreeProvisioningAllowed(production)).toBe(isVmFreeProvisioningAllowed(production));
       }
     }
   });

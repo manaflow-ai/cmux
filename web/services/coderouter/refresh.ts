@@ -3,8 +3,14 @@ import {
   completeRefreshLease,
   encryptedCredentialForAccount,
   failRefreshLease,
+  refreshLeaseActive,
   releaseRefreshLease,
 } from "./repository";
+import {
+  createStickyRefreshPatience,
+  refreshCompletionRegistry,
+  systemRefreshWaitClock,
+} from "./refreshSignal";
 import {
   decryptCredential,
   encryptCredential,
@@ -195,6 +201,16 @@ export const freshCredential = createCredentialRefresher({
   fail: failRefreshLease,
   isTerminal: isTerminalRefreshError,
   failureCode: refreshFailureCode,
+});
+
+/**
+ * Production sticky-session patience: wakes on this instance's lease clears
+ * and re-reads the lease row for refreshes running on other instances.
+ */
+export const stickyRefreshPatience = createStickyRefreshPatience({
+  registry: refreshCompletionRegistry,
+  leaseActive: (accountId, signal) => refreshLeaseActive(accountId, signal),
+  clock: systemRefreshWaitClock,
 });
 
 async function readCredential(teamId: string, accountId: string, signal?: AbortSignal) {

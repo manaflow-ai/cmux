@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import CmuxRemoteSession
 import Foundation
@@ -48,10 +51,15 @@ extension CmuxTuiSurfaceProvider {
                 preferredWorkspaceID: preferredWorkspaceID
             )
         }
+        let knownPlacement = remoteTabID.flatMap { tabID in
+            resource.remoteViews?.first(where: { $0.tabID == tabID })
+                .map { SurfaceRemotePlacement(workspaceID: $0.workspace.id, tabID: $0.tabID) }
+        }
         let confirmedPlacement = try reservation?.validatedAttachmentPlacement(
             resourceID: resource.id, remoteTabID: remoteTabID,
             materializedPlacement: resolved.placement, catalog: catalog
-        ) ?? resolved.placement
+        ) ?? resolved.placement ?? knownPlacement
+        try CloudMachineLoadingReservation.current?.validate(materializedPlacement: confirmedPlacement)
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
             terminalID: resource.id.key,
@@ -90,6 +98,10 @@ extension CmuxTuiSurfaceProvider {
                       ) else {
                     throw CancellationError()
                 }
+                workspace.updateCloudTerminalTabIcon(
+                    panelID: adopted.panelID,
+                    assetName: resource.terminalAgentIconAssetName
+                )
                 created = adopted
                 reservation.inputRelay.attach(inputRouter)
                 // The card's grace counts from the moment the pane appeared.
@@ -98,6 +110,7 @@ extension CmuxTuiSurfaceProvider {
                 created = try SurfacePaneFactory.makeCloudManualMirrorPane(
                     at: destination,
                     focus: focus,
+                    iconAssetName: resource.terminalAgentIconAssetName,
                     onInput: { input in inputRouter.send(input) },
                     keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value },
                     onResize: { [weak session] sample in
@@ -109,18 +122,23 @@ extension CmuxTuiSurfaceProvider {
                     onFocus: { [weak session] in
                         session?.claimGeometry()
                     },
-                    attachment: session.attachmentStatus
+                    attachment: session.attachmentStatus,
+                    allowsRemoteClipboardWrites: machine.cloudMachineID != nil
                 )
             }
             session.bind(surface: created.surface)
-            // Preserve the workspace's existing notification-dismissal hook
-            // while re-claiming geometry when this pane receives explicit
-            // input. A cloud terminal can have more than one local projection;
-            // the pane the user is typing in must be the authoritative owner.
-            let existingExplicitInput = created.surface.onExplicitInput
-            created.surface.onExplicitInput = { [weak session] in
-                existingExplicitInput?()
-                session?.claimGeometry()
+            // Keep Cloud input convergence on the panel. Workspace transfer
+            // rebinds the ordinary terminal callback, while this hook resolves
+            // the panel's current owner after a move.
+            if let createdPanel = Workspace.liveWorkspace(id: created.workspaceID)?.panels[created.panelID] as? TerminalPanel {
+                Workspace.bindCloudManualMirrorInputConvergence(
+                    panel: createdPanel,
+                    isActive: { [weak session, weak createdPanel] in
+                        guard let session, let createdPanel else { return false }
+                        return session.phase != .stopped && session.surface === createdPanel.surface
+                    },
+                    onExplicitInput: { [weak session] in session?.noteExplicitInput() }
+                )
             }
             manualMirrorSessions[created.panelID] = session
             session.reconnect(socketPath: connected.socketPath)
@@ -250,7 +268,7 @@ extension CmuxTuiSurfaceProvider {
             if let state = cloudState {
                 let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
                 guard catalog.projections(of: resourceID).contains(where: {
-                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state)
+                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state, catalog: catalog)
                 }) else { continue }
             }
             for session in sessionsByTerminal[terminalID] ?? [] {
