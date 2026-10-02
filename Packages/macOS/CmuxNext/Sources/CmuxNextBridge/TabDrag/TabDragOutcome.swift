@@ -56,6 +56,11 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
     public var sourceIndex: Int?
     /// The tab group the dragged tab is in (nil: none, or a group drag).
     public var sourceGroupID: String?
+    /// The owner can split the source pane with every tab it holds by
+    /// spawning a new tab of the same kind there (`move-tab-to-split`
+    /// `respawn`): a single tab whose kind can respawn, on a daemon that
+    /// supports it.
+    public var respawnsOnSplit = false
 
     public init(sourcePaneID: String, sourcePaneTabCount: Int, sourceWorkspaceID: String,
                 sourceWorkspaceTabCount: Int, draggedTabCount: Int, sourceWindowWorkspaceCount: Int = 1,
