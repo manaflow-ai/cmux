@@ -9,7 +9,7 @@ import Observation
 /// border and rounded corners trace only the content below it.
 final class PaneContentView: NSView, PaneContentChrome {
     let stripView: TabStripView
-    /// Vibrancy under the strip, a shade darker than the content.
+    /// The strip's tonal step over the window backdrop, a shade darker than the content.
     private let stripBackdrop = ChromeStepView(step: PaneContentView.stripStep)
     private let contentHost = NSView()
     private(set) weak var content: NSView?

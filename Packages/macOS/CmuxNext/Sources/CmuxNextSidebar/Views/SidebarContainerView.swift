@@ -2,9 +2,9 @@ public import AppKit
 import CmuxNextDesign
 import Observation
 
-/// The sidebar: a flat surface in the window background's color (the
-/// terminal theme's background) over behind-window vibrancy, with no
-/// panel, border or seam. It owns its width.
+/// The sidebar: a flat tonal step (`Palette.sidebarStep`) over the
+/// window's one backdrop (the solid background, or the root material and
+/// its tint), with no panel, border or seam. It owns its width.
 ///
 /// Pin leading, top, and bottom; the view animates its own width constraint
 /// between the user's width (`SidebarModel.presentation == .shown`) and 0
@@ -22,7 +22,7 @@ public final class SidebarContainerView: NSView {
     /// The width constraint this view drives. Do not add another.
     public private(set) var widthConstraint: NSLayoutConstraint!
 
-    /// Vibrancy tinted with the sidebar color, under the rows.
+    /// The sidebar's tonal step over the window backdrop, under the rows.
     private let backdrop = ChromeStepView(step: SidebarContainerView.backdropStep)
     /// Clips the sliding panel to the container's (animating) width.
     private let clip = NSView()
