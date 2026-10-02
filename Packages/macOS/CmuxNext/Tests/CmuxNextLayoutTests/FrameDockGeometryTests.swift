@@ -76,6 +76,15 @@ import Testing
         #expect(one.panes["pt"]?.height == 300)
     }
 
+    @Test func aFloatingCornerOwnerNeverCoversTheOtherDock() {
+        // Row-major, floating top band: the left dock still starts below it.
+        let rowMajor = geometry(layout(band: .top, bandMode: .overlay), .rowMajor)
+        #expect(rowMajor.panes["pl"]?.minY == 178)
+        // Column-major, floating left dock: the band still starts past it.
+        let columnMajor = geometry(layout(left: .overlay), .columnMajor)
+        #expect(columnMajor.panes["pd"]?.minX == 254.5)
+    }
+
     @Test func cornersBelongToSideDocksColumnMajorAndToBandsRowMajor() {
         #expect(StickyStripGeometry.ownsCorners(.left, orientation: .columnMajor))
         #expect(!StickyStripGeometry.ownsCorners(.bottom, orientation: .columnMajor))

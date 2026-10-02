@@ -121,9 +121,10 @@ public nonisolated enum StickyStripGeometry {
     /// that edge, so at rest nothing hides under it.
     ///
     /// F1. Orientation decides the corners: column-major runs the side docks
-    /// the full height and puts the bands between their inner edges (under
-    /// an overlay side dock); row-major runs the bands the full width and puts
-    /// the side docks between them. Extents are the same in both.
+    /// the full height and puts the bands between their inner edges;
+    /// row-major runs the bands the full width and puts the side docks
+    /// between them, in either mode, so no dock hides another. Extents are
+    /// the same in both.
     public static func place(left: Dock?, right: Dock?, top: Dock?, bottom: Dock?, viewport: CGSize, gap: CGFloat,
                              orientation: FrameOrientation, scale: CGFloat = 2) -> Placement {
         let size = CGRect(origin: .zero, size: viewport)
@@ -194,12 +195,14 @@ public nonisolated enum StickyStripGeometry {
         placement.clipMaxY = clipMaxY
 
         // The docks' lengths: column-major sides run the full height and bands
-        // sit between docked sides; row-major bands run the full width and
-        // sides sit between docked bands.
-        let sideMinY = orientation == .rowMajor && docked(top) ? stripMinY : 0
-        let sideMaxY = orientation == .rowMajor && docked(bottom) ? stripMaxY : viewport.height
-        let bandMinX = orientation == .columnMajor && docked(left) ? placement.stripMinX + gap : gap
-        let bandMaxX = orientation == .columnMajor && docked(right) ? stripMaxX - gap : viewport.width - gap
+        // sit between the sides' inner edges; row-major bands run the full
+        // width and sides sit between the bands' inner edges. A dock never
+        // covers another dock, whatever the owners' mode: floating changes
+        // only what the strip does.
+        let sideMinY = orientation == .rowMajor ? topHeight.map { $0 + gap } ?? 0 : 0
+        let sideMaxY = orientation == .rowMajor ? bottomHeight.map { viewport.height - $0 - gap } ?? viewport.height : viewport.height
+        let bandMinX = orientation == .columnMajor ? leftWidth.map { gap + $0 + gap } ?? gap : gap
+        let bandMaxX = orientation == .columnMajor ? rightWidth.map { viewport.width - gap - $0 - gap } ?? viewport.width - gap : viewport.width - gap
         func entry(_ dock: Dock, frame: CGRect, cover: CGRect) -> StickyColumnFrame? {
             guard let sticky = dock.column.sticky else { return nil }
             let glass = frame.insetBy(dx: -gap / 2, dy: -gap / 2).intersection(size)
