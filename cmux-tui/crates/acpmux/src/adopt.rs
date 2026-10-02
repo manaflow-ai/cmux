@@ -46,7 +46,10 @@ impl HarnessHomes {
     pub fn from_env() -> Self {
         let home = dirs::home_dir().unwrap_or_default();
         let dir = |key: &str, default: &str| {
-            std::env::var_os(key).filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| home.join(default))
+            std::env::var_os(key)
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(default))
         };
         Self { claude: dir("CLAUDE_CONFIG_DIR", ".claude"), codex: dir("CODEX_HOME", ".codex") }
     }
@@ -63,7 +66,9 @@ pub struct Adoptable {
 /// True for an id that can only name one file: letters, digits, `-` and
 /// `_`, at most 128 of them (UUIDs and Codex's UUIDv7 ids qualify).
 pub fn is_bare_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 128 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    !id.is_empty()
+        && id.len() <= 128
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 /// Finds `id` in the store of harness `family` (`claude` or `codex`).
@@ -102,7 +107,10 @@ fn find_codex(root: &Path, id: &str) -> Option<PathBuf> {
             if kind.is_dir() && depth < 3 {
                 dirs.push((path, depth + 1));
             } else if kind.is_file()
-                && path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("rollout-") && n.ends_with(&suffix))
+                && path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("rollout-") && n.ends_with(&suffix))
             {
                 return Some(path);
             }
@@ -154,7 +162,10 @@ mod tests {
     fn adopt_meta_reads_harness_and_id() {
         let meta = json!({"adopt": {"harness": "claude", "agentSessionId": CLAUDE_ID}});
         let req = AdoptRequest::from_meta(Some(&meta)).unwrap().unwrap();
-        assert_eq!(req, AdoptRequest { harness: Some("claude".into()), agent_session_id: CLAUDE_ID.into() });
+        assert_eq!(
+            req,
+            AdoptRequest { harness: Some("claude".into()), agent_session_id: CLAUDE_ID.into() }
+        );
         assert_eq!(AdoptRequest::from_meta(Some(&json!({}))).unwrap(), None);
         assert!(AdoptRequest::from_meta(Some(&json!({"adopt": {"harness": "claude"}}))).is_err());
     }
@@ -163,7 +174,13 @@ mod tests {
     fn adopt_finds_a_claude_session_and_its_cwd() {
         let homes = homes();
         let file = homes.claude.join("projects/-Users-me-app").join(format!("{CLAUDE_ID}.jsonl"));
-        write(&file, &[json!({"type": "summary"}), json!({"type": "user", "cwd": "/Users/me/app", "sessionId": CLAUDE_ID})]);
+        write(
+            &file,
+            &[
+                json!({"type": "summary"}),
+                json!({"type": "user", "cwd": "/Users/me/app", "sessionId": CLAUDE_ID}),
+            ],
+        );
         let found = find("claude", CLAUDE_ID, &homes).unwrap();
         assert_eq!(found, Adoptable { file, cwd: Some("/Users/me/app".into()) });
         let _ = std::fs::remove_dir_all(homes.claude.parent().unwrap());
@@ -172,8 +189,13 @@ mod tests {
     #[test]
     fn adopt_finds_a_codex_rollout_and_its_cwd() {
         let homes = homes();
-        let file = homes.codex.join(format!("sessions/2026/10/02/rollout-2026-10-02T09-00-00-{CODEX_ID}.jsonl"));
-        write(&file, &[json!({"type": "session_meta", "payload": {"id": CODEX_ID, "cwd": "/Users/me/api"}})]);
+        let file = homes
+            .codex
+            .join(format!("sessions/2026/10/02/rollout-2026-10-02T09-00-00-{CODEX_ID}.jsonl"));
+        write(
+            &file,
+            &[json!({"type": "session_meta", "payload": {"id": CODEX_ID, "cwd": "/Users/me/api"}})],
+        );
         let found = find("codex", CODEX_ID, &homes).unwrap();
         assert_eq!(found, Adoptable { file, cwd: Some("/Users/me/api".into()) });
         let _ = std::fs::remove_dir_all(homes.codex.parent().unwrap());
@@ -186,7 +208,11 @@ mod tests {
         let homes = homes();
         let file = homes.claude.join("projects/p").join(format!("{CLAUDE_ID}.jsonl"));
         write(&file, &[json!({"cwd": "/tmp"})]);
-        assert!(find("claude", "8f2c7a5e-0000-0000-0000-000000000000", &homes).unwrap_err().contains("no claude session"));
+        assert!(
+            find("claude", "8f2c7a5e-0000-0000-0000-000000000000", &homes)
+                .unwrap_err()
+                .contains("no claude session")
+        );
         assert!(find("codex", CLAUDE_ID, &homes).is_err());
         let long = "a".repeat(129);
         for bad in ["../p/x", "a/b", "..", "", "x.jsonl", long.as_str()] {

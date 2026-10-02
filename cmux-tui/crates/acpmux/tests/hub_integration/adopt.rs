@@ -22,8 +22,11 @@ async fn adopt_setup() -> (Arc<Hub>, TestClient, std::path::PathBuf, std::path::
     let mut agents = BTreeMap::new();
     agents.insert("fakecodex".to_owned(), profile(&[]));
     agents.insert("noload".to_owned(), profile(&[("FAKE_NO_LOAD", "1")]));
-    let mut cfg =
-        Config { harnesses: agents, default_harness: Some("fakecodex".into()), ..Default::default() };
+    let mut cfg = Config {
+        harnesses: agents,
+        default_harness: Some("fakecodex".into()),
+        ..Default::default()
+    };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = PermissionPolicy::ApproveAll;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
@@ -32,7 +35,8 @@ async fn adopt_setup() -> (Arc<Hub>, TestClient, std::path::PathBuf, std::path::
     let root = std::env::temp_dir().join(format!("acpmux-adopt-hub-{}", uuid::Uuid::now_v7()));
     let project = root.join("project");
     std::fs::create_dir_all(&project).unwrap();
-    let rollout = root.join(format!("codex/sessions/2026/10/02/rollout-2026-10-02T09-00-00-{ID}.jsonl"));
+    let rollout =
+        root.join(format!("codex/sessions/2026/10/02/rollout-2026-10-02T09-00-00-{ID}.jsonl"));
     std::fs::create_dir_all(rollout.parent().unwrap()).unwrap();
     let record = json!({"type": "session_meta", "payload": {"id": ID, "cwd": project}});
     std::fs::write(&rollout, format!("{record}\n")).unwrap();
@@ -50,7 +54,8 @@ async fn adopt_setup() -> (Arc<Hub>, TestClient, std::path::PathBuf, std::path::
 }
 
 fn adopt(harness: &str, id: &str) -> Value {
-    json!({"mcpServers": [], "_meta": {"acpmux": {"harness": harness, "adopt": {"agentSessionId": id}}}})
+    let acpmux = json!({"harness": harness, "adopt": {"agentSessionId": id}});
+    json!({"mcpServers": [], "_meta": {"acpmux": acpmux}})
 }
 
 #[tokio::test]
@@ -63,7 +68,9 @@ async fn adopt_loads_the_harness_session_in_its_recorded_cwd() {
     assert_eq!(meta.agent_session_id.as_deref(), Some(ID));
     assert_eq!(meta.cwd, project);
     let events = hub.events(&session.id, 0, 10_000).unwrap();
-    let mux = |kind: &str| events.iter().find(|e| e.dir == "mux" && e.kind == kind).map(|e| e.msg.clone());
+    let mux = |kind: &str| {
+        events.iter().find(|e| e.dir == "mux" && e.kind == kind).map(|e| e.msg.clone())
+    };
     assert_eq!(mux("adopted"), Some(json!({"agentSessionId": ID})));
     assert_eq!(mux("resumed"), Some(json!({"level": "exact"})));
     assert!(events.iter().any(|e| e.dir == "out" && e.kind == "session/load"));
@@ -81,7 +88,8 @@ async fn adopt_loads_the_harness_session_in_its_recorded_cwd() {
 #[tokio::test]
 async fn adopt_refuses_unknown_ids_and_agents_that_cannot_resume() {
     let (hub, mut c, root, _) = adopt_setup().await;
-    let unknown = c.request(method::SESSION_NEW, adopt("fakecodex", "0199a1b2-0000-7000-8000-000000000000")).await;
+    let missing = "0199a1b2-0000-7000-8000-000000000000";
+    let unknown = c.request(method::SESSION_NEW, adopt("fakecodex", missing)).await;
     assert!(unknown.unwrap_err().contains("no codex session"));
     let path = c.request(method::SESSION_NEW, adopt("fakecodex", "../../etc/passwd")).await;
     assert!(path.unwrap_err().contains("not a session id"));

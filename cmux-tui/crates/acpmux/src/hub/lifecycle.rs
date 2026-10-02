@@ -153,10 +153,11 @@ impl Hub {
                 // The store walk and the record read are file I/O.
                 let homes = self.harness_homes.lock().unwrap().clone();
                 let (fam, id) = (family.clone(), a.agent_session_id.clone());
-                let found = tokio::task::spawn_blocking(move || crate::adopt::find(&fam, &id, &homes))
-                    .await
-                    .map_err(|e| RpcError::internal(e.to_string()))?
-                    .map_err(RpcError::invalid_params)?;
+                let found =
+                    tokio::task::spawn_blocking(move || crate::adopt::find(&fam, &id, &homes))
+                        .await
+                        .map_err(|e| RpcError::internal(e.to_string()))?
+                        .map_err(RpcError::invalid_params)?;
                 Some(found)
             }
             None => None,
@@ -1059,7 +1060,8 @@ fn adopted_in(
         .values()
         .find(|s| {
             let m = s.meta();
-            m.family.as_deref() == Some(family) && m.agent_session_id.as_deref() == Some(agent_session_id)
+            m.family.as_deref() == Some(family)
+                && m.agent_session_id.as_deref() == Some(agent_session_id)
         })
         .cloned()
 }
