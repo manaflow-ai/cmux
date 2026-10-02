@@ -10,8 +10,9 @@ import os
 /// same path as the palette, the menu and the CLI.
 @Observable
 final class GlobalHotKeyService {
-    /// Actions whose key is not registered: another app holds it, or a
-    /// global action listed earlier takes the same key. Retried on the next
+    /// Actions whose key is not registered: another app holds it, or
+    /// another global action already holds or (listed earlier) takes the
+    /// same key. Retried on the next
     /// change.
     private(set) var conflicts: Set<ActionID> = []
     @ObservationIgnored private let registry: ActionRegistry
@@ -79,12 +80,13 @@ final class GlobalHotKeyService {
         }
         var refused: Set<ActionID> = []
         // Two shortcuts can land on one physical key (a character the layout
-        // lacks falls back to its ANSI key). Catalog order decides.
+        // lacks falls back to its ANSI key). An action already holding the
+        // key keeps it; among new registrations, catalog order decides.
         var taken = Set(registered.values.map(\.hotKey))
         let order = Dictionary(registry.descriptors.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         for id in wanted.keys.sorted(by: { order[$0, default: .max] < order[$1, default: .max] }) where registered[id] == nil {
             guard let hotKey = wanted[id] else { continue }
-            guard taken.insert(hotKey).inserted else {
+            guard !taken.contains(hotKey) else {
                 refused.insert(id)
                 let name = id.rawValue
                 logger.notice("global hot key \(name, privacy: .public) refused: another global action uses the same key")
@@ -94,6 +96,7 @@ final class GlobalHotKeyService {
             nextNumber += 1
             if registrar.register(hotKey, number: number) {
                 registered[id] = Registration(hotKey: hotKey, number: number)
+                taken.insert(hotKey)
             } else {
                 refused.insert(id)
                 let name = id.rawValue
