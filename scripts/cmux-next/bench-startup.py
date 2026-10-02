@@ -8,7 +8,10 @@ the pipe named by CMUX_NEXT_LAUNCH_MARKS_FD (Control/LaunchMarkSink.swift).
 Nothing here polls: it blocks on the pipe (select with the run deadline),
 on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
 
-  cold  no daemon for the tag runs: the app starts it (`server ensure`)
+  cold  no daemon for the tag runs: the app starts it (`server ensure`);
+        its terminal hosts were stopped too (a reboot or logout)
+  restart  only the daemon was stopped; its terminal hosts live on and the
+        new daemon adopts them (a crash or a version handoff)
   warm  a priming launch leaves the daemon running (keep sessions); only
         the app quits before the measured launch
   daemon  the daemon side alone, with the tag's bundled cmux-tui: `--version`
@@ -190,6 +193,12 @@ def one_run(tag, mode, timeout):
         stop(tag_pids(tag))
         if tag_pids(tag):
             raise SystemExit(f"tag {tag}: daemon processes did not exit")
+    elif mode == "restart":
+        if not owner_pids(f"cmux-app-{tag}"):
+            prime = Launch(tag, scratch)
+            prime.wait_for(FINAL_MARK, timeout)
+            prime.quit()
+        stop(owner_pids(f"cmux-app-{tag}"))
     elif not [p for p in tag_pids(tag) if p not in app_pids(tag)]:
         prime = Launch(tag, scratch)
         prime.wait_for(FINAL_MARK, timeout)
@@ -202,6 +211,11 @@ def one_run(tag, mode, timeout):
     if not reached:
         print(f"  {tag} {mode}: {FINAL_MARK} not reached within {timeout} s", file=sys.stderr)
     return launch.marks
+
+
+def owner_pids(session):
+    """The session's daemon (owner) process, not its terminal hosts."""
+    return pgrep(f"cmux-tui.*--session {session}( |$)")
 
 
 def daemon_side(tag, runs):
@@ -222,9 +236,6 @@ def daemon_side(tag, runs):
         started = time.monotonic()
         out = subprocess.run([binary, *args], env=env(state_dir), capture_output=True, text=True)
         return (time.monotonic() - started) * 1000, out.stdout
-
-    def owner_pids(session):
-        return pgrep(f"cmux-tui.*--session {session}( |$)")
 
     rows = {}
     for _ in range(runs):
@@ -271,7 +282,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tag", action="append", required=True)
     parser.add_argument("--runs", type=int, default=5)
-    parser.add_argument("--mode", action="append", choices=["cold", "warm", "daemon"])
+    parser.add_argument("--mode", action="append", choices=["cold", "restart", "warm", "daemon"])
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds per launch to reach the first frame")
     parser.add_argument("--json", help="write every run's marks here")
     args = parser.parse_args()
