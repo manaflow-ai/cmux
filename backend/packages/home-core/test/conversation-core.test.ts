@@ -278,6 +278,11 @@ describe("agent budget (ports of budget.rs tests)", () => {
     expect(code(host.run(MUX, "m2", sendOp("m2", [])))).toBe("invalid_parts")
     host.advance(MIN_AGENT_GAP_MS)
     expect(code(host.run(MUX, "m2", sendOp("m2", [text("two")])))).toBe("ok")
-    expect(apply(host.head, host.request(MUX, "m3", sendOp("m3", [text("x")]), { recent: null })).ok).toBe(true)
+    // The guard lives in the head now: a host that passes no window cannot switch it off.
+    const noWindow = apply(host.head, host.request(MUX, "m3", sendOp("m3", [text("x")]), { recent: null }))
+    expect(noWindow.ok ? "ok" : noWindow.code).toBe("agent_rate")
+    // A head written before the counters existed falls back to the host's window.
+    const { agent_text_streak: _s, last_agent_text_at: _l, ...legacy } = host.head
+    expect(apply(legacy, host.request(MUX, "m3", sendOp("m3", [text("x")]), { recent: null })).ok).toBe(true)
   })
 })
