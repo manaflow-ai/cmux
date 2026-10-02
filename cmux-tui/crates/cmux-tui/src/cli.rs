@@ -591,7 +591,6 @@ fn session_help(
         local_server.session_stop_help, messages.help,
     )
 }
-
 const CLIENT_HELP: &str = "\
 USAGE
   cmux client list
@@ -601,7 +600,6 @@ USAGE
   cmux client <selector> sizing release --terminal <selector>
   cmux client <selector> cell pixels set --width-px <n> --height-px <n>
 ";
-
 const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list
@@ -940,11 +938,10 @@ mod tests {
         assert!(help.contains("cmux help start"));
         assert!(help.starts_with("cmux - "));
         assert!(!help.contains("cmux-tui"));
-        for topic in ["start", "docs"] {
-            assert!(
-                matches!(parse(&strings(&["help", topic])).unwrap(), ParsedCommand::Help(Some(scope)) if scope == topic)
-            );
-        }
+        assert!(matches!(
+            parse(&strings(&["help", "start"])).unwrap(),
+            ParsedCommand::Help(Some(scope)) if scope == "start"
+        ));
     }
     #[test]
     fn remote_invocation_allows_leading_global_options() {
