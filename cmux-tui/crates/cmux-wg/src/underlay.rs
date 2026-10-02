@@ -17,6 +17,7 @@ use std::task::{Context, Poll};
 use cmux_transport::PathId;
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
+use tokio::time::Instant;
 
 /// Datagrams kept while a socket is unwritable. The driver stops feeding
 /// data the moment anything is queued and waits for writability, so the
@@ -40,6 +41,14 @@ pub struct Received {
     pub origin: Origin,
 }
 
+/// Pings a probing underlay wants sent now (path, probe id), and when it
+/// next wants anything: a ping, or the deadline of an unanswered one.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct DueProbes {
+    pub pings: Vec<(PathId, u64)>,
+    pub next: Option<Instant>,
+}
+
 /// A carrier of one peer's encrypted datagrams.
 ///
 /// Every method is non-blocking. `send` hands the datagram to the carrier or
@@ -53,6 +62,21 @@ pub struct Received {
 pub trait Underlay: Send + 'static {
     /// Send one datagram toward the peer.
     fn send(&mut self, datagram: &[u8]);
+
+    /// Send one datagram on `path` only (a probe or its answer). A
+    /// single-path carrier has one path.
+    fn send_on(&mut self, _path: PathId, datagram: &[u8]) {
+        self.send(datagram);
+    }
+
+    /// Probes due at `now`. The driver calls this only while the session
+    /// carries traffic; a carrier with one path never probes.
+    fn poll_probes(&mut self, _now: Instant) -> DueProbes {
+        DueProbes::default()
+    }
+
+    /// The pong for probe `id`, sent on `path`, arrived at `now`.
+    fn on_pong(&mut self, _path: PathId, _id: u64, _now: Instant) {}
 
     /// Retry datagrams queued while the carrier was unwritable.
     fn flush(&mut self) {}

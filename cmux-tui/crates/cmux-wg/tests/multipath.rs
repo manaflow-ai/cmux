@@ -14,7 +14,9 @@ use std::time::Duration;
 use cmux_transport::{PathId, PathKind, ProbeOutcome, SelectorConfig};
 use cmux_wg::testing::sim::{LinkProfile, SimNet};
 use cmux_wg::testing::{ConfigPair, config_pair};
-use cmux_wg::{Multipath, MultipathControl, SocketPath, Underlay, WgConfig, WgNet, WgStream};
+use cmux_wg::{
+    Multipath, MultipathControl, ProbeConfig, SocketPath, Underlay, WgConfig, WgNet, WgStream,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::watch;
 
@@ -62,8 +64,12 @@ fn two_paths(
     sim: &SimNet,
     relay: (SocketAddr, SocketAddr),
     direct: (SocketAddr, SocketAddr),
+    probes: Option<ProbeConfig>,
 ) -> (Multipath, MultipathControl, PathId, PathId) {
-    let (underlay, control) = Multipath::new(SelectorConfig::default());
+    let (underlay, control) = match probes {
+        Some(probes) => Multipath::with_probes(SelectorConfig::default(), probes),
+        None => Multipath::new(SelectorConfig::default()),
+    };
     let relay_socket = sim.bind(relay.0).expect("bind relay");
     let direct_socket = sim.bind(direct.0).expect("bind direct");
     let relay = control.add_path(PathKind::DoRelay, SocketPath::new(relay_socket, Some(relay.1)));
@@ -77,8 +83,9 @@ fn side(
     config: WgConfig,
     relay: (SocketAddr, SocketAddr),
     direct: (SocketAddr, SocketAddr),
+    probes: Option<ProbeConfig>,
 ) -> Side {
-    let (underlay, control, relay, direct) = two_paths(sim, relay, direct);
+    let (underlay, control, relay, direct) = two_paths(sim, relay, direct, probes);
     let net = WgNet::start_with_underlay(config, underlay).expect("start");
     Side { net, control, relay, direct }
 }
@@ -92,6 +99,11 @@ fn lose(control: &MultipathControl, path: PathId) {
     for _ in 0..SelectorConfig::default().dead_after_lost {
         control.on_probe(path, ProbeOutcome::Lost).expect("known path");
     }
+}
+
+async fn wait_current(control: &MultipathControl, path: PathId) {
+    let mut current = control.watch_current();
+    within(current.wait_for(|current| *current == Some(path))).await.expect("control alive");
 }
 
 fn received(control: &MultipathControl, path: PathId) -> u64 {
@@ -158,8 +170,10 @@ const A2_RELAY: &str = "203.0.113.9:40001";
 const A2_DIRECT: &str = "192.168.7.9:51820";
 const B_DIRECT: &str = "192.168.7.2:51820";
 
-/// Both sides up on the relay only, one stream open, nothing sent yet.
-async fn world() -> World {
+/// Both sides up on the relay only, one stream open, nothing sent yet. With
+/// `probes`, the engine's own probes drive both selectors and the direct link
+/// starts cut; without, the test answers for the relay.
+async fn world(probes: Option<ProbeConfig>) -> World {
     let sim = SimNet::new();
     sim.set_link(
         addr(A_RELAY),
@@ -169,24 +183,31 @@ async fn world() -> World {
     sim.set_link(
         addr(A_DIRECT),
         addr(B_DIRECT),
-        LinkProfile { latency: DIRECT_LATENCY, cut: false, ..LinkProfile::default() },
+        LinkProfile { latency: DIRECT_LATENCY, cut: probes.is_some(), ..LinkProfile::default() },
     );
     let ConfigPair { client, server, server_v6, .. } = config_pair(addr(B_RELAY));
-    let client =
-        side(&sim, client, (addr(A_RELAY), addr(B_RELAY)), (addr(A_DIRECT), addr(B_DIRECT)));
-    let server =
-        side(&sim, server, (addr(B_RELAY), addr(A_RELAY)), (addr(B_DIRECT), addr(A_DIRECT)));
+    let (a_relay, a_direct) = ((addr(A_RELAY), addr(B_RELAY)), (addr(A_DIRECT), addr(B_DIRECT)));
+    let client = side(&sim, client, a_relay, a_direct, probes);
+    let (b_relay, b_direct) = ((addr(B_RELAY), addr(A_RELAY)), (addr(B_DIRECT), addr(A_DIRECT)));
+    let server = side(&sim, server, b_relay, b_direct, probes);
     // The relay answers first, as it does on a dial; the direct path exists
     // but has not answered a probe yet.
-    for side in [&client, &server] {
-        answer(&side.control, side.relay, 2 * RELAY_LATENCY);
-        assert_eq!(side.control.current(), Some(side.relay));
+    if probes.is_none() {
+        for side in [&client, &server] {
+            answer(&side.control, side.relay, 2 * RELAY_LATENCY);
+            assert_eq!(side.control.current(), Some(side.relay));
+        }
     }
 
     let mut listener = server.net.listen(LINK_PORT).await.expect("listen");
     let stream =
         within(client.net.connect(SocketAddr::new(server_v6, LINK_PORT))).await.expect("connect");
     let accepted = within(listener.accept()).await.expect("accepted");
+    if probes.is_some() {
+        for side in [&client, &server] {
+            wait_current(&side.control, side.relay).await;
+        }
+    }
     let (progress_tx, progress) = watch::channel(0);
     let (allow, allowed) = watch::channel(0);
     let reader = tokio::spawn(read_verified(accepted, progress_tx));
@@ -258,7 +279,7 @@ impl World {
         let direct = LinkProfile { latency: DIRECT_LATENCY, cut: false, ..LinkProfile::default() };
         self.sim.set_link(a_direct, addr(B_DIRECT), direct);
         let (underlay, control, relay, direct) =
-            two_paths(&self.sim, (a_relay, addr(B_RELAY)), (a_direct, addr(B_DIRECT)));
+            two_paths(&self.sim, (a_relay, addr(B_RELAY)), (a_direct, addr(B_DIRECT)), None);
         within(self.client.net.rebind(underlay)).await.expect("rebind");
         self.client.control = control;
         self.client.relay = relay;
@@ -280,9 +301,56 @@ impl World {
     }
 }
 
+impl World {
+    /// The direct link comes up. Probes find it and both sides move there.
+    async fn direct_comes_up(&mut self) {
+        let up = LinkProfile { latency: DIRECT_LATENCY, ..LinkProfile::default() };
+        self.sim.set_link(addr(A_DIRECT), addr(B_DIRECT), up);
+        for side in [&self.client, &self.server] {
+            wait_current(&side.control, side.direct).await;
+        }
+        let before = received(&self.server.control, self.server.direct);
+        let progress = *self.progress.borrow();
+        self.run_until(progress + 2 * MIB, progress + MIB).await;
+        assert!(received(&self.server.control, self.server.direct) > before + 100);
+    }
+
+    /// The direct link goes dark. Probes on it time out, and both sides fall
+    /// back to the relay.
+    async fn direct_goes_down(&mut self) {
+        let down = LinkProfile { latency: DIRECT_LATENCY, cut: true, ..LinkProfile::default() };
+        self.sim.set_link(addr(A_DIRECT), addr(B_DIRECT), down);
+        for side in [&self.client, &self.server] {
+            wait_current(&side.control, side.relay).await;
+        }
+        let before = received(&self.server.control, self.server.relay);
+        let progress = *self.progress.borrow();
+        self.run_until(progress + 2 * MIB, progress + MIB).await;
+        assert!(received(&self.server.control, self.server.relay) > before + 100);
+    }
+}
+
+/// No harness: the engine's probes inside the session find the direct path
+/// when it comes up and leave it when it goes down, mid-transfer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn probes_move_one_session_between_paths_by_themselves() {
+    let probes = ProbeConfig {
+        current_interval: Duration::from_millis(20),
+        other_interval: Duration::from_millis(20),
+        dial_interval: Duration::from_millis(20),
+        timeout: Duration::from_millis(80),
+    };
+    let mut world = world(Some(probes)).await;
+    world.run_until(2 * MIB, MIB).await;
+    world.direct_comes_up().await;
+    world.direct_goes_down().await;
+    assert!(*world.progress.borrow() < TOTAL, "every change happened mid-transfer");
+    world.finish().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn one_session_survives_a_path_switch_a_cut_path_and_a_rebind() {
-    let mut world = world().await;
+    let mut world = world(None).await;
     world.run_until(2 * MIB, MIB).await;
     world.switch_to_direct().await;
     world.cut_direct(addr(A_DIRECT)).await;
@@ -295,7 +363,7 @@ async fn one_session_survives_a_path_switch_a_cut_path_and_a_rebind() {
 async fn datagrams_go_on_every_path_until_one_answers() {
     let sim = SimNet::new();
     let (mut underlay, control, relay, direct) =
-        two_paths(&sim, (addr(A_RELAY), addr(B_RELAY)), (addr(A_DIRECT), addr(B_DIRECT)));
+        two_paths(&sim, (addr(A_RELAY), addr(B_RELAY)), (addr(A_DIRECT), addr(B_DIRECT)), None);
     underlay.send(b"dial");
     assert_eq!(control.path(relay).unwrap().sent, 1);
     assert_eq!(control.path(direct).unwrap().sent, 1);

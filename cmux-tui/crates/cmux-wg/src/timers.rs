@@ -62,6 +62,12 @@ impl TimerSchedule {
         self.swept = false;
     }
 
+    /// Whether boringtun's timers can still fire: the session carried
+    /// traffic within the active window.
+    pub(crate) fn is_active(&self, now: Instant) -> bool {
+        now < self.last_activity + ACTIVE_WINDOW
+    }
+
     /// `update_timers` ran at `now`.
     pub(crate) fn on_tick(&mut self, now: Instant) {
         self.last_tick = now;

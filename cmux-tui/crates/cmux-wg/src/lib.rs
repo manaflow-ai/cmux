@@ -27,8 +27,11 @@
 
 mod config;
 mod device;
+mod error;
 mod multipath;
 mod net;
+mod probe_schedule;
+mod probing;
 mod stream;
 /// Two-peer loopback harness. Test support for this crate and its dependents;
 /// it links no code into a binary that does not call it.
@@ -40,5 +43,8 @@ pub use config::{ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, WgConfig}
 pub use ip_network::IpNetwork;
 pub use multipath::{Multipath, MultipathControl, PathStats};
 pub use net::{WgError, WgListener, WgNet};
+pub use probe_schedule::ProbeConfig;
 pub use stream::WgStream;
-pub use underlay::{DatagramSocket, Origin, Received, SocketPath, UdpUnderlay, Underlay};
+pub use underlay::{
+    DatagramSocket, DueProbes, Origin, Received, SocketPath, UdpUnderlay, Underlay,
+};

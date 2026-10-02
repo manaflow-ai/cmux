@@ -36,6 +36,8 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::config::{InterfaceAddress, WgConfig};
 use crate::device::VirtualDevice;
+pub use crate::error::WgError;
+use crate::probing;
 use crate::stream::{Outbound, WgStream};
 use crate::timers::{SESSION_FRESH, TimerSchedule};
 use crate::underlay::{Origin, SocketPath, Underlay, is_transient};
@@ -74,58 +76,6 @@ fn random_ephemeral_port() -> u16 {
     // A failure here only weakens port randomization, never correctness.
     let _ = getrandom::fill(&mut seed);
     FIRST_EPHEMERAL_PORT + (u16::from_le_bytes(seed) % EPHEMERAL_PORT_COUNT)
-}
-
-#[derive(Debug)]
-pub enum WgError {
-    Io(io::Error),
-    /// The configured endpoint did not resolve.
-    EndpointUnresolved(String),
-    /// The endpoint resolved only to addresses of a family the UDP socket
-    /// cannot reach.
-    EndpointFamilyMismatch,
-    /// This side has no tunnel address in the remote's address family.
-    NoTunnelAddress(IpAddr),
-    /// The remote answered the SYN with a reset, or never answered.
-    ConnectionRefused(SocketAddr),
-    /// A listener already owns the port.
-    ListenerBusy(u16),
-    /// The tunnel has been shut down.
-    Shutdown,
-    /// No WireGuard handshake completed before the startup deadline.
-    HandshakeTimeout(Duration),
-    /// smoltcp refused the operation.
-    Stack(String),
-}
-
-impl fmt::Display for WgError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io(error) => write!(formatter, "socket error: {error}"),
-            Self::EndpointUnresolved(host) => write!(formatter, "endpoint {host} did not resolve"),
-            Self::EndpointFamilyMismatch => {
-                formatter.write_str("endpoint address family does not match the UDP socket")
-            }
-            Self::NoTunnelAddress(remote) => {
-                write!(formatter, "no tunnel address in the same family as {remote}")
-            }
-            Self::ConnectionRefused(remote) => write!(formatter, "{remote} refused the connection"),
-            Self::ListenerBusy(port) => write!(formatter, "port {port} already has a listener"),
-            Self::Shutdown => formatter.write_str("the tunnel is shut down"),
-            Self::HandshakeTimeout(timeout) => {
-                write!(formatter, "no WireGuard handshake completed within {timeout:?}")
-            }
-            Self::Stack(detail) => write!(formatter, "tcp stack: {detail}"),
-        }
-    }
-}
-
-impl std::error::Error for WgError {}
-
-impl From<io::Error> for WgError {
-    fn from(error: io::Error) -> Self {
-        Self::Io(error)
-    }
 }
 
 /// A running tunnel. Dropping it stops the driver; every stream then reads
@@ -406,6 +356,10 @@ struct Driver {
     /// agree, including under a paused test clock.
     epoch: Instant,
     schedule: TimerSchedule,
+    /// Overlay addresses for path probes, and when the underlay next wants
+    /// a probe sent or judged.
+    probe_route: Option<(IpAddr, IpAddr)>,
+    probe_deadline: Option<Instant>,
     wakeups: Arc<AtomicU64>,
     next_port: u16,
     scratch: Vec<u8>,
@@ -443,6 +397,7 @@ impl Driver {
         let epoch = Instant::now();
         let keepalive = config.persistent_keepalive.is_some_and(|seconds| seconds > 0);
         let schedule = TimerSchedule::new(epoch, keepalive);
+        let probe_route = probing::probe_route(&config);
         let mut device = VirtualDevice::new(config.mtu);
         let mut iface_config = Config::new(HardwareAddress::Ip);
         iface_config.random_seed = RandomState::new().build_hasher().finish();
@@ -481,6 +436,8 @@ impl Driver {
             wake,
             epoch,
             schedule,
+            probe_route,
+            probe_deadline: None,
             wakeups: Arc::new(AtomicU64::new(0)),
             next_port: random_ephemeral_port(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
@@ -512,7 +469,10 @@ impl Driver {
                     None => std::future::pending::<()>().await,
                 }
             };
-            let next_tick = self.schedule.next_tick();
+            let next_tick = match (self.schedule.next_tick(), self.probe_deadline) {
+                (Some(tick), Some(probe)) => Some(tick.min(probe)),
+                (tick, probe) => tick.or(probe),
+            };
             let timers = async {
                 match next_tick {
                     Some(at) => tokio::time::sleep_until(at).await,
@@ -539,9 +499,7 @@ impl Driver {
                 () = stack_deadline => Event::StackDeadline,
             };
             self.wakeups.fetch_add(1, Ordering::Relaxed);
-            if !matches!(event, Event::Tick) {
-                self.catch_up_timers();
-            }
+            self.catch_up_timers();
             match event {
                 Event::Datagram(count, origin) => self.handle_datagram(&datagram[..count], origin),
                 Event::DatagramError(error) => {
@@ -556,14 +514,11 @@ impl Driver {
                     return;
                 }
                 Event::Command(Some(command)) => self.handle_command(command),
-                Event::Wake | Event::StackDeadline | Event::Drained => {}
-                Event::Tick => {
-                    self.schedule.on_tick(Instant::now());
-                    self.update_timers();
-                }
+                Event::Wake | Event::StackDeadline | Event::Drained | Event::Tick => {}
             }
             self.underlay.flush();
             self.service();
+            self.run_probes();
             self.underlay.flush();
         }
     }
@@ -599,8 +554,20 @@ impl Driver {
         self.schedule.on_activity(Instant::now());
     }
 
-    /// Run boringtun's timers before any event when a tick is overdue (the
-    /// first event after an idle period or a stopped process), so an expired
+    /// Send due path probes while the session carries traffic; an idle
+    /// session probes nothing.
+    fn run_probes(&mut self) {
+        let now = Instant::now();
+        self.probe_deadline = if self.schedule.is_active(now) {
+            let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
+            probing::send_due(tunn, &mut *self.underlay, scratch, self.probe_route, now)
+        } else {
+            None
+        };
+    }
+
+    /// Run boringtun's timers whenever a tick is due, including before any
+    /// other event after an idle period or a stopped process, so an expired
     /// session is dropped before anything is encrypted with it.
     fn catch_up_timers(&mut self) {
         let now = Instant::now();
@@ -648,10 +615,14 @@ impl Driver {
                 }
                 TunnResult::WriteToTunnelV4(packet, _) | TunnResult::WriteToTunnelV6(packet, _) => {
                     self.underlay.authenticated(origin);
-                    self.schedule.on_activity(Instant::now());
-                    if let Some(origin) = packet_source(packet)
-                        && self.config.routes_contain(origin)
-                    {
+                    let allowed = packet_source(packet)
+                        .is_some_and(|source| self.config.routes_contain(source));
+                    // A probe is answered here and is not activity.
+                    if let Some(probe) = probing::decode(packet).filter(|_| allowed) {
+                        let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
+                        probing::receive(tunn, &mut *self.underlay, scratch, probe, origin.path);
+                    } else if allowed {
+                        self.schedule.on_activity(Instant::now());
                         self.device.push_rx(packet.to_vec());
                     }
                     break;

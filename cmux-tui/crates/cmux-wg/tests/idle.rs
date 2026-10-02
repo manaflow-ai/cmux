@@ -4,9 +4,10 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use cmux_transport::{PathKind, SelectorConfig};
 use cmux_wg::testing::sim::{LinkProfile, SimNet};
 use cmux_wg::testing::{ConfigPair, config_pair};
-use cmux_wg::{SocketPath, WgNet};
+use cmux_wg::{Multipath, ProbeConfig, SocketPath, WgNet};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const CLIENT: &str = "192.0.2.1:51820";
@@ -78,6 +79,35 @@ async fn a_persistent_keepalive_keeps_a_slow_tick() {
     assert!((55..=65).contains(&ticks), "about one wakeup a second, got {ticks}");
     client.shutdown().await;
     server.shutdown().await;
+}
+
+/// Probes are not activity: two probing endpoints must not keep each other
+/// awake once their traffic stops.
+#[tokio::test(start_paused = true)]
+async fn probing_paths_stop_when_traffic_stops() {
+    let sim = SimNet::new();
+    let mut configs = config_pair(addr(SERVER));
+    configs.client.persistent_keepalive = None;
+    let probes = ProbeConfig { current_interval: Duration::from_millis(100), ..Default::default() };
+    let mut sides = Vec::new();
+    for (config, local, remote, spare) in [
+        (configs.client.clone(), CLIENT, SERVER, "192.0.2.3:51820"),
+        (configs.server.clone(), SERVER, CLIENT, "192.0.2.4:51820"),
+    ] {
+        let (underlay, control) = Multipath::with_probes(SelectorConfig::default(), probes);
+        let main = SocketPath::new(sim.bind(addr(local)).unwrap(), Some(addr(remote)));
+        control.add_path(PathKind::DirectLan, main);
+        // A second path whose peer never answers: it is probed and dies.
+        let dark = SocketPath::new(sim.bind(addr(spare)).unwrap(), Some(addr("192.0.2.99:1")));
+        control.add_path(PathKind::DoRelay, dark);
+        sides.push(WgNet::start_with_underlay(config, underlay).unwrap());
+    }
+    let (client, server) = (&sides[0], &sides[1]);
+    exchange(client, server, &configs, 9).await;
+    tokio::time::sleep(Duration::from_secs(600)).await;
+    let settled = (client.wakeups(), server.wakeups());
+    tokio::time::sleep(Duration::from_secs(3600)).await;
+    assert_eq!((client.wakeups(), server.wakeups()), settled, "probes kept the tunnel awake");
 }
 
 /// Real time: boringtun's own clock decides when a handshake is retried.
