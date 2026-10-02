@@ -41,7 +41,7 @@ export type AcpmuxSnapshot = {
   type: "snapshot";
   protocolVersion: number;
   rows: AcpmuxRow[];
-  sessions: { sessionId: string; displayTitle?: string; title?: string; name?: string; status?: string; model?: string }[];
+  sessions: AcpmuxSessionEntry[];
   summary?: { sessionId: string; title?: string; name?: string; harness?: string; model?: string; effort?: string; status?: string; modes?: { availableModes: { id: string; name?: string }[]; currentModeId?: string }; configOptions?: { id: string; name?: string; category?: string; currentValue?: string; options: { value: string; name?: string }[] }[] };
   connection: string;
   sessionId?: string;
@@ -269,13 +269,18 @@ export function visibleLayoutRange(layoutModel: ConversationLayout, scrollTop: n
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
+<<<<<<< HEAD
 import { isFoldedCopy, WORKED } from "./conversation/turns";
+=======
+import type { AcpmuxSessionEntry } from "./sessionList";
+import { agentName } from "./agents";
+>>>>>>> origin/feat-cmux-next-pane-markdown
 
 /// The pane header: the agent the session runs (its first prompt already titles the session
 /// picker and opens the transcript), and a status only when it says something to act on.
 export function paneHeader(snapshot: AcpmuxSnapshot): { title: string; status: string } {
   const harness = snapshot.summary?.harness;
-  const title = (harness && snapshot.catalog?.find((entry) => entry.id === harness)?.name) || harness || "Agent Chat";
+  const title = harness ? agentName(harness, snapshot.catalog?.find((entry) => entry.id === harness)?.name) : "Agent Chat";
   // A turn running when the connection dropped never ends, so connection trouble wins over Working.
   const connection = snapshot.connection;
   const status = connection === "disconnected" ? "Reconnecting" : connection.startsWith("connecting") ? "Connecting" : snapshot.isWorking ? "Working" : connection === "mock" ? "Mock" : "";

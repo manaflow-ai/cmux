@@ -11,6 +11,9 @@ public protocol OnboardingServices: AnyObject {
     // Theme
     /// The colors of the user's own Ghostty config (the default choice).
     var ghosttyTheme: ThemeInput { get }
+    /// True when the user's Ghostty config sets a theme or colors; false
+    /// means cmux's default (Apple System Colors, light/dark) applies.
+    var ghosttyHasOwnTheme: Bool { get }
     /// `appearance.theme` in cmux.json now; nil means the Ghostty config.
     var selectedThemeName: String? { get }
     var density: Density { get }
@@ -45,6 +48,7 @@ public protocol OnboardingServices: AnyObject {
 }
 
 public extension OnboardingServices {
+    var ghosttyHasOwnTheme: Bool { true }
     var hasAccountsStep: Bool { false }
     func makeAccountsStepView() -> NSView? { nil }
     func variantID(for step: OnboardingModel.Step) -> String? { nil }
