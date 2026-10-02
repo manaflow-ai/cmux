@@ -4,7 +4,7 @@ import type { ChangesBanner } from "../types";
 
 export function Banner({ banner, onRefresh }: { banner: ChangesBanner; onRefresh: () => void }) {
   return (
-    <div className="cx-banner" role="status">
+    <output className="cx-banner">
       <I.AlertCircle className="cx-banner-icon" width={17} height={17} />
       <div className="cx-banner-text">
         <div className="cx-banner-title">{banner.title}</div>
@@ -21,7 +21,7 @@ export function Banner({ banner, onRefresh }: { banner: ChangesBanner; onRefresh
       <button type="button" className="cx-banner-secondary" onClick={onRefresh}>
         {banner.secondaryLabel}
       </button>
-    </div>
+    </output>
   );
 }
 

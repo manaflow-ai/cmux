@@ -6,14 +6,7 @@
 // and `task_started` / `task_complete` / `turn_aborted` bound each turn. The app-server
 // performs the same mapping when it replays a thread (`thread/read` with includeTurns).
 // Accepts whole rollout lines or bare payloads (the committed excerpts store payloads).
-import type {
-  CommandAction,
-  FileUpdateChange,
-  McpContent,
-  ThreadItem,
-  ToolSurface,
-  Turn,
-} from "./protocol";
+import type { CommandAction, FileUpdateChange, McpContent, ThreadItem, ToolSurface, Turn } from "./protocol";
 
 type Json = Record<string, unknown>;
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -130,12 +123,7 @@ export function threadItem(raw: Json): ThreadItem | null {
         id,
         server: str(raw.server),
         tool: str(raw.tool),
-        status:
-          raw.status === "failed"
-            ? "failed"
-            : raw.status === "inProgress"
-              ? "inProgress"
-              : "completed",
+        status: raw.status === "failed" ? "failed" : raw.status === "inProgress" ? "inProgress" : "completed",
         arguments: raw.arguments ? obj(raw.arguments) : null,
         pluginId: (raw.pluginId as string) ?? null,
         result: result && {
@@ -168,8 +156,7 @@ export function threadItem(raw: Json): ThreadItem | null {
               : { type: "other" },
         };
       }
-      if (raw.kind === "clock.sleep")
-        return { type: "sleep", id, durationMs: Number(raw.durationMs ?? 0) };
+      if (raw.kind === "clock.sleep") return { type: "sleep", id, durationMs: Number(raw.durationMs ?? 0) };
       return null;
     default:
       return null;
@@ -217,11 +204,7 @@ export function parseRollout(jsonl: string): Turn[] {
         if (!item) break;
         const t = turn(turnId);
         t.items.push(item);
-        if (
-          item.type === "agentMessage" &&
-          item.phase === "final_answer" &&
-          t.finalAnswerStartedAtMs == null
-        )
+        if (item.type === "agentMessage" && item.phase === "final_answer" && t.finalAnswerStartedAtMs == null)
           t.finalAnswerStartedAtMs = typeof p.started_at_ms === "number" ? p.started_at_ms : null;
         break;
       }

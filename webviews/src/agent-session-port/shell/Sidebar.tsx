@@ -72,13 +72,12 @@ export type SidebarProps = {
   onProjectClick?: (id: string) => void;
   onShowMore?: (projectId: string) => void;
   onHover?: (
-    target:
-      | { kind: "thread" | "project"; id: string }
-      | { kind: "section"; id: "projects" | "recents" }
-      | null,
+    target: { kind: "thread" | "project"; id: string } | { kind: "section"; id: "projects" | "recents" } | null,
   ) => void;
   onTitleClick?: () => void;
   onNewChat?: () => void;
+  /** The header's magnifier (search chats). */
+  onSearch?: () => void;
   onScroll?: (top: number) => void;
   /** Extra absolutely-positioned content (menus anchored to the sidebar). */
   children?: ReactNode;
@@ -99,8 +98,9 @@ function Row({
   onHover?: (on: boolean) => void;
 }) {
   return (
-    <div
-      role="button"
+    <button
+      type="button"
+
       className={`cx-row${indent ? " cx-row--indent" : ""}${thread.selected ? " is-selected" : ""}${thread.hover ? " is-hover" : ""} ${className} ${thread.className ?? ""}`}
       onClick={onClick}
       onPointerEnter={onHover && (() => onHover(true))}
@@ -114,7 +114,7 @@ function Row({
             <IconArchive className="cx-row__archive" />
           </span>
         ))}
-    </div>
+    </button>
   );
 }
 
@@ -140,6 +140,7 @@ export function Sidebar({
   onHover,
   onTitleClick,
   onNewChat,
+  onSearch,
   onScroll,
   children,
   style,
@@ -151,8 +152,7 @@ export function Sidebar({
   });
   const derived = scroll.thumb && { top: scroll.thumb.top + 44, height: scroll.thumb.height };
   const thumb = scrollThumb === undefined ? derived : scrollThumb;
-  const hoverThread = (id: string) =>
-    onHover && ((on: boolean) => onHover(on ? { kind: "thread", id } : null));
+  const hoverThread = (id: string) => onHover && ((on: boolean) => onHover(on ? { kind: "thread", id } : null));
   const threadRow = (t: SidebarThread, i: number, indent: boolean) => {
     const id = t.id ?? t.title;
     return (
@@ -168,17 +168,19 @@ export function Sidebar({
   return (
     <aside className={`cx-sidebar${hovered ? " is-hovered" : ""}`} style={style}>
       <div className="cx-sidebar__header">
-        <span
+        <button
+          type="button"
           className="cx-sidebar__title"
-          role="button"
           onClick={onTitleClick}
           {...anchorProps(SIDEBAR_TITLE_ANCHOR)}
         >
           {title}
-        </span>
+        </button>
         <IconChevronDown className="cx-sidebar__title-chevron" size={16} />
         <IconBell className="cx-sidebar__bell" size={16} />
-        <IconSearch className="cx-sidebar__search" size={16} />
+        <button type="button" className="cx-sidebar__search" aria-label="Search chats" onClick={onSearch}>
+          <IconSearch size={16} />
+        </button>
       </div>
       <div className="cx-sidebar__body" ref={scroll.ref} {...scroll.handlers}>
         <div
@@ -186,10 +188,10 @@ export function Sidebar({
           style={scroll.residual ? { transform: `translateY(${-scroll.residual}px)` } : undefined}
         >
           <div className="cx-sidebar__sticky">
-            <div className="cx-row cx-row--newchat" role="button" onClick={onNewChat}>
+            <button type="button" className="cx-row cx-row--newchat" onClick={onNewChat}>
               <IconCompose className="cx-row__icon" size={16} />
               <span className="cx-row__text">New chat</span>
-            </div>
+            </button>
             {/* Shown while rows scroll under the pinned row (scroll-state query in shell.css). */}
             <span className="cx-sidebar__stuck-rule" aria-hidden />
           </div>
@@ -200,9 +202,7 @@ export function Sidebar({
             onPointerLeave={onHover && (() => onHover(null))}
           >
             <span className="cx-section__label">Projects</span>
-            {projectsHeader && (
-              <IconChevronDown className="cx-section__chevron" size={18} strokeWidth={1.1} />
-            )}
+            {projectsHeader && <IconChevronDown className="cx-section__chevron" size={18} strokeWidth={1.1} />}
             {projectsHeader === "actions" && (
               <>
                 <IconMore className="cx-section__more" size={16} />
@@ -214,8 +214,9 @@ export function Sidebar({
             const id = p.id ?? p.name;
             return (
               <div key={id} className={`cx-project${p.collapsed ? " cx-project--collapsed" : ""}`}>
-                <div
-                  role="button"
+                <button
+                  type="button"
+
                   className={`cx-row cx-row--project${p.selected ? " is-selected" : ""}${p.hover ? " is-hover" : ""}`}
                   onClick={onProjectClick && (() => onProjectClick(id))}
                   onPointerEnter={onHover && (() => onHover({ kind: "project", id }))}
@@ -229,7 +230,7 @@ export function Sidebar({
                     ))}
                   <span className="cx-row__text">{p.name}</span>
                   {p.trailing}
-                </div>
+                </button>
                 {!p.collapsed && p.threads.map((t, i) => threadRow(t, i, true))}
                 {!p.collapsed && p.showMore && (
                   <Row
@@ -263,9 +264,7 @@ export function Sidebar({
           {recents.map((t, i) => threadRow(t, i, false))}
         </div>
       </div>
-      {thumb && (
-        <span className="cx-sidebar__thumb" style={{ top: thumb.top, height: thumb.height }} />
-      )}
+      {thumb && <span className="cx-sidebar__thumb" style={{ top: thumb.top, height: thumb.height }} />}
       {children}
     </aside>
   );

@@ -33,10 +33,7 @@ export interface Block {
 }
 
 /** Build old/new line arrays from runs of kept, deleted and added lines. */
-export function scattered(
-  line: (kind: "keep" | "old" | "new", n: number) => string,
-  blocks: readonly Block[],
-) {
+export function scattered(line: (kind: "keep" | "old" | "new", n: number) => string, blocks: readonly Block[]) {
   const oldLines: string[] = [];
   const newLines: string[] = [];
   let k = 0;

@@ -1,0 +1,53 @@
+/* Theme tokens of the ported pane. Every color in the copied codex-atlas-clone styles is
+   expressed in these (a codemod rewrote the sampled literals as mixes of fg and bg), so the
+   pane follows the cmux theme Swift applies (--agent-* from shared/theme.ts) and renders the
+   ChatGPT reference palette exactly when no theme is applied. */
+:root {
+  --pt-bg: var(--agent-page-bg, #272823);
+  --pt-fg: var(--agent-text, #f8f8f3);
+  --pt-black: #000;
+  --pt-warning: var(--agent-warning, #ef8b57);
+  --pt-add: var(--agent-ansi-2, #90b345);
+  --pt-del: var(--agent-ansi-1, #b4365e);
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--pt-bg);
+  color: var(--pt-fg);
+  overflow: hidden;
+}
+#root {
+  position: fixed;
+  inset: 0;
+}
+
+/* The copied markup drew controls as spans and divs; they are real buttons, separators and
+   outputs now (keyboard focus, accessibility), drawn exactly as before. */
+:where(button) {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  text-align: inherit;
+  cursor: default;
+}
+:where(button.cx-row, button.cx-menu__item, button.chg-menu-item, button.app-perm__item, button.pt-model-list__item, button.cm-row) {
+  display: flex;
+  width: 100%;
+}
+:where(hr) {
+  border: 0;
+  margin: 0;
+}
+:where(output) {
+  display: block;
+}
+:where(button:focus-visible) {
+  outline: 1px solid color-mix(in srgb, var(--pt-fg) 40%, transparent);
+  outline-offset: -1px;
+}

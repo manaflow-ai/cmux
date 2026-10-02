@@ -1,12 +1,7 @@
 // Fenced code inside a transcript, rendered by @pierre/diffs `File` (a ```diff fence is
 // highlighted as a diff). The card holds window.__atlasReady until Pierre has painted it.
 import { useCallback } from "react";
-import {
-  DIFFS_TAG_NAME,
-  File as PierreFile,
-  FileDiff as PierreFileDiff,
-  parsePatchFiles,
-} from "@pierre/diffs";
+import { DIFFS_TAG_NAME, File as PierreFile, FileDiff as PierreFileDiff, parsePatchFiles } from "@pierre/diffs-port";
 import { CODEX_DIFF_THEME, registerCodexDiffTheme } from "../changes/theme";
 import { diffUnsafeCSS } from "../changes/diffStyles";
 import { trackRender } from "./ready";
@@ -77,13 +72,7 @@ export type CodeBlockProps = {
  * StrictMode the React wrapper re-attaches to a shadow root still holding the first
  * instance's empty <pre>, hydrates it as prerendered and never paints.)
  */
-export function CodeBlock({
-  code,
-  lang = "text",
-  label,
-  lineNumbers = false,
-  wrap = false,
-}: CodeBlockProps) {
+export function CodeBlock({ code, lang = "text", label, lineNumbers = false, wrap = false }: CodeBlockProps) {
   const host = useCallback(
     (el: HTMLElement | null) => {
       if (!el) return;

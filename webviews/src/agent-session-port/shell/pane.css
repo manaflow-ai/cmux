@@ -6,7 +6,7 @@
   right: 4px;
   bottom: 4px;
   background: var(--cx-main);
-  box-shadow: -1px 0 0 #383934;
+  box-shadow: -1px 0 0 color-mix(in srgb, var(--pt-fg) 8.2%, var(--pt-bg));
   border-radius: 0 11.75px 11.75px 0;
   overflow: hidden;
   font-size: 14px;
@@ -16,7 +16,7 @@
 /* ---------- Browser new tab (pane-local coordinates) ---------- */
 .cx-newtab {
   container: cx-newtab / inline-size;
-  background: #262722;
+  background: color-mix(in srgb, var(--pt-bg) 97.4%, var(--pt-black));
 }
 /* Content column: up to 768px, centered, at least 20px from the left edge and 21px from the
    right (the 582.5px page's grid spans x 20..561.5). */
@@ -33,8 +33,8 @@
   right: 0;
   top: 0;
   height: 48px;
-  background: #272823;
-  border-bottom: 1px solid #363732;
+  background: var(--pt-bg);
+  border-bottom: 1px solid color-mix(in srgb, var(--pt-fg) 7.2%, var(--pt-bg));
 }
 .cx-newtab__nav,
 .cx-newtab__url,
@@ -43,11 +43,11 @@
   top: 7.5px;
   height: 32.5px;
   border-radius: 16.25px;
-  background: #3a3b35;
+  background: color-mix(in srgb, var(--pt-fg) 9%, var(--pt-bg));
   box-shadow:
-    inset 0 0 0 0.5px rgb(255 255 255 / 0.09),
-    0 1px 2px rgb(0 0 0 / 0.12);
-  color: #999993;
+    inset 0 0 0 0.5px color-mix(in srgb, var(--pt-fg) 9%, transparent),
+    0 1px 2px color-mix(in srgb, var(--pt-black) 12%, transparent);
+  color: color-mix(in srgb, var(--pt-fg) 54.2%, var(--pt-bg));
 }
 .cx-newtab__nav {
   left: 7.5px;
@@ -58,10 +58,10 @@
   top: 8.25px;
 }
 .cx-newtab__navicon:nth-child(-n + 2) {
-  color: #6b6c67;
+  color: color-mix(in srgb, var(--pt-fg) 32.6%, var(--pt-bg));
 }
 .cx-newtab__reload {
-  color: #c9c9c3;
+  color: color-mix(in srgb, var(--pt-fg) 77.3%, var(--pt-bg));
 }
 .cx-newtab__navsep {
   position: absolute;
@@ -69,7 +69,7 @@
   top: 8px;
   width: 1px;
   height: 16.5px;
-  background: #4d4e49;
+  background: color-mix(in srgb, var(--pt-fg) 18.2%, var(--pt-bg));
 }
 .cx-newtab__url {
   left: 114.5px;
@@ -78,7 +78,7 @@
   align-items: center;
   justify-content: center;
   font-size: 13px;
-  color: #8d8e88;
+  color: color-mix(in srgb, var(--pt-fg) 48.8%, var(--pt-bg));
 }
 .cx-newtab__btn {
   width: 33px;
@@ -116,7 +116,7 @@
 .cx-newtab__card {
   position: relative;
   border-radius: 8px;
-  background: #2d2e29;
+  background: color-mix(in srgb, var(--pt-fg) 2.9%, var(--pt-bg));
   display: flex;
   align-items: center;
 }
@@ -125,7 +125,7 @@
   left: 10px;
   top: 11.75px;
   display: flex;
-  color: #a2a29c;
+  color: color-mix(in srgb, var(--pt-fg) 58.6%, var(--pt-bg));
 }
 .cx-newtab__cardlabel {
   position: absolute;
@@ -139,17 +139,17 @@
   height: 15px;
   padding: 0 6.5px;
   border-radius: 7.5px;
-  background: #3a3b36;
+  background: color-mix(in srgb, var(--pt-fg) 9.1%, var(--pt-bg));
   font-size: 13px;
   line-height: 15px;
-  color: #a2a29c;
+  color: color-mix(in srgb, var(--pt-fg) 58.6%, var(--pt-bg));
 }
 .cx-newtab__more {
   position: absolute;
   right: 16px;
   top: 11.75px;
   display: flex;
-  color: #a2a29c;
+  color: color-mix(in srgb, var(--pt-fg) 58.6%, var(--pt-bg));
 }
 /* Suggested sites: at least 140px each over the content column plus 6px each side; a narrow
    pane scrolls them sideways (its thumb is .cx-newtab__hscroll). */
@@ -188,7 +188,7 @@
   width: 531px;
   height: 6px;
   border-radius: 3px;
-  background: #373833;
+  background: color-mix(in srgb, var(--pt-fg) 7.7%, var(--pt-bg));
 }
 /* Four 140px sites overflow the column (+12px) below a 589px pane. */
 @container cx-newtab (width >= 589px) {
@@ -203,7 +203,7 @@
   right: 6px;
   display: flex;
   gap: 17.5px;
-  color: #6f706a;
+  color: color-mix(in srgb, var(--pt-fg) 34.4%, var(--pt-bg));
 }
 .cx-newtab__recents {
   position: absolute;
@@ -215,7 +215,7 @@
   position: relative;
   height: 56px;
   border-radius: 0 0 16px 16px;
-  box-shadow: 0 0.5px 0 #34352f;
+  box-shadow: 0 0.5px 0 color-mix(in srgb, var(--pt-fg) 6.1%, var(--pt-bg));
   font-size: 13px;
   line-height: 18px;
 }
@@ -226,7 +226,7 @@
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background: #41423c;
+  background: color-mix(in srgb, var(--pt-fg) 12.3%, var(--pt-bg));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -240,11 +240,11 @@
   position: absolute;
   left: 49px;
   top: 29.5px;
-  color: #8d8e88;
+  color: color-mix(in srgb, var(--pt-fg) 48.8%, var(--pt-bg));
 }
 .cx-newtab__recentdate {
   position: absolute;
   right: 12.5px;
   top: 19px;
-  color: #b9bab4;
+  color: color-mix(in srgb, var(--pt-fg) 69.9%, var(--pt-bg));
 }

@@ -10,13 +10,7 @@
 
 /* ---------------- Domain ---------------- */
 
-export type ChangeScope =
-  | "lastTurn"
-  | "uncommitted"
-  | "unstaged"
-  | "staged"
-  | "committed"
-  | "branch";
+export type ChangeScope = "lastTurn" | "uncommitted" | "unstaged" | "staged" | "committed" | "branch";
 
 export const SCOPE_LABELS: Record<ChangeScope, string> = {
   lastTurn: "Last Turn",
@@ -157,10 +151,7 @@ export const INITIAL_PANE_STATE: ChangesPaneState = {
   scroll: { diffTop: 0, diffLeft: {} },
 };
 
-export function initPaneState(
-  initial?: Partial<ChangesPaneState>,
-  source?: ChangesSource,
-): ChangesPaneState {
+export function initPaneState(initial?: Partial<ChangesPaneState>, source?: ChangesSource): ChangesPaneState {
   const s = {
     ...INITIAL_PANE_STATE,
     ...initial,
@@ -220,9 +211,7 @@ export function changesReducer(s: ChangesPaneState, a: ChangesAction): ChangesPa
     case "toggleViewed":
       return {
         ...s,
-        viewed: s.viewed.includes(a.path)
-          ? s.viewed.filter((p) => p !== a.path)
-          : [...s.viewed, a.path],
+        viewed: s.viewed.includes(a.path) ? s.viewed.filter((p) => p !== a.path) : [...s.viewed, a.path],
       };
     case "setFilter":
       return { ...s, filter: a.filter };

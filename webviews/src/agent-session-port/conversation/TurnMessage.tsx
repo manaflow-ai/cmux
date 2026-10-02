@@ -4,25 +4,12 @@
 // open is UI state, kept here per turn and keyed by the stable ids the derivation assigns.
 import type { ReactNode, RefCallback } from "react";
 import { useDisclosure, type Disclosure } from "./useDisclosure";
-import {
-  deriveTurn,
-  type ActivityIcon,
-  type ActivityRow,
-  type ActivityUnit,
-  type DeriveOptions,
-} from "./derive";
+import { deriveTurn, type ActivityIcon, type ActivityRow, type ActivityUnit, type DeriveOptions } from "./derive";
 import { turnEnd, type TurnEndBlock } from "./turnEnd";
 import { EditedFilesCard } from "./cards";
 import { DiffBlock } from "./CodeBlock";
 import { Markdown } from "./Markdown";
-import {
-  AssistantMessage,
-  ToolGroup,
-  ToolRow,
-  UserMessage,
-  WorkedFor,
-  type TurnActionsKind,
-} from "./messages";
+import { AssistantMessage, ToolGroup, ToolRow, UserMessage, WorkedFor, type TurnActionsKind } from "./messages";
 import {
   ChevronDown,
   CommandKey,
@@ -76,9 +63,7 @@ function RowBody({ row }: { row: ActivityRow }) {
           <div className="cv-shell__title">Shell</div>
           <div className="cv-shell__scroll">
             <pre className="cv-shell__command">$ {body.command}</pre>
-            {body.output && (
-              <pre className="cv-shell__output">{body.output.replace(/\n$/, "")}</pre>
-            )}
+            {body.output && <pre className="cv-shell__output">{body.output.replace(/\n$/, "")}</pre>}
           </div>
           {body.exitCode != null && <div className="cv-shell__exit">Exit code {body.exitCode}</div>}
         </div>
@@ -128,11 +113,7 @@ function Reveal({
 }) {
   if (!open && !mounted) return null;
   return (
-    <div
-      ref={scrollRef}
-      className={`cv-reveal ${className}${open ? "" : " is-closed"}`}
-      inert={!open}
-    >
+    <div ref={scrollRef} className={`cv-reveal ${className}${open ? "" : " is-closed"}`} inert={!open}>
       {children}
     </div>
   );
@@ -303,14 +284,14 @@ export function FileCard({ name, subtitle }: { name: string; subtitle: string })
   );
 }
 
-function EndBlock({ block, visibleFiles }: { block: TurnEndBlock; visibleFiles?: number }) {
+function EndBlock({ block, visibleFiles, turnId }: { block: TurnEndBlock; visibleFiles?: number; turnId: string }) {
   switch (block.kind) {
     case "website":
       return <WebsiteCard title={block.title} subtitle={block.subtitle} />;
     case "file":
       return <FileCard name={block.name} subtitle={block.subtitle} />;
     case "edited-files":
-      return <EditedFilesCard files={block.files} visible={visibleFiles} />;
+      return <EditedFilesCard files={block.files} visible={visibleFiles} turnId={turnId} />;
   }
 }
 
@@ -370,29 +351,15 @@ export function TurnMessage({
         )}
         {view.activity.length > 0 &&
           (header?.collapsible ? (
-            <Reveal
-              open={expanded}
-              mounted={disclosure.wasOpen(view.key)}
-              className="cv-activity cv-reveal--turn"
-            >
+            <Reveal open={expanded} mounted={disclosure.wasOpen(view.key)} className="cv-activity cv-reveal--turn">
               {view.activity.map((u) => (
-                <Unit
-                  key={u.key}
-                  unit={u}
-                  disclosure={disclosure}
-                  toOpen={scrolledToOpen?.includes(u.key)}
-                />
+                <Unit key={u.key} unit={u} disclosure={disclosure} toOpen={scrolledToOpen?.includes(u.key)} />
               ))}
             </Reveal>
           ) : (
             <div className="cv-activity">
               {view.activity.map((u) => (
-                <Unit
-                  key={u.key}
-                  unit={u}
-                  disclosure={disclosure}
-                  toOpen={scrolledToOpen?.includes(u.key)}
-                />
+                <Unit key={u.key} unit={u} disclosure={disclosure} toOpen={scrolledToOpen?.includes(u.key)} />
               ))}
             </div>
           ))}
@@ -400,7 +367,7 @@ export function TurnMessage({
           <Markdown key={m.key}>{m.text}</Markdown>
         ))}
         {end.map((b) => (
-          <EndBlock key={b.key} block={b} visibleFiles={visibleFiles} />
+          <EndBlock key={b.key} block={b} visibleFiles={visibleFiles} turnId={turn.id} />
         ))}
       </AssistantMessage>
     </>

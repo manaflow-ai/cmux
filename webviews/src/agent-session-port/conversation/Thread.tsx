@@ -100,6 +100,7 @@ export function Thread({
   } = useScrollArea(typeof scroll === "object" ? resolve : scroll === "bottom" ? 1e9 : scroll, {
     insetStart: thumbInset?.top ?? THUMB_INSET.top,
     insetEnd: thumbInset?.bottom ?? THUMB_INSET.bottom,
+    stickToEnd: scroll === "bottom",
   });
   const viewportStyle = {
     "--cv-fade-top": fade?.top !== undefined ? `${fade.top}px` : undefined,
@@ -117,12 +118,7 @@ export function Thread({
         } as CSSProperties
       }
     >
-      <div
-        className="cv-thread__viewport"
-        style={viewportStyle}
-        ref={scrollRef}
-        {...scrollHandlers}
-      >
+      <div className="cv-thread__viewport" style={viewportStyle} ref={scrollRef} {...scrollHandlers}>
         <div
           className="cv-thread__column"
           style={{
@@ -134,9 +130,7 @@ export function Thread({
           {children}
         </div>
       </div>
-      {thumb && (
-        <span className="cv-thread__thumb" style={{ top: thumb.top, height: thumb.height }} />
-      )}
+      {thumb && <span className="cv-thread__thumb" style={{ top: thumb.top, height: thumb.height }} />}
       {overlay}
       {composer && (
         <div

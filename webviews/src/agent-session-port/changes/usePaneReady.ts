@@ -15,7 +15,7 @@
 // useStableCallback (from @pierre/diffs) keeps the handlers' identity stable so React does
 // not detach and re-attach the callback refs on every render.
 import { useRef } from "react";
-import { useStableCallback } from "@pierre/diffs/react";
+import { useStableCallback } from "@pierre/diffs-port/react";
 import { trackRender } from "../conversation/ready";
 
 export interface PaneReadiness {

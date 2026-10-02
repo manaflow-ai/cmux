@@ -43,9 +43,7 @@ export function Popover({ anchor, className, role, onDismiss, style, children }:
       // Always fixed: classes shared with in-flow boxes (`.cx-menu` is absolute) must not
       // change the containing block to anything but the viewport.
       style={{ ...style, position: "fixed", positionAnchor: anchor } as CSSProperties}
-      onToggle={
-        onDismiss && ((e: ToggleEvent<HTMLDivElement>) => e.newState === "closed" && onDismiss())
-      }
+      onToggle={onDismiss && ((e: ToggleEvent<HTMLDivElement>) => e.newState === "closed" && onDismiss())}
     >
       {children}
     </div>

@@ -6,17 +6,10 @@
 // This file derives the view from those two and wires events to actions; the parts in
 // parts/ are presentational.
 import { useId, useReducer, useRef, useState, type CSSProperties } from "react";
-import { Virtualizer } from "@pierre/diffs";
-import { useStableCallback, VirtualizerContext } from "@pierre/diffs/react";
+import { Virtualizer } from "@pierre/diffs-port";
+import { useStableCallback, VirtualizerContext } from "@pierre/diffs-port/react";
 import { registerCodexDiffTheme } from "./theme";
-import {
-  HEADER_LABELS,
-  LOAD_COPY,
-  MANUAL_FRAME,
-  SCOPE_ORDER,
-  TOOLBAR_LABELS,
-  trackedOnlyBanner,
-} from "./constants";
+import { HEADER_LABELS, LOAD_COPY, MANUAL_FRAME, SCOPE_ORDER, TOOLBAR_LABELS, trackedOnlyBanner } from "./constants";
 import { changesReducer, initPaneState, isCollapsed, SCOPE_LABELS, totals } from "./model";
 import type { ChangedFile, ChangesAction, ChangesPaneState, ToolbarButtonId } from "./model";
 import type { ChangesPaneProps, MenuRow, PaneFrame } from "./types";
@@ -68,16 +61,7 @@ function usePaneState({
 }
 
 export function ChangesPane(props: ChangesPaneProps) {
-  const {
-    changes,
-    frame = MANUAL_FRAME,
-    onReady,
-    onRefresh,
-    onOpenFile,
-    className,
-    style,
-    virtualize,
-  } = props;
+  const { changes, frame = MANUAL_FRAME, onReady, onRefresh, onOpenFile, className, style, virtualize } = props;
   const [s, dispatch] = usePaneState(props);
   const anchors = paneAnchors(useId());
   const filterInput = useRef<HTMLInputElement>(null);
@@ -89,8 +73,7 @@ export function ChangesPane(props: ChangesPaneProps) {
   const paths = files.map((f) => f.path);
   const selectedPath = s.selectedPath ?? files[0]?.path ?? null;
   const banner = changeSet?.untrackedSkipped ? trackedOnlyBanner(changeSet.untrackedSkipped) : null;
-  const branch =
-    changeSet?.head && changeSet.base ? { head: changeSet.head, base: changeSet.base } : null;
+  const branch = changeSet?.head && changeSet.base ? { head: changeSet.head, base: changeSet.base } : null;
 
   const ready = usePaneReady(paths, onReady);
   const { thumb: vThumb, attach: attachV, measure: measureV } = useOverlayThumb("y", 3, 3);
@@ -113,9 +96,7 @@ export function ChangesPane(props: ChangesPaneProps) {
     attachV(el);
   });
   const scrollToFile = (path: string) => {
-    const block = diffs.current?.querySelector<HTMLElement>(
-      `.cx-file[data-path="${CSS.escape(path)}"]`,
-    );
+    const block = diffs.current?.querySelector<HTMLElement>(`.cx-file[data-path="${CSS.escape(path)}"]`);
     if (block && diffs.current) diffs.current.scrollTop = block.offsetTop;
   };
 
@@ -141,10 +122,7 @@ export function ChangesPane(props: ChangesPaneProps) {
   };
   const fileHandlers: FileHandlers = {
     hover: (path, button) => dispatch({ type: "hover", target: { kind: "file", path, button } }),
-    leave: (path) =>
-      s.hover?.kind === "file" &&
-      s.hover.path === path &&
-      dispatch({ type: "hover", target: null }),
+    leave: (path) => s.hover?.kind === "file" && s.hover.path === path && dispatch({ type: "hover", target: null }),
     toggleCollapsed: (path) => dispatch({ type: "toggleCollapsed", path, paths }),
     press: (path, button) => {
       if (button === "viewed") dispatch({ type: "toggleViewed", path });
@@ -165,9 +143,7 @@ export function ChangesPane(props: ChangesPaneProps) {
   });
   // The compact toolbar of a narrow pane is a container query on the pane (changes.css).
   const toolbar = {
-    active: [s.showTree && "tree", s.wrap && "wrap", s.split && "split"].filter(
-      Boolean,
-    ) as ToolbarButtonId[],
+    active: [s.showTree && "tree", s.wrap && "wrap", s.split && "split"].filter(Boolean) as ToolbarButtonId[],
     pressed: s.menu?.kind === "options" ? ("options" as const) : null,
     focused: s.focus,
     hovered: hover?.kind === "toolbar" ? hover.button : null,
@@ -181,10 +157,7 @@ export function ChangesPane(props: ChangesPaneProps) {
           anchor: anchors.tool(hover.button),
           side: "below" as const,
         }
-      : hover?.kind === "file" &&
-          hover.button &&
-          hover.button !== "actions" &&
-          fileIndex(hover.path) >= 0
+      : hover?.kind === "file" && hover.button && hover.button !== "actions" && fileIndex(hover.path) >= 0
         ? {
             text:
               hover.button === "viewed" && s.viewed.includes(hover.path)
@@ -194,9 +167,7 @@ export function ChangesPane(props: ChangesPaneProps) {
             side: "above" as const,
           }
         : null;
-  const menu = s.menu
-    ? menuFor(s.menu, s, { dispatch, paths, refresh, copyPath, onOpenFile })
-    : null;
+  const menu = s.menu ? menuFor(s.menu, s, { dispatch, paths, refresh, copyPath, onOpenFile }) : null;
   const menuAnchor =
     s.menu?.kind === "scope"
       ? anchors.scope
@@ -279,9 +250,7 @@ export function ChangesPane(props: ChangesPaneProps) {
           )}
         </div>
         <div className="cx-vscroll">
-          {vThumb && (
-            <div className="cx-thumb" style={{ top: vThumb.offset, height: vThumb.length }} />
-          )}
+          {vThumb && <div className="cx-thumb" style={{ top: vThumb.offset, height: vThumb.length }} />}
         </div>
         {s.showTree && (
           <div className="cx-tree">

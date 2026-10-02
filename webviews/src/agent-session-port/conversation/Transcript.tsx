@@ -83,11 +83,7 @@ export function Transcript({ conversation, composer, scroll, ...thread }: Transc
       {...thread}
       scroll={scroll ?? conversation.scroll}
       composer={
-        banner ? (
-          <OpenElsewhereBanner title={banner.title} body={banner.body} actions={banner.actions} />
-        ) : (
-          composer
-        )
+        banner ? <OpenElsewhereBanner title={banner.title} body={banner.body} actions={banner.actions} /> : composer
       }
     >
       <Messages messages={conversation.messages} clock={conversation.clock} />

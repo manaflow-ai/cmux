@@ -100,10 +100,7 @@ export type CommandExecutionItem = {
   durationMs: number | null;
 };
 
-export type PatchChangeKind =
-  | { type: "add" }
-  | { type: "delete" }
-  | { type: "update"; move_path: string | null };
+export type PatchChangeKind = { type: "add" } | { type: "delete" } | { type: "update"; move_path: string | null };
 
 export type FileUpdateChange = {
   path: string;

@@ -2,15 +2,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { ArrowDown, Copy } from "./icons";
 
-export function IconButton({
-  children,
-  label,
-  style,
-}: {
-  children: ReactNode;
-  label: string;
-  style?: CSSProperties;
-}) {
+export function IconButton({ children, label, style }: { children: ReactNode; label: string; style?: CSSProperties }) {
   return (
     <button type="button" className="cv-iconbtn" aria-label={label} style={style}>
       {children}

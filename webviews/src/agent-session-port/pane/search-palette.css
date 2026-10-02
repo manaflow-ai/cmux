@@ -1,0 +1,140 @@
+/* Command menu: 520px wide, centered on the window, its top 252px above the window's
+   middle (x 604, y 290 in the 1728x1084 captures, as for the Search files palette). A
+   short window keeps it 16px from the bottom; the list scrolls inside. */
+.cm-scrim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--pt-black) 12.8%, transparent);
+  z-index: 30;
+}
+.cm-traffic {
+  position: absolute;
+  inset: 0;
+  z-index: 31;
+  pointer-events: none;
+}
+.cm-menu {
+  position: absolute;
+  z-index: 32;
+  left: calc(50% - 260px);
+  top: max(16px, 50% - 252px);
+  width: 520px;
+  max-width: calc(100% - 32px);
+  max-height: calc(100% - max(16px, 50% - 252px) - 16px);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 0 4px 11px;
+  border: 1px solid color-mix(in srgb, var(--pt-fg) 16.8%, var(--pt-bg));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--pt-fg) 9.1%, var(--pt-bg));
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--pt-black) 12%, transparent);
+  color: var(--cx-text-strong);
+  font-size: 14px;
+  line-height: 20px;
+}
+.cm-input {
+  position: relative;
+  flex: none;
+  height: 41px;
+  display: flex;
+  align-items: center;
+  padding-left: 9px;
+}
+.cm-input__caret {
+  position: absolute;
+  left: 10px;
+  top: 12px;
+  width: 2px;
+  height: 16.5px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--pt-fg) 58.6%, var(--pt-bg));
+  z-index: 1;
+}
+.cm-input > * {
+  transform: translateY(-0.5px);
+}
+.cm-input__field {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--cx-text-strong);
+  font: inherit;
+  caret-color: transparent;
+}
+.cm-input__field::placeholder {
+  color: color-mix(in srgb, var(--pt-fg) 54.6%, var(--pt-bg));
+}
+.cm-section {
+  height: 28.5px;
+  margin-top: 2px;
+  padding-left: 9px;
+  line-height: 30px;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--pt-fg) 54.6%, var(--pt-bg));
+}
+.cm-section--quick {
+  margin-top: 1.5px;
+  height: 28px;
+}
+.cm-row {
+  cursor: default;
+  height: 31px;
+  padding: 0 8px 0 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--pt-fg) 77.4%, var(--pt-bg));
+  letter-spacing: var(--cx-row-tracking);
+}
+.cm-row.has-icon {
+  padding-left: 7.5px;
+  gap: 8.5px;
+}
+.cm-row.is-active {
+  background: color-mix(in srgb, var(--pt-fg) 16%, var(--pt-bg));
+  color: var(--cx-text-strong);
+}
+.cm-row__icon {
+  display: flex;
+  color: color-mix(in srgb, var(--pt-fg) 77.4%, var(--pt-bg));
+}
+.cm-row__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cm-row__meta {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: color-mix(in srgb, var(--pt-fg) 43.2%, var(--pt-bg));
+  font-size: 13px;
+  margin-left: 18px;
+  margin-right: -1px;
+}
+.cm-row__kbd {
+  height: 16px;
+  padding: 0 6px 0 7px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  transform: translateY(0.5px);
+  background: color-mix(in srgb, var(--pt-fg) 14.1%, var(--pt-bg));
+  color: color-mix(in srgb, var(--pt-fg) 63.4%, var(--pt-bg));
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.cm-menu > [role="listbox"] {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}

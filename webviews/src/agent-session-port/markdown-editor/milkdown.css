@@ -1,0 +1,100 @@
+/* Milkdown restyled to look undesigned: the composer text of the reference (14px system-ui,
+   20px lines), no borders, no chrome. Formatting appears only where the user formats. */
+.pt-md-input {
+  position: relative;
+  min-height: 20px;
+}
+.pt-md-input__placeholder {
+  position: absolute;
+  inset: 0 auto auto 0;
+  color: var(--cx-placeholder);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.pt-md-input__root .milkdown {
+  outline: none;
+}
+.pt-md {
+  outline: none;
+  color: var(--cx-text-strong);
+  font: inherit;
+  line-height: 20px;
+  max-height: 40vh;
+  overflow-y: auto;
+  scrollbar-width: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  caret-color: var(--cx-text-strong);
+}
+.pt-md > * {
+  margin: 0;
+}
+.pt-md > * + * {
+  margin-top: 6px;
+}
+.pt-md p {
+  margin: 0;
+}
+.pt-md strong {
+  font-weight: 600;
+}
+.pt-md a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--cx-underline);
+}
+.pt-md code {
+  font-family: var(--cx-mono);
+  font-size: 12.5px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--pt-fg) 8%, transparent);
+}
+.pt-md pre {
+  font-family: var(--cx-mono);
+  font-size: 12.5px;
+  line-height: 18px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--pt-fg) 6%, transparent);
+  overflow-x: auto;
+}
+.pt-md pre code {
+  padding: 0;
+  background: none;
+}
+.pt-md ul,
+.pt-md ol {
+  padding-left: 20px;
+}
+.pt-md li > p {
+  margin: 0;
+}
+.pt-md blockquote {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--pt-fg) 18%, transparent);
+  color: var(--cx-text-dim);
+}
+.pt-md h1,
+.pt-md h2,
+.pt-md h3 {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+}
+.pt-md hr {
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--pt-fg) 14%, transparent);
+}
+.pt-md table {
+  border-collapse: collapse;
+}
+.pt-md td,
+.pt-md th {
+  border: 1px solid color-mix(in srgb, var(--pt-fg) 12%, transparent);
+  padding: 2px 6px;
+}
+.pt-md .ProseMirror-selectednode {
+  outline: 1px solid color-mix(in srgb, var(--pt-fg) 30%, transparent);
+}

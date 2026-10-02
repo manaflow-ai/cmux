@@ -114,7 +114,4 @@ const inspect: ConversationTokens = {
 };
 
 /** "Inspect UI Atlas Changes" beside the Changes pane (diff-second-pass-*.png). */
-export const variants = { manual, sota, fixture, inspect } satisfies Record<
-  string,
-  ConversationTokens
->;
+export const variants = { manual, sota, fixture, inspect } satisfies Record<string, ConversationTokens>;

@@ -42,14 +42,7 @@ function Svg({
 }
 
 /** Closed scalloped outline (the Codex logo / gear silhouette). */
-export function lobedPath(
-  cx: number,
-  cy: number,
-  notchR: number,
-  peakR: number,
-  lobes: number,
-  phaseDeg: number,
-) {
+export function lobedPath(cx: number, cy: number, notchR: number, peakR: number, lobes: number, phaseDeg: number) {
   const step = (2 * Math.PI) / lobes;
   const phase = (phaseDeg * Math.PI) / 180;
   const pt = (a: number, r: number) => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
@@ -358,21 +351,8 @@ export const IconRefresh = (p: IconProps) => (
 /* ---------- Brand ---------- */
 
 /** Codex empty-state mark: scalloped outline with a terminal prompt. 48px default. */
-export const CodexLogo = ({
-  size = 48,
-  strokeWidth = 2.85,
-  className,
-  style,
-  color,
-}: IconProps) => (
-  <Svg
-    box={48}
-    size={size}
-    strokeWidth={strokeWidth}
-    className={className}
-    style={style}
-    color={color}
-  >
+export const CodexLogo = ({ size = 48, strokeWidth = 2.85, className, style, color }: IconProps) => (
+  <Svg box={48} size={size} strokeWidth={strokeWidth} className={className} style={style} color={color}>
     <path d={lobedPath(24, 24, 19.2, 22.7, 6, -135)} />
     <path d="M12.35 17.35 16.75 23.75l-4.3 6.5M25.35 30.35h9" strokeWidth={strokeWidth + 0.15} />
   </Svg>

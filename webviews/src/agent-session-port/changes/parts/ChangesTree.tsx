@@ -5,9 +5,9 @@
 // reports it so the pane can scroll the diff list to it.
 import type { Ref } from "react";
 import { useMemo } from "react";
-import { FileTree, useFileTree } from "@pierre/trees/react";
-import type { FileTreeRowDecorationRenderer } from "@pierre/trees";
-import { useStableCallback } from "@pierre/diffs/react";
+import { FileTree, useFileTree } from "@pierre/trees-port/react";
+import type { FileTreeRowDecorationRenderer } from "@pierre/trees-port";
+import { useStableCallback } from "@pierre/diffs-port/react";
 import { codexColors } from "../theme";
 import { treeUnsafeCSS } from "../treeStyles";
 import { TREE_EMPTY_TEXT } from "../constants";
@@ -15,14 +15,12 @@ import * as I from "../icons";
 import type { ChangedFile } from "../model";
 
 /** Case-insensitive substring match on the full path. */
-export const matchesFilter = (path: string, filter: string) =>
-  path.toLowerCase().includes(filter.trim().toLowerCase());
+export const matchesFilter = (path: string, filter: string) => path.toLowerCase().includes(filter.trim().toLowerCase());
 
 /** Every folder above `paths`, so a reset tree opens fully like the initial one. */
 function folders(paths: readonly string[]) {
   const out = new Set<string>();
-  for (const p of paths)
-    for (let i = p.indexOf("/"); i > 0; i = p.indexOf("/", i + 1)) out.add(p.slice(0, i + 1));
+  for (const p of paths) for (let i = p.indexOf("/"); i > 0; i = p.indexOf("/", i + 1)) out.add(p.slice(0, i + 1));
   return [...out];
 }
 
@@ -47,7 +45,7 @@ export function ChangesTree({
   const renderRowDecoration: FileTreeRowDecorationRenderer = ({ item }) => {
     const f = byPath.get(item.path);
     if (!f || item.kind !== "file") return null;
-    const parts = [];
+    const parts: { text: string; color: string }[] = [];
     if (f.additions > 0) parts.push({ text: `+${f.additions}`, color: codexColors.addition });
     if (f.deletions > 0) parts.push({ text: `-${f.deletions}`, color: codexColors.deletion });
     return { text: parts.map((p) => p.text).join(""), parts };
@@ -84,9 +82,7 @@ export function ChangesTree({
               aria-label="Filter files"
               value={filter}
               onChange={(e) => {
-                const next = files
-                  .map((f) => f.path)
-                  .filter((p) => matchesFilter(p, e.target.value));
+                const next = files.map((f) => f.path).filter((p) => matchesFilter(p, e.target.value));
                 model.resetPaths(next, { initialExpandedPaths: folders(next) });
                 onFilter(e.target.value);
               }}

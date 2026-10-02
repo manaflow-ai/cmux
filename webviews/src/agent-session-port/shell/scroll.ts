@@ -11,6 +11,11 @@ export type ScrollAreaOptions = {
   minThumb?: number;
   /** Reports user scrolling (e.g. to keep the position in app state). Keep it stable. */
   onScroll?: (top: number) => void;
+  /**
+   * Follow the end: once the user scrolls back to the bottom, re-pin there so content that
+   * grows (a streaming reply) stays in view, as a transcript does. Use with an end position.
+   */
+  stickToEnd?: boolean;
 };
 
 /**
@@ -24,7 +29,7 @@ export type ScrollAreaOptions = {
  */
 export function useScrollArea(
   position: number | ((el: HTMLElement) => number) = 0,
-  { insetStart = 0, insetEnd = 0, minThumb = 18, onScroll }: ScrollAreaOptions = {},
+  { insetStart = 0, insetEnd = 0, minThumb = 18, onScroll, stickToEnd = false }: ScrollAreaOptions = {},
 ) {
   const [thumb, setThumb] = useState<ThumbGeometry | null>(null);
   // Chromium snaps scrollTop to whole CSS px; a captured half-pixel offset is drawn as this
@@ -43,9 +48,7 @@ export function useScrollArea(
         const track = size - insetStart - insetEnd;
         const height = Math.max(minThumb, (track * size) / total);
         const top = insetStart + ((track - height) * el.scrollTop) / (total - size);
-        setThumb((prev) =>
-          prev && prev.top === top && prev.height === height ? prev : { top, height },
-        );
+        setThumb((prev) => (prev && prev.top === top && prev.height === height ? prev : { top, height }));
       };
       const apply = () => {
         if (!released.current) {
@@ -60,6 +63,8 @@ export function useScrollArea(
       const scrolled = () => {
         measure();
         if (released.current) onScroll?.(el.scrollTop);
+        if (stickToEnd && released.current && el.scrollHeight - el.scrollTop - el.clientHeight < 2)
+          released.current = false;
       };
       apply();
       const ro = new ResizeObserver(apply);
@@ -71,7 +76,7 @@ export function useScrollArea(
       };
     },
     // onScroll should be stable (e.g. built from a reducer's dispatch).
-    [position, insetStart, insetEnd, minThumb, onScroll],
+    [position, insetStart, insetEnd, minThumb, onScroll, stickToEnd],
   );
   const release = useCallback(() => {
     released.current = true;

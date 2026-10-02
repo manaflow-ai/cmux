@@ -1,6 +1,6 @@
 // File-type icon from @pierre/trees' built-in sprite, so diff headers and tree rows share
 // one icon set.
-import { getBuiltInSpriteSheet } from "@pierre/trees";
+import { getBuiltInSpriteSheet } from "@pierre/trees-port";
 
 let spriteInjected = false;
 // The tree injects its sprite inside its own shadow root; headers live in the light DOM
@@ -23,17 +23,10 @@ export function FileTypeIcon({ path, size = 16 }: { path: string; size?: number 
   ensureSprite();
   const name = path.split("/").pop()!;
   const ext = name.includes(".") ? name.split(".").pop()! : "";
-  const hit =
-    name === "CLAUDE.md" ? { id: "file-tree-builtin-claude", color: "#f2a767" } : ICON_BY_EXT[ext];
+  const hit = name === "CLAUDE.md" ? { id: "file-tree-builtin-claude", color: "#f2a767" } : ICON_BY_EXT[ext];
   const id = hit?.id ?? "file-tree-builtin-default";
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      style={{ color: hit?.color ?? "#adadb1" }}
-      aria-hidden
-    >
+    <svg width={size} height={size} viewBox="0 0 16 16" style={{ color: hit?.color ?? "#adadb1" }} aria-hidden>
       <use href={`#${id}`} />
     </svg>
   );

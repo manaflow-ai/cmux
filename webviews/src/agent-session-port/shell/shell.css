@@ -40,21 +40,21 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.18);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--pt-fg) 18%, transparent);
 }
 
 .cx-traffic__close {
-  background: radial-gradient(circle at 50% 55%, #e1675b 0, #e05d4f 70%, #e46a5c 100%);
+  background: radial-gradient(circle at 50% 55%, var(--pt-warning) 0, var(--pt-warning) 70%, var(--pt-warning) 100%);
 }
 .cx-traffic__min {
   background: radial-gradient(circle at 50% 55%, #f4c32d 0, #f2bd00 70%, #f2bf10 100%);
 }
 .cx-traffic__max {
-  background: radial-gradient(circle at 50% 55%, #61bd2d 0, #4db800 70%, #55ba08 100%);
+  background: radial-gradient(circle at 50% 55%, var(--pt-add) 0, var(--pt-add) 70%, var(--pt-add) 100%);
 }
 .cx-traffic--dimmed span {
   /* Flat gray sampled from every inactive capture. */
-  background: #555652;
+  background: color-mix(in srgb, var(--pt-fg) 22.2%, var(--pt-bg));
   box-shadow: none;
 }
 
@@ -73,7 +73,7 @@
   color: var(--cx-icon-disabled);
 }
 .cx-titlebtn.is-active {
-  background: #484945;
+  background: color-mix(in srgb, var(--pt-fg) 16%, var(--pt-bg));
   color: var(--cx-text-strong);
 }
 
@@ -130,7 +130,7 @@
 }
 .cx-tab.is-active {
   background: var(--cx-rail-active);
-  box-shadow: inset 0 0 0 0.5px #5b5c58;
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--pt-fg) 25.1%, var(--pt-bg));
 }
 .cx-tab__icon {
   display: flex;
@@ -295,7 +295,7 @@
     top: 100%;
     height: 8px;
     background: var(--cx-sidebar);
-    box-shadow: 0 0.5px 0 #3e3f3a;
+    box-shadow: 0 0.5px 0 color-mix(in srgb, var(--pt-fg) 11%, var(--pt-bg));
   }
 }
 
@@ -307,7 +307,7 @@
   background: var(--cx-scroll-thumb);
 }
 .cx-sidebar.is-hovered .cx-sidebar__thumb {
-  background: #4f504a;
+  background: color-mix(in srgb, var(--pt-fg) 19%, var(--pt-bg));
 }
 
 .cx-row {
@@ -350,8 +350,8 @@
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
-  mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+  -webkit-mask-image: linear-gradient(to right, var(--pt-black) calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to right, var(--pt-black) calc(100% - 14px), transparent);
 }
 .cx-row--more {
   color: var(--cx-text-muted);
@@ -362,7 +362,7 @@
   flex: none;
   align-self: stretch;
   width: 49.5px;
-  color: #9b9b96;
+  color: color-mix(in srgb, var(--pt-fg) 55.4%, var(--pt-bg));
 }
 .cx-row__actions svg {
   position: absolute;
@@ -405,7 +405,7 @@
   margin-top: 0;
 }
 .cx-row.cx-row--empty {
-  color: #61625d;
+  color: color-mix(in srgb, var(--pt-fg) 27.8%, var(--pt-bg));
   pointer-events: none;
 }
 .cx-section__label {
@@ -421,7 +421,7 @@
 .cx-section__chevron {
   left: 71.5px;
   top: 5.8px;
-  color: #8d8e89;
+  color: color-mix(in srgb, var(--pt-fg) 49%, var(--pt-bg));
 }
 /* Measured on project-chooser.png: the Projects chevron sits 1px right and 1px lower. */
 .cx-section:not(.cx-section--recents) .cx-section__chevron {
@@ -619,7 +619,7 @@
   color: var(--cx-warning);
 }
 .cx-permission.is-active {
-  background: #4a4b46;
+  background: color-mix(in srgb, var(--pt-fg) 16.8%, var(--pt-bg));
 }
 .cx-composer__spacer {
   flex: 1;
@@ -655,7 +655,7 @@
 }
 .cx-send--ready {
   background: var(--cx-text-strong);
-  color: #1f201c;
+  color: color-mix(in srgb, var(--pt-bg) 79.8%, var(--pt-black));
 }
 
 /* ---------- Menu / tooltip ---------- */
@@ -668,7 +668,7 @@
   background: var(--cx-menu);
   box-shadow:
     inset 0 0 0 0.5px var(--cx-menu-border),
-    0 10px 30px rgb(0 0 0 / 0.35);
+    0 10px 30px color-mix(in srgb, var(--pt-black) 35%, transparent);
   color: var(--cx-text-strong);
   font-size: 14px;
   line-height: 18px;
@@ -701,7 +701,7 @@
   color: var(--cx-warning);
 }
 .cx-menu__item.is-danger {
-  color: #ff6b6b;
+  color: var(--pt-warning);
 }
 .cx-menu__icon {
   width: 16px;
@@ -756,8 +756,8 @@
   z-index: 20;
   padding: 4px 8px;
   border-radius: 7px;
-  background: #1f201c;
-  box-shadow: inset 0 0 0 0.5px #4e4f4a;
+  background: color-mix(in srgb, var(--pt-bg) 79.8%, var(--pt-black));
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--pt-fg) 18.7%, var(--pt-bg));
   color: var(--cx-text-strong);
   font-size: 13px;
   line-height: 16px;
@@ -774,19 +774,19 @@
 /* Inactive (non-key) window palette, sampled from every inactive capture
    (changes-open, fixture-actions-menu, diff-inspection-loading-stuck, manual-view-changes). */
 .cx-window.is-inactive {
-  --cx-chrome: #32332e;
-  --cx-sidebar: #2a2c26;
-  --cx-rail-active: #41423d;
+  --cx-chrome: color-mix(in srgb, var(--pt-fg) 5.3%, var(--pt-bg));
+  --cx-sidebar: color-mix(in srgb, var(--pt-fg) 1.6%, var(--pt-bg));
+  --cx-rail-active: color-mix(in srgb, var(--pt-fg) 12.5%, var(--pt-bg));
 }
 .cx-window.is-inactive .cx-tab.is-active {
-  box-shadow: inset 0 0 0 0.5px #50514c;
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--pt-fg) 19.7%, var(--pt-bg));
 }
 
 /* Window captured with its macOS shadow at an offset on a transparent desktop
    (WindowFrame `capture`). The fixed window inside is positioned against this box. */
 .cx-capture {
-  --cx-capture-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.94), 0 19px 40px rgb(0 0 0 / 0.7);
-  --cx-capture-rim: inset 0 0 0 1px rgb(255 255 255 / 0.1);
+  --cx-capture-shadow: 0 0 0 0.5px color-mix(in srgb, var(--pt-black) 94%, transparent), 0 19px 40px color-mix(in srgb, var(--pt-black) 70%, transparent);
+  --cx-capture-rim: inset 0 0 0 1px color-mix(in srgb, var(--pt-fg) 10%, transparent);
   position: fixed;
   width: 1728px;
   height: 1084px;
@@ -796,8 +796,8 @@
 }
 .cx-capture.is-inactive {
   --cx-capture-shadow:
-    0 0 0 0.5px rgb(0 0 0 / 0.85), 0 5px 10px rgb(0 0 0 / 0.4), 0 6px 22px rgb(0 0 0 / 0.2);
-  --cx-capture-rim: inset 0 0 0 0.5px #42433f;
+    0 0 0 0.5px color-mix(in srgb, var(--pt-black) 85%, transparent), 0 5px 10px color-mix(in srgb, var(--pt-black) 40%, transparent), 0 6px 22px color-mix(in srgb, var(--pt-black) 20%, transparent);
+  --cx-capture-rim: inset 0 0 0 0.5px color-mix(in srgb, var(--pt-fg) 13.1%, var(--pt-bg));
 }
 .cx-capture::after {
   content: "";
@@ -816,7 +816,7 @@
   top: 14px;
   width: 0.5px;
   height: 16px;
-  background: #4e4f4b;
+  background: color-mix(in srgb, var(--pt-fg) 18.9%, var(--pt-bg));
 }
 .cx-pane-tabs .cx-tabstrip {
   gap: 14px;

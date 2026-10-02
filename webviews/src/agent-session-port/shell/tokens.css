@@ -5,42 +5,42 @@
   --cx-mono: ui-monospace, "SF Mono", Menlo, monospace;
 
   /* Surfaces */
-  --cx-chrome: #3f403c; /* window background: title bar, icon rail */
-  --cx-panel-border: #484945; /* hairline around the content panel */
-  --cx-sidebar: #2f302b; /* sidebar column */
-  --cx-main: #272823; /* main (conversation) column */
-  --cx-divider: #4e4f4b; /* sidebar | main hairline */
-  --cx-row-selected: #3e3f3b; /* selected sidebar row */
-  --cx-row-hover: #3e3f3b;
-  --cx-rail-active: #4d4e4a; /* active icon-rail button */
-  --cx-scroll-thumb: #3f403b;
+  --cx-chrome: color-mix(in srgb, var(--pt-fg) 11.7%, var(--pt-bg)); /* window background: title bar, icon rail */
+  --cx-panel-border: color-mix(in srgb, var(--pt-fg) 16%, var(--pt-bg)); /* hairline around the content panel */
+  --cx-sidebar: color-mix(in srgb, var(--pt-fg) 3.8%, var(--pt-bg)); /* sidebar column */
+  --cx-main: var(--pt-bg); /* main (conversation) column */
+  --cx-divider: color-mix(in srgb, var(--pt-fg) 18.9%, var(--pt-bg)); /* sidebar | main hairline */
+  --cx-row-selected: color-mix(in srgb, var(--pt-fg) 11.2%, var(--pt-bg)); /* selected sidebar row */
+  --cx-row-hover: color-mix(in srgb, var(--pt-fg) 11.2%, var(--pt-bg));
+  --cx-rail-active: color-mix(in srgb, var(--pt-fg) 18.4%, var(--pt-bg)); /* active icon-rail button */
+  --cx-scroll-thumb: color-mix(in srgb, var(--pt-fg) 11.5%, var(--pt-bg));
 
   /* Composer */
-  --cx-composer: #42433e;
-  --cx-composer-border: #4d4e49;
-  --cx-context-bar: #363732;
-  --cx-send: #9d9d98;
-  --cx-send-icon: #3a3b36;
+  --cx-composer: color-mix(in srgb, var(--pt-fg) 13%, var(--pt-bg));
+  --cx-composer-border: color-mix(in srgb, var(--pt-fg) 18.2%, var(--pt-bg));
+  --cx-context-bar: color-mix(in srgb, var(--pt-fg) 7.2%, var(--pt-bg));
+  --cx-send: color-mix(in srgb, var(--pt-fg) 56.3%, var(--pt-bg));
+  --cx-send-icon: color-mix(in srgb, var(--pt-fg) 9.1%, var(--pt-bg));
 
   /* Menus / popovers */
-  --cx-menu: #393a35;
-  --cx-menu-border: #4e4f4a;
-  --cx-menu-separator: #4a4b46;
-  --cx-menu-hover: #45463f;
+  --cx-menu: color-mix(in srgb, var(--pt-fg) 8.6%, var(--pt-bg));
+  --cx-menu-border: color-mix(in srgb, var(--pt-fg) 18.7%, var(--pt-bg));
+  --cx-menu-separator: color-mix(in srgb, var(--pt-fg) 16.8%, var(--pt-bg));
+  --cx-menu-hover: color-mix(in srgb, var(--pt-fg) 14.1%, var(--pt-bg));
 
   /* Text */
-  --cx-text-strong: #f8f8f3; /* hero, composer text, active icons */
-  --cx-text: #dadad4; /* sidebar rows */
-  --cx-text-selected: #ddddd7;
-  --cx-text-muted: #94948f; /* sidebar icons, "Show more" */
-  --cx-text-section: #7b7b76; /* "Projects", "Recents" */
-  --cx-text-dim: #9d9e98; /* "Medium", chevrons in composer */
-  --cx-placeholder: #6f706b;
-  --cx-icon: #9c9c97; /* title bar + rail icons */
-  --cx-icon-disabled: #646560;
-  --cx-warning: #ef8b57; /* "Full access" */
-  --cx-logo: #666661;
-  --cx-underline: #8f908a;
+  --cx-text-strong: var(--pt-fg); /* hero, composer text, active icons */
+  --cx-text: color-mix(in srgb, var(--pt-fg) 85.4%, var(--pt-bg)); /* sidebar rows */
+  --cx-text-selected: color-mix(in srgb, var(--pt-fg) 86.9%, var(--pt-bg));
+  --cx-text-muted: color-mix(in srgb, var(--pt-fg) 52%, var(--pt-bg)); /* sidebar icons, "Show more" */
+  --cx-text-section: color-mix(in srgb, var(--pt-fg) 40%, var(--pt-bg)); /* "Projects", "Recents" */
+  --cx-text-dim: color-mix(in srgb, var(--pt-fg) 56.5%, var(--pt-bg)); /* "Medium", chevrons in composer */
+  --cx-placeholder: color-mix(in srgb, var(--pt-fg) 34.6%, var(--pt-bg));
+  --cx-icon: color-mix(in srgb, var(--pt-fg) 55.8%, var(--pt-bg)); /* title bar + rail icons */
+  --cx-icon-disabled: color-mix(in srgb, var(--pt-fg) 29.3%, var(--pt-bg));
+  --cx-warning: var(--pt-warning); /* "Full access" */
+  --cx-logo: color-mix(in srgb, var(--pt-fg) 29.9%, var(--pt-bg));
+  --cx-underline: color-mix(in srgb, var(--pt-fg) 49.8%, var(--pt-bg));
 
   /* Type scale */
   /* Sidebar rows in the capture run ~0.04px/glyph wider than headless Chromium's SF. */

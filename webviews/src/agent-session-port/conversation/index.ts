@@ -6,7 +6,6 @@ export * from "./buttons";
 export * from "./Markdown";
 export * from "./Math";
 export * from "./CodeBlock";
-export * from "./chrome";
 export * from "./ready";
 export * from "./tokens";
 export * from "./variants";

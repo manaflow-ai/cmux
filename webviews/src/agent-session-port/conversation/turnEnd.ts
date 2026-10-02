@@ -118,9 +118,7 @@ export function turnEnd(turn: Turn, opts: DeriveOptions = {}): TurnEndBlock[] {
   const covered = new Set(
     blocks.flatMap((b) => (b.kind === "file" ? [b.path] : b.kind === "website" ? [b.target] : [])),
   );
-  const editedAbs = turn.items.flatMap((i) =>
-    i.type === "fileChange" ? i.changes.map((c) => c.path) : [],
-  );
+  const editedAbs = turn.items.flatMap((i) => (i.type === "fileChange" ? i.changes.map((c) => c.path) : []));
   if (edits.length > 0 && !editedAbs.every((p) => covered.has(p)))
     blocks.push({ kind: "edited-files", key: `edited:${turn.id}`, files: edits });
   return blocks;

@@ -1,6 +1,6 @@
 // Codex dark diff theme for @pierre/diffs. Colors sampled from
 // reference/screenshots/chatgpt/manual-changes-current.png.
-import { registerCustomTheme } from "@pierre/diffs";
+import { registerCustomTheme } from "@pierre/diffs-port";
 
 export const CODEX_DIFF_THEME = "codex-dark";
 
@@ -47,10 +47,7 @@ export const codexDiffTheme = {
       settings: { foreground: c.heading, fontStyle: "bold" },
     },
     {
-      scope: [
-        "punctuation.definition.list.begin.markdown",
-        "markup.list.unnumbered.markdown punctuation",
-      ],
+      scope: ["punctuation.definition.list.begin.markdown", "markup.list.unnumbered.markdown punctuation"],
       settings: { foreground: c.heading },
     },
     {
@@ -62,11 +59,7 @@ export const codexDiffTheme = {
       settings: { foreground: c.url },
     },
     {
-      scope: [
-        "markup.inline.raw.string.markdown",
-        "markup.inline.raw",
-        "punctuation.definition.raw.markdown",
-      ],
+      scope: ["markup.inline.raw.string.markdown", "markup.inline.raw", "punctuation.definition.raw.markdown"],
       settings: { foreground: c.inlineCode },
     },
     {

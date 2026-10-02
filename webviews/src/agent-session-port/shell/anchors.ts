@@ -1,7 +1,6 @@
 // Anchor names for the anchored popovers (Popover.tsx). The control that opens a popover
 // carries `anchor-name` (anchorProps); the popover names it in `position-anchor`.
 import type { CSSProperties } from "react";
-import type { RailItemId } from "./IconRail";
 
 /**
  * Props that make an element a named anchor. `data-anchor` lets a popover find the element
@@ -14,7 +13,7 @@ export const anchorProps = (name: string, style?: CSSProperties) => ({
 });
 
 /** A rail button, for the menus it opens (`--cx-rail-settings`, `--cx-rail-explore`). */
-export const railAnchor = (id: RailItemId) => `--cx-rail-${id}`;
+export const railAnchor = (id: string) => `--cx-rail-${id}`;
 
 /** The sidebar title ("Codex ⌄"), for the mode menu. */
 export const SIDEBAR_TITLE_ANCHOR = "--cx-sidebar-title";

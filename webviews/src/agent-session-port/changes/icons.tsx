@@ -72,16 +72,7 @@ export const CollapseAll = (p: P) => (
 
 export const SplitView = (p: P) => (
   <svg width={16} height={16} viewBox="0 0 16 16" {...p}>
-    <rect
-      x="1.6"
-      y="2.1"
-      width="12.8"
-      height="11.8"
-      rx="2.2"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.25"
-    />
+    <rect x="1.6" y="2.1" width="12.8" height="11.8" rx="2.2" fill="none" stroke="currentColor" strokeWidth="1.25" />
     <rect x="3.2" y="3.7" width="9.6" height="3.9" rx="0.8" fill="#b3424f" />
     <rect x="3.2" y="8.4" width="9.6" height="3.9" rx="0.8" fill="#3f9a4d" />
   </svg>

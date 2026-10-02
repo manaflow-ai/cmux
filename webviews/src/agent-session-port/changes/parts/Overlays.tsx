@@ -33,17 +33,13 @@ export function Menu({
   onClose: () => void;
 }) {
   return (
-    <TopLayer
-      anchor={anchor}
-      className={`chg-menu chg-${placement}-menu`}
-      role="menu"
-      onDismiss={onClose}
-    >
+    <TopLayer anchor={anchor} className={`chg-menu chg-${placement}-menu`} role="menu" onDismiss={onClose}>
       {rows.map((r, i) =>
         r === "-" ? (
-          <div key={i} className="chg-menu-sep" role="separator" />
+          <hr key={i} className="chg-menu-sep" />
         ) : (
-          <div
+          <button
+            type="button"
             key={i}
             className="chg-menu-item"
             role="menuitem"
@@ -59,13 +55,9 @@ export function Menu({
           >
             {r.icon && <span className="chg-menu-icon">{ROW_ICONS[r.icon]}</span>}
             <span>{r.label}</span>
-            {r.submenu && (
-              <I.ChevronRight className="chg-menu-trail" width={16} height={16} strokeWidth={1.1} />
-            )}
-            {r.checked && (
-              <I.Check className="chg-menu-trail chg-menu-check" width={16} height={16} />
-            )}
-          </div>
+            {r.submenu && <I.ChevronRight className="chg-menu-trail" width={16} height={16} strokeWidth={1.1} />}
+            {r.checked && <I.Check className="chg-menu-trail chg-menu-check" width={16} height={16} />}
+          </button>
         ),
       )}
     </TopLayer>
@@ -73,15 +65,7 @@ export function Menu({
 }
 
 /** Tooltip bubble: above a file header button, below a toolbar button. */
-export function Tooltip({
-  text,
-  anchor,
-  side,
-}: {
-  text: string;
-  anchor: string;
-  side: "above" | "below";
-}) {
+export function Tooltip({ text, anchor, side }: { text: string; anchor: string; side: "above" | "below" }) {
   return (
     <TopLayer anchor={anchor} className={`chg-tooltip chg-tooltip-${side}`} role="tooltip">
       {text}

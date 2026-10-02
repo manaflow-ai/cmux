@@ -1,7 +1,7 @@
 // Stacked per-file diffs (@pierre/diffs) with Codex's custom file header. Files with full
 // texts use MultiFileDiff (Pierre computes the hunks); files given as a patch use PatchDiff.
 import { useMemo, useRef, type ReactNode } from "react";
-import { MultiFileDiff, PatchDiff, useStableCallback } from "@pierre/diffs/react";
+import { MultiFileDiff, PatchDiff, useStableCallback } from "@pierre/diffs-port/react";
 import { CODEX_DIFF_THEME } from "../theme";
 import { diffUnsafeCSS } from "../diffStyles";
 import { HEADER_LABELS } from "../constants";
@@ -64,9 +64,7 @@ function FileHeader({
   const dir = slash >= 0 ? file.path.slice(0, slash + 1) : "";
   const base = file.path.slice(slash + 1);
   const lit = (id: FileHeaderButtonId) =>
-    view.hoveredButton === id ||
-    (id === "actions" && view.menuOpen) ||
-    (id === "viewed" && view.viewed);
+    view.hoveredButton === id || (id === "actions" && view.menuOpen) || (id === "viewed" && view.viewed);
   return (
     <div
       className="cx-file-header"
@@ -78,22 +76,18 @@ function FileHeader({
       <span className="cx-fh-icon">
         <FileTypeIcon path={file.path} />
       </span>
-      <span
+      <button
+        type="button"
         className="cx-fh-name"
-        role="button"
+
         aria-expanded={!view.collapsed}
         onClick={() => on.toggleCollapsed(file.path)}
       >
         {dir && <span className="cx-fh-dir">{dir}</span>}
         <span className="cx-fh-base">{base}</span>
-      </span>
+      </button>
       {view.hovered && (
-        <I.ChevronDown
-          className="cx-fh-chevron"
-          width={14}
-          height={14}
-          onClick={() => on.toggleCollapsed(file.path)}
-        />
+        <I.ChevronDown className="cx-fh-chevron" width={14} height={14} onClick={() => on.toggleCollapsed(file.path)} />
       )}
       <span className="cx-fh-spacer" />
       <Counts additions={file.additions} deletions={file.deletions} alwaysBoth />
@@ -181,23 +175,11 @@ function FileDiffBlock({
     () => ({ name: file.path, contents: file.newContents ?? "", lang: file.lang as never }),
     [file],
   );
-  const header = () => (
-    <FileHeader file={file} view={view} anchor={anchor} on={on} onMounted={onHeaderMounted} />
-  );
+  const header = () => <FileHeader file={file} view={view} anchor={anchor} on={on} onMounted={onHeaderMounted} />;
   return (
-    <div
-      className="cx-file"
-      ref={wrap}
-      data-path={file.path}
-      data-collapsed={view.collapsed ? "" : undefined}
-    >
+    <div className="cx-file" ref={wrap} data-path={file.path} data-collapsed={view.collapsed ? "" : undefined}>
       {file.patch !== undefined ? (
-        <PatchDiff
-          className="cx-file-diff"
-          patch={file.patch}
-          options={options}
-          renderCustomHeader={header}
-        />
+        <PatchDiff className="cx-file-diff" patch={file.patch} options={options} renderCustomHeader={header} />
       ) : (
         <MultiFileDiff
           className="cx-file-diff"
@@ -210,9 +192,7 @@ function FileDiffBlock({
       {file.note && !view.collapsed && <div className="cx-file-note">{file.note}</div>}
       {!view.collapsed && !display.wrap && (
         <div className="cx-hscroll">
-          {thumb && (
-            <div className="cx-thumb" style={{ left: thumb.offset, width: thumb.length }} />
-          )}
+          {thumb && <div className="cx-thumb" style={{ left: thumb.offset, width: thumb.length }} />}
         </div>
       )}
     </div>

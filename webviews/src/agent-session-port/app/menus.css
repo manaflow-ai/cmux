@@ -5,21 +5,21 @@
 
 /* Pressed rail button behind an open rail menu. */
 .cx-window:has(.rm-menu) .cx-rail__btn.is-hover {
-  background: #474844;
+  background: color-mix(in srgb, var(--pt-fg) 15.5%, var(--pt-bg));
 }
 .rm-menu .cx-menu__icon {
-  color: #c8c8c3;
+  color: color-mix(in srgb, var(--pt-fg) 77%, var(--pt-bg));
 }
 .rm-menu .cx-menu__header .cx-menu__icon {
   color: inherit;
 }
 .rm-pin {
   margin-left: auto;
-  color: #999a95;
+  color: color-mix(in srgb, var(--pt-fg) 54.7%, var(--pt-bg));
 }
 .rm-menu {
   font-size: 13px;
-  background: rgb(57 58 53 / 0.9);
+  background: color-mix(in srgb, color-mix(in srgb, var(--pt-fg) 8.6%, var(--pt-bg)) 90%, transparent);
   -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
 }
@@ -62,15 +62,15 @@
   transform: scale(1.12);
 }
 .rm-menu .cx-menu__header {
-  color: #9a9a95;
+  color: color-mix(in srgb, var(--pt-fg) 54.9%, var(--pt-bg));
 }
 .rm-menu .cx-menu__header .cx-menu__icon {
-  color: #858581;
+  color: color-mix(in srgb, var(--pt-fg) 45%, var(--pt-bg));
 }
 .rm-menu {
   box-shadow:
     inset 0 0 0 0.5px var(--cx-menu-border),
-    0 4px 12px rgb(0 0 0 / 0.12);
+    0 4px 12px color-mix(in srgb, var(--pt-black) 12%, transparent);
 }
 .rm-menu--explore .cx-menu__item {
   padding-left: 7px;
@@ -101,7 +101,7 @@
   width: 83.5px;
   height: 31px;
   border-radius: 10px;
-  background: rgb(255 255 255 / 0.05);
+  background: color-mix(in srgb, var(--pt-fg) 5%, transparent);
 }
 .app-mode {
   left: calc(anchor(left) - 5.5px);
@@ -109,11 +109,11 @@
   width: 240px;
   height: 113px;
   border-radius: 14px;
-  background: rgb(58 59 54 / 0.9);
+  background: color-mix(in srgb, color-mix(in srgb, var(--pt-fg) 9.1%, var(--pt-bg)) 90%, transparent);
   backdrop-filter: blur(8px);
   box-shadow:
-    inset 0 0 0 0.5px rgb(255 255 255 / 0.16),
-    0 8px 24px rgb(0 0 0 / 0.25);
+    inset 0 0 0 0.5px color-mix(in srgb, var(--pt-fg) 16%, transparent),
+    0 8px 24px color-mix(in srgb, var(--pt-black) 25%, transparent);
   color: var(--cx-text-strong);
 }
 .app-mode__item {
@@ -149,7 +149,7 @@
   margin-right: 9px;
   padding: 0 10px 0 11px;
   border-radius: 14px;
-  background: #4a4b46;
+  background: color-mix(in srgb, var(--pt-fg) 16.8%, var(--pt-bg));
   display: flex;
   align-items: center;
   gap: 4px;
@@ -162,11 +162,11 @@
   width: 255px;
   height: 97.5px;
   border-radius: 16px;
-  background: rgb(57 58 53 / 0.92);
+  background: color-mix(in srgb, color-mix(in srgb, var(--pt-fg) 8.6%, var(--pt-bg)) 92%, transparent);
   backdrop-filter: blur(6px);
   box-shadow:
-    inset 0 0 0 0.5px #4e4f4a,
-    0 8px 24px rgb(0 0 0 / 0.25);
+    inset 0 0 0 0.5px color-mix(in srgb, var(--pt-fg) 18.7%, var(--pt-bg)),
+    0 8px 24px color-mix(in srgb, var(--pt-black) 25%, transparent);
   font-size: 13px;
   color: var(--cx-text-strong);
 }
@@ -180,7 +180,7 @@
   text-align: center;
   font-size: 14px;
   line-height: 18px;
-  color: #b5b39d;
+  color: color-mix(in srgb, var(--pt-fg) 70%, var(--pt-bg));
 }
 .app-effort-pop__model {
   left: 0;
@@ -205,7 +205,7 @@
   width: 230px;
   height: 23.5px;
   border-radius: 12px;
-  background: #4a4b46;
+  background: color-mix(in srgb, var(--pt-fg) 16.8%, var(--pt-bg));
 }
 .app-slider__fill {
   position: absolute;
@@ -213,7 +213,7 @@
   top: 0;
   bottom: 0;
   border-radius: 12px;
-  background: #9b9682;
+  background: color-mix(in srgb, var(--pt-fg) 55%, var(--pt-bg));
 }
 .app-slider__dot {
   position: absolute;
@@ -222,7 +222,7 @@
   height: 3px;
   margin-left: -1.5px;
   border-radius: 50%;
-  background: #6f6e62;
+  background: color-mix(in srgb, var(--pt-fg) 32.8%, var(--pt-bg));
 }
 .app-slider__thumb {
   position: absolute;
@@ -231,7 +231,7 @@
   height: 28px;
   margin-left: -14px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--pt-fg);
 }
 
 /* ---------- Permissions menu (composer permission chip) ---------- */
@@ -248,11 +248,11 @@
   height: 162px;
   box-sizing: border-box;
   border-radius: 16px;
-  background: rgb(58 59 54 / 0.89);
+  background: color-mix(in srgb, color-mix(in srgb, var(--pt-fg) 9.1%, var(--pt-bg)) 89%, transparent);
   backdrop-filter: blur(8px);
   box-shadow:
-    inset 0 0 0 0.5px rgb(255 255 255 / 0.16),
-    0 8px 24px rgb(0 0 0 / 0.25);
+    inset 0 0 0 0.5px color-mix(in srgb, var(--pt-fg) 16%, transparent),
+    0 8px 24px color-mix(in srgb, var(--pt-black) 25%, transparent);
   color: var(--cx-text-strong);
   font-size: 13px;
   white-space: nowrap;
@@ -321,8 +321,8 @@
   box-sizing: border-box;
   height: 38.5px;
   border-radius: 19.25px;
-  background: #3a3b36;
-  box-shadow: inset 0 0 0 1px #474843;
+  background: color-mix(in srgb, var(--pt-fg) 9.1%, var(--pt-bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pt-fg) 15.4%, var(--pt-bg));
   padding-left: 13.5px;
   display: flex;
   align-items: center;

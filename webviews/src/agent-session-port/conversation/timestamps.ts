@@ -54,8 +54,7 @@ export function separatorTimes(entries: (Sent[] | null)[], nowMs: number): (numb
     }
     let at: number | null = null;
     for (const m of messages) {
-      if (at == null && needsSeparator(m, previous, m.role === "user" && !seenUser, nowMs))
-        at = m.sentAtMs;
+      if (at == null && needsSeparator(m, previous, m.role === "user" && !seenUser, nowMs)) at = m.sentAtMs;
       seenUser ||= m.role === "user";
       previous = m;
     }
@@ -87,8 +86,7 @@ function dayNumber(ms: number, timeZone?: string) {
 export function formatSeparator(ms: number, clock: Clock) {
   const { timeZone, locale = "en-US" } = clock;
   const days = Math.max(dayNumber(clock.now, timeZone) - dayNumber(ms, timeZone), 0);
-  const fmt = (o: Intl.DateTimeFormatOptions) =>
-    new Intl.DateTimeFormat(locale, { timeZone, ...o }).format(ms);
+  const fmt = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(locale, { timeZone, ...o }).format(ms);
   let date: string;
   if (days <= 1) {
     const rel = new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-days, "day");

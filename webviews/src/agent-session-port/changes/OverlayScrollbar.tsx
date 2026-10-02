@@ -29,9 +29,7 @@ export function useOverlayThumb(axis: "x" | "y", insetStart: number, insetEnd: n
     const track = size - insetStart - insetEnd;
     const length = Math.max(18, (track * size) / total);
     const offset = insetStart + ((track - length) * pos) / (total - size);
-    setThumb((prev) =>
-      prev && prev.offset === offset && prev.length === length ? prev : { offset, length },
-    );
+    setThumb((prev) => (prev && prev.offset === offset && prev.length === length ? prev : { offset, length }));
   }, [axis, insetStart, insetEnd]);
 
   const attach = useCallback(

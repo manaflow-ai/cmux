@@ -1,7 +1,7 @@
 // The real working-tree diff of the "UI Atlas Fixtures" repository after the second pass
 // (reference/codex-fixture-second-pass.patch, `git diff` of 12 tracked files). The Changes
 // captures of that repository all failed to load, so this set is what Retry would show.
-import patchText from "./second-pass.patch?raw";
+import patchText from "./second-pass-patch";
 import type { ChangedFile, ChangeSet } from "../model";
 
 /** Split a multi-file `git diff` into per-file patches with counts and status. */

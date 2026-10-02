@@ -132,10 +132,7 @@ export type DeriveOptions = {
 };
 
 /** The "Worked for" time of a completed turn, as the app computes it. */
-export function workedForMs(
-  turn: Turn,
-  mode: DeriveOptions["workedFor"] = "history",
-): number | null {
+export function workedForMs(turn: Turn, mode: DeriveOptions["workedFor"] = "history"): number | null {
   if (mode === "live" && turn.startedAt != null && turn.finalAnswerStartedAtMs != null)
     return turn.finalAnswerStartedAtMs - turn.startedAt * 1000;
   return turn.durationMs;
@@ -284,12 +281,7 @@ export function rowsOf(item: ThreadItem): ActivityRow[] {
     case "fileChange":
       return item.changes.map((change, i) => {
         const stats = diffStats(change);
-        const verb =
-          change.kind.type === "add"
-            ? "Created"
-            : change.kind.type === "delete"
-              ? "Deleted"
-              : "Edited";
+        const verb = change.kind.type === "add" ? "Created" : change.kind.type === "delete" ? "Deleted" : "Edited";
         return {
           key: item.changes.length > 1 ? `${item.id}#${i}` : item.id,
           icon: "edit" as const,
@@ -317,9 +309,7 @@ export function rowsOf(item: ThreadItem): ActivityRow[] {
             ? codex.active
             : codex.completed
         : (title ?? `${item.server}.${item.tool}`);
-      const blocks = (item.result?.content ?? []).flatMap((c) =>
-        c.type === "text" ? [c.text] : [],
-      );
+      const blocks = (item.result?.content ?? []).flatMap((c) => (c.type === "text" ? [c.text] : []));
       if (item.error) blocks.push(item.error.message);
       return [
         {
@@ -398,11 +388,7 @@ export function webSearchDetail(item: WebSearchThreadItem): string {
       case "openPage":
         return a.url ?? "";
       case "findInPage":
-        return a.pattern && a.url
-          ? `'${a.pattern}' in ${a.url}`
-          : a.pattern
-            ? `'${a.pattern}'`
-            : (a.url ?? "");
+        return a.pattern && a.url ? `'${a.pattern}' in ${a.url}` : a.pattern ? `'${a.pattern}'` : (a.url ?? "");
       default:
         return "";
     }
@@ -536,10 +522,8 @@ const isFinal = (item: ThreadItem): item is AgentMessageItem =>
 export function turnEdits(items: ThreadItem[], cwd?: string) {
   const files = new Map<string, FileUpdateChange[]>();
   for (const item of items) {
-    if (item.type !== "fileChange" || item.status === "failed" || item.status === "declined")
-      continue;
-    for (const change of item.changes)
-      files.set(change.path, [...(files.get(change.path) ?? []), change]);
+    if (item.type !== "fileChange" || item.status === "failed" || item.status === "declined") continue;
+    for (const change of item.changes) files.set(change.path, [...(files.get(change.path) ?? []), change]);
   }
   return [...files].map(([path, changes]) => {
     const rel = cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
@@ -594,8 +578,7 @@ export function activityUnits(items: ThreadItem[], { inProgress = false } = {}):
       continue;
     }
     flush();
-    if (item.type === "agentMessage")
-      units.push({ kind: "message", key: item.id, text: item.text });
+    if (item.type === "agentMessage") units.push({ kind: "message", key: item.id, text: item.text });
     else {
       const [row] = rowsOf(item);
       if (row) units.push({ kind: "row", key: item.id, row });
@@ -614,8 +597,7 @@ export function activityUnits(items: ThreadItem[], { inProgress = false } = {}):
         : lastUnit.kind === "row" && lastUnit.row.live
           ? lastUnit.row
           : undefined;
-      if (row)
-        units[units.length - 1] = { kind: "row", key: lastUnit.key, row: { ...row, live: true } };
+      if (row) units[units.length - 1] = { kind: "row", key: lastUnit.key, row: { ...row, live: true } };
     }
     const last = items.at(-1);
     if (last?.type === "reasoning") {
@@ -648,8 +630,7 @@ function header(turn: Turn, collapsedCount: number, opts: DeriveOptions): TurnHe
       collapsible: false,
     };
   const worked = workedForMs(turn, opts.workedFor);
-  if (worked != null)
-    return { kind: "worked", label: `Worked for ${formatDuration(worked)}`, collapsible: true };
+  if (worked != null) return { kind: "worked", label: `Worked for ${formatDuration(worked)}`, collapsible: true };
   return {
     kind: "previous",
     label: `${collapsedCount} ${plural(collapsedCount, "previous message", "previous messages")}`,
@@ -671,8 +652,7 @@ export function visibleUserText(text: string) {
 /** Everything the transcript shows for one turn. */
 export function deriveTurn(turn: Turn, opts: DeriveOptions = {}): TurnView {
   const user = turn.items.find((i): i is UserMessageItem => i.type === "userMessage");
-  const userText =
-    user?.content.flatMap((c) => (c.type === "text" ? [c.text] : [])).join("\n") ?? "";
+  const userText = user?.content.flatMap((c) => (c.type === "text" ? [c.text] : [])).join("\n") ?? "";
   const final = turn.items.filter(isFinal);
   const body = turn.items.filter((i) => i.type !== "userMessage" && !isFinal(i));
   const activity = activityUnits(body, { inProgress: turn.status === "inProgress" });
@@ -689,8 +669,6 @@ export function deriveTurn(turn: Turn, opts: DeriveOptions = {}): TurnView {
 
 /** Web searches of a turn, for callers that list sources. */
 export const webSearches = (turn: Turn) =>
-  turn.items.filter(
-    (i): i is WebSearchThreadItem => i.type === "webSearch" && i.query.trim() !== "",
-  );
+  turn.items.filter((i): i is WebSearchThreadItem => i.type === "webSearch" && i.query.trim() !== "");
 
 export type { FileChangeItem };

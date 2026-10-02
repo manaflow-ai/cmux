@@ -51,7 +51,7 @@ export type MenuProps = {
 /** Dark rounded popover menu used for profile, model, permission and sidebar menus. */
 export function Menu({ items, width, style, className = "", anchor, onDismiss }: MenuProps) {
   const rows = items.map((it, i) => {
-    if (it.type === "separator") return <div key={i} className="cx-menu__sep" role="separator" />;
+    if (it.type === "separator") return <hr key={i} className="cx-menu__sep" />;
     if (it.type === "header")
       return (
         <div key={i} className="cx-menu__header">
@@ -70,7 +70,7 @@ export function Menu({ items, width, style, className = "", anchor, onDismiss }:
       .filter(Boolean)
       .join(" ");
     return (
-      <div key={i} role="menuitem" className={cls} onClick={it.onClick}>
+      <button type="button" key={i} role="menuitem" className={cls} onClick={it.onClick}>
         {it.icon && <span className="cx-menu__icon">{it.icon}</span>}
         <span className="cx-menu__text">
           <span className="cx-menu__label">{it.label}</span>
@@ -80,7 +80,7 @@ export function Menu({ items, width, style, className = "", anchor, onDismiss }:
         {it.shortcut && <span className="cx-menu__shortcut">{it.shortcut}</span>}
         {it.checked && <IconCheck className="cx-menu__check" size={16} strokeWidth={1.4} />}
         {it.submenu && <IconChevronRight className="cx-menu__chevron" size={16} />}
-      </div>
+      </button>
     );
   });
   if (anchor)

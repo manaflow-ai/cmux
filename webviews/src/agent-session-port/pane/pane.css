@@ -1,0 +1,253 @@
+/* Layout of the ported pane: the reference's window body (overview.png) without its chrome.
+   Sizes are the reference's CSS px; colors are theme tokens (theme/theme.css). */
+
+.pt-pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  background: var(--cx-main);
+  color: var(--cx-text-strong);
+  font-family: var(--cx-font);
+  font-size: var(--cx-fs-body);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* ---------- Session list ---------- */
+
+.pt-pane__sidebar {
+  position: relative;
+  flex: none;
+  width: var(--cx-sidebar-w);
+}
+.pt-pane__sidebar .cx-sidebar {
+  width: 100%;
+}
+
+/* ---------- Main column ---------- */
+
+.pt-pane__main {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pt-pane__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.pt-titlerow {
+  flex: none;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 0 10px;
+  box-shadow: inset 0 -0.5px 0 var(--cx-panel-border);
+}
+.pt-titlerow__title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 6px;
+  color: var(--cx-text-strong);
+  font-size: var(--cx-fs-body);
+}
+.pt-titlerow__icon {
+  flex: none;
+  color: var(--cx-icon);
+}
+.pt-titlerow__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pt-titlerow__tools {
+  display: flex;
+  gap: 2px;
+}
+.pt-titlebtn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--cx-icon);
+  cursor: default;
+}
+.pt-titlebtn:hover,
+.pt-titlebtn.is-active {
+  background: var(--cx-row-hover);
+  color: var(--cx-text-strong);
+}
+
+/* Buttons the copied markup drew as spans keep their look. */
+:where(.pt-bare) {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: default;
+}
+.cx-permission.pt-bare {
+  color: var(--cx-warning);
+}
+.cx-permission.pt-bare.is-safe {
+  color: var(--cx-text-dim);
+}
+.cx-send.pt-bare:disabled {
+  opacity: 1;
+}
+
+/* ---------- New chat ---------- */
+
+.pt-hero {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.pt-hero > .cx-hero {
+  margin: auto 0;
+  padding: 0 16px 120px;
+  max-width: 100%;
+}
+.pt-hero .cx-hero__title {
+  white-space: normal;
+}
+.pt-hero__dock {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  width: min(852px, 100% - 32px);
+}
+
+/* ---------- Composer ---------- */
+
+.pt-composer .cx-composer__input {
+  padding-bottom: 44px;
+}
+.pt-composer .cx-composer {
+  min-height: 98px;
+}
+
+/* ---------- Permission card ---------- */
+
+.pt-permission {
+  margin: 0 13px 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--cv-card);
+  box-shadow: inset 0 0 0 0.5px var(--cv-card-border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.pt-permission__title {
+  flex: 1;
+  min-width: 0;
+  color: var(--cx-text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pt-permission__actions {
+  display: flex;
+  gap: 6px;
+}
+.pt-permission__button {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 13px;
+  background: var(--cx-row-hover);
+  color: var(--cx-text);
+  font: inherit;
+}
+.pt-permission__button.is-primary {
+  background: var(--cx-send);
+  color: var(--cx-send-icon);
+}
+
+/* ---------- Model popover ---------- */
+
+.pt-model-pop:has(.pt-model-list) {
+  height: auto;
+  padding-top: 97.5px;
+  padding-bottom: 6px;
+}
+.app-effort-pop > .pt-model-list {
+  position: relative;
+  margin: 0 6px;
+  padding-top: 6px;
+  border-top: 0.5px solid var(--cx-menu-separator);
+}
+.pt-model-list__item {
+  height: 28px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 7px;
+}
+.pt-model-list__item:hover {
+  background: var(--cx-menu-hover);
+}
+.pt-slider__stop {
+  cursor: default;
+}
+
+/* ---------- Changes panel ---------- */
+
+.pt-pane__panel {
+  position: relative;
+  flex: none;
+  width: clamp(360px, 45%, 950px);
+  box-shadow: -0.5px 0 0 var(--cx-panel-border);
+}
+.pt-changes {
+  position: absolute;
+  inset: 0;
+}
+
+/* ---------- Connection ---------- */
+
+.pt-connection {
+  position: absolute;
+  left: 50%;
+  top: 52px;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: var(--cx-menu);
+  color: var(--cx-text-muted);
+  font-size: 12px;
+}
+
+/* ---------- Approval menu ---------- */
+
+/* The reference has three described modes; an agent may offer more, or none described. */
+.app-perm.pt-perm {
+  height: auto;
+  padding-bottom: 6px;
+}
+.pt-perm .app-perm__item:has(.app-perm__desc:empty) {
+  height: 32px;
+}
+.pt-perm .app-perm__item:has(.app-perm__desc:empty) .app-perm__icon {
+  top: 8px;
+}
+.pt-perm .app-perm__item:has(.app-perm__desc:empty) .app-perm__label {
+  top: 7px;
+}

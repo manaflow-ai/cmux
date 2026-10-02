@@ -19,8 +19,7 @@ function hunks(diff: string) {
   const out: { start: number; length: number; lines: string[] }[] = [];
   for (const line of diff.split("\n")) {
     const m = HUNK.exec(line);
-    if (m)
-      out.push({ start: Number(m[1]), length: m[2] === undefined ? 1 : Number(m[2]), lines: [] });
+    if (m) out.push({ start: Number(m[1]), length: m[2] === undefined ? 1 : Number(m[2]), lines: [] });
     else if (out.length && /^[ +-]/.test(line)) out.at(-1)!.lines.push(line);
   }
   return out;
@@ -62,8 +61,7 @@ export function netDiffStats(diffs: string[], { created = false } = {}) {
   // Common ends are unchanged; diff the middle by longest common subsequence.
   const a = original;
   const b = file;
-  const same = (x: Line, y: Line) =>
-    x === y || (x.text !== undefined && y.orig === undefined && x.text === y.text);
+  const same = (x: Line, y: Line) => x === y || (x.text !== undefined && y.orig === undefined && x.text === y.text);
   let lo = 0;
   while (lo < a.length && lo < b.length && same(a[lo]!, b[lo]!)) lo++;
   let ha = a.length;

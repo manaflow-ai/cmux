@@ -2,14 +2,14 @@
    reference/screenshots/chatgpt/manual-changes-current.png (native px / 2), relative to the
    pane's padding box (window x 775.5, y 44). */
 .cx-changes {
-  --cx-bg: #272823;
-  --cx-line: #383934;
-  --cx-pill: #3a3b36;
-  --cx-pill-ring: rgba(255, 255, 255, 0.09);
-  --cx-fg: #f8f8f3;
-  --cx-dim: #8f908a;
-  --cx-add: #90b345;
-  --cx-del: #b4365e;
+  --cx-bg: var(--pt-bg);
+  --cx-line: color-mix(in srgb, var(--pt-fg) 8.2%, var(--pt-bg));
+  --cx-pill: color-mix(in srgb, var(--pt-fg) 9.1%, var(--pt-bg));
+  --cx-pill-ring: color-mix(in srgb, var(--pt-fg) 9%, transparent);
+  --cx-fg: var(--pt-fg);
+  --cx-dim: color-mix(in srgb, var(--pt-fg) 49.8%, var(--pt-bg));
+  --cx-add: var(--pt-add);
+  --cx-del: var(--pt-del);
   --cx-ui: system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   position: absolute;
   box-sizing: border-box;
@@ -58,7 +58,7 @@
   background: var(--cx-pill);
   box-shadow:
     inset 0 0 0 0.5px var(--cx-pill-ring),
-    0 1px 2px rgba(0, 0, 0, 0.12);
+    0 1px 2px color-mix(in srgb, var(--pt-black) 12%, transparent);
   display: flex;
   align-items: center;
 }
@@ -111,7 +111,7 @@
   gap: 0;
 }
 .cx-branch-arrow {
-  color: #999994;
+  color: color-mix(in srgb, var(--pt-fg) 54.4%, var(--pt-bg));
   margin: 0 14px 0 9px;
 }
 .cx-branch-chevron {
@@ -134,20 +134,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #999993;
+  color: color-mix(in srgb, var(--pt-fg) 54.2%, var(--pt-bg));
 }
 .cx-tool[data-id="tree"] {
-  color: #c0beb1;
+  color: color-mix(in srgb, var(--pt-fg) 75%, var(--pt-bg));
 }
 .cx-tool[data-active] {
-  background: #32332c;
+  background: color-mix(in srgb, var(--pt-fg) 5%, var(--pt-bg));
 }
 .cx-tool[data-hover] {
-  background: #494a44;
+  background: color-mix(in srgb, var(--pt-fg) 16.2%, var(--pt-bg));
 }
 .cx-tool[data-focus] {
-  background: #494a44;
-  box-shadow: 0 0 0 1.5px #a09f93;
+  background: color-mix(in srgb, var(--pt-fg) 16.2%, var(--pt-bg));
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--pt-fg) 56.3%, var(--pt-bg));
 }
 
 /* Tracked-only warning card: 15px under the header rows, 8px from the pane's right edge.
@@ -166,14 +166,14 @@
   /* The 0.5px borders lay out as 1px: these keep the measured edges. */
   padding-right: 20.45px;
   border-radius: 16px;
-  border: 0.5px solid #3f403a;
-  border-left: 2px solid #9f6240;
-  background: #27251f;
+  border: 0.5px solid color-mix(in srgb, var(--pt-fg) 11.4%, var(--pt-bg));
+  border-left: 2px solid var(--pt-del);
+  background: color-mix(in srgb, var(--pt-bg) 93.9%, var(--pt-black));
 }
 .cx-banner-icon {
   flex: none;
   margin: 38px 0 0 18.5px;
-  color: #ef8b57;
+  color: var(--pt-warning);
 }
 .cx-banner-text {
   flex: 1;
@@ -186,7 +186,7 @@
   line-height: 21px;
 }
 .cx-banner-body {
-  color: #afaea8;
+  color: color-mix(in srgb, var(--pt-fg) 64.5%, var(--pt-bg));
   letter-spacing: 0.045px;
   padding-top: 0.5px;
   line-height: 21px;
@@ -196,7 +196,7 @@
   width: 1px;
   height: 24px;
   margin: 35.5px 0 0 19.5px;
-  background: #383630;
+  background: color-mix(in srgb, var(--pt-fg) 7%, var(--pt-bg));
 }
 .cx-banner-action {
   flex: none;
@@ -204,15 +204,15 @@
   height: 24px;
   padding: 0 8.25px;
   border-radius: 12px;
-  border: 1px solid #3f3d37;
-  background: #2e2c26;
+  border: 1px solid color-mix(in srgb, var(--pt-fg) 10.4%, var(--pt-bg));
+  background: color-mix(in srgb, var(--pt-fg) 2.2%, var(--pt-bg));
   line-height: 22px;
 }
 .cx-banner-secondary {
   flex: none;
   margin: 35.5px 0 0 17.4px;
   line-height: 24px;
-  color: #8f8e88;
+  color: color-mix(in srgb, var(--pt-fg) 49.1%, var(--pt-bg));
 }
 @container changes (width < 640px) {
   .cx-banner {
@@ -273,7 +273,7 @@
   top: 4px;
   height: 8px;
   border-radius: 4px;
-  background: #666762;
+  background: color-mix(in srgb, var(--pt-fg) 30.2%, var(--pt-bg));
 }
 .cx-tree {
   flex: 0 0 250px;
@@ -389,10 +389,10 @@
   height: 28px;
   box-sizing: border-box;
   padding: 0 9px;
-  border: 1px solid #3f403a;
+  border: 1px solid color-mix(in srgb, var(--pt-fg) 11.4%, var(--pt-bg));
   border-radius: 8px;
-  background: #2e2f2a;
-  color: #93938e;
+  background: color-mix(in srgb, var(--pt-fg) 3.4%, var(--pt-bg));
+  color: color-mix(in srgb, var(--pt-fg) 51.5%, var(--pt-bg));
 }
 .cx-filter input {
   all: unset;
@@ -402,7 +402,7 @@
   color: var(--cx-fg);
 }
 .cx-filter input::placeholder {
-  color: #93938e;
+  color: color-mix(in srgb, var(--pt-fg) 51.5%, var(--pt-bg));
 }
 
 /* ---------- Top layer: menus and tooltips (parts/TopLayer.tsx) ----------
@@ -415,12 +415,12 @@
 /* Menus (changes-branch-menu.png, changes-options.png, manual/file-menu-mark-viewed.png). */
 .chg-menu {
   box-sizing: border-box;
-  background: #3a3b36;
+  background: color-mix(in srgb, var(--pt-fg) 9.1%, var(--pt-bg));
   border-radius: 16px;
   box-shadow:
-    inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
-    0 8px 24px rgba(0, 0, 0, 0.3),
-    0 1px 3px rgba(0, 0, 0, 0.25);
+    inset 0 0 0 0.5px color-mix(in srgb, var(--pt-fg) 8%, transparent),
+    0 8px 24px color-mix(in srgb, var(--pt-black) 30%, transparent),
+    0 1px 3px color-mix(in srgb, var(--pt-black) 25%, transparent);
   padding: 4px 0;
   font: 13px/20px var(--cx-ui);
   text-align: left;
@@ -434,20 +434,20 @@
   white-space: nowrap;
 }
 .chg-menu-item[aria-disabled] {
-  color: #7d7e78;
+  color: color-mix(in srgb, var(--pt-fg) 41.1%, var(--pt-bg));
 }
 .chg-menu-icon {
   display: inline-flex;
   width: 16px;
   margin-right: 5.5px;
-  color: #c9c9c4;
+  color: color-mix(in srgb, var(--pt-fg) 77.4%, var(--pt-bg));
 }
 .chg-menu-item[aria-disabled] .chg-menu-icon {
-  color: #6e6f6a;
+  color: color-mix(in srgb, var(--pt-fg) 34.1%, var(--pt-bg));
 }
 .chg-menu-trail {
   margin-left: auto;
-  color: #a8a9a3;
+  color: color-mix(in srgb, var(--pt-fg) 61.8%, var(--pt-bg));
 }
 .chg-menu-check {
   color: var(--cx-fg);
@@ -455,7 +455,7 @@
 .chg-menu-sep {
   height: 1px;
   margin: 4px 12px;
-  background: #4a4b46;
+  background: color-mix(in srgb, var(--pt-fg) 16.8%, var(--pt-bg));
 }
 /* Below the scope button, 1px in from its left edge. */
 .chg-scope-menu {
@@ -484,10 +484,10 @@
   height: 28px;
   padding: 0 13.25px;
   border-radius: 14px;
-  background: #3a3b36;
+  background: color-mix(in srgb, var(--pt-fg) 9.1%, var(--pt-bg));
   box-shadow:
-    inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
-    0 4px 12px rgba(0, 0, 0, 0.3);
+    inset 0 0 0 0.5px color-mix(in srgb, var(--pt-fg) 8%, transparent),
+    0 4px 12px color-mix(in srgb, var(--pt-black) 30%, transparent);
   font: 13px/30px var(--cx-ui);
   letter-spacing: -0.08px;
   white-space: nowrap;
@@ -509,10 +509,10 @@
   color: var(--cx-fg);
 }
 .cx-scope-btn[data-open] {
-  background: #484945;
+  background: color-mix(in srgb, var(--pt-fg) 16%, var(--pt-bg));
 }
 .cx-tool[data-pressed] {
-  background: #4a4b45;
+  background: color-mix(in srgb, var(--pt-fg) 16.6%, var(--pt-bg));
   color: var(--cx-fg);
 }
 
@@ -591,7 +591,7 @@
 .cx-load-message p {
   margin: 9.5px 0 0;
   font-size: 13px;
-  color: #afafaa;
+  color: color-mix(in srgb, var(--pt-fg) 65%, var(--pt-bg));
   line-height: 18px;
   /* SF Pro is narrower in headless Chromium than in Electron (see README). */
   letter-spacing: 0.055px;
@@ -604,13 +604,13 @@
   padding: 0 8.5px;
   font-size: 13px;
   border-radius: 8px;
-  background: #30312c;
+  background: color-mix(in srgb, var(--pt-fg) 4.3%, var(--pt-bg));
 }
 
 /* "No matching files" under the filter, in Pierre's header slot. */
 .cx-tree-empty {
   margin: 8px 0 0 24px;
-  color: #a8a9a3;
+  color: color-mix(in srgb, var(--pt-fg) 61.8%, var(--pt-bg));
   letter-spacing: 0.05px;
 }
 
