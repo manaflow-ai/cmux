@@ -108,6 +108,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private let deletionPresentation = CloudTreeDeletionPresentation()
         var lastRevealToken: UUID?
         var creationRevealPresentation = CloudTreeCreationRevealPresentation()
+        /// Which detail tab each Cloud machine has open, and the display-only
+        /// regrouping of its rows around that tab row.
+        var machineDetailLayout = CloudTreeMachineDetailLayout()
         private(set) var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
         // NSDraggingItem retains the writer for the live native session. A weak
@@ -283,7 +286,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 deferredNodes = nodes
                 return
             }
-            let nodes = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: organization.state)
+            let nodes = CloudSidebarOrganizationTree(nodes: machineDetailLayout.present(nodes)).arrange(using: organization.state)
             // An optimistically hidden workspace or machine keeps its expansion
             // state and gives up its selection; a rollback restores both.
             let deletion = deletionPresentation.update(
@@ -386,15 +389,39 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
                 ?? CloudTreeCellView(frame: .zero)
-            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style) { [weak self] in
+            var rowActions = nodeActions
+            rowActions.showRowMenu = { [weak self] nodeID in self?.popUpRowMenu(nodeID: nodeID) }
+            rowActions.selectMachineDetailTab = { [weak self] machine, tab in self?.toggleMachineDetailTab(tab, machine: machine) }
+            cell.configure(
+                node: node, machineActions: machineActions, nodeActions: rowActions, style: style,
+                level: outlineView.level(forItem: node),
+                panelLevel: panelLevel(of: node, in: outlineView)
+            ) { [weak self] in
                 self?.performPortAction($0, machineID: $1)
             }
             configureMachineReorderAccessibility(cell, node: node)
             return cell
         }
 
+        /// The level of the machine tab row an item sits under, if any.
+        private func panelLevel(of item: Any, in outlineView: NSOutlineView) -> Int? {
+            guard let parent = outlineView.parent(forItem: item) as? CloudTreeNode,
+                  case .machineDetailTabs = parent.kind else { return nil }
+            return outlineView.level(forItem: parent)
+        }
+
+        /// An open tab's rows close only with their tab, never on their own.
+        func outlineView(_ outlineView: NSOutlineView, shouldCollapseItem item: Any) -> Bool {
+            if let node = item as? CloudTreeNode, case .machineDetailTabs = node.kind { return false }
+            return true
+        }
+
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-            CloudTreeRowView.reusable(in: outlineView)
+            let row = CloudTreeRowView.reusable(in: outlineView)
+            row.highlightLeading = panelLevel(of: item, in: outlineView)
+                .map { CloudTreeMachineDetailTabsView.panelHighlightLeading(tabRowLevel: $0, style: style) }
+                ?? CloudTreeHoverStyle.leading(level: outlineView.level(forItem: item), style: style)
+            return row
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
@@ -477,7 +504,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
             case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup, .device, .devicesSection, .cloudMachinesSection:
                 toggle(node)
-            case .devicesEmpty:
+            case .devicesEmpty, .machineDetailTabs, .machineEndSpacer:
                 break
             case .createAction(let action):
                 action.perform(nodeActions)
@@ -773,7 +800,14 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return deviceDiscoveryMenuItems(section: section)
             case .cloudMachinesSection:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
-            case .createAction: return []
+            case .createAction, .machineEndSpacer: return []
+            case .machineDetailTabs(let tabs):
+                var items: [NSMenuItem] = []
+                if tabs.machine.cloudMachineID != nil {
+                    items.append(item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(tabs.machine, nil) })
+                }
+                items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refreshMachine(tabs.machine) })
+                return items
             }
         }
 

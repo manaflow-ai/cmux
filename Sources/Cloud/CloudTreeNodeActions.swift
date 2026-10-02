@@ -72,6 +72,13 @@ struct CloudTreeNodeActions {
     var newMachine: @MainActor () -> Void = {}
     /// Creates a workspace on the remembered/selected Cloud machine, falling back to the existing machine-selection flow when none is available.
     var newWorkspaceOnResolvedMachine: @MainActor () -> Void = {}
+    /// Pops up a row's context menu from its trailing "⋯" button. The outline
+    /// coordinator binds it per cell, so the button and a right-click show the
+    /// same menu.
+    var showRowMenu: @MainActor (_ nodeID: String) -> Void = { _ in }
+    /// Opens a machine's detail tab, or closes it when it is open. Bound per
+    /// cell by the outline coordinator.
+    var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }

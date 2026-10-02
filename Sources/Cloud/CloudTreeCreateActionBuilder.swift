@@ -1,10 +1,10 @@
 import CmuxCloud
 
 /// Adds persistent create rows to their categories after the catalog tree is built.
-/// Cloud Machines leads with its create rows, under the header that owns them;
-/// a machine's Workspaces category ends with its own New Workspace.
+/// Cloud Machines leads with the resolved-machine New Workspace; a machine's
+/// Workspaces category ends with its own New Workspace. New Cloud Machine is not
+/// a row: the Cloud panel shows it as a button above the tree.
 enum CloudTreeCreateActionBuilder {
-    static let newCloudMachineNodeID = "cloud-machines-section/new-cloud-vm"
     static let newWorkspaceNodeID = "cloud-machines-section/new-workspace"
 
     /// - Parameter fleetListIsCurrent: False while the fleet read is failing or
@@ -15,13 +15,14 @@ enum CloudTreeCreateActionBuilder {
             node.children = add(to: node.children, fleetListIsCurrent: fleetListIsCurrent)
             switch node.kind {
             case .cloudMachinesSection(let canCreateMachine, _):
-                guard canCreateMachine,
-                      !node.children.contains(where: { $0.id == newCloudMachineNodeID }) else { break }
-                var actions = [CloudTreeNode(id: newCloudMachineNodeID, kind: .createAction(.newCloudVM))]
-                if fleetListIsCurrent && hasWorkspaceDestination(node.children) {
-                    actions.append(CloudTreeNode(id: newWorkspaceNodeID, kind: .createAction(.newWorkspaceOnResolvedMachine)))
+                // New Cloud Machine is the button above the section
+                // (`CloudNewMachineButton`), so the empty fleet's
+                // double-click-only "New Machine" placeholder goes.
+                node.children.removeAll { $0.id == "cloud-machines-section/empty" || $0.id == newWorkspaceNodeID }
+                guard canCreateMachine else { break }
+                if fleetListIsCurrent, hasWorkspaceDestination(node.children) {
+                    node.children.insert(CloudTreeNode(id: newWorkspaceNodeID, kind: .createAction(.newWorkspaceOnResolvedMachine)), at: 0)
                 }
-                node.children = actions + node.children
             case .workspacesGroup(let machine)
                 where (machine.cloudMachineID != nil || machine.isDevice) && !node.children.contains(where: { $0.structureTag == "createAction" }):
                 node.children.append(CloudTreeNode(
