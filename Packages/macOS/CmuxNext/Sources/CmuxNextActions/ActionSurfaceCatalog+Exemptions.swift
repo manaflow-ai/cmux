@@ -110,6 +110,15 @@ nonisolated extension ActionSurfaceCatalog {
     ]
 
     /// Why the CLI has no verb for an action (`cmux action run <id>` still runs it).
+    /// Why the palette does not list an action (beyond palette-internal
+    /// navigation, which the descriptor derives from `requires`).
+    static let paletteExemption: [ActionID: SurfaceExemption] = byReason(paletteExemptionsByReason)
+    static let paletteExemptionsByReason: [SurfaceExemption: [ActionID]] = [
+        .duplicateOfDefault: [
+            "openBrowser.chromium",
+        ],
+    ]
+
     static let cliExemption: [ActionID: SurfaceExemption] = byReason(cliExemptionsByReason)
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .unimplemented: [
@@ -224,6 +233,7 @@ nonisolated extension ActionSurfaceCatalog {
     static let contextMenuExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .secondaryEngine: [
             "openBrowser.webkit",
+            "browser.openInWebKit",
         ],
         .unimplemented: [
             "palette.openDirectoryDiffViewer",
