@@ -124,6 +124,34 @@ each other. Implemented by session feat-cmux-next-99 after its catch-up.
 - Owner selection: one function maps an entity to its owner (`machines.daemon(for:)`);
   nothing assumes the local daemon.
 
+### 3.1 Wire shapes (steps 3 and 3a)
+
+`client-identity-v1`:
+- Local socket: the daemon reads the peer's uid with `getpeereid` and refuses other
+  users. The first request on a connection is `client.hello {install_id, proof}` where
+  `proof` = HMAC-SHA256(per-install key, daemon nonce from the socket banner); the key
+  lives in the app's Keychain item (CLI: a 0600 file under the app support directory).
+  The connection's identity is `install_id` from then on; a later request cannot change it.
+- SSH, Iroh, Cloud links: the identity is the link's authenticated principal (the SSH
+  carrier key, the Iroh node id admitted by the account directory, the Cloud machine's
+  account); `client.hello` on such a link may only narrow it to an `install_id` that
+  principal has registered.
+- Records with a single writer (`window_record`, `browser_record` fields,
+  `remote_terminal_snapshot`) store `owner = install_id`. A write from another identity
+  is `forbidden {owner}`; writes carry `expected_revision` per record.
+
+`mutation-echo-v1`:
+- Every request may carry `idempotency_key`; the daemon computes
+  `transaction = base64url(HMAC-SHA256(daemon secret, client identity || key))[0..16]`
+  (or of a per-request random id when no key is sent) and returns it in the reply.
+- Every event a request causes carries `transaction`. The dispatcher sets it from a
+  task-local request scope, so no handler needs to pass it.
+- The request ends with one event to the requesting connection only:
+  `request-settled {transaction, sequence, ok, reason_code?}`, where `sequence` is the
+  last event sequence the request caused (0 if none). A replayed key returns the original
+  `transaction` and `sequence`.
+- Other subscribers see the tag but cannot derive the key or the client.
+
 ## 4. Scenarios
 
 | Scenario | Behavior |
