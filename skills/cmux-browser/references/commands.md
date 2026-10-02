@@ -40,12 +40,33 @@ cmux browser "$TAB" text body
 cmux browser "$TAB" value "#email"
 cmux browser "$TAB" fill "#email" "$APP_USERNAME"
 cmux browser "$TAB" type "#search" "query"
+cmux browser "$TAB" cookies get --name session_id
+cmux browser "$TAB" cookies set session_id abc123 --domain .example.com --secure
+cmux browser "$TAB" cookies clear --domain example.com
+cmux browser "$TAB" cookies clear --all
+cmux browser "$TAB" storage local get
+cmux browser "$TAB" storage local set theme dark
+cmux browser "$TAB" storage session get draft
+cmux browser "$TAB" storage session clear
 ```
 
 `goto` and `open` are accepted for `navigate`; `url` and `title` are accepted
 for `state`. `fill` replaces the field's value; `type` types into it.
 Selectors are CSS selectors or snapshot refs (`e3`, `@e3`). Add `--json` before
 the scope for machine-readable output (`cmux --json browser "$TAB" state`).
+
+`cookies` reads and changes the tab profile's cookies (fields `name`, `value`,
+`domain`, `path`, `expires`, `secure`, `httpOnly`, `hostOnly`, `session_only`).
+`get` filters by `--name` (exact), `--domain` (substring) and `--path`.
+`set NAME VALUE` takes the domain from `--domain` (a leading dot covers
+subdomains), else `--url`'s host, else the tab's page; `--path` defaults to `/`, and `--expires` takes Unix
+seconds. `clear` takes `--all` or a scope: `--name`, `--url` (the cookies a
+request there would send), `--domain` (that domain and its subdomains),
+`--path`; it reports how many it cleared.
+
+`storage local|session` (default `local`) reads one key or every key with
+`get`, writes with `set KEY VALUE` and empties the area with `clear`, in the
+page's origin.
 
 ## Daemon browsers (`browser_…`)
 
@@ -79,7 +100,7 @@ cmux browser screenshot-page
 
 ## Removed, no replacement yet
 
-The old CLI's `wait`, `cookies`, `storage`, `state save|load`, `console`,
+The old CLI's `wait`, `state save|load`, `console`,
 `errors`, `highlight`, `screenshot` (to stdout or a file), `download`,
 `dialog`, `frame`, `network`, `trace`, `screencast`, `geolocation`,
 `offline`, `viewport`, `hover`, `dblclick`, `check`, `uncheck`, `select`,

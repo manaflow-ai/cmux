@@ -80,7 +80,7 @@ instead of retrying blindly.
 ## What the CLI does not cover yet
 
 These old `cmux browser` features have no command in the new CLI: waits,
-cookies, local and session storage, saved state, console and error capture,
+saved state, console and error capture,
 network routing, dialogs, frames, downloads, screenshots to a file, video,
 trace and screencast, geolocation, offline and viewport emulation, hover,
 double click, check, select, scroll, key presses on app tabs, `identify`,

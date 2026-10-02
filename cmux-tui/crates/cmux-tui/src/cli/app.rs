@@ -204,9 +204,11 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
             params.insert("text".into(), json!(text));
             if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
         }
+        ("cookies", _) => cookies(rest, &mut params).ok_or_else(usage)??,
+        ("storage", _) => storage(rest, &mut params).ok_or_else(usage)?,
         _ => return Err(usage()),
     };
-    if verb != "snapshot" && words.len() != rest.len() {
+    if !matches!(verb.as_str(), "snapshot" | "cookies" | "storage") && words.len() != rest.len() {
         return Err(usage());
     }
     Ok(AppCommand::Call {
@@ -215,6 +217,87 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
         timeout: READ_TIMEOUT,
         pick: None,
     })
+}
+
+/// Leading words, then `--flags`.
+fn split_words(args: &[String]) -> (&[String], &[String]) {
+    args.split_at(args.iter().position(|arg| arg.starts_with("--")).unwrap_or(args.len()))
+}
+
+/// `cookies [get] [--name N] [--domain D] [--path P]`,
+/// `cookies set NAME VALUE [--url U | --domain D] [--path P] [--expires UNIX] [--secure] [--http-only]`,
+/// `cookies clear --all | [--name N] [--url U] [--domain D] [--path P]`.
+/// None is a usage error.
+fn cookies(
+    args: &[String],
+    params: &mut Map<String, Value>,
+) -> Option<Result<&'static str, UsageError>> {
+    let (words, flags) = split_words(args);
+    let (action, words) = match words.split_first() {
+        Some((action, words)) => (action.as_str(), words),
+        None => ("get", words),
+    };
+    let (valued, switches): (&[&str], &[&str]) = match action {
+        "get" => (&["name", "domain", "path"], &[]),
+        "set" => (&["name", "value", "url", "domain", "path", "expires"], &["secure", "http-only"]),
+        "clear" => (&["name", "url", "domain", "path"], &["all"]),
+        _ => return None,
+    };
+    let options = match Options::parse(flags, valued, switches) {
+        Ok(options) => options,
+        Err(error) => return Some(Err(error)),
+    };
+    match (action, words) {
+        ("set", [name, value]) => {
+            params.insert("name".into(), json!(name));
+            params.insert("value".into(), json!(value));
+        }
+        ("set", []) if options.value("name").is_some() && options.value("value").is_some() => {}
+        (_, []) if action != "set" => {}
+        _ => return None,
+    }
+    for key in valued {
+        let Some(value) = options.value(key) else { continue };
+        let value =
+            if *key == "expires" { json!(value.parse::<i64>().ok()?) } else { json!(value) };
+        params.insert((*key).into(), value);
+    }
+    for key in switches {
+        if options.flag(key) {
+            params.insert(key.replace('-', "_"), json!(true));
+        }
+    }
+    Some(Ok(match action {
+        "get" => "browser.page.cookies.get",
+        "set" => "browser.page.cookies.set",
+        _ => "browser.page.cookies.clear",
+    }))
+}
+
+/// `storage [local|session] [get [KEY] | set KEY VALUE | clear]`.
+fn storage(args: &[String], params: &mut Map<String, Value>) -> Option<&'static str> {
+    let mut words = args;
+    if let Some((area, rest)) = words.split_first()
+        && matches!(area.as_str(), "local" | "session")
+    {
+        params.insert("type".into(), json!(area));
+        words = rest;
+    }
+    match words {
+        [] => Some("browser.page.storage.get"),
+        [get] if get == "get" => Some("browser.page.storage.get"),
+        [get, key] if get == "get" => {
+            params.insert("key".into(), json!(key));
+            Some("browser.page.storage.get")
+        }
+        [set, key, value] if set == "set" => {
+            params.insert("key".into(), json!(key));
+            params.insert("value".into(), json!(value));
+            Some("browser.page.storage.set")
+        }
+        [clear] if clear == "clear" => Some("browser.page.storage.clear"),
+        _ => None,
+    }
 }
 
 /// `action.run` for an action id or CLI name: `--target ID`, `--no-wait`
@@ -813,6 +896,68 @@ mod tests {
             None
         );
         assert!(parse(&args(&["browser", "page", "fill", "#q"])).is_err());
+    }
+
+    #[test]
+    fn cookies_and_storage_take_the_old_cli_forms() {
+        let page = |words: &[&str]| {
+            let mut all = vec!["browser", "tab_01ab"];
+            all.extend_from_slice(words);
+            parse(&args(&all)).map(|command| call(command.unwrap()))
+        };
+        let (method, params) = page(&["cookies"]).unwrap();
+        assert_eq!(method, "browser.page.cookies.get");
+        assert_eq!(params, json!({ "tab": "tab_01ab" }));
+        let (method, params) =
+            page(&["cookies", "get", "--name", "sid", "--domain=example"]).unwrap();
+        assert_eq!(method, "browser.page.cookies.get");
+        assert_eq!(params, json!({ "tab": "tab_01ab", "name": "sid", "domain": "example" }));
+        let (method, params) = page(&[
+            "cookies",
+            "set",
+            "sid",
+            "1",
+            "--url",
+            "https://cmux.com/",
+            "--expires",
+            "1900000000",
+            "--secure",
+            "--http-only",
+        ])
+        .unwrap();
+        assert_eq!(method, "browser.page.cookies.set");
+        assert_eq!(
+            params,
+            json!({ "tab": "tab_01ab", "name": "sid", "value": "1", "url": "https://cmux.com/",
+                    "expires": 1_900_000_000, "secure": true, "http_only": true })
+        );
+        let (_, params) = page(&["cookies", "set", "--name", "a", "--value", "b"]).unwrap();
+        assert_eq!(params, json!({ "tab": "tab_01ab", "name": "a", "value": "b" }));
+        let (method, params) = page(&["cookies", "clear", "--all"]).unwrap();
+        assert_eq!(method, "browser.page.cookies.clear");
+        assert_eq!(params, json!({ "tab": "tab_01ab", "all": true }));
+        for bad in [
+            &["cookies", "set", "sid"][..],
+            &["cookies", "set", "a", "b", "--expires", "soon"],
+            &["cookies", "get", "--all"],
+            &["cookies", "get", "extra"],
+            &["cookies", "eat"],
+        ] {
+            assert!(page(bad).is_err(), "{bad:?}");
+        }
+
+        let (method, params) = page(&["storage", "session", "get", "theme"]).unwrap();
+        assert_eq!(method, "browser.page.storage.get");
+        assert_eq!(params, json!({ "tab": "tab_01ab", "type": "session", "key": "theme" }));
+        let (method, params) = page(&["storage", "set", "theme", "dark"]).unwrap();
+        assert_eq!(method, "browser.page.storage.set");
+        assert_eq!(params, json!({ "tab": "tab_01ab", "key": "theme", "value": "dark" }));
+        let (method, params) = page(&["storage", "local", "clear"]).unwrap();
+        assert_eq!(method, "browser.page.storage.clear");
+        assert_eq!(params, json!({ "tab": "tab_01ab", "type": "local" }));
+        assert_eq!(page(&["storage"]).unwrap().0, "browser.page.storage.get");
+        assert!(page(&["storage", "local", "set", "k"]).is_err());
+        assert!(page(&["storage", "cookies"]).is_err());
     }
 
     #[test]

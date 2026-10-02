@@ -45,6 +45,13 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// Evaluates a script and returns its completion value.
     func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue
 
+    /// Every cookie of the tab's profile (automation).
+    func cookies() async throws -> [BrowserCookie]
+    /// Stores `cookie` in the tab's profile.
+    func setCookie(_ cookie: BrowserCookie) async throws
+    /// Deletes the cookies with each one's name, domain and path.
+    func deleteCookies(_ cookies: [BrowserCookie]) async throws
+
     /// Highlights the next or previous match of `text`.
     func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult
     func clearFind()
@@ -68,4 +75,8 @@ extension BrowserTab {
     public func evaluate(_ script: String) async throws -> BrowserJSValue {
         try await evaluate(script, world: .page)
     }
+
+    public func cookies() async throws -> [BrowserCookie] { throw BrowserTabError.unsupported("cookies") }
+    public func setCookie(_ cookie: BrowserCookie) async throws { throw BrowserTabError.unsupported("cookies") }
+    public func deleteCookies(_ cookies: [BrowserCookie]) async throws { throw BrowserTabError.unsupported("cookies") }
 }

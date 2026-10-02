@@ -20305,6 +20305,792 @@
           }
         }
       }
+    },
+    "control.error.cookiesClearScope": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.cookies.clear takes exactly one of params.all or a cookie scope (name, url, domain, path)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يقبل browser.page.cookies.clear واحدًا فقط من params.all أو نطاق ملفات تعريف الارتباط (name وurl وdomain وpath)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear prima tačno jedno: params.all ili opseg kolačića (name, url, domain, path)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear tager præcis én af params.all eller et cookieomfang (name, url, domain, path)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear akzeptiert genau eines: params.all oder einen Cookie-Bereich (name, url, domain, path)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear acepta exactamente uno: params.all o un ámbito de cookies (name, url, domain, path)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear accepte exactement un élément : params.all ou une portée de cookies (name, url, domain, path)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear accetta esattamente uno tra params.all e un ambito di cookie (name, url, domain, path)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear には params.all か Cookie の範囲 (name, url, domain, path) のどちらか一方だけを指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear ទទួលយកតែមួយគត់ គឺ params.all ឬវិសាលភាពខូគី (name, url, domain, path)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear는 params.all 또는 쿠키 범위(name, url, domain, path) 중 정확히 하나만 받습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear tar nøyaktig én av params.all eller et informasjonskapselomfang (name, url, domain, path)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear przyjmuje dokładnie jedno: params.all albo zakres plików cookie (name, url, domain, path)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear aceita exatamente um: params.all ou um escopo de cookies (name, url, domain, path)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear принимает ровно одно: params.all или область cookie (name, url, domain, path)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear รับเพียงอย่างเดียว คือ params.all หรือขอบเขตคุกกี้ (name, url, domain, path)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear tam olarak birini alır: params.all veya bir çerez kapsamı (name, url, domain, path)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear приймає рівно одне: params.all або область cookie (name, url, domain, path)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear chỉ nhận đúng một: params.all hoặc phạm vi cookie (name, url, domain, path)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear 只接受 params.all 或一个 Cookie 范围(name、url、domain、path)其中之一"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear 只接受 params.all 或一個 Cookie 範圍(name、url、domain、path)其中之一"
+          }
+        }
+      }
+    },
+    "control.error.cookiePayload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each cookie needs a name and a value, and a url, a domain or a tab with a page"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحتاج كل ملف تعريف ارتباط إلى اسم وقيمة، وإلى عنوان URL أو نطاق أو علامة تبويب بها صفحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaki kolačić treba ime i vrijednost, te URL, domenu ili karticu sa stranicom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hver cookie skal have et navn og en værdi samt en URL, et domæne eller en fane med en side"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jedes Cookie braucht einen Namen und einen Wert sowie eine URL, eine Domain oder einen Tab mit einer Seite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cada cookie necesita un nombre y un valor, y una URL, un dominio o una pestaña con una página"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chaque cookie nécessite un nom et une valeur, ainsi qu’une URL, un domaine ou un onglet avec une page"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ogni cookie richiede un nome e un valore, e un URL, un dominio o una scheda con una pagina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "各 Cookie には名前と値、さらに URL、ドメイン、またはページのあるタブが必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ខូគីនីមួយៗត្រូវការឈ្មោះ និងតម្លៃ ព្រមទាំង URL ដែន ឬផ្ទាំងដែលមានទំព័រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "각 쿠키에는 이름과 값, 그리고 URL, 도메인 또는 페이지가 있는 탭이 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hver informasjonskapsel trenger et navn og en verdi, og en URL, et domene eller en fane med en side"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Każdy plik cookie wymaga nazwy i wartości oraz adresu URL, domeny lub karty ze stroną"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cada cookie precisa de um nome e um valor, e de uma URL, um domínio ou uma aba com uma página"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Каждому cookie нужны имя и значение, а также URL, домен или вкладка со страницей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คุกกี้แต่ละรายการต้องมีชื่อและค่า และมี URL โดเมน หรือแท็บที่มีหน้าเว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her çerezin bir adı ve değeri, ayrıca bir URL'si, alan adı veya sayfası olan bir sekmesi olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кожному cookie потрібні ім’я та значення, а також URL, домен або вкладка зі сторінкою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mỗi cookie cần có tên và giá trị, cùng với URL, tên miền hoặc một tab có trang"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每个 Cookie 都需要名称和值,以及 URL、域名或带有页面的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每個 Cookie 都需要名稱和值,以及 URL、網域或含有頁面的分頁"
+          }
+        }
+      }
+    },
+    "control.error.cookieUnsafe": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie names, values and paths cannot contain ';', line breaks or control characters"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن أن تحتوي أسماء ملفات تعريف الارتباط وقيمها ومساراتها على ';' أو فواصل أسطر أو أحرف تحكم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nazivi, vrijednosti i putanje kolačića ne mogu sadržavati ';', prijelome redova ni kontrolne znakove"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookienavne, -værdier og -stier må ikke indeholde ';', linjeskift eller kontroltegn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie-Namen, -Werte und -Pfade dürfen kein ';', keine Zeilenumbrüche und keine Steuerzeichen enthalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los nombres, valores y rutas de las cookies no pueden contener ';', saltos de línea ni caracteres de control"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les noms, valeurs et chemins des cookies ne peuvent pas contenir « ; », de sauts de ligne ni de caractères de contrôle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nomi, valori e percorsi dei cookie non possono contenere ';', interruzioni di riga o caratteri di controllo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie の名前、値、パスには ';'、改行、制御文字を含められません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈ្មោះ តម្លៃ និងផ្លូវរបស់ cookie មិនអាចមាន ';' ការចុះបន្ទាត់ ឬតួអក្សរបញ្ជាបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쿠키 이름, 값, 경로에는 ';', 줄바꿈, 제어 문자를 넣을 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navn, verdier og stier for informasjonskapsler kan ikke inneholde ';', linjeskift eller kontrolltegn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nazwy, wartości i ścieżki ciasteczek nie mogą zawierać ';', podziałów wiersza ani znaków sterujących"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nomes, valores e caminhos de cookies não podem conter ';', quebras de linha nem caracteres de controle"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Имена, значения и пути cookie не могут содержать ';', переводы строк или управляющие символы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชื่อ ค่า และพาธของคุกกี้ต้องไม่มี ';' การขึ้นบรรทัดใหม่ หรืออักขระควบคุม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çerez adları, değerleri ve yolları ';', satır sonu veya denetim karakteri içeremez"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Імена, значення та шляхи cookie не можуть містити ';', розриви рядків або керівні символи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tên, giá trị và đường dẫn cookie không được chứa ';', ký tự xuống dòng hoặc ký tự điều khiển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie 的名称、值和路径不能包含 ';'、换行符或控制字符"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie 的名稱、值和路徑不能包含 ';'、換行字元或控制字元"
+          }
+        }
+      }
+    },
+    "control.error.cookieURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url needs a scheme and a host, such as https://%@/"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج params.url إلى مخطط ومضيف، مثل https://%@/"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url treba shemu i host, npr. https://%@/"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url skal have et skema og en vært, f.eks. https://%@/"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url braucht ein Schema und einen Host, etwa https://%@/"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url necesita un esquema y un host, como https://%@/"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url nécessite un schéma et un hôte, par exemple https://%@/"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url richiede uno schema e un host, ad esempio https://%@/"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url にはスキームとホストが必要です (例: https://%@/)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url ត្រូវការ scheme និង host ដូចជា https://%@/"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url에는 https://%@/ 처럼 스킴과 호스트가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url trenger et skjema og en vert, for eksempel https://%@/"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url wymaga schematu i hosta, np. https://%@/"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url precisa de um esquema e um host, como https://%@/"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В params.url нужны схема и хост, например https://%@/"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url ต้องมีสคีมและโฮสต์ เช่น https://%@/"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url bir şema ve ana bilgisayar gerektirir, örneğin https://%@/"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У params.url потрібні схема й хост, наприклад https://%@/"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url cần scheme và host, chẳng hạn https://%@/"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url 需要协议和主机，例如 https://%@/"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.url 需要協定和主機，例如 https://%@/"
+          }
+        }
+      }
+    },
+    "control.error.cookieParam": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ has the wrong type"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نوع params.%@ غير صحيح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ ima pogrešan tip"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ har den forkerte type"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ hat den falschen Typ"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ tiene un tipo incorrecto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ n’a pas le bon type"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ ha il tipo sbagliato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ の型が正しくありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ មានប្រភេទខុស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@의 형식이 잘못되었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ har feil type"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ ma nieprawidłowy typ"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ tem o tipo errado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У params.%@ неверный тип"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ มีชนิดไม่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ yanlış türde"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ має неправильний тип"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ có kiểu không đúng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ 的类型不正确"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ 的類型不正確"
+          }
+        }
+      }
+    },
+    "control.error.storageType": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type is local or session"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيمة params.type هي local أو session"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type je local ili session"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type er local eller session"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type ist local oder session"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type es local o session"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type vaut local ou session"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type è local o session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type は local または session です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type គឺ local ឬ session"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type은 local 또는 session입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type er local eller session"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type to local lub session"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type é local ou session"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type: local или session"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type ต้องเป็น local หรือ session"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type local ya da session olmalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type: local або session"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type là local hoặc session"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type 应为 local 或 session"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.type 應為 local 或 session"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
