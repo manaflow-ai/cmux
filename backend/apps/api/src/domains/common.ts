@@ -83,7 +83,11 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
           principals: ["system"],
           params:
             name === "team.policy.integration_lock"
-              ? Schema.Struct({ managed_by: Schema.NullOr(Schema.Literals(["sso", "mdm"])), version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)) })
+              ? Schema.Struct({
+                  managed_by: Schema.NullOr(Schema.Literals(["sso", "mdm"])),
+                  version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+                  epoch: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64)))
+                })
               : Schema.Struct({ request: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)) }),
           result: Schema.Unknown,
           errors: [],
@@ -114,7 +118,8 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
                   version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
                   slice_hash: Schema.String,
                   managed_by: Schema.optionalKey(Schema.NullOr(Schema.Literals(["sso", "mdm"]))),
-                  lock_version: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)))
+                  lock_version: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
+                  lock_epoch: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64)))
                 }),
           result: Schema.Unknown,
           errors: [],

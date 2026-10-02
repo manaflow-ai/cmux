@@ -108,10 +108,11 @@ export class TeamDO extends OwnerDO<TeamState> {
       const slice = integrationSlice(policy.values)
       // The same version is pushed again after a lock change, so keys carry ConnectionDO's lock version.
       const lockVersion = state.integration_lock_version ?? 0
-      const r = (await stub.applyTeamPolicy(team, { policy: slice, applied_by: `team_policy:v${policy.version}` }, `team-policy:v3:${team}:v${policy.version}:l${lockVersion}`)) as { ok: boolean; message?: string; managed_by: "sso" | "mdm" | null }
+      const lockEpoch = state.integration_lock_epoch ?? ""
+      const r = (await stub.applyTeamPolicy(team, { policy: slice, applied_by: `team_policy:v${policy.version}` }, `team-policy:v4:${team}:v${policy.version}:${lockEpoch}:l${lockVersion}`)) as { ok: boolean; message?: string; managed_by: "sso" | "mdm" | null }
       if (!r.ok) throw new Error(r.message ?? "refused")
       // Under an SSO or MDM lock nothing changed in ConnectionDO; the version is still settled (no retry loop) and reported.
-      this.requireCommitted(this.submitSystem("team.policy.integration_synced", { version: policy.version, slice_hash: sliceHash(slice), managed_by: r.managed_by, lock_version: lockVersion }, `integration-synced:v4:${policy.version}:l${lockVersion}`))
+      this.requireCommitted(this.submitSystem("team.policy.integration_synced", { version: policy.version, slice_hash: sliceHash(slice), managed_by: r.managed_by, lock_version: lockVersion, lock_epoch: lockEpoch }, `integration-synced:v5:${policy.version}:${lockEpoch}:l${lockVersion}`))
       this.resetSyncBackoff()
     } catch (e) {
       this.syncAttempts += 1
@@ -143,9 +144,9 @@ export class TeamDO extends OwnerDO<TeamState> {
    * RPC from ConnectionDO: its SSO/MDM lock changed (appeared, changed source,
    * released). Recorded by version, so a late or repeated notice changes nothing.
    */
-  async integrationLockChanged(team: string, managedBy: "sso" | "mdm" | null, version: number): Promise<{ ok: boolean; message?: string }> {
+  async integrationLockChanged(team: string, managedBy: "sso" | "mdm" | null, version: number, epoch: string): Promise<{ ok: boolean; message?: string }> {
     this.bind(team)
-    const res = this.submitSystem("team.policy.integration_lock", { managed_by: managedBy, version }, `integration-lock:${version}`)
+    const res = this.submitSystem("team.policy.integration_lock", { managed_by: managedBy, version, epoch }, `integration-lock:${epoch}:${version}`)
     const rej = res.frames.find((f) => f.t === "reject")
     return rej && rej.t === "reject" ? { ok: false, message: rej.message } : { ok: true }
   }
