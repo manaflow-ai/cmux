@@ -113,13 +113,15 @@ final class InputInvariantMonitor {
         }
     }
 
-    /// C1 (plans/cmux-next/layout-invariants.md): once no tab drag is in
+    /// DP1 (plans/cmux-next/layout-invariants.md): once no tab drag is in
     /// flight, every strip shows exactly the tabs its pane holds, none
     /// hidden (a drag's presentation that never ended) and none extra.
     static func tabConservation(_ services: AppServices) -> [InputViolation] {
         guard !services.dragSession.hasDragInFlight else { return [] }
         return services.windows.controllers.flatMap { controller -> [InputViolation] in
             (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
+                // A strip out of the window does not observe its model.
+                guard pane.view.stripView.window != nil else { return nil }
                 let shown = pane.view.stripView.presentedTabIDs.map(\.rawValue)
                 let held = pane.stripModel.orderedTabs.map(\.id.rawValue)
                 guard Set(shown) != Set(held) || shown.count != held.count else { return nil }

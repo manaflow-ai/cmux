@@ -223,7 +223,7 @@ extension TabStripView {
         return context.makeImage().map(TabImage.init)
     }
 
-    /// The tabs the strip shows, in order (tab conservation check C1: once
+    /// The tabs the strip shows, in order (tab conservation check DP1: once
     /// no drag is in flight this equals the model's tabs).
     public var presentedTabIDs: [TabID] { displayed.map(\.id) }
 

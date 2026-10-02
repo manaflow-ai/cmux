@@ -1,42 +1,43 @@
-public import Foundation
+import Foundation
+@testable import CmuxNextBridge
 
 /// The tab layout as data (workspaces, panes, tabs) and what each drag
 /// outcome does to it: the executable reference of the daemon's tab-drag-v1
 /// semantics (plans/cmux-next/layout-invariants.md). Tests drive the drop
 /// resolver against it and check `LayoutInvariants` after every outcome.
-public nonisolated struct LayoutModel: Hashable, Sendable {
-    public struct Pane: Hashable, Sendable {
-        public var id: String
-        public var stripID: UUID
-        public var tabs: [String]
-        public init(id: String, stripID: UUID = UUID(), tabs: [String]) {
+nonisolated struct LayoutModel: Hashable, Sendable {
+    struct Pane: Hashable, Sendable {
+        var id: String
+        var stripID: UUID
+        var tabs: [String]
+        init(id: String, stripID: UUID = UUID(), tabs: [String]) {
             self.id = id
             self.stripID = stripID
             self.tabs = tabs
         }
     }
 
-    public struct Workspace: Hashable, Sendable {
-        public var id: String
-        public var panes: [Pane]
-        public init(id: String, panes: [Pane]) {
+    struct Workspace: Hashable, Sendable {
+        var id: String
+        var panes: [Pane]
+        init(id: String, panes: [Pane]) {
             self.id = id
             self.panes = panes
         }
     }
 
-    public var workspaces: [Workspace]
+    var workspaces: [Workspace]
     /// Ids for panes and workspaces an outcome creates.
-    public var nextID = 0
+    var nextID = 0
 
-    public init(workspaces: [Workspace]) {
+    init(workspaces: [Workspace]) {
         self.workspaces = workspaces
     }
 
-    public var allTabs: [String] { workspaces.flatMap(\.panes).flatMap(\.tabs) }
+    var allTabs: [String] { workspaces.flatMap(\.panes).flatMap(\.tabs) }
 
     /// (workspace index, pane index) of the pane holding `tab`.
-    public func location(of tab: String) -> (workspace: Int, pane: Int)? {
+    func location(of tab: String) -> (workspace: Int, pane: Int)? {
         for (w, workspace) in workspaces.enumerated() {
             if let p = workspace.panes.firstIndex(where: { $0.tabs.contains(tab) }) { return (w, p) }
         }
@@ -58,7 +59,7 @@ public nonisolated struct LayoutModel: Hashable, Sendable {
     }
 
     /// The resolver's view of a drag of `tab`.
-    public func context(dragging tab: String, windowWorkspaceCount: Int = 1) -> TabDragContext? {
+    func context(dragging tab: String, windowWorkspaceCount: Int = 1) -> TabDragContext? {
         guard let (w, p) = location(of: tab) else { return nil }
         let pane = workspaces[w].panes[p]
         return TabDragContext(sourcePaneID: pane.id, sourcePaneTabCount: pane.tabs.count, sourceWorkspaceID: workspaces[w].id,
@@ -70,7 +71,7 @@ public nonisolated struct LayoutModel: Hashable, Sendable {
     /// Applies `outcome` for a drag of `tab`. Returns nil when the outcome
     /// names a target that does not exist (the daemon rejects it; the
     /// layout is unchanged). Panes and workspaces left empty close.
-    public func applying(_ outcome: TabDragOutcome, dragging tab: String) -> LayoutModel? {
+    func applying(_ outcome: TabDragOutcome, dragging tab: String) -> LayoutModel? {
         var model = self
         guard model.location(of: tab) != nil else { return nil }
         switch outcome {
@@ -136,11 +137,11 @@ public nonisolated struct LayoutModel: Hashable, Sendable {
 }
 
 /// The layout invariants every drag outcome keeps (plans/cmux-next/layout-invariants.md).
-public nonisolated enum LayoutInvariants {
+nonisolated enum LayoutInvariants {
     /// Violations of: I1 tab conservation (the set of tabs is unchanged; only
     /// a close removes one), I2 every tab in exactly one pane, I3 no empty
     /// pane or workspace. Empty when all hold.
-    public static func violations(before: LayoutModel, after: LayoutModel) -> [String] {
+    static func violations(before: LayoutModel, after: LayoutModel) -> [String] {
         var found: [String] = []
         let old = before.allTabs, new = after.allTabs
         if Set(old) != Set(new) {

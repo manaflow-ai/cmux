@@ -109,3 +109,44 @@ extension TransactionAppliedTests {
         #expect(now)
     }
 }
+
+extension TransactionAppliedTests {
+    /// Inside an event batch the waiter runs once the whole batch is
+    /// applied (the moved tab's later events too), never mid-batch.
+    @Test func runsAfterTheWholeBatch() throws {
+        let store = try loadedStore()
+        let tree = try Fixture.response(DaemonTree.self, "list-workspaces.json")
+        let tab = try #require(tree.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.surface == 3 })
+        var titleAtRun: String?
+        store.whenApplied("drop-12") { titleAtRun = store.tab(surface: 3)?.title }
+        let base = store.appliedSequence
+        store.apply(batch: [
+            DaemonEventEnvelope(sequence: base + 1, event: .tabChanged(TabDelta(workspace: 1, screen: 5, pane: 7, surface: 3, index: 0,
+                                                                                entity: tab, clientTransactionID: "drop-12"))),
+            DaemonEventEnvelope(sequence: base + 2, event: .titleChanged(surface: 3, title: "after the move")),
+        ])
+        #expect(titleAtRun == "after the move")
+    }
+
+    /// A lost connection: no echo or barrier will come, every waiter runs.
+    @Test func aDisconnectRunsEveryWaiter() throws {
+        let store = try loadedStore()
+        var ran = 0
+        store.whenApplied("drop-13", reaching: store.appliedSequence + 100) { ran += 1 }
+        store.whenApplied("drop-14") { ran += 1 }
+        store.apply(.disconnected(reason: "socket closed"))
+        #expect(ran == 2)
+    }
+
+    /// A snapshot from a resync that started before the reply may predate
+    /// the move: a waiter with a write barrier waits for the barrier.
+    @Test func aSnapshotDoesNotRunAWaiterWhoseBarrierIsAhead() throws {
+        let store = try loadedStore()
+        var ran = false
+        store.whenApplied("drop-15", reaching: store.appliedSequence + 50) { ran = true }
+        store.apply(snapshot: try Fixture.response(DaemonTree.self, "list-workspaces.json"))
+        #expect(!ran)
+        store.advanceAppliedSequence(to: store.appliedSequence + 50)
+        #expect(ran)
+    }
+}

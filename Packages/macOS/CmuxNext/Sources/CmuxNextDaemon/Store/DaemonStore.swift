@@ -58,6 +58,8 @@ public final class DaemonStore {
     @ObservationIgnored public var onTransactionConfirmed: ((ClientTransactionID) -> Void)?
     /// `whenApplied` callbacks waiting for their transaction's echo.
     @ObservationIgnored var appliedWaiters: [AppliedWaiter] = []
+    /// A disconnect was applied: every waiter runs at the next flush.
+    @ObservationIgnored var drainAppliedWaiters = false
     struct AppliedWaiter {
         var transaction: ClientTransactionID
         var sequence: UInt64?
@@ -149,7 +151,7 @@ public final class DaemonStore {
         structureChanged()
         reapplyPendingPatches()
         workspaceListMayHaveChanged()
-        runAppliedWaiters(nil, all: true)
+        runAppliedWaiters(nil, snapshot: true)
     }
 
     /// Shows the daemon's launch snapshot (`LaunchSnapshot`) before the

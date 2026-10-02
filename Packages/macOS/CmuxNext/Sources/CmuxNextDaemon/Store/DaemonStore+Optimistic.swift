@@ -77,7 +77,8 @@ extension DaemonStore {
             confirmedTransactions.removeFirst(confirmedTransactions.count - transactionLimit)
         }
         onTransactionConfirmed?(transaction)
-        runAppliedWaiters(transaction)
+        // Inside a batch the waiters run once the whole batch is applied.
+        if applyDepth == 0 { runAppliedWaiters(transaction) }
     }
 
     /// Runs `body` once the store holds the daemon's result of
@@ -93,20 +94,32 @@ extension DaemonStore {
         appliedWaiters.append(AppliedWaiter(transaction: transaction, sequence: sequence, body: body))
     }
 
-    /// Runs the waiters that are due: for `transaction`, or every waiter
-    /// whose barrier the applied sequence reached (`transaction` nil), or
-    /// all of them (`all`, after a snapshot).
-    func runAppliedWaiters(_ transaction: ClientTransactionID?, all: Bool = false) {
-        guard !appliedWaiters.isEmpty else { return }
-        let isDue: (AppliedWaiter) -> Bool = { [appliedSequence] waiter in
+    /// Runs the waiters that are due: for `transaction`; or (nil) every
+    /// waiter whose echo was applied or whose barrier the applied sequence
+    /// reached; `snapshot` adds waiters without a barrier (a snapshot is
+    /// daemon truth); `all` runs every waiter (the connection is gone: the
+    /// store will hold nothing newer for them).
+    func runAppliedWaiters(_ transaction: ClientTransactionID?, snapshot: Bool = false, all: Bool = false) {
+        guard !appliedWaiters.isEmpty, applyDepth == 0 else { return }
+        let isDue: (AppliedWaiter) -> Bool = { [appliedSequence, confirmedTransactions] waiter in
             if all { return true }
             if let transaction { return waiter.transaction == transaction }
-            return waiter.sequence.map { appliedSequence >= $0 } ?? false
+            if confirmedTransactions.contains(waiter.transaction) { return true }
+            guard let sequence = waiter.sequence else { return snapshot }
+            return appliedSequence >= sequence
         }
         let due = appliedWaiters.filter(isDue)
         guard !due.isEmpty else { return }
         appliedWaiters.removeAll(where: isDue)
         for waiter in due { waiter.body() }
+    }
+
+    /// Runs the due waiters, or every waiter after a disconnect.
+    func flushAppliedWaiters() {
+        guard applyDepth == 0 else { return }
+        let all = drainAppliedWaiters
+        drainAppliedWaiters = false
+        runAppliedWaiters(nil, all: all)
     }
 
     func reapplyPendingPatches() {

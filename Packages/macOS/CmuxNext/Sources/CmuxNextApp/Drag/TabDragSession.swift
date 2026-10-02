@@ -36,7 +36,7 @@ final class TabDragSession: NSObject {
     /// Commits sent and not yet settled (their presentation is still on).
     var commitsInFlight: Set<ClientTransactionID> = []
     /// A drag, its landing flight, or a commit is in flight: strips may
-    /// still hide the dragged tabs (C1 waits).
+    /// still hide the dragged tabs (DP1 waits).
     var hasDragInFlight: Bool { drag != nil || landing != nil || !commitsInFlight.isEmpty }
 
     // MARK: Begin
@@ -85,8 +85,11 @@ final class TabDragSession: NSObject {
             pane.resyncStrip()
         }, release: { [weak pane] in
             // Every end, the landed ones too: a move into the tab's own strip
-            // keeps the tab there, and the strip must show it again.
+            // keeps the tab there, and the strip must show it again. The
+            // store already holds the result; push it into the strip first,
+            // so a tab that left is never shown back for a moment.
             guard let pane else { return }
+            pane.syncStripFromStore()
             Self.endPresentation(item, in: pane)
         })
         let drag = Drag(source: source, lifecycle: lifecycle, ghost: ghost, motion: motion, point: point)
@@ -132,6 +135,16 @@ final class TabDragSession: NSObject {
                               sourceWorkspaceID: pane.workspace?.workspace.id ?? "", sourceWorkspaceTabCount: workspaceTabs,
                               draggedTabCount: draggedCount, sourceStripID: pane.stripModel.stripID, sourceIndex: index,
                               sourceGroupID: group)
+    }
+
+    /// The resolver's view of `drag` now: the source pane's tabs can change
+    /// during a drag (another client, an agent), so the own place is read
+    /// from the live strip model, not from the drag's start.
+    func liveContext(_ drag: Drag) -> TabDragContext {
+        guard let pane = drag.source.pane else { return drag.source.context }
+        var context = Self.context(of: pane, item: drag.source.item, draggedCount: drag.source.context.draggedTabCount)
+        context.sourceWindowWorkspaceCount = drag.source.context.sourceWindowWorkspaceCount
+        return context
     }
 
     /// Ends the drag's presentation in its source strip: the hidden tab (or
@@ -187,7 +200,7 @@ final class TabDragSession: NSObject {
         }
         drag.winner = hit.winner
         drag.outcome = TabDragResolver.outcome(for: hit.winner?.proposal, insideWindow: hit.window != nil, screenPoint: point,
-                                               context: drag.source.context)
+                                               context: liveContext(drag))
         present(drag)
         wake(drag)
     }
@@ -209,7 +222,7 @@ final class TabDragSession: NSObject {
         for provider in providers(in: controller, near: point, drag: drag) {
             guard let proposal = provider.dropHitTest(screenPoint: point, payload: payload) else { continue }
             drag.touched[ObjectIdentifier(provider)] = provider
-            if TabDragResolver.accepts(proposal.kind, context: drag.source.context) {
+            if TabDragResolver.accepts(proposal.kind, context: liveContext(drag)) {
                 return Hit(window: controller, winner: Winner(provider: provider, proposal: proposal, window: controller))
             }
             provider.dropExited()

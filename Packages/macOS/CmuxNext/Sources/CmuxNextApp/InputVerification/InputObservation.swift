@@ -100,7 +100,7 @@ nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, CaseIterab
     // Geometry (after settle).
     case chromiumGeometry = "G1"
     // Tab conservation (after settle, no drag in flight).
-    case stripShowsPaneTabs = "C1"
+    case stripShowsPaneTabs = "DP1"
 
     var summary: String {
         switch self {

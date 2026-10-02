@@ -203,6 +203,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
         apply(snapshot(), force: true)
     }
 
+    /// Pushes the store's current tabs into the strip now (no reset of
+    /// optimistic strip state), ahead of the next observation step.
+    func syncStripFromStore() {
+        apply(snapshot())
+    }
+
     // MARK: Content
 
     func showSelected() {
