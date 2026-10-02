@@ -277,6 +277,32 @@ describe("direct client session state", () => {
     client.close();
   });
 
+  test("a turn whose end only a reread shows is unread; a fallback selection is seen", async () => {
+    const client = await connect();
+    const unread = () =>
+      Object.fromEntries(latest().sessions.map((session) => [session.sessionId, session.unread === true]));
+    ScriptedSocket.current.notify("_acpmux/session_changed", {
+      kind: "updated",
+      session: { sessionId: "b", status: "running" },
+    });
+    // The notice that b finished was dropped; the reread after the lag shows it idle.
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b", status: "idle" }] };
+      if (method === "_acpmux/attach") return attachReply(params.sessionId);
+      return {};
+    };
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: [], watch: true, dropped: 1 });
+    await settle();
+    await settle();
+    expect(unread()).toEqual({ a: false, b: true });
+    // Purging the selected session falls back to b, which is then on screen.
+    ScriptedSocket.current.notify("_acpmux/session_changed", { kind: "purged", session: { sessionId: "a" } });
+    await settle();
+    expect(latest().sessionId).toBe("b");
+    expect(unread()).toEqual({ b: false });
+    client.close();
+  });
+
   test("purging an unselected session refreshes the picker", async () => {
     await connect();
     const before = snapshots.length;
