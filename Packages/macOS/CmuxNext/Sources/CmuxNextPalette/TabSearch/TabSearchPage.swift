@@ -17,6 +17,9 @@ public protocol TabSearchSource: AnyObject {
     func reopenClosedTab(id: String)
     /// Removes a closed tab from the closed-items log.
     func forgetClosedTab(id: String)
+    /// One element after each change to the tabs or the closed list, once
+    /// both are current (`TabSearchLiveUpdates` re-reads the page).
+    func changes() -> AsyncStream<Void>
 }
 
 /// The Search Tabs page (Cmd-Shift-A, action `tab.search`): every tab with
