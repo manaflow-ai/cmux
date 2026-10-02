@@ -33,7 +33,7 @@ import {
 import { appleSignedDataVerifier, AppleVerificationError, type AppleSignedDataVerifier } from "./verifier";
 
 const AUTO_RENEWABLE_TYPE = "Auto-Renewable Subscription";
-const LAPSE_SWEEP_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const LAPSE_SWEEP_LIMIT = 200;
 
 export type AppleIapDependencies = {
   readonly store: AppleIapStore;
@@ -442,8 +442,10 @@ export type AppleRetryResult = {
 
 /**
  * Re-applies ledger rows that never finished, then re-derives the plan for
- * users whose Apple subscription passed its expiry without a notification
- * (a missed EXPIRED), so time alone ends a grant.
+ * users whose Apple subscription passed its expiry or grace period without a
+ * notification (a missed EXPIRED or GRACE_PERIOD_EXPIRED), so time alone
+ * ends a grant. A lapse is marked swept only after its user's plan was
+ * re-derived, so a failure is retried on the next run.
  */
 export async function retryAppleNotifications(
   options: { readonly limit?: number } = {},
@@ -455,14 +457,18 @@ export async function retryAppleNotifications(
     counts[await processAppleNotification(row, deps)] += 1;
   }
   const now = deps.now();
-  const lapsed = await deps.store.usersWithLapsedGrants(now, new Date(now.getTime() - LAPSE_SWEEP_WINDOW_MS), 200);
+  const lapsedByUser = new Map<string, string[]>();
+  for (const row of await deps.store.lapsedSubscriptions(now, LAPSE_SWEEP_LIMIT)) {
+    lapsedByUser.set(row.userId, [...(lapsedByUser.get(row.userId) ?? []), row.originalTransactionId]);
+  }
   let lapsedFailures = 0;
-  for (const userId of lapsed) {
+  for (const [userId, originalTransactionIds] of lapsedByUser) {
     try {
       await deps.applyEntitlement(userId);
+      await deps.store.markLapseSwept(originalTransactionIds, now);
     } catch {
       lapsedFailures += 1;
     }
   }
-  return { notifications: counts, lapsedUsers: lapsed.length, lapsedFailures };
+  return { notifications: counts, lapsedUsers: lapsedByUser.size, lapsedFailures };
 }

@@ -5,7 +5,7 @@
 // `appAccountToken` (planAppleSubscriptionWrite).
 
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../../db/client";
 import {
@@ -118,6 +118,29 @@ export function planAppleSubscriptionWrite(
   return { kind: "write", userId: owner, transferredFrom: moves ? previous.userId : null };
 }
 
+export type AppleLapsedSubscription = {
+  readonly originalTransactionId: string;
+  readonly userId: string;
+};
+
+/** Statuses that can grant access; their rows are what the lapse sweep watches. */
+export const APPLE_GRANTING_STATUSES = ["active", "grace_period", "billing_retry"] as const;
+
+/** When access ends: the later of expiry and grace end (null when neither is set). */
+export function appleAccessEndsAt(row: Pick<AppleSubscriptionRow, "expiresAt" | "gracePeriodExpiresAt">): Date | null {
+  const times = [row.expiresAt, row.gracePeriodExpiresAt]
+    .filter((value): value is Date => value !== null)
+    .map((value) => value.getTime());
+  return times.length > 0 ? new Date(Math.max(...times)) : null;
+}
+
+/** The status a row moves to once the sweep applied its lapse. */
+export function appleSweptStatus(status: string): AppleSubscriptionRow["status"] {
+  if (status === "active") return "expired";
+  if (status === "grace_period") return "billing_retry";
+  return status as AppleSubscriptionRow["status"];
+}
+
 export type AppleNotificationInsert = {
   readonly notificationUuid: string;
   readonly notificationType: string;
@@ -142,9 +165,31 @@ export type AppleIapStore = {
   markNotificationSkipped(notificationUuid: string, reason: string, processedAt: Date): Promise<void>;
   /** Ledger rows still owed an entitlement application (failed or never run), oldest first. */
   pendingNotifications(limit: number): Promise<AppleNotificationRow[]>;
-  /** Users whose granting-looking subscription passed its expiry recently. */
-  usersWithLapsedGrants(now: Date, since: Date, limit: number): Promise<string[]>;
+  /**
+   * Rows still in an access-granting status whose access ended (the later of
+   * `expires_at` and `grace_period_expires_at` is past) after their last
+   * write, oldest lapse first.
+   */
+  lapsedSubscriptions(now: Date, limit: number): Promise<AppleLapsedSubscription[]>;
+  /**
+   * Records that a lapse was applied, so the row does not match again:
+   * `active` becomes `expired`, `grace_period` becomes `billing_retry` (Apple
+   * may still recover it), and `updated_at` moves past the lapse. A row
+   * written since it was listed is left alone.
+   */
+  markLapseSwept(originalTransactionIds: readonly string[], now: Date): Promise<void>;
 };
+
+/** `greatest` skips nulls, so a row with neither date never lapses. */
+const ACCESS_ENDS_AT = sql`greatest(${appleSubscriptions.expiresAt}, ${appleSubscriptions.gracePeriodExpiresAt})`;
+
+/** Access ended before `now` and the row was not written (or swept) since. */
+function lapsedSince(now: Date) {
+  return and(
+    sql`${ACCESS_ENDS_AT} < ${now.toISOString()}::timestamptz`,
+    lt(appleSubscriptions.updatedAt, ACCESS_ENDS_AT),
+  );
+}
 
 function isUniqueViolation(error: unknown): boolean {
   const code = (error as { code?: unknown; cause?: { code?: unknown } } | null)?.code ??
@@ -308,17 +353,29 @@ export function databaseAppleIapStore(db: () => Db = cloudDb): AppleIapStore {
         .orderBy(asc(appleNotifications.receivedAt))
         .limit(limit);
     },
-    async usersWithLapsedGrants(now, since, limit) {
-      const rows = await db()
-        .selectDistinct({ userId: appleSubscriptions.userId })
+    async lapsedSubscriptions(now, limit) {
+      return await db()
+        .select({ originalTransactionId: appleSubscriptions.originalTransactionId, userId: appleSubscriptions.userId })
         .from(appleSubscriptions)
-        .where(and(
-          inArray(appleSubscriptions.status, ["active", "grace_period", "billing_retry"]),
-          lt(appleSubscriptions.expiresAt, now),
-          gt(appleSubscriptions.expiresAt, since),
-        ))
+        .where(and(inArray(appleSubscriptions.status, [...APPLE_GRANTING_STATUSES]), lapsedSince(now)))
+        .orderBy(asc(ACCESS_ENDS_AT), asc(appleSubscriptions.originalTransactionId))
         .limit(limit);
-      return rows.map((row) => row.userId);
+    },
+    async markLapseSwept(originalTransactionIds, now) {
+      if (originalTransactionIds.length === 0) return;
+      await db().update(appleSubscriptions)
+        .set({
+          status: sql`case ${appleSubscriptions.status}
+            when 'active' then 'expired'
+            when 'grace_period' then 'billing_retry'
+            else ${appleSubscriptions.status} end`,
+          updatedAt: now,
+        })
+        .where(and(
+          inArray(appleSubscriptions.originalTransactionId, [...originalTransactionIds]),
+          inArray(appleSubscriptions.status, [...APPLE_GRANTING_STATUSES]),
+          lapsedSince(now),
+        ));
     },
   };
 }

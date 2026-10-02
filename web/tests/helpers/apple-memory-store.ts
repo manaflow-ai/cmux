@@ -7,6 +7,9 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  APPLE_GRANTING_STATUSES,
+  appleAccessEndsAt,
+  appleSweptStatus,
   planAppleSubscriptionWrite,
   type AppleIapStore,
   type AppleNotificationRow,
@@ -20,6 +23,12 @@ export type MemoryAppleStore = AppleIapStore & {
   readonly transactions: Map<string, AppleTransactionRow>;
   readonly notifications: Map<string, AppleNotificationRow>;
 };
+
+function isLapsed(row: AppleSubscriptionRow, now: Date): boolean {
+  const endsAt = appleAccessEndsAt(row);
+  return (APPLE_GRANTING_STATUSES as readonly string[]).includes(row.status) &&
+    endsAt !== null && endsAt < now && row.updatedAt < endsAt;
+}
 
 export function memoryAppleStore(): MemoryAppleStore {
   const tokens = new Map<string, string>();
@@ -86,14 +95,19 @@ export function memoryAppleStore(): MemoryAppleStore {
     async pendingNotifications(limit) {
       return [...notifications.values()].filter((row) => row.processedAt === null).slice(0, limit);
     },
-    async usersWithLapsedGrants(now, since, limit) {
-      const users = new Set<string>();
-      for (const row of subscriptions.values()) {
-        if (!["active", "grace_period", "billing_retry"].includes(row.status)) continue;
-        if (!row.expiresAt || row.expiresAt >= now || row.expiresAt <= since) continue;
-        users.add(row.userId);
+    async lapsedSubscriptions(now, limit) {
+      return [...subscriptions.values()]
+        .filter((row) => isLapsed(row, now))
+        .sort((a, b) => appleAccessEndsAt(a)!.getTime() - appleAccessEndsAt(b)!.getTime())
+        .slice(0, limit)
+        .map((row) => ({ originalTransactionId: row.originalTransactionId, userId: row.userId }));
+    },
+    async markLapseSwept(ids, now) {
+      for (const id of ids) {
+        const row = subscriptions.get(id);
+        if (!row || !isLapsed(row, now)) continue;
+        subscriptions.set(id, { ...row, status: appleSweptStatus(row.status), updatedAt: now });
       }
-      return [...users].slice(0, limit);
     },
   };
 }
