@@ -75,11 +75,16 @@ import Testing
         #expect(snapshot.tree.personal?.groups.map(\.id) == ["grp_1"])
         // A file from an older daemon has none; the live read fills it.
         #expect(LaunchSnapshot.decode(try Self.file(windows: nil), session: "cmux-app-nx")?.tree.personal == nil)
+        // A daemon that could not read it writes null; the tree still draws.
+        let unread = LaunchSnapshot.decode(try Self.file(windows: nil, personal: .null), session: "cmux-app-nx")
+        #expect(unread != nil && unread?.tree.personal == nil)
 
         let store = DaemonStore()
         store.applyProvisional(snapshot: snapshot.tree)
         #expect(store.profiles.map(\.id) == ["default", "prof_a"])
         #expect(store.personal.isLoaded)
+        // Consumers with side effects wait for the live store.
+        #expect(store.isProvisional && !store.isLoaded)
         let drawn = store.profiles.map(ObjectIdentifier.init)
 
         var live = try Fixture.response(DaemonTree.self, "list-workspaces.json")

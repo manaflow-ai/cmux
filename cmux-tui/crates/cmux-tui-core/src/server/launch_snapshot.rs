@@ -197,9 +197,21 @@ fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result
     let (registry_id, generation) = mux.registry_identity();
     // Rooms, pins and personal groups filter and group the sidebar, so a
     // provisional sidebar drawn without them regroups when live data lands.
+    // Room default env can hold credentials; the sidebar does not need it.
     let personal = match mux.personal_snapshot() {
-        Ok(personal) => serde_json::to_value(personal)?,
-        Err(_) => Value::Null,
+        Ok(personal) => {
+            let mut personal = serde_json::to_value(personal)?;
+            for profile in personal["profiles"].as_array_mut().into_iter().flatten() {
+                if let Some(defaults) = profile["defaults"].as_object_mut() {
+                    defaults.remove("env");
+                }
+            }
+            personal
+        }
+        Err(error) => {
+            eprintln!("cmux-tui: launch snapshot without personal state: {error:#}");
+            Value::Null
+        }
     };
     let projections = if include_projections {
         serde_json::to_value(mux.launch_snapshot_frontend_projections()?)?
@@ -437,12 +449,24 @@ mod tests {
         .unwrap();
         wait_for_snapshot(writer.path(), |snapshot| snapshot["personal"].is_object());
         // A personal change alone (no tree change) rewrites the snapshot.
-        run_command(&mux, json!({"cmd":"create-profile","profile":"prof_work","name":"Work"}));
+        run_command(
+            &mux,
+            json!({"cmd":"create-profile","profile":"prof_work","name":"Work",
+                   "defaults":{"cwd":"/tmp","env":{"TOKEN":"secret"}}}),
+        );
         let snapshot = wait_for_snapshot(writer.path(), |snapshot| {
             snapshot["personal"]["profiles"]
                 .as_array()
                 .is_some_and(|profiles| profiles.iter().any(|profile| profile["id"] == "prof_work"))
         });
+        let work = snapshot["personal"]["profiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|profile| profile["id"] == "prof_work")
+            .unwrap();
+        assert_eq!(work["defaults"]["cwd"], "/tmp");
+        assert!(work["defaults"].get("env").is_none(), "room env stays out of the file");
         assert_eq!(
             snapshot["personal"]["personal_revision"],
             run_command(&mux, json!({"cmd":"list-personal"}))["personal_revision"]
