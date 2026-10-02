@@ -5670,7 +5670,7 @@ struct CMUXCLI {
             }
 
         case "agent":
-            // `agent message` and `agent inbox` are local agent messaging;
+            // `agent message`, `inbox` and `messages` are local agent messaging;
             // hibernate and wake act on local agents; everything else stays an
             // alias of `cmux vm agent`.
             if try !runAgentMessageCommandIfMatched(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput) {
@@ -21188,17 +21188,9 @@ struct CMUXCLI {
             print(verbText)
             return true
         }
-        if command == "agent", let verb = commandArgs.first?.lowercased() {
-            switch verb {
-            case "message", "msg":
-                print(Self.agentMessageHelp)
-                return true
-            case "inbox":
-                print(Self.agentInboxHelp)
-                return true
-            default:
-                break
-            }
+        if command == "agent", let text = Self.agentSubcommandHelp(commandArgs.first) {
+            print(text)
+            return true
         }
         guard let text = subcommandUsage(command) else { return false }
         print("cmux \(command)")
@@ -31765,6 +31757,12 @@ struct CMUXCLI {
             "--session",
             sessionId,
         ]
+        // A cmux-created Codex fork carries its parent and launch claim in the
+        // environment. Forward them to the detached monitor so it can watch
+        // the owner process for the child rollout and publish the child hook
+        // binding. Without this, the first fork may render, but a fork of that
+        // child has no durable parent association to discover.
+        monitorArgs += Self.codexForkMonitorArguments(environment: env)
         if let surfaceId, !surfaceId.isEmpty {
             monitorArgs += ["--surface", surfaceId]
         }
@@ -31791,6 +31789,19 @@ struct CMUXCLI {
         } catch {
             telemetry.captureError(stage: "codex-monitor-start", error: error, data: monitorTelemetry)
         }
+    }
+
+    static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
+        guard let forkParent = environment[CodexForkSessionWatcher.parentSessionEnvironmentKey],
+              !forkParent.isEmpty else { return [] }
+        var arguments = ["--fork-parent", forkParent]
+        if let launchID = environment[CodexForkSessionWatcher.launchIDEnvironmentKey], !launchID.isEmpty {
+            arguments += ["--fork-launch-id", launchID]
+        }
+        if let ownerPID = environment["CMUX_CODEX_PID"], !ownerPID.isEmpty {
+            arguments += ["--fork-owner-pid", ownerPID]
+        }
+        return arguments
     }
 
     /// Watches the Codex rollout until the turn settles.
