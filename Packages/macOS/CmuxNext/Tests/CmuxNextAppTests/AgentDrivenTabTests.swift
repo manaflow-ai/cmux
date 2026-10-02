@@ -47,10 +47,11 @@ import Testing
         return window
     }
 
-    /// A page Chromium may already have filled reloads before the agent's
-    /// first script, and so does a popup the tab opened (its script can
-    /// reach it); a page marked before has nothing to clear.
-    @Test func theFirstTouchReloadsPagesThatMayHoldAFilledPassword() throws {
+    /// A page Chromium may already have filled leaves the cache at the
+    /// agent's first touch (no later operation can reach its document while
+    /// a new page loads), and the operation retries; popups are marked; a
+    /// page marked before has nothing to clear.
+    @Test func theFirstTouchRebuildsAPageThatMayHoldAFilledPassword() throws {
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.popups.ordersPanelsIn = false
         let tab = login()
@@ -60,35 +61,40 @@ import Testing
         defer { services.popups.closeAll() }
 
         let stale = AppCompatBrowser.markAgentDriven("tab", services: services)
+        #expect(stale)
         #expect(tab.isAgentDriven && popup.isAgentDriven)
-        #expect(stale.count == 2)
-        #expect(throws: ControlError.self) { try AppCompatBrowser.reloadStale(stale, page: tab, for: .evaluate("1")) }
-        #expect(tab.commands.contains(.reload) && popup.commands.contains(.reload))
+        #expect(throws: ControlError.self) {
+            try AppCompatBrowser.rebuildStale(stale, tabID: "tab", for: .evaluate("1"), services: services)
+        }
+        #expect(services.cache.existingBrowser("tab") == nil)
+        #expect(tab.isClosed)
+        #expect(services.cache.agentDrivenTabs.contains("tab"), "the next page is marked when it installs")
 
-        #expect(AppCompatBrowser.markAgentDriven("tab", services: services).isEmpty, "only the first touch")
+        let next = login()
+        services.cache.install(next, for: "tab")
+        #expect(next.isAgentDriven)
+        #expect(!AppCompatBrowser.markAgentDriven("tab", services: services), "only the first touch")
     }
 
-    /// Navigating away would keep the value in the back/forward cache, so it
-    /// retries too; `reload` reloads the page itself, once.
-    @Test func onlyReloadAndStateGoOnAtTheFirstTouch() throws {
-        for operation in [CompatBrowserOperation.navigate("https://example.com"), .back, .forward, .evaluate("1")] {
-            #expect(throws: ControlError.self) { try AppCompatBrowser.reloadStale([login()], page: login(), for: operation) }
+    /// Every operation but `state` (no page content) retries on the new page.
+    @Test func onlyStateGoesOnAtTheFirstTouch() throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        for operation in [CompatBrowserOperation.navigate("https://example.com"), .back, .forward, .reload, .evaluate("1")] {
+            services.cache.install(login(), for: "tab")
+            #expect(throws: ControlError.self) { try AppCompatBrowser.rebuildStale(true, tabID: "tab", for: operation, services: services) }
         }
-        let page = login()
-        try AppCompatBrowser.reloadStale([page], page: page, for: .reload)
-        #expect(!page.commands.contains(.reload), "the operation reloads it")
-        try AppCompatBrowser.reloadStale([page], page: page, for: .state)
-        #expect(page.commands.contains(.reload))
-        try AppCompatBrowser.reloadStale([], page: page, for: .evaluate("1"))
+        services.cache.install(login(), for: "tab")
+        try AppCompatBrowser.rebuildStale(true, tabID: "tab", for: .state, services: services)
+        try AppCompatBrowser.rebuildStale(false, tabID: "tab", for: .evaluate("1"), services: services)
     }
 
     /// WebKit has no saved-password autofill, and a blank page holds nothing.
-    @Test func onlyChromiumWebPagesReload() {
+    @Test func onlyChromiumWebPagesRebuild() {
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.cache.install(login(.webkit), for: "webkit")
-        #expect(AppCompatBrowser.markAgentDriven("webkit", services: services).isEmpty)
+        #expect(!AppCompatBrowser.markAgentDriven("webkit", services: services))
         services.cache.install(page(), for: "blank")
-        #expect(AppCompatBrowser.markAgentDriven("blank", services: services).isEmpty)
+        #expect(!AppCompatBrowser.markAgentDriven("blank", services: services))
     }
 
     /// A popup an agent-driven popup opens is marked too, at any depth.

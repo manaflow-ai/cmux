@@ -12,4 +12,21 @@ extension TabContentCache {
         agentDrivenTabs.insert(key)
         browsers[key]?.tab.markAgentDriven()
     }
+
+    /// Replaces `key`'s live page with a new Chromium page for the same URL,
+    /// marked before it exists: nothing filled into the old page, and no
+    /// `window.opener` or `window.open` handle to another window, carries
+    /// over. The old page leaves the cache at once, so no agent operation can
+    /// reach it while the new one loads (unlike a reload, which keeps the old
+    /// document until the new one commits).
+    func rebuildForAgent(_ key: String) {
+        guard let url = browsers[key]?.tab.state.url else { return }
+        reroute(key, to: url)
+        // `reroute` makes nothing while a page is already being made, or
+        // without a record; the old page goes regardless.
+        if let entry = browsers.removeValue(forKey: key) {
+            browserTabs.untrack(key)
+            entry.close()
+        }
+    }
 }

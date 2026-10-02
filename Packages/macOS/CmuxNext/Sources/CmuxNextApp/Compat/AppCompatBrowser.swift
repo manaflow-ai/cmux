@@ -20,7 +20,7 @@ enum AppCompatBrowser {
         guard let page = entry?.tab else {
             throw ControlError(code: "unavailable", message: "The browser page is still starting; retry")
         }
-        try reloadStale(stale, page: page, for: operation)
+        try rebuildStale(stale, tabID: tabID, for: operation, services: services)
         switch operation {
         case .navigate(let raw):
             guard let target = normalizedURL(raw) else { throw ControlError(code: "invalid_params", message: "Invalid url: \(raw)") }
