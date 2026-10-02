@@ -2044,6 +2044,7 @@ mod tests {
                     heartbeat_interval: Some(Duration::from_millis(20)),
                     heartbeat_timeout: Duration::from_millis(40),
                     maximum_attempts: Some(2),
+                    maximum_duration: None,
                 },
             },
         )
@@ -2103,6 +2104,7 @@ mod tests {
                     heartbeat_interval: Some(Duration::from_millis(10)),
                     heartbeat_timeout: Duration::from_millis(30),
                     maximum_attempts: Some(2),
+                    maximum_duration: None,
                 },
             },
         )
@@ -2161,6 +2163,7 @@ mod tests {
                     heartbeat_interval: None,
                     heartbeat_timeout: Duration::from_secs(1),
                     maximum_attempts: None,
+                    maximum_duration: None,
                 },
             },
         )
