@@ -284,7 +284,7 @@ print(json.dumps([c for c in calls if c.startswith(("terminal list", "workspace 
     expect(JSON.parse(adopted.stdout)).toEqual(["terminal list --json", "terminal list --json", "terminal list --json"]);
     const empty = await run(JSON.stringify([[1, ""], [0, '{"terminals":[]}']]));
     expect(empty.stderr).toBe("");
-    expect(JSON.parse(empty.stdout)).toEqual(["terminal list --json", "terminal list --json", "workspace create --name Cloud --json"]);
+    expect(JSON.parse(empty.stdout)).toEqual(["terminal list --json", "terminal list --json", "workspace create --name workspace-1 --json"]);
   });
 
   test("prompt sync seeds the terminal a warm clone's daemon bound, even before the list shows it", async () => {
