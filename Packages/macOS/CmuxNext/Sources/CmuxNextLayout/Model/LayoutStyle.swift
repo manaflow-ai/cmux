@@ -60,6 +60,8 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var dropEdgeRange: ClosedRange<CGFloat> = 28...180
     /// Width of the "new column" drop zone centered on each column gap.
     public var newColumnDropWidth: CGFloat = 36
+    /// Which docks own the frame's corners (cmux.json `layout.frameOrientation`).
+    public var frameOrientation: FrameOrientation = .columnMajor
     /// DEV layout model prototype (Debug Settings `layout.prototype.*`); off draws the real layout.
     public var prototype = LayoutPrototypeSettings()
 
@@ -104,6 +106,7 @@ extension LayoutStyle {
         style.paneBorderWidth = Metrics.paneBorderWidth
         // cmux.json `layout.minimumPaneWidth` / `layout.minimumPaneHeight`.
         style.minimumPaneContentSize = DesignSettings.shared.minimumPaneContentSize
+        style.frameOrientation = DesignSettings.shared.frameOrientation
         // Debug Settings overrides only (no override keeps the base style's
         // value; the tunables' defaults equal the literals above).
         if let value = LayoutTunables.inactivePaneDimming.override { style.inactivePaneDimming = value }
