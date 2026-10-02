@@ -2,6 +2,7 @@
 # Measurement driver on the Linux host VM. Tracks only the PIDs it starts (pidfiles in $STATE).
 #   vm-bench.sh up WIDTHxHEIGHT [serve args...]   restart Xvfb :99 and rdhost serve (detached)
 #   vm-bench.sh run NAME [client args...]          run one client measurement -> $OUT/NAME.json
+#   vm-bench.sh mark NAME / delta NAME            host CPU accounting around a remote client run
 #   vm-bench.sh down                               stop what `up` started
 set -euo pipefail
 BIN=${RDHOST:-/usr/local/bin/rdhost}
@@ -73,6 +74,15 @@ print(f"{path.split('/')[-1]}: n={d['samples']} loss={d['losses']} g2g p50={g.ge
       f"| dec p50={p(d['decode_ms'])} rtt p50={p(d['rtt_ms'])} | host proc%={p(h['cpu_pct_process'])} sys%={p(h['cpu_pct_system'])} "
       f"enc={p(h['encode_ms_p50'])} | serve%={c['serve']} xvfb%={c['xvfb']} testapp%={c['testapp']}")
 PY
+    ;;
+  mark)
+    ta=$(testapp_pid)
+    echo "$(date +%s.%N) $(cpu_s "$(cat "$STATE/serve.pid")") $(cpu_s "$(cat "$STATE/xvfb.pid")") ${ta:-0} $(cpu_s "${ta:-0}")" >"$STATE/mark-$2"
+    ;;
+  delta)
+    read -r t0 s0 x0 ta a0 <"$STATE/mark-$2"
+    t1=$(date +%s.%N); s1=$(cpu_s "$(cat "$STATE/serve.pid")"); x1=$(cpu_s "$(cat "$STATE/xvfb.pid")"); a1=$(cpu_s "$ta")
+    python3 -c "import json,sys; t0,t1,s0,s1,x0,x1,a0,a1=map(float,sys.argv[1:]); w=t1-t0; p=lambda a,b: round((b-a)/w*100,1); print(json.dumps({'serve':p(s0,s1),'xvfb':p(x0,x1),'testapp':p(a0,a1),'wall_s':round(w,2)}))" "$t0" "$t1" "$s0" "$s1" "$x0" "$x1" "$a0" "$a1"
     ;;
   down)
     stop_pid serve; stop_pid xvfb

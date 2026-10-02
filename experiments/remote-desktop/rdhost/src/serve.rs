@@ -7,12 +7,15 @@ use crate::workload::Kind;
 use crate::Res;
 use std::io::{BufRead, BufReader};
 use std::net::{TcpListener, TcpStream};
+use std::os::fd::AsRawFd;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 /// How long a new connection waits for the previous session to finish tearing down.
 const BUSY_WAIT: Duration = Duration::from_secs(3);
+/// Unacknowledged data or a blocked write older than this ends the session.
+const PEER_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// One session at a time; a new client waits briefly for the previous one to tear down.
 #[derive(Default)]
@@ -139,8 +142,27 @@ fn lock(app: &Mutex<TestApp>) -> Res<std::sync::MutexGuard<'_, TestApp>> {
     app.lock().map_err(|_| "test app lock poisoned".into())
 }
 
+/// Dead-peer detection: a client that vanishes without a FIN (for example behind a tunnel)
+/// must free the single session slot within seconds, not after the kernel's ~15 min retry limit.
+fn detect_dead_peers(stream: &TcpStream) -> Res<()> {
+    let fd = stream.as_raw_fd();
+    let set = |level: libc::c_int, opt: libc::c_int, val: libc::c_int| -> std::io::Result<()> {
+        // SAFETY: setsockopt with a valid fd and a c_int option value.
+        let rc = unsafe { libc::setsockopt(fd, level, opt, (&val as *const libc::c_int).cast(), std::mem::size_of::<libc::c_int>() as libc::socklen_t) };
+        if rc == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+    };
+    set(libc::SOL_SOCKET, libc::SO_KEEPALIVE, 1)?;
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPIDLE, 2)?;
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPINTVL, 1)?;
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPCNT, 3)?;
+    set(libc::IPPROTO_TCP, libc::TCP_USER_TIMEOUT, PEER_TIMEOUT.as_millis() as libc::c_int)?;
+    stream.set_write_timeout(Some(PEER_TIMEOUT))?;
+    Ok(())
+}
+
 fn handle(mut stream: TcpStream, cfg: &ServeCfg, app: Option<&Arc<Mutex<TestApp>>>) -> Res<serde_json::Value> {
     stream.set_nodelay(true)?;
+    detect_dead_peers(&stream)?;
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     let (ty, payload) = proto::read_msg(&mut stream)?;
     if ty != proto::HELLO {
