@@ -5,6 +5,7 @@ import { ArrowUpIcon, AtIcon, PaperclipIcon, Picker, PlusIcon, SlashIcon, StopIc
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 import { seededText } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
+import { t } from "./i18n";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -291,7 +292,7 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
                 type="submit"
                 className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`}
                 aria-label={COMPOSER_LABELS.send}
-                title={COMPOSER_LABELS.send}
+                title={t("composer.sendTooltip")}
               >
                 <ArrowUpIcon />
               </button>

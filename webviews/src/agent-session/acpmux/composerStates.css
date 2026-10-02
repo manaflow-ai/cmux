@@ -1,0 +1,74 @@
+/* Interaction states for the composer, its menus and the home lists: every control gets a hover,
+   a pressed and a focus state. Each is a tonal step mixed from the theme's text color, so no
+   accent hue appears and every theme keeps its character. Only colors change (never size,
+   padding or borders), so a state never shifts the layout.
+
+   Motion tokens: the native host sends its MotionFade durations with the theme
+   (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion), and these defaults are
+   its `fast` values for the dev page and the mock. */
+:root {
+  --agent-motion-hover: 80ms;
+  --agent-motion-focus: 100ms;
+  --agent-motion-in: 120ms;
+  --agent-motion-out: 80ms;
+  /* Core Animation's easeOut, which the native fades use. */
+  --agent-ease-out: cubic-bezier(0, 0, 0.58, 1);
+}
+
+.acpmux-shell {
+  /* One step past hover, for the press. */
+  --acpmux-composer-press: color-mix(in srgb, var(--agent-text) 20%, var(--agent-page-bg, var(--acpmux-base)));
+  --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
+}
+
+/* Composer chips: Plan, the mode, model and effort pickers, and +. */
+.acpmux-picker-button,
+.acpmux-plan {
+  transition:
+    background-color var(--agent-motion-hover) var(--agent-ease-out),
+    color var(--agent-motion-hover) var(--agent-ease-out);
+}
+.acpmux-picker-button:active,
+.acpmux-plan:active {
+  background: var(--acpmux-composer-press);
+}
+.acpmux-plan[aria-pressed="true"]:hover {
+  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 22%, transparent);
+}
+.acpmux-plan[aria-pressed="true"]:active {
+  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 28%, transparent);
+}
+
+/* Send and Stop: the one filled control steps toward the text color on hover and further on press. */
+.acpmux-send {
+  transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
+}
+.acpmux-send.acpmux-send-ready:hover,
+.acpmux-send.acpmux-cancel:hover {
+  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 86%, var(--agent-text));
+}
+.acpmux-send.acpmux-send-ready:active,
+.acpmux-send.acpmux-cancel:active {
+  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 74%, var(--agent-text));
+}
+
+/* Menu rows follow the pointer through their active row (the keyboard highlight); a press steps further. */
+.acpmux-menu-item,
+.acpmux-slash-row {
+  transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
+}
+.acpmux-menu-item:active,
+.acpmux-slash-row:active {
+  background: var(--acpmux-menu-press);
+}
+
+/* The picker and slash menus fade in on the appear token; ui.animationSpeed off makes it 0ms. */
+@keyframes acpmux-menu-in {
+  from {
+    opacity: 0;
+  }
+}
+.acpmux-menu,
+.acpmux-slash-menu {
+  animation: acpmux-menu-in var(--agent-motion-in) var(--agent-ease-out);
+}

@@ -16,6 +16,7 @@ const en = {
   "turn.stopped": "You stopped after {time}",
   "approval.title": "How should the agent's actions be approved?",
   "effort.title": "Effort",
+  "composer.sendTooltip": "Send (Return)",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -34,6 +35,7 @@ const ja: Record<StringKey, string> = {
   "turn.stopped": "{time} 後に停止しました",
   "approval.title": "エージェントの操作をどのように承認しますか？",
   "effort.title": "推論の強さ",
+  "composer.sendTooltip": "送信 (Return)",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };
