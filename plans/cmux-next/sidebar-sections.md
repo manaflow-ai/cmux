@@ -260,8 +260,11 @@ switch (descriptor titles are built once at launch).
 - Per-section arrangement list | inline | grid with alignment, gap and columns (section 4).
 - Band caps 1/3 and 1/4, then scroll; customizable (section 7).
 - Custom icons (emoji, SF Symbol or image) for workspaces and Home: the existing workspace
-  `icon` string of workspace-metadata-v1 is extended (sidebar sections lead, in the store next to
-  `sidebar-layout-v1`); the Home lead reuses it.
+  `icon` string of workspace-metadata-v1 is extended (sidebar sections lead); the Home lead reuses
+  it. Done: one emoji draws as text, any other value is an SF Symbol name
+  (`WorkspaceIcon.parse`). Images need a store blob: proposal `icon` = `image:sha256-<hex>` naming
+  a personal blob put through a new `icon_image.put {media_type, data (base64, at most 256 KiB)}`
+  state op, so the image syncs with the workspace; waits for #16174.
 - Home is a workspace with `kind: home` (Home lead, plans/cmux-next/home.md section 7): created once
   by the store, not closable, first in its top section; tab bar hidden, fixed and not closable are
   derived from kind on the client. The sidebar item stays `built_in:home`; it runs `home.show`

@@ -157,3 +157,68 @@ describe("domain verification over the API (workerd)", () => {
     expect(await op(a, "domain.verify", { domain: "cname-acme.dev" })).toMatchObject({ ok: false, error: { code: "domain.not_verified" } })
   })
 })
+
+describe("Public Suffix List and public mail (review P2)", () => {
+  it("refuses public suffixes and regional public mail domains, allows registrable domains and names below them", async () => {
+    const { unclaimableReason } = await import("../src/domains/team-domains.ts")
+    const { registrableDomain } = await import("../src/domains/public-suffix.ts")
+    for (const d of ["co.uk", "github.io", "com", "pages.dev", "yahoo.co.uk", "outlook.de", "gmx.at", "gmail.com"]) expect(unclaimableReason(d), d).toBeDefined()
+    for (const d of ["acme.co.uk", "acme.com", "eng.acme.com", "alice.github.io", "mail.acme.dev", "live.io", "proton.ai", "aol.example"]) expect(unclaimableReason(d), d).toBeUndefined()
+    expect(registrableDomain("eng.acme.co.uk")).toBe("acme.co.uk")
+    expect(registrableDomain("co.uk")).toBeUndefined()
+  })
+})
+
+describe("weekly domain re-check (spec 3.4)", () => {
+  it("three failed weekly re-checks mark a verified domain lapsed; one success resets the count", () => {
+    let s: TeamState = { ...base(), domains: { "acme.com": { domain: "acme.com", state: "verified", record_name: "_cmux-challenge.acme.com", record_value: "v1", requested_at: 0, expires_at: 9e15, verified_at: 0 } } }
+    const sys = (): ReduceContext => ({ principal: { identity: "system:team", kind: "system" }, now: 1, tx: `tx${++txn}`, newId: (p) => `${p}_${String(txn).padStart(20, "0")}` })
+    const step = (ok: boolean, at: number) => {
+      const r = teamDomain.reduce(s, "domain.rechecked", { domain: "acme.com", record_value: "v1", ok, at }, sys())
+      if (!r.ok) throw new Error(r.message)
+      s = r.state as TeamState
+      return r
+    }
+    step(false, 1)
+    step(true, 2)
+    expect(s.domains?.["acme.com"]?.check_failures).toBe(0)
+    step(false, 3)
+    step(false, 4)
+    const last = step(false, 5)
+    expect(s.domains?.["acme.com"]?.state).toBe("lapsed")
+    expect(last.outbox?.map((o) => o.kind)).toEqual(["audit.append"])
+    // A stale result for an older record value changes nothing.
+    expect(teamDomain.reduce(s, "domain.rechecked", { domain: "acme.com", record_value: "old", ok: true, at: 6 }, sys())).toMatchObject({ ok: true, changed: false })
+  })
+
+  it("over workerd: three failing re-checks lapse the domain, free it in DomainDO, and verifying again restores it", async () => {
+    const a = await sessionToken("stack-domain-lapse")
+    await op(a, "user.ensure", {})
+    const claim = await op(a, "domain.claim", { domain: "lapse-acme.dev" })
+    const team = claim.stream.replace("team:", "")
+    const value = claim.value.record_value as string
+    const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)) as unknown as DurableObjectStub
+    let published = true
+    await inDO(stub, async (instance) => {
+      instance.http = fakeDns(() => (published ? [value] : []))
+    })
+    expect((await op(a, "domain.verify", { domain: "lapse-acme.dev" })).ok).toBe(true)
+    published = false
+    await inDO(stub, async (instance) => {
+      const week = 7 * 86_400_000
+      for (let i = 1; i <= 3; i++) await instance.recheckDomains(Date.now() + i * week + 1000)
+    })
+    const domains = (await (await worker.fetch("https://api.test/v1/read", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${a}` },
+      body: JSON.stringify({ op: "domain.list", params: {} })
+    })).json()) as any
+    expect(domains.value.domains[0]).toMatchObject({ domain: "lapse-acme.dev", state: "lapsed", check_failures: 3 })
+    await inDO(testEnv.DOMAIN_DO.get(testEnv.DOMAIN_DO.idFromName("lapse-acme.dev")) as unknown as DurableObjectStub, async (instance) => {
+      expect(await instance.owner()).toBe(null)
+    })
+    published = true
+    const again = await op(a, "domain.verify", { domain: "lapse-acme.dev" })
+    expect(again).toMatchObject({ ok: true, value: { state: "verified", check_failures: 0 } })
+  })
+})
