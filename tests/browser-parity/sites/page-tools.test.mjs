@@ -68,6 +68,16 @@ test("browserAuth.request: the app fills marked fields and submits; no value rea
   assert.ok(!scope.includes("correct horse"));
 });
 
+test("browserAuth.request: a frame whose origin changed while the sheet was open is not filled", async () => {
+  await s.run('await page.goto("https://login.example/")');
+  // The sheet named https://login.example; by Fill the frame holds another
+  // origin's document. The fill compares its own location.origin.
+  globalThis.__authAnswer = fillLike({ email: "ada@example.com" }, { origin: "https://elsewhere.example" });
+  const field = `{ id: "email", label: "Email", type: "email", selector: 'input[name="email"]' }`;
+  assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}] })`), { status: "origin_changed" });
+  assert.equal(await s.value(`page.locator('input[name="email"]').inputValue()`), "");
+});
+
 test("browserAuth.request: cancel, wrong origin, bad selectors, and no native sheet", async () => {
   await s.run('await page.goto("https://login.example/")');
   globalThis.__authAnswer = null;
