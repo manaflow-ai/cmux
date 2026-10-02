@@ -36,6 +36,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var showsCloudVPNWarning = false
     /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
+    /// False while the fleet read is failing or offline; see ``CloudTreeBuildInputs/cloudFleetListIsCurrent``.
+    var cloudFleetListIsCurrent: Bool = true
     var cloudMachinesUsage: CloudMachinesUsage? = nil
     var reveal: CloudTreeRevealRequest? = nil
     var creationReveal: CloudWorkspaceCreationReveal? = nil
@@ -76,6 +78,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             devicesSection: devicesSection,
             showsCloudVPNWarning: showsCloudVPNWarning,
             canCreateCloudMachine: canCreateCloudMachine,
+            cloudFleetListIsCurrent: cloudFleetListIsCurrent,
             cloudMachinesUsage: cloudMachinesUsage
         ))
         context.coordinator.reveal(reveal)

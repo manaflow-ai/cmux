@@ -186,10 +186,11 @@ Environment:
 | `send-key` | Send one key to a terminal surface. Refuses to send into an open agent dialog unless `--force`. |
 | `agent message` | Send a message to the agent in another workspace or surface (`agent.message.send`). Delivered through the recipient's agent hooks, never as keystrokes. `--reply-to <id>` answers a received message; `-` reads the text from stdin. |
 | `agent inbox` | List agent messages newest first (`agent.message.list`); `--mark-read` marks the listed messages read. |
+| `agent messages [on\|off\|status] [<target>] [--workspace]` | Turn agent messages off or on for one surface (default: the caller's) or, with `--workspace`, a whole workspace (`agent.message.settings`). Turning them off refuses new messages to it and fails the ones already queued. The app-wide switch is `agentMessages.enabled`. |
 | `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Refuses to paste over an agent prompt draft or into an open dialog unless `--force`. Authenticated remote-workspace relays may use `terminal.paste` only with an exact owned workspace/surface and `submit_key` `none` or `return`; the relay cannot use window/focus fallback selectors or arbitrary submit keys. |
 | `send-panel` | Send text to a terminal surface. Same draft guard and `--force` as `send`. |
 | `send-key-panel` | Send one key to a terminal surface. Same dialog guard and `--force` as `send-key`. |
-| `notify` | Send a notification to a workspace/surface and return its notification id; `--clear` clears the resolved caller/target scope. Supports `--id-format refs\|uuids\|both` for human-readable handles. |
+| `notify` | Send a notification to a workspace/surface and return its notification id; `--clear` clears the resolved caller/target scope. `--desktop <true\|false>` (also `--desktop=<value>`) sets the notification's `desktop` effect before notification hooks run, sent as `effects: {"desktop": <value>}` on the create request: `false` records the entry in the Notifications panel, sidebar badge and pane ring without a native banner; `true` is the default and changes nothing; hooks can still override it; it has no effect with `--clear`. Supports `--id-format refs\|uuids\|both` for human-readable handles. |
 | `list-notifications` | List queued notifications, including `created_at` and `tab_title`. |
 | `dismiss-notification` | Remove one notification, or remove already-read notifications with `--all-read`. |
 | `mark-notification-read` | Mark one notification, a workspace/surface scope, or all notifications read. |
@@ -489,6 +490,16 @@ VM subcommands:
 | `vm ports <id>` | Show listening TCP ports inside the VM. |
 | `vm handoff <id>` | Print a short attach handoff block. |
 | `vm promote-template <id>` | Promote the VM into a reusable template. |
+
+Surface resume bindings (`surface resume` and `surface-resume`):
+
+| Command | Contract |
+| --- | --- |
+| `surface resume set [--workspace <id\|ref\|index>] [--surface <id\|ref\|index>] [--window <id\|ref\|index>] [--name <name>] [--kind <kind>] [--checkpoint <id>\|--checkpoint-id <id>] [--source <source>] [--cwd <path>] (--shell <command>\|-- <argv...>)` | Store a restart command for the selected terminal surface (`surface.resume.set`). `--checkpoint-id` takes precedence over `--checkpoint`; `--source` defaults to `cli`, and `--cwd` defaults to `$PWD` or the current directory. `--shell` takes one complete command string; the `-- <argv...>` form also stores a structured launch command. |
+| `surface resume [show\|get] [--json] [--workspace <id\|ref\|index>] [--surface <id\|ref\|index>] [--window <id\|ref\|index>]` | Read the binding (`surface.resume.get`); `show` is the default and `get` is an alias. Plain output is the command, `No resume binding` if absent, or `null` if the public binding hides a private routed command. `--json` prints the public socket payload, including `resume_binding` and surface/workspace identifiers. |
+| `surface resume clear [--workspace <id\|ref\|index>] [--surface <id\|ref\|index>] [--window <id\|ref\|index>] [--checkpoint <id>\|--checkpoint-id <id>] [--source <source>]` | Clear the binding (`surface.resume.clear`). Optional checkpoint and source values guard the clear so a different binding is not removed; `--checkpoint-id` takes precedence over `--checkpoint`. The response includes `cleared` and the resulting `resume_binding`. |
+
+The selectors default to the caller's `CMUX_SURFACE_ID` or `CMUX_WORKSPACE_ID` when applicable; `--window` supplies context for refs and indexes. These bindings record how to resume a surface; `session restore` and `restore` perform recovery. `surface --help` and `surface-resume --help` print the same family help without a socket.
 
 Remotes subcommands:
 
@@ -966,6 +977,8 @@ the expected text without connecting to a cmux socket.
 - `cmux vm prompt --help` -> `cmux vm prompt --open <agent>`
 - `cmux vm base --help` -> `cmux vm base reset [--desktop|--base] [--reason <text>]`
 - `cmux surface --help` -> `Usage: cmux surface ls [<machine>|local] [--refresh] [--json]`
+- `cmux surface --help` -> `cmux surface resume set [flags] -- <argv...>`
+- `cmux surface-resume --help` -> `cmux surface resume show [--json] [flags]`
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude|agent> [options]`
@@ -1093,6 +1106,7 @@ the expected text without connecting to a cmux socket.
 - `cmux send-key --help` -> `Usage: cmux send-key`
 - `cmux agent message --help` -> `Usage: cmux agent message`
 - `cmux agent inbox --help` -> `Usage: cmux agent inbox`
+- `cmux agent messages --help` -> `Usage: cmux agent messages`
 - `cmux paste --help` -> `Usage: cmux paste`
 - `cmux send-panel --help` -> `Usage: cmux send-panel`
 - `cmux send-key-panel --help` -> `Usage: cmux send-key-panel`

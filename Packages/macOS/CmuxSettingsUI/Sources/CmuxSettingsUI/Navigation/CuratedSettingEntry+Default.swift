@@ -31,12 +31,10 @@ extension Array where Element == CuratedSettingEntry {
                 title: String(localized: "settings.automation.agentAutoResume", defaultValue: "Auto-Resume Agents After Errors"),
                 detailText: String(localized: "settings.automation.agentAutoResume.subtitle", defaultValue: "Send “continue” when an agent's turn ends on a retryable error such as model capacity or a dropped connection."),
                 paths: ["automation.agentAutoResume"],
-                synonyms: String(
-                    localized: "settings.search.alias.setting.automation.agent-error-auto-resume",
-                    defaultValue: "automation.agentAutoResume auto resume continue retry capacity overloaded agent error"
-                ),
+                synonyms: String(localized: "settings.search.alias.setting.automation.agent-error-auto-resume", defaultValue: "automation.agentAutoResume auto resume continue retry capacity overloaded agent error"),
                 anchorPath: "automation.agentAutoResume"
             ),
+            .init(section: .automation, id: "agent-messages", title: String(localized: "settings.automation.agentMessages", defaultValue: "Agent Messages", bundle: .module), paths: ["agentMessages.enabled"], synonyms: "Agent Messages agentMessages.enabled agent message inbox communication mute disable off send deliver"),
             .init(section: .automation, id: "canonical-agent-scratch", title: String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"), synonyms: "Canonical Agent Scratch automation.canonicalAgentScratch agent artifacts temporary files cleanup retention claude codex opencode storage"),
             .init(section: .automation, id: "cursor", title: String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), synonyms: "Cursor Integration automation.cursorIntegration cursor ide agent hooks notifications"),
             .init(section: .automation, id: "gemini", title: String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), synonyms: "Gemini CLI Integration automation.geminiIntegration gemini cli google agent hooks notifications"),

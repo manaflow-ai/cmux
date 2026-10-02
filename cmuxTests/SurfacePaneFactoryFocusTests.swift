@@ -132,13 +132,17 @@ import SwiftUI
         let destinationPane = try #require(destination.bonsplitController.allPaneIds.first)
         #expect(destination.attachDetachedSurface(detached, inPane: destinationPane, focus: false) == cloudPanel.id)
         manager.selectWorkspace(destination)
-        #expect(destination.focusedPanelId != cloudPanel.id)
+        // Bonsplit selects a tab it creates, so an unfocused attach into the
+        // destination's only pane still leaves the moved panel selected there.
+        // Put the destination's own terminal in front before typing.
+        let localDestinationPanel = try #require(destination.panels.keys.first { $0 != cloudPanel.id })
+        destination.focusPanel(localDestinationPanel)
+        #expect(destination.focusedPanelId == localDestinationPanel)
         cloudPanel.surface.onExplicitInput?()
         #expect(destination.focusedPanelId == cloudPanel.id)
 
         // A stopped session must not steal focus if its panel is later reused.
         sessionActive = false
-        let localDestinationPanel = try #require(destination.panels.keys.first { $0 != cloudPanel.id })
         destination.focusPanelFromTerminalInput(localDestinationPanel)
         cloudPanel.surface.onExplicitInput?()
         #expect(destination.focusedPanelId == localDestinationPanel)

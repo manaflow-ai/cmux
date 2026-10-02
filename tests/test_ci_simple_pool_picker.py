@@ -46,10 +46,10 @@ class PickRuleTests(unittest.TestCase):
                 picker.BLACKSMITH[0],
             ),
             (
-                "queued release protects its pool",
+                "queued release consumes only its slots",
                 picker.State(jobs=1, blacksmith=(pool(picker.BLACKSMITH[0], 5, reserved=1),
                                                  pool(picker.BLACKSMITH[1], 10))),
-                picker.BLACKSMITH[1],
+                picker.BLACKSMITH[0],
             ),
             (
                 "all full uses the lowest queued plus running ratio",
@@ -177,8 +177,33 @@ class OwnedQueueTests(unittest.TestCase):
         by_label = {pool.label: pool for pool in state.blacksmith}
         self.assertEqual((by_label[picker.BLACKSMITH[0]].queued, by_label[picker.BLACKSMITH[0]].reserved), (7, 1))
         self.assertEqual(by_label[picker.BLACKSMITH[1]].running, 10)
-        # 12vcpu holds a queued release job, so it is never picked.
+        # The reserved count consumes one slot; the pool may still be picked
+        # when its remaining capacity is sufficient.
         self.assertNotEqual(picker.pick(state).label, picker.BLACKSMITH[0])
+
+    def test_logged_picker_inputs_use_unreserved_slots(self):
+        # Janitor snapshots at 00:32 and 00:52 had ordinary CI jobs falsely
+        # counted as reservations. The two real nightly jobs consume only
+        # two 6vcpu-26 slots; PRs can still use any remaining capacity.
+        at_0032 = picker.State(
+            jobs=5,
+            blacksmith=(
+                pool(picker.BLACKSMITH[0], 5, running=5, queued=7),
+                pool(picker.BLACKSMITH[1], 10, running=10, queued=43, reserved=2),
+                pool(picker.BLACKSMITH[2], 10, running=8, queued=13),
+            ),
+        )
+        self.assertEqual(picker.pick(at_0032).label, picker.BLACKSMITH[2])
+
+        at_0052 = picker.State(
+            jobs=3,
+            blacksmith=(
+                pool(picker.BLACKSMITH[0], 5, running=4, queued=1),
+                pool(picker.BLACKSMITH[1], 10, running=10, queued=37, reserved=2),
+                pool(picker.BLACKSMITH[2], 10, running=7, queued=4),
+            ),
+        )
+        self.assertEqual(picker.pick(at_0052).label, picker.BLACKSMITH[2])
 
     def test_an_owned_pick_names_a_blacksmith_retry_runner(self):
         """github-actions[bot]'s rescue attempt 3 takes pr_retry_runner; the owned label kept it queued."""

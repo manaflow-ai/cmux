@@ -242,7 +242,7 @@ struct CodexAutoNamingArguments: Sendable {
         return arguments
     }
 
-        static func removingComment(from rawLine: Substring) -> Substring {
+    static func removingComment(from rawLine: Substring) -> Substring {
             var quote: Character?
             var escaped = false
             for index in rawLine.indices {
@@ -266,7 +266,7 @@ struct CodexAutoNamingArguments: Sendable {
                 }
             }
             return rawLine
-        }
+    }
     private static func providerOverrides(
         from toml: String,
         usesTemporaryConfig: Bool

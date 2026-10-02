@@ -563,6 +563,7 @@
       "billing": "Billing",
       "themeDark": "Dark theme",
       "themeLight": "Light theme",
+      "switchAccount": "Switch account",
       "signOut": "Sign out",
       "signingOut": "Signing out…",
       "signOutError": "Could not sign out. Try again.",
@@ -651,7 +652,7 @@
         "activeBody": "Your Max plan is active. It renews on {date}.",
         "pendingBody": "Your Max plan ends on {date}.",
         "monthlyPrice": "${amount}/mo",
-        "upsell": "Max includes up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs for $200 per month, billed monthly."
+        "upsell": "Max includes up to 5 Cloud VMs, with up to 16 vCPUs and 32 GB RAM per VM, for $200 per month, billed monthly."
       },
       "teamPanel": {
         "notFound": "This team is not available. You may have left it, or it was deleted.",
@@ -716,11 +717,11 @@
           ],
           "pro": [
             "Cloud agents on Cloud VMs",
-            "24 GB RAM and 6 vCPUs shared across VMs",
+            "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM",
             "The cmux iOS app"
           ],
           "max": [
-            "64 GB RAM and 16 vCPUs shared across VMs",
+            "Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM",
             "Larger machine sizes",
             "Everything in Pro"
           ],
@@ -1666,7 +1667,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
+        "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -1683,7 +1684,7 @@
       "cta": "Get Max",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs",
+        "Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM",
         "Unlimited workspaces and the iOS app"
       ]
     },
@@ -1782,27 +1783,27 @@
         {
           "label": "Concurrent Cloud VMs",
           "free": "false",
-          "pro": "50",
-          "max": "50",
-          "team": "50 per user",
+          "pro": "5",
+          "max": "5",
+          "team": "5 per user",
           "enterprise": "Custom",
           "go": "1"
         },
         {
-          "label": "Resources shared across all Cloud VMs",
+          "label": "Resources per Cloud VM",
           "free": "false",
-          "pro": "24 GB RAM and 6 vCPUs shared across all VMs",
-          "max": "64 GB RAM and 16 vCPUs shared across all VMs",
-          "team": "24 GB RAM and 6 vCPUs per user, shared across all their VMs",
+          "pro": "4 vCPUs and 8 GB RAM",
+          "max": "16 vCPUs and 32 GB RAM",
+          "team": "4 vCPUs and 8 GB RAM",
           "enterprise": "Custom",
           "go": "2 vCPU, 4 GiB RAM, 16 GiB disk"
         },
         {
           "label": "Largest Cloud VM",
-          "free": "24 GB RAM",
-          "pro": "24 GB RAM",
-          "max": "64 GB RAM",
-          "team": "24 GB RAM",
+          "free": "false",
+          "pro": "8 GB RAM",
+          "max": "32 GB RAM",
+          "team": "8 GB RAM",
           "enterprise": "Custom",
           "go": "4 GiB RAM"
         },
@@ -1900,11 +1901,11 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 Cloud VMs with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same pool per user."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs, with up to 4 vCPUs and 8 GB RAM per VM. Team includes the same allowance per user."
         },
         {
           "q": "What does Max add?",
-          "a": "Max is $200/mo, billed monthly. Up to 50 Cloud VMs share a total of 64 GB RAM and 16 vCPUs. It includes everything in Pro and supports 32 GB and 64 GB machines within that shared total. Pro, Team, and Free machines top out at 24 GB RAM."
+          "a": "Max is $200/mo, billed monthly. It includes everything in Pro and up to 5 Cloud VMs, with up to 16 vCPUs and 32 GB RAM per VM. Pro and Team machines top out at 4 vCPUs and 8 GB RAM. Free accounts do not include Cloud VMs."
         },
         {
           "q": "What is cmux Vault?",
@@ -4364,12 +4365,13 @@
       "limitsTitle": "Plan limits",
       "limitsDesc": "Plan limits count machines, not a shared pool of CPU or memory. Each machine gets the resources of its size.",
       "limitsFree": "Free accounts cannot create machines.",
-      "limitsPaid": "Pro and Max accounts can have up to 50 active machines. A machine is active while it is running or starting.",
-      "limitsTeam": "Team accounts can have up to 50 active machines for each paid seat.",
-      "limitsMax": "Machines larger than 24 GB need cmux Max.",
+      "limitsPaid": "Pro and Max accounts can have up to 5 active machines. A machine is active while it is running or starting.",
+      "limitsTeam": "Team accounts can have up to 5 active machines for each paid seat.",
+      "limitsMax": "Machines larger than 8 GB need cmux Max. Max machines go up to 32 GB and 16 vCPUs.",
+      "limitsOversize": "A machine larger than your plan allows is locked. You can list and delete it, but you cannot open it, run commands on it, resume it, or resize it until you upgrade.",
       "limitsPricing": "See the pricing page for current prices. There is no metering and no overage billing.",
       "resizeTitle": "Resize",
-      "resizeDesc": "You can make a machine larger without data loss. Right-click the machine and choose Resize machine, or use cmux vm resize. Resize can only grow a machine. Disk grows in 4 GB steps up to 256 GB, memory up to 64 GB, and CPU up to 32 vCPU. Your plan sets the real maximum.",
+      "resizeDesc": "You can make a machine larger without data loss. Right-click the machine and choose Resize machine, or use cmux vm resize. Resize can only grow a machine. Disk grows in 4 GB steps up to 256 GB, memory up to 32 GB, and CPU up to 16 vCPU. Your plan sets the real maximum.",
       "pauseTitle": "Pause and resume",
       "pauseDesc": "cmux vm pause stops the machine's compute. The disk, workspaces, and terminal history stay. Running processes stop. cmux vm resume starts the machine again. Opening a paused machine or running a command on it also starts it.",
       "pauseIdle": "Machines do not pause by themselves when they are idle. A machine keeps running until you pause it or delete it.",
@@ -4520,7 +4522,7 @@
       "errPlan": "Cloud VMs require a paid plan",
       "fixPlan": "Free accounts cannot create machines. Upgrade on the pricing page.",
       "errSize": "A size needs a larger plan",
-      "fixSize": "Machines larger than 24 GB need cmux Max. Choose a smaller size or upgrade.",
+      "fixSize": "Machines larger than 8 GB need cmux Max. Choose a smaller size or upgrade.",
       "errLimit": "Active machine limit reached",
       "fixLimit": "Pause or delete a machine, then try again.",
       "errLocked": "Machine is locked",
@@ -7067,5 +7069,59 @@
         "message": "The event’s computer, workspace, or tab is no longer available."
       }
     }
+  },
+  "cmuxSignIn": {
+    "signInTitle": "Sign in to cmux",
+    "signInSubtitle": "One account for the app, cloud and the dashboard.",
+    "signUpTitle": "Create your cmux account",
+    "signUpSubtitle": "One account for the app, cloud and the dashboard.",
+    "continueWithProvider": "Continue with {provider}",
+    "signInWithPasskey": "Sign in with a passkey",
+    "orContinueWith": "Or continue with",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@company.com",
+    "continueWithEmail": "Continue with email",
+    "emailCodeTab": "Email",
+    "emailPasswordTab": "Email & Password",
+    "passwordLabel": "Password",
+    "repeatPasswordLabel": "Repeat password",
+    "signInButton": "Sign in",
+    "createAccountButton": "Create account",
+    "forgotPassword": "Forgot password?",
+    "noAccount": "Don't have an account?",
+    "signUpLink": "Sign up",
+    "haveAccount": "Already have an account?",
+    "signInLink": "Sign in",
+    "checkEmailTitle": "Check your email",
+    "checkEmailBody": "Enter the 6-character code we sent to {email}.",
+    "codeLabel": "Code",
+    "back": "Back",
+    "resendCode": "Resend code",
+    "chooseAccountTitle": "Choose an account",
+    "chooseAccountSubtitle": "to continue to cmux",
+    "useAnotherAccount": "Use a different account",
+    "forgetAccount": "Remove {account} from this list",
+    "signedOut": "Signed out",
+    "signingInAs": "Signing in as {account}…",
+    "sessionEnded": "This account was signed out. Sign in again to continue.",
+    "redirecting": "Signing you in…",
+    "lastUsed": "last used",
+    "legal": "By continuing you agree to the {terms} and {privacy}.",
+    "termsOfService": "Terms of Service",
+    "privacyPolicy": "Privacy Policy",
+    "signUpDisabled": "New accounts can't be created right now.",
+    "noMethods": "Sign-in isn't available right now. Try again later.",
+    "embeddedDisabled": "Sign-in buttons are turned off inside embedded pages. Open this page in its own tab.",
+    "errorInvalidEmail": "Enter a valid email address.",
+    "errorPasswordRequired": "Enter your password.",
+    "errorPasswordTooShort": "Use at least {min} characters.",
+    "errorPasswordTooLong": "Use at most {max} characters.",
+    "errorPasswordsDontMatch": "Passwords don't match.",
+    "errorWrongPassword": "Email or password is incorrect.",
+    "errorInvalidCode": "That code isn't valid. Check your email and try again.",
+    "errorInvalidTotp": "That two-factor code isn't valid.",
+    "errorSignUpNotAllowed": "New accounts can't be created right now.",
+    "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
+    "errorGeneric": "Something went wrong. Try again."
   }
 }

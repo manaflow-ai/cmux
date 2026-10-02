@@ -110,12 +110,36 @@ def substitution_name(token: str) -> str | None:
     return match[1] if match else None
 
 
-def signature(value: str, substitutions: dict | None = None) -> list[tuple[int, str]]:
-    result = []
+TOKEN = re.compile(
+    r"%(?:(?P<argument>\d+)\$)?(?P<flags>[-+ #0']*)(?P<width>\d+|\*(?:\d+\$)?)?"
+    r"(?:\.(?P<precision>\d+|\*(?:\d+\$)?))?(?P<conversion>(?:hh|ll|[hlLqjzt])?[diouxXfFeEgGaAcCsSp@])"
+)
+
+
+def tokens(value: str, substitutions: dict | None = None):
+    """Yield (arguments, canonical) for each placeholder in text order.
+
+    ``arguments`` lists the (argument, specifier) pairs the placeholder
+    consumes. A ``*`` width or precision takes an integer argument of its own,
+    before the value, so one placeholder can account for up to three; those
+    carry the specifier ``*``. ``canonical`` is the placeholder with every
+    argument position written out, so implicit and explicit numbering compare
+    equal.
+    """
+    # Foundation numbers unnumbered placeholders on their own counter, so
+    # "%1$@ %@" formats the first argument twice. Report what it formats.
     next_argument = 1
+
+    def position(explicit: str | None) -> int:
+        nonlocal next_argument
+        if explicit:
+            return int(explicit)
+        next_argument += 1
+        return next_argument - 1
+
     for token in placeholders(value):
         if token == "%%":
-            result.append((0, "%"))
+            yield [(0, "%")], "%%"
             continue
         name = substitution_name(token)
         if name is not None:
@@ -124,20 +148,37 @@ def signature(value: str, substitutions: dict | None = None) -> list[tuple[int, 
             specifier = substitution.get("formatSpecifier")
             if type(argument) is not int or argument < 1 or not isinstance(specifier, str):
                 raise ValueError(f"invalid substitution {token}")
-        else:
-            match = re.fullmatch(r"%(?:(\d+)\$)?(.*)", token)
-            argument = int(match[1]) if match[1] else next_argument
-            specifier = match[2]
-        result.append((argument, specifier))
-        next_argument += 1
-    return result
+            next_argument += 1
+            yield [(argument, specifier)], f"%{argument}${specifier}"
+            continue
+        match = TOKEN.fullmatch(token)
+        arguments = []
+        specifier = match["flags"]
+        canonical = match["flags"]
+        for prefix, field in (("", match["width"]), (".", match["precision"])):
+            if field is None:
+                continue
+            if field.startswith("*"):
+                argument = position(field[1:-1])
+                arguments.append((argument, "*"))
+                specifier += f"{prefix}*{argument}$"
+                canonical += f"{prefix}*{argument}$"
+            else:
+                specifier += prefix + field
+                canonical += prefix + field
+        argument = position(match["argument"])
+        arguments.append((argument, specifier + match["conversion"]))
+        yield arguments, f"%{argument}${canonical}{match['conversion']}"
+
+
+def signature(value: str, substitutions: dict | None = None) -> list[tuple[int, str]]:
+    return [pair for arguments, _ in tokens(value, substitutions) for pair in arguments]
 
 
 def canonical_text(value: str) -> str:
     """Compare implicit and explicit argument positions without changing their order."""
-    arguments = iter(signature(value))
-    return FORMAT.sub(lambda match: "%%" if (part := next(arguments))[0] == 0
-                      else f"%{part[0]}${part[1]}", value)
+    rendered = iter(canonical for _, canonical in tokens(value))
+    return FORMAT.sub(lambda match: next(rendered), value)
 
 
 def expand_text(value: str, substitutions: dict, category: str = "other") -> str:
@@ -265,7 +306,9 @@ def validate_localization(english: str, localization: dict, locale: str, allow_i
         referenced.update(name for token in placeholders(value) if (name := substitution_name(token)) is not None)
         try:
             actual = signature(value, substitutions)
-            if actual != expected:
+            # Numbered placeholders may appear in any order; what must match
+            # is which arguments are consumed and with which specifiers.
+            if sorted(actual) != sorted(expected):
                 errors.append(f"{location}: placeholders {actual!r} != {expected!r}")
             for category in expansion_categories:
                 expanded = expand_text(value, substitutions, category)

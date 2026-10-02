@@ -1701,9 +1701,13 @@ private struct MainWindowBootstrapView: View {
                 window.identifier = NSUserInterfaceItemIdentifier("cmux.bootstrap")
                 window.isRestorable = false
                 window.orderOut(nil)
-                Task { @MainActor [weak window] in
-                    window?.orderOut(nil)
-                    window?.close()
+                let windowIdentifier = ObjectIdentifier(window)
+                Task { @MainActor in
+                    guard let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }) else {
+                        return
+                    }
+                    window.orderOut(nil)
+                    window.close()
                 }
             })
     }

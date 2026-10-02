@@ -191,6 +191,14 @@ Socket control and automation settings from Settings > Automation.
 | `automation.kiroIntegration` | boolean | `true` | Enable cmux integration hooks for Kiro CLI. |
 | `automation.kiroNotificationLevel` | `"minimal"` or `"standard"` or `"verbose"` | `"standard"` | Controls how many Kiro tool events appear in Feed. |
 
+## agentMessages
+
+Agent-to-agent messages sent with `cmux agent message`. Per-agent and per-workspace opt-outs are set with `cmux agent messages off`.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `agentMessages.enabled` | boolean | `true` | Allow agents to message each other through cmux. When false, `cmux agent message` fails, nothing is stored, and messages already queued are marked failed instead of being delivered. |
+
 ## browser
 
 Embedded browser settings from Settings > Browser.

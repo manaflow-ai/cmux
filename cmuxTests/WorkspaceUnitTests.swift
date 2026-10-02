@@ -4980,7 +4980,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         return window
     }
 
-    func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
+    func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() throws {
         let workspace = Workspace()
         guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
             XCTFail("Expected focused pane in new workspace")
@@ -4989,6 +4989,10 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
         let staleCurrentDirectory = workspace.currentDirectory
         let requestedDirectory = "/tmp/cmux-requested-split-cwd-\(UUID().uuidString)"
+        // A missing local cwd resolves to its nearest existing parent (#16248),
+        // so the requested directory must exist for the split to inherit it.
+        try FileManager.default.createDirectory(atPath: requestedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: requestedDirectory) }
         guard let sourcePanel = workspace.newTerminalSurface(
             inPane: sourcePaneId,
             focus: false,
@@ -7496,12 +7500,20 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(branches.map(\.isDirty), [true, false, false])
     }
 
-    func testSidebarBranchDirectoryEntriesStayStableAcrossFocusedSplitChanges() {
+    func testSidebarBranchDirectoryEntriesStayStableAcrossFocusedSplitChanges() throws {
         let workspace = Workspace()
-        let leftLiveDirectory = "/repo/left/live"
-        let rightFocusedDirectory = "/repo/right/focused"
-        let leftFocusedDirectory = "/repo/left/focused"
-        let rightRequestedDirectory = "/repo/right/requested"
+        // New splits resolve local cwds against the filesystem (#16248), so
+        // the inherited directories must exist.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sidebar-dirs-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let leftLiveDirectory = root.appendingPathComponent("left/live", isDirectory: true).path
+        let rightFocusedDirectory = root.appendingPathComponent("right/focused", isDirectory: true).path
+        let leftFocusedDirectory = root.appendingPathComponent("left/focused", isDirectory: true).path
+        let rightRequestedDirectory = root.appendingPathComponent("right/requested", isDirectory: true).path
+        for directory in [leftLiveDirectory, rightFocusedDirectory, leftFocusedDirectory, rightRequestedDirectory] {
+            try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        }
 
         guard let leftPanelId = workspace.focusedPanelId else {
             XCTFail("Expected initial focused panel")

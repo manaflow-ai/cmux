@@ -191,6 +191,10 @@ path = "tests/test_claude_teams_test_utils.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_fake_socket_env.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cli_codex_teams_informational.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -771,6 +775,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_localize_changes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_localization_defaults.py"
 lane = "linux-guard"
 
 [[test]]

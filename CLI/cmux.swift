@@ -5405,6 +5405,19 @@ struct CMUXCLI {
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
         try prepareStandardInputBeforeSocket(command: command, commandArgs: commandArgs)
+        let isAuthCommand = ["auth", "login", "logout"].contains(command)
+        let authUsage = String(
+            localized: "cli.auth.usage",
+            defaultValue: "Usage: cmux auth <status|login|logout|team>"
+        )
+        var authSubcommand: String?
+        if isAuthCommand {
+            let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
+            authSubcommand = CmuxCLIArgumentParser().parseAuthSubcommand(authArgs)
+            if authSubcommand == nil {
+                throw CLIError(message: authUsage)
+            }
+        }
         var client = SocketClient(path: resolvedSocketPath)
         let defersSocketConnection = Self.commandDefersSocketConnectionUntilRequest(
             command: command,
@@ -5564,8 +5577,9 @@ struct CMUXCLI {
             }
 
         case "auth", "login", "logout":
-            let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
-            let sub = authArgs.first?.lowercased() ?? "status"
+            guard let sub = authSubcommand else {
+                throw CLIError(message: authUsage)
+            }
             switch sub {
             case "status":
                 let response = try client.sendV2(method: "auth.status")
@@ -5647,19 +5661,16 @@ struct CMUXCLI {
                 }
             case "team":
                 try runAuthTeamCommand(
-                    commandArgs: Array(authArgs.dropFirst()),
+                    commandArgs: Array(commandArgs.dropFirst()),
                     client: client,
                     jsonOutput: jsonOutput
                 )
             default:
-                throw CLIError(message: String(
-                    localized: "cli.auth.usage",
-                    defaultValue: "Usage: cmux auth <status|login|logout|team>"
-                ))
+                throw CLIError(message: authUsage)
             }
 
         case "agent":
-            // `agent message` and `agent inbox` are local agent messaging;
+            // `agent message`, `inbox` and `messages` are local agent messaging;
             // hibernate and wake act on local agents; everything else stays an
             // alias of `cmux vm agent`.
             if try !runAgentMessageCommandIfMatched(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput) {
@@ -7829,13 +7840,25 @@ struct CMUXCLI {
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
             let body = optionValue(commandArgs, name: "--body") ?? ""
             let allowsReply = hasFlag(commandArgs, name: "--reply")
+            let clearing = hasFlag(commandArgs, name: "--clear")
+            var notifyEffectParams: [String: Any] = [:]
+            // `--desktop` has no effect with `--clear`, so its value is not validated there.
+            let desktopRaw = optionValue(commandArgs, name: "--desktop")
+            if !clearing, hasFlag(commandArgs, name: "--desktop") || desktopRaw != nil {
+                guard let desktopRaw, let desktop = parseBoolString(desktopRaw) else {
+                    throw CLIError(message: String(
+                        localized: "cli.error.notifyDesktopValue",
+                        defaultValue: "--desktop must be true|false"
+                    ))
+                }
+                notifyEffectParams["effects"] = ["desktop": desktop]
+            }
             let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
             let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
             let preferTTYFallback = windowRaw == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
             let explicitSurfaceArg = optionValue(commandArgs, name: "--surface")
             let env = ProcessInfo.processInfo.environment
-            let clearing = hasFlag(commandArgs, name: "--clear")
             let okText = String(localized: "common.ok", defaultValue: "OK")
             let target = try resolveNotifyTarget(
                 explicitWorkspaceArg: explicitWorkspaceArg,
@@ -7885,6 +7908,7 @@ struct CMUXCLI {
                     "body": body,
                 ]
                 if allowsReply { params["reply_shape"] = "text" }
+                params.merge(notifyEffectParams) { _, override in override }
                 let payload = try client.sendV2(method: "notification.create_for_target", params: params)
                 printV2Payload(
                     payload,
@@ -7902,6 +7926,7 @@ struct CMUXCLI {
                 if let windowHandle { params["window_id"] = windowHandle }
                 if let workspaceID { params["workspace_id"] = workspaceID }
                 if allowsReply { params["reply_shape"] = "text" }
+                params.merge(notifyEffectParams) { _, override in override }
                 let payload = try client.sendV2(method: "notification.create", params: params)
                 printV2Payload(
                     payload,
@@ -7918,6 +7943,7 @@ struct CMUXCLI {
                 ]
                 if let windowHandle { params["window_id"] = windowHandle }
                 if allowsReply { params["reply_shape"] = "text" }
+                params.merge(notifyEffectParams) { _, override in override }
                 let payload = try client.sendV2(method: "notification.create", params: params)
                 printV2Payload(
                     payload,
@@ -7933,6 +7959,7 @@ struct CMUXCLI {
                 ]
                 for (key, value) in callerParams { params[key] = value }
                 if allowsReply { params["reply_shape"] = "text" }
+                params.merge(notifyEffectParams) { _, override in override }
                 let payload = try client.sendV2(method: "notification.create_for_caller", params: params)
                 printV2Payload(
                     payload,
@@ -20720,6 +20747,7 @@ struct CMUXCLI {
                   --subtitle <text>      Notification subtitle
                   --body <text>          Notification body
                   --reply                Allow a free-text inline reply
+                  --desktop <true|false> Post a native macOS banner (default: true). false keeps the entry in the Notifications panel, sidebar badge and pane ring without a banner
                   --clear                Clear notifications for the resolved caller/target instead of posting
                   --workspace <id|ref|index>   Target workspace, except explicit surface UUIDs resolve globally
                   --surface <id|ref|index>     Target surface (refs/indexes use workspace/window context)
@@ -20728,11 +20756,13 @@ struct CMUXCLI {
                   --id-format <mode>     refs, uuids, or both for human-readable ids
 
                 The response includes the created notification id. Use cmux dismiss-notification --id <uuid|notification:<uuid>>, cmux list-notifications, or cmux clear-notifications to manage notifications.
+                --desktop sets the notification's desktop effect before notification hooks run; hooks can still override it. It has no effect with --clear.
 
                 Example:
                   cmux notify --title "Build done" --body "All tests passed"
                   cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
                   cmux notify --surface <uuid> --title "Build done"
+                  cmux notify --title "Deploy finished" --desktop false
                   cmux notify --clear
                 """)
         case "list-notifications":
@@ -21158,17 +21188,9 @@ struct CMUXCLI {
             print(verbText)
             return true
         }
-        if command == "agent", let verb = commandArgs.first?.lowercased() {
-            switch verb {
-            case "message", "msg":
-                print(Self.agentMessageHelp)
-                return true
-            case "inbox":
-                print(Self.agentInboxHelp)
-                return true
-            default:
-                break
-            }
+        if command == "agent", let text = Self.agentSubcommandHelp(commandArgs.first) {
+            print(text)
+            return true
         }
         guard let text = subcommandUsage(command) else { return false }
         print("cmux \(command)")
@@ -31735,6 +31757,12 @@ struct CMUXCLI {
             "--session",
             sessionId,
         ]
+        // A cmux-created Codex fork carries its parent and launch claim in the
+        // environment. Forward them to the detached monitor so it can watch
+        // the owner process for the child rollout and publish the child hook
+        // binding. Without this, the first fork may render, but a fork of that
+        // child has no durable parent association to discover.
+        monitorArgs += Self.codexForkMonitorArguments(environment: env)
         if let surfaceId, !surfaceId.isEmpty {
             monitorArgs += ["--surface", surfaceId]
         }
@@ -31761,6 +31789,19 @@ struct CMUXCLI {
         } catch {
             telemetry.captureError(stage: "codex-monitor-start", error: error, data: monitorTelemetry)
         }
+    }
+
+    static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
+        guard let forkParent = environment[CodexForkSessionWatcher.parentSessionEnvironmentKey],
+              !forkParent.isEmpty else { return [] }
+        var arguments = ["--fork-parent", forkParent]
+        if let launchID = environment[CodexForkSessionWatcher.launchIDEnvironmentKey], !launchID.isEmpty {
+            arguments += ["--fork-launch-id", launchID]
+        }
+        if let ownerPID = environment["CMUX_CODEX_PID"], !ownerPID.isEmpty {
+            arguments += ["--fork-owner-pid", ownerPID]
+        }
+        return arguments
     }
 
     /// Watches the Codex rollout until the turn settles.
@@ -40689,6 +40730,13 @@ export default {
         appendIfExisting(Bundle.main.url(forResource: "opencode-plugin", withExtension: "js"))
         appendIfExisting(Bundle.main.resourceURL?.appendingPathComponent("opencode-plugin.js", isDirectory: false))
 
+        if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"],
+           !runtimeRoot.isEmpty {
+            appendIfExisting(
+                URL(fileURLWithPath: runtimeRoot, isDirectory: true)
+                    .appendingPathComponent("src/Resources/opencode-plugin.js")
+            )
+        }
         if let executableURL = resolvedExecutableURL() {
             let execDir = executableURL.deletingLastPathComponent().standardizedFileURL
             for relativePath in ["opencode-plugin.js", "../opencode-plugin.js", "../../Resources/opencode-plugin.js", "../../../Contents/Resources/opencode-plugin.js"] {

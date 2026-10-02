@@ -45,7 +45,7 @@ struct CloudTreeCompactLayoutTests {
         }
     }
 
-    @Test("Machine spacing matches leaf rows while narrow rows retain accessible identities",
+    @Test("Folder and terminal spacing match while narrow rows, machine included, retain accessible identities",
           arguments: [220.0, 380.0], [75, 100, 150, 200])
     func iconLabelSpacing(width: Double, percent: Int) throws {
         let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
@@ -97,19 +97,22 @@ struct CloudTreeCompactLayoutTests {
                 #endif
                 continue
             }
-            let gaps = try cells.map { try iconLabelGap(in: $0, pinned: pinned) }
+            // A Cloud machine row has no glyph of its own (#16189): the Cloud
+            // Machines header names the kind. Only the leaves have a gap to match.
+            let gaps = try cells.dropFirst().map { try iconLabelGap(in: $0, pinned: pinned) }
             #expect(abs(gaps[0] - gaps[1]) <= tolerance,
-                    "Machine and folder glyph side bearings may differ slightly, not their spacing: \(gaps)")
-            #expect(abs(gaps[0] - gaps[2]) <= tolerance,
-                    "Machine and terminal must have comparable visible gaps: \(gaps)")
+                    "Folder and terminal must have comparable visible gaps: \(gaps)")
             #if compiler(>=6.2)
-            Attachment.record("machine/folder/terminal gaps in points: \(gaps)",
+            Attachment.record("folder/terminal gaps in points: \(gaps)",
                               named: "icon-spacing-\(Int(width))-\(percent)-pinned-\(pinned).txt")
             #endif
         }
     }
 
-    @Test("Cloud, locked, local and pending machine titles share the folder icon column",
+    /// Cloud machine states share their own glyph-free column; see
+    /// `CloudSidebarSectionIdentityIconTests`. This Mac is not a Cloud machine
+    /// and keeps its laptop glyph on the folder icon column.
+    @Test("This Mac's title shares the folder icon column",
           arguments: CloudTreeStyle.presets, [75, 100, 150, 200])
     func machineVariants(style: CloudTreeStyle, percent: Int) throws {
         let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
@@ -123,21 +126,9 @@ struct CloudTreeCompactLayoutTests {
         fixture.window.setContentSize(NSSize(width: 380, height: 620))
         fixture.coordinator.apply(style: style)
         let title = "early-plum-alpaca"
-        let machine = MachineSnapshot(
-            id: "fixture", provider: "fixture", image: "fixture", isDesktop: false,
-            activity: .ready, createdAt: nil, label: title
-        )
-        var locked = machine
-        locked.freeAccess = .expired
-        let pending = MachineCreateOperation(
-            id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(name: title),
-            startedAt: Date(timeIntervalSince1970: 0), phase: .failed(output: "fixture")
-        )
         let kinds: [CloudTreeNode.Kind] = [
             .localWorkspace(CloudTreeLocalWorkspaceRow(workspaceID: UUID(), title: title, terminalCount: 0, isSelected: true)),
-            .machine(machine, nil), .machine(locked, nil),
-            .localMachine(CloudTreeLocalMachineRow(name: title, terminalCount: 0, browserCount: 0)),
-            .pendingMachine(pending)
+            .localMachine(CloudTreeLocalMachineRow(name: title, terminalCount: 0, browserCount: 0))
         ]
         let nodes = kinds.enumerated().map { CloudTreeNode(id: "variant-\($0.offset)", kind: $0.element) }
         fixture.coordinator.apply(nodes: nodes)

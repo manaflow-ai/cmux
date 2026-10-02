@@ -81,7 +81,8 @@ public struct RemoteRelayCommandPolicy: Sendable {
         }
 
         let params = request["params"] as? [String: Any] ?? [:]
-        if let key = firstKey(in: params, matching: Self.commandKeys) {
+        let commandScanScope = RemoteRelayRoutingSchema().commandKeyScanScope(of: params, method: method)
+        if let key = firstKey(in: commandScanScope, matching: Self.commandKeys) {
             return .deny(reason: "parameter '\(key)' is not permitted through a remote relay")
         }
         if method == "surface.split" {
