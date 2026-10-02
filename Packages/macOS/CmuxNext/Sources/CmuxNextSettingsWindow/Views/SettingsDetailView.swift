@@ -55,7 +55,8 @@ struct SettingsDetailView: View {
     private func follow(_ jump: SettingsJump, proxy: ScrollViewProxy) async {
         await Task.yield()
         guard model.jump?.serial == jump.serial else { return }
-        proxy.scrollTo(jump.anchor.id, anchor: jump.anchor.isHeader ? .top : .center)
+        let point: UnitPoint = jump.anchor.isHeader ? .top : .center
+        proxy.scrollTo(jump.anchor.id, anchor: point)
         guard jump.highlights else { return }
         let plan = model.highlightPlan
         if plan.hold > 0 {
