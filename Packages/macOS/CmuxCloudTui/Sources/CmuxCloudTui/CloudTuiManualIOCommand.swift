@@ -297,12 +297,15 @@ public struct CloudTuiManualIOCommand: Sendable {
     }
 
     /// Sends one semantic key chord through the remote terminal's key encoder.
+    /// The key is latency-sensitive terminal input, so it uses the same
+    /// one-way response contract as raw bytes.
     public func namedKey(surfaceID: UInt64, key: String, requestID: UInt64 = 1) -> [String: Any] {
         [
             "id": requestID,
             "cmd": "send-key",
             "surface": surfaceID,
             "keys": [key],
+            "no_reply": true,
         ]
     }
 

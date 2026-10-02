@@ -1050,6 +1050,11 @@ enum Command {
         bytes: Option<String>,
         #[serde(default)]
         paste: bool,
+        /// Latency-sensitive terminal input may explicitly opt out of the
+        /// command acknowledgement. This is intentionally scoped to input;
+        /// stateful control commands keep their normal receipts.
+        #[serde(default)]
+        no_reply: bool,
     },
     ReadScreen {
         surface: SurfaceId,
@@ -1110,6 +1115,9 @@ enum Command {
     SendKey {
         surface: SurfaceId,
         keys: Vec<String>,
+        /// See ``Send::no_reply``.
+        #[serde(default)]
+        no_reply: bool,
     },
     Copy {
         surface: SurfaceId,
@@ -1658,6 +1666,17 @@ enum Command {
 }
 
 impl Command {
+    /// Returns whether this command is explicitly a one-way terminal input.
+    /// Only raw or semantic input may suppress its acknowledgement; all other
+    /// commands retain their response so stateful control transitions remain
+    /// observable and retryable.
+    fn no_reply(&self) -> bool {
+        match self {
+            Self::Send { no_reply, .. } | Self::SendKey { no_reply, .. } => *no_reply,
+            _ => false,
+        }
+    }
+
     fn ordering_surface(&self) -> Option<SurfaceId> {
         match self {
             Self::PasteImage { surface, .. } => Some(*surface),
@@ -1995,6 +2014,7 @@ struct ServerSurfaceOperationState {
 #[derive(Default)]
 pub(crate) struct ServerSurfaceOperationAdmission {
     state: Mutex<ServerSurfaceOperationState>,
+    changed: Condvar,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2022,6 +2042,7 @@ impl Drop for ServerSurfaceBytesPermit {
     fn drop(&mut self) {
         let mut state = self.admission.state.lock().unwrap();
         state.retained_bytes = state.retained_bytes.saturating_sub(self.retained_bytes);
+        self.admission.changed.notify_all();
     }
 }
 
@@ -2929,41 +2950,71 @@ impl ConnectionSurfaceScheduler {
         if state.closed {
             return Some(false);
         }
+        let is_no_reply = request.as_ref().unwrap().cmd.no_reply();
         let is_clear_history = request.as_ref().unwrap().cmd.is_clear_history();
-        let over_count = state.requests.len() >= CONNECTION_SURFACE_QUEUE_CAPACITY;
-        let over_bytes = retained_bytes
-            > CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY.saturating_sub(state.queued_bytes);
-        if over_count || over_bytes {
-            drop(state);
-            return Some(send_request_error_with_delivery(
-                &writer,
-                request.take().unwrap().id,
-                "surface request queue is full; request was not executed",
-                is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
-            ));
-        }
-        let request_id = request.as_ref().unwrap().id.clone();
-        let bytes_permit = match self.admission.try_reserve_bytes(retained_bytes) {
-            Ok(bytes) => bytes,
-            Err(ServerSurfaceAdmissionError::RetainedByteCapacity) => {
-                drop(state);
-                let request_id = request.take().unwrap().id;
-                return Some(if is_clear_history {
-                    send_request_error_with_delivery(
+        let bytes_permit = 'capacity: loop {
+            let over_count = state.requests.len() >= CONNECTION_SURFACE_QUEUE_CAPACITY;
+            let over_bytes = retained_bytes
+                > CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY.saturating_sub(state.queued_bytes);
+            if over_count || over_bytes {
+                if !is_no_reply {
+                    drop(state);
+                    return Some(send_request_error_with_delivery(
                         &writer,
-                        request_id,
-                        "server surface-operation byte budget is full; request was not executed",
-                        Some(ResponseErrorDelivery::KnownNotDelivered),
-                    )
-                } else {
-                    send_request_error(
-                        &writer,
-                        request_id,
-                        "server surface-operation byte budget is full; request was not executed",
-                    )
-                });
+                        request.take().unwrap().id,
+                        "surface request queue is full; request was not executed",
+                        is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
+                    ));
+                }
+                // One-way input is still accepted by the protocol, so apply
+                // backpressure at the socket instead of dropping it or
+                // emitting an acknowledgement that can exhaust the control
+                // reserve.
+                let (next, _) = self.changed.wait_timeout(state, STREAM_DISCONNECT_POLL).unwrap();
+                state = next;
+                if state.closed {
+                    return Some(false);
+                }
+                continue;
+            }
+
+            match self.admission.try_reserve_bytes(retained_bytes) {
+                Ok(bytes) => break 'capacity bytes,
+                Err(ServerSurfaceAdmissionError::RetainedByteCapacity) => {
+                    if !is_no_reply {
+                        drop(state);
+                        let request_id = request.take().unwrap().id;
+                        return Some(if is_clear_history {
+                            send_request_error_with_delivery(
+                                &writer,
+                                request_id,
+                                "server surface-operation byte budget is full; request was not executed",
+                                Some(ResponseErrorDelivery::KnownNotDelivered),
+                            )
+                        } else {
+                            send_request_error(
+                                &writer,
+                                request_id,
+                                "server surface-operation byte budget is full; request was not executed",
+                            )
+                        });
+                    }
+                    drop(state);
+                    let admission_state = self.admission.state.lock().unwrap();
+                    let (next, _) = self
+                        .admission
+                        .changed
+                        .wait_timeout(admission_state, STREAM_DISCONNECT_POLL)
+                        .unwrap();
+                    drop(next);
+                    state = self.state.lock().unwrap();
+                    if state.closed {
+                        return Some(false);
+                    }
+                }
             }
         };
+        let request_id = request.as_ref().unwrap().id.clone();
         let start_dispatcher = !state.dispatcher_started;
         state.dispatcher_started = true;
         state.queued_bytes = state.queued_bytes.saturating_add(retained_bytes);
@@ -2978,6 +3029,9 @@ impl ConnectionSurfaceScheduler {
         if start_dispatcher && let Err(error) = self.start_dispatcher(mux, client, writer.clone()) {
             self.finish_dispatcher();
             self.close();
+            if is_no_reply {
+                return Some(false);
+            }
             return Some(send_request_error_with_delivery(
                 &writer,
                 request_id,
@@ -3034,6 +3088,7 @@ impl ConnectionSurfaceScheduler {
                     let inserted = state.active_clear_surfaces.insert(surface);
                     assert!(inserted, "a clear worker cannot overlap its surface");
                 }
+                self.changed.notify_all();
                 return Some(pending);
             }
             if state.closed && state.requests.is_empty() {
@@ -9748,6 +9803,7 @@ fn handle_request_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> bool {
     let Request { id, cmd } = request;
+    let no_reply = cmd.no_reply();
     if let Command::UrlOpen { terminal_id, url } = cmd {
         return url_open::start(mux, client, id, terminal_id, url, writer);
     }
@@ -9796,6 +9852,11 @@ fn handle_request_with_cancellation(
             }
         }
     };
+    if no_reply {
+        // Explicit one-way input does not consume the bounded control-reply
+        // reserve. Stateful commands never set this bit and retain receipts.
+        return true;
+    }
     let response_ok = response.ok;
     let sent = send_response(writer, response);
     // Flush the successful acknowledgement before making the owning loop
@@ -12351,7 +12412,7 @@ fn handle_command_with_cancellation(
                 }).collect::<Vec<_>>(),
             }))
         }
-        Command::Send { surface, text, bytes, paste } => {
+        Command::Send { surface, text, bytes, paste, .. } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
             if paste {
@@ -12525,7 +12586,7 @@ fn handle_command_with_cancellation(
         Command::CreateSurfaceWithReceipt(request) => {
             create_surface_with_receipt(mux, client, *request)
         }
-        Command::SendKey { surface, keys } => {
+        Command::SendKey { surface, keys, .. } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)
                 .map_err(|_| anyhow::anyhow!("surface does not support key input"))?;
@@ -19334,6 +19395,26 @@ mod tests {
     }
 
     #[test]
+    fn one_way_terminal_input_does_not_enqueue_a_control_reply() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (writer, outbound) = captured_writer();
+        let request: Request = serde_json::from_value(json!({
+            "id": 0,
+            "cmd": "send",
+            "surface": surface.id,
+            "bytes": base64::engine::general_purpose::STANDARD.encode(b"x"),
+            "no_reply": true,
+        }))
+        .unwrap();
+
+        assert!(request.cmd.no_reply());
+        assert!(handle_request(&mux, 0, request, &writer));
+        assert!(outbound.try_pop().is_none());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn shutting_down_a_writer_clone_unblocks_the_reader() {
         let socket = TestSocket::new("shutdown");
         let listener = transport::listen(&socket.path).unwrap();
@@ -19618,6 +19699,7 @@ mod tests {
                     text: Some("input".to_string()),
                     bytes: None,
                     paste: false,
+                    no_reply: false,
                 },
             ),
             (2, Command::WaitFor { surface: 2, pattern: "never".to_string(), timeout_ms: 60_000 }),

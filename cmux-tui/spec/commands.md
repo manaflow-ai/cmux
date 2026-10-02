@@ -988,6 +988,7 @@ CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] [--c
 | status | implemented |
 | since | protocol 5 |
 | `paste` field | protocol 7 additive extension |
+| `no_reply` field | protocol 12 additive extension |
 
 Writes input to a PTY surface. `text`, when present, is UTF-8 encoded and written as bytes. `bytes`, when present, is standard base64 decoded and written as raw bytes. If both are present, v5 writes `text` first and `bytes` second. If neither is present, v5 returns success and writes nothing.
 
@@ -1001,6 +1002,12 @@ Params:
 | `text` | `string` | default null | Written before `bytes` when both are present |
 | `bytes` | `Base64` | default null | Decoded with standard base64 |
 | `paste` | `boolean` | default false | Protocol 7; conditionally wraps the combined non-empty payload when DEC mode 2004 is enabled |
+| `no_reply` | `boolean` | default false | Protocol 12; execute input without sending a command acknowledgement |
+
+`no_reply:true` is intended for latency-sensitive interactive input. The server
+still validates and executes the write, but does not enqueue a success or error
+response. Stateful control commands such as resize continue to return their
+normal receipts.
 
 Result:
 
@@ -3738,6 +3745,7 @@ frontends use it through the raw SDK or remote-session adapter.
 | name | `send-key` |
 | status | implemented |
 | since | protocol 6 |
+| `no_reply` field | protocol 12 additive extension |
 
 Sends named key chords to a surface without requiring callers to hand-encode escape sequences. PTY surfaces use the same Ghostty key encoder as the TUI, synced to the surface terminal modes. Browser surfaces translate supported keys to CDP keyboard input when the browser runtime is local.
 
@@ -3747,6 +3755,9 @@ Params:
 | --- | --- | --- | --- |
 | `surface` | `IdRef` | required | Target surface |
 | `keys` | `array<string>` | required | Non-empty key chord list |
+| `no_reply` | `boolean` | default false | Protocol 12; execute input without sending a command acknowledgement |
+
+`no_reply:true` has the same one-way input semantics as `send`.
 
 Key chord syntax is lower-case tokens joined with `+`. Supported names are `enter`, `tab`, `backtab`, `escape`, `backspace`, `delete`, `insert`, `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`, `f1` through `f24`, printable single characters, `ctrl+<key>`, `alt+<key>`, and `shift+<key>` where the encoder supports it.
 
