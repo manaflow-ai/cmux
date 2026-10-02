@@ -58,6 +58,39 @@
       "title" : "Focused Pane",
       "type" : "string"
     },
+    "appearance.statusIndicator.color" : {
+      "description" : "appearance.statusIndicator.color",
+      "title" : "Color",
+      "type" : "string"
+    },
+    "appearance.statusIndicator.size" : {
+      "default" : 1,
+      "description" : "appearance.statusIndicator.size",
+      "maximum" : 1.5,
+      "minimum" : 0.5,
+      "title" : "Size",
+      "type" : "number"
+    },
+    "appearance.statusIndicator.style" : {
+      "default" : "arc",
+      "description" : "How sidebar rows, tabs and panes show work in progress.",
+      "enum" : [
+        "arc",
+        "native",
+        "dot",
+        "none"
+      ],
+      "title" : "Style",
+      "type" : "string"
+    },
+    "appearance.statusIndicator.thickness" : {
+      "default" : 1.5,
+      "description" : "appearance.statusIndicator.thickness",
+      "maximum" : 4,
+      "minimum" : 0.5,
+      "title" : "Line Width",
+      "type" : "number"
+    },
     "appearance.tabBarBackground" : {
       "default" : "window",
       "description" : "Window uses the window's own background around the tabs; Darker shades the tab bar.",

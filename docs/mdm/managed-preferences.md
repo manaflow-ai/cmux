@@ -40,6 +40,10 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focusRing.color` | string |  |  | Color |
 | `focusRing.width` | real | `1` | 0.5 to 8 | Width |
 | `focusRing.showWhenSinglePane` | boolean | `false` |  | Show With One Pane |
+| `appearance.statusIndicator.style` | string | `"arc"` | `arc`, `native`, `dot`, `none` | Style. How sidebar rows, tabs and panes show work in progress. |
+| `appearance.statusIndicator.size` | real | `1` | 0.5 to 1.5 | Size |
+| `appearance.statusIndicator.thickness` | real | `1.5` | 0.5 to 4 | Line Width |
+| `appearance.statusIndicator.color` | string |  |  | Color |
 | `browser.defaultEngine` | string | `"chromium"` | `chromium`, `webkit` | Default Engine. New browser tabs open in this engine. |
 | `browser.newTabPage` | string | `""` |  | New Tab Page. An address such as https://example.com. Empty opens a blank page. |
 | `browser.showBookmarksBar` | boolean | `false` |  | Show Bookmarks Bar. A row of bookmarks under each browser toolbar. |
