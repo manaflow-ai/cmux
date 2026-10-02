@@ -733,6 +733,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final Object setColumnSticky(SetColumnStickyRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_COLUMN_STICKY, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final EmptyResult setDefaultColors(SetDefaultColorsRequest request) throws CmuxException {
         Object result = execute(Commands.SET_DEFAULT_COLORS, request.toWire());
         return EmptyResult.fromWire(result);

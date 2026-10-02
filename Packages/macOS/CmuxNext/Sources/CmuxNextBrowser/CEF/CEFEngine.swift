@@ -81,7 +81,7 @@ public final class CEFEngine: BrowserEngine {
     /// The extensions of `profile`, once Chromium runs (nil before).
     public func extensionStore(for profile: BrowserProfileID = .default) -> BrowserExtensionStore? {
         guard isRunning else { return nil }
-        let store = CEFRuntime.shared.extensionStore(for: profile)
+        let store = CEFRuntime.shared.extensionStores.store(for: profile)
         store.refresh()
         return store
     }
@@ -92,7 +92,7 @@ public final class CEFEngine: BrowserEngine {
     /// True when Chromium opened `profile` in this process: its directory
     /// may be removed only after the next launch.
     public func hasOpened(_ profile: BrowserProfileID) -> Bool {
-        CEFRuntime.shared.usedProfiles.contains(profile) || CEFRuntime.shared.hasExtensionStore(for: profile)
+        CEFRuntime.shared.usedProfiles.contains(profile) || CEFRuntime.shared.extensionStores.hasStore(for: profile)
     }
 
     /// Recent renderer and helper process failures (`debug.crashes`).
@@ -134,12 +134,12 @@ public final class CEFEngine: BrowserEngine {
     public var windowReport: CEFWindowReport { CEFRuntime.shared.windowReport }
 
     /// Extension install and permission prompts on screen (fork API 12).
-    public var extensionPrompts: [ExtensionInstallPrompt] { CEFRuntime.shared.pendingExtensionPrompts }
+    public var extensionPrompts: [ExtensionInstallPrompt] { CEFRuntime.shared.extensionPrompts.pending }
 
     /// Answers a prompt as its sheet would; false when it is gone.
     @discardableResult
     public func answerExtensionPrompt(_ id: Int32, _ answer: ExtensionInstallPrompt.Answer) -> Bool {
-        CEFRuntime.shared.answerExtensionPrompt(id, answer)
+        CEFRuntime.shared.extensionPrompts.answer(id, answer)
     }
 
     /// Synchronous tab creation for the debug window: the first call maps

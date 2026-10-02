@@ -373,6 +373,16 @@ impl Mux {
 
     /// Emit `screen-changed` (full screen and its index) for each screen.
     pub(crate) fn emit_screen_changed(&self, screens: &[ScreenId]) {
+        self.emit_screen_changed_for_transaction(screens, None);
+    }
+
+    /// [`Self::emit_screen_changed`] for a request that carried a client
+    /// transaction, which every delta it causes echoes.
+    pub(crate) fn emit_screen_changed_for_transaction(
+        &self,
+        screens: &[ScreenId],
+        transaction: Option<Arc<str>>,
+    ) {
         let decorations = self.tree_decorations();
         let deltas = {
             let state = self.state.lock().unwrap();
@@ -395,7 +405,7 @@ impl Mux {
                         index: Some(si),
                         entity,
                         workspace_revision: None,
-                        transaction: None,
+                        transaction: transaction.clone(),
                     })
                 })
                 .collect::<Vec<_>>()

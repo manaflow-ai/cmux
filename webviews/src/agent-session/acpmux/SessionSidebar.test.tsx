@@ -277,3 +277,19 @@ test("the rail switches the list; the sessions view adds New chat, project marks
   expect(titles()).toEqual(["Ship the redirect"]);
   await act(async () => root.unmount());
 });
+
+test("as a history layer, rows already open in a tab say so", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const list: AcpmuxSessionEntry[] = [
+    { sessionId: "open", displayTitle: "Fix the checkout page", cwd: "/src/web", updatedAt: 2 },
+    { sessionId: "past", displayTitle: "Tune the cache", cwd: "/src/web", updatedAt: 1 },
+  ];
+  await act(async () =>
+    root.render(createElement(SessionSidebar, { sessions: list, openIds: new Set(["open"]), onSelect: () => {} })),
+  );
+  const rows = [...container.querySelectorAll(".acpmux-session-row")];
+  expect(rows.map((row) => row.classList.contains("is-open"))).toEqual([true, false]);
+  expect(rows[0]!.getAttribute("aria-label")).toBe("Fix the checkout page, Already open in a tab");
+  await act(async () => root.unmount());
+});

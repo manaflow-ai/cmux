@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useState } from "react";
+import React, { createContext, memo, useContext, useMemo, useState } from "react";
 import {
   groupMark,
   sessionMark,
@@ -50,16 +50,22 @@ const VIEW_TITLES: Record<Exclude<SidebarView, "sessions">, string> = {
   closed: "Closed sessions",
 };
 
+/** Sessions already open in a tab, when the list is a history layer beside them. */
+const OpenSessions = createContext<ReadonlySet<string> | undefined>(undefined);
+
 /** The pane's sidebar: an icon rail, the list it switches, and the account at the bottom. */
 export function SessionSidebar({
   sessions,
   selectedId,
+  openIds,
   onSelect,
   onNewChat,
   account,
 }: {
   sessions: AcpmuxSessionEntry[];
   selectedId?: string;
+  /** Sessions already open in a tab; their rows say so, and opening one jumps to it. */
+  openIds?: ReadonlySet<string>;
   onSelect: (sessionId: string) => void;
   onNewChat?: () => void;
   account?: SidebarAccount;
@@ -73,64 +79,66 @@ export function SessionSidebar({
     [sessions, selectedId],
   );
   return (
-    <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label="Sessions">
-      <div className="acpmux-rail">
-        <RailButton label="New chat" title="Home: new chat" onClick={onNewChat} icon={<HomeIcon />} />
-        <RailButton
-          label="Sessions"
-          current={view === "sessions"}
-          dot={needsInput}
-          onClick={() => setView("sessions")}
-          icon={<ChatsIcon />}
-        />
-        <RailButton
-          label="History"
-          current={view === "history"}
-          onClick={() => setView("history")}
-          icon={<ClockIcon />}
-        />
-        <RailButton
-          label="Pull requests"
-          current={view === "pulls"}
-          onClick={() => setView("pulls")}
-          icon={<PullIcon />}
-        />
-        <RailButton
-          label="Closed sessions"
-          title="More: closed sessions"
-          current={view === "closed"}
-          onClick={() => setView("closed")}
-          icon={<MoreIcon />}
-        />
-      </div>
-      <div className="acpmux-sidebar-body">
-        <div className="acpmux-sidebar-scroll">
-          {view === "sessions" ? (
-            <SessionsView
-              sessions={sessions}
-              selectedId={selectedId}
-              onSelect={onSelect}
-              onNewChat={onNewChat}
-              query={query}
-              onQuery={setQuery}
-              expanded={expanded}
-              onExpand={(key) => setExpanded((current) => new Set(current).add(key))}
-            />
-          ) : (
-            <FlatView view={view} sessions={sessions} selectedId={selectedId} onSelect={onSelect} />
+    <OpenSessions.Provider value={openIds}>
+      <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label="Sessions">
+        <div className="acpmux-rail">
+          <RailButton label="New chat" title="Home: new chat" onClick={onNewChat} icon={<HomeIcon />} />
+          <RailButton
+            label="Sessions"
+            current={view === "sessions"}
+            dot={needsInput}
+            onClick={() => setView("sessions")}
+            icon={<ChatsIcon />}
+          />
+          <RailButton
+            label="History"
+            current={view === "history"}
+            onClick={() => setView("history")}
+            icon={<ClockIcon />}
+          />
+          <RailButton
+            label="Pull requests"
+            current={view === "pulls"}
+            onClick={() => setView("pulls")}
+            icon={<PullIcon />}
+          />
+          <RailButton
+            label="Closed sessions"
+            title="More: closed sessions"
+            current={view === "closed"}
+            onClick={() => setView("closed")}
+            icon={<MoreIcon />}
+          />
+        </div>
+        <div className="acpmux-sidebar-body">
+          <div className="acpmux-sidebar-scroll">
+            {view === "sessions" ? (
+              <SessionsView
+                sessions={sessions}
+                selectedId={selectedId}
+                onSelect={onSelect}
+                onNewChat={onNewChat}
+                query={query}
+                onQuery={setQuery}
+                expanded={expanded}
+                onExpand={(key) => setExpanded((current) => new Set(current).add(key))}
+              />
+            ) : (
+              <FlatView view={view} sessions={sessions} selectedId={selectedId} onSelect={onSelect} />
+            )}
+          </div>
+          {account && (
+            <div className="acpmux-account">
+              <span className="acpmux-avatar" aria-hidden="true">
+                {account.name.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="acpmux-account-name">{account.name}</span>
+              {account.detail && <span className="acpmux-account-detail">{account.detail}</span>}
+            </div>
           )}
         </div>
-        {account && (
-          <div className="acpmux-account">
-            <span className="acpmux-avatar" aria-hidden="true">
-              {account.name.slice(0, 1).toUpperCase()}
-            </span>
-            <span className="acpmux-account-name">{account.name}</span>
-            {account.detail && <span className="acpmux-account-detail">{account.detail}</span>}
-          </div>
-        )}
-      </div>
-    </nav>
+      </nav>
+    </OpenSessions.Provider>
   );
 }
 
@@ -390,6 +398,7 @@ const SessionRow = memo(function SessionRow({
   flat?: boolean;
   trailing?: string;
 }) {
+  const open = useContext(OpenSessions)?.has(session.sessionId);
   const mark = sessionMark(session, selected);
   const title = session.displayTitle || session.sessionId.slice(0, 8);
   const place = sessionPlace(session, groupHost);
@@ -400,11 +409,13 @@ const SessionRow = memo(function SessionRow({
     <li>
       <button
         type="button"
-        className={`acpmux-session-row${flat ? " is-flat" : ""}${selected ? " is-selected" : ""}${session.status === "closed" ? " is-closed" : ""}`}
+        className={`acpmux-session-row${flat ? " is-flat" : ""}${selected ? " is-selected" : ""}${open ? " is-open" : ""}${session.status === "closed" ? " is-closed" : ""}`}
         aria-current={selected ? "true" : undefined}
         aria-label={
-          mark || place || trailing
-            ? [title, trailing, placeLabel, mark && MARK_LABELS[mark]].filter(Boolean).join(", ")
+          mark || place || trailing || open
+            ? [title, open && "Already open in a tab", trailing, placeLabel, mark && MARK_LABELS[mark]]
+                .filter(Boolean)
+                .join(", ")
             : undefined
         }
         title={placeLabel ? `${title}\n${placeLabel}` : title}
