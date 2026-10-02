@@ -410,3 +410,42 @@ fn cmux_next_detached_create_terminal_is_kept_with_no_tab() {
     assert_eq!(tab_count(&mux), tabs_before);
     mux.shutdown();
 }
+
+/// A detached create whose resource projection fails must not leave a
+/// running, kept terminal behind: nothing would ever end it (it is kept and
+/// has no tab), and the caller was told the create failed.
+#[test]
+fn cmux_next_failed_detached_create_ends_its_terminal() {
+    const DETACHED: &str = "3c5e7a9b1d2f4c6e8a0b2d4f6a8c0e1b";
+    let mux = remote_mux("detached-terminal-failure");
+    mux.set_resource_patch_failure_for_test(true);
+    let error = run(
+        &mux,
+        json!({
+            "cmd":"create-terminal",
+            "detached":true,
+            "keep":true,
+            "terminal_id":DETACHED,
+            "origin":"cmux-next-app",
+            "mutation_id":"detached-fail-1",
+        }),
+    )
+    .expect_err("the forced projection failure fails the create");
+    assert!(error.to_string().contains("forced resource patch failure"), "{error:#}");
+    mux.set_resource_patch_failure_for_test(false);
+
+    let resolved = mux.resolve_terminal(DETACHED).unwrap().expect("durable row");
+    assert!(
+        matches!(
+            resolved.terminal.lifecycle,
+            TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
+        ),
+        "the terminal of a failed detached create ended: {:?}",
+        resolved.terminal.lifecycle
+    );
+    assert!(
+        mux.with_state(|state| state.terminal_catalog.is_empty()),
+        "no catalog runtime survives a failed detached create"
+    );
+    mux.shutdown();
+}
