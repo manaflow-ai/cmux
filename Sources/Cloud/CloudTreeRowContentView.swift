@@ -123,7 +123,7 @@ struct CloudTreeRowContentView: View {
             groupRow(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"))
         case .resource(_, let row):
             CloudTreeMachineResourceRowContent(row: row, style: style)
-        case .port(let resource, let url, _):
+        case .port(let resource, _, _):
             let presentation = CloudTreePortPresentation(resource: resource)
             CloudTreeLeafRow(
                 style: style,
