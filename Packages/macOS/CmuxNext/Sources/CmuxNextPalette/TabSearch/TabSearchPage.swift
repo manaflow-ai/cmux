@@ -47,7 +47,8 @@ extension PalettePageSpec {
         return PalettePageSpec(
             id: tabSearchID, title: PaletteStrings.tabSearchTitle, placeholder: PaletteStrings.tabSearchPlaceholder,
             symbol: "magnifyingglass", providers: [listed, older], initialQuery: query, ownsCloseKey: true, keepsSectionOrder: true,
-            emptyQuerySelection: TabSearchPlan.emptyQuerySelection(rows.filter(\.isVisibleWhenQueryEmpty)))
+            emptyQuerySelection: TabSearchPlan.emptyQuerySelection(rows.filter(\.isVisibleWhenQueryEmpty)),
+            scope: PaletteScopeCatalog.tabs)
     }
 
     /// The palette row of `row`, with its commands.
