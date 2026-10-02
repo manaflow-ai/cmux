@@ -874,7 +874,10 @@ extension CMUXCLI {
                 pendingFiles.append(path)
             case .directory(let directory):
                 try flushPendingFiles()
-                var params: [String: Any] = ["cwd": directory]
+                // The app names the workspace after the folder; like a file,
+                // it is shown when run interactively, and then the app also
+                // activates (`activate`).
+                var params: [String: Any] = ["cwd": directory, "focus": fileFocus, "activate": fileFocus]
                 if let windowHandle { params["window_id"] = windowHandle }
                 let payload = try client.sendV2(method: "workspace.create", params: params)
                 payloads.append(["kind": "workspace", "payload": payload, "path": directory])
