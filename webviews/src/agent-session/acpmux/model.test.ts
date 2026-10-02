@@ -84,7 +84,9 @@ test("a nested list measures each of its items", () => {
   const line = 20;
   const flat = height("assistant", "- order:", 724);
   expect(height("assistant", "- order:\n  - one\n  - two\n  - three", 724)).toBeGreaterThanOrEqual(flat + 3 * line);
-  expect(height("assistant", `- order:\n  - ${paragraph}`, 724)).toBeGreaterThanOrEqual(flat + height("assistant", paragraph, 724 - 80) - 16);
+  expect(height("assistant", `- order:\n  - ${paragraph}`, 724)).toBeGreaterThanOrEqual(
+    flat + height("assistant", paragraph, 724 - 80) - 16,
+  );
 });
 
 /// List items are indented 40px (the browser's list padding), so their text wraps sooner.
