@@ -85,6 +85,9 @@ public struct DaemonCapabilities: Sendable {
     /// `remote-terminal` with `remote` (data-model.md 1.2b, 1.4, 1.5), and
     /// `terminal_resource_id` in the `set-terminal-keep` result.
     public let remoteTerminalTabs = "remote-terminal-tabs-v1"
+    /// Sticky columns: `set-column-sticky` and `columns[].sticky`
+    /// (plans/cmux-next/sticky-column.md).
+    public let stickyColumns = "sticky-columns-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
@@ -119,7 +122,7 @@ public struct DaemonCapabilities: Sendable {
     /// once `set-terminal-command-history` turns it on (plans/cmux-next/history.md 6).
     public let terminalCommandJournal = "terminal-command-journal-v1"
     public var awaitingPin: [String] {
-        [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal]
+        [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns]
     }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.

@@ -79,6 +79,14 @@ test("a heading or a list after a single newline is its own block", () => {
   expect(height("assistant", "Intro:\n- one\n- two", 724)).toBeGreaterThanOrEqual(rowGap + 3 * line + gap);
 });
 
+/// A nested list's items are lines of their own, indented a second 40px.
+test("a nested list measures each of its items", () => {
+  const line = 20;
+  const flat = height("assistant", "- order:", 724);
+  expect(height("assistant", "- order:\n  - one\n  - two\n  - three", 724)).toBeGreaterThanOrEqual(flat + 3 * line);
+  expect(height("assistant", `- order:\n  - ${paragraph}`, 724)).toBeGreaterThanOrEqual(flat + height("assistant", paragraph, 724 - 80) - 16);
+});
+
 /// List items are indented 40px (the browser's list padding), so their text wraps sooner.
 test("a list item wraps at the list's indented width", () => {
   expect(height("assistant", `- ${paragraph}`, 724)).toBeGreaterThanOrEqual(height("assistant", paragraph, 724 - 40));

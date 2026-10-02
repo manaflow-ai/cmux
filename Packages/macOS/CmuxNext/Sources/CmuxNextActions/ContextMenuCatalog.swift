@@ -111,13 +111,15 @@ public struct ContextMenuCatalog {
         + [.separator] + actions("toggleSplitZoom", "equalizeSplits", "triggerFlash", "renamePane") + [.separator]
         + actions("palette.swapWithSession", "reconnectPane") + [.separator]
         + actions("pane.moveToNewWorkspace", "remote.openTerminalHere") + [.separator]
+        + actions("column.makeSticky", "column.unstick", "column.toggleStickyOverlay") + [.separator]
         + actions("palette.copyPaneID", "palette.copyPaneLink") + [.separator] + actions("closePane")
     }
 
     var column: [ContextMenuEntry] {
         actions("newColumn", "newPaneAutoLayout", "splitDown") + [.separator]
         + actions("column.widthOneThird", "column.widthHalf", "column.widthTwoThirds", "column.widthFull") + [.separator]
-        + actions("column.moveLeft", "column.moveRight", "equalizeSplits", "toggleSplitZoom")
+        + actions("column.moveLeft", "column.moveRight", "equalizeSplits", "toggleSplitZoom") + [.separator]
+        + actions("column.makeSticky", "column.makeStickyLeft", "column.unstick", "column.toggleStickyOverlay")
     }
 
     var workspaceRow: [ContextMenuEntry] {

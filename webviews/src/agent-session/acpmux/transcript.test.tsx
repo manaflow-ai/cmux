@@ -315,6 +315,30 @@ describe("acpmux transcript accessibility", () => {
     }
   });
 
+  /// A nested list drew inline as its source ("order:- Notebook: `3 × 4.50`"), and a numbered
+  /// list drew with bullets.
+  test("a nested list renders inside its item, and a numbered list keeps its numbers", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const text = "- Multiplies qty by price for each order:\n  - Notebook: `3 × 4.50 = 13.50`\n  - Pens: `12 × 0.80 = 9.60`\n- Adds the subtotals.\n\n3. Third\n4. Fourth";
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "a", version: 1, at: 0, kind: "assistant", text }], onToggleActivity: () => {}, expanded: new Set<string>() })));
+      const markdown = dom.window.document.querySelector(".acpmux-markdown")!;
+      const outer = markdown.querySelector(":scope > ul")!;
+      expect([...outer.querySelectorAll(":scope > li")].length).toBe(2);
+      const nested = outer.querySelector(":scope > li > ul")!;
+      expect([...nested.querySelectorAll(":scope > li")].map((node) => node.textContent)).toEqual(["Notebook: 3 × 4.50 = 13.50", "Pens: 12 × 0.80 = 9.60"]);
+      expect(nested.querySelector("code")?.textContent).toBe("3 × 4.50 = 13.50");
+      expect(markdown.textContent).not.toContain("- Notebook");
+      const numbered = markdown.querySelector(":scope > ol")!;
+      expect(numbered.getAttribute("start")).toBe("3");
+      expect([...numbered.querySelectorAll("li")].map((node) => node.textContent)).toEqual(["Third", "Fourth"]);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
   /// Rows are at most 760px wide (styles.css), but a wide pane laid them out at its whole width, so
   /// long messages wrapped onto more lines than their rows had room for.
   test("a wide pane lays rows out at the row's capped width", async () => {
