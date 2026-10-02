@@ -183,3 +183,40 @@ the brain host then connects with the mux's launch credential.
 - Known gaps: the 4-turn budget and 2 s gap are not enforced by the owner yet; actor is client-declared;
   no `request-settled`; edits/retractions by humans do not wake the mux; reply counts and thread
   connectors are not drawn.
+
+## 7. Home = workspace (user decision relayed by the coordinator, 2026-10-02)
+
+Home is a normal workspace with `kind: home`. Everything that works on a workspace (pinning,
+sidebar section layouts, custom images, moves inside its section, panes, splits) applies; the
+conversation UI is pane content. This replaces the per-window `showsHome` overlay of section 3.
+
+Record shape (workspace store; proposal for the sections lead and the state-module owner):
+
+```
+Workspace {
+  ...existing fields (id, name, icon/emoji/image, color, pinned, group, screens/panes/tabs)...,
+  kind: "normal" | "home",                 // default "normal"; written only at creation
+}
+```
+
+- Owner rules (workspace store reducer): at most one `kind: home` per store. The store creates
+  it on first start (`workspace.create {kind: home}` with the fixed idempotency key `home`), so it
+  exists offline and with no account. `workspace.close` of a home workspace is rejected
+  (`home_not_closable`); moving it out of the first position of its top section is rejected;
+  renaming, icon, emoji, image and color are allowed. No new presentation flags: `kind: home`
+  implies tab bar hidden, fixed at the top, not closable; the client derives those from `kind`.
+- Content: panes with tabs as in any workspace. New tab kind `conversation`
+  (`{kind: "conversation", conversation: "conv_…", owner: "local"|"cloud"}`), a store record like
+  frontend browser tabs, whose content is rendered by the client from the conversation owner. The
+  default Home layout is one pane with the mux conversation tab (the chief/coordinator UI); the
+  conversation list is a sidebar section or a second pane, not window chrome.
+- Entry points: Cmd-1 = first item of the first top section (Home by default, sections lead);
+  `home.show` = select the home workspace (a normal workspace selection, so `WindowState.workspaceID`
+  names it; nothing Home-specific in window state).
+- Client: `HomeView` becomes the pane content of a `conversation` tab (`HomeWindowModel` becomes
+  per tab: the tab names the conversation, so selection is the tab, not view state); the mirror,
+  intent log, adapter, renderer and the daemon conversation owner are unchanged.
+- Migration from this branch: drop `WindowState.showsHome`, `HomePresenter`, `HomeNavigation`,
+  `SidebarModel.isHomeActive` and `.selectHome` (the sections lead's Home item becomes the home
+  workspace row), keep `home.show` with the new meaning, keep `SidebarNumbering` until the sections
+  lead generalizes it.
