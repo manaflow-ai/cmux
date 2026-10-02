@@ -38,7 +38,7 @@ const setup = async () => {
   const team = claim.stream.replace("team:", "") as string
   const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)) as unknown as DurableObjectStub
   const idp = { nextIdToken: async (_code: string): Promise<string> => "", tokenRequests: [] as Array<URLSearchParams> }
-  const stack = { users: new Map<string, string>(), sessions: [] as Array<{ user: string; ttl?: number }> }
+  const stack = { users: new Map<string, string>(), unverified: new Set<string>(), sessions: [] as Array<{ user: string; ttl?: number }> }
   await inDO(stub, async (instance) => {
     instance.http = async (req: Request) => {
       const url = new URL(req.url)
@@ -54,7 +54,7 @@ const setup = async () => {
       return new Response("not found", { status: 404 })
     }
     instance.stack = {
-      findUserByEmail: async (email: string) => (stack.users.has(email) ? { id: stack.users.get(email)! } : undefined),
+      findUserByEmail: async (email: string) => (stack.users.has(email) ? { id: stack.users.get(email)!, email_verified: !stack.unverified.has(email) } : undefined),
       createUser: async (email: string) => {
         const id = `stack_${stack.users.size + 1}`
         stack.users.set(email, id)
@@ -75,16 +75,34 @@ const setup = async () => {
   return { team, stub, idp, stack, signIdToken, admin, connection: id }
 }
 
-const start = async (email: string, returnTo = RETURN) => worker.fetch(`https://api.test/v1/sso/start?email=${encodeURIComponent(email)}&return_to=${encodeURIComponent(returnTo)}`, { redirect: "manual" })
-const callback = async (state: string, code: string) => worker.fetch(`https://api.test/v1/sso/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(code)}`, { redirect: "manual" })
+const b64u = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+const CLIENT_VERIFIER = "client-verifier-0123456789-abcdefghijklmnopqrstuvwxyz"
+const challengeOf = async (v: string) => b64u(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(v))))
+const start = async (email: string, returnTo = RETURN) =>
+  worker.fetch(`https://api.test/v1/sso/start?email=${encodeURIComponent(email)}&return_to=${encodeURIComponent(returnTo)}&client_challenge=${await challengeOf(CLIENT_VERIFIER)}`, { redirect: "manual" })
+const callback = async (state: string, code: string, path?: string) => {
+  const p = path ?? (await pendingPath(state))
+  return worker.fetch(`https://api.test${p}?state=${encodeURIComponent(state)}&code=${encodeURIComponent(code)}`, { redirect: "manual" })
+}
+/** The callback path the start step registered (per connection). */
+const pathByState = new Map<string, string>()
+const pendingPath = async (state: string) => pathByState.get(state) ?? "/v1/sso/callback"
+const redeem = (code: string, verifier = CLIENT_VERIFIER) =>
+  worker.fetch("https://api.test/v1/sso/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, client_verifier: verifier }) })
+const authFrom = (res: Response) => {
+  const auth = new URL(res.headers.get("location")!)
+  pathByState.set(auth.searchParams.get("state")!, new URL(auth.searchParams.get("redirect_uri")!).pathname)
+  return auth
+}
 
 describe("OIDC sign-in (workerd)", () => {
   it("start -> IdP -> callback -> one-time code -> Stack session; links the IdP subject; refuses replays", async () => {
     const s = await setup()
     const res = await start(`Alice@${DOMAIN}`)
     expect(res.status).toBe(302)
-    const auth = new URL(res.headers.get("location")!)
+    const auth = authFrom(res)
     expect(auth.origin + auth.pathname).toBe(`${ISSUER}/authorize`)
+    expect(new URL(auth.searchParams.get("redirect_uri")!).pathname).toBe(`/v1/sso/callback/${s.connection}`)
     expect(auth.searchParams.get("code_challenge_method")).toBe("S256")
     const state = auth.searchParams.get("state")!
     const nonce = auth.searchParams.get("nonce")!
@@ -100,14 +118,16 @@ describe("OIDC sign-in (workerd)", () => {
     const digest = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
     expect(digest).toBe(auth.searchParams.get("code_challenge"))
 
-    const redeem = await worker.fetch("https://api.test/v1/sso/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) })
-    expect(await redeem.json()).toEqual({ access_token: "at-stack_1", refresh_token: "rt-stack_1" })
-    expect((await worker.fetch("https://api.test/v1/sso/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) })).status).toBe(400)
+    // Login CSRF / code theft: without the verifier of the client that started the flow, the code is useless.
+    expect((await redeem(code, "someone-elses-verifier-0123456789-abcdefghijklmnop")).status).toBe(400)
+    const redeemed = await redeem(code)
+    expect(await redeemed.json()).toEqual({ access_token: "at-stack_1", refresh_token: "rt-stack_1" })
+    expect((await redeem(code)).status).toBe(400)
     // The state is single-use.
     expect((await callback(state, "code-1")).status).toBe(400)
 
     // Second sign-in: same IdP subject, new email at the IdP -> same Stack user (linked by subject).
-    const again = new URL((await start(`alice@${DOMAIN}`)).headers.get("location")!)
+    const again = authFrom(await start(`alice@${DOMAIN}`))
     s.idp.nextIdToken = async () => s.signIdToken({ sub: "idp-user-1", email: `alice.renamed@${DOMAIN}`, nonce: again.searchParams.get("nonce")! })
     expect((await callback(again.searchParams.get("state")!, "code-2")).status).toBe(302)
     expect(s.stack.sessions.map((x) => x.user)).toEqual(["stack_1", "stack_1"])
@@ -133,7 +153,7 @@ describe("OIDC sign-in (workerd)", () => {
       (nonce) => s.signIdToken({ sub: "u", email: `bob@${DOMAIN}`, email_verified: false, nonce })
     ]
     for (const make of cases) {
-      const auth = new URL((await start(`bob@${DOMAIN}`)).headers.get("location")!)
+      const auth = authFrom(await start(`bob@${DOMAIN}`))
       s.idp.nextIdToken = async () => make(auth.searchParams.get("nonce")!)
       expect((await callback(auth.searchParams.get("state")!, "c")).status).toBe(400)
     }
@@ -143,6 +163,33 @@ describe("OIDC sign-in (workerd)", () => {
   it("refuses return_to outside the dashboard and the app callback, and emails without SSO", async () => {
     await setup()
     expect((await start(`alice@${DOMAIN}`, "https://evil.example/steal")).status).toBe(400)
+    // Only exact return addresses: no other path on the dashboard (an open redirect there would leak the code).
+    expect((await start(`alice@${DOMAIN}`, "http://localhost:3010/anything")).status).toBe(400)
+    // A start without a client challenge is refused.
+    expect((await worker.fetch(`https://api.test/v1/sso/start?email=alice@${DOMAIN}&return_to=${encodeURIComponent(RETURN)}`, { redirect: "manual" })).status).toBe(400)
     expect((await start("alice@nobody-has-this.dev")).status).toBe(404)
+  })
+
+  it("never links an IdP identity to an existing Stack account whose email is unverified (pre-hijacking)", async () => {
+    const s = await setup()
+    s.stack.users.set(`carol@${DOMAIN}`, "stack_attacker")
+    s.stack.unverified.add(`carol@${DOMAIN}`)
+    const auth = authFrom(await start(`carol@${DOMAIN}`))
+    s.idp.nextIdToken = async () => s.signIdToken({ sub: "idp-carol", email: `carol@${DOMAIN}`, nonce: auth.searchParams.get("nonce")! })
+    const cb = await callback(auth.searchParams.get("state")!, "c")
+    expect(cb.status).toBe(400)
+    expect(await cb.json()).toMatchObject({ code: "sso.account_conflict" })
+    expect(s.stack.sessions).toEqual([])
+  })
+
+  it("refuses a callback on another connection's path or with a mismatched iss (mix-up)", async () => {
+    const s = await setup()
+    const auth = authFrom(await start(`dave@${DOMAIN}`))
+    s.idp.nextIdToken = async () => s.signIdToken({ sub: "idp-dave", email: `dave@${DOMAIN}`, nonce: auth.searchParams.get("nonce")! })
+    const state = auth.searchParams.get("state")!
+    expect((await worker.fetch(`https://api.test/v1/sso/callback/ssoc_00000000000000000000?state=${encodeURIComponent(state)}&code=c`, { redirect: "manual" })).status).toBe(400)
+    const auth2 = authFrom(await start(`dave@${DOMAIN}`))
+    const p = pathByState.get(auth2.searchParams.get("state")!)!
+    expect((await worker.fetch(`https://api.test${p}?state=${encodeURIComponent(auth2.searchParams.get("state")!)}&code=c&iss=${encodeURIComponent("https://evil.example")}`, { redirect: "manual" })).status).toBe(400)
   })
 })
