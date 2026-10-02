@@ -17,7 +17,7 @@
   --color-token-border: var(--agent-border);
   --color-token-border-heavy: var(--agent-border-strong);
   --color-token-focus-border: var(--agent-accent);
-  --color-token-button-foreground: var(--agent-text);
+  --color-token-button-foreground: var(--agent-accent-text, #ffffff);
   --color-token-button-background: var(--agent-accent);
   --color-token-button-secondary-foreground: var(--agent-text);
   --color-token-button-secondary-background: var(--agent-control);
@@ -153,7 +153,7 @@
   --agent-control: color-mix(in srgb, var(--agent-input-bg) 44%, transparent);
   --agent-control-hover: color-mix(in srgb, var(--agent-soft) 8%, transparent);
   --agent-primary: color-mix(in srgb, var(--agent-accent) 90%, var(--agent-text));
-  --agent-primary-text: #ffffff;
+  --agent-primary-text: var(--agent-accent-text, #ffffff);
   --cubic-enter: cubic-bezier(0.19, 1, 0.22, 1);
   --cubic-exit-snappy: cubic-bezier(0.65, 0, 0.4, 1);
   --transition-duration-basic: 0.15s;

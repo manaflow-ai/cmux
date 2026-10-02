@@ -32,7 +32,12 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   for (const [key, variable] of Object.entries(cssVariables) as Array<
     [keyof AgentSessionTheme, string | null]
   >) {
-    if (!variable || theme[key] === undefined) {
+    if (!variable) {
+      continue;
+    }
+    // A key this theme leaves out must not keep the last theme's value.
+    if (theme[key] === undefined) {
+      root.style.removeProperty(variable);
       continue;
     }
     root.style.setProperty(variable, String(theme[key]));
