@@ -73,7 +73,19 @@ let package = Package(
         ),
         .target(
             name: "CmuxiOSTerminal",
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            dependencies: ["GhosttyNextKit"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)],
+            // The static library carries C++ objects (glslang).
+            linkerSettings: [.linkedLibrary("c++")]
+        ),
+        // ghostty-next (plans/cmux-next/ghostty-next.md): the iOS remote-terminal
+        // build of libghostty, pinned to one release. Never pin the ios-v1 builds
+        // (old module name GhosttyKit collides with the desktop app's).
+        .binaryTarget(
+            name: "GhosttyNextKit",
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-8562af02889cdb085ad415c6a0ba9a379c78a0c6-ios-v2/GhosttyNextKit.xcframework.zip",
+            checksum: "7d1187486a0a2ecc64bd23854acd2ab6a5a010498e703ac7ee53c71820af6ea2"
         ),
         .target(
             name: "CmuxiOSPush",
