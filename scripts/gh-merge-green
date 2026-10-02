@@ -5,9 +5,14 @@
 set -euo pipefail
 ref="${1:?usage: gh-merge-green OWNER/REPO#NUMBER [--squash|--merge] }"; shift
 repo="${ref%#*}"; num="${ref#*#}"
-# --main-fix: a fix-forward PR for a red main. Skips the CI wait (Leo: don't wait on main-greening PRs), keeps the conflict-marker check.
+# --main-fix permits only automatically matched same-base Swift test failures,
+# after the PR head has compiled Release, Debug, and the Swift test target.
 fix=0; args=(); for a in "$@"; do [ "$a" = --main-fix ] && fix=1 || args+=("$a"); done; set -- "${args[@]+"${args[@]}"}"
 [ $# -gt 0 ] || set -- --squash
+if [ "$fix" -eq 1 ]; then
+  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  exec python3 "$script_dir/ci/main_fix_evidence.py" "$ref" "$@"
+fi
 read -r sha base < <(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName -q '.headRefOid+" "+.baseRefName')
 # Checks that must have run and passed on the exact head. Missing counts as not green.
 must=("ci-status")
@@ -25,7 +30,6 @@ if [ "$base" = main ] && printf '%s\n' "$runs" | grep -q '^macos / macOS compile
   must+=("macos / macOS compile admission")
 fi
 bad=0
-[ "$fix" -eq 1 ] && must=()
 for name in "${must[@]+"${must[@]}"}"; do
   line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1==n' | tail -1)
   if [ -z "$line" ]; then echo "not green: '$name' has not run on $sha" >&2; bad=1; continue; fi
