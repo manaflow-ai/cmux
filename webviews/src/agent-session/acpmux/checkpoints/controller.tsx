@@ -39,7 +39,7 @@ export function useCheckpoints({ request, target, online, strings, options, vari
   valid.current = supported;
   const ignore = (promise: Promise<unknown>) => void promise.catch(() => undefined);
   const show = useCallback(() => {
-    if (!valid.current) return;
+    if (!valid.current || !client.beginReview()) return;
     setOpen(true);
     setCopyError(false);
     ignore((async () => {

@@ -142,6 +142,12 @@ export class CheckpointClient {
     this.state = { supported: this.state.supported, capabilities: this.state.capabilities, target };
     this.changed();
   }
+  beginReview(): boolean {
+    if (this.mutationActive || this.state.busy) return false;
+    this.state = { ...this.state, record: undefined, list: undefined, error: undefined };
+    this.changed();
+    return true;
+  }
   async refreshCapabilities(): Promise<boolean> {
     const generation = ++this.capabilityGeneration;
     try {
