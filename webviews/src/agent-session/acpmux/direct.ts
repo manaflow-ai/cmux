@@ -38,6 +38,8 @@ type Listener = (snapshot: AcpmuxSnapshot) => void;
 
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
 const COMMANDS_KIND = "available_commands_update";
+/// How much of the context window the session has used; not transcript, so attach asks for it by kind.
+const USAGE_KIND = "usage_update";
 
 export function permissionFromMessage(message: any, selectedSessionId: string): AcpmuxPermission | undefined {
   const envelope = message ?? {};
@@ -150,7 +152,10 @@ export function mergeToolItem(
       kind: update.kind ?? before?.kind,
       status: String(update.status ?? before?.status ?? "in_progress"),
       inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
-      output: output || (update.content === undefined ? before?.output : undefined),
+      output:
+        output || formattedOutput(update.rawOutput) || (update.content === undefined ? before?.output : undefined),
+      command: shellCommand(update.rawInput) ?? before?.command,
+      exitCode: exitCode(update.rawOutput) ?? before?.exitCode,
       locations: Array.isArray(update.locations) ? update.locations : before?.locations,
       diffs:
         update.content === undefined
@@ -160,9 +165,37 @@ export function mergeToolItem(
   };
 }
 
+/// The command line a shell call ran, from `rawInput.command`: a string, or an argv array. An
+/// argv that runs a script through a shell (`zsh -lc "cd x && bun test"`) shows the script;
+/// otherwise a part with spaces or quotes is single-quoted, so the line reads as typed.
+export function shellCommand(rawInput: any): string | undefined {
+  const command = rawInput?.command;
+  if (typeof command === "string") return command;
+  if (!Array.isArray(command) || !command.every((part) => typeof part === "string") || !command.length)
+    return undefined;
+  const [program, flag, script] = command as string[];
+  if (command.length === 3 && /(^|\/)(ba|z|da|fi)?sh$/.test(program!) && /^-l?c$/.test(flag!)) return script;
+  return (command as string[])
+    .map((part) => (/^[\w@%+=:,./-]+$/.test(part) ? part : `'${part.replace(/'/g, "'\\''")}'`))
+    .join(" ");
+}
+
+function exitCode(rawOutput: any): number | undefined {
+  const code = rawOutput?.exit_code ?? rawOutput?.exitCode;
+  return typeof code === "number" ? code : undefined;
+}
+
+/// Codex reports a shell call's output in `rawOutput` when the call carries no content.
+function formattedOutput(rawOutput: any): string {
+  const text = rawOutput?.formatted_output;
+  return typeof text === "string" ? text : "";
+}
+
 function textFromContent(content: any): string {
   if (typeof content === "string") return content;
   if (content?.type === "text") return String(content.text ?? "");
+  // A tool call's content blocks wrap their text: `{ type: "content", content: { type: "text" } }`.
+  if (content?.type === "content") return textFromContent(content.content);
   if (Array.isArray(content)) return content.map(textFromContent).join("");
   return "";
 }
@@ -192,6 +225,7 @@ export class AcpmuxDirectClient {
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
   private commands: SlashCommand[] = [];
+  private usage: { used: number; size: number } | undefined;
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
   private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
@@ -328,6 +362,7 @@ export class AcpmuxDirectClient {
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.summary = undefined;
+    this.usage = undefined;
     this.queue = [];
     this.turnOpen = false;
     this.streamingAssistant = undefined;
@@ -476,6 +511,16 @@ export class AcpmuxDirectClient {
     );
   }
 
+  /// The selected session's repository changes in one git scope (changes/model.ts).
+  gitScopeDiff(scope: string): Promise<unknown> {
+    return this.request("git.scope.diff", { sessionId: this.selectedSessionId, scope });
+  }
+
+  /// The selected session's branch, upstream and how far it is ahead and behind.
+  gitStatus(): Promise<unknown> {
+    return this.request("git.status", { sessionId: this.selectedSessionId });
+  }
+
   private request(method: string, params: Record<string, unknown>): Promise<any> {
     if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("acpmux WebSocket is not open"));
     const id = this.nextRequest++;
@@ -491,7 +536,7 @@ export class AcpmuxDirectClient {
     const result = await this.request("_acpmux/attach", {
       sessionId,
       limit: 400,
-      kinds: ["transcript", COMMANDS_KIND],
+      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND],
       eventStream: true,
     });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
@@ -631,6 +676,12 @@ export class AcpmuxDirectClient {
   private reduce(event: EventRecord): void {
     const msg = event.msg ?? {};
     const update = sessionUpdate(event);
+    if (update?.sessionUpdate === USAGE_KIND) {
+      const used = Number(update.used);
+      const size = Number(update.size);
+      if (Number.isFinite(used) && Number.isFinite(size) && size > 0) this.usage = { used, size };
+      return;
+    }
     if (event.dir === "mux") {
       if (event.kind === "user_message") {
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
@@ -813,6 +864,7 @@ export class AcpmuxDirectClient {
             sessionId: summary.sessionId,
             cwd: summary.cwd,
             turnCount: summary.turnCount,
+            usage: this.usage,
             host: text(summary.host),
             hostKind: hostKind(summary.hostKind),
             branch: text(summary.branch),

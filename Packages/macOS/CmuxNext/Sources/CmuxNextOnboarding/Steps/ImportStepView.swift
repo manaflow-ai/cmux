@@ -5,7 +5,8 @@ import CmuxNextDesign
 /// Import: one row per detected browser profile (the browser's own icon,
 /// the profile's picture and name, a checkbox), then one line of what to
 /// bring. Import runs in place: each row shows its progress, then what came
-/// over; the line under the list sums it up.
+/// over; the line under the list sums it up. With passwords checked,
+/// Import first swaps the list for the consent screen (`ImportConsentView`).
 final class ImportStepView: NSView {
     private let model: ImportStepModel
     private let list = NSStackView()
@@ -14,11 +15,15 @@ final class ImportStepView: NSView {
     private let access = NSStackView()
     private var rows: [String: ImportProfileRow] = [:]
     private var kindBoxes: [ImportDataKind: NSButton] = [:]
+    private var shownKinds: [ImportDataKind] = []
+    private let consent: ImportConsentView
+    private var listViews: [NSView] = []
     private var shownProfiles: [BrowserSourceProfile]?
     private var loop: RenderLoop?
 
     init(model: ImportStepModel) {
         self.model = model
+        consent = ImportConsentView(model: model)
         super.init(frame: .zero)
         list.orientation = .vertical
         list.alignment = .leading
@@ -35,19 +40,15 @@ final class ImportStepView: NSView {
         scroll.documentView = document
         scroll.translatesAutoresizingMaskIntoConstraints = false
         kinds.spacing = 20
-        for kind in ImportStepModel.offeredKinds {
-            let box = OnboardingControl.checkbox(OnboardingStrings.kind(kind), target: self, action: #selector(kindToggled(_:)))
-            box.tag = ImportStepModel.offeredKinds.firstIndex(of: kind) ?? 0
-            kindBoxes[kind] = box
-            kinds.addArrangedSubview(box)
-        }
         let open = OnboardingControl.button(OnboardingStrings.openSystemSettings, target: self, action: #selector(openSettings))
         let recheck = OnboardingControl.plainButton(OnboardingStrings.checkAgain, target: self, action: #selector(recheck))
         access.setViews([OnboardingLabel.make(OnboardingStrings.fullDiskAccessTitle, color: Palette.textSecondary), open, recheck], in: .leading)
         access.spacing = 12
         let separator = ThemedView()
         separator.fill = { Palette.separator }
-        let stack = NSStackView(views: [scroll, separator, kinds, status, access])
+        listViews = [scroll, separator, kinds]
+        consent.isHidden = true
+        let stack = NSStackView(views: [scroll, separator, kinds, consent, status, access])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
@@ -63,6 +64,7 @@ final class ImportStepView: NSView {
             list.topAnchor.constraint(equalTo: document.topAnchor), list.bottomAnchor.constraint(equalTo: document.bottomAnchor),
             separator.widthAnchor.constraint(equalTo: stack.widthAnchor), separator.heightAnchor.constraint(equalToConstant: 1),
             status.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            consent.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
         loop = RenderLoop { [weak self] in self?.render() }
     }
@@ -70,11 +72,15 @@ final class ImportStepView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    @objc private func kindToggled(_ sender: NSButton) { model.toggle(ImportStepModel.offeredKinds[sender.tag]) }
+    @objc private func kindToggled(_ sender: NSButton) { model.toggle(shownKinds[sender.tag]) }
     @objc private func openSettings() { model.openFullDiskAccessSettings() }
     @objc private func recheck() { model.redetect() }
 
     private func render() {
+        let confirming = model.isConfirmingPasswords
+        listViews.forEach { $0.isHidden = confirming }
+        consent.isHidden = !confirming
+        if confirming { consent.render() }
         let profiles = model.profiles
         if profiles != shownProfiles {
             shownProfiles = profiles
@@ -92,6 +98,17 @@ final class ImportStepView: NSView {
         for profile in profiles {
             rows[profile.id]?.update(checked: model.isSelected(profile), editable: editable, state: model.rowState(profile))
         }
+        if model.kindChoices != shownKinds {
+            shownKinds = model.kindChoices
+            kinds.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            kindBoxes = [:]
+            for (index, kind) in shownKinds.enumerated() {
+                let box = OnboardingControl.checkbox(OnboardingStrings.kind(kind), target: self, action: #selector(kindToggled(_:)))
+                box.tag = index
+                kindBoxes[kind] = box
+                kinds.addArrangedSubview(box)
+            }
+        }
         for (kind, box) in kindBoxes {
             box.state = model.kinds.contains(kind) ? .on : .off
             box.isEnabled = editable
@@ -103,15 +120,19 @@ final class ImportStepView: NSView {
     private func statusText(_ profiles: [BrowserSourceProfile]) -> String {
         switch model.phase {
         case .idle, .detecting: return OnboardingStrings.detecting
-        case .importing: return ""
+        case .importing, .confirmingPasswords: return ""
         case .finished(let summary):
             let counts = ImportCountsText.line(summary.counts)
-            let line = counts.isEmpty ? OnboardingStrings.importedNothing : OnboardingStrings.imported(counts)
+            var line = counts.isEmpty ? OnboardingStrings.importedNothing : OnboardingStrings.imported(counts)
+            // "412 imported, 9 skipped": counts only, never which sites.
+            let skipped = summary.batches.reduce(0) { $0 + ($1.passwords?.notImported ?? 0) }
+            if skipped > 0 { line += " " + OnboardingStrings.passwordsSkipped(skipped.formatted(.number)) }
+            if summary.batches.contains(where: { $0.passwordError != nil }) { line += " " + OnboardingStrings.passwordsNotRead }
             return summary.failures.isEmpty ? line : line + " " + OnboardingStrings.importSomeFailed
         case .failed(let message): return message
         default:
             return profiles.isEmpty ? OnboardingStrings.noBrowsers
-                : (model.kinds.contains(.cookies) ? OnboardingStrings.keychainNote : "")
+                : (model.kinds.contains(.cookies) || model.kinds.contains(.passwords) ? OnboardingStrings.keychainNote : "")
         }
     }
 }

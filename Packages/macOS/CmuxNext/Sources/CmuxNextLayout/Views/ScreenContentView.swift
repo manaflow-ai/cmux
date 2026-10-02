@@ -252,15 +252,20 @@ final class ScreenContentView: NSView {
     func updateChrome(focused: PaneID?, dimsInactive: Bool, attention: [PaneID: AttentionMark], animated: Bool) {
         let multiple = paneFrames.count > 1
         let style = context.style
-        let ringAllowed = multiple || style.focusRing.showsForSinglePane
+        let ringAllowed = (multiple || style.focusRing.showsForSinglePane) && style.focusIndicator.marksBorder
         for pane in paneFrames.keys {
             guard let host = context.hosts[pane] else { continue }
             let isFocused = pane == focused
             host.setChrome(
                 showsRing: ringAllowed && isFocused,
-                // With appearance.borders none the ring is off and the dim is the focus cue.
-                dim: multiple && (dimsInactive || !style.drawsLines) && !isFocused ? style.inactivePaneDimming : 0,
+                // With appearance.borders none the ring is off; the dim stands in
+                // for it when the indicator asked for the border and nothing else.
+                dim: multiple && (dimsInactive || (!style.drawsLines && style.focusIndicator == .border)) && !isFocused
+                    ? style.inactivePaneDimming : 0,
                 focusRing: style.focusRing,
+                ringAlphaOverride: style.focusRingAlphaOverride,
+                tabEmphasis: .forPane(isFocused: isFocused, paneCount: paneFrames.count, indicator: style.focusIndicator,
+                                      style: style.inactiveTabStyle, strength: style.inactiveTabStrength),
                 border: PaneOverlayView.Border(shows: style.showsPaneBorder, width: style.paneBorderWidth, color: style.paneBorderColor),
                 attention: attention[pane],
                 attentionSettings: style.attention,

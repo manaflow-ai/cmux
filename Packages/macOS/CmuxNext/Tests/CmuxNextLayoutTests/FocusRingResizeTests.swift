@@ -34,13 +34,15 @@ struct FocusRingResizeTests {
         func paneShapesDidChange(_ plane: OverlayPlane) {}
     }
 
-    private func makeRoot(_ layout: ScreenLayout, focused: PaneID, adopted: Bool) -> (LayoutRootView, NSWindow, Provider) {
+    private func makeRoot(_ layout: ScreenLayout, focused: PaneID, adopted: Bool,
+                          configure: (inout LayoutStyle) -> Void = { _ in }) -> (LayoutRootView, NSWindow, Provider) {
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "", layout: layout)], activeScreenID: "s", focusedPane: focused)
         model.followsDesignMetrics = false
         var style = LayoutStyle()
         style.panePadding = 4
         style.paneCornerRadius = 8
         style.focusRing.width = 2
+        configure(&style)
         model.baseStyle = style
         let provider = Provider()
         let view = LayoutRootView(model: model, contentProvider: provider)
@@ -55,6 +57,28 @@ struct FocusRingResizeTests {
         view.frame = container.bounds
         container.layoutSubtreeIfNeeded()
         return (view, window, provider)
+    }
+
+    /// The ring draws `FocusRingSettings.ringColor`: subtle by default,
+    /// the contrast level's share otherwise, the Debug Settings override in
+    /// place of the level, and an explicit color over both.
+    @Test func theRingDrawsTheContrastLevelsShare() {
+        let tree: SplitNode = .split("s1", axis: .horizontal, ratio: 0.5, a: .leaf("a"), b: .leaf("b"))
+        func drawnAlpha(_ configure: (inout LayoutStyle) -> Void) -> CGFloat? {
+            let (view, window, provider) = makeRoot(.splits(tree), focused: "b", adopted: false, configure: configure)
+            defer { window.close(); withExtendedLifetime(provider) {} }
+            return view.context.hosts["b"]?.chrome.ringColor?.alpha
+        }
+        #expect(drawnAlpha { _ in } == FocusRingContrast.subtle.ringAlpha)
+        #expect(drawnAlpha { $0.focusRing.contrast = .strong } == FocusRingContrast.strong.ringAlpha)
+        #expect(drawnAlpha { $0.focusRingAlphaOverride = 0.5 } == 0.5)
+        let (view, window, provider) = makeRoot(.splits(tree), focused: "b", adopted: false) { style in
+            style.focusRing.color = ThemeRGB(hex: 0xFF8800)
+            style.focusRingAlphaOverride = 0.5
+        }
+        defer { window.close(); withExtendedLifetime(provider) {} }
+        let color = view.context.hosts["b"]?.chrome.ringColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) }
+        #expect(color.map { abs($0.redComponent - 1) < 0.01 && abs($0.alphaComponent - 1) < 0.01 } == true)
     }
 
     /// The ring's stroke rect and the focused pane's rounded content rect,

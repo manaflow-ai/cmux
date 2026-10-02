@@ -2,12 +2,12 @@ import AppKit
 import CmuxNextBrowserImport
 import CmuxNextDesign
 
-/// Counts as "Bookmarks 1,204 · History 8,311 · Sign-ins 412", using the
+/// Counts as "Bookmarks 1,204 · History 8,311 · Passwords 412", using the
 /// kind names the checkboxes show (no per-language plural rules needed).
 enum ImportCountsText {
     static func line(_ counts: ImportCounts) -> String {
         let values: [(ImportDataKind, Int)] = [(.bookmarks, counts.bookmarks), (.history, counts.history),
-                                               (.openTabs, counts.openTabs), (.cookies, counts.cookies)]
+                                               (.openTabs, counts.openTabs), (.cookies, counts.cookies), (.passwords, counts.passwords)]
         return values.filter { $0.1 > 0 }
             .map { "\(OnboardingStrings.kind($0.0)) \($0.1.formatted(.number))" }
             .joined(separator: " · ")

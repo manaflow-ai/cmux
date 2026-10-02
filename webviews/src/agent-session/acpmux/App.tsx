@@ -28,12 +28,16 @@ import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import { DiffPanel } from "./DiffPanel";
+import type { ChangesSource } from "./changes/model";
 import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
-import { WORKED, isFoldedCopy, turnView } from "./conversation/turns";
+import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { DateLine } from "./conversation/DateLine";
+import { Thinking } from "./conversation/Thinking";
+import { WorkingFor } from "./conversation/WorkingFor";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -96,6 +100,10 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   );
 }
 
+/// The changes view reads git scopes from whoever runs the session: the acpmux client
+/// (or the mock daemon), else the native host.
+const changesSource: ChangesSource = { scopeDiff: (scope) => callNative("git.scope.diff", { scope }) };
+
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
   function MessageRow({ row }: RowProps) {
@@ -128,6 +136,27 @@ const WorkedRow = memo(
     a.row.version === b.row.version &&
     a.expanded === b.expanded &&
     a.onToggleActivity === b.onToggleActivity,
+);
+
+/// "Sun, Sep 13 at 7:55 PM" over a prompt after an hour's gap (turnView in conversation/turns.ts).
+const DateRow = memo(
+  function DateRow({ row }: RowProps) {
+    return <DateLine row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.at === b.row.at,
+);
+/// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
+const ThinkingRow = memo(
+  function ThinkingRow(_: RowProps) {
+    return <Thinking />;
+  },
+  (a, b) => a.row.id === b.row.id,
+);
+const WorkingRow = memo(
+  function WorkingRow({ row }: RowProps) {
+    return <WorkingFor row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.durationMs === b.row.durationMs,
 );
 
 const SummaryRow = memo(
@@ -261,6 +290,9 @@ const defaultRegistry: NativeRegistry = {
   assistant: MessageRow,
   activity: ToolActivityRow,
   [WORKED]: WorkedRow,
+  [DATE]: DateRow,
+  [THINKING]: ThinkingRow,
+  [WORKING]: WorkingRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
@@ -656,8 +688,13 @@ function AcpmuxPane() {
       forkable ? { fork: (throughSeq) => void callNative("chat.fork", { throughSeq }).catch(() => undefined) } : {},
     [forkable],
   );
+  // A new chat centers its composer under the hero, as Codex's home does.
+  const freshChat = isNewChat(snapshot);
   // Codex's turn shape: work folds under "Worked for" until opened.
-  const transcriptRows = useMemo(() => turnView(snapshot.rows, expanded), [snapshot.rows, expanded]);
+  const transcriptRows = useMemo(
+    () => turnView(snapshot.rows, expanded, { working: snapshot.isWorking }),
+    [snapshot.rows, expanded, snapshot.isWorking],
+  );
   // The open changes view: a turn of one session, and the control that opened it.
   const [diffView, setDiffView] = useState<{
     sessionId?: string;
@@ -899,6 +936,8 @@ function AcpmuxPane() {
           "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
           "chat.history": () => client.loadOlder(),
           "chat.fork": async ({ throughSeq }) => persistSession(await client.fork(Number(throughSeq))),
+          "git.scope.diff": ({ scope }) => client.gitScopeDiff(String(scope)),
+          "git.status": () => client.gitStatus(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
@@ -947,7 +986,7 @@ function AcpmuxPane() {
           onClick={closeOverlay}
         />
       )}
-      <div className="acpmux-main">
+      <div className="acpmux-main" data-new-chat={freshChat ? "" : undefined}>
         <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
           <header className="acpmux-header">
             <div>
@@ -965,7 +1004,7 @@ function AcpmuxPane() {
               {header.status && <span className="acpmux-status">{header.status}</span>}
             </div>
           </header>
-          {isNewChat(snapshot) ? (
+          {freshChat ? (
             <EmptyState project={projectName(snapshot.summary?.cwd)} />
           ) : (
             <TurnActionsContext.Provider value={turnActions}>
@@ -986,7 +1025,9 @@ function AcpmuxPane() {
               />
             </TurnActionsContext.Provider>
           )}
-          {diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}
+          {diffView && diffFiles && (
+            <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} source={changesSource} />
+          )}
         </div>
         {snapshot.permission?.pending && (
           <div className="acpmux-permission">

@@ -104,7 +104,7 @@ async function devBackend() {
     driver.on("download.finished", (p) => p.path && readable.add(fs.realpathSync(p.path)));
     let lines = [];
     const host = dev.createNodeHost({ workDir, sessionId: name, print: (l, t) => lines.push(t), readable });
-    const repl = ns.replHost.createBrowserRepl({ host, driver });
+    const repl = dev.createHostedRepl(ns, { host, driver }).repl;
     return { driver, repl, take: () => ((lines = []), undefined), text: () => lines.join("\n") };
   }
   async function repl(code, { session } = {}) {

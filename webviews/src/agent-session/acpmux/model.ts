@@ -20,6 +20,9 @@ export type AcpmuxRow = {
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
   /// footer need not repeat the time and count.
   folded?: boolean;
+  /// Work shown inside an open "Worked for": its turn has ended, so each run of tool calls
+  /// folds under one summary line (conversation/toolRunSummary.ts).
+  settled?: boolean;
 };
 
 export type AcpmuxActivity = {
@@ -33,6 +36,10 @@ export type AcpmuxActivity = {
     status: string;
     inputSummary?: string;
     output?: string;
+    /// A shell call's command line (`rawInput.command`), for its Shell block.
+    command?: string;
+    /// A finished shell call's exit status (Codex's `rawOutput.exit_code`).
+    exitCode?: number;
     diffs?: AcpmuxFileDiff[];
     locations?: { path: string; line?: number }[];
   };
@@ -59,6 +66,8 @@ export type AcpmuxSnapshot = {
     sessionId: string;
     cwd?: string;
     turnCount?: number;
+    /// Context-window tokens used of the session's window, from the agent's last usage update.
+    usage?: { used: number; size: number };
     host?: string;
     hostKind?: "local" | "cloud";
     branch?: string;
@@ -199,10 +208,14 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
       const files = new Set(edits.flatMap((item) => item.tool?.diffs?.map((diff) => diff.path) ?? [])).size;
       return 14 + editedCardHeight(files, plainEditLabels(edits).length);
     }
+    // In an open "Worked for", a run of two or more calls draws one summary line until opened.
+    if (row.settled && row.items && isFoldedRun(row.items)) return 36;
     return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
   }
-  // The 27px disclosure line.
-  if (row.kind === WORKED) return 35;
+  // The 27px disclosure line, and the live status lines in its place.
+  if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
+  // The 20px date line with 8px above it.
+  if (row.kind === DATE) return 36;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
   if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
@@ -391,7 +404,8 @@ export function visibleLayoutRange(
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
-import { isFoldedCopy, WORKED } from "./conversation/turns";
+import { isFoldedRun } from "./conversation/toolRunSummary";
+import { DATE, isFoldedCopy, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 

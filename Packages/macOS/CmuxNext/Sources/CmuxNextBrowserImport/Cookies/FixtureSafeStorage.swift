@@ -19,9 +19,9 @@ public struct FixtureSafeStorage: SafeStorageKeyProviding {
         self.passwords = passwords
     }
 
-    public func password(service: String) throws(CookieImportError) -> Data {
+    public func password(service: String) throws(CookieImportError) -> SecretBytes {
         guard let password = passwords[service] else { throw .keyNotFound(service: service) }
-        return Data(password.utf8)
+        return SecretBytes(copying: Array(password.utf8))
     }
 }
 

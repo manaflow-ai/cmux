@@ -178,10 +178,11 @@ Reducer `(FocusState, FocusEvent) -> (FocusState, [FocusEffect])`, pure, rules:
 - Initial placement and workspace switch: remembered pane if it exists, else the first
   pane. The target becomes `content`, except that keyboard navigation in the sidebar
   keeps `sidebar(keyboard: true)`.
-- The focused pane disappears: successor is the most recently focused surviving pane
-  (closing a split you just made returns to where you were), else the next surviving pane
-  after it in the old layout order, else the previous one. Deterministic, never a
-  dictionary order.
+- The focused pane disappears: successor per `layout.closeFocus` (close-focus.md):
+  default the previous pane in its column, else the next one there, else the column to the
+  left (its most recently focused pane), else the column to the right, on the same screen;
+  `mostRecent` takes the newest surviving pane of the history first. Deterministic, never
+  a dictionary order.
 - A tab moved to another pane by a shortcut, menu or CLI verb is followed: focus lands
   on it in its new pane once the daemon reports the move.
 - The focused pane's selected tab changes: focus follows it; `addressBar`/`findBar` of
@@ -558,11 +559,53 @@ it never changes a pane frame, inset or the hosted view's frame
 (`FocusRingNoShiftTests` moves focus across splits and niri columns under every ring
 style, width and corner setting). cmux.json `focusRing.{enabled, style (ring | glow |
 none), color (default: the Ghostty theme's focus gray), width, cornerRadius (default: the
-pane radius), showWhenSinglePane}`; palette: Toggle Focus Ring, Use Ring / Glow Focus
+pane radius), showWhenSinglePane, contrast (subtle | standard | strong)}`; palette: Toggle Focus Ring, Use Ring / Glow Focus
 Style, Toggle Focus Ring for a Single Pane. The glow is a stroke with a shadow clipped to
 the content rect, so it falls inward only. The attention ring of an unread notification
 shares the overlay (plans/cmux-next/notifications.md). Column scrolling:
 plans/cmux-next/niri.md.
+
+Contrast (2026-10-02, user: "we need focus ring to be subtler by default somehow. color
+subtler"): `focusRing.contrast` sets the pane ring's share of the theme focus color (the
+Ghostty foreground; it replaces the token's own alpha): subtle 0.20 (the default),
+standard 0.55 (the previous look), strong 0.85. `FocusRingSettings.ringColor(in:override:)`
+is the one rule the overlay draws (`Palette.paneFocusRing`) and `FocusRingContrastTests`
+checks: subtle stays at least 1.4 times a pane border's visibility in every fixture theme,
+so the focused pane is still findable. No accent hue. The accent uses of `Palette.focusRing`
+(Settings tint, omnibar and page info rings) do not change. Settings: Appearance > Focus
+Ring > Contrast; Debug Settings: Focus > Focus ring alpha overrides it.
+
+Focus indicator and tab bar background (2026-10-02, user: "ensure bg of tabbar negative
+space is same as rest of app. also we should visually differ the focused pane's tabs from
+unfocused panes tabs by making the latter more subtle. all this should be configurable by
+the user."):
+- `appearance.tabBarBackground`: `window` (default) paints no strip fill, so the space
+  around and between the tabs is the window's own background (the titlebar and pane gaps,
+  whatever the backdrop: opaque, translucent or glass); where the sheet shows another color
+  (a workspace theme of the other lightness than its room) the strip paints the pane's
+  window color instead (`TabBarBackground.paintsStripFill`). `darker` is the previous
+  shaded strip (`Palette.stripBackground`). The sidebar has its own vibrancy backdrop, so in
+  a translucent or glass window it differs from the sheet (as before this change).
+- `appearance.focusIndicator`: `border` (the ring only), `tabs` (no ring; the other panes'
+  tabs draw subtler), `both` (default, with the subtle ring), `none`. With one pane nothing
+  is marked. The tabs cue needs no border, so it works with `appearance.borders` none.
+- Mechanism: `ScreenContentView.updateChrome` computes `ChromeEmphasis.forPane` per pane
+  and gates the ring on `marksBorder`; `PaneContentChrome.setChromeEmphasis` reaches
+  `PaneContentView`, whose strip roots its own child `ThemeScope`; `ThemeScope.setEmphasis`
+  applies `ThemeTokens.emphasized` to that scope's own views only (children and the content
+  keep the plain colors), and the scope repaint is the same path a theme change uses.
+  No Tabs code changes; no accent hue.
+- Debug Settings (Focus): `focus.indicator` and `focus.tabBarBackground` override the
+  settings; `focus.inactiveTabStyle` is the prototype switch (`fade` default: text, icons
+  and pills fade toward the background; `tonal`: every text tier steps down, the selected
+  pill takes the hover fill; `quiet`: no pill, the selection is the text tier);
+  `focus.inactiveTabStrength` (0.35). Subtle text never drops below 3.5:1 (selected),
+  2.5:1 and 2:1 against the page (`ThemeTokens.subtle*Floor`). Panels and hover cards
+  opened from a subtle strip adopt `ThemeScope.fullStrength`, so they draw at full strength.
+- With `appearance.borders` none the unfocused panes' dim stands in for the ring only when
+  `focusIndicator` is `border`; with `tabs` or `both` the tab cue is the focus cue.
+- Chrome lane (WindowBackdrop, cc-pane-chrome) reads `DesignSettings.shared
+  .effectiveFocusIndicator` and `.effectiveTabBarBackground`.
 
 Resize rule (2026-09-30): the ring's layers move in the same call that sets the overlay's
 frame (`PaneOverlayView.setFrameSize`), so the pass that places the panes places the ring,

@@ -16,6 +16,8 @@ enum DebugExtensions {
               let tab = entry.tab as? CEFTab, let method = params["method"]?.stringValue else {
             return .object(["error": .string("no focused Chromium tab or method")])
         }
+        // Trusted input counts as a user gesture: no saved password fills here after this.
+        tab.markAgentDriven()
         var arguments: [String: any Sendable] = [:]
         for (key, value) in params["params"]?.objectValue ?? [:] { arguments[key] = foundation(value) }
         do {
