@@ -821,6 +821,9 @@ extension TerminalController {
         if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
             payload["freeAccessExpiresAt"] = freeAccessExpiresAt
         }
+        if let cmuxTuiContract = vm.cmuxTuiContract, !cmuxTuiContract.isEmpty {
+            payload["cmuxTuiContract"] = cmuxTuiContract
+        }
         if vm.addressIPv4 != nil || vm.addressIPv6 != nil {
             var address: [String: Any] = [:]
             address["ipv4"] = vm.addressIPv4.map { $0 as Any } ?? NSNull()
