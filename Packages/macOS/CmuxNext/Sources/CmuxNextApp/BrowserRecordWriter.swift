@@ -75,6 +75,8 @@ final class BrowserRecordWriter {
     private let send: Send
     private var observation: Task<Void, Never>?
     private var pending: Task<Void, Never>?
+    /// The page change the pending write waits to send.
+    private var unsent: BrowserTabState?
 
     init(tab: any BrowserTab, recorded: BrowserRecord, delay: Duration, sleep: @escaping Sleep, send: @escaping Send) {
         self.recorded = recorded
@@ -88,6 +90,16 @@ final class BrowserRecordWriter {
         }
     }
 
+    /// Sends a write still waiting out its delay now (quit: the app may be
+    /// gone before the delay ends).
+    func flushNow() async {
+        guard let state = unsent else { return }
+        pending?.cancel()
+        pending = nil
+        unsent = nil
+        await flush(state)
+    }
+
     func cancel() {
         observation?.cancel()
         pending?.cancel()
@@ -99,11 +111,14 @@ final class BrowserRecordWriter {
         pending?.cancel()
         guard recorded.update(toward: state) != nil else {
             pending = nil
+            unsent = nil
             return
         }
+        unsent = state
         let delay = delay, sleep = sleep
         pending = Task { [weak self] in
             do { try await sleep(delay) } catch { return }
+            self?.unsent = nil
             await self?.flush(state)
         }
     }

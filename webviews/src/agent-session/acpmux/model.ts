@@ -1,3 +1,5 @@
+import type { HandoffClientState } from "./handoff/client";
+import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 
 export type AcpmuxRow = {
@@ -80,6 +82,7 @@ export type AcpmuxSnapshot = {
     model?: string;
     effort?: string;
     status?: string;
+    enforcement?: Enforcement;
     modes?: { availableModes: { id: string; name?: string; description?: string }[]; currentModeId?: string };
     configOptions?: {
       id: string;
@@ -94,6 +97,8 @@ export type AcpmuxSnapshot = {
   isWorking: boolean;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
+  canHandoff?: boolean;
+  handoff?: HandoffClientState;
   queue: { id: string; prompt: string }[];
   permission?: AcpmuxPermission;
   catalog: { id: string; name: string; models: { id: string; name?: string }[] }[];
