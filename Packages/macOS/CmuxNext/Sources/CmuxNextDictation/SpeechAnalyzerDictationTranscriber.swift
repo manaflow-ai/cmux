@@ -38,8 +38,9 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     /// oldest lets the analyzer catch up after a model stall without an unbounded recording.
     private static let inputBufferCapacity = 8
 
-    /// Silence the analyzer hears before capture, longer than its first chunk.
-    private static let leadInSeconds = 1.5
+    /// The noise floor the analyzer hears before capture, longer than the
+    /// span it never transcribes, in buffers about the size of a tap's.
+    private static let leadInSeconds = 1.5, leadInPieces = 10
 
     /// Bounds callbacks when insertion stalls; a dropped event fails the session, never loses a final.
     private static let eventBufferCapacity = 32
@@ -114,7 +115,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             )
         let (inputSequence, inputContinuation) =
             AsyncThrowingStream<AnalyzerInput, any Error>.makeStream(
-                bufferingPolicy: .bufferingNewest(Self.inputBufferCapacity)
+                bufferingPolicy: .bufferingNewest(Self.inputBufferCapacity + Self.leadInPieces)
             )
         inputBox.configure(continuation: rawInputContinuation)
         self.analyzerFormat = analyzerFormat
@@ -151,9 +152,8 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             // still loading was never transcribed.
             try await analyzer.prepareToAnalyze(in: analyzerFormat)
             guard !isFinishing else { throw CancellationError() }
-            if let silence = AVAudioPCMBuffer.silence(analyzerFormat, seconds: Self.leadInSeconds) {
-                inputContinuation.yield(timeline.leadIn(silence))
-            }
+            let leadIn = AVAudioPCMBuffer.noiseFloor(analyzerFormat, seconds: Self.leadInSeconds, pieces: Self.leadInPieces)
+            for input in timeline.leadIn(leadIn) { inputContinuation.yield(input) }
             do {
                 try startAudioEngine()
             } catch let error where !(error is CancellationError) {

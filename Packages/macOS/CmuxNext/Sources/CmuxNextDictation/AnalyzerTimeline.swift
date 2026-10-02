@@ -13,16 +13,23 @@ struct AnalyzerTimeline {
     /// How far captured audio sits after the lead-in on the analyzer's clock.
     private var offset = CMTime.zero
 
-    /// `silence` as the analyzer's first input, at time zero. SpeechAnalyzer
-    /// runs its first chunk (about a second) on whatever audio it has when
-    /// it starts and never revisits the rest of that chunk, so speech in the
-    /// first second of capture was lost. Heard all at once, the lead-in fills
-    /// that chunk; captured audio follows it.
-    mutating func leadIn(_ silence: AVAudioPCMBuffer) -> AnalyzerInput {
-        let rate = CMTimeScale(min(silence.format.sampleRate.rounded(), Double(Int32.max)))
-        offset = CMTime(value: CMTimeValue(silence.frameLength), timescale: rate)
-        end = offset
-        return AnalyzerInput(buffer: silence, bufferStartTime: .zero)
+    /// `buffers` as the analyzer's first input, from time zero. SpeechAnalyzer
+    /// transcribes nothing in about the first 1.1 s of audio it hears, and
+    /// digital silence does not count toward that span, so words spoken in
+    /// the first second of a session were lost. A faint noise floor fills
+    /// that span; captured audio follows it.
+    mutating func leadIn(_ buffers: [AVAudioPCMBuffer]) -> [AnalyzerInput] {
+        var time = CMTime.zero
+        let inputs = buffers.map { buffer in
+            defer {
+                let rate = CMTimeScale(min(buffer.format.sampleRate.rounded(), Double(Int32.max)))
+                time = CMTimeAdd(time, CMTime(value: CMTimeValue(buffer.frameLength), timescale: rate))
+            }
+            return AnalyzerInput(buffer: buffer, bufferStartTime: time)
+        }
+        offset = time
+        end = time
+        return inputs
     }
 
     /// The start time to give a buffer of `frames` frames at `sampleRate`
@@ -55,14 +62,31 @@ struct AnalyzerTimeline {
 }
 
 extension AVAudioPCMBuffer {
-    /// `seconds` of silence in `format`, for ``AnalyzerTimeline/leadIn(_:)``.
-    static func silence(_ format: AVAudioFormat, seconds: Double) -> AVAudioPCMBuffer? {
-        let frames = AVAudioFrameCount((format.sampleRate * seconds).rounded())
-        guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return nil }
-        buffer.frameLength = frames
-        for channel in UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList) {
-            if let data = channel.mData { memset(data, 0, Int(channel.mDataByteSize)) }
+    /// `seconds` of faint noise (about -50 dBFS) in `format`, split into
+    /// `pieces` buffers, for ``AnalyzerTimeline/leadIn(_:)``. The noise is
+    /// the same every time.
+    static func noiseFloor(_ format: AVAudioFormat, seconds: Double, pieces: Int) -> [AVAudioPCMBuffer] {
+        let total = Int((format.sampleRate * seconds).rounded())
+        guard total > 0, pieces > 0 else { return [] }
+        var state: UInt32 = 0x9E37_79B9
+        func next() -> Float {
+            state = state &* 1_664_525 &+ 1_013_904_223
+            return Float(Int32(bitPattern: state)) / Float(Int32.max) * 0.003
         }
-        return buffer
+        return (0..<pieces).compactMap { piece in
+            let frames = AVAudioFrameCount(total * (piece + 1) / pieces - total * piece / pieces)
+            guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return nil }
+            buffer.frameLength = frames
+            for channel in 0..<Int(format.channelCount) {
+                for frame in 0..<Int(frames) {
+                    if let data = buffer.floatChannelData {
+                        data[channel][frame] = next()
+                    } else if let data = buffer.int16ChannelData {
+                        data[channel][frame] = Int16(next() * 32_767)
+                    }
+                }
+            }
+            return buffer
+        }
     }
 }
