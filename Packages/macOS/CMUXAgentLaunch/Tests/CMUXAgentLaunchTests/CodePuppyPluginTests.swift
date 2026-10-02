@@ -77,6 +77,7 @@ assert all(payload['session_id'] == 'auto_session_actual' for _,payload,_ in cal
 assert all(env['CMUX_CODE_PUPPY_PID'] == 'parent-pid' for _,_,env in calls)
 assert calls[4][1]['success'] is False and calls[4][1]['error'] == 'oops'
 assert calls[4][1]['type'] == 'error'
+assert calls[5][1]['success'] is False
 assert calls[0][0][0] == sys.argv[2] and calls[0][0][1:3] == ['--socket','/tagged socket']
 os.environ['CMUX_CODE_PUPPY_HOOKS_DISABLED'] = '1'
 asyncio.run(exercise()); assert len(calls) == 7

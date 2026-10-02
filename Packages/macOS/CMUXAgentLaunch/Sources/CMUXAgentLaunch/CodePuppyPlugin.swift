@@ -88,6 +88,7 @@ public enum CodePuppyPlugin {
     _settings = json.loads(__CMUX_SETTINGS__)
     _runs = []
     _session = None
+    _last_success = True
 
 
     def _enabled():
@@ -123,7 +124,7 @@ public enum CodePuppyPlugin {
 
 
     async def _on_start(agent_name, model_name, session_id=None):
-        global _session
+        global _session, _last_success
         if not _enabled():
             return
         # Run UUIDs are used only to pair nested callbacks, NEVER as resume IDs.
@@ -131,6 +132,7 @@ public enum CodePuppyPlugin {
         _runs.append(session_id)
         if nested:
             return
+        _last_success = True
         try:
             _session = config.get_current_autosave_session_name()
         except Exception:
@@ -142,6 +144,7 @@ public enum CodePuppyPlugin {
 
     async def _on_end(agent_name, model_name, session_id=None, success=True,
                       error=None, response_text=None, metadata=None):
+        global _last_success
         if not _runs or session_id not in _runs:
             return
         index = _runs.index(session_id)
@@ -150,6 +153,7 @@ public enum CodePuppyPlugin {
             return
         # Nested runs that outlive their parent must not retain root ownership.
         _runs.clear()
+        _last_success = bool(success)
         message = str(error) if error is not None else ("Agent run failed" if not success else None)
         await _send("stop", "Stop", agent_name=agent_name, success=bool(success),
                     error=message, message=message, type="error" if not success else "stop",
@@ -177,7 +181,7 @@ public enum CodePuppyPlugin {
             return
         if getattr(metadata, "session_name", None) != _session:
             return
-        await _send("session-update", "PostAutosave")
+        await _send("session-update", "PostAutosave", success=_last_success)
 
 
     async def _on_shutdown():
