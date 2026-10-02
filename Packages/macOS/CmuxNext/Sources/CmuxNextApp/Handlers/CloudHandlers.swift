@@ -97,11 +97,18 @@ enum CloudHandlers {
     /// attached to the machine after daemon handle ids are recycled.
     @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
         let id = try await firstWorkspace(on: session, context)
-        guard let workspace = session.daemon.store.workspaces.first(where: { $0.id == id }),
-              let key = workspace.key,
-              let pane = workspace.screens.first?.panes.first else {
+        if let anchor = anchor(id: id, on: session) { return anchor }
+        guard let created = await context.services.windows.createWorkspace(on: session.daemon),
+              let anchor = anchor(id: created, on: session) else {
             throw ActionFailure(message: CloudStrings.notConnected)
         }
+        return anchor
+    }
+
+    @MainActor private static func anchor(id: String, on session: CloudMachineSession) -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
+        guard let workspace = session.daemon.store.workspaces.first(where: { $0.id == id }),
+              let key = workspace.key,
+              let pane = workspace.screens.first?.panes.first else { return nil }
         return (id, key, pane)
     }
 

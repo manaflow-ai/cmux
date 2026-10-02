@@ -1704,6 +1704,13 @@
         }
       }
     },
+    "cloud.failed.commandRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Pass a command to run on the Cloud machine."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud マシンで実行するコマンドを指定してください。"}}
+      }
+    },
     "cloud.failed.notConnected": {
       "extractionState": "manual",
       "localizations": {

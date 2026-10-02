@@ -70,7 +70,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 id: "cloudSSH",
                 title: String(localized: "action.cloudSSH", defaultValue: "Open Cloud SSH Terminal", bundle: .module),
                 keywords: ["vm", "cloud", "ssh", "terminal"], category: .cloud, symbol: "terminal",
-                surfaces: [.palette, .contextMenu], requires: [.cloudWorkspace], targets: [.machine],
+                surfaces: [.palette, .contextMenu], targets: [.machine],
                 cliName: "cloud ssh", startsTerminal: true
             ),
             ActionDescriptor(

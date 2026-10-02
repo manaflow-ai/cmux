@@ -16,10 +16,11 @@ extension CloudHandlers {
         bind("cloudSSH", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             guard session.daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
-            run("open Cloud SSH terminal", context) {
+            runTracked("open Cloud SSH terminal", context) {
                 let anchor = try await terminalAnchor(on: session, context)
                 guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
-                _ = try await connection.newTab(in: anchor.pane.id, options: SpawnOptions(workspace: anchor.key))
+                let created = try await connection.newTab(in: anchor.pane.id, options: SpawnOptions(workspace: anchor.key))
+                context.services.paneController(for: anchor.pane)?.pendingSelectSurface = created.surface
                 show(anchor.id, context)
             }
         }
@@ -27,11 +28,12 @@ extension CloudHandlers {
             let session = try machine(invocation, context)
             let command = try commandArgument(invocation)
             guard session.daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
-            run("exec on Cloud machine", context) {
+            runTracked("exec on Cloud machine", context) {
                 let anchor = try await terminalAnchor(on: session, context)
                 guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
                 let created = try await connection.newTab(in: anchor.pane.id, options: SpawnOptions(workspace: anchor.key))
                 try await connection.send(created.surface, text: command + "\n")
+                context.services.paneController(for: anchor.pane)?.pendingSelectSurface = created.surface
                 show(anchor.id, context)
             }
         }

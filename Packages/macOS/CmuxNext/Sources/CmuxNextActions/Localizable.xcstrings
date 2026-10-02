@@ -70216,6 +70216,20 @@
           }
         }
       }
+    },
+    "action.cloudExec": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Run Command on Cloud Machine…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud マシンでコマンドを実行…"}}
+      }
+    },
+    "action.cloudSSH": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Open Cloud SSH Terminal"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud SSH ターミナルを開く"}}
+      }
     }
   },
   "version": "1.0"
