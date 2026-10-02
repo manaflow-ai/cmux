@@ -151,9 +151,9 @@ extension TerminalController {
         let now = Date()
         var operation = AgentFanOutOperation(
             id: generatedID, machineID: machineID, scope: scope,
-            remoteWorkspaceID: explicitWorkspace ?? "", agent: agent, argvDigest: digest,
+            remoteWorkspaceID: explicitWorkspace ?? "", sharedWorkspace: explicitWorkspace != nil,
+            agent: agent, argvDigest: digest,
             requestedCount: count, createdAt: now, updatedAt: now, state: .creating,
-            sharedWorkspace: explicitWorkspace != nil,
             children: (0..<count).map {
                 AgentFanOutChild(
                     index: $0,
