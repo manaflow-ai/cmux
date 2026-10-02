@@ -166,8 +166,11 @@ nonisolated enum FocusReducer {
                           policy: CloseFocusPolicy) -> String? {
         let columns = old.columns(containing: pane) ?? [FocusTopology.Column(id: "", panes: old.panes.map(\.id))]
         let before = columns.map(\.panes)
-        let after = columns.map { $0.panes.filter(new.contains(pane:)) }
-        let onScreen = Set(before.flatMap { $0 })
+        // Aligned by column id: a pane that moved to another column is not
+        // in its old column any more (close-focus.md; LayoutRows.tla).
+        let now = new.columnsByID
+        let after = columns.map { now[$0.id] ?? [] }
+        let onScreen = Set(after.flatMap { $0 })
         if let pick = FocusAfterClose.pane(focused: pane, before: before, after: after,
                                           history: history.filter(onScreen.contains), policy: policy),
            new.contains(pane: pick) {

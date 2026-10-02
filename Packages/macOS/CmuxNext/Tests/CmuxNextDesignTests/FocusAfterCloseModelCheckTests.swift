@@ -34,6 +34,29 @@ import Testing
         case focus(Int)           // a user focus change
         case split                // a new pane after the focused one in its column
         case newColumn            // a new column right of the focused one
+        /// One snapshot in which `closed` closes and `moved` moves (another
+        /// client's tab drag) to the end of column `to`, or to a new last
+        /// column when `to` is the column count (LayoutRows.tla trace).
+        case closeAndMove(closed: Int, moved: Int, to: Int)
+    }
+
+    /// The layout change of a close-like step: the columns after, aligned
+    /// with the columns before by identity (`aligned[i]` is column i's
+    /// panes now, empty when it is gone), plus a new column if one formed.
+    static func transition(_ step: PaneStep, _ world: PaneWorld) -> (aligned: [[Int]], extra: [Int]?)? {
+        switch step {
+        case .closePane(let pane):
+            return (world.columns.map { $0.filter { $0 != pane } }, nil)
+        case .closeColumn(let index):
+            let gone = Set(world.columns[index])
+            return (world.columns.map { $0.filter { !gone.contains($0) } }, nil)
+        case .closeAndMove(let closed, let moved, let to):
+            var aligned = world.columns.map { $0.filter { $0 != closed && $0 != moved } }
+            if to < aligned.count { aligned[to].append(moved) }
+            return (aligned, to < aligned.count ? nil : [moved])
+        default:
+            return nil
+        }
     }
 
     /// Renames panes by their position (column-major), so states that
@@ -57,6 +80,10 @@ import Testing
         let panes = world.columns.flatMap { $0 }
         var result: [PaneStep] = panes.map { .closePane($0) } + world.columns.indices.map { .closeColumn($0) } + panes.map { .focus($0) }
         if let focused = world.focused, let column = world.columns.firstIndex(where: { $0.contains(focused) }) {
+            // The focused pane closes while a pane of its column moves away.
+            for moved in world.columns[column] where moved != focused {
+                for to in 0...world.columns.count where to != column { result.append(.closeAndMove(closed: focused, moved: moved, to: to)) }
+            }
             if panes.count < maxPanes, world.columns[column].count < 3 { result.append(.split) }
             if panes.count < maxPanes, world.columns.count < maxColumns { result.append(.newColumn) }
         }
@@ -71,19 +98,22 @@ import Testing
     /// One step. Returns the next world and, for a close, what the rule saw.
     static func apply(_ step: PaneStep, to world: PaneWorld, rule: PaneRule, policy: CloseFocusPolicy) -> PaneWorld {
         var next = world
-        func close(_ removed: Set<Int>) {
-            let before = world.columns
-            let after = before.map { $0.filter { !removed.contains($0) } }.filter { !$0.isEmpty }
-            let surviving = Set(after.flatMap { $0 })
-            next.columns = after
-            next.history = world.history.filter(surviving.contains)
-            let ruleAfter = before.map { $0.filter { !removed.contains($0) } }
-            next.focused = rule(world.focused, before, ruleAfter, next.history, policy)
+        if let (aligned, extra) = transition(step, world) {
+            next.columns = aligned.filter { !$0.isEmpty } + (extra.map { [$0] } ?? [])
+            let alive = Set(next.columns.flatMap { $0 })
+            next.history = world.history.filter(alive.contains)
+            // As the app: focus that is still anywhere stays; else the rule.
+            if let f = world.focused, alive.contains(f) {
+                next.focused = f
+            } else {
+                next.focused = rule(world.focused, world.columns, aligned, next.history.filter(Set(aligned.flatMap { $0 }).contains), policy)
+                    ?? next.history.first ?? next.columns.flatMap { $0 }.first
+            }
             next.history = remember(next.focused, next.history)
+            return next
         }
         switch step {
-        case .closePane(let pane): close([pane])
-        case .closeColumn(let index): close(Set(world.columns[index]))
+        case .closePane, .closeColumn, .closeAndMove: break
         case .focus(let pane):
             next.focused = pane
             next.history = remember(pane, world.history)
@@ -108,51 +138,52 @@ import Testing
     /// of the implementation (column indices, not the code's search).
     static func check(_ step: PaneStep, before: PaneWorld, after: PaneWorld, policy: CloseFocusPolicy, rule: PaneRule) -> [String] {
         var bad: [String] = []
-        let removed: Set<Int>
-        switch step {
-        case .closePane(let pane): removed = [pane]
-        case .closeColumn(let index): removed = Set(before.columns[index])
-        default: return bad
-        }
+        guard let (aligned, _) = transition(step, before) else { return bad }
         let surviving = Set(after.columns.flatMap { $0 })
         // C3: nil only when nothing survives.
         if (after.focused == nil) != surviving.isEmpty { bad.append("C3 focus \(String(describing: after.focused)) with \(surviving.count) panes") }
         // C2: the successor survives.
         if let focus = after.focused, !surviving.contains(focus) { bad.append("C2 focus \(focus) removed") }
         guard let old = before.focused else { return bad }
-        // C1: an unfocused close (whoever closed it) never moves focus.
-        if !removed.contains(old) {
-            if after.focused != old { bad.append("C1 \(old) -> \(String(describing: after.focused)) on unfocused close") }
+        // C1: focus that survives (anywhere) never moves, whoever closed what.
+        let inColumns = Set(aligned.flatMap { $0 })
+        let history = before.history.filter(inColumns.contains)
+        if surviving.contains(old) {
+            if after.focused != old { bad.append("C1 \(old) -> \(String(describing: after.focused)) while it survives") }
+            // The function itself keeps a focus that is still in the columns.
+            if inColumns.contains(old), rule(old, before.columns, aligned, history, policy) != old {
+                bad.append("C1 rule moved a surviving focus \(old)")
+            }
             return bad
         }
         // C4: deterministic.
-        let ruleAfter = before.columns.map { $0.filter { !removed.contains($0) } }
-        let history = before.history.filter(surviving.contains)
-        if rule(old, before.columns, ruleAfter, history, policy) != rule(old, before.columns, ruleAfter, history, policy) {
+        if rule(old, before.columns, aligned, history, policy) != rule(old, before.columns, aligned, history, policy) {
             bad.append("C4 nondeterministic")
         }
         guard let focus = after.focused else { return bad }
-        // R: the configured rule.
+        // R: the configured rule; "in column i" means in column i now
+        // (aligned by identity), not merely alive.
         if policy == .mostRecent, let recent = history.first {
             if focus != recent { bad.append("RM expected most recent \(recent), got \(focus)") }
             return bad
         }
         guard let c = before.columns.firstIndex(where: { $0.contains(old) }) else { return bad }
         let column = before.columns[c]
-        let alive = column.filter(surviving.contains)
-        if !alive.isEmpty {
-            // R1: same column, the nearest previous survivor, else the nearest next one.
+        let stay = Set(aligned[c])
+        if !stay.isEmpty {
+            // R1: the nearest previous pane still in the column, else the
+            // nearest next one, else a pane that joined the column.
             let i = column.firstIndex(of: old)!
-            let expected = column[..<i].last(where: surviving.contains) ?? column[(i + 1)...].first(where: surviving.contains)
+            let expected = column[..<i].last(where: stay.contains) ?? column[(i + 1)...].first(where: stay.contains)
+                ?? history.first(where: stay.contains) ?? aligned[c].first
             if focus != expected { bad.append("R1 expected \(String(describing: expected)) in column, got \(focus)") }
         } else {
-            // R2: the nearest surviving column to the left, else the right;
+            // R2: the nearest non-empty column to the left, else the right;
             // inside it the most recent pane, else its first.
-            let left = before.columns[..<c].lastIndex { $0.contains(where: surviving.contains) }
-            let right = before.columns[(c + 1)...].firstIndex { $0.contains(where: surviving.contains) }
+            let left = aligned[..<c].lastIndex { !$0.isEmpty }
+            let right = aligned[(c + 1)...].firstIndex { !$0.isEmpty }
             guard let target = left ?? right else { return bad }
-            let panes = before.columns[target].filter(surviving.contains)
-            let expected = history.first(where: panes.contains) ?? panes.first
+            let expected = history.first(where: aligned[target].contains) ?? aligned[target].first
             if focus != expected { bad.append("R2 expected \(String(describing: expected)) (column \(target)), got \(focus)") }
         }
         return bad
@@ -185,7 +216,7 @@ import Testing
                 for step in steps(world, maxPanes: maxPanes, maxColumns: maxColumns) {
                     let after = apply(step, to: world, rule: rule, policy: policy)
                     stats.transitions += 1
-                    if case .focus = step {} else if case .split = step {} else if case .newColumn = step {} else { stats.closes += 1 }
+                    if transition(step, world) != nil { stats.closes += 1 }
                     let bad = check(step, before: world, after: after, policy: policy, rule: rule)
                     if !bad.isEmpty, stats.violations.count < 5 { stats.violations.append("\(world) \(step): \(bad)") }
                     let key = canonical(after)
@@ -218,12 +249,19 @@ import Testing
     /// Mutants: each breaks one rule and must be caught.
     @Test(arguments: [
         "historyAlways", "nextFirst", "rightColumnFirst", "firstPaneOfColumn", "moveOnUnfocusedClose", "nilWhenColumnGone",
+        "livenessNotMembership",
     ])
     func paneMutantIsCaught(_ name: String) {
         let mutant: PaneRule = { focused, before, after, history, policy in
             let real = FocusAfterClose.pane(focused: focused, before: before, after: after, history: history, policy: policy)
             let surviving = Set(after.flatMap { $0 })
             switch name {
+            case "livenessNotMembership":
+                // The rule before LayoutRows.tla: a pane alive anywhere counted
+                // as still in its old column.
+                let alive = Set(after.flatMap { $0 })
+                return FocusAfterClose.pane(focused: focused, before: before, after: before.map { $0.filter(alive.contains) },
+                                            history: history, policy: policy)
             case "historyAlways":
                 // The old app rule: the most recently focused survivor anywhere.
                 if let focused, !surviving.contains(focused), let recent = history.first(where: surviving.contains) { return recent }
