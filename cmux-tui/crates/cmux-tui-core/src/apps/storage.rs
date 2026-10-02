@@ -95,7 +95,7 @@ impl Storage {
                 }
                 let used: i64 = self
                     .db
-                    .query_row(&format!("SELECT COALESCE(SUM(LENGTH(key) + LENGTH(value)), 0) FROM {table} WHERE key != ?1"), params![key], |row| row.get(0))
+                    .query_row(&format!("SELECT COALESCE(SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(CAST(value AS BLOB))), 0) FROM {table} WHERE key != ?1"), params![key], |row| row.get(0))
                     .map_err(failed)?;
                 if used + (key.len() + value.len()) as i64 > MAX_APP_BYTES {
                     return Err(StorageError {

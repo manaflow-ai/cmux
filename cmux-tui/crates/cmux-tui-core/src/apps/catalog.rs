@@ -62,15 +62,25 @@ impl Package {
     /// `operations.<op>.export`).
     pub fn export_for_op(&self, op: &str) -> Option<String> {
         let file = self.manifest.get("catalog")?.as_str()?;
-        let catalog: Value =
-            serde_json::from_slice(&std::fs::read(self.dir.join(file)).ok()?).ok()?;
+        let catalog: Value = serde_json::from_slice(&self.read(file)?).ok()?;
         catalog.get("operations")?.get(op)?.get("export")?.as_str().map(str::to_string)
     }
 
     /// The app's main script, read when its host starts.
     pub fn main_source(&self) -> Option<String> {
         let main = self.manifest.pointer("/runtime/main")?.as_str()?;
-        std::fs::read_to_string(self.dir.join(main)).ok()
+        String::from_utf8(self.read(main)?).ok()
+    }
+
+    /// A file of the package, refused when it (or a symlink on the way)
+    /// leaves the package directory.
+    fn read(&self, relative: &str) -> Option<Vec<u8>> {
+        let root = self.dir.canonicalize().ok()?;
+        let path = self.dir.join(relative).canonicalize().ok()?;
+        if !path.starts_with(&root) {
+            return None;
+        }
+        std::fs::read(path).ok()
     }
 
     /// `strings/<locale>.json` falling back to English.
@@ -79,7 +89,7 @@ impl Package {
             return Value::Null;
         };
         for candidate in [locale, "en"] {
-            if let Ok(raw) = std::fs::read(self.dir.join(dir).join(format!("{candidate}.json")))
+            if let Some(raw) = self.read(&format!("{dir}/{candidate}.json"))
                 && let Ok(value) = serde_json::from_slice::<Value>(&raw)
             {
                 return value;
