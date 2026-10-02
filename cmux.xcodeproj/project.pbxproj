@@ -1190,6 +1190,7 @@
 		C10D0A100000000000000001 /* CMUXCLI+CloudDomains.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D0A100000000000000002 /* CMUXCLI+CloudDomains.swift */; };
 		8E698AAEED584B5C92B9C734 /* CMUXCLI+CloudFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1FF1D48B584498AB7FD6B9E /* CMUXCLI+CloudFeature.swift */; };
 		8998766EE75E446999264351 /* CMUXCLI+CloudSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B615265460F412888EB0F73 /* CMUXCLI+CloudSidebar.swift */; };
+		58217B092B8B7F1ECB2E3013 /* CMUXCLI+CodePuppyHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC729F5EB135E73987391315 /* CMUXCLI+CodePuppyHooks.swift */; };
 		C0DE60C0000000000000A022 /* CMUXCLI+Coderouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A021 /* CMUXCLI+Coderouter.swift */; };
 		C0DE60C0000000000000A034 /* CMUXCLI+CoderouterPassthrough.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A033 /* CMUXCLI+CoderouterPassthrough.swift */; };
 		C0D3F1F00000000000000101 /* CMUXCLI+CodexFireAndForgetHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F00000000000000102 /* CMUXCLI+CodexFireAndForgetHooks.swift */; };
@@ -5660,6 +5661,7 @@
 		C10D0A100000000000000002 /* CMUXCLI+CloudDomains.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CloudDomains.swift"; sourceTree = "<group>"; };
 		E1FF1D48B584498AB7FD6B9E /* CMUXCLI+CloudFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CloudFeature.swift"; sourceTree = "<group>"; };
 		7B615265460F412888EB0F73 /* CMUXCLI+CloudSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CloudSidebar.swift"; sourceTree = "<group>"; };
+		DC729F5EB135E73987391315 /* CMUXCLI+CodePuppyHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CodePuppyHooks.swift"; sourceTree = "<group>"; };
 		C0DE60C0000000000000A021 /* CMUXCLI+Coderouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Coderouter.swift"; sourceTree = "<group>"; };
 		C0DE60C0000000000000A033 /* CMUXCLI+CoderouterPassthrough.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CoderouterPassthrough.swift"; sourceTree = "<group>"; };
 		C0D3F1F00000000000000102 /* CMUXCLI+CodexFireAndForgetHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CodexFireAndForgetHooks.swift"; sourceTree = "<group>"; };
@@ -12035,6 +12037,7 @@
 				57AE38B536A608CB2CDEE6AD /* CMUXCLI+DiffViewerReviewLabels.swift */,
 				5A2776CC5FE1E0083FAAB3A8 /* VMReadyPollInterval.swift */,
 				5B85EF1F8C40AF5C89F442A8 /* CMUXCLI+AgentMessageSettings.swift */,
+				DC729F5EB135E73987391315 /* CMUXCLI+CodePuppyHooks.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -14649,6 +14652,7 @@
 				875200000000000000000012 /* cmuxApp+SurfaceNavigationMenu.swift in Sources */,
 				80410000000000000000000D /* cmuxApp+WorkspaceCommandHelpers.swift in Sources */,
 				A5001001 /* cmuxApp.swift in Sources */,
+				58217B092B8B7F1ECB2E3013 /* CMUXCLI+CodePuppyHooks.swift in Sources */,
 				A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */,
 				A5001650 /* CmuxConfig.swift in Sources */,
 				A5FB1209 /* CmuxConfigActionDefinition.swift in Sources */,

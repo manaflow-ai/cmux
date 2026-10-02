@@ -243,13 +243,14 @@ extension CMUXCLI {
             displayName: String(localized: "agent.codePuppy.displayName", defaultValue: "Code Puppy"),
             statusKey: CodePuppyAgentRegistration.standard.id,
             configDir: CodePuppyAgentRegistration.standard.hookConfigDirectory,
-            configFile: CodePuppyAgentRegistration.standard.hookConfigFile,
+            configFile: CodePuppyPlugin.registryFileName,
             createConfigDirIfMissing: true,
+            configDirResolver: { CMUXCLI.codePuppyConfigDirectory().path },
             binaryName: CodePuppyAgentRegistration.standard.binaryName,
             sessionStoreSuffix: CodePuppyAgentRegistration.standard.sessionStoreSuffix,
             disableEnvVar: CodePuppyAgentRegistration.standard.disableHooksEnvironmentVariable,
             hookMarker: CodePuppyAgentRegistration.standard.hookMarker,
-            format: .nested(timeoutMs: CodePuppyAgentRegistration.standard.hookTimeoutMilliseconds),
+            format: .codePuppyPlugin,
             events: CodePuppyAgentRegistration.standard.lifecycleEvents.map {
                 .init(agentEvent: $0.agentEvent, cmuxSubcommand: $0.cmuxSubcommand)
             },

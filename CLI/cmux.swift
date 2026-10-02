@@ -33657,7 +33657,7 @@ struct CMUXCLI {
                     eventName: event.agentEvent
                 ))
                 result[event.agentEvent] = entries
-            case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable, .codePuppyPlugin:
                 break
             }
         }
@@ -33699,7 +33699,7 @@ struct CMUXCLI {
                     eventName: agentEvent
                 ))
                 result[agentEvent] = entries
-            case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable, .codePuppyPlugin:
                 break
             }
         }
@@ -34496,6 +34496,7 @@ export default {
 
     private func installAgentHooks(_ def: AgentHookDef) throws {
         try Self.validateHookInstallDispatch(for: def)
+        if case .codePuppyPlugin = def.format { try installCodePuppyPlugin(def); return }
         if def.name == "opencode" { try installOpenCodePluginHooks(def); return }
         if def.name == "pi" { try installPiExtensionHooks(def); return }
         if def.name == "omp" { try installOmpExtensionHooks(def); return }
@@ -34627,7 +34628,7 @@ export default {
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable, .codePuppyPlugin:
                 break
             }
         }
@@ -34655,7 +34656,7 @@ export default {
                     }
                 }
                 hooks[event] = groups
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable, .codePuppyPlugin:
                 break
             }
         }
@@ -34876,6 +34877,7 @@ export default {
     }
 
     private func uninstallAgentHooks(_ def: AgentHookDef) throws {
+        if case .codePuppyPlugin = def.format { try uninstallCodePuppyPlugin(def); return }
         if def.name == "opencode" { try uninstallOpenCodePluginHooks(def); return }
         if def.name == "pi" { try uninstallPiExtensionHooks(def); return }
         if def.name == "omp" { try uninstallOmpExtensionHooks(def); return }
@@ -34964,7 +34966,7 @@ export default {
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable, .codePuppyPlugin:
                 break
             }
         }

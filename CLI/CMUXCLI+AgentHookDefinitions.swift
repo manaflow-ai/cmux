@@ -72,6 +72,7 @@ extension CMUXCLI {
             case rovoDevYAML
             case hermesAgentYAML
             case tomlArrayTable // Kimi config.toml [[hooks]] array-of-tables
+            case codePuppyPlugin // Canonical autosave IDs through Python lifecycle callbacks
         }
 
         enum HookDispatch {
@@ -495,7 +496,7 @@ extension CMUXCLI {
         return "\(environmentPrefix)\(executable) \(routedArguments)"
     }
 
-    private static func pinnedAgentHookCLIPath(
+    static func pinnedAgentHookCLIPath(
         env: [String: String] = ProcessInfo.processInfo.environment,
         arguments: [String] = ProcessInfo.processInfo.arguments
     ) -> String? {
@@ -529,7 +530,7 @@ extension CMUXCLI {
         return FileManager.default.isExecutableFile(atPath: path)
     }
 
-    private static func pinnedAgentHookSocketPath(
+    static func pinnedAgentHookSocketPath(
         env: [String: String] = ProcessInfo.processInfo.environment
     ) -> String? {
         if let socketPath = normalizedHookInstallValue(env["CMUX_SOCKET_PATH"]) {
