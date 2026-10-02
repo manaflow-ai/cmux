@@ -50,7 +50,7 @@ done
 # source, a tmpfs for transient writes, and one explicitly bound cmux socket.
 # The runner fails closed when this sandbox is unavailable.
 if command -v bwrap >/dev/null 2>&1; then
-  exec bwrap \
+  if bwrap \
     --die-with-parent --new-session --unshare-all --clearenv \
     --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib \
     --ro-bind /lib64 /lib64 \
@@ -62,7 +62,12 @@ if command -v bwrap >/dev/null 2>&1; then
     --setenv HOME /tmp --setenv CMUX_TUI_SOCKET /run/cmux.sock \
     --setenv CMUX_TUI_SESSION "$session" \
     /run/cmux-bun /run/cmux-sdk/code-mode/run.ts \
-    /run/cmux-script.ts "$@"
+    /run/cmux-script.ts "$@"; then
+    status=0
+  else
+    status=$?
+  fi
+  exit "$status"
 fi
 
 echo 'cmux run: no supported locked-down sandbox (Linux bwrap) is available' >&2
