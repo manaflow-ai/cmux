@@ -456,7 +456,7 @@ describe("mock daemon", () => {
       detached: false,
       branch: "feat-upload-retry",
       upstream: "origin/main",
-      base: "main",
+      base: "origin/main",
       ahead: 1,
       behind: 0,
     });

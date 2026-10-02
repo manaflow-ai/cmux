@@ -1701,6 +1701,155 @@ describe("acpmux turn diff", () => {
       else delete (globalThis.navigator as unknown as Record<string, unknown>).clipboard;
     }
   });
+
+  test("a scope that skipped untracked files says so, and the branch scope names its branch and base", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window & {
+      cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    };
+    const document = dom.window.document;
+    const copied: string[] = [];
+    const clipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, "clipboard");
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void copied.push(text) },
+    });
+    const diffs: unknown[] = [];
+    let statuses = 0;
+    const file = {
+      path: "src/main.ts",
+      status: "modified",
+      additions: 1,
+      deletions: 1,
+      patch: "@@ -1 +1 @@\n-a\n+A\n",
+    };
+    host.cmuxAcpmuxActions = {
+      "git.diff": async (params) => {
+        diffs.push(params.scope);
+        return params.scope === "branch"
+          ? { scope: "branch", root: "/repo", base: "4be1c2e", files: [file], total_files: 1, files_omitted: 0 }
+          : {
+              scope: params.scope,
+              root: "/repo",
+              files: [file],
+              total_files: 1,
+              files_omitted: 0,
+              untracked_skipped: 1234,
+            };
+      },
+      "git.status": async () => {
+        statuses += 1;
+        return {
+          root: "/repo",
+          branch: "feat-retry",
+          upstream: "origin/feat-retry",
+          base: "origin/main",
+          ahead: 2,
+          behind: 0,
+        };
+      },
+    };
+    const diffRow: AcpmuxRow = {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      toolCount: 1,
+      items: [
+        {
+          kind: "tool",
+          text: "Edit main.ts",
+          tool: {
+            id: "t1",
+            title: "Edit main.ts",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/src/main.ts", oldText: "a\n", newText: "A\n" }],
+          },
+        },
+      ],
+    };
+    const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const click = async (node: Element) => {
+      await act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+      await settle();
+    };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow],
+          sessions: [],
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        }),
+      );
+      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
+      const banner = () => panel.querySelector<HTMLElement>(".acpmux-changes-banner");
+      const branch = () => panel.querySelector<HTMLElement>(".acpmux-branch-pill");
+      const pick = async (label: string) => {
+        await click(panel.querySelector<HTMLElement>(".acpmux-diff-scope")!);
+        await click(
+          [...panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+            (item) => item.textContent === label,
+          )!,
+        );
+      };
+      // Last turn comes from the transcript: no skipped files and no branch.
+      expect([banner(), branch(), statuses]).toEqual([null, null, 0]);
+      await pick("Uncommitted");
+      expect(banner()?.getAttribute("role")).toBe("status");
+      expect(banner()?.querySelector(".acpmux-changes-banner-title")?.textContent).toBe("Showing tracked changes only");
+      expect(banner()?.querySelector(".acpmux-changes-banner-body")?.textContent).toBe(
+        "The Changes tab skipped 1,234 untracked files to stay responsive. If these files are generated, clean them up and refresh",
+      );
+      expect([branch(), statuses]).toEqual([null, 0]);
+      const action = (label: string) =>
+        [...banner()!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === label)!;
+      // The cleanup command only lists what git clean would remove.
+      await click(action("Copy cleanup command"));
+      expect(copied).toEqual(["git clean -ndX"]);
+      await click(action("Refresh"));
+      expect(diffs).toEqual(["uncommitted", "uncommitted"]);
+      // The branch scope names the branch and the base it is compared with.
+      await pick("Branch");
+      expect(banner()).toBeNull();
+      expect(branch()?.querySelector(".acpmux-branch-from")?.textContent).toBe("feat-retry");
+      expect(branch()?.querySelector(".acpmux-branch-to")?.textContent).toBe("origin/main");
+      expect(branch()?.textContent).toBe("feat-retry compared with origin/main");
+      expect(statuses).toBe(1);
+      // A refresh asks for the branch again too.
+      await click(panel.querySelector<HTMLElement>('[data-tool="options"]')!);
+      await click(
+        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
+      );
+      expect([diffs.length, statuses]).toEqual([4, 2]);
+      // A detached head has no branch to name.
+      host.cmuxAcpmuxActions["git.status"] = async () => ({
+        root: "/repo",
+        detached: true,
+        base: "origin/main",
+        ahead: 0,
+        behind: 0,
+      });
+      await pick("Uncommitted");
+      await pick("Branch");
+      expect(branch()).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      delete host.cmuxAcpmuxActions;
+      if (clipboard) Object.defineProperty(globalThis.navigator, "clipboard", clipboard);
+      else delete (globalThis.navigator as unknown as Record<string, unknown>).clipboard;
+    }
+  });
 });
 
 describe("acpmux composer", () => {
