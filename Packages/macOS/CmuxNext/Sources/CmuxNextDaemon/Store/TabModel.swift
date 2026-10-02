@@ -135,13 +135,16 @@ public final class TabModel: Identifiable {
         snapshot.name = value
     }
 
-    /// The folder the shell reported (OSC 7): a path, a `file://` URL, or a
-    /// `kitty-shell-cwd://host/path` URL, whose path is raw (not percent-encoded).
+    /// The folder the shell reported, already a path (`path(reported:)`).
     func setObservedCwd(_ value: String?) {
-        observedCwd = value.flatMap(Self.path(reported:))
+        guard observedCwd != value else { return }
+        observedCwd = value
         refreshCwd()
     }
 
+    /// The path of a folder the shell reported (OSC 7): a path, a `file://`
+    /// URL, or a `kitty-shell-cwd://host/path` URL, whose path is raw (not
+    /// percent-encoded).
     static func path(reported value: String) -> String? {
         var path: String? = value
         if value.hasPrefix("file://") {
@@ -150,7 +153,8 @@ public final class TabModel: Identifiable {
             let rest = value.dropFirst("kitty-shell-cwd://".count)
             path = rest.firstIndex(of: "/").map { String(rest[$0...]) }
         }
-        return path?.isEmpty == false ? path : nil
+        // Only an absolute local path; a relative or `~` report says nothing usable.
+        return path?.hasPrefix("/") == true ? path : nil
     }
 
     private func refreshCwd() {

@@ -88,6 +88,10 @@ public final class DaemonStore {
     @ObservationIgnored var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
     @ObservationIgnored var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
     @ObservationIgnored var agentsBySurface: [SurfaceID: AgentStatus] = [:]
+    /// The folder each local terminal's shell last reported to this app
+    /// (`noteTerminalDirectory`), kept across tab rebuilds and dropped with
+    /// the daemon generation, whose surface ids it names.
+    @ObservationIgnored var directoriesBySurface: [SurfaceID: String] = [:]
     /// Legacy optimistic patches in application order, dropped on echo or
     /// rejection (DaemonStore+Optimistic.swift; migrating to `intentLog`).
     @ObservationIgnored var pendingPatches: [PendingPatch] = []
@@ -140,9 +144,13 @@ public final class DaemonStore {
     public func tab(surface: SurfaceID) -> TabModel? { tabsBySurface[surface] }
 
     /// The folder the shell in `surface` last reported to this app (OSC 7).
+    /// A remote terminal's folder is on another machine, never a local cwd.
     public func noteTerminalDirectory(_ directory: String?, surface: SurfaceID) {
-        tabsBySurface[surface]?.setObservedCwd(directory)
+        guard let tab = tabsBySurface[surface], tab.kind != .remoteTerminal else { return }
+        directoriesBySurface[surface] = directory.flatMap(TabModel.path(reported:))
+        tab.setObservedCwd(directoriesBySurface[surface])
     }
+
     public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
     /// The tab with durable id `id` (`TabModel.id`).
     public func tab(id: String) -> TabModel? { tabsBySurface.values.first { $0.id == id } }
@@ -206,7 +214,10 @@ public final class DaemonStore {
     }
 
     private func applyTree(_ tree: DaemonTree) {
-        if let value = tree.generation, generation != value { generation = value }
+        if let value = tree.generation, generation != value {
+            if generation != nil { directoriesBySurface = [:] }
+            generation = value
+        }
         if let value = tree.registryID, registryID != value { registryID = value }
         if workspaceRevision != tree.workspaceRevision { workspaceRevision = tree.workspaceRevision }
         if let reordered = reconcile(groups, with: tree.groups, id: \.id, make: WorkspaceGroupModel.init, update: { $0.update($1) }) {
@@ -261,6 +272,7 @@ public final class DaemonStore {
                     for tab in pane.tabs {
                         tabs[tab.surface] = tab
                         if tab.agent == nil, let agent = agentsBySurface[tab.surface] { tab.setAgent(agent) }
+                        tab.setObservedCwd(directoriesBySurface[tab.surface])
                     }
                 }
             }

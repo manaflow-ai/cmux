@@ -23,6 +23,9 @@ final class TerminalLinkWatch {
     private let surface: SurfaceID
     private var connected: Bool
     private var dead: Bool
+    /// The shell's folder last told to the store; only a new one is sent, so
+    /// a reconnect never repeats an old view's folder onto a reused surface.
+    private var directory: String?
     private var stopped = false
 
     init(store: DaemonStore, surface: SurfaceID, io: DaemonTerminalIO, model: TerminalSurfaceModel) {
@@ -33,6 +36,7 @@ final class TerminalLinkWatch {
         connected = Self.isConnected(store.connectionState)
         dead = store.tab(surface: surface)?.dead ?? false
         if dead { io.processExited() }
+        forwardDirectory()
         arm()
     }
 
@@ -62,8 +66,14 @@ final class TerminalLinkWatch {
         }
         connected = nowConnected
         dead = nowDead
-        if let directory = model?.workingDirectory { store.noteTerminalDirectory(directory, surface: surface) }
+        forwardDirectory()
         arm()
+    }
+
+    private func forwardDirectory() {
+        guard let reported = model?.workingDirectory, reported != directory else { return }
+        directory = reported
+        store?.noteTerminalDirectory(reported, surface: surface)
     }
 
     private static func isConnected(_ state: DaemonConnectionState) -> Bool {
