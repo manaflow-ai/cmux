@@ -91,6 +91,18 @@ fn batch_close_ends_hosts_without_waiting_for_termination_receipts() {
     );
 }
 
+/// Upper bound for ending 100 terminal hosts at once, in seconds. Each host
+/// fsyncs its exit receipt and its record directory, and the owner fsyncs
+/// the record directory when it acknowledges the receipt: about 400 fsyncs.
+/// On macOS `sync_all` is F_FULLFSYNC, which flushes the whole device cache
+/// and does not run in parallel, so the cost is the device's, not the
+/// worker pool's. Measured: 0.3 s for 100 hosts on an Apple-silicon Mac
+/// (local runs of the hosted binary), 3.4-3.8 s on hosted macOS runners
+/// (runs 36944275265, 36785429387, 36961653859), up to 8.9 s on hosted Linux
+/// (run 36951369512). A teardown that waits for each host in turn (the 2 s
+/// receipt wait this test caught) costs tens of seconds.
+const HUNDRED_HOST_TEARDOWN_BOUND_SECS: u64 = 10;
+
 /// A close commits and updates the tree before its host exits, and many
 /// closes end their hosts in parallel instead of one after another.
 #[test]
@@ -106,7 +118,9 @@ fn closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host() 
     let mut writer = stream.try_clone_box().unwrap();
     let mut reader = BufReader::new(stream);
     let started = Instant::now();
+    let mut slowest = (0, Duration::ZERO);
     for (index, (terminal_id, incarnation)) in terminals.iter().enumerate() {
+        let one = Instant::now();
         stream_request(
             &mut writer,
             &mut reader,
@@ -117,6 +131,9 @@ fn closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host() 
                 "terminal_incarnation": incarnation,
             }),
         );
+        if one.elapsed() > slowest.1 {
+            slowest = (index, one.elapsed());
+        }
     }
     let closed_in = started.elapsed();
     let remaining = tree_terminal_ids(&harness.socket);
@@ -134,24 +151,31 @@ fn closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host() 
     }
     let hosts_in = started.elapsed();
     eprintln!(
-        "closed {COUNT} terminals: replies {closed_in:?}, tree {tree_in:?}, hosts {hosts_in:?}"
+        "closed {COUNT} terminals: replies {closed_in:?} (slowest #{} {:?}), tree {tree_in:?}, \
+         hosts {hosts_in:?}",
+        slowest.0, slowest.1
     );
     // Each reply waits only for its durable commit (one fsync plus a full
-    // resource projection, 10-35 ms on hosted Linux), never for the host's
-    // termination receipt or exit. 100 replies take about 1.7 s there; a
-    // reply that waited for a receipt stalled up to 2 s each (8.5-10 s in
-    // runs 36711759589 and 36736552304).
-    assert!(closed_in < test_timeout(Duration::from_secs(5)), "closes took {closed_in:?}");
-    // Hosts were signaled as each close committed and end in parallel, so
-    // all of them end within the cost of ending 100 hosts at once: about 400
-    // fsyncs (see close_tabs_ends_one_hundred_terminals_in_one_commit), about
-    // 1 s on a Mac and several seconds on a CI Linux VM. Ending them one
-    // after another costs a multiple of that. The old bound (3 s after the
-    // last reply) held only while the replies themselves were slow enough to
-    // hide the teardown.
-    let host_bound = if cfg!(target_os = "macos") { 3 } else { 10 };
+    // resource projection), never for a host's termination receipt, exit or
+    // Kitty acknowledgement; each of those waited up to the 2 s control
+    // timeout (runs 36711759589, 36736552304, 36953259790). The commit fsync
+    // is F_FULLFSYNC on macOS, so the total follows the device: 1.7 s on
+    // hosted Linux, 2.1-7.2 s on hosted macOS (runs 36785429387, 36961653859,
+    // 36991955184). A single reply therefore carries the stall signal.
     assert!(
-        hosts_in < closed_in + test_timeout(Duration::from_secs(host_bound)),
+        slowest.1 < test_timeout(Duration::from_secs(1)),
+        "close #{} took {:?}",
+        slowest.0,
+        slowest.1
+    );
+    assert!(
+        closed_in < test_timeout(Duration::from_secs(HUNDRED_HOST_TEARDOWN_BOUND_SECS)),
+        "closes took {closed_in:?}"
+    );
+    // Hosts were signaled as each close committed and end in parallel, so
+    // all of them end within the cost of ending 100 hosts at once.
+    assert!(
+        hosts_in < closed_in + test_timeout(Duration::from_secs(HUNDRED_HOST_TEARDOWN_BOUND_SECS)),
         "host exits trailed the last close by {:?}",
         hosts_in.saturating_sub(closed_in)
     );
@@ -218,11 +242,10 @@ fn close_tabs_ends_one_hundred_terminals_in_one_commit() {
         assert!(ended.iter().any(|ended| ended["terminal_id"] == terminal_id.as_str()));
     }
     assert!(tree_in < test_timeout(Duration::from_secs(1)), "tree took {tree_in:?}");
-    // Each host fsyncs its exit receipt and the owner fsyncs the record
-    // directory when it acknowledges it: about 400 fsyncs for 100 hosts.
-    // That takes about 1 s on a Mac and several seconds on a CI Linux VM.
-    let host_bound = if cfg!(target_os = "macos") { 3 } else { 10 };
-    assert!(hosts_in < test_timeout(Duration::from_secs(host_bound)), "hosts took {hosts_in:?}");
+    assert!(
+        hosts_in < test_timeout(Duration::from_secs(HUNDRED_HOST_TEARDOWN_BOUND_SECS)),
+        "hosts took {hosts_in:?}"
+    );
 }
 
 /// Every Kitty image budget bucket change (a power of two of the terminal
