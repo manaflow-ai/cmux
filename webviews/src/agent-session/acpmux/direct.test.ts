@@ -1082,6 +1082,40 @@ describe("direct client git reads", () => {
     client.close();
   });
 
+  test("the host's structured error reaches the changes view with its origin and fields", async () => {
+    const userMessage = "The changes could not be read.";
+    answer = (method) =>
+      method === "git.diff"
+        ? {
+            ok: false,
+            error: {
+              code: "resource.not_found",
+              userMessage,
+              details: { path: "/work/a" },
+              retryable: false,
+              origin: "session_host",
+            },
+          }
+        : { ok: false, error: { code: "native.not_connected", userMessage, origin: "native" } };
+    const client = await connect();
+    await settle();
+    await expect(client.gitDiff("staged")).rejects.toMatchObject({
+      name: "NativeError",
+      message: userMessage,
+      code: "resource.not_found",
+      details: { path: "/work/a" },
+      retryable: false,
+      origin: "session_host",
+    });
+    await expect(client.gitStatus()).rejects.toMatchObject({
+      name: "NativeError",
+      message: userMessage,
+      code: "native.not_connected",
+      origin: "native",
+    });
+    client.close();
+  });
+
   test("a session with no known folder rejects without asking anyone", async () => {
     folders.a = undefined;
     const client = await connect();
