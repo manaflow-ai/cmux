@@ -29,7 +29,7 @@ public nonisolated enum SettingsSchema {
         case .general: ["palette.welcomeChecklist", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
         case .appearance: ["room.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
-        case .browser: ["browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
+        case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
         case .keyboard: ["palette.searchShortcuts"]
         case .notifications: []
         case .accounts: ["accounts.refresh", "openTeamPicker"]
@@ -45,7 +45,16 @@ public nonisolated enum SettingsSchema {
         let window = SettingsText.text("settings.group.window", "Window")
         let columns = SettingsText.text("settings.group.columns", "Columns")
         let quitting = SettingsText.text("settings.group.quit", "Quitting")
+        let history = SettingsText.text("settings.group.history", "History")
         return [
+            SettingDescriptor(
+                TerminalCommandHistorySetting.configPath, section: .general, group: history,
+                title: SettingsText.text("settings.history.terminalCommands", "Record Terminal Commands"),
+                help: SettingsText.text("settings.history.terminalCommands.help",
+                                        "Lists finished shell commands in History. Command lines can contain secrets."),
+                kind: .toggle, default: .bool(TerminalCommandHistorySetting.fallback),
+                keywords: ["history", "commands", "shell", "privacy", "osc 133"]
+            ),
             SettingDescriptor(
                 WindowTitlebarSetting.configPath, section: .general, group: window,
                 title: SettingsText.text("settings.window.titlebar", "Titlebar"),

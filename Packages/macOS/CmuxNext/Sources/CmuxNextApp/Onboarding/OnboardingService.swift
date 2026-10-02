@@ -34,15 +34,17 @@ final class OnboardingService {
     var isShowing: Bool { controller != nil }
 
     /// Opens onboarding at `step` (or brings the open one to that step).
-    func show(step: OnboardingModel.Step = .welcome) {
+    func show(step: OnboardingModel.Step? = nil) {
         if let controller {
-            controller.model.go(to: step)
+            if let step { controller.model.go(to: step) }
             controller.present()
             return
         }
         let model = OnboardingModel(services: AppOnboardingServices(owner: self), start: step)
         let controller = OnboardingWindowController(model: model)
-        controller.onClose = { [weak self] in self?.controller = nil }
+        controller.onClose = { [weak self] in
+            self?.controller = nil
+        }
         self.controller = controller
         controller.present()
     }

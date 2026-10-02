@@ -15,12 +15,18 @@ public struct ImportPlan: Sendable, Equatable {
     public var items: [Item]
     /// History pages kept per profile, newest first.
     public var historyLimit: Int
+    /// Set: every source goes into this one cmux profile instead of a new
+    /// profile per source ("merge into one").
+    public var mergeTarget: String?
 
     public static let defaultHistoryLimit = 5_000
+    /// The id of cmux's default browser profile.
+    public static let defaultProfileID = "default"
 
-    public init(items: [Item], historyLimit: Int = ImportPlan.defaultHistoryLimit) {
+    public init(items: [Item], historyLimit: Int = ImportPlan.defaultHistoryLimit, mergeTarget: String? = nil) {
         self.items = items.filter { !$0.kinds.isEmpty }
         self.historyLimit = historyLimit
+        self.mergeTarget = mergeTarget
     }
 }
 

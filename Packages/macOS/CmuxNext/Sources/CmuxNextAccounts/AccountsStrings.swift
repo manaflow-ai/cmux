@@ -43,6 +43,11 @@ enum AccountsStrings {
         String(format: text("accounts.source", "From %@"), label)
     }
 
+    /// Get Key for a key page, Sign In when nothing was found, else Re-authenticate.
+    static func reauthTitle(_ row: AccountRowState) -> String {
+        if case .page = row.provider.reauthPlan { return getKey }
+        return row.status == .missing ? signIn : reauthenticate
+    }
     static var reauthenticate: String { text("accounts.action.reauth", "Re-authenticate") }
     static var signIn: String { text("accounts.action.signIn", "Sign In") }
     static var getKey: String { text("accounts.action.getKey", "Get Key") }
@@ -61,6 +66,8 @@ enum AccountsStrings {
         text("accounts.confirm.codexNote", "CodeRouter stores this Codex sign-in, with its refresh token, and refreshes it on the server. The codex command on this Mac may then need codex login again.")
     }
     static var confirmConnect: String { text("accounts.confirm.connect", "Connect") }
+    /// The onboarding list's one-word Connect (to CodeRouter).
+    static var connectShort: String { confirmConnect }
     static var connected: String { text("accounts.outcome.connected", "Connected to CodeRouter") }
     static var removed: String { text("accounts.outcome.removed", "Removed from CodeRouter") }
     static func codeRouterUnavailable(_ detail: String) -> String {

@@ -114,6 +114,9 @@ pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
+/// Finished shell commands (OSC 133) journaled as `shell.command.finished`
+/// when a trusted client turns it on with `set-terminal-command-history`.
+pub const TERMINAL_COMMAND_JOURNAL_CAPABILITY: &str = "terminal-command-journal-v1";
 pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
 pub const SURFACE_SUBSCRIBE_FILTER_CAPABILITY: &str = "surface-subscribe-filter";
 pub const SESSION_JOURNAL_CAPABILITY: &str = "session-journal-v1";
@@ -346,6 +349,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
+        TERMINAL_COMMAND_JOURNAL_CAPABILITY,
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
         SESSION_JOURNAL_CAPABILITY,
         FRONTEND_JOURNAL_CAPABILITY,
@@ -1011,6 +1015,12 @@ enum Command {
     /// with holder sites, journal writer batch metrics, and connection
     /// admission. Owner-only diagnostics, never journaled.
     ServerStats,
+    /// Turn terminal command history on or off for this daemon
+    /// (`terminal-command-journal-v1`). Off by default and after a restart;
+    /// trusted local connections only.
+    SetTerminalCommandHistory {
+        enabled: bool,
+    },
     /// Gracefully hand this daemon's durable session to a replacement.
     /// The caller must fence the request with values from this daemon's
     /// `identify` response.
@@ -13242,6 +13252,13 @@ fn handle_command_with_cancellation(
             data,
         }
         .handle(mux, client),
+        Command::SetTerminalCommandHistory { enabled } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("terminal command history requires a trusted local connection");
+            }
+            mux.set_terminal_command_history(enabled);
+            Ok(json!({ "enabled": enabled }))
+        }
         Command::ServerStats => {
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("server stats requires a trusted local connection");

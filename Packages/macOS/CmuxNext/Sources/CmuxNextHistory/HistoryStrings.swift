@@ -52,6 +52,7 @@ nonisolated enum HistoryStrings {
     static var copyURL: String { t("menu.copyURL", "Copy URL") }
     static var copySessionID: String { t("menu.copySessionID", "Copy Session ID") }
     static var copyCommand: String { t("menu.copyCommand", "Copy Command") }
+    static var runAgain: String { t("menu.runAgain", "Run Again") }
     static var remove: String { t("menu.remove", "Remove from History") }
     static var removeSite: String { t("menu.removeSite", "Remove All from This Site") }
     static var current: String { t("row.current", "Current") }

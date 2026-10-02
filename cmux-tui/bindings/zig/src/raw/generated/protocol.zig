@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43";
+pub const ir_sha256 = "813ecf93e56fd007de1dc8654da3403126c62fd638d3ab1937e9d421200d92d1";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1522,6 +1522,10 @@ pub const TerminalColors = struct {
         "overrides",
         "palette",
     };
+};
+
+pub const TerminalCommandHistoryResult = struct {
+    enabled: bool,
 };
 
 pub const TerminalEventsResult = struct {
@@ -5735,6 +5739,25 @@ pub fn setTabPinned(client: anytype, request: SetTabPinnedRequest) !wire.Decoded
     );
 }
 
+pub const SetTerminalCommandHistoryRequest = struct {
+    enabled: bool,
+};
+
+pub const SetTerminalCommandHistoryResult = TerminalCommandHistoryResult;
+
+pub fn setTerminalCommandHistory(client: anytype, request: SetTerminalCommandHistoryRequest) !wire.Decoded(SetTerminalCommandHistoryResult) {
+    return client.callTyped(
+        SetTerminalCommandHistoryResult,
+        .{
+            .name = "set-terminal-command-history",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "terminal-command-journal-v1",
+        },
+        request,
+    );
+}
+
 pub const SetTerminalIdlePolicyRequest = struct {
     idle_close_seconds: wire.Field(u64) = .absent,
     surface: wire.Field(Id) = .absent,
@@ -7486,7 +7509,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 188;
+pub const command_count: usize = 189;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7643,6 +7666,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-size-policy", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
     .{ .name = "set-tab-pinned", .authority = "control", .since = 12, .capability = "tab-metadata-v1", .stream = null },
+    .{ .name = "set-terminal-command-history", .authority = "local-admin", .since = 12, .capability = "terminal-command-journal-v1", .stream = null },
     .{ .name = "set-terminal-idle-policy", .authority = "control", .since = 12, .capability = "terminal-idle-close-v1", .stream = null },
     .{ .name = "set-terminal-keep", .authority = "control", .since = 12, .capability = "terminal-reap-v1", .stream = null },
     .{ .name = "set-viewport-pane-width", .authority = "control", .since = 9, .capability = "viewport-column-resize-v1", .stream = null },
