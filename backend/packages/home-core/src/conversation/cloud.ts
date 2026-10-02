@@ -16,9 +16,15 @@ export type OpOf<K extends CloudOp["kind"]> = Extract<CloudOp, { kind: K }>
 export const validName = (name: unknown): boolean =>
   typeof name === "string" && charCount(name) > 0 && charCount(name) <= MAX_DISPLAY_NAME_CHARS && !/\p{Cc}/u.test(name)
 
-/** Departs a participant; an owner who leaves hands the role to the earliest remaining human. */
-export const depart = (participants: ReadonlyArray<Participant>, id: string, now: string): ReadonlyArray<Participant> => {
+/**
+ * Departs a participant; an owner who leaves hands the role to the earliest
+ * remaining human. A departing contact outside a dm is dropped from the head
+ * (nothing refers to it once its invites are closed), so the head stays
+ * bounded; a dm keeps its contact peer, which defines the dm.
+ */
+export const depart = (head: ConversationHead, participants: ReadonlyArray<Participant>, id: string, now: string): ReadonlyArray<Participant> => {
   const leaving = participants.find((participant) => participant.id === id)
+  if (leaving?.kind === "contact" && head.kind !== undefined && head.kind !== "dm") return participants.filter((participant) => participant.id !== id)
   let out = participants.map((participant) => (participant.id === id ? { ...participant, role: "member" as const, left_at: now } : participant))
   if (leaving?.role === "owner") {
     const heir = out.find((participant) => participant.kind === "human" && participant.left_at === undefined)
@@ -33,7 +39,7 @@ export const archiveIfEmpty = (next: Draft): void => {
 }
 
 /** An invite that can still be accepted or approved. */
-export const isOpen = (invite: Invite): boolean => invite.status === "pending" || invite.status === "approval_pending"
+export const isOpen = (invite: Invite): boolean => invite.status === "pending" || invite.status === "pending_approval"
 
 /** `participants.remove`: leave (self), remove (conversation owner), or remove a chief (its owner). */
 export const removeParticipant = (head: ConversationHead, next: Draft, request: OpRequest, actor: Participant, op: OpOf<"participants.remove">): Commit => {
@@ -42,7 +48,7 @@ export const removeParticipant = (head: ConversationHead, next: Draft, request: 
   if (!target) return fail("unknown_participant")
   const allowed = target.id === actor.id || actor.role === "owner" || (target.kind === "agent" && target.owner_user === actor.id)
   if (!allowed) fail("forbidden")
-  next.participants = depart(head.participants, target.id, request.now)
+  next.participants = depart(head, head.participants, target.id, request.now)
   // A removed contact cannot accept: its pending invites end with it.
   if (target.kind === "contact" && head.invites) {
     next.invites = head.invites.map((invite) => (invite.contact === target.id && isOpen(invite) ? { ...invite, status: "revoked" as const } : invite))

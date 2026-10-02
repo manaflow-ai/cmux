@@ -30,13 +30,20 @@ export const cloudCases = (c: Corpus): void => {
   c.op(host, "participants.remove: unknown participant", ALICE, "r2", { kind: "participants.remove", participant: "user_nobody" }, "unknown_participant")
   c.op(host, "participants.remove: the chief's owner removes the chief", ALICE, "r3", { kind: "participants.remove", participant: CHIEF }, "commit")
   c.op(host, "send: a departed chief", CHIEF, "m2", send("m2", "still here?"), "not_participant")
-  c.op(host, "participants.add: a departed chief rejoins", BOB, "p3", { kind: "participants.add", participant: agent(CHIEF, ALICE) }, "commit")
+  c.op(host, "participants.add: a member re-adds another user's chief", BOB, "p3", { kind: "participants.add", participant: agent(CHIEF, BOB) }, "forbidden")
+  c.op(host, "participants.add: the actor's own new agent (the Domain stamps owner_user from its policy)", BOB, "p4", { kind: "participants.add", participant: agent("agent_bobchief", BOB) }, "commit")
+  c.op(host, "participants.add: someone else's new chief", CAROL, "p5", { kind: "participants.add", participant: agent("agent_x", ALICE) }, "forbidden")
+  c.op(host, "participants.add: the host approved the participant", CAROL, "p6", { kind: "participants.add", participant: agent("agent_x", ALICE) }, "commit", {
+    trusted_participant: true
+  })
+  c.op(host, "participants.add: the chief's owner re-adds it", ALICE, "p7", { kind: "participants.add", participant: agent(CHIEF, ALICE) }, "commit")
   c.op(host, "invite.create: email to a new contact", BOB, "i1", inviteOp(), "commit")
   c.op(host, "send: a contact cannot act", CONTACT, "m3", send("m3", "hi"), "contact_cannot_act")
   c.op(host, "invite.create: a chief cannot invite", CHIEF, "i2", inviteOp({ invite_id: INV2, contact: CONTACT2, token_hash: tokenHash("s2") }), "forbidden")
   c.op(host, "invite.create: the contact already has an open invite", ALICE, "i3", inviteOp({ invite_id: INV2, token_hash: tokenHash("s2") }), "duplicate_invite")
   c.op(host, "invite.create: malformed token hash", ALICE, "i4", inviteOp({ invite_id: INV2, contact: CONTACT2, token_hash: "short" }), "invalid_invite")
   c.op(host, "invite.delivery.report: by a user", ALICE, "d0", { kind: "invite.delivery.report", invite_id: INV, delivery: { state: "sent" } }, "forbidden")
+  c.op(host, "invite.delivery.report: provider_id null", SYSTEM_ACTOR, "d1", { kind: "invite.delivery.report", invite_id: INV, delivery: { state: "sent", provider_id: null as never } }, "invalid_invite")
   c.op(host, "invite.delivery.report: sent", SYSTEM_ACTOR, "d1", { kind: "invite.delivery.report", invite_id: INV, delivery: { state: "sent", provider_id: "re_123" } }, "commit")
   c.op(host, "invite.delivery.report: backwards", SYSTEM_ACTOR, "d2", { kind: "invite.delivery.report", invite_id: INV, delivery: { state: "queued" } }, "delivery_regression")
   c.op(host, "invite.accept: the inviter", BOB, "a0", { kind: "invite.accept", token_hash: tokenHash("secret-1"), display_name: "Bob" }, "invite_self")
@@ -44,18 +51,25 @@ export const cloudCases = (c: Corpus): void => {
   c.op(host, "invite.accept: unverified email waits for approval", "user_dave", "a2", { kind: "invite.accept", token_hash: tokenHash("secret-1"), display_name: "Dave" }, "commit")
   c.op(host, "invite.accept: a second holder", "user_erin", "a3", { kind: "invite.accept", token_hash: tokenHash("secret-1"), display_name: "Erin" }, "invite_not_pending")
   c.op(host, "invite.approve_join: a member who is not the inviter", CAROL, "ap0", { kind: "invite.approve_join", invite_id: INV }, "forbidden")
-  c.op(host, "invite.approve_join: the inviter", BOB, "ap1", { kind: "invite.approve_join", invite_id: INV }, "commit")
+  c.op(host, "invite.approve_join: malformed approve", BOB, "ap1", { kind: "invite.approve_join", invite_id: INV, approve: "yes" as never }, "invalid_invite")
+  c.op(host, "invite.approve_join: the inviter", BOB, "ap2", { kind: "invite.approve_join", invite_id: INV }, "commit")
   c.op(host, "invite.revoke: an accepted invite", ALICE, "v0", { kind: "invite.revoke", invite_id: INV }, "invite_not_pending")
   c.op(host, "invite.create: sms to another contact", CAROL, "i5", inviteOp({ invite_id: INV2, contact: CONTACT2, channel: "sms", token_hash: tokenHash("s2") }), "commit")
   c.op(host, "invite.revoke: a member who is not the inviter", BOB, "v1", { kind: "invite.revoke", invite_id: INV2 }, "forbidden")
-  c.op(host, "invite.revoke: the owner; the contact leaves", ALICE, "v2", { kind: "invite.revoke", invite_id: INV2 }, "commit")
+  c.op(host, "invite.revoke: the owner; the contact is dropped from the head", ALICE, "v2", { kind: "invite.revoke", invite_id: INV2 }, "commit")
+  c.op(host, "invite.accept: by an agent", CHIEF, "a4", { kind: "invite.accept", token_hash: tokenHash("s2"), display_name: "Chief" }, "invalid_participant")
   c.op(host, "settings: a member", BOB, "s0", { kind: "conversation.settings.set", wake_policy: "all" }, "forbidden")
   c.op(host, "settings: nothing to set", ALICE, "s1", { kind: "conversation.settings.set" }, "invalid_settings")
-  c.op(host, "settings: one agent turn", ALICE, "s2", { kind: "conversation.settings.set", agent_budget: { turns: 1, gap_ms: 0 } }, "commit")
-  host.budget = true
-  c.op(host, "budget: first chief turn under turns=1", CHIEF, "b1", send("b1", "one"), "commit")
-  c.op(host, "budget: second chief turn under turns=1", CHIEF, "b2", send("b2", "two"), "agent_budget")
-  host.budget = false
+  c.op(host, "settings: two agent turns", ALICE, "s2", { kind: "conversation.settings.set", agent_budget: { turns: 2, gap_ms: 0 } }, "commit")
+  c.op(host, "loop guard: first chief text turn", CHIEF, "b1", send("b1", "one"), "commit")
+  c.op(host, "loop guard: work cards neither count nor reset", CHIEF, "w1", { kind: "message.send", client_msg_id: "w1", parts: [{ type: "work", session: "s", status: "running" }] }, "commit")
+  c.op(host, "loop guard: second chief text turn", CHIEF, "b2", send("b2", "two"), "commit")
+  for (let card = 2; card <= 7; card++) {
+    c.op(host, `loop guard: work card ${card}`, CHIEF, `w${card}`, { kind: "message.send", client_msg_id: `w${card}`, parts: [{ type: "work", session: "s", status: "done" }] }, "commit")
+  }
+  c.op(host, "loop guard: a third text turn after many work cards", CHIEF, "b3", send("b3", "three"), "agent_budget")
+  c.op(host, "loop guard: a human text message resets the streak", BOB, "h1", send("h1", "go on"), "commit")
+  c.op(host, "loop guard: the chief may speak again", CHIEF, "b4", send("b4", "four"), "commit")
   c.op(host, "participants.remove: the owner leaves, Bob becomes owner", ALICE, "l1", { kind: "participants.remove", participant: ALICE }, "commit")
   for (const [index, user] of [BOB, CAROL, "user_dave"].entries()) {
     c.op(host, `participants.remove: ${user} leaves`, user, `l${index + 2}`, { kind: "participants.remove", participant: user }, "commit")
@@ -68,6 +82,19 @@ export const cloudCases = (c: Corpus): void => {
   c.op(verified, "invite.accept: verified address binds at once", CAROL, "a1", { kind: "invite.accept", token_hash: tokenHash("secret-1"), display_name: "Carol" }, "commit", {
     actor_contacts: [CONTACT]
   })
+  const approval = new CoreHost(groupHead())
+  c.op(approval, "invite.create: sms in a group", ALICE, "i1", inviteOp({ channel: "sms" }), "commit")
+  c.op(approval, "invite.accept: a group sms invite always waits for approval", CAROL, "a1", { kind: "invite.accept", token_hash: tokenHash("secret-1"), display_name: "Carol" }, "commit", {
+    actor_contacts: [CONTACT]
+  })
+  approval.now = "2026-10-15T12:00:00.000Z"
+  c.op(approval, "invite.approve_join: after the expiry", ALICE, "ap1", { kind: "invite.approve_join", invite_id: INV }, "invite_expired")
+  c.op(approval, "invite.create: closes the expired invite and drops its contact", ALICE, "i2", inviteOp({ invite_id: INV2, contact: CONTACT2, token_hash: tokenHash("s2") }), "commit")
+  const decline = new CoreHost(groupHead())
+  c.op(decline, "decline: invite.create email", ALICE, "i1", inviteOp(), "commit")
+  c.op(decline, "decline: invite.accept unverified", CAROL, "a1", { kind: "invite.accept", token_hash: tokenHash("secret-1"), display_name: "Carol" }, "commit")
+  c.op(decline, "invite.approve_join: decline closes the invite", ALICE, "ap1", { kind: "invite.approve_join", invite_id: INV, approve: false }, "commit")
+  c.op(decline, "invite.approve_join: after a decline", ALICE, "ap2", { kind: "invite.approve_join", invite_id: INV }, "invite_not_pending")
   const late = new CoreHost(groupHead())
   c.op(late, "invite.create: sms", ALICE, "i1", inviteOp({ channel: "sms" }), "commit")
   late.now = "2026-10-15T12:00:00.000Z"

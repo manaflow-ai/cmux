@@ -27,6 +27,12 @@ export interface OpRequest {
    * binds at once only when its contact is in this list.
    */
   readonly actor_contacts?: ReadonlyArray<string> | null
+  /**
+   * Cloud `participants.add`: the host's participant policy approved this
+   * participant (reach rules), and its `owner_user` and `display_name` are the
+   * host's, not the caller's. Without it only an agent's owner may add it.
+   */
+  readonly trusted_participant?: boolean | null
 }
 
 /** One committed op: the new head, the message row to upsert, and the change to publish. */

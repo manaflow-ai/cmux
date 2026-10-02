@@ -38,6 +38,8 @@ export interface InboxEntry {
 
 /** Params of `inbox.bump` (outbox item from ConversationDO). */
 export interface InboxBumpParams {
+  /** The inbox owner (the outbox target). */
+  readonly user?: string
   readonly conversation: string
   readonly rev: number
   readonly kind: ConversationKind
@@ -53,6 +55,12 @@ export interface InboxBumpParams {
 
 /** The small per-user head next to the entry rows. */
 export interface InboxHead {
+  /**
+   * The user who owns this inbox. Bound by the first `inbox.bump` (a system
+   * op from ConversationDO, whose outbox targets this user's UserDO); user ops
+   * from anyone else are refused.
+   */
+  readonly user?: string
   /** The position the next pin without an explicit position gets. */
   readonly next_pin: number
 }
@@ -83,11 +91,13 @@ export const validBump = (params: unknown): params is InboxBumpParams => {
     (p.mentions === undefined || isCount(p.mentions)) &&
     (p.unread === undefined) === (p.mentions === undefined) &&
     (p.dm_peer === undefined || isText(p.dm_peer, 128)) &&
-    (p.removed === undefined || typeof p.removed === "boolean")
+    (p.removed === undefined || typeof p.removed === "boolean") &&
+    (p.user === undefined || isText(p.user, 128))
   )
 }
 
 const conversationFields = (bump: InboxBumpParams) => ({
+  // `user` is routing, not entry data.
   rev: bump.rev,
   kind: bump.kind,
   title: bump.title,
@@ -158,8 +168,8 @@ export const userOp = (
         const { pin_position: _position, ...rest } = entry
         return { ok: true, value: { head, entry: { ...rest, pinned: false } } }
       }
-      const position = (p.position as number | undefined) ?? head.next_pin
-      return { ok: true, value: { head: { next_pin: Math.max(head.next_pin, position + 1) }, entry: { ...entry, pinned: true, pin_position: position } } }
+      const position = (p.position as number | undefined) ?? (entry.pinned && entry.pin_position !== undefined ? entry.pin_position : head.next_pin)
+      return { ok: true, value: { head: { ...head, next_pin: Math.max(head.next_pin, position + 1) }, entry: { ...entry, pinned: true, pin_position: position } } }
     }
     case "inbox.mute": {
       if (typeof p.muted !== "boolean" || (p.until !== undefined && (!isCount(p.until) || (p.until as number) <= now))) return { ok: false, code: "invalid_params" }
@@ -209,8 +219,10 @@ export const emptyInbox = (): InboxRecord => ({ head: INITIAL_INBOX_HEAD, entrie
 export const reduceInbox = (record: InboxRecord, op: string, params: unknown, now: number): InboxResult<InboxRecord> => {
   if (op === "inbox.bump") {
     if (!validBump(params)) return { ok: false, code: "invalid_params" }
+    if (params.user !== undefined && record.head.user !== undefined && params.user !== record.head.user) return { ok: false, code: "forbidden" }
+    const head = record.head.user === undefined && params.user !== undefined ? { ...record.head, user: params.user } : record.head
     const entry = bumpEntry(record.entries[params.conversation], params)
-    return { ok: true, value: { head: record.head, entries: { ...record.entries, [params.conversation]: entry } } }
+    return { ok: true, value: { head, entries: { ...record.entries, [params.conversation]: entry } } }
   }
   if (!USER_OPS.has(op)) return { ok: false, code: "invalid_params" }
   const conversation = (params as { conversation?: unknown } | null)?.conversation

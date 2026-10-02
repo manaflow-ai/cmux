@@ -59,6 +59,7 @@ export const localCases = (c: Corpus): void => {
   c.op(host, "reaction.add: an emoji with a space", ALICE, "a5", { kind: "reaction.add", message_id: first.id, part_index: 0, reaction: { emoji: "a b" } }, "invalid_reaction")
   c.op(host, "reaction.add: a part that does not exist", ALICE, "a6", { kind: "reaction.add", message_id: first.id, part_index: 1, reaction: love }, "invalid_part_index")
   c.op(host, "reaction.add: on part 1 of the work card", ALICE, "a7", { kind: "reaction.add", message_id: workCard.id, part_index: 1, reaction: love }, "commit")
+  c.op(host, "reaction.remove: another author's reaction", ALICE, "d0", { kind: "reaction.remove", message_id: first.id, part_index: 0, reaction: { emoji: "🎉" } }, "unknown_reaction")
   c.op(host, "reaction.remove: own tapback", ALICE, "d1", { kind: "reaction.remove", message_id: first.id, part_index: 0, reaction: love }, "commit")
   c.op(host, "reaction.remove: no such reaction", ALICE, "d2", { kind: "reaction.remove", message_id: first.id, part_index: 0, reaction: love }, "unknown_reaction")
   c.op(host, "reaction.remove: unknown message", ALICE, "d3", { kind: "reaction.remove", message_id: "msg_nope", part_index: 0, reaction: love }, "unknown_message")

@@ -54,10 +54,12 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 /** DO-to-DO items from a fan-out intent. */
 export const fanOutItems = (fan: FanOut, inviterName: string | undefined, kind: ConversationHead["kind"]): Array<OutboxItem> => {
   const items: Array<OutboxItem> = []
-  for (const { user, ...bump } of fan.bumps) {
+  for (const bump of fan.bumps) {
+    const user = bump.user
     items.push({
       kind: "inbox.bump",
       entity: `bump:${bump.conversation}:${bump.rev}`,
+      // `user` binds the UserDO inbox to its owner on the first bump (inbox/domain.ts).
       payload: bump,
       target: { class: "UserDO", name: user, coalesce: `bump:${bump.conversation}` }
     })
@@ -102,6 +104,15 @@ export const projectionItems = (before: ConversationHead | null, commit: Commit,
       kind: "home.participant.upsert",
       entity: `${head.id}:${participant.id}`,
       payload: participantProjection(head, participant, now, added)
+    })
+  }
+  // A contact dropped from the head (outside a dm) leaves in the projection.
+  for (const old of before?.participants ?? []) {
+    if (head.participants.some((participant) => participant.id === old.id)) continue
+    items.push({
+      kind: "home.participant.upsert",
+      entity: `${head.id}:${old.id}`,
+      payload: { ...participantProjection(head, old, now, false), left_at: old.left_at ?? now }
     })
   }
   for (const invite of head.invites ?? []) {

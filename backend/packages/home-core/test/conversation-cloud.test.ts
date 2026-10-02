@@ -99,11 +99,11 @@ describe("invites", () => {
 
   it("accept is single use, checks expiry, and replaces the contact in place", () => {
     const host = new CoreHost(groupHead())
-    host.run(ALICE, "i1", inviteOp({ channel: "sms" }))
+    host.run(ALICE, "i1", inviteOp())
     host.send(ALICE, "c1", "welcome")
     expect(code(host.run(ALICE, "a0", accept("secret-1")))).toBe("invite_self")
     expect(code(host.run(CAROL, "a1", accept("wrong")))).toBe("unknown_invite")
-    expect(code(host.run(CAROL, "a2", accept("secret-1", "Carol")))).toBe("ok")
+    expect(code(host.run(CAROL, "a2", accept("secret-1", "Carol"), { actor_contacts: [CONTACT] }))).toBe("ok")
     const carol = host.head.participants.find((p) => p.id === CAROL)
     expect(carol).toEqual({ id: CAROL, kind: "human", display_name: "Carol", role: "member", joined_seq: 0, added_by: ALICE })
     expect(host.head.participants.some((p) => p.id === CONTACT)).toBe(false)
@@ -119,7 +119,7 @@ describe("invites", () => {
     const host = new CoreHost(groupHead())
     host.run(ALICE, "i1", inviteOp())
     expect(code(host.run(CAROL, "a1", accept("secret-1", "Carol")))).toBe("ok")
-    expect(host.head.invites?.[0]).toMatchObject({ status: "approval_pending", requested_by: CAROL })
+    expect(host.head.invites?.[0]).toMatchObject({ status: "pending_approval", requested_by: CAROL })
     expect(host.head.participants.some((p) => p.id === CAROL)).toBe(false)
     expect(code(host.run("user_dave", "a2", accept("secret-1")))).toBe("invite_not_pending")
     expect(code(host.run(BOB, "ap1", { kind: "invite.approve_join", invite_id: INV }))).toBe("forbidden")
@@ -152,10 +152,12 @@ describe("invites", () => {
     expect(delivered.ok && "token_hash" in (delivered.commit.change as { invite: object }).invite).toBe(false)
     expect(code(host.run(BOB, "v1", { kind: "invite.revoke", invite_id: INV }))).toBe("forbidden")
     expect(code(host.run(ALICE, "v2", { kind: "invite.revoke", invite_id: INV }))).toBe("ok")
-    expect(host.head.participants.find((p) => p.id === CONTACT)?.left_at).toBe(NOW)
+    // A departed contact outside a dm is dropped from the head.
+    expect(host.head.participants.some((p) => p.id === CONTACT)).toBe(false)
     expect(code(host.run(CAROL, "a", accept("secret-1")))).toBe("invite_not_pending")
     host.run(ALICE, "i2", inviteOp({ invite_id: INV2, token_hash: tokenHash("s2") }))
     expect(host.head.participants.find((p) => p.id === CONTACT)?.left_at).toBeUndefined()
+    expect(code(host.run(SYSTEM_ACTOR, "dn", { kind: "invite.delivery.report", invite_id: INV2, delivery: { state: "sent", provider_id: null as never } }))).toBe("invalid_invite")
     expect(code(host.run(ALICE, "rm", { kind: "participants.remove", participant: CONTACT }))).toBe("ok")
     expect(host.head.invites?.find((i) => i.id === INV2)?.status).toBe("revoked")
   })
@@ -184,5 +186,52 @@ describe("settings", () => {
     expect(code(host.run(ALICE, "s4", { kind: "conversation.settings.set", history_visible: "since_join" }))).toBe("ok")
     expect(host.head.settings).toEqual({ wake_policy: "auto", agent_budget: { turns: 4, gap_ms: 2000 }, history_visible: "since_join" })
     expect(code(new CoreHost().run("user_local", "s", { kind: "conversation.settings.set", wake_policy: "all" }))).toBe("unsupported_op")
+  })
+})
+
+describe("cloud agent rules", () => {
+  it("only an agent's owner adds it, unless the host approved the participant", () => {
+    const host = new CoreHost(groupHead())
+    host.run(ALICE, "r", { kind: "participants.remove", participant: CHIEF })
+    const add = { kind: "participants.add" as const, participant: { id: CHIEF, kind: "agent" as const, display_name: "c", agent_class: "mux" as const, owner_user: BOB } }
+    expect(code(host.run(BOB, "p1", add))).toBe("forbidden")
+    expect(code(host.run(BOB, "p2", add, { trusted_participant: true }))).toBe("ok")
+    // The stored owner wins over the op's claim.
+    expect(host.head.participants.find((p) => p.id === CHIEF)?.owner_user).toBe(ALICE)
+  })
+
+  it("the loop guard counts agent text turns in the head; work cards cannot hide them", () => {
+    const host = new CoreHost(groupHead())
+    const card: Op = { kind: "message.send", client_msg_id: "", parts: [{ type: "work", session: "s", status: "running" }] }
+    host.send(ALICE, "h", "go")
+    for (let turn = 0; turn < 4; turn++) {
+      host.advance(5_000)
+      host.send(CHIEF, `t${turn}`, "text")
+      for (let i = 0; i < 6; i++) expect(code(host.run(CHIEF, `w${turn}-${i}`, { ...card, client_msg_id: `w${turn}-${i}` } as Op))).toBe("ok")
+    }
+    expect(host.head.agent_text_streak).toBe(4)
+    host.advance(5_000)
+    expect(code(host.run(CHIEF, "t5", { kind: "message.send", client_msg_id: "t5", parts: [text("again")] }))).toBe("agent_budget")
+    host.send(BOB, "h2", "ok")
+    expect(host.head.agent_text_streak).toBe(0)
+    expect(code(host.run(CHIEF, "t6", { kind: "message.send", client_msg_id: "t6", parts: [text("again")] }))).toBe("ok")
+    expect(code(host.run(CHIEF, "t7", { kind: "message.send", client_msg_id: "t7", parts: [text("fast")] }))).toBe("agent_rate")
+  })
+})
+
+describe("join approval", () => {
+  it("group sms invites always wait; decline closes the invite and drops the contact; approval expires", () => {
+    const host = new CoreHost(groupHead())
+    host.run(ALICE, "i1", inviteOp({ channel: "sms" }))
+    expect(code(host.run(CAROL, "a1", accept("secret-1", "Carol"), { actor_contacts: [CONTACT] }))).toBe("ok")
+    expect(host.head.invites?.[0]?.status).toBe("pending_approval")
+    expect(code(host.run(ALICE, "d", { kind: "invite.approve_join", invite_id: INV, approve: false }))).toBe("ok")
+    expect(host.head.invites?.[0]?.status).toBe("revoked")
+    expect(host.head.participants.some((p) => p.id === CONTACT || p.id === CAROL)).toBe(false)
+    const late = new CoreHost(groupHead())
+    late.run(ALICE, "i1", inviteOp())
+    late.run(CAROL, "a1", accept("secret-1", "Carol"))
+    late.now = "2026-10-15T12:00:00.000Z"
+    expect(code(late.run(ALICE, "ap", { kind: "invite.approve_join", invite_id: INV }))).toBe("invite_expired")
   })
 })

@@ -89,11 +89,12 @@ export interface Message {
 
 export type InviteChannel = "email" | "sms"
 /**
- * `approval_pending`: a group email invite was opened by an account whose
- * verified email does not match; the inviter or the owner approves the join
- * (D-H4, decided 2026-10-02).
+ * `pending_approval`: a group invite was opened by an account without a
+ * verified email matching the invited contact (SMS invites always, since no
+ * principal carries a verified phone); the inviter or the owner approves or
+ * declines the join (D-H4, decided 2026-10-02).
  */
-export type InviteStatus = "pending" | "approval_pending" | "accepted" | "revoked" | "expired"
+export type InviteStatus = "pending" | "pending_approval" | "accepted" | "revoked" | "expired"
 export type DeliveryState =
   | "queued"
   | "sent"
@@ -126,7 +127,7 @@ export interface Invite {
   readonly status: InviteStatus
   readonly accepted_by?: string
   readonly accepted_at?: string
-  /** `approval_pending`: the user who asked to join, their name and when. */
+  /** `pending_approval`: the user who asked to join, their name and when. */
   readonly requested_by?: string
   readonly requested_name?: string
   readonly requested_at?: string
@@ -171,6 +172,13 @@ export interface ConversationHead {
   readonly settings?: ConversationSettings
   readonly invites?: ReadonlyArray<Invite>
   readonly retention_days?: number
+  /**
+   * Cloud agent loop guard, O(1): agent text messages since the last human
+   * text message, and the time of the last agent text message. Updated on
+   * every send, so work cards cannot push the streak out of a row window.
+   */
+  readonly agent_text_streak?: number
+  readonly last_agent_text_at?: string
 }
 
 export interface Summary {
@@ -226,7 +234,8 @@ export type CloudOp =
   | InviteCreateParams
   | { readonly kind: "invite.revoke"; readonly invite_id: string }
   | { readonly kind: "invite.accept"; readonly token_hash: string; readonly display_name: string }
-  | { readonly kind: "invite.approve_join"; readonly invite_id: string }
+  /** `approve: false` declines: the invite closes as `revoked`. */
+  | { readonly kind: "invite.approve_join"; readonly invite_id: string; readonly approve?: boolean }
   | { readonly kind: "invite.delivery.report"; readonly invite_id: string; readonly delivery: { readonly state: DeliveryState; readonly provider_id?: string } }
   | {
       readonly kind: "conversation.settings.set"

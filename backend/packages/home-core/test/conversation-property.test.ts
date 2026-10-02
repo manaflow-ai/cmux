@@ -45,7 +45,7 @@ const randomOp = (rng: Rng, host: CoreHost, key: string): Op => {
         kind: "invite.create",
         invite_id: INVITES[index]!,
         contact: rng.pick(CONTACTS),
-        channel: rng.pick(["email", "sms"] as const),
+        channel: rng.pick(["email", "email", "email", "sms"] as const),
         display_name: "Guest",
         token_hash: tokenHash(`secret-${index}`),
         locale: "en",
@@ -54,13 +54,17 @@ const randomOp = (rng: Rng, host: CoreHost, key: string): Op => {
     }
     case 12:
       return { kind: "invite.revoke", invite_id: rng.pick(INVITES) }
-    case 13:
-      return { kind: "invite.accept", token_hash: tokenHash(`secret-${rng.below(INVITES.length)}`), display_name: "Joiner" }
+    case 13: {
+      // Mostly an open invite's token, so accepts and approvals actually happen.
+      const open = (host.head.invites ?? []).filter((invite) => invite.status === "pending")
+      const index = open.length > 0 && rng.below(4) !== 0 ? INVITES.indexOf(rng.pick(open).id) : rng.below(INVITES.length)
+      return { kind: "invite.accept", token_hash: tokenHash(`secret-${index}`), display_name: "Joiner" }
+    }
     case 14:
       return { kind: "invite.delivery.report", invite_id: rng.pick(INVITES), delivery: { state: rng.pick(DELIVERY) } }
     default:
-      return rng.below(2) === 0
-        ? { kind: "invite.approve_join", invite_id: rng.pick(INVITES) }
+      return rng.below(3) !== 0
+        ? { kind: "invite.approve_join", invite_id: rng.pick(INVITES), ...(rng.below(4) === 0 ? { approve: false } : {}) }
         : { kind: "conversation.settings.set", agent_budget: { turns: 1 + rng.below(4), gap_ms: rng.below(3000) } }
   }
 }
@@ -72,6 +76,7 @@ describe("conversation reducer under random op sequences", () => {
     let commits = 0
     let accepts = 0
     let wakes = 0
+    let pendingApprovals = 0
     for (let seed = 1; seed <= SEEDS; seed++) {
       const rng = new Rng(BigInt(seed))
       const host = new CoreHost(groupHead())
@@ -84,7 +89,7 @@ describe("conversation reducer under random op sequences", () => {
         const op = randomOp(rng, host, key)
         const before: ConversationHead = host.head
         const wasCurrent = before.participants.some((p) => p.id === actor && p.left_at === undefined)
-        const request = host.request(actor, key, op, rng.below(4) === 0 ? { actor_contacts: CONTACTS } : {})
+        const request = host.request(actor, key, op, rng.below(2) === 0 ? { actor_contacts: CONTACTS } : {})
         const result = host.run(actor, key, op, request)
         if (rng.below(5) === 0) host.advance(rng.below(3) === 0 ? 3 * 24 * 3600_000 : 1_500)
         if (!result.ok) {
@@ -110,6 +115,7 @@ describe("conversation reducer under random op sequences", () => {
         for (const invite of commit.head.invites ?? []) {
           const old = before.invites?.find((candidate) => candidate.id === invite.id)
           if (old && TERMINAL.has(old.status)) expect(invite.status, `${where}: ${invite.id} left ${old.status}`).toBe(old.status)
+          if (invite.status === "pending_approval" && old?.status === "pending") pendingApprovals++
           if (invite.status === "accepted") {
             if (!acceptedBy.has(invite.id)) {
               acceptedBy.set(invite.id, invite.accepted_by!)
@@ -141,6 +147,7 @@ describe("conversation reducer under random op sequences", () => {
     // The runs must reach the interesting paths, or the invariants are vacuous.
     expect(commits).toBeGreaterThan(SEEDS * 20)
     expect(accepts).toBeGreaterThan(SEEDS / 10)
+    expect(pendingApprovals).toBeGreaterThan(SEEDS / 10)
     expect(wakes).toBeGreaterThan(0)
   })
 

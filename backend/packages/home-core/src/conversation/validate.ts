@@ -179,3 +179,14 @@ export const currentParticipants = (head: ConversationHead): ReadonlyArray<Parti
   head.participants.filter((participant) => participant.left_at === undefined)
 
 export const hasText = (parts: ReadonlyArray<Part>): boolean => parts.some((part) => part.type === "text")
+
+/**
+ * A display name from an outside source (Stack, the caller): control
+ * characters removed, whitespace collapsed, cut to MAX_DISPLAY_NAME_CHARS;
+ * `fallback` when nothing is left.
+ */
+export const safeDisplayName = (name: unknown, fallback: string): string => {
+  if (typeof name !== "string") return fallback
+  const clean = [...name.replace(/\p{Cc}/gu, " ").replace(/\s+/gu, " ").trim()].slice(0, MAX_DISPLAY_NAME_CHARS).join("").trim()
+  return clean === "" ? fallback : clean
+}

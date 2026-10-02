@@ -87,6 +87,7 @@ const createOrThrow = (request: CreateRequest): ConversationHead => {
     state: "active",
     settings,
     invites: [],
+    agent_text_streak: 0,
     ...(request.retention_days === undefined ? {} : { retention_days: request.retention_days })
   }
 }

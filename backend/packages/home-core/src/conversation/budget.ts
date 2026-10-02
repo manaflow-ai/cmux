@@ -44,3 +44,20 @@ export const checkAgentBudget = (
   if (at !== null && nowMs >= at && nowMs < at + gapMs) return "agent_rate"
   return null
 }
+
+/**
+ * Cloud loop guard, O(1) and without a row window: reads the head's
+ * `agent_text_streak` and `last_agent_text_at` (kept by `apply` on every
+ * send). Same limits as `checkAgentBudget`; differences from the row-window
+ * check: a retracted agent message still counts, and the gap applies to the
+ * last agent text message however old (the Rust check sees only its window).
+ */
+export const checkAgentStreak = (head: ConversationHead, actor: string, parts: ReadonlyArray<Part>, nowMs: number): RejectCode | null => {
+  if (findParticipant(head, actor)?.kind !== "agent" || !hasText(parts)) return null
+  const maxTurns = head.settings?.agent_budget.turns ?? MAX_AGENT_TURNS
+  const gapMs = head.settings?.agent_budget.gap_ms ?? MIN_AGENT_GAP_MS
+  if ((head.agent_text_streak ?? 0) >= maxTurns) return "agent_budget"
+  const at = head.last_agent_text_at === undefined ? null : parseRfc3339Millis(head.last_agent_text_at)
+  if (at !== null && nowMs >= at && nowMs < at + gapMs) return "agent_rate"
+  return null
+}

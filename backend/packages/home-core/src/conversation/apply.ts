@@ -1,4 +1,4 @@
-import { checkAgentBudget } from "./budget.ts"
+import { checkAgentBudget, checkAgentStreak } from "./budget.ts"
 import { removeParticipant, setSettings } from "./cloud.ts"
 import { acceptInvite, approveJoin, createInvite, reportDelivery, revokeInvite } from "./invite-ops.ts"
 import { parseRfc3339Millis, validToken } from "./ids.ts"
@@ -16,6 +16,7 @@ import {
   currentParticipant,
   currentParticipants,
   findParticipant,
+  hasText,
   reactionEquals,
   validateParticipant,
   validateParts,
@@ -70,12 +71,20 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
         if (!replied || replied.id !== replyTo.message_id || replied.conversation !== head.id) fail("unknown_message")
         if (replyTo.part_index >= replied!.parts.length) fail("invalid_part_index")
       }
-      if (request.recent) {
-        const code = checkAgentBudget(head, request.actor, parts, request.recent, parseRfc3339Millis(now) ?? 0)
-        if (code) fail(code)
-      }
+      const nowMs = parseRfc3339Millis(now) ?? 0
+      // Cloud heads carry the loop guard; local heads use the Rust row window when the host passes it.
+      const budget = cloud ? checkAgentStreak(head, request.actor, parts, nowMs) : request.recent ? checkAgentBudget(head, request.actor, parts, request.recent, nowMs) : null
+      if (budget) fail(budget)
       next.last_seq = head.last_seq + 1
       next.updated_at = now
+      if (cloud && hasText(parts)) {
+        if (actor.kind === "agent") {
+          next.agent_text_streak = (head.agent_text_streak ?? 0) + 1
+          next.last_agent_text_at = now
+        } else {
+          next.agent_text_streak = 0
+        }
+      }
       const message: Message = {
         id: request.new_message_id,
         conversation: head.id,
@@ -143,7 +152,13 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       // A departed participant (cloud only) rejoins; locally every id is current.
       if (!cloud && findParticipant(head, participant.id)) fail("duplicate_participant")
       if (currentParticipants(head).length >= MAX_PARTICIPANTS) fail("invalid_participant")
-      const stamped: Participant = cloud ? { ...participant, role: "member", joined_seq: head.last_seq, added_by: request.actor } : participant
+      let stamped: Participant = participant
+      if (cloud) {
+        // A known (departed) record's owner is trusted; a caller-supplied one only with the host's approval.
+        const owner = findParticipant(head, participant.id)?.owner_user ?? participant.owner_user
+        if (participant.kind === "agent" && owner !== request.actor && request.trusted_participant !== true) fail("forbidden")
+        stamped = { ...participant, ...(owner === undefined ? {} : { owner_user: owner }), role: "member", joined_seq: head.last_seq, added_by: request.actor }
+      }
       next.participants = upsertParticipant(head.participants, stamped)
       next.updated_at = now
       return conversationChanged(next, request)

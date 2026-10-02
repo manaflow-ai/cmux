@@ -154,13 +154,20 @@ describe("inbox Domain (rows)", () => {
   it("stores entries as rows, refuses bumps from users, and no-ops stale bumps", () => {
     const host = new DomainHost(inboxDomain)
     host.now = NOW
-    const asParams = (b: InboxBumpParams) => ({ ...b })
+    const asParams = (b: InboxBumpParams) => ({ ...b, user: "user_alice" })
     expect(host.run(USER, "inbox.bump", asParams(bump("conv_a", 1, 1)), "b0")).toMatchObject({ ok: false, code: "forbidden" })
+    // An unbound inbox refuses user ops until its first bump names the owner.
+    expect(host.run(USER, "inbox.pin", { conversation: "conv_a", pinned: true }, "early")).toMatchObject({ ok: false, code: "forbidden" })
     expect(host.run(SYSTEM, "inbox.bump", asParams(bump("conv_a", 2, 2)), "bump:conv_a:2")).toMatchObject({ ok: true })
     expect(host.run(SYSTEM, "inbox.bump", asParams(bump("conv_a", 1, 1)), "bump:conv_a:1")).toMatchObject({ ok: true, changed: false })
     expect(host.run(SYSTEM, "inbox.pin", { conversation: "conv_a", pinned: true }, "p0")).toMatchObject({ ok: false, code: "forbidden" })
     expect(host.run(USER, "inbox.pin", { conversation: "conv_a", pinned: true }, "p1")).toMatchObject({ ok: true })
-    expect(host.state).toEqual({ next_pin: 1 })
+    expect(host.state).toEqual({ user: "user_alice", next_pin: 1 })
+    // Nothing changes: no event.
+    expect(host.run(USER, "inbox.pin", { conversation: "conv_a", pinned: true }, "p2")).toMatchObject({ ok: true, changed: false })
+    const MALLORY: Principal = { identity: "user_mallory", user: "user_mallory", kind: "session" }
+    expect(host.run(MALLORY, "inbox.archive", { conversation: "conv_a", archived: true }, "x")).toMatchObject({ ok: false, code: "forbidden" })
+    expect(host.run(SYSTEM, "inbox.bump", { ...bump("conv_b", 1, 1), user: "user_mallory" }, "bump:conv_b:1")).toMatchObject({ ok: false, code: "forbidden" })
     const rows = host.rows.all<InboxEntry>(TABLE_ENTRY)
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ conversation: "conv_a", rev: 2, pinned: true, pin_position: 0 })

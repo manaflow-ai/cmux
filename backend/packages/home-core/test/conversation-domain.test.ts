@@ -4,6 +4,7 @@ import {
   dmConversationId,
   fanOut,
   makeConversationDomain,
+  type ParticipantPolicy,
   PREVIEW_CHARS,
   previewOf,
   SEARCH_BODY_BYTES,
@@ -24,7 +25,26 @@ const session = (user: string, name: string): Principal => ({ identity: `${user}
 const SYSTEM: Principal = { identity: "system:test", kind: "system" }
 const CHIEF_P: Principal = { identity: `${CHIEF}:t`, agent: CHIEF, user: ALICE, kind: "agent" }
 
-const newGroup = (domain = conversationDomain) => {
+/** A reach policy as the DO would inject: a directory of names and chief owners; strangers refused. */
+const DIRECTORY: Record<string, { name: string; owner?: string }> = {
+  [ALICE]: { name: "Alice" },
+  [BOB]: { name: "Bob" },
+  [CAROL]: { name: "Carol" },
+  [CHIEF]: { name: "Chief", owner: ALICE }
+}
+const testPolicy: ParticipantPolicy = (principal, participant) => {
+  if (participant.kind === "contact") return { ok: true, display_name: participant.display_name }
+  const entry = DIRECTORY[participant.id]
+  if (!entry) return { ok: false, code: "forbidden" }
+  if (entry.owner && entry.owner !== principal.user) return { ok: false, code: "forbidden" }
+  return { ok: true, display_name: entry.name, ...(entry.owner ? { owner_user: entry.owner } : {}) }
+}
+const testDomain = makeConversationDomain({
+  participantPolicy: testPolicy,
+  contactIdsFor: (principal) => (principal.email === "carol@example.com" ? [CONTACT] : [])
+})
+
+const newGroup = (domain = testDomain) => {
   const host = new DomainHost<ConversationState, ConversationParams>(domain)
   const created = host.run(
     session(ALICE, "Alice"),
@@ -41,7 +61,7 @@ const kinds = (items: ReadonlyArray<OutboxItem>) => items.map((item) => `${item.
 
 describe("conversation Domain", () => {
   it("create bumps every human and projects the conversation and participants", () => {
-    const host = new DomainHost<ConversationState, ConversationParams>(conversationDomain)
+    const host = new DomainHost<ConversationState, ConversationParams>(testDomain)
     const result = host.run(session(ALICE, "Alice"), "conversation.create", { id: "conv_G", kind: "group", title: "T", participants: [human(ALICE), human(BOB)] }, "c")
     expect(result.ok).toBe(true)
     expect(kinds(host.outbox)).toEqual([
@@ -105,45 +125,82 @@ describe("conversation Domain", () => {
     expect(host.outbox.find((item) => item.kind === "mux.wake")).toMatchObject({ payload: { reason: "dm" }, target: { name: CHIEF } })
   })
 
-  it("dm.open is idempotent by id", () => {
-    const host = new DomainHost<ConversationState, ConversationParams>(conversationDomain)
+  it("dm.open is idempotent by id and answers only its participants", () => {
+    const host = new DomainHost<ConversationState, ConversationParams>(testDomain)
     const params = { id: dmConversationId(ALICE, BOB), participants: [human(ALICE), human(BOB)] }
     expect(host.run(session(ALICE, "Alice"), "dm.open", params, "d1")).toMatchObject({ ok: true })
     expect(host.run(session(BOB, "Bob"), "dm.open", params, "d2")).toMatchObject({ ok: true, changed: false })
+    expect(host.run(session(CAROL, "Carol"), "dm.open", params, "d3")).toMatchObject({ ok: false, code: "forbidden" })
   })
 
-  it("invites: delivery item without secrets, accept by secret only, closed invites move to rows", () => {
+  it("invites: delivery item without secrets, accept by proof only, closed invites move to rows", () => {
     const host = newGroup()
-    const op = inviteOp({ channel: "sms" })
+    const op = inviteOp()
     const { kind: _kind, ...params } = op
     expect(host.run(session(ALICE, "Alice"), "invite.create", params, "i1")).toMatchObject({ ok: true })
     const deliver = host.outbox.find((item) => item.kind === "contact.deliver")
-    expect(deliver).toMatchObject({ entity: `deliver:${INV}`, target: { class: "ContactDO", name: CONTACT }, payload: { inviter_name: "Alice" } })
-    for (const item of host.outbox.filter((candidate) => !candidate.target)) expect(JSON.stringify(item)).not.toContain(op.token_hash)
-    expect(JSON.stringify(deliver)).not.toContain(op.token_hash)
-    // Knowing the hash is not enough: accept hashes the secret itself.
-    expect(host.run(session(CAROL, "Carol"), "invite.accept", { token_hash: op.token_hash }, "a0")).toMatchObject({ ok: false, code: "unknown_invite" })
-    expect(host.run(session(CAROL, "Carol"), "invite.accept", { secret: "wrong" }, "a1")).toMatchObject({ ok: false, code: "unknown_invite" })
-    expect(host.run(session(CAROL, "Carol"), "invite.accept", { secret: "secret-1" }, "a2")).toMatchObject({ ok: true })
+    expect(deliver).toMatchObject({ entity: `deliver:${INV}`, target: { class: "ContactDO", name: CONTACT } })
+    expect(Object.keys(deliver!.payload as object)).toEqual(
+      expect.arrayContaining(["invite", "conversation", "contact", "channel", "locale", "copy_variant", "invited_by"])
+    )
+    for (const item of host.outbox) expect(JSON.stringify(item)).not.toContain(op.token_hash)
+    // The stored hash cannot accept: the Domain hashes the proof.
+    const verifiedCarol = { ...session(CAROL, "Carol"), email: "carol@example.com", email_verified: true }
+    expect(host.run(verifiedCarol, "invite.accept", { token_hash: op.token_hash }, "a0")).toMatchObject({ ok: false, code: "unknown_invite" })
+    expect(host.run(verifiedCarol, "invite.accept", { proof: op.token_hash }, "a1")).toMatchObject({ ok: false, code: "unknown_invite" })
+    expect(host.run(verifiedCarol, "invite.accept", { proof: "secret-1" }, "a2")).toMatchObject({ ok: true })
     expect(host.state?.invites).toEqual([])
     expect(host.state?.participants.find((p) => p.id === CAROL)?.display_name).toBe("Carol")
     expect(host.rows.all<Invite>(TABLE_INV)[0]).toMatchObject({ status: "accepted", accepted_by: CAROL })
-    expect(host.run(session("user_dave", "Dave"), "invite.accept", { secret: "secret-1" }, "a3")).toMatchObject({ ok: false, code: "invite_not_pending" })
+    expect(host.run(session("user_dave", "Dave"), "invite.accept", { proof: "secret-1" }, "a3")).toMatchObject({ ok: false, code: "invite_not_pending" })
+    // A closed invite lives only in rows; its id and hash still cannot be reused.
+    expect(host.run(session(ALICE, "Alice"), "invite.create", params, "i2")).toMatchObject({ ok: false, code: "duplicate_invite" })
+    expect(host.run(session(ALICE, "Alice"), "invite.create", { ...params, invite_id: `inv_${"0".repeat(25)}9` }, "i3")).toMatchObject({
+      ok: false,
+      code: "duplicate_invite"
+    })
   })
 
-  it("a group email invite binds at once when the DO maps the verified email to the contact", () => {
-    const domain = makeConversationDomain({ contactIdsFor: (principal) => (principal.email === "carol@example.com" ? [CONTACT] : []) })
-    const host = newGroup(domain)
+  it("binding by email needs email_verified; Stack names are cleaned, not refused", () => {
     const { kind: _kind, ...params } = inviteOp()
-    host.run(session(ALICE, "Alice"), "invite.create", params, "i1")
-    expect(host.run({ ...session(CAROL, "Carol"), email: "carol@example.com" }, "invite.accept", { secret: "secret-1" }, "a")).toMatchObject({ ok: true })
-    expect(host.state?.participants.some((p) => p.id === CAROL)).toBe(true)
-    const other = newGroup(domain)
-    other.run(session(ALICE, "Alice"), "invite.create", params, "i1")
-    other.run({ ...session(CAROL, "Carol"), email: "other@example.com" }, "invite.accept", { secret: "secret-1" }, "a")
-    expect(other.state?.invites?.[0]).toMatchObject({ status: "approval_pending", requested_by: CAROL })
-    expect(other.run(session(ALICE, "Alice"), "invite.approve_join", { invite_id: INV }, "ap")).toMatchObject({ ok: true })
-    expect(other.state?.participants.some((p) => p.id === CAROL)).toBe(true)
+    const unverified = newGroup()
+    unverified.run(session(ALICE, "Alice"), "invite.create", params, "i1")
+    const name = `Carol\u0007${"x".repeat(300)}`
+    unverified.run({ ...session(CAROL, name), email: "carol@example.com", email_verified: false }, "invite.accept", { proof: "secret-1" }, "a")
+    expect(unverified.state?.invites?.[0]).toMatchObject({ status: "pending_approval", requested_by: CAROL })
+    expect(unverified.state?.invites?.[0]?.requested_name).toHaveLength(100)
+    expect(unverified.state?.invites?.[0]?.requested_name).not.toMatch(/\p{Cc}/u)
+    expect(unverified.run(session(ALICE, "Alice"), "invite.approve_join", { invite_id: INV }, "ap")).toMatchObject({ ok: true })
+    expect(unverified.state?.participants.some((p) => p.id === CAROL)).toBe(true)
+    const blank = newGroup()
+    blank.run(session(ALICE, "Alice"), "invite.create", { ...params, channel: "email" }, "i1")
+    blank.run({ ...session(CAROL, "\u0000 "), email: "carol@example.com", email_verified: true }, "invite.accept", { proof: "secret-1" }, "a")
+    expect(blank.state?.participants.find((p) => p.id === CAROL)?.display_name).toBe("Member")
+  })
+
+  it("participant policy: trusted names and owners, strangers and other people's chiefs refused, team from the principal", () => {
+    const host = new DomainHost<ConversationState, ConversationParams>(conversationDomain)
+    const make = (principal: Principal, participants: Array<unknown>, extra: Record<string, unknown> = {}) =>
+      host.run(principal, "conversation.create", { id: "conv_P", kind: "group", title: "T", participants, ...extra }, `c${Math.random()}`)
+    // Default policy: no relationship signal for a stranger.
+    expect(make(session(ALICE, "Alice"), [human(ALICE), human(BOB)])).toMatchObject({ ok: false, code: "forbidden" })
+    expect(make(session(ALICE, "Alice"), [human(ALICE), agent(CHIEF, ALICE)])).toMatchObject({ ok: false, code: "forbidden" })
+    expect(make({ ...session(ALICE, "Alice"), team: "team_a" }, [human(ALICE)], { team: "team_b" })).toMatchObject({ ok: false, code: "forbidden" })
+    expect(make({ ...session(ALICE, "Alice"), team: "team_a" }, [human(ALICE, "Mallory")], { team: "team_a" })).toMatchObject({ ok: true })
+    expect(host.state?.team).toBe("team_a")
+    expect(host.state?.participants[0]?.display_name).toBe("Alice")
+    const group = newGroup()
+    expect(group.run(session(BOB, "Bob"), "participants.add", { participant: agent(CHIEF, BOB) }, "p1")).toMatchObject({ ok: false, code: "forbidden" })
+    expect(group.run(session(BOB, "Bob"), "participants.add", { participant: human(CAROL, "Mallory") }, "p2")).toMatchObject({ ok: true })
+    expect(group.state?.participants.find((p) => p.id === CAROL)?.display_name).toBe("Carol")
+    expect(group.run(session(BOB, "Bob"), "participants.add", { participant: human("user_stranger") }, "p3")).toMatchObject({ ok: false, code: "forbidden" })
+  })
+
+  it("client_msg_id is unique per author", () => {
+    const host = newGroup()
+    expect(host.run(session(ALICE, "Alice"), "message.send", { client_msg_id: "same", parts: [text("a")] }, "same")).toMatchObject({ ok: true })
+    expect(host.run(session(BOB, "Bob"), "message.send", { client_msg_id: "same", parts: [text("b")] }, "same")).toMatchObject({ ok: true })
+    expect(host.run(session(BOB, "Bob"), "message.send", { client_msg_id: "same", parts: [text("c")] }, "other")).toMatchObject({ ok: false, code: "idempotency_conflict" })
   })
 })
 
