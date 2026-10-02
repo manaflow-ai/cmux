@@ -8,7 +8,7 @@ import Foundation
 /// non-sensitive state through ``events()``.
 public actor CmxIrohEndpointSupervisor {
     private final class ActivationWaiter: @unchecked Sendable {
-        private enum Outcome {
+        enum Outcome {
             case success(any CmxIrohEndpoint)
             case failure(any Error)
         }
