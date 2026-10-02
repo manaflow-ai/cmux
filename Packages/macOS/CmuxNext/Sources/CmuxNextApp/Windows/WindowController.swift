@@ -27,6 +27,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
+    /// This window's Home (plans/cmux-next/home.md), created on first show.
+    private(set) lazy var home = HomePresenter(services: services, state: state)
     private var startupObservation: Task<Void, Never>?
     /// The room theme: every workspace without its own theme. The window's
     /// own chrome (sidebar, titlebar, backdrop) draws in the shown
@@ -115,7 +117,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         workspaceObservation = Task { [weak self] in
             for await _ in Observations({ () -> [String] in
                 // Re-run when the request or any machine's workspace list changes.
-                [state.workspaceID ?? "", state.machineID, String(cloud.hasLoadedMachines)]
+                [state.workspaceID ?? "", state.machineID, String(cloud.hasLoadedMachines), String(state.showsHome)]
                     + windows.registry.members(of: state.id)
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.workspaces.map(\.id))" }
             }) {
@@ -138,6 +140,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             guard machines.workspace(id: controller.workspace.id)?.0 !== controller.workspace else { return false }
             controller.teardown()
             return true
+        }
+        if state.showsHome {
+            presentHome()
+            return
         }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
             show(workspace, on: daemon)
@@ -171,6 +177,21 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    /// Shows Home in place of the workspace. The workspace is parked (mounted,
+    /// paused, like a workspace switch), so leaving Home unparks it in the same
+    /// frame with no re-attach; `state.workspaceID` keeps naming it.
+    private func presentHome() {
+        if let current = content {
+            park(current)
+            content = nil
+        }
+        titleObservation?.cancel()
+        titleObservation = nil
+        home.show(in: root)
+        themeScope.show(nil)
+        services.windows.stateDidChange(state)
+    }
+
     private func isWaiting(for machineID: String) -> Bool {
         guard services.cloud.isSignedIn || services.cloud.auth.isRestoring else { return false }
         guard services.cloud.hasLoadedMachines else { return true }
@@ -182,6 +203,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
         guard content?.workspace !== workspace else { return }
+        home.hide()
         if let current = content { park(current) }
         let controller: WorkspaceContentController
         if let index = parked.firstIndex(where: { $0.workspace === workspace && $0.daemon === daemon }) {

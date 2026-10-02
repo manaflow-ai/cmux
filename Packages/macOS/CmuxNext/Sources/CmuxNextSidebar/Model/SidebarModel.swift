@@ -18,6 +18,9 @@ public final class SidebarModel {
     public var selection: Set<WorkspaceID> = []
     /// The workspace shown in the window.
     public var activeWorkspaceID: WorkspaceID?
+    /// Home (the pinned row above the list) is shown in the window instead
+    /// of a workspace.
+    public var isHomeActive = false
     /// Profiles in order (the bar at the bottom center). The bar hides
     /// while there is at most one.
     public var profiles: [SidebarProfile] = []
@@ -108,7 +111,10 @@ public final class SidebarModel {
     /// updates before the daemon confirms.
     public func apply(_ intent: SidebarIntent) {
         switch intent {
+        case .selectHome:
+            isHomeActive = true
         case let .select(id):
+            isHomeActive = false
             activeWorkspaceID = id
             if !selection.contains(id) { selection = [id] }
         case let .closeGroup(id):

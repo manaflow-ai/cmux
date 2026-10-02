@@ -37,6 +37,9 @@ extension SidebarBridge {
         case .select(let id):
             model.apply(intent)
             services.windows.show(workspaceID: id.rawValue, in: state)
+        case .selectHome:
+            model.apply(intent)
+            services.windows.showHome(in: state)
         case .reorder(let ids, let position):
             let before = model.sections
             model.apply(intent)
