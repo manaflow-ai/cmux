@@ -21,7 +21,7 @@ try {
   events.push(transcriptRpcErrorEvent(focusResult, "raw focus diagnostic"));
   assert.deepEqual(calls, ["mobile.chat.send", "mobile.chat.interrupt", "surface.focus"]);
   assert.equal(events.length, 3);
-  assert.equal((events[0] as Extract<AgentEvent, { kind: "error" }>).prompt, "keep this prompt for recovery");
+  assert.equal((events[0] as Extract<AgentEvent, { kind: "error" }>).prompt, undefined);
   for (const event of events) {
     assert.equal(event.kind, "error");
     assert.equal((event as Extract<AgentEvent, { kind: "error" }>).code, "terminal-rpc-timeout");

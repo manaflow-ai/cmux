@@ -23,11 +23,11 @@ export function setTranscriptRpcForTest(next: Rpc | null) {
   rpc = next ?? cmuxRpc;
 }
 
-/** Preserves diagnostics and prompt recovery while giving the UI a copy key. */
+/** Preserves diagnostics while keeping timed-out sends out of the resend path. */
 export function transcriptRpcErrorEvent(res: CmuxRpcResult, message: string, prompt?: string): Extract<AgentEvent, { kind: "error" }> {
   return {
     kind: "error", message,
-    ...(prompt !== undefined ? { prompt } : {}),
+    ...(prompt !== undefined && res.errorCode !== "timeout" ? { prompt } : {}),
     ...(res.errorCode === "timeout" ? { code: "terminal-rpc-timeout" as const } : {}),
   };
 }
