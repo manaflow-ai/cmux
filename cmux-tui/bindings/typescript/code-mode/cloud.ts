@@ -10,13 +10,7 @@ export interface CloudTransport {
 }
 
 const VM_ID = /^[A-Za-z0-9._:-]{1,256}$/;
-const OPERATION_NAMES = new Set([
-  "vm.list", "vm.get", "vm.create", "vm.update", "vm.start", "vm.resume", "vm.pause", "vm.resize", "vm.delete",
-  "vm.snapshot.list", "vm.snapshot.create", "vm.snapshot.restore", "vm.snapshot.delete", "vm.exec",
-  "vm.fs.list", "vm.fs.read", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove", "vm.fs.stat",
-  "network.list", "tunnel.attach", "tunnel.detach", "tunnel.rotate-key",
-  "firewall.list", "firewall.get", "firewall.create", "firewall.delete",
-]);
+const OPERATION_NAME = /^[a-z][a-z0-9]*(?:\.[a-z0-9-]+)+$/;
 
 function object(value: CloudValue, operation: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -40,7 +34,12 @@ export class CloudClient {
   constructor(private readonly transport: CloudTransport) {}
   close(): void { this.transport.close(); }
   call(operation: string, params: CloudParams = {}, idempotencyKey?: string): Promise<CloudValue> {
-    if (!OPERATION_NAMES.has(operation)) throw new TypeError(`Cloud operation is not in the catalog: ${operation}`);
+    // The host broker validates the name against the checked-in Cloud catalog.
+    // Keeping this client open to catalog additions means domains, identities,
+    // tokens, and account reads use the same typed path without a second SDK
+    // release. The shape check still rejects URL/path injection before a frame
+    // reaches the relay.
+    if (!OPERATION_NAME.test(operation)) throw new TypeError(`Invalid Cloud operation name: ${operation}`);
     return this.transport.request(operation, Object.freeze({ ...params }), idempotencyKey);
   }
   list(): Promise<CloudValue> { return this.call("vm.list"); }

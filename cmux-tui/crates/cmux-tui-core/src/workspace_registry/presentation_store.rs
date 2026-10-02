@@ -32,6 +32,8 @@ use super::{
     WorkspaceRegistry, new_uuid_v4, unix_epoch_ms,
 };
 
+mod frontend_browser_history;
+
 /// Longest accepted group name or workspace title, in characters.
 pub const MAX_PRESENTATION_TEXT_CHARS: usize = 256;
 /// Longest accepted client-chosen group id, in bytes.
@@ -93,7 +95,8 @@ pub(super) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
          );",
     )?;
     migrate_workspace_presentation_add_pinned(transaction)?;
-    migrate_workspace_presentation_add_marked_unread(transaction)
+    migrate_workspace_presentation_add_marked_unread(transaction)?;
+    frontend_browser_history::create_frontend_browser_history_schema(transaction)
 }
 
 /// Add the sidebar pin to registries created before the column existed.
@@ -1261,14 +1264,6 @@ impl WorkspaceRegistry {
         )?;
         tx.commit()?;
         Ok((record, true))
-    }
-
-    /// Forget a frontend browser whose tab creation failed.
-    pub fn delete_frontend_browser(&mut self, browser_id: &str) -> anyhow::Result<()> {
-        validate_browser_public_id(browser_id)?;
-        self.connection
-            .execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
-        Ok(())
     }
 
     /// Notification ids acknowledged as read on the shared console. A

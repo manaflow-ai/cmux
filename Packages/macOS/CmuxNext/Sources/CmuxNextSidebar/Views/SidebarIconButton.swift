@@ -2,9 +2,10 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Small borderless icon button with a gray hover fill (no blue).
+/// Small borderless icon button with the shared chrome hover and pressed
+/// fills (`ChromeHover`, no blue).
 final class SidebarIconButton: NSButton {
-    private var hovering = false { didSet { needsDisplay = true } }
+    private(set) lazy var hover = ChromeHover(self, behindContent: true)
     var onPress: (() -> Void)?
 
     private let symbol: String
@@ -26,7 +27,6 @@ final class SidebarIconButton: NSButton {
         setAccessibilityLabel(label)
         toolTip = label
         wantsLayer = true
-        layer?.cornerCurve = .continuous
         target = self
         action = #selector(pressed)
         refusesFirstResponder = true
@@ -55,17 +55,36 @@ final class SidebarIconButton: NSButton {
     override func updateLayer() {
         layer?.cornerRadius = Metrics.itemCornerRadius
         performWithTheme {
-            contentTintColor = Palette.textSecondary
-            layer?.backgroundColor = hovering ? Palette.hoverFill.cgColor : nil
+            contentTintColor = hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary
         }
+        hover.refresh(animated: false)
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        hover.updateTrackingAreas()
     }
 
-    override func mouseEntered(with event: NSEvent) { hovering = true }
-    override func mouseExited(with event: NSEvent) { hovering = false }
+    private func changeHover(_ change: (inout ChromeHover.State) -> Void) {
+        change(&hover.state)
+        needsDisplay = true
+    }
+
+    override func mouseEntered(with event: NSEvent) { changeHover { $0.hovering = true } }
+    override func mouseExited(with event: NSEvent) { changeHover { $0.hovering = false } }
+
+    /// NSButton tracks the click inside `super.mouseDown` and returns on release.
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return super.mouseDown(with: event) }
+        changeHover { $0.pressed = true }
+        super.mouseDown(with: event)
+        changeHover { $0.pressed = false }
+    }
+
+    /// A button hidden under the pointer (the header + while the sidebar
+    /// is not hovered) gets no exit event; it reappears without the fill.
+    override func viewDidHide() {
+        super.viewDidHide()
+        changeHover { $0.hovering = false; $0.pressed = false }
+    }
 }
