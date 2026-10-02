@@ -222,7 +222,17 @@ export function Composer({
           ))}
         </ol>
       )}
-      <ComposerContext summary={snapshot.summary} sessions={snapshot.sessions} onProject={onProject} />
+      <ComposerContext
+        summary={snapshot.summary}
+        sessions={snapshot.sessions}
+        onProject={
+          onProject &&
+          ((cwd) => {
+            onProject(cwd);
+            field.current?.focus();
+          })
+        }
+      />
       <div className="acpmux-composer-box">
         {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
         {open && (

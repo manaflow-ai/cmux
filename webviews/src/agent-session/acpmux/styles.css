@@ -91,7 +91,7 @@
 .acpmux-context-chip{display:flex;align-items:center;gap:6px;min-width:0;height:26px;padding:0 10px 0 8px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);white-space:nowrap}
 .acpmux-context-chip>span{overflow:hidden;text-overflow:ellipsis}
 .acpmux-context-chip .acpmux-icon{color:var(--agent-muted)}
-/* The project pill chooses: a button drawn as the other pills, with Codex's project menu above the tray. */
+/* The project pill chooses: a button drawn as the other pills, with the project menu above the tray. */
 .acpmux-project{position:relative;display:flex;min-width:0}
 .acpmux-project-button{border:0;color:inherit;font:inherit;cursor:pointer}
 .acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{background:color-mix(in srgb,var(--agent-text) 14%,transparent)}

@@ -102,11 +102,13 @@ test("typing filters by name or path, Enter starts a chat in the highlighted pro
   await key("Enter");
   expect(picked).toEqual(["/Users/me/code/notes"]);
   expect(doc.querySelector("[role=listbox]")).toBeNull();
-  expect(doc.activeElement).toBe(pill());
-  // The project the chat is already in is not a new chat.
+  // The new chat's prompt takes the focus (Composer), so the pill does not hold it.
+  expect(doc.activeElement).not.toBe(pill());
+  // The project the chat is already in is not a new chat, and returns to the pill.
   await act(async () => pill()!.click());
   await key("Enter");
   expect(picked).toEqual(["/Users/me/code/notes"]);
+  expect(doc.activeElement).toBe(pill());
 });
 
 test("the highlight stays on its project when a busy chat moves another folder to the top", async () => {

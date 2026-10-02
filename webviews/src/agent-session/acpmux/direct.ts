@@ -951,8 +951,8 @@ export class AcpmuxDirectClient {
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   async create(harness?: string, cwd?: string): Promise<string | undefined> {
     const result = await this.request("session/new", newSessionParams(cwd ? { cwd } : this.host, harness));
-    // The inherited cwd is the first chat's; later new chats start where acpmux defaults.
-    if (result?.sessionId) this.host = { ...this.host, cwd: undefined };
+    // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
+    if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
     if (result?.sessionId) return this.select(String(result.sessionId));
     return undefined;
   }

@@ -1,17 +1,9 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
-
-/// Chooser copy. English defaults until the host passes localized labels, as the rest of the pane does today.
-export const PROJECT_LABELS = {
-  project: "Project",
-  choose: "Choose project",
-  search: "Search projects",
-  none: "No matching projects",
-};
+import { t } from "./i18n";
 
 export type Project = { cwd: string; label: string };
 
-/// The project pill on the composer's tray, after Codex's (codex-atlas-clone reference
-/// project-chooser-open): it opens a menu above the tray with a search field over the
+/// The project pill on the composer's tray: it opens a menu above the tray with a search field over the
 /// projects the user has chats in, newest first. Picking one other than the current
 /// project starts a new chat there. The search field keeps focus; arrows move the
 /// highlight, Enter picks and Escape closes back to the pill.
@@ -60,8 +52,10 @@ export function ProjectChooser({
   };
   const pick = (project: Project | undefined) => {
     if (!project) return;
-    close(true);
-    if (project.cwd !== current) onPick(project.cwd);
+    // A new chat takes the focus to its prompt (Composer); the current project returns to the pill.
+    const starts = project.cwd !== current;
+    close(!starts);
+    if (starts) onPick(project.cwd);
   };
 
   useEffect(() => {
@@ -106,11 +100,11 @@ export function ProjectChooser({
         ref={trigger}
         type="button"
         className="acpmux-context-chip acpmux-project-button"
-        aria-label={PROJECT_LABELS.project}
+        aria-label={t("project.label")}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        title={current ? `${PROJECT_LABELS.project}: ${current}` : undefined}
+        title={current ? `${t("project.label")}: ${current}` : undefined}
         // WebKit doesn't focus a clicked button, so its mousedown would blur the open search
         // field and close the menu before this click reopened it.
         onMouseDown={(event) => {
@@ -119,7 +113,7 @@ export function ProjectChooser({
         onClick={() => (open ? close(true) : show())}
       >
         {icon}
-        <span>{currentLabel ?? PROJECT_LABELS.choose}</span>
+        <span>{currentLabel ?? t("project.choose")}</span>
       </button>
       {open && (
         <div className="acpmux-menu acpmux-menu-start acpmux-project-menu">
@@ -131,12 +125,12 @@ export function ProjectChooser({
               // A combobox that owns the project list: the role carries aria-expanded and aria-controls.
               // oxlint-disable-next-line jsx-a11y/no-redundant-roles
               role="combobox"
-              aria-label={PROJECT_LABELS.search}
+              aria-label={t("project.search")}
               aria-expanded="true"
               aria-controls={menuId}
               aria-autocomplete="list"
               aria-activedescendant={shown.length > 0 ? `${menuId}-${selected}` : undefined}
-              placeholder={PROJECT_LABELS.search}
+              placeholder={t("project.search")}
               value={query}
               spellCheck={false}
               autoComplete="off"
@@ -151,7 +145,7 @@ export function ProjectChooser({
             id={menuId}
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
-            aria-label={PROJECT_LABELS.project}
+            aria-label={t("project.label")}
           >
             {shown.map((project, index) => (
               <div
@@ -174,7 +168,7 @@ export function ProjectChooser({
                 <span className="acpmux-menu-label">{project.label}</span>
               </div>
             ))}
-            {shown.length === 0 && <div className="acpmux-project-empty">{PROJECT_LABELS.none}</div>}
+            {shown.length === 0 && <div className="acpmux-project-empty">{t("project.none")}</div>}
           </div>
         </div>
       )}
