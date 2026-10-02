@@ -3,7 +3,9 @@ import CmuxNextDesign
 import QuartzCore
 
 /// One item of a sticky section: a row (built-in or list look) or a tray
-/// tile. A pill shows on hover and while the item is active.
+/// tile. A pill shows on hover, while pressed and while the item is
+/// active, in the shared chrome fills (`ChromeHover.fillColor`), fading on
+/// pointer changes.
 final class SidebarItemRowView: NSView {
     enum Style: Hashable {
         /// Bare glyph and label: reads as app chrome (Home).
@@ -30,7 +32,10 @@ final class SidebarItemRowView: NSView {
     private let icon = NSImageView()
     private let title = NSTextField(labelWithString: "")
     private let badge = UnreadBadgeView()
-    private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
+    private var isHovered = false { didSet { if isHovered != oldValue { pointerChanged() } } }
+    private var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
+    /// The next fill change came from the pointer, so it fades.
+    private var fadesNextFill = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -104,13 +109,25 @@ final class SidebarItemRowView: NSView {
 
     override func updateLayer() {
         performWithTheme {
-            let rest: NSColor? = style == .tile ? Palette.hoverFill : nil
-            pill.backgroundColor = (info.isActive ? Palette.selectionFill : isHovered ? Palette.hoverFill : rest)?.cgColor
+            ChromeHover.paint(pill, fill, animated: fadesNextFill)
+            fadesNextFill = false
             chip.backgroundColor = style == .list ? (info.color.map(SidebarStyle.color) ?? Palette.hoverFill).cgColor : nil
             title.textColor = Palette.textPrimary
             icon.contentTintColor = style == .list && info.color != nil ? Palette.textOnPrimary
                 : info.isActive ? Palette.textPrimary : Palette.textSecondary
         }
+    }
+
+    /// The pill's fill: pressed, then active, then hovered, then the
+    /// tile's resting fill.
+    var fill: NSColor? {
+        let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive)
+        return performWithTheme { ChromeHover.fillColor(state, rest: style == .tile ? Palette.hoverFill : nil) }
+    }
+
+    private func pointerChanged() {
+        fadesNextFill = true
+        needsDisplay = true
     }
 
     override func layout() {
@@ -162,11 +179,19 @@ final class SidebarItemRowView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
+    override func mouseExited(with event: NSEvent) { isHovered = false; isPressed = false }
 
+    /// Activates on press, as the sidebar's rows do; the pressed fill shows
+    /// until release.
     override func mouseDown(with event: NSEvent) {
         guard pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return super.mouseDown(with: event) }
+        isPressed = true
         onPress?()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard isPressed else { return super.mouseUp(with: event) }
+        isPressed = false
     }
 
     override func rightMouseDown(with event: NSEvent) {
