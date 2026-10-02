@@ -351,6 +351,23 @@ describe("acpmux composer pickers", () => {
     expect(options()).toEqual(["Medium", "High *"]);
   });
 
+  test("opening a menu by its label takes focus off the prompt first, as a click does", async () => {
+    await render(snapshot());
+    const outside = doc.createElement("textarea");
+    doc.body.append(outside);
+    let blurred = false;
+    outside.addEventListener("blur", () => {
+      blurred = true;
+    });
+    outside.focus();
+    await act(async () => {
+      openPicker("Model");
+    });
+    expect(blurred).toBe(true);
+    expect(doc.activeElement).toBe(button("Model"));
+    outside.remove();
+  });
+
   test("an unmounted menu is no longer openable", async () => {
     await render(snapshot());
     expect(pickerLabels()).toContain("Model");

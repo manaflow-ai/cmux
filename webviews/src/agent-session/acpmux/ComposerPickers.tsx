@@ -426,7 +426,15 @@ export function Picker({
   };
   const showRef = useRef(show);
   showRef.current = show;
-  useEffect(() => registerPicker(label, () => showRef.current()), [label]);
+  // Like a click, which takes focus off the prompt first: that closes the slash menu and restores the draft.
+  useEffect(
+    () =>
+      registerPicker(label, () => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        showRef.current();
+      }),
+    [label],
+  );
   const close = () => {
     setOpen(false);
     trigger.current?.focus();

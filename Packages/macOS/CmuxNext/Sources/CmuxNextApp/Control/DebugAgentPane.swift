@@ -9,7 +9,8 @@ import WebKit
 /// agent pane through the page's `window.cmuxAcpmuxDebug`, the counterpart
 /// of the native pane's seed and fling measurements. Targets the agent tab
 /// shown in `pane` (default: the focused pane of the first window showing
-/// one). Never changes focus.
+/// one). Never changes app or window focus; `open_menu` moves focus inside
+/// the page to the menu's button, as a click does.
 ///
 /// `action`: `seed_rows` (`count`, default 5000), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
