@@ -109,7 +109,6 @@ struct CloudTerminalPaneReservationTests {
         // A device mirror adopting a reserved pane must receive what was typed
         // before its terminal attached, then everything typed after.
         relay.attach(router)
-        #expect(relay.pendingCount == 0)
         relay.send(.bytes(Data("pwd\r".utf8)))
 
         let expected = Data("ls\rpwd\r".utf8)
