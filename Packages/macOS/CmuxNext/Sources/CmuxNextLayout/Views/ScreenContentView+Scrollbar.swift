@@ -31,7 +31,7 @@ extension ScreenContentView {
     }
 
     private func makeScrollbar() -> StripScrollbarView {
-        let bar = StripScrollbarView()
+        let bar = StripScrollbarView(hideClock: context.scrollbarClock)
         addSubview(bar)
         scrollbar = bar
         bar.onDragBegan = { [weak self] in
