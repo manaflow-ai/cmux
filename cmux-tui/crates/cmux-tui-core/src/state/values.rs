@@ -121,6 +121,20 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
             }
         }
     }
+    // The install id of the app that hosts a frontend-rendered browser.
+    let owner = connection
+        .query_row(
+            "SELECT f.owner FROM resource_tabs AS t
+             JOIN frontend_browser_tabs AS f ON f.browser_id = t.content_id
+             WHERE t.public_id = ?1",
+            [tab_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    if let Some(owner) = owner {
+        fields.insert("owner".into(), json!(owner));
+    }
     Ok(fields)
 }
 

@@ -713,7 +713,7 @@ impl Mux {
         self.frontend_browser_id(surface).is_some()
     }
 
-    fn frontend_browser_id(&self, surface: &Surface) -> Option<BrowserPublicId> {
+    pub(crate) fn frontend_browser_id(&self, surface: &Surface) -> Option<BrowserPublicId> {
         let identity = surface.resource_identity()?;
         let ContentPublicId::Browser(id) = &identity.content_id else { return None };
         self.presentation_snapshot().frontend_browsers.contains_key(id.as_str()).then(|| id.clone())
@@ -766,14 +766,16 @@ impl Mux {
         }
     }
 
-    /// Record the URL, title, or favicon a frontend-rendered browser
-    /// reports. `favicon_url: Some(None)` clears the favicon.
+    /// Record the URL, title, favicon, or owner (the hosting app's install
+    /// id) a frontend-rendered browser reports. `favicon_url: Some(None)`
+    /// clears the favicon.
     pub fn update_frontend_browser_tab(
         &self,
         surface: SurfaceId,
         url: Option<String>,
         title: Option<String>,
         favicon_url: Option<Option<String>>,
+        owner: Option<String>,
     ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
         let runtime =
             self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
@@ -787,6 +789,7 @@ impl Mux {
                 url.as_deref(),
                 title.as_deref(),
                 favicon_url.as_ref().map(Option::as_deref),
+                owner.as_deref(),
             )?;
             if result.1 {
                 self.reload_presentation(&registry)?;
@@ -1260,6 +1263,7 @@ mod tests {
             title: Some("Example".into()),
             favicon_url: None,
             profile_id: Some("default".into()),
+            owner: Some("install_mac_a".into()),
         };
         assert!(
             mux.new_frontend_browser_tab(
@@ -1278,6 +1282,7 @@ mod tests {
         assert_eq!(tab["browser_renderer"], "frontend");
         assert_eq!(tab["browser_engine"], "webkit");
         assert_eq!(tab["browser_profile_id"], "default");
+        assert_eq!(tab["browser_owner"], "install_mac_a");
         assert_eq!(tab["url"], "https://example.com/start");
         assert_eq!(tab["title"], "Example");
         assert!(tab["browser_status"].is_null());
@@ -1288,16 +1293,26 @@ mod tests {
                 Some("https://example.com/next".into()),
                 Some("Next".into()),
                 Some(Some("https://example.com/favicon.ico".into())),
+                Some("install_mac_b".into()),
             )
             .unwrap();
         assert!(changed);
         assert_eq!(updated.url, "https://example.com/next");
+        assert_eq!(updated.owner.as_deref(), Some("install_mac_b"));
+        assert_eq!(tab_json(&mux, browser.id)["browser_owner"], "install_mac_b");
+        // An owner must be a valid install id.
+        assert!(
+            mux.update_frontend_browser_tab(browser.id, None, None, None, Some("bad/owner".into()))
+                .is_err()
+        );
         let tab = tab_json(&mux, browser.id);
         assert_eq!(tab["url"], "https://example.com/next");
         assert_eq!(tab["title"], "Next");
         assert_eq!(tab["favicon_url"], "https://example.com/favicon.ico");
         // A PTY tab is not a frontend browser.
-        assert!(mux.update_frontend_browser_tab(terminal, None, Some("x".into()), None).is_err());
+        assert!(
+            mux.update_frontend_browser_tab(terminal, None, Some("x".into()), None, None).is_err()
+        );
         let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&browser.id].clone());
         drop(browser);
         drop(mux);

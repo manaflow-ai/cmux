@@ -80,7 +80,7 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 | Resource | Owner | Operations |
 | --- | --- | --- |
 | Workspace identity (title, color, icon), `ephemeral` | shared | `workspace.update`, `workspace.create` |
-| Tab pin, zoom, browser back/forward | shared | `tab.pin`, `tab.unpin`, `tab.update` |
+| Tab pin, zoom, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
 | Tab groups | shared | `tab_group.*` |
 | Screen pin, color, icon, order; screen groups | shared | `screen.update`, `screen.move`, `screen_group.*` |
 | Closed history (newest 50 tabs, screens, workspaces) | shared | `closed.list`, `closed.reopen` |
@@ -100,7 +100,8 @@ workspaces.
 Fields that belong to an existing snapshot travel in its `extra` map, so a
 restated workspace, screen, tab, or terminal from any operation carries them:
 workspace `title`, `color`, `icon`, `ephemeral`; tab `pinned`,
-`tab_group_id`, `zoom`, `back`, `forward`; screen `pinned`, `color`, `icon`,
+`tab_group_id`, `zoom`, `back`, `forward`, `owner` (the install id of the app
+that hosts a frontend-rendered browser, its record's only writer); screen `pinned`, `color`, `icon`,
 `screen_group_id`; terminal `progress` (the parsed OSC 9;4 state and percent
 of every terminal). Other state resources travel as `state_upsert` and
 `state_delete` changes whose `resource` is a `StateResourceKind`, and the

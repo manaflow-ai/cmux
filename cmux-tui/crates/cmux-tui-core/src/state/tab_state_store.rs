@@ -46,6 +46,9 @@ pub(crate) struct TabStateUpdate {
     pub(crate) zoom: Option<Option<f64>>,
     pub(crate) back: Option<Vec<String>>,
     pub(crate) forward: Option<Vec<String>>,
+    /// Install id of the app hosting a frontend-rendered browser tab, stored
+    /// on its browser record. Only that app sends it; the CLI never does.
+    pub(crate) owner: Option<String>,
 }
 
 impl TabStateUpdate {
@@ -55,6 +58,9 @@ impl TabStateUpdate {
                 zoom.is_finite() && (MIN_ZOOM..=MAX_ZOOM).contains(&zoom),
                 "bad request: zoom must be between {MIN_ZOOM} and {MAX_ZOOM}"
             );
+        }
+        if let Some(owner) = &self.owner {
+            crate::state::window_record_store::validate_key("owner", owner)?;
         }
         for list in [&self.back, &self.forward].into_iter().flatten() {
             anyhow::ensure!(
@@ -96,6 +102,14 @@ pub(crate) fn update_tab_state(
          WHERE tab_id = ?1 AND zoom IS NULL AND back_json IS NULL AND forward_json IS NULL",
         [tab_id],
     )?;
+    if let Some(owner) = &update.owner {
+        let updated = transaction.execute(
+            "UPDATE frontend_browser_tabs SET owner = ?2
+             WHERE browser_id = (SELECT content_id FROM resource_tabs WHERE public_id = ?1)",
+            params![tab_id, owner],
+        )?;
+        anyhow::ensure!(updated == 1, "bad request: owner applies only to frontend browser tabs");
+    }
     Ok(())
 }
 

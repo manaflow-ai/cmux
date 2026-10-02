@@ -1034,6 +1034,8 @@ impl Mux {
                                 title: title.clone(),
                                 favicon_url: None,
                                 profile_id: profile_id.clone(),
+                                // The app that shows the reopened tab claims it.
+                                owner: None,
                             },
                             None,
                         )?

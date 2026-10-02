@@ -258,6 +258,13 @@ pub const NOTIFICATION_SOURCE_CAPABILITY: &str = "notification-source-v1";
 /// status, progress and log, with `extra.state` on session snapshots and
 /// `state_upsert`/`state_delete` changes on `session.events`.
 pub const STATE_RESOURCES_CAPABILITY: &str = "state-resources-v1";
+/// `window_record.list|put|delete`: one personal record per app window with
+/// a per-record revision (OWNERSHIP-PRINCIPLES single writer).
+pub const WINDOW_RECORDS_CAPABILITY: &str = "window-records-v1";
+/// `owner` on frontend browser records: the raw `new-frontend-browser-tab`
+/// and `update-frontend-browser-tab` field, `tab.update {owner}`, and the
+/// tab's `extra.owner` and raw `browser_owner`.
+pub const FRONTEND_BROWSER_OWNER_CAPABILITY: &str = "frontend-browser-owner-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -402,6 +409,8 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         TERMINAL_SHELL_ARGS_CAPABILITY,
         LAUNCH_SNAPSHOT_CAPABILITY,
         STATE_RESOURCES_CAPABILITY,
+        WINDOW_RECORDS_CAPABILITY,
+        FRONTEND_BROWSER_OWNER_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1395,12 +1404,15 @@ enum Command {
         favicon_url: Option<String>,
         #[serde(default)]
         profile_id: Option<String>,
+        /// Install id of the hosting app (the record's only writer).
+        #[serde(default)]
+        owner: Option<String>,
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
     },
-    /// Record a frontend-rendered browser's URL, title, or favicon.
+    /// Record a frontend-rendered browser's URL, title, favicon, or owner.
     UpdateFrontendBrowserTab {
         surface: SurfaceId,
         #[serde(default)]
@@ -1409,6 +1421,8 @@ enum Command {
         title: Option<String>,
         #[serde(default, deserialize_with = "present_nullable")]
         favicon_url: Option<Option<String>>,
+        #[serde(default)]
+        owner: Option<String>,
     },
     NewBrowserTab {
         url: String,
@@ -11621,6 +11635,7 @@ fn pane_json(
                 "browser_engine": frontend_browser.map(|record| record.engine.as_str()),
                 "favicon_url": frontend_browser.and_then(|record| record.favicon_url.as_deref()),
                 "browser_profile_id": frontend_browser.and_then(|record| record.profile_id.as_deref()),
+                "browser_owner": frontend_browser.and_then(|record| record.owner.as_deref()),
                 "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
                 "url": surface.and_then(|s| s.browser_url()),
                 "supports_clear_history_key_fallback": surface
@@ -14057,6 +14072,7 @@ fn handle_command_with_cancellation(
             title,
             favicon_url,
             profile_id,
+            owner,
             cols,
             rows,
         } => {
@@ -14066,6 +14082,7 @@ fn handle_command_with_cancellation(
                 title,
                 favicon_url,
                 profile_id,
+                owner,
             };
             let surface = mux.new_frontend_browser_tab(
                 pane,
@@ -14079,14 +14096,15 @@ fn handle_command_with_cancellation(
                 "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
             }))
         }
-        Command::UpdateFrontendBrowserTab { surface, url, title, favicon_url } => {
+        Command::UpdateFrontendBrowserTab { surface, url, title, favicon_url, owner } => {
             let (record, changed) =
-                mux.update_frontend_browser_tab(surface, url, title, favicon_url)?;
+                mux.update_frontend_browser_tab(surface, url, title, favicon_url, owner)?;
             Ok(json!({
                 "surface": surface,
                 "url": record.url,
                 "title": record.title,
                 "favicon_url": record.favicon_url,
+                "owner": record.owner,
                 "changed": changed,
             }))
         }
@@ -27575,6 +27593,8 @@ mod tests {
             CREATION_SELECTOR_FALLBACKS_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
             STATE_RESOURCES_CAPABILITY,
+            WINDOW_RECORDS_CAPABILITY,
+            FRONTEND_BROWSER_OWNER_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }

@@ -94,6 +94,14 @@ impl Mux {
                     browser || (update.back.is_none() && update.forward.is_none()),
                     "bad request: back and forward apply only to browser tabs"
                 );
+                let frontend = state
+                    .surfaces
+                    .get(&surface)
+                    .is_some_and(|runtime| mux.frontend_browser_id(runtime).is_some());
+                anyhow::ensure!(
+                    frontend || update.owner.is_none(),
+                    "bad request: owner applies only to frontend browser tabs"
+                );
                 edit.tab_state.push((tab.clone(), update));
                 edit.result = StripResult::Tab(tab);
                 Ok(())

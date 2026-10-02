@@ -13701,6 +13701,16 @@
             },
             "description": "A browser tab's forward URLs, nearest first."
           },
+          "owner": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Install id of the app that hosts a frontend-rendered browser tab, stored on its browser record and shown as the tab's extra.owner. Only that app sends it; the CLI never does. Not authenticated yet."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -13712,7 +13722,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one field is present. back and forward apply only to browser tabs."
+          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs."
         ]
       },
       "result": {

@@ -92,6 +92,7 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
            profile_id TEXT
          );",
     )?;
+    migrate_frontend_browser_add_owner(transaction)?;
     migrate_workspace_presentation_add_pinned(transaction)?;
     migrate_workspace_presentation_add_marked_unread(transaction)
 }
@@ -99,6 +100,21 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
 /// Add the sidebar pin to registries created before the column existed.
 /// Older binaries omit it on their writes, so every existing workspace keeps
 /// the durable default (unpinned).
+/// Add the hosting app's install id to frontend browser records of
+/// registries created before the column existed (unknown owner: NULL).
+fn migrate_frontend_browser_add_owner(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let has_owner = transaction
+        .prepare("PRAGMA table_info(frontend_browser_tabs)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "owner");
+    if !has_owner {
+        transaction.execute_batch("ALTER TABLE frontend_browser_tabs ADD COLUMN owner TEXT;")?;
+    }
+    Ok(())
+}
+
 fn migrate_workspace_presentation_add_pinned(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     let has_pinned = transaction
         .prepare("PRAGMA table_info(workspace_presentation)")?
@@ -532,6 +548,12 @@ pub struct FrontendBrowserRecord {
     pub title: Option<String>,
     pub favicon_url: Option<String>,
     pub profile_id: Option<String>,
+    /// Install id of the app that hosts the page and is the record's only
+    /// writer (OWNERSHIP-PRINCIPLES single writer). Set by the app through
+    /// the frontend browser commands or `tab.update {owner}`; never by the
+    /// CLI. `None` for records from builds without owners.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 impl FrontendBrowserRecord {
@@ -554,6 +576,9 @@ impl FrontendBrowserRecord {
                     && profile_id.bytes().all(|byte| byte.is_ascii_graphic()),
                 "bad request: profile_id must be 1-128 printable ASCII characters"
             );
+        }
+        if let Some(owner) = &self.owner {
+            crate::state::window_record_store::validate_key("owner", owner)?;
         }
         Ok(())
     }
@@ -604,7 +629,7 @@ fn read_frontend_browser(
 ) -> anyhow::Result<Option<FrontendBrowserRecord>> {
     Ok(connection
         .query_row(
-            "SELECT engine, url, title, favicon_url, profile_id FROM frontend_browser_tabs
+            "SELECT engine, url, title, favicon_url, profile_id, owner FROM frontend_browser_tabs
              WHERE browser_id = ?1",
             [browser_id],
             |row| {
@@ -614,6 +639,7 @@ fn read_frontend_browser(
                     title: row.get(2)?,
                     favicon_url: row.get(3)?,
                     profile_id: row.get(4)?,
+                    owner: row.get(5)?,
                 })
             },
         )
@@ -1013,7 +1039,7 @@ impl WorkspaceRegistry {
         let mut frontend_browsers = HashMap::new();
         {
             let mut statement = self.connection.prepare(
-                "SELECT f.browser_id, f.engine, f.url, f.title, f.favicon_url, f.profile_id
+                "SELECT f.browser_id, f.engine, f.url, f.title, f.favicon_url, f.profile_id, f.owner
                  FROM frontend_browser_tabs AS f
                  WHERE NOT EXISTS (
                    SELECT 1 FROM resource_browsers AS b
@@ -1029,6 +1055,7 @@ impl WorkspaceRegistry {
                         title: row.get(3)?,
                         favicon_url: row.get(4)?,
                         profile_id: row.get(5)?,
+                        owner: row.get(6)?,
                     },
                 ))
             })?;
@@ -1278,15 +1305,17 @@ impl WorkspaceRegistry {
             .is_some();
         anyhow::ensure!(!exists, "browser {browser_id} already exists");
         tx.execute(
-            "INSERT INTO frontend_browser_tabs(browser_id, engine, url, title, favicon_url, profile_id)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO frontend_browser_tabs(
+               browser_id, engine, url, title, favicon_url, profile_id, owner
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 browser_id,
                 record.engine,
                 record.url,
                 record.title,
                 record.favicon_url,
-                record.profile_id
+                record.profile_id,
+                record.owner
             ],
         )?;
         append_presentation_record(
@@ -1299,14 +1328,15 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
-    /// Update a frontend browser's location and presentation. `None` leaves
-    /// a field unchanged; `favicon_url: Some(None)` clears the favicon.
+    /// Update a frontend browser's location, presentation, and owner. `None`
+    /// leaves a field unchanged; `favicon_url: Some(None)` clears the favicon.
     pub fn update_frontend_browser(
         &mut self,
         browser_id: &str,
         url: Option<&str>,
         title: Option<&str>,
         favicon_url: Option<Option<&str>>,
+        owner: Option<&str>,
     ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
         validate_browser_public_id(browser_id)?;
         let tx = self.connection.transaction()?;
@@ -1322,15 +1352,18 @@ impl WorkspaceRegistry {
         if let Some(favicon_url) = favicon_url {
             record.favicon_url = favicon_url.map(str::to_string);
         }
+        if let Some(owner) = owner {
+            record.owner = Some(owner.to_string());
+        }
         record.validate()?;
         if record == before {
             tx.commit()?;
             return Ok((record, false));
         }
         tx.execute(
-            "UPDATE frontend_browser_tabs SET url = ?2, title = ?3, favicon_url = ?4
+            "UPDATE frontend_browser_tabs SET url = ?2, title = ?3, favicon_url = ?4, owner = ?5
              WHERE browser_id = ?1",
-            params![browser_id, record.url, record.title, record.favicon_url],
+            params![browser_id, record.url, record.title, record.favicon_url, record.owner],
         )?;
         append_presentation_record(
             &tx,

@@ -1076,6 +1076,75 @@ fn window_projection_migrates_to_unadopted_records_that_the_app_adopts() {
     assert_eq!(read(&mux, "window_record.list", json!({})).as_array().unwrap().len(), 1);
 }
 
+/// A frontend browser record carries the install id of the app that hosts
+/// it: set at creation or by `tab.update {owner}`, shown as `extra.owner`
+/// on the tab snapshot and its `session.events` restatement, and refused on
+/// a tab that is not frontend-rendered.
+#[test]
+fn frontend_browser_owner_is_set_by_the_app_and_shown_on_the_tab() {
+    let mux = Mux::new_for_test("state-browser-owner", SurfaceOptions::default());
+    let terminal = mux.new_workspace(None, None).unwrap().id;
+    let pane = mux.with_state(|state| state.pane_of(terminal)).unwrap();
+    let browser = mux
+        .new_frontend_browser_tab(
+            Some(pane),
+            crate::workspace_registry::FrontendBrowserRecord {
+                engine: "cef".into(),
+                url: "https://example.com/".into(),
+                title: None,
+                favicon_url: None,
+                profile_id: None,
+                owner: Some("install_mac_a".into()),
+            },
+            None,
+        )
+        .unwrap();
+    let browser_tab = tab_id(&mux, browser.id);
+    let terminal_tab = tab_id(&mux, terminal);
+    let tab_extra = |tab: &str| {
+        snapshot(&mux)["tabs"].as_array().unwrap().iter().find(|value| value["id"] == tab).unwrap()
+            ["extra"]
+            .clone()
+    };
+    assert_eq!(tab_extra(&browser_tab)["owner"], "install_mac_a");
+    assert!(tab_extra(&terminal_tab).get("owner").is_none());
+
+    let before = revision(&mux);
+    let updated = mutate(
+        &mux,
+        "tab.update",
+        json!({"tab": browser_tab, "owner": "install_mac_b"}),
+        "owner-b",
+    );
+    assert_eq!(updated["id"], browser_tab);
+    assert_eq!(tab_extra(&browser_tab)["owner"], "install_mac_b");
+    assert!(changes_after(&mux, before).iter().any(|change| {
+        change["kind"] == "upsert"
+            && change["resource"] == "tab"
+            && change["id"] == browser_tab.as_str()
+            && change["value"]["extra"]["owner"] == "install_mac_b"
+    }));
+    assert_eq!(mux.frontend_browser(&browser).unwrap().owner.as_deref(), Some("install_mac_b"));
+    assert_eq!(
+        error_code(send(
+            &mux,
+            "tab.update",
+            json!({"tab": terminal_tab, "owner": "install_mac_b"}),
+            Some("owner-terminal")
+        )),
+        "validation.invalid"
+    );
+    assert_eq!(
+        error_code(send(
+            &mux,
+            "tab.update",
+            json!({"tab": browser_tab, "owner": "bad/owner"}),
+            Some("owner-invalid")
+        )),
+        "validation.invalid"
+    );
+}
+
 #[test]
 fn workspace_status_progress_and_bounded_log() {
     let mux = Mux::new_for_test("state-status", SurfaceOptions::default());

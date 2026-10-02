@@ -113,6 +113,8 @@ impl Mux {
                                 title: None,
                                 favicon_url: None,
                                 profile_id: tab["browser_profile_id"].as_str().map(str::to_string),
+                                // The app that shows the reopened tab claims it.
+                                owner: None,
                             },
                             None,
                         )?
