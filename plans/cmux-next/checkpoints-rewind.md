@@ -40,7 +40,7 @@ A checkpoint record includes:
 - `checkpointId`, `repositoryId`, `worktreeId`, local ref, immutable object ID, record version and sequence.
 - Base HEAD object ID or unborn marker, branch/detached identity, and observed index fingerprint. These are context, not instructions to move HEAD.
 - Separate index, tracked-worktree and approved-untracked trees, plus included-path/tombstone manifests and omission records. An absent path differs from an empty file.
-- Scope/policy revision, source session/turn when verified, capture reason and timestamp, caller identity, logical bytes and estimated newly stored bytes.
+- Scope/policy revision, source session/turn when verified, capture reason and timestamp, resource routing identity, logical bytes and estimated newly stored bytes.
 - Coverage by item: included, omitted or unavailable, with a reason. Only mark a scope complete when every eligible path is represented. Never label file capture as native-policy enforcement or host isolation.
 - Pin reasons, expiry eligibility and restore receipts. Create returns an explicit `skipped[]` list and `complete:false` whenever a considered file is over the untracked limit or otherwise skipped; no silent caps or complete labels with omissions. A non-discarded handoff reference or active restore journal pins its checkpoint until the owner releases that reference.
 
@@ -111,7 +111,7 @@ Names agreed with the Git owner follow the existing catalog: core `git.checkpoin
 | `git.checkpoint.restore.preview` | read returning expiring token | `cmux git checkpoint restore --preview --json`; MCP/tools; Restore checkpoint… opens inline Changes review. |
 | `git.checkpoint.restore` | mutation, `idempotency_key` + preview token | Same restore verb with explicit apply/token; same UI action path after review. |
 | `git.checkpoint.recovery.get` / `git.checkpoint.recovery.apply` | read / mutation, `idempotency_key` | `cmux git checkpoint recover --json`; MCP/tools; inline interrupted-operation action. |
-| `git.checkpoint.pin` / `git.checkpoint.unpin` / `git.checkpoint.delete` | mutation, key + expected revision | CLI/MCP; history item menu. Deletion refuses active handoff/Undo/journal pins. |
+| `git.checkpoint.pin` / `git.checkpoint.unpin` / `git.checkpoint.delete` | mutation, `idempotency_key` (pin/unpin commute by pin_id) | CLI/MCP; history item menu. Deletion refuses active handoff/Undo/journal pins. |
 
 The first slice exposes only create, get, list, pin and unpin. Restore, recovery and deletion follow in later slices; retention proposals below do not enable automatic pruning in the capture-only slice.
 
@@ -119,7 +119,13 @@ Undo uses the existing preview/restore operations against a safety checkpoint, n
 
 A later compare-with-checkpoint view can extend `git.diff` with a checkpoint base and reuse its staged/unstaged/untracked scopes. Do not add another diff reader in the capture-only slice.
 
-Advertise a versioned `git-checkpoints-v1` capability and supported operation list, bounds and file/index modes. Unsupported owners hide the native actions and return `unsupported_capability` to automation. Handoff availability remains governed by its five-method negotiation. Common errors use stable codes: `repository_changed`, `base_changed`, `preview_stale`, `path_conflict`, `unsupported_index`, `capture_incomplete`, `budget_exceeded`, `repository_busy`, `recovery_required`, `pinned` and `key_conflict`. Align the final error envelope with #16766 rather than copying its names blindly.
+The agreed capture v1.1 gate is `git-checkpoints-v1` in `DaemonIdentity.capabilities` from identify. The page calls `postNative("git.capabilities", {}) -> {checkpoints:boolean}` once per pane mount and after reconnect. This reads the same native Git connection identity; no runtime catalog read or polling exists. False, unsupported bridge requests, and `operation.unsupported` hide capture actions. A page availability mirror feeds native palette gating from that result, with no second probe. The five capture ops bind at build time through the generated operation catalog; catalog_sha256 does not establish runtime support. Capture limits arrive in list. Handoff keeps its separate five-method initialize negotiation.
+
+Capture uses the existing native Changes route to the session-host `OperationOwner::Git`, with `path=cwd`. The page calls `postNative("git.checkpoint.<op>", {cwd, ...params})`. Create/pin/unpin return `{result, revision, replayed}`, with decimal-string revisions. Mutation `idempotency_key` is moved into the resource envelope; get's key lookup stays inside params. The standard resource_mutation ledger owns repeat behavior, without a caller principal. Create's expected_repository_id/expected_worktree_id are optional; the UI sends both from its candidate read. `include_untracked` accepts checked paths or `"eligible"`; omitted eligible files are explicit `not_selected` skips and make `complete:false`. Coverage is count-based, skipped[] is capped with skipped_total, and list refuses an over-budget candidate manifest instead of silently capping it. Pin/unpin commute by pin_id without expected_revision. Managed handoff:/restore: pins cannot be released by a user action.
+
+Errors use the closed resource catalog: `resource.not_found`, `idempotency.conflict`, `operation.unsupported`, `revision.conflict`, `mutation.indeterminate`, `validation.invalid`, selector errors and `operation.failed`. Repository-specific failures are `operation.failed` with `{operation, reason, extra?}`, such as repository_changed/repository_busy/budget_exceeded. Partial capture is a ready `complete:false` record, never a capture_incomplete error. Restore errors and shapes remain proposals for the next contract.
+
+Every native git error preserves `{code,userMessage,details?,retryable?,origin}`. A session_host error is the owner's definite answer; mutation.indeterminate still means its write outcome is unknown. native.not_connected is definitely not sent; native.timed_out is uncertain; native.invalid_request is a bridge refusal. Persist the original mutation body/key before send. After uncertainty or reload, get first, then retry only the original arguments and key through an explicit action. A pin record alone does not prove acknowledgement; same-key owner deduplication is authoritative. Definite refusals never become automatic retries or an offline queue.
 
 ## Handoff integration without weaker review
 

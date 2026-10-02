@@ -13,7 +13,8 @@ import {
   WORKED_SESSION,
   type SeedStep,
 } from "./mockFixture";
-import { mockGitStatus, mockScopeDiff } from "./mockGit";
+import { mockGitDiff, mockGitStatus } from "./mockGit";
+import { mockFileSearch } from "./mockFiles";
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
 // acpmux daemon is wanted (demos, screenshots, tests). The page then runs the
@@ -254,8 +255,16 @@ export class MockAcpmuxSocket {
     if (request.id === undefined) return;
     void this.answer(request.method, request.params ?? {}).then(
       (result) => this.deliver({ jsonrpc: "2.0", id: request.id, result }),
-      (error: Error) =>
-        this.deliver({ jsonrpc: "2.0", id: request.id, error: { message: error.message, data: (error as any).data } }),
+      (error: Error & { code?: string; data?: unknown }) =>
+        this.deliver({
+          jsonrpc: "2.0",
+          id: request.id,
+          error: {
+            code: -32000,
+            message: error.message,
+            data: error.data ?? (error.code ? { code: error.code } : undefined),
+          },
+        }),
     );
   }
 
@@ -339,8 +348,16 @@ export class MockAcpmuxSocket {
         this.queue = turn.catch(() => undefined);
         return turn;
       }
-      case "git.scope.diff":
-        return mockScopeDiff(target, params.scope);
+      case "file.search":
+        return mockFileSearch(
+          typeof params.path === "string"
+            ? params.path
+            : this.sessions.find((entry) => entry.sessionId === target)?.cwd,
+          params.query,
+          params.limit,
+        );
+      case "git.diff":
+        return mockGitDiff(target, params.scope, params.include_patch === true);
       case "git.status":
         return mockGitStatus(target);
       default:

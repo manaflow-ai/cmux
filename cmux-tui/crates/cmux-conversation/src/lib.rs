@@ -13,7 +13,8 @@ mod reducer;
 mod types;
 
 pub use budget::{
-    BUDGET_WINDOW, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, check_agent_budget, parse_rfc3339_millis,
+    BUDGET_WINDOW, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, check_agent_budget, check_agent_streak,
+    parse_rfc3339_millis,
 };
 pub use id::{encode_id, format_rfc3339_millis};
 pub use reducer::{
