@@ -83,6 +83,25 @@ enum CloudHandlers {
         if let state = windows.active?.state { windows.show(workspaceID: workspaceID, in: state) } else { windows.openWindow(workspaces: [workspaceID]) }
     }
 
+    @MainActor static func reveal(_ surface: SurfaceID, in pane: PaneModel, workspaceID: String, _ context: AppActionContext) {
+        let select: (PaneController) -> Void = { controller in
+            controller.pendingSelectSurface = surface
+            controller.syncStripFromStore()
+        }
+        if let controller = context.services.paneController(for: pane) {
+            select(controller)
+            show(workspaceID, context)
+            return
+        }
+        show(workspaceID, context)
+        Task { @MainActor in
+            for await mounted in Observations({ context.services.paneController(for: pane) != nil }) where mounted {
+                if let controller = context.services.paneController(for: pane) { select(controller) }
+                return
+            }
+        }
+    }
+
     /// The machine's first workspace, created (with a terminal) when it has none.
     static func firstWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {
         let daemon = session.daemon
