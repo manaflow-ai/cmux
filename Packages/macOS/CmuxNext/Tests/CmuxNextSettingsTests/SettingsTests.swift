@@ -215,6 +215,43 @@ import Testing
         try await eventually(controller) { registry.shortcutDisplay(for: "tabGroup.create") == nil }
     }
 
+    /// The theme is the user's: no other settings write, reset or reload
+    /// may drop it or put the default back.
+    @Test func noSettingsWriteDropsTheTheme() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        try Data("{\n  \"appearance\": {\"theme\": \"Catppuccin Mocha\"}\n}\n".utf8).write(to: url)
+        let controller = SettingsController(registry: ActionRegistry.standard(), design: DesignSettings(), fileURL: url)
+        controller.start()
+        defer { controller.stop() }
+        try await nextLoad(controller, after: 0)
+
+        func theme() throws -> JSONValue? {
+            try JSONC.parse(String(contentsOf: url, encoding: .utf8)).value(at: ["appearance", "theme"])
+        }
+        let writes: [(String, () async throws -> Void)] = [
+            ("density", { try await controller.setDensity(.comfortable) }),
+            ("density back", { try await controller.setDensity(.compact) }),
+            ("titlebar", { try await controller.setTitlebar(.allCases.last!) }),
+            ("animation", { try await controller.setAnimationSpeed(.normal) }),
+            ("pane padding", { try await controller.setPanePadding(6) }),
+            ("pane padding reset", { try await controller.setPanePadding(nil) }),
+            ("pane border color", { try await controller.setPaneBorderColor("#336699") }),
+            ("pane border reset", { try await controller.setPaneBorderColor(nil) }),
+            ("shortcut", { try await controller.setShortcut(Shortcut("g", modifiers: [.command, .shift]), for: "tabGroup.create") }),
+            ("shortcut reset", { try await controller.resetShortcut(for: "tabGroup.create") }),
+            ("bookmarks bar", { try await controller.setShowBookmarksBar(true) }),
+            ("reset all", { try await controller.resetAllSettings() }),
+            ("reload", { await controller.reload() }),
+        ]
+        for (name, write) in writes {
+            try await write()
+            #expect(try theme() == "Catppuccin Mocha", "\(name) dropped the theme")
+        }
+        try await eventually(controller) { controller.snapshot.root.value(at: ["appearance", "theme"]) == "Catppuccin Mocha" }
+    }
+
     @Test func refusesToRewriteABrokenFile() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
