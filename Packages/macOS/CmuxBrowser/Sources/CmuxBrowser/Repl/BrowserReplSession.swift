@@ -354,8 +354,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         let setTimer: @convention(block) (JSValue?, JSValue?, JSValue?) -> Void = { [weak self] id, delay, repeating in
             guard let self, let id = id?.toInt32() else { return }
-            let milliseconds = max(0, delay?.toDouble() ?? 0)
-            let duration = Duration.milliseconds(Int64(milliseconds.isFinite ? milliseconds : 0))
+            let duration = Duration.milliseconds(BrowserReplSession.timerDelayMilliseconds(delay?.toDouble()))
             self.scheduler.schedule(id: Int(id), after: duration, repeating: repeating?.toBool() ?? false)
         }
         let clearTimer: @convention(block) (JSValue?) -> Void = { [weak self] id in
@@ -408,6 +407,18 @@ public final class BrowserReplSession: @unchecked Sendable {
         native.setObject(unsafeBitCast(fs, to: AnyObject.self), forKeyedSubscript: "fs" as NSString)
         native.setObject(unsafeBitCast(readResource, to: AnyObject.self), forKeyedSubscript: "readResource" as NSString)
         context.setObject(native, forKeyedSubscript: "__cmuxNative" as NSString)
+    }
+
+    /// The longest timer delay, 2^31-1 ms (about 24.8 days), as browsers and
+    /// Node cap `setTimeout`.
+    static let maxTimerDelayMilliseconds: Int64 = 2_147_483_647
+
+    /// A JavaScript timer delay as whole milliseconds: NaN, negative and
+    /// missing delays are 0, larger ones are capped at
+    /// `maxTimerDelayMilliseconds`, so no delay can trap the conversion.
+    static func timerDelayMilliseconds(_ delay: Double?) -> Int64 {
+        guard let delay, delay.isNaN == false, delay > 0 else { return 0 }
+        return delay >= Double(maxTimerDelayMilliseconds) ? maxTimerDelayMilliseconds : Int64(delay)
     }
 
     private func resolveCall(_ callID: Int, _ result: Result<String, BrowserReplDriverError>) {

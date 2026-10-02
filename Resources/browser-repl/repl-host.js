@@ -338,6 +338,16 @@
     };
   }
 
+  // A timer delay in milliseconds: NaN, negative and non-numeric delays are
+  // 0 and longer ones are capped at 2^31-1 ms (about 24.8 days), as browsers
+  // and Node cap setTimeout.
+  const MAX_TIMER_DELAY = 2147483647;
+  function timerDelay(ms) {
+    const n = Number(ms);
+    if (!(n > 0)) return 0;
+    return n >= MAX_TIMER_DELAY ? MAX_TIMER_DELAY : Math.floor(n);
+  }
+
   // Adapts the app's `__cmuxNative` object (driver-protocol.md, "Native host
   // contract") to the `host` and `driver` objects the runtime uses, and
   // defines the entry points the app calls.
@@ -387,7 +397,7 @@
       setTimeout(fn, ms) {
         const id = nextTimer++;
         timers.set(id, fn);
-        native.setTimer(id, Math.max(0, ms || 0), false);
+        native.setTimer(id, timerDelay(ms), false);
         return id;
       },
       clearTimeout(id) {
@@ -440,6 +450,6 @@
     root.__cmuxFormatError = (e) => (repl ? repl.redact(formatError(e)) : formatError(e));
   }
 
-  ns.replHost = { rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, formatError, installNativeHost };
+  ns.replHost = { timerDelay, rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, formatError, installNativeHost };
   installNativeHost();
 })(typeof globalThis !== "undefined" ? globalThis : this);
