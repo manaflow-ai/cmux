@@ -18,7 +18,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     }
 
     private struct State: @unchecked Sendable {
-        var router: CloudTuiManualIOInputRouter?
+        var router: (@Sendable (TerminalManualInput) -> Void)?
         var remoteSink: RemoteSink?
         var pending: [TerminalManualInput] = []
         var remoteQueue: [TerminalManualInput] = []
@@ -27,7 +27,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         var remoteWorkerToken: UUID?
         var remoteInFlight = false
         var remoteEpoch: UInt64 = 0
-        var requestedRouter: CloudTuiManualIOInputRouter?
+        var requestedRouter: (@Sendable (TerminalManualInput) -> Void)?
         var remoteBindingPending = false
         var remoteBindingToken: UUID?
         var remoteRebind: (@Sendable () async -> Bool)?
@@ -58,7 +58,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             }
             return nil
         }
-        router?.send(input)
+        router?(input)
     }
 
     /// Marks the relay as awaiting the binding attempt that precedes materialization.
@@ -141,11 +141,15 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
 
     /// Delivers everything queued so far to `router` and forwards from now on.
     func attach(_ router: CloudTuiManualIOInputRouter) {
+        attachSender { router.send($0) }
+    }
+
+    private func attachSender(_ send: @escaping @Sendable (TerminalManualInput) -> Void) {
         state.withLock { state in
             // `discard()` fences the current request; an explicit later attach is
             // the retry boundary and is allowed to resume forwarding.
             state.discarded = false
-            state.requestedRouter = router
+            state.requestedRouter = send
             startRemoteRebindLocked(&state)
             promoteRequestedRouterIfReadyLocked(&state)
         }
@@ -153,7 +157,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
 
     /// Device mirrors adopt the same pane with their own byte router.
     func attach(_ router: DeviceTerminalInputRouter) {
-        attach { router.enqueue($0) }
+        attachSender { router.enqueue($0) }
     }
 
     /// Drops queued input and stops forwarding. A later `attach` resumes forwarding.
@@ -212,7 +216,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                 } catch let error as CloudMachineLink.LinkError {
                     let requeueInput: Bool
                     switch error {
-                    case .clientMissing, .spawnFailed, .inputTooLarge, .timedOut, .exited:
+                    case .clientMissing, .spawnFailed, .inputTooLarge, .timedOut, .exited, .failureMessage:
                         requeueInput = false
                     }
                     if case .clientMissing = error {
@@ -365,7 +369,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         state.router = requestedRouter
         state.remoteRebind = nil
         // Enqueue before publishing the router so a concurrent key cannot overtake.
-        for input in state.pending { requestedRouter.send(input) }
+        for input in state.pending { requestedRouter(input) }
         state.pending.removeAll(keepingCapacity: true)
     }
 
