@@ -227,6 +227,12 @@ pub(crate) fn insert_row(
 ) -> Result<(), Reject> {
     check_height(height_permille)?;
     let at = state.locate(after_pane)?;
+    // The tab references an existing terminal that no tab places yet.
+    if let Some(placed) =
+        state.tabs.iter().find(|(_, content)| content.same_identity(&new_tab.content))
+    {
+        return Err(Reject::ContentPlaced(*placed.0));
+    }
     let ids = state.row_op_ids(at, vec![new_row, new_pane, new_tab.tab], base_column, base_row);
     state.ensure_fresh(&ids)?;
     state.open_rows(at, base_column, base_row, events);
@@ -278,7 +284,9 @@ pub(crate) fn move_tab_to_row(
             == (anchor.workspace, anchor.screen, anchor.column);
         let row = column.row_index(from.position);
         let alone = column.row_range(row).len() == 1;
-        let height = column.rows.get(row).map_or(1000, |row| row.height_permille);
+        // An implicit row that is the column's only pane collapses back
+        // after the move whatever the height, so any height is own place.
+        let height = column.rows.get(row).map_or(op.height_permille, |row| row.height_permille);
         if same_column
             && alone
             && (target == row || target == row + 1)
@@ -415,6 +423,9 @@ pub(crate) fn apply(
         }
         LayoutOpKind::FlattenRows { column } => flatten_rows(state, *column, events),
         // `apply_kind` routes only the four row ops here.
-        _ => Ok(()),
+        _ => {
+            debug_assert!(false, "not a row op: {kind:?}");
+            Ok(())
+        }
     }
 }
