@@ -1,6 +1,6 @@
 # First-party cmux apps, app tiers and the app sandbox
 
-Status: proposal 1, lane 3 lead, 2026-10-02. Inputs (binding): cmux-next-spec `spec/app-platform.md` (draft 1), decisions D50 (first-party apps), D51 (three tiers), D52 (security and complete sandboxing), P5 (no studied-product names in public repos), `spec/identity-and-permissions.md` (grants, approval modes), plans/cmux-next/app-platform.md (implementation plan), OWNERSHIP-PRINCIPLES.md, skills/cmux-next-feature. Only the coordinator writes the spec; this file is the lane 3 proposal ("spec proposal: first-party apps").
+Status: proposal 2, lane 3 lead, 2026-10-02. Inputs (binding): cmux-next-spec `spec/app-platform.md` (draft 1), decisions D50 (first-party apps), D51 (three tiers), D52 (security and complete sandboxing), P5 (no studied-product names in public repos), `spec/identity-and-permissions.md` (grants, approval modes), plans/cmux-next/app-platform.md (implementation plan), OWNERSHIP-PRINCIPLES.md, skills/cmux-next-feature. Only the coordinator writes the spec; this file is the lane 3 proposal ("spec proposal: first-party apps").
 
 ## 1. Summary for agents
 
@@ -14,11 +14,11 @@ Status: proposal 1, lane 3 lead, 2026-10-02. Inputs (binding): cmux-next-spec `s
 
 | App | What it does | Contributions | Core scopes | Recommended variant |
 | --- | --- | --- | --- | --- |
-| search | finds workspaces, tabs, terminal text, browser pages, notes, inbox items and files, and opens the result | command `search` (palette, MCP), sidebar section, pane kind | `workspace:read`, `terminal:read`, `browser:read`, proposed `history:read`, `fs:read` (granted roots) | see section 8 |
-| inbox | one triage list: cmux notifications, agents that wait or finished, connected-service work items (review requests, failing checks); open, done, snooze | sidebar section, status item (count), commands, pane kind | `notification:read`, `notification:write`, `agent:read`, `workspace:write` (open), `integration:github:read` | see section 8 |
-| notes | markdown notes, global and per workspace; quick capture; agents read and append through MCP tools | sidebar section, commands (MCP), pane kind, search provider | storage (proposed documents store), `workspace:read` | see section 8 |
-| coderouter | CodeRouter status, provider accounts, keys, usage, routing, test request; first-run onboarding | sidebar section, status item, commands, pane kinds (dashboard, onboarding) | proposed `coderouter:read`, `coderouter:write`, restricted `coderouter:keys` | see section 8 |
-| usage | per provider and account: session and weekly windows, percent used, reset time, pace, warnings | status item (menu bar), sidebar section, commands (MCP) | proposed `usage:read`, `notification:write` | see section 8 |
+| search | finds workspaces, tabs, terminal text, browser pages, notes, inbox items and files, and opens the result | command `search` (palette, MCP), sidebar section, pane kind | `workspace:read`, `terminal:read`, `browser:read`, proposed `history:read`, `fs:read` (granted roots) | `grouped` (section 8) |
+| inbox | one triage list: cmux notifications, agents that wait or finished, connected-service work items (review requests, failing checks); open, done, snooze | sidebar section, status item (count), commands, pane kind | `notification:read`, `notification:write`, `agent:read`, `workspace:write` (open), `integration:github:read` | `grouped` (section 8) |
+| notes | markdown notes, global and per workspace; quick capture; agents read and append through MCP tools | sidebar section, commands (MCP), pane kind, search provider | storage (proposed documents store), `workspace:read` | `scratchpad` (section 8) |
+| coderouter | CodeRouter status, provider accounts, keys, usage, routing, test request; first-run onboarding | sidebar section, status item, commands, pane kinds (dashboard, onboarding) | proposed `coderouter:read`, `coderouter:write`, restricted `coderouter:keys` | `checklist` (section 8) |
+| usage | per provider and account: session and weekly windows, percent used, reset time, pace, warnings | status item (menu bar), sidebar section, commands (MCP) | proposed `usage:read`, `notification:write` | `menuPercent` (section 8) |
 
 ## 3. Platform API gaps (what these five apps need)
 
@@ -75,6 +75,22 @@ Priority: P0 = an app cannot do its core job without it; P1 = the app works but 
 | R4 | Background work without a mount | inbox (snooze wake-up), usage (threshold warnings) | declarative `contributes.notificationRules` evaluated by the host on events (no app code running), else `activation: ["onEvent:<stream>"]` that starts the app for one handler turn with a budget | P1 |
 | R5 | Secret handles | coderouter | opaque `secret_…` handles: created by host UI or ops, usable only as a param of ops that declare `accepts_secret_handle`, displayable only by host UI (`ui.secret.reveal`, `clipboard.writeSecret`), never readable by the VM | P0 for coderouter |
 | R6 | Approval prompts from the host | coderouter, inbox (agent reply) | per-scope approval modes from grants (`none`, `per_session`, `per_call`); the host shows the prompt and the call waits (deadline 2 min) | P1 |
+
+### 3.5 Found while building the prototypes
+
+| # | Gap or bug | Found by | Proposal | Owner | Pri |
+| --- | --- | --- | --- | --- | --- |
+| B1 | Runtime bug: removing a rebuilt subtree lowers the scene node count by 1 and keeps the child handlers, so a long-lived mount that rebuilds lists reaches `app.limit` (4096 nodes) although few nodes are live (a 9-node child rebuilt 600 times is enough) | search, usage | count and release the whole subtree in `materialize.ts`; add a churn test | app platform lead | P0 |
+| B2 | The user origin of a tap ends at the first `await` in the handler; commands run from the palette or a keybinding carry origin `script`, so they cannot move focus | inbox, coderouter | the gesture token covers the handler's promise chain until it settles (bounded, for example 2 s), and commands invoked by a user gesture run with origin `user` | app platform lead | P0 |
+| B3 | Unknown ops are refused locally as `scope.missing` without naming a scope | coderouter, usage | answer `operation.unsupported` for ops not in the scope table; `scope.missing` always names the scope | app platform lead | P1 |
+| B4 | The manifest scope grammar rejects `storage:local` (which `scopes.json` uses) and has no restricted level (`coderouter:keys` was renamed `coderouter:control` to validate) | coderouter, notes, search | accept `storage:local`; add a restricted marker in `scopes.json` (`restricted: true`) instead of a name level | app platform lead | P1 |
+| B5 | Apps cannot write their own settings, so "Next <App> Variant" keeps its value in app storage | all | `app.settings.set {key, value}` (config layer, mutate-own, own app only) | config layer | P1 |
+| B6 | Every command becomes an MCP tool | notes, usage, inbox | command flag `mcp: false` | app platform lead | P1 |
+| B7 | No unmount hook (`onCleanup`), no way to query granted scopes, `untrack` and the `CmuxError` constructor are missing from `cmux-app.d.ts` | inbox, coderouter, usage, search | add `onCleanup`, `cmux.app.scopes()`, typings | app platform lead | P1 |
+| B8 | No container width in the render context, no stack alignment, no menu item checked state, no relative-time text node (countdowns wake the app once per minute) | usage, search, inbox | `ctx.width()` signal, `alignment` prop, `checked` menu prop, `RelativeTime(date)` node rendered by the client | app platform lead | P1 |
+| B9 | Scopes take no parameters (file roots), no app op opens its own pane or reveals its section, no section header badge, no `notification.create` dedupe key across machines | search, inbox, usage | `fs:read` roots as grant selectors (5.3), `app.pane.open` / `sidebar.section.reveal` (origin user), `app.badge.set`, `dedupe_key` on `notification.create` | app platform lead, sections lead, daemon | P1 |
+| B10 | `notification.ack` client id for apps | inbox | the host sets `client_id = app:<id>` for app calls so read state is shared across clients through the daemon ledger | session host | P1 |
+| B11 | Spec 6.5 forbids account and credential ops for all apps; the CodeRouter app needs a carve-out for first-party and reviewed apps, through host-owned flows only | coderouter | restricted scopes (section 4) may hold credential flows that take or return secret handles; the raw "never" list stays | spec (coordinator) | P0 for coderouter |
 
 ## 4. Tiers (D51)
 
@@ -161,4 +177,12 @@ See the lane 3 report; each has a recommendation.
 
 ## 8. Per-app results
 
-Filled in when each app's prototype lands (PR, variants, screenshots, recommendation, UNVERIFIED).
+Screenshots are in the private hq scratch (`.cmux-scratch/nx-apps/screens/<app>/`), dark and light per variant plus empty, error and unsupported states. All prototypes ran in the offscreen preview harness and the bun FakeHost only; none ran in a tagged app (app sections and pane kinds are not mounted yet).
+
+| App | PR | Variants (recommended first) | Strongest objection to the recommendation | Tests |
+| --- | --- | --- | --- | --- |
+| search | https://github.com/manaflow-ai/cmux/pull/16792 | `grouped` (native rows grouped by source, "N more", a footer that names sources it could not search); `preview` (chips, list + preview with the match highlighted); `palette` (one ranked list as a palette page) | the match shows in one subtitle line without highlight | 41 bun |
+| inbox | https://github.com/manaflow-ai/cmux/pull/16795 | `grouped` (rows under source or workspace headers); `focus` (filter chips, list, detail with the agent's screen or failed checks, quick reply); `card` (one item at a time: Open, Done, Snooze, Skip) | Done and Snooze are only in the context menu, so clearing many items is slower than `card` | 36 bun |
+| notes | https://github.com/manaflow-ai/cmux/pull/16791 | `scratchpad` (the current workspace's scratchpad on top, other notes below); `list` (all notes, the selected one inline); `split` (list then editor; two columns as a pane) | the API has only a session-wide `focused` flag, so with two windows the current workspace can be wrong (D9) | 38 bun |
+| coderouter | https://github.com/manaflow-ai/cmux/pull/16798 | `checklist` (setup as five expandable rows in the section, one-page dashboard); `wizard` (one step per screen in a pane); `tabs` (dashboard with Overview, Accounts, Keys, Usage, Routing, Setup) | uses much sidebar height, and a 300 pt column cuts long emails | 30 bun |
+| usage | https://github.com/manaflow-ai/cmux/pull/16794 | `menuPercent` (gauge glyph and the tightest limit as a percent, dropdown with every window); `menuMeters` (two stacked meters, cards with pace ticks); `sidebarOnly` (status item empty until a threshold) | one bare percent does not say which limit it is | 22 bun |
