@@ -124,8 +124,6 @@
         Object.defineProperty(scope, key, Object.getOwnPropertyDescriptor(g, key));
       }
     }
-    let queue = Promise.resolve();
-
     async function run(code) {
       const started = host.now ? host.now() : Date.now();
       let rewritten;
@@ -156,12 +154,51 @@
       }
     }
 
+    // Cells run one at a time in submission order. The queue is plain state,
+    // not a promise chain: when the app terminates a runaway script,
+    // JavaScriptCore drops the promise jobs that were pending, so a chain
+    // could never advance again. Each cell settles its caller's promise
+    // directly, and cancel() settles the running one and starts the next.
+    const waiting = [];
+    let running = null;
+    function pump() {
+      if (running || !waiting.length) return;
+      const cell = waiting.shift();
+      running = cell;
+      let started;
+      try {
+        started = run(cell.code);
+      } catch (e) {
+        started = Promise.resolve({ ok: false, error: formatError(e), exception: e, ms: 0 });
+      }
+      started.then(cell.finish, (e) => cell.finish({ ok: false, error: formatError(e), exception: e, ms: 0 }));
+    }
     return {
       scope,
       evaluate(code) {
-        const next = queue.then(() => run(code));
-        queue = next.catch(() => {});
-        return next;
+        return new Promise((resolve) => {
+          const cell = {
+            code,
+            done: false,
+            finish(r) {
+              if (cell.done) return;
+              cell.done = true;
+              if (running === cell) running = null;
+              resolve(r);
+              pump();
+            },
+          };
+          waiting.push(cell);
+          pump();
+        });
+      },
+      // Ends the running cell now (the app calls this when a cell times
+      // out): its evaluate() result is { ok: false, error: message } and the
+      // next cell starts. Work the cell already scheduled is not undone.
+      cancel(message) {
+        if (!running) return false;
+        running.finish({ ok: false, error: String(message), cancelled: true, ms: 0 });
+        return true;
       },
     };
   }
@@ -334,6 +371,7 @@
           if (gate === own) gate = null;
         }
       },
+      cancel: (message) => repl.cancel(message),
       dispose: () => session.dispose(),
     };
   }
@@ -447,6 +485,7 @@
       if (!r.ok) throw r.exception || new Error(r.error);
       return undefined;
     };
+    root.__cmuxReplCancel = (message) => (repl ? repl.cancel(message) : false);
     root.__cmuxFormatError = (e) => (repl ? repl.redact(formatError(e)) : formatError(e));
   }
 

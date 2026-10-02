@@ -47,29 +47,85 @@ public final class BrowserReplSession: @unchecked Sendable {
     private let sleeper: any BrowserReplSleeping
     private let gate = BrowserReplEvalGate()
     private var scheduler: BrowserReplTimerScheduler<ContinuousClock>!
+    private let watchdog = BrowserReplWatchdog()
 
+    // Lifecycle state, guarded by `stateLock`. Submitting work to `thread`
+    // happens under the same lock, so `close()` and `evaluate()` see one
+    // order: an evaluation either reaches the thread before close's cleanup
+    // or sees `closed`.
     private let stateLock = NSLock()
     private var closed = false
     private var lastUsedAt = ContinuousClock.now
     private var workingDirectory: String
+    private var currentEval: EvalState?
+    private var nextEvalID = 0
+    /// Driver calls and fetches in flight; `close()` cancels them.
+    private var inFlight: [Int: Task<Void, Never>] = [:]
+    private var nextInFlightID = 0
 
     // JS-thread state.
     private var context: JSContext?
     private var loadError: String?
     private var fileSystem: BrowserReplFileSystem
-    private var currentEval: EvalState?
-    private var nextEvalID = 0
 
-    private final class EvalState {
+    /// One evaluation's result. It is finished exactly once: by the JS
+    /// thread when the cell settles, or from outside it by the timeout or
+    /// `close()`, so a wedged JS thread can never strand the caller.
+    private final class EvalState: @unchecked Sendable {
         let id: Int
         let start = ContinuousClock.now
-        var lines: [BrowserReplOutputLine] = []
-        var continuation: CheckedContinuation<BrowserReplEvalResult, Never>?
-        var timeoutTask: Task<Void, Never>?
+        private let lock = NSLock()
+        private var lines: [BrowserReplOutputLine] = []
+        private var continuation: CheckedContinuation<BrowserReplEvalResult, Never>?
+        private var timeoutTask: Task<Void, Never>?
+        private var finished = false
 
         init(id: Int, continuation: CheckedContinuation<BrowserReplEvalResult, Never>) {
             self.id = id
             self.continuation = continuation
+        }
+
+        var isFinished: Bool { lock.withLock { finished } }
+
+        func append(_ line: BrowserReplOutputLine) {
+            lock.withLock {
+                if !finished { lines.append(line) }
+            }
+        }
+
+        func setTimeoutTask(_ task: Task<Void, Never>) {
+            let cancelNow: Bool = lock.withLock {
+                if finished { return true }
+                timeoutTask = task
+                return false
+            }
+            if cancelNow { task.cancel() }
+        }
+
+        /// Resumes the caller unless already done. Returns whether this call finished it.
+        @discardableResult
+        func finish(error: String?) -> Bool {
+            lock.lock()
+            guard !finished else {
+                lock.unlock()
+                return false
+            }
+            finished = true
+            let continuation = self.continuation
+            self.continuation = nil
+            let lines = self.lines
+            let timeoutTask = self.timeoutTask
+            self.timeoutTask = nil
+            lock.unlock()
+            timeoutTask?.cancel()
+            let elapsed = ContinuousClock.now - start
+            let milliseconds = Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
+            continuation?.resume(returning: BrowserReplEvalResult(
+                lines: lines,
+                error: error,
+                durationMilliseconds: milliseconds
+            ))
+            return true
         }
     }
 
@@ -152,30 +208,45 @@ public final class BrowserReplSession: @unchecked Sendable {
         timeout: Duration,
         maxOutput: Int?
     ) async -> BrowserReplEvalResult {
-        let isClosed = stateLock.withLock {
+        await withCheckedContinuation { continuation in
+            stateLock.lock()
             lastUsedAt = .now
-            if let cwd { workingDirectory = cwd }
-            return closed
-        }
-        guard !isClosed else {
-            return BrowserReplEvalResult(lines: [], error: "Error: REPL session '\(id)' is closed", durationMilliseconds: 0)
-        }
-        return await withCheckedContinuation { continuation in
-            let submitted = thread.perform { [self] in
-                self.beginEval(code: code, cwd: cwd, timeout: timeout, maxOutput: maxOutput, continuation: continuation)
-            }
-            if !submitted {
+            guard !closed else {
+                stateLock.unlock()
                 continuation.resume(returning: BrowserReplEvalResult(
                     lines: [],
                     error: "Error: REPL session '\(id)' is closed",
                     durationMilliseconds: 0
                 ))
+                return
             }
+            if let cwd { workingDirectory = cwd }
+            nextEvalID += 1
+            let state = EvalState(id: nextEvalID, continuation: continuation)
+            currentEval = state
+            let submitted = thread.perform { [self] in
+                self.beginEval(state, code: code, cwd: cwd, maxOutput: maxOutput)
+            }
+            stateLock.unlock()
+            guard submitted else {
+                finish(state, error: "Error: REPL session '\(id)' is closed")
+                return
+            }
+            let sleeper = self.sleeper
+            state.setTimeoutTask(Task { [weak self] in
+                do {
+                    try await sleeper.sleep(for: timeout)
+                } catch {
+                    return
+                }
+                self?.timeOut(state, after: timeout)
+            })
         }
     }
 
-    /// Stops timers, detaches the driver, fails a running evaluation and
-    /// releases the context and thread.
+    /// Stops timers, cancels in-flight driver calls and fetches, detaches
+    /// the driver, fails a running evaluation and releases the context and
+    /// thread. A script still running on the JS thread is terminated.
     public func close() {
         stateLock.lock()
         guard !closed else {
@@ -183,31 +254,89 @@ public final class BrowserReplSession: @unchecked Sendable {
             return
         }
         closed = true
-        stateLock.unlock()
-        scheduler.invalidate()
-        driver.detach()
-        fetcher.invalidate()
+        let running = currentEval
+        currentEval = nil
+        let tasks = Array(inFlight.values)
+        inFlight.removeAll()
+        watchdog.requestTermination()
         thread.perform { [self] in
-            if let current = self.currentEval {
-                self.finishEval(id: current.id, error: "Error: REPL session '\(self.id)' was closed")
-            }
             self.context = nil
         }
         thread.stop()
+        stateLock.unlock()
+        for task in tasks { task.cancel() }
+        scheduler.invalidate()
+        driver.detach()
+        fetcher.invalidate()
+        running?.finish(error: "Error: REPL session '\(id)' was closed")
+    }
+
+    /// Finishes `state` and forgets it when it is still the current evaluation.
+    private func finish(_ state: EvalState, error: String?) {
+        stateLock.withLock {
+            if currentEval === state { currentEval = nil }
+        }
+        state.finish(error: error)
+    }
+
+    /// The evaluation timeout: the caller gets the timeout error now, from
+    /// outside the JS thread. A script looping on the thread is terminated by
+    /// the watchdog; then the runtime cancels the cell, so the cells after it
+    /// run. Both are queued on the thread before the caller can submit
+    /// another cell.
+    private func timeOut(_ state: EvalState, after timeout: Duration) {
+        let isCurrent = stateLock.withLock { currentEval === state && !closed }
+        guard isCurrent else { return }
+        let milliseconds = timeout.components.seconds * 1000 + timeout.components.attoseconds / 1_000_000_000_000_000
+        let message = "Error: REPL evaluation timed out after \(milliseconds)ms"
+        watchdog.requestTermination()
+        thread.perform { [self] in
+            self.watchdog.clearTermination()
+            self.cancelRunningCell(message)
+        }
+        finish(state, error: message)
+    }
+
+    /// Asks the runtime to drop the running cell (`__cmuxReplCancel`).
+    private func cancelRunningCell(_ message: String) {
+        guard let context else { return }
+        watchdog.absorbTermination(in: context)
+        guard let cancel = context.objectForKeyedSubscript("__cmuxReplCancel"),
+              !cancel.isUndefined else { return }
+        cancel.call(withArguments: [message])
+        context.exception = nil
+    }
+
+    /// Runs `body` as an in-flight task that `close()` cancels. Returns
+    /// false, without running it, when the session is closed.
+    @discardableResult
+    private func track(_ body: @escaping @Sendable () async -> Void) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard !closed else { return false }
+        nextInFlightID += 1
+        let taskID = nextInFlightID
+        // The task removes itself; it waits for the lock held here, so the
+        // entry exists before the removal runs.
+        inFlight[taskID] = Task { [weak self] in
+            await body()
+            guard let self else { return }
+            self.stateLock.withLock { _ = self.inFlight.removeValue(forKey: taskID) }
+        }
+        return true
     }
 
     // MARK: - JS thread
 
     private func beginEval(
+        _ state: EvalState,
         code: String,
         cwd: String?,
-        timeout: Duration,
-        maxOutput: Int?,
-        continuation: CheckedContinuation<BrowserReplEvalResult, Never>
+        maxOutput: Int?
     ) {
-        nextEvalID += 1
-        let state = EvalState(id: nextEvalID, continuation: continuation)
-        currentEval = state
+        // A timeout or close() may have finished the evaluation before the
+        // thread reached it.
+        guard !state.isFinished, !isClosedNow else { return }
         if let cwd, cwd != fileSystem.sandbox.root {
             var sandbox = BrowserReplFileSandbox(root: cwd)
             sandbox.inheritReadableFiles(from: fileSystem.sandbox)
@@ -216,30 +345,16 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
 
         guard let context = ensureContext() else {
-            finishEval(id: state.id, error: loadError ?? "Error: browser REPL runtime failed to load")
+            finish(state, error: loadError ?? "Error: browser REPL runtime failed to load")
             return
         }
         guard let evalFunction = context.objectForKeyedSubscript("__cmuxReplEval"),
               !evalFunction.isUndefined else {
-            finishEval(id: state.id, error: "Error: browser REPL runtime is not installed (missing __cmuxReplEval)")
+            finish(state, error: "Error: browser REPL runtime is not installed (missing __cmuxReplEval)")
             return
         }
 
-        let evalID = state.id
-        let sleeper = self.sleeper
-        state.timeoutTask = Task { [weak self] in
-            do {
-                try await sleeper.sleep(for: timeout)
-            } catch {
-                return
-            }
-            guard let self else { return }
-            let milliseconds = timeout.components.seconds * 1000 + timeout.components.attoseconds / 1_000_000_000_000_000
-            self.thread.perform {
-                self.finishEval(id: evalID, error: "Error: REPL evaluation timed out after \(milliseconds)ms")
-            }
-        }
-
+        watchdog.absorbTermination(in: context)
         context.exception = nil
         // The runtime's options argument: `{ "maxOutput": characters }`.
         var arguments: [Any] = [code]
@@ -247,20 +362,20 @@ public final class BrowserReplSession: @unchecked Sendable {
         let promise = evalFunction.call(withArguments: arguments)
         if let exception = context.exception {
             context.exception = nil
-            finishEval(id: evalID, error: formatError(exception, in: context))
+            finish(state, error: state.isFinished ? nil : formatError(exception, in: context))
             return
         }
         guard let promise, promise.isObject, let then = promise.objectForKeyedSubscript("then"), !then.isUndefined else {
-            finishEval(id: evalID, error: nil)
+            finish(state, error: nil)
             return
         }
         let onFulfilled: @convention(block) (JSValue?) -> Void = { [weak self] _ in
-            self?.finishEval(id: evalID, error: nil)
+            self?.finish(state, error: nil)
         }
         let onRejected: @convention(block) (JSValue?) -> Void = { [weak self] reason in
-            guard let self, let context = self.context else { return }
+            guard let self, !state.isFinished, let context = self.context else { return }
             let text = reason.map { self.formatError($0, in: context) } ?? "Error: undefined"
-            self.finishEval(id: evalID, error: text)
+            self.finish(state, error: text)
         }
         promise.invokeMethod("then", withArguments: [
             JSValue(object: unsafeBitCast(onFulfilled, to: AnyObject.self), in: context) as Any,
@@ -268,19 +383,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         ])
     }
 
-    private func finishEval(id: Int, error: String?) {
-        guard let state = currentEval, state.id == id else { return }
-        currentEval = nil
-        state.timeoutTask?.cancel()
-        let elapsed = ContinuousClock.now - state.start
-        let milliseconds = Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
-        let continuation = state.continuation
-        state.continuation = nil
-        continuation?.resume(returning: BrowserReplEvalResult(
-            lines: state.lines,
-            error: error,
-            durationMilliseconds: milliseconds
-        ))
+    private var isClosedNow: Bool {
+        stateLock.withLock { closed }
     }
 
     private func formatError(_ value: JSValue, in context: JSContext) -> String {
@@ -306,7 +410,7 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     private func ensureContext() -> JSContext? {
         if let context { return context }
-        if loadError != nil { return nil }
+        if loadError != nil || isClosedNow { return nil }
         guard let context = JSContext() else {
             loadError = "Error: could not create a JavaScript context"
             return nil
@@ -315,6 +419,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         context.exceptionHandler = { context, exception in
             context?.exception = exception
         }
+        watchdog.install(on: context)
         installNativeHost(in: context)
         if bundle.replScripts.isEmpty {
             loadError = "Error: browser REPL runtime is not installed (no scripts in browser-repl)"
@@ -346,8 +451,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         native.setObject(NSHomeDirectory(), forKeyedSubscript: "homedir" as NSString)
 
         let print: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] level, text in
-            guard let self, let state = self.currentEval else { return }
-            state.lines.append(BrowserReplOutputLine(
+            guard let self, let state = self.stateLock.withLock({ self.currentEval }) else { return }
+            state.append(BrowserReplOutputLine(
                 level: level?.toString() ?? "log",
                 text: text?.toString() ?? ""
             ))
@@ -366,19 +471,21 @@ public final class BrowserReplSession: @unchecked Sendable {
             let methodName = method?.toString() ?? ""
             let paramsJSON = params.flatMap { $0.isString ? $0.toString() : nil } ?? "{}"
             let driver = self.driver
-            Task { [weak self] in
+            let started = self.track { [weak self] in
                 let result = await driver.call(method: methodName, paramsJSON: paramsJSON)
                 self?.thread.perform { self?.resolveCall(Int(callID), result) }
             }
+            if !started { self.resolveCall(Int(callID), .failure(Self.closedError)) }
         }
         let fetch: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] callID, request in
             guard let self, let callID = callID?.toInt32() else { return }
             let requestJSON = request?.toString() ?? "{}"
             let fetcher = self.fetcher
-            Task { [weak self] in
+            let started = self.track { [weak self] in
                 let result = await fetcher.fetch(requestJSON: requestJSON)
                 self?.thread.perform { self?.resolveCall(Int(callID), result) }
             }
+            if !started { self.resolveCall(Int(callID), .failure(Self.closedError)) }
         }
         let fs: @convention(block) (JSValue?, JSValue?) -> String = { [weak self] operation, arguments in
             guard let self else { return #"{"error":{"code":"EINVAL","message":"closed"}}"# }
@@ -409,6 +516,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         context.setObject(native, forKeyedSubscript: "__cmuxNative" as NSString)
     }
 
+    private static let closedError = BrowserReplDriverError(code: "closed", message: "the REPL session was closed")
+
     /// The longest timer delay, 2^31-1 ms (about 24.8 days), as browsers and
     /// Node cap `setTimeout`.
     static let maxTimerDelayMilliseconds: Int64 = 2_147_483_647
@@ -422,8 +531,9 @@ public final class BrowserReplSession: @unchecked Sendable {
     }
 
     private func resolveCall(_ callID: Int, _ result: Result<String, BrowserReplDriverError>) {
-        guard let context,
-              let resolve = context.objectForKeyedSubscript("__cmuxHostOnResult"),
+        guard let context else { return }
+        watchdog.absorbTermination(in: context)
+        guard let resolve = context.objectForKeyedSubscript("__cmuxHostOnResult"),
               !resolve.isUndefined else { return }
         switch result {
         case .success(let json):
@@ -436,8 +546,9 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     private func fireTimer(_ id: Int) {
         thread.perform { [weak self] in
-            guard let self, let context = self.context,
-                  let handler = context.objectForKeyedSubscript("__cmuxHostOnTimer"),
+            guard let self, let context = self.context else { return }
+            self.watchdog.absorbTermination(in: context)
+            guard let handler = context.objectForKeyedSubscript("__cmuxHostOnTimer"),
                   !handler.isUndefined else { return }
             handler.call(withArguments: [id])
             context.exception = nil
@@ -451,8 +562,9 @@ public final class BrowserReplSession: @unchecked Sendable {
                let path = JSONSerialization.browserReplObject(payloadJSON)["path"] as? String {
                 self.fileSystem.sandbox.allowReading(path)
             }
-            guard let context = self.context,
-                  let handler = context.objectForKeyedSubscript("__cmuxHostOnEvent"),
+            guard let context = self.context else { return }
+            self.watchdog.absorbTermination(in: context)
+            guard let handler = context.objectForKeyedSubscript("__cmuxHostOnEvent"),
                   !handler.isUndefined else { return }
             handler.call(withArguments: [name, payloadJSON])
             context.exception = nil

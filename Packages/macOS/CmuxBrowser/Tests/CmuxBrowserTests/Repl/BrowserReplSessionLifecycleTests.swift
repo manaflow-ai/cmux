@@ -111,7 +111,7 @@ struct BrowserReplSessionLifecycleTests {
             await session.evaluate(code: "const x = 20; x + 1", timeout: .seconds(10))
         }
         #expect(next?.error == nil)
-        #expect(next?.lines.map(\.text) == ["21"])
+        #expect(next?.lines.map(\.text) == ["21"], "\(String(describing: next))")
     }
 
     @Test("close() cancels in-flight driver calls and the evaluation returns")
