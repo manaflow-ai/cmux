@@ -91,6 +91,7 @@ fn scripted_app_host() {
                 if export == "crash" {
                     std::process::exit(70);
                 }
+                send(FromHost::Log { level: "info".into(), message: format!("run {export}") });
                 send(FromHost::Done { cb, ok: true, body: json!({ "value": export }) });
             }
             ToHost::Event { sub, .. } => {
@@ -201,7 +202,7 @@ fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
             &bundled,
             "demo",
             "cmux/demo",
-            json!({ "workspace:write": "w", "storage:local": "s", "net:api.example.com": "n" }),
+            json!({ "workspace:read": "r", "workspace:write": "w", "storage:local": "s", "net:api.example.com": "n" }),
         );
         write_app(
             &state.join("apps/local"),
@@ -357,7 +358,10 @@ fn default_apps_are_installed_with_required_scopes() {
         (demo["installed"].clone(), demo["source"].clone()),
         (json!(true), json!("default"))
     );
-    assert_eq!(demo["grants"], json!(["net:api.example.com", "storage:local", "workspace:write"]));
+    assert_eq!(
+        demo["grants"],
+        json!(["net:api.example.com", "storage:local", "workspace:read", "workspace:write"])
+    );
 }
 
 // MARK: hosts, mounts and calls
@@ -379,7 +383,7 @@ fn focus_ops_need_the_gesture_the_supervisor_minted() {
     let (app, op, _, key, origin) = &calls[0];
     assert_eq!((app.as_str(), op.as_str(), origin), ("cmux/demo", "tab.focus", &Origin::User));
     assert!(
-        key.as_deref().is_some_and(|k| k.starts_with("app-")),
+        key.as_deref().is_some_and(|k| k.starts_with("app:cmux/demo:")),
         "mutations get an idempotency key"
     );
 }
@@ -479,13 +483,27 @@ fn runs_answer_through_the_responder_and_a_crash_restarts_with_reset() {
     f.install("cmux/demo");
     let (tx, rx) = channel();
     let tx2 = tx.clone();
-    f.supervisor.run("cmux/demo", "demo.go", json!({}), Box::new(move |r| tx.send(r).unwrap()));
+    f.supervisor.run(
+        "cmux/demo",
+        "demo.go",
+        json!({}),
+        None,
+        Origin::User,
+        Box::new(move |r| tx.send(r).unwrap()),
+    );
     assert_eq!(
         rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap(),
         json!({ "value": "go" })
     );
     f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
-    f.supervisor.run("cmux/demo", "demo.crash", json!({}), Box::new(move |r| tx2.send(r).unwrap()));
+    f.supervisor.run(
+        "cmux/demo",
+        "demo.crash",
+        json!({}),
+        None,
+        Origin::User,
+        Box::new(move |r| tx2.send(r).unwrap()),
+    );
     assert_eq!(rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap_err().code, "apps.host");
     f.wait("crash", |e| e["event"] == "apps-host" && e["state"] == "crashed");
     let rerender = f.wait("re-render", |e| e["event"] == "apps-scene" && e["mount_id"] == "m1");
@@ -529,4 +547,97 @@ fn daemon_events_reach_subscribed_apps() {
     assert_eq!(log["message"], "event 1");
     let lines = f.supervisor.logs(CLIENT, "cmux/demo", false);
     assert!(lines["lines"].as_array().unwrap().iter().any(|l| l["message"] == "event 1"));
+}
+
+#[test]
+fn keyed_runs_run_once_and_hidden_apps_refuse_hidden_surfaces() {
+    let f = fixture();
+    f.install("cmux/demo");
+    let (tx, rx) = channel();
+    for _ in 0..2 {
+        let tx = tx.clone();
+        f.supervisor.run(
+            "cmux/demo",
+            "demo.go",
+            json!({}),
+            Some("k1".into()),
+            Origin::Cli,
+            Box::new(move |r| tx.send(r).unwrap()),
+        );
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap(),
+            json!({ "value": "go" })
+        );
+    }
+    let runs = f.supervisor.logs(CLIENT, "cmux/demo", false)["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|l| l["message"] == "run go")
+        .count();
+    assert_eq!(runs, 1, "the replay answered from the stored result");
+    f.set("hide", "cmux/demo", Origin::Mcp, |o| {
+        o.hidden = Some(true);
+        o.hidden_access =
+            Some(super::mirror::HiddenAccess { cli: false, mcp: true, automations: true });
+    })
+    .unwrap();
+    let tx2 = tx.clone();
+    f.supervisor.run(
+        "cmux/demo",
+        "demo.go",
+        json!({}),
+        None,
+        Origin::Cli,
+        Box::new(move |r| tx2.send(r).unwrap()),
+    );
+    assert_eq!(rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap_err().code, "apps.hidden");
+    f.supervisor.run(
+        "cmux/demo",
+        "demo.go",
+        json!({}),
+        None,
+        Origin::Mcp,
+        Box::new(move |r| tx.send(r).unwrap()),
+    );
+    assert!(rx.recv_timeout(Duration::from_secs(10)).unwrap().is_ok());
+}
+
+#[test]
+fn rejects_and_noops_still_settle() {
+    let f = fixture();
+    assert!(f.set("r1", "cmux/demo", Origin::Cli, |o| o.installed = Some(true)).is_err());
+    f.wait_event("request-settled");
+    f.install("cmux/demo");
+    f.wait_event("request-settled");
+    f.set("noop", "cmux/demo", Origin::User, |o| o.hidden = Some(false)).unwrap();
+    f.wait_event("request-settled");
+    // The no-op recorded its key: reusing it for another change conflicts.
+    let conflict = f.set("noop", "cmux/demo", Origin::User, |o| o.hidden = Some(true)).unwrap_err();
+    assert_eq!(conflict.code, "idempotency.conflict");
+}
+
+#[test]
+fn apps_never_move_focus_through_params_without_a_gesture() {
+    let f = fixture();
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    assert_eq!(f.call("m1", "pane.create", json!({ "focus": true }), false)["ok"], true);
+    assert_eq!(f.call("m1", "pane.create", json!({ "focus": true }), true)["ok"], true);
+    let calls = f.router.calls.lock().unwrap().clone();
+    assert_eq!(calls[0].2.get("focus"), None, "stripped for an automated call");
+    assert_eq!((calls[0].4, calls[1].4), (Origin::Script, Origin::User));
+    assert_eq!(calls[1].2["focus"], true, "kept when the user's gesture was spent");
+}
+
+#[test]
+fn a_disabled_app_cannot_preview_or_mount() {
+    let f = fixture();
+    f.install("cmux/demo");
+    f.set("off", "cmux/demo", Origin::User, |o| o.enabled = Some(false)).unwrap();
+    let preview = f
+        .supervisor
+        .mount(CLIENT, "p", "cmux/demo", "cmux.section/1", json!({ "preview": true }))
+        .unwrap_err();
+    assert_eq!(preview.code, "apps.disabled");
 }

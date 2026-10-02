@@ -84,10 +84,15 @@ impl ScopeTable {
             return Decision::ScopeMissing("this op is not available to apps");
         }
         let Some((scope, class)) = self.ops.get(op) else { return Decision::Unsupported };
+        if grant.revoked {
+            return Decision::ScopeMissing("the app is stopping");
+        }
         if grant.preview {
             return Decision::ScopeMissing("a preview runs without grants");
         }
-        let external = scope.starts_with("net:") || scope.starts_with("integration:");
+        let external = scope.starts_with("net:")
+            || scope.starts_with("integration:")
+            || scope.ends_with(":external");
         if external && grant.sandboxed {
             return Decision::ScopeMissing("the app runs sandboxed: no network");
         }
@@ -122,6 +127,8 @@ pub struct Grant {
     pub sandboxed: bool,
     /// A store preview of an app that is not installed: nothing is granted.
     pub preview: bool,
+    /// The app was uninstalled or disabled; its host is on its way out.
+    pub revoked: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,7 +143,9 @@ pub enum Decision {
 /// Ops that change focus or selection: they run only with a live gesture
 /// token, so automation never steals focus (OWNERSHIP-PRINCIPLES).
 pub fn needs_gesture(op: &str) -> bool {
-    op.ends_with(".focus") || op.ends_with(".activate") || op.ends_with(".select")
+    op.split('.').any(|part| part == "focus" || part.starts_with("focus_"))
+        || op.ends_with(".activate")
+        || op.ends_with(".select")
 }
 
 struct Token {
@@ -279,6 +288,7 @@ mod tests {
             gestures.present("cmux/a", Some(&late), true, now + GESTURE_TTL),
             GestureCheck::None
         );
-        assert!(needs_gesture("tab.focus") && !needs_gesture("tab.close"));
+        assert!(needs_gesture("tab.focus") && needs_gesture("pane.focus_direction"));
+        assert!(needs_gesture("terminal.input.focus") && !needs_gesture("tab.close"));
     }
 }

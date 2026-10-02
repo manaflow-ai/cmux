@@ -2,6 +2,10 @@
 //! idle stop through a one-shot timer after the last mount closes, crash
 //! restart after `Backoff` (mounts survive and re-render with `reset`),
 //! restart with a new grant, and the messages a host sends.
+//!
+//! Messages to a host are queued under the supervisor lock
+//! (`HostProcess::send` never blocks), so `init` always precedes the mounts
+//! and runs that follow it, whichever thread asked.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,13 +14,18 @@ use std::time::{Duration, Instant};
 use cmux_app_host::{AppInfo, FromHost, ToHost};
 use serde_json::{Value, json};
 
-use super::grants::ScopeTable;
+use super::grants::{Decision, Grant, ScopeTable};
 use super::host::{Exit, HostProcess};
 use super::supervisor::{
-    ApiError, Host, HostKey, HostState, Inner, MAX_CRASHES, Mount, MountKey, Out, Responder,
-    Supervisor,
+    ApiError, Host, HostKey, HostState, Inner, MAX_CRASHES, Mount, MountKey, Out, Supervisor,
 };
 use crate::backoff::Backoff;
+
+/// A host that stays up this long after `ready` counts as healthy: its next
+/// crash starts the backoff over.
+const HEALTHY_AFTER: Duration = Duration::from_secs(30);
+/// Daemon event subscriptions one host may hold.
+const MAX_SUBSCRIPTIONS: usize = 256;
 
 impl Supervisor {
     /// `apps-mount`. `context.preview = true` runs an app that is not
@@ -46,14 +55,14 @@ impl Supervisor {
                     format!("{app} does not implement {interface} with a scene export"),
                 )
             })?;
-            if !preview {
-                let record = inner.mirror.apps.get(app);
-                if !record.is_some_and(|r| r.installed) {
-                    return Err(ApiError::new("apps.notInstalled", "the app is not installed"));
-                }
-                if !record.is_some_and(|r| r.enabled) {
-                    return Err(ApiError::new("apps.disabled", "the app is disabled"));
-                }
+            let record = inner.mirror.apps.get(app);
+            let installed = record.is_some_and(|r| r.installed);
+            // Disabled overrides everything, previews included (V9).
+            if installed && !record.is_some_and(|r| r.enabled) {
+                return Err(ApiError::new("apps.disabled", "the app is disabled"));
+            }
+            if !preview && !installed {
+                return Err(ApiError::new("apps.notInstalled", "the app is not installed"));
             }
             if self.config.host_binary.is_none() {
                 return Err(ApiError::new("apps.unavailable", "this daemon has no app host"));
@@ -70,22 +79,40 @@ impl Supervisor {
                     reset: false,
                 },
             );
-            outs.extend(self.ensure_host_locked(&mut inner, &host_key));
-            if let Some(host) = inner.hosts.get_mut(&host_key) {
-                if let Some(timer) = host.idle.take() {
-                    self.timers.cancel(timer);
-                }
-                if let Some(process) = host.process.clone() {
-                    outs.push(Out::Host(
-                        process,
-                        ToHost::Mount { mount: key.wire(), export, ctx: context },
-                    ));
-                }
-            }
+            outs.extend(self.revive_host_locked(&mut inner, &host_key, |process| {
+                process.send(&ToHost::Mount { mount: key.wire(), export, ctx: context });
+            }));
             outs
         };
         self.emit(outs);
         Ok(json!({}))
+    }
+
+    /// Makes sure a process will serve `key`. A running host gets `deliver`
+    /// at once; a new or restarting host gets the work when it spawns
+    /// (mounts are re-sent from the mount table, runs from `queued_runs`).
+    pub(super) fn revive_host_locked(
+        &self,
+        inner: &mut Inner,
+        key: &HostKey,
+        deliver: impl FnOnce(&HostProcess),
+    ) -> Vec<Out> {
+        if !inner.hosts.contains_key(key) {
+            inner.hosts.insert(key.clone(), new_host());
+            return self.spawn_locked(inner, key);
+        }
+        let host = inner.hosts.get_mut(key).expect("host");
+        if let Some(timer) = host.idle.take() {
+            self.timers.cancel(timer);
+        }
+        match (host.state, host.process.clone()) {
+            (HostState::Starting | HostState::Running, Some(process)) => deliver(&process),
+            // An idle stop in flight becomes a restart that re-sends everything.
+            (HostState::Stopping, Some(_)) => host.state = HostState::Restarting,
+            // Restarting or waiting for the crash backoff: spawn re-sends.
+            _ => {}
+        }
+        vec![]
     }
 
     pub fn unmount(&self, client: u64, mount_id: &str) -> Result<Value, ApiError> {
@@ -103,12 +130,10 @@ impl Supervisor {
 
     pub(super) fn unmount_locked(&self, inner: &mut Inner, key: &MountKey) -> Vec<Out> {
         let Some(mount) = inner.mounts.remove(key) else { return vec![] };
-        let mut outs = Vec::new();
         if let Some(process) = inner.hosts.get(&mount.host).and_then(|h| h.process.clone()) {
-            outs.push(Out::Host(process, ToHost::Unmount { mount: key.wire() }));
+            process.send(&ToHost::Unmount { mount: key.wire() });
         }
-        outs.extend(self.idle_check_locked(inner, &mount.host));
-        outs
+        self.idle_check_locked(inner, &mount.host)
     }
 
     /// `apps-dispatch`: user-origin events get a fresh gesture token; a
@@ -122,126 +147,40 @@ impl Supervisor {
         mut payload: Value,
         user: bool,
     ) -> Result<Value, ApiError> {
-        let outs = {
-            let mut inner = self.inner.lock().unwrap();
-            let key = MountKey { client, mount_id: mount_id.to_string() };
-            let mount = inner
-                .mounts
-                .get(&key)
-                .ok_or_else(|| ApiError::new("apps.mount.unknown", "no such mount"))?;
-            let host_key = mount.host.clone();
-            if !payload.is_object() {
-                payload = json!({});
-            }
-            payload.as_object_mut().expect("object").remove("gesture");
-            if user && !host_key.preview {
-                let token = inner.gestures.mint(&host_key.app, Instant::now());
-                payload["gesture"] = Value::String(token);
-            }
-            let process = inner.hosts.get(&host_key).and_then(|h| h.process.clone());
-            process
-                .map(|p| {
-                    vec![Out::Host(
-                        p,
-                        ToHost::Dispatch {
-                            mount: key.wire(),
-                            node: node.into(),
-                            event: event.into(),
-                            payload,
-                        },
-                    )]
-                })
-                .unwrap_or_default()
-        };
-        self.emit(outs);
+        let mut inner = self.inner.lock().unwrap();
+        let key = MountKey { client, mount_id: mount_id.to_string() };
+        let mount = inner
+            .mounts
+            .get(&key)
+            .ok_or_else(|| ApiError::new("apps.mount.unknown", "no such mount"))?;
+        let host_key = mount.host.clone();
+        if !payload.is_object() {
+            payload = json!({});
+        }
+        payload.as_object_mut().expect("object").remove("gesture");
+        if user && !host_key.preview {
+            let token = inner.gestures.mint(&host_key.app, Instant::now());
+            payload["gesture"] = Value::String(token);
+        }
+        let running = inner
+            .hosts
+            .get(&host_key)
+            .filter(|h| matches!(h.state, HostState::Starting | HostState::Running))
+            .and_then(|h| h.process.clone());
+        if let Some(process) = running {
+            process.send(&ToHost::Dispatch {
+                mount: key.wire(),
+                node: node.into(),
+                event: event.into(),
+                payload,
+            });
+        }
         Ok(json!({}))
     }
 
-    /// `apps-run`: runs a catalog op of the app; `respond` gets the result.
-    pub fn run(&self, app: &str, op: &str, args: Value, respond: Responder) {
-        let outs = {
-            let mut inner = self.inner.lock().unwrap();
-            match self.prepare_run(&mut inner, app, op) {
-                Err(error) => vec![Out::Respond(respond, Err(error))],
-                Ok((key, export)) => {
-                    let mut outs = self.ensure_host_locked(&mut inner, &key);
-                    match inner.hosts.get_mut(&key) {
-                        Some(host) => {
-                            if let Some(timer) = host.idle.take() {
-                                self.timers.cancel(timer);
-                            }
-                            let cb = host.next_cb;
-                            host.next_cb += 1;
-                            host.runs.insert(cb, respond);
-                            if let Some(process) = host.process.clone() {
-                                outs.push(Out::Host(process, ToHost::Run { cb, export, args }));
-                            }
-                        }
-                        None => outs.push(Out::Respond(
-                            respond,
-                            Err(ApiError::new("apps.unavailable", "the app host did not start")),
-                        )),
-                    }
-                    outs
-                }
-            }
-        };
-        self.emit(outs);
-    }
-
-    fn prepare_run(
-        &self,
-        inner: &mut Inner,
-        app: &str,
-        op: &str,
-    ) -> Result<(HostKey, String), ApiError> {
-        let package = inner
-            .catalog
-            .packages
-            .get(app)
-            .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
-        let export = package
-            .export_for_op(op)
-            .ok_or_else(|| ApiError::new("apps.op.unknown", format!("{app} has no op {op}")))?;
-        let record = inner.mirror.apps.get(app);
-        if !record.is_some_and(|r| r.installed) {
-            return Err(ApiError::new("apps.notInstalled", "the app is not installed"));
-        }
-        if !record.is_some_and(|r| r.enabled) {
-            return Err(ApiError::new("apps.disabled", "the app is disabled"));
-        }
-        if self.config.host_binary.is_none() {
-            return Err(ApiError::new("apps.unavailable", "this daemon has no app host"));
-        }
-        Ok((HostKey { app: app.to_string(), preview: false }, export))
-    }
-
-    /// Starts the host for `key` unless it runs or waits for a restart.
-    pub(super) fn ensure_host_locked(&self, inner: &mut Inner, key: &HostKey) -> Vec<Out> {
-        if inner.hosts.contains_key(key) {
-            return vec![];
-        }
-        inner.hosts.insert(
-            key.clone(),
-            Host {
-                generation: 0,
-                process: None,
-                state: HostState::Starting,
-                grant: Default::default(),
-                subs: HashMap::new(),
-                runs: HashMap::new(),
-                next_cb: 1,
-                idle: None,
-                backoff: Backoff::new(Duration::from_millis(500), Duration::from_secs(60)),
-                crashes: 0,
-            },
-        );
-        self.spawn_locked(inner, key)
-    }
-
-    /// Spawns a process for an existing host record and sends `init` plus
-    /// every mount it holds (marked `reset` after a restart).
-    fn spawn_locked(&self, inner: &mut Inner, key: &HostKey) -> Vec<Out> {
+    /// Spawns a process for an existing host record and queues `init`, every
+    /// mount it holds (marked `reset` after a restart) and queued runs.
+    pub(super) fn spawn_locked(&self, inner: &mut Inner, key: &HostKey) -> Vec<Out> {
         let generation = inner.next_generation;
         inner.next_generation += 1;
         let grant = Self::grant_for(inner, key);
@@ -276,7 +215,7 @@ impl Supervisor {
             Err(error) => return self.fail_host_locked(inner, key, &format!("spawn: {error}")),
         };
         let table = ScopeTable::get();
-        let init = ToHost::Init {
+        process.send(&ToHost::Init {
             app: AppInfo { id: package.id.clone(), version: package.version.clone() },
             settings: package.default_settings(),
             api_version: "1.0.0".into(),
@@ -285,39 +224,56 @@ impl Supervisor {
             locale: Some("en".into()),
             strings: package.strings("en"),
             main,
-        };
-        let mut outs = vec![Out::Host(process.clone(), init)];
-        let mounts: Vec<(MountKey, String, Value)> = inner
-            .mounts
-            .iter()
-            .filter(|(_, m)| m.host == *key)
-            .map(|(k, m)| (k.clone(), m.export.clone(), m.context.clone()))
-            .collect();
-        for (mount, export, ctx) in mounts {
-            outs.push(Out::Host(
-                process.clone(),
-                ToHost::Mount { mount: mount.wire(), export, ctx },
-            ));
+        });
+        for (mount, record) in inner.mounts.iter().filter(|(_, m)| m.host == *key) {
+            process.send(&ToHost::Mount {
+                mount: mount.wire(),
+                export: record.export.clone(),
+                ctx: record.context.clone(),
+            });
         }
         let host = inner.hosts.get_mut(key).expect("host record");
+        for run in host.queued_runs.drain(..) {
+            process.send(&run);
+        }
+        if let Some(timer) = host.idle.take() {
+            self.timers.cancel(timer);
+        }
         host.generation = generation;
         host.process = Some(process);
         host.state = HostState::Starting;
         host.grant = grant;
         host.subs.clear();
-        outs
+        host.ready_at = None;
+        host.inflight = 0;
+        // A restart with nothing to do arms the idle stop like any other host.
+        self.idle_check_locked(inner, key)
     }
 
     /// The host cannot run: its mounts fail and the record goes away.
-    fn fail_host_locked(&self, inner: &mut Inner, key: &HostKey, reason: &str) -> Vec<Out> {
+    pub(super) fn fail_host_locked(
+        &self,
+        inner: &mut Inner,
+        key: &HostKey,
+        reason: &str,
+    ) -> Vec<Out> {
         let mut outs = self.log_locked(inner, &key.app, "error", format!("host: {reason}"));
         let failed: Vec<MountKey> =
             inner.mounts.iter().filter(|(_, m)| m.host == *key).map(|(k, _)| k.clone()).collect();
         for mount in failed {
             inner.mounts.remove(&mount);
-            outs.push(Out::Client(mount.client, json!({ "event": "apps-mount-failed", "mount_id": mount.mount_id, "reason": reason })));
+            outs.push(Out::Client(
+                mount.client,
+                json!({ "event": "apps-mount-failed", "mount_id": mount.mount_id, "reason": reason }),
+            ));
         }
         if let Some(host) = inner.hosts.remove(key) {
+            if let Some(timer) = host.idle {
+                self.timers.cancel(timer);
+            }
+            if let Some(process) = host.process {
+                process.kill();
+            }
             for (_, respond) in host.runs {
                 outs.push(Out::Respond(respond, Err(ApiError::new("apps.host", reason))));
             }
@@ -328,12 +284,18 @@ impl Supervisor {
         outs
     }
 
-    /// Arms the idle stop once the host has no mounts and no runs. A
+    /// Arms the idle stop once a live host has no mounts and no runs. A
     /// preview host stops at once.
     pub(super) fn idle_check_locked(&self, inner: &mut Inner, key: &HostKey) -> Vec<Out> {
         let busy = inner.mounts.values().any(|m| m.host == *key);
         let Some(host) = inner.hosts.get_mut(key) else { return vec![] };
-        if busy || !host.runs.is_empty() || host.idle.is_some() {
+        let live = matches!(host.state, HostState::Starting | HostState::Running);
+        if busy
+            || !live
+            || !host.runs.is_empty()
+            || !host.queued_runs.is_empty()
+            || host.idle.is_some()
+        {
             return vec![];
         }
         if key.preview {
@@ -351,22 +313,16 @@ impl Supervisor {
     }
 
     fn idle_fired(&self, key: &HostKey, generation: u64) {
-        let outs = {
-            let mut inner = self.inner.lock().unwrap();
-            let busy = inner.mounts.values().any(|m| m.host == *key);
-            match inner.hosts.get_mut(key) {
-                Some(host) if host.generation == generation && host.idle.is_some() => {
-                    host.idle = None;
-                    if busy || !host.runs.is_empty() {
-                        vec![]
-                    } else {
-                        self.stop_host_locked(&mut inner, key)
-                    }
-                }
-                _ => vec![],
-            }
-        };
-        self.emit(outs);
+        let mut inner = self.inner.lock().unwrap();
+        let busy = inner.mounts.values().any(|m| m.host == *key);
+        if let Some(host) = inner.hosts.get_mut(key)
+            && host.generation == generation
+            && host.idle.take().is_some()
+            && !busy
+            && host.runs.is_empty()
+        {
+            self.stop_host_locked(&mut inner, key);
+        }
     }
 
     fn stop_host_locked(&self, inner: &mut Inner, key: &HostKey) -> Vec<Out> {
@@ -377,16 +333,17 @@ impl Supervisor {
         match host.process.clone() {
             Some(process) => {
                 host.state = HostState::Stopping;
-                vec![Out::Shutdown(process)]
+                process.shutdown();
             }
             None => {
                 inner.hosts.remove(key);
-                vec![]
             }
         }
+        vec![]
     }
 
-    /// Uninstall or disable: every mount of the app fails, the host stops.
+    /// Uninstall or disable: every mount of the app fails, calls are refused
+    /// at once, the host stops.
     pub(super) fn stop_app_locked(&self, inner: &mut Inner, app: &str, reason: &str) -> Vec<Out> {
         let mut outs = Vec::new();
         let doomed: Vec<MountKey> = inner
@@ -397,10 +354,15 @@ impl Supervisor {
             .collect();
         for mount in doomed {
             inner.mounts.remove(&mount);
-            outs.push(Out::Client(mount.client, json!({ "event": "apps-mount-failed", "mount_id": mount.mount_id, "reason": reason })));
+            outs.push(Out::Client(
+                mount.client,
+                json!({ "event": "apps-mount-failed", "mount_id": mount.mount_id, "reason": reason }),
+            ));
         }
         let key = HostKey { app: app.to_string(), preview: false };
         if let Some(host) = inner.hosts.get_mut(&key) {
+            host.grant = Grant { revoked: true, ..Grant::default() };
+            host.queued_runs.clear();
             for (_, respond) in host.runs.drain() {
                 outs.push(Out::Respond(respond, Err(ApiError::new("apps.disabled", reason))));
             }
@@ -409,21 +371,23 @@ impl Supervisor {
         outs
     }
 
-    /// Grants changed: a running host restarts so the VM gets the new grant.
+    /// Grants changed: calls see the new grant at once; a running host
+    /// restarts so the VM gets the new op list.
     pub(super) fn regrant_locked(&self, inner: &mut Inner, app: &str) -> Vec<Out> {
         let key = HostKey { app: app.to_string(), preview: false };
-        // The supervisor checks every call against the current grant at once;
-        // the restart only refreshes the VM's local op list.
         let grant = Self::grant_for(inner, &key);
         let Some(host) = inner.hosts.get_mut(&key) else { return vec![] };
         host.grant = grant;
-        match host.process.clone() {
-            Some(process) if matches!(host.state, HostState::Starting | HostState::Running) => {
-                host.state = HostState::Restarting;
-                vec![Out::Shutdown(process)]
-            }
-            _ => vec![],
+        if let Some(timer) = host.idle.take() {
+            self.timers.cancel(timer);
         }
+        if let Some(process) = host.process.clone()
+            && matches!(host.state, HostState::Starting | HostState::Running)
+        {
+            host.state = HostState::Restarting;
+            process.shutdown();
+        }
+        vec![]
     }
 
     pub(super) fn on_host_message(&self, key: &HostKey, generation: u64, message: FromHost) {
@@ -441,7 +405,10 @@ impl Supervisor {
         match message {
             FromHost::Ready { .. } => {
                 let host = inner.hosts.get_mut(key).expect("host");
-                host.state = HostState::Running;
+                if host.state == HostState::Starting {
+                    host.state = HostState::Running;
+                }
+                host.ready_at = Some(Instant::now());
                 vec![Out::Broadcast(
                     json!({ "event": "apps-host", "app": key.app, "state": "running" }),
                 )]
@@ -452,23 +419,14 @@ impl Supervisor {
             }
             FromHost::Mounted { mount, error } => {
                 let Some(mount_key) = find_mount(inner, key, &mount) else { return vec![] };
-                match error {
-                    Some(reason) => {
-                        inner.mounts.remove(&mount_key);
-                        let mut outs = vec![Out::Client(
-                            mount_key.client,
-                            json!({ "event": "apps-mount-failed", "mount_id": mount_key.mount_id, "reason": reason }),
-                        )];
-                        outs.extend(self.idle_check_locked(inner, key));
-                        outs
-                    }
-                    None => {
-                        let host = inner.hosts.get_mut(key).expect("host");
-                        host.backoff.reset();
-                        host.crashes = 0;
-                        vec![]
-                    }
-                }
+                let Some(reason) = error else { return vec![] };
+                inner.mounts.remove(&mount_key);
+                let mut outs = vec![Out::Client(
+                    mount_key.client,
+                    json!({ "event": "apps-mount-failed", "mount_id": mount_key.mount_id, "reason": reason }),
+                )];
+                outs.extend(self.idle_check_locked(inner, key));
+                outs
             }
             FromHost::Scene { mount, ops } => {
                 let Some(mount_key) = find_mount(inner, key, &mount) else { return vec![] };
@@ -481,16 +439,11 @@ impl Supervisor {
                 vec![Out::Client(mount_key.client, event)]
             }
             FromHost::Call { cb, name, params, options } => {
-                self.call_locked(inner, key, cb, name, params, options)
+                self.call_locked(inner, key, cb, name, params, options);
+                vec![]
             }
             FromHost::Subscribe { sub, stream, .. } => {
-                inner.hosts.get_mut(key).expect("host").subs.insert(sub, stream);
-                if inner.events_started {
-                    vec![]
-                } else {
-                    inner.events_started = true;
-                    vec![Out::StartEvents]
-                }
+                self.subscribe_locked(inner, key, sub, stream)
             }
             FromHost::Unsubscribe { sub } => {
                 inner.hosts.get_mut(key).expect("host").subs.remove(&sub);
@@ -521,6 +474,35 @@ impl Supervisor {
         }
     }
 
+    /// Records a daemon event subscription when the grant can read the
+    /// stream's family (`agent.changed` needs what `agent.list` needs).
+    fn subscribe_locked(
+        &self,
+        inner: &mut Inner,
+        key: &HostKey,
+        sub: u64,
+        stream: String,
+    ) -> Vec<Out> {
+        let host = inner.hosts.get_mut(key).expect("host");
+        let family = stream.strip_suffix(".changed").unwrap_or_default();
+        let table = ScopeTable::get();
+        let readable = ["list", "get"].iter().any(|verb| {
+            matches!(
+                table.check(&format!("{family}.{verb}"), &Value::Null, &host.grant),
+                Decision::Allow(_)
+            )
+        });
+        if !readable || host.subs.len() >= MAX_SUBSCRIPTIONS {
+            return vec![];
+        }
+        host.subs.insert(sub, stream);
+        if inner.events_started {
+            return vec![];
+        }
+        inner.events_started = true;
+        vec![Out::StartEvents]
+    }
+
     pub(super) fn on_host_exit(&self, key: &HostKey, generation: u64, exit: Exit) {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
@@ -528,13 +510,17 @@ impl Supervisor {
                 return;
             };
             host.process = None;
+            if let Some(timer) = host.idle.take() {
+                self.timers.cancel(timer);
+            }
             let state = host.state;
-            let runs: Vec<Responder> = host.runs.drain().map(|(_, r)| r).collect();
+            let queued = !host.queued_runs.is_empty();
+            let runs: Vec<_> = host.runs.drain().map(|(_, r)| r).collect();
             let mut outs: Vec<Out> = runs
                 .into_iter()
                 .map(|r| Out::Respond(r, Err(ApiError::new("apps.host", exit.describe()))))
                 .collect();
-            let has_mounts = inner.mounts.values().any(|m| m.host == *key);
+            let has_work = queued || inner.mounts.values().any(|m| m.host == *key);
             match state {
                 HostState::Restarting => {
                     mark_reset(&mut inner, key);
@@ -546,7 +532,7 @@ impl Supervisor {
                         json!({ "event": "apps-host", "app": key.app, "state": "stopped" }),
                     ));
                 }
-                _ if !has_mounts => {
+                _ if !has_work => {
                     inner.hosts.remove(key);
                     outs.push(Out::Broadcast(json!({ "event": "apps-host", "app": key.app, "state": "crashed", "reason": exit.describe() })));
                 }
@@ -562,6 +548,10 @@ impl Supervisor {
             self.log_locked(inner, &key.app, "error", format!("host crashed: {}", exit.describe()));
         outs.push(Out::Broadcast(json!({ "event": "apps-host", "app": key.app, "state": "crashed", "reason": exit.describe() })));
         let host = inner.hosts.get_mut(key).expect("host");
+        if host.ready_at.is_some_and(|at| at.elapsed() >= HEALTHY_AFTER) {
+            host.backoff.reset();
+            host.crashes = 0;
+        }
         host.crashes += 1;
         if host.crashes > MAX_CRASHES {
             outs.extend(self.fail_host_locked(inner, key, "the app crashed repeatedly"));
@@ -583,14 +573,13 @@ impl Supervisor {
     fn restart_fired(&self, key: &HostKey, generation: u64) {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
-            let waiting = inner
-                .hosts
-                .get(key)
-                .is_some_and(|h| h.generation == generation && h.state == HostState::Waiting);
-            if !waiting {
+            let Some(host) = inner.hosts.get(key) else { return };
+            if host.generation != generation || host.state != HostState::Waiting {
                 return;
             }
-            if !inner.mounts.values().any(|m| m.host == *key) {
+            let has_work =
+                !host.queued_runs.is_empty() || inner.mounts.values().any(|m| m.host == *key);
+            if !has_work {
                 inner.hosts.remove(key);
                 return;
             }
@@ -602,20 +591,31 @@ impl Supervisor {
 
     /// Delivers a daemon change event to every subscribed host.
     pub fn publish(&self, stream: &str, body: Value) {
-        let mut outs = Vec::new();
-        {
-            let inner = self.inner.lock().unwrap();
-            for host in inner.hosts.values() {
-                let Some(process) = &host.process else { continue };
-                for (sub, _) in host.subs.iter().filter(|(_, s)| s.as_str() == stream) {
-                    outs.push(Out::Host(
-                        process.clone(),
-                        ToHost::Event { sub: *sub, body: body.clone() },
-                    ));
-                }
+        let inner = self.inner.lock().unwrap();
+        for host in inner.hosts.values() {
+            let Some(process) = &host.process else { continue };
+            for (sub, _) in host.subs.iter().filter(|(_, s)| s.as_str() == stream) {
+                process.send(&ToHost::Event { sub: *sub, body: body.clone() });
             }
         }
-        self.emit(outs);
+    }
+}
+
+pub(super) fn new_host() -> Host {
+    Host {
+        generation: 0,
+        process: None,
+        state: HostState::Starting,
+        grant: Grant::default(),
+        subs: HashMap::new(),
+        runs: HashMap::new(),
+        queued_runs: Vec::new(),
+        next_cb: 1,
+        idle: None,
+        backoff: Backoff::new(Duration::from_millis(500), Duration::from_secs(60)),
+        crashes: 0,
+        ready_at: None,
+        inflight: 0,
     }
 }
 

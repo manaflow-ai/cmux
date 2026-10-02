@@ -10,7 +10,7 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_app_host::ToHost;
 use serde_json::{Value, json};
@@ -119,10 +119,18 @@ pub(super) struct Host {
     pub grant: Grant,
     pub subs: HashMap<u64, String>,
     pub runs: HashMap<u64, Responder>,
+    /// `run` messages for a host that has no process yet (restart pending).
+    pub queued_runs: Vec<ToHost>,
     pub next_cb: u64,
     pub idle: Option<TimerId>,
     pub backoff: Backoff,
     pub crashes: u32,
+    /// When the current process answered `ready`; a crash after a long
+    /// healthy run starts the backoff over.
+    pub ready_at: Option<Instant>,
+    /// App calls being worked on (at most the VM's 64; the supervisor checks
+    /// again because the VM is untrusted).
+    pub inflight: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -143,16 +151,18 @@ pub(super) struct Inner {
     pub gestures: Gestures,
     pub next_generation: u64,
     pub events_started: bool,
+    /// `apps-run` replay by idempotency key (`runs.rs`).
+    pub run_keys: HashMap<String, super::runs::RunKey>,
+    pub run_key_order: VecDeque<String>,
 }
 
-/// Work to do after the lock is released.
+/// Work to do after the lock is released. Messages to hosts are not in this
+/// list: `HostProcess::send` only queues, so they are sent under the lock and
+/// reach each host in lock order.
 pub(super) enum Out {
     Client(u64, Value),
     Broadcast(Value),
-    Host(Arc<HostProcess>, ToHost),
-    Shutdown(Arc<HostProcess>),
     Respond(Responder, Result<Value, ApiError>),
-    ClearStorage(String),
     StartEvents,
 }
 
@@ -206,6 +216,8 @@ impl Supervisor {
                 gestures: Gestures::default(),
                 next_generation: 1,
                 events_started: false,
+                run_keys: HashMap::new(),
+                run_key_order: VecDeque::new(),
             }),
             config,
             router,
@@ -216,7 +228,7 @@ impl Supervisor {
             transactions: AtomicU64::new(1),
         });
         if seeded {
-            supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
+            let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
         }
         supervisor
     }
@@ -256,39 +268,65 @@ impl Supervisor {
         json!({ "revision": inner.mirror.revision, "apps": apps })
     }
 
-    /// `apps-set`: one validated commit of the install mirror.
+    /// `apps-set`: one validated commit of the install mirror. Every request
+    /// ends with `request-settled`, rejects and no-ops included. The mirror
+    /// is written to disk before it is applied; a failed write rejects.
     pub fn set(&self, client: u64, op: SetOp) -> Result<Value, ApiError> {
         let app = op.app.clone();
-        let (outs, record) = {
+        let transaction = format!("apps-{}", self.transactions.fetch_add(1, Ordering::Relaxed));
+        let (outs, result) = {
             let mut inner = self.inner.lock().unwrap();
-            let facts = inner.catalog.packages.get(&app).map(Package::facts);
-            let outcome = mirror::reduce(&inner.mirror, &Op::Set(op), facts.as_ref())
-                .map_err(|r| ApiError::new(r.code(), r.message()))?;
             let mut outs = Vec::new();
-            if outcome.changed {
-                self.persist(&outcome.mirror);
-                inner.mirror = outcome.mirror;
-                let transaction =
-                    format!("apps-{}", self.transactions.fetch_add(1, Ordering::Relaxed));
-                for effect in &outcome.effects {
-                    outs.extend(self.apply_effect(&mut inner, effect));
-                }
-                outs.push(Out::Broadcast(json!({ "event": "apps-changed", "revision": inner.mirror.revision, "transaction": transaction })));
-                outs.push(Out::Client(client, json!({ "event": "request-settled", "transaction": transaction, "sequence": inner.mirror.revision })));
-            }
-            let mut record =
-                entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
-            // Lets a client drop list replies older than this commit.
-            record["revision"] = json!(inner.mirror.revision);
-            (outs, record)
+            let result = self.commit_locked(&mut inner, op, &transaction, &mut outs).map(|()| {
+                let mut record =
+                    entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
+                // Lets a client drop list replies older than this commit.
+                record["revision"] = json!(inner.mirror.revision);
+                record
+            });
+            outs.push(Out::Client(client, json!({ "event": "request-settled", "transaction": transaction, "sequence": inner.mirror.revision })));
+            (outs, result)
         };
         self.emit(outs);
-        Ok(record)
+        result
+    }
+
+    fn commit_locked(
+        &self,
+        inner: &mut Inner,
+        op: SetOp,
+        transaction: &str,
+        outs: &mut Vec<Out>,
+    ) -> Result<(), ApiError> {
+        let facts = inner.catalog.packages.get(&op.app).map(Package::facts);
+        let outcome = mirror::reduce(&inner.mirror, &Op::Set(op), facts.as_ref())
+            .map_err(|r| ApiError::new(r.code(), r.message()))?;
+        if outcome.replayed {
+            return Ok(());
+        }
+        // A no-op still records its key, so the key cannot be reused later.
+        self.persist(&outcome.mirror)
+            .map_err(|e| ApiError::new("apps.persist", format!("apps.json: {e}")))?;
+        inner.mirror = outcome.mirror;
+        for effect in &outcome.effects {
+            outs.extend(self.apply_effect(inner, effect));
+        }
+        if outcome.changed {
+            outs.push(Out::Broadcast(json!({ "event": "apps-changed", "revision": inner.mirror.revision, "transaction": transaction })));
+        }
+        Ok(())
     }
 
     fn apply_effect(&self, inner: &mut Inner, effect: &Effect) -> Vec<Out> {
         match effect {
-            Effect::ClearStorage(app) => vec![Out::ClearStorage(app.clone())],
+            // Under the lock, so no call that runs after the commit sees the
+            // old data (storage calls check the install under the same lock).
+            Effect::ClearStorage(app) => {
+                if let Some(storage) = self.storage().as_ref() {
+                    let _ = storage.clear(app);
+                }
+                vec![]
+            }
             Effect::StopHost(app) => self.stop_app_locked(inner, app, "disabled"),
             Effect::GrantsChanged(app) => self.regrant_locked(inner, app),
         }
@@ -349,18 +387,7 @@ impl Supervisor {
                         sink(&value);
                     }
                 }
-                Out::Host(process, message) => {
-                    if process.send(&message).is_err() {
-                        process.kill();
-                    }
-                }
-                Out::Shutdown(process) => process.shutdown(),
                 Out::Respond(responder, result) => responder(result),
-                Out::ClearStorage(app) => {
-                    if let Some(storage) = self.storage().as_ref() {
-                        let _ = storage.clear(&app);
-                    }
-                }
                 Out::StartEvents => {
                     let me = self.me.clone();
                     self.router.start_events(Box::new(move |stream| {
@@ -373,7 +400,8 @@ impl Supervisor {
         }
     }
 
-    /// The storage database, opened on first use.
+    /// The storage database, opened on first use. Lock order: `inner`, then
+    /// `storage`.
     pub(super) fn storage(&self) -> std::sync::MutexGuard<'_, Option<Storage>> {
         let mut guard = self.storage.lock().unwrap();
         if guard.is_none() {
@@ -383,15 +411,17 @@ impl Supervisor {
         guard
     }
 
-    fn persist(&self, mirror: &Mirror) {
-        let Some(dir) = &self.config.state_dir else { return };
-        let path = dir.join("apps.json");
+    /// Writes `apps.json` durably: temp file, fsync, rename.
+    fn persist(&self, mirror: &Mirror) -> std::io::Result<()> {
+        use std::io::Write as _;
+        let Some(dir) = &self.config.state_dir else { return Ok(()) };
         let temp = dir.join("apps.json.tmp");
         let body = serde_json::to_vec_pretty(&json!({ "version": 1, "mirror": mirror }))
-            .unwrap_or_default();
-        if std::fs::write(&temp, body).is_ok() {
-            let _ = std::fs::rename(&temp, &path);
-        }
+            .map_err(std::io::Error::other)?;
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(&body)?;
+        file.sync_all()?;
+        std::fs::rename(&temp, dir.join("apps.json"))
     }
 
     /// The grant a host of `key` runs with.
@@ -411,7 +441,7 @@ impl Supervisor {
                 .collect(),
             _ => BTreeSet::new(),
         };
-        Grant { scopes, sandboxed: record.is_none_or(|r| r.sandboxed), preview: false }
+        Grant { scopes, sandboxed: record.is_none_or(|r| r.sandboxed), ..Grant::default() }
     }
 }
 
