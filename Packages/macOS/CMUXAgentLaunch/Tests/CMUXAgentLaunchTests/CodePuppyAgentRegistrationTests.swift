@@ -67,11 +67,19 @@ struct CodePuppyAgentRegistrationTests {
         #expect(registration.directBasenames == ["code-puppy", "code_puppy"])
         #expect(registration.argumentNeedles == ["code-puppy", "code_puppy"])
         #expect(registration.lifecycleEvents.map(\.agentEvent) == [
-            "SessionStart", "UserPromptSubmit", "Stop", "Notification", "SessionEnd",
+            "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
+            "Stop", "SubagentStop", "Notification", "SessionEnd",
         ])
         #expect(registration.lifecycleEvents.map(\.cmuxSubcommand) == [
-            "session-start", "prompt-submit", "stop", "notification", "session-end",
+            "session-start", "prompt-submit", "tool-start", "tool-end",
+            "stop", "stop", "notification", "session-end",
         ])
+        #expect(registration.feedEvents.isEmpty)
+        for event in registration.lifecycleEvents {
+            #expect(AgentHookDeliveryPolicy().supportsQueuedDelivery(
+                agent: registration.id, subcommand: event.cmuxSubcommand
+            ))
+        }
         #expect(registration.pidEnvironmentVariable == "CMUX_CODE_PUPPY_PID")
         #expect(registration.hookConfigDirectory == ".code_puppy")
         #expect(registration.hookConfigFile == "hooks.json")
