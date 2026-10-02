@@ -281,7 +281,8 @@ public struct VMSummary: Sendable {
         addressIPv4: String? = nil,
         addressIPv6: String? = nil,
         cmuxTuiContract: String? = nil,
-        createdBy: VMCreator? = nil
+        createdBy: VMCreator? = nil,
+        agentUpdates: CloudAgentUpdates? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -298,6 +299,7 @@ public struct VMSummary: Sendable {
         self.addressIPv6 = addressIPv6
         self.cmuxTuiContract = cmuxTuiContract
         self.createdBy = createdBy
+        self.agentUpdates = agentUpdates
     }
 
     public func withStatus(_ status: String) -> VMSummary {
@@ -316,7 +318,8 @@ public struct VMSummary: Sendable {
             addressIPv4: addressIPv4,
             addressIPv6: addressIPv6,
             cmuxTuiContract: cmuxTuiContract,
-            createdBy: createdBy
+            createdBy: createdBy,
+            agentUpdates: agentUpdates
         )
     }
 
@@ -350,6 +353,8 @@ public struct VMSummary: Sendable {
     /// (`"snapshot-v2"`: baked daemon, trusted private-network listener).
     /// This is rollout metadata from the control plane, not a live daemon probe.
     public var cmuxTuiContract: String?
+    /// Whether the machine keeps its image's coding agents or updates them on attach.
+    public var agentUpdates: CloudAgentUpdates?
 
     /// The name to show people: the label when set, else the generated slug,
     /// else the machine id.
