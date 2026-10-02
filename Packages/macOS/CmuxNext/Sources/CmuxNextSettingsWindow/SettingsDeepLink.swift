@@ -7,7 +7,7 @@ import Foundation
 /// or `cmux action run openSettings --arg setting=tabs.newTabKind`.
 public struct SettingsDeepLink: Equatable, Sendable {
     public var section: SettingsSection?
-    /// A cmux.json key path, or another name `SettingsSearchIndex.anchor(for:)`
+    /// A cmux.json key path, or another name `SettingsAnchor(key:)`
     /// knows; nil when absent or blank.
     public var setting: String?
 
@@ -25,7 +25,7 @@ public struct SettingsDeepLink: Equatable, Sendable {
 
     /// Where the window scrolls: nil without a setting, or when nothing in
     /// Settings has that name (the caller reports it).
-    public var anchor: SettingsAnchor? { setting.flatMap { SettingsSearchIndex.anchor(for: $0) } }
+    public var anchor: SettingsAnchor? { setting.flatMap { SettingsAnchor(key: $0) } }
 
     private static func text(_ value: ActionValue?) -> String? {
         guard let text = value?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }

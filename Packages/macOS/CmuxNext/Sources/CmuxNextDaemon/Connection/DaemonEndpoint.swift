@@ -125,7 +125,8 @@ public struct DaemonCapabilities: Sendable {
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
-                                            terminalShellArgs, launchSnapshot] }
+                                            terminalShellArgs, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
+                                            terminalCommandJournal, stickyColumns, endTerminalsKeepLayout, stateResources] }
 
     /// Capabilities the app already speaks but the pinned cmux-tui does not
     /// serve yet. They are advertised, so a daemon that has them enables them,
@@ -147,8 +148,7 @@ public struct DaemonCapabilities: Sendable {
     /// owner op (plans/cmux-next/layout-invariants.md).
     public let tabSplitRespawn = "tab-split-respawn-v1"
     public var awaitingPin: [String] {
-        [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns,
-         endTerminalsKeepLayout, stateResources, localConversations, sidebarLayout, tabSplitRespawn, frontendBrowserHistory]
+        [remoteTerminalTabs, detachedTerminals, localConversations, sidebarLayout, tabSplitRespawn, frontendBrowserHistory]
     }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.

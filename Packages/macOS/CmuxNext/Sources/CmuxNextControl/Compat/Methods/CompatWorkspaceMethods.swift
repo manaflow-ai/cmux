@@ -38,7 +38,8 @@ enum CompatWorkspaceMethods {
     }
 
     /// New workspace with one terminal. `focus` (default false) also shows it
-    /// in the target window, like the old app.
+    /// in the target window, like the old app; `activate` with it also
+    /// focuses that window and activates the app.
     /// The `newTab` (New Workspace) action with the old params as its
     /// arguments; shown in the target window only with `focus: true`.
     static func create(_ call: CompatCall) async throws -> JSON {
@@ -47,6 +48,9 @@ enum CompatWorkspaceMethods {
         }
         let service = call.service
         var arguments: [String: ControlValue] = ["focus": .bool(call.wantsFocus)]
+        // Only a caller that knows a person ran it (`cmux open <dir>`) asks
+        // to activate the app as well.
+        if call.wantsFocus, call.bool("activate") == true { arguments["activate"] = .bool(true) }
         if let title = call.string("title")?.trimmingCharacters(in: .whitespaces), !title.isEmpty { arguments["name"] = .string(title) }
         if let cwd = try CompatSpawn.workingDirectory(call) { arguments["cwd"] = .string(cwd) }
         if let command = CompatSpawn.command(call) { arguments["command"] = .string(command) }

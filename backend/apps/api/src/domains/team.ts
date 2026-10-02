@@ -124,6 +124,12 @@ export const teamDomain: Domain<TeamState> = {
       case "domain.release":
         // External effects: only through the Worker's HTTP route (never the wire), so a secret is never an op param.
         return reject("validation.invalid", `${op} runs through POST /v1/ops only`)
+      case "sso.signed_in": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        const q = params as { connection?: string; subject?: string; stack_user?: string; linked?: boolean }
+        // Audit only; no state beyond the audit chain (identities live in the sso_identities side table).
+        return withAudit({ ok: true, state, value: { connection: q.connection }, audit: { summary: q.linked ? `first SSO sign-in through ${q.connection}` : `SSO sign-in through ${q.connection}`, detail: q } }, state.team.id, ctx, op)
+      }
       case "sso.connection.secret_set":
       case "sso.connection.activated": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")

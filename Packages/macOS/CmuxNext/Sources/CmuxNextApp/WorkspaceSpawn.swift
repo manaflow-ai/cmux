@@ -33,11 +33,21 @@ struct WorkspaceSpawn: Sendable {
         self.profile = profile
     }
 
+    /// A workspace opened in `directory` (the Finder service "New cmux
+    /// Workspace Here"), named after the folder like `newTab` with only a
+    /// `cwd`; nil starts in the default directory and the daemon names it.
+    init(opening directory: String?) {
+        self.init(cwd: directory, name: directory.flatMap(Self.folderName))
+    }
+
     /// `newTab` arguments: `cwd`, `name`, `command`, `env` (a JSON object of
-    /// strings), `keep`.
+    /// strings), `keep`. A workspace opened in a `cwd` without a `name`
+    /// (`cmux open <dir>`, `cmux <dir>` on an explicit socket,
+    /// `new-workspace --cwd`) is named
+    /// after the folder, like Open Folder…
     init(_ invocation: ActionInvocation) {
         cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
-        name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? cwd.flatMap(Self.folderName)
         command = invocation["command"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         keep = invocation["keep"]?.boolValue == true
         profile = invocation["profile"]?.targetValue.map { ProfileID(rawValue: $0.id) }
@@ -46,6 +56,15 @@ struct WorkspaceSpawn: Sendable {
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             env = object.compactMapValues { $0 as? String }
         }
+    }
+
+    /// The name of a workspace opened in `directory`: the folder's name
+    /// without surrounding whitespace, or nil for the filesystem root or a
+    /// blank name (the daemon names it).
+    static func folderName(_ directory: String) -> String? {
+        let name = URL(fileURLWithPath: directory).standardizedFileURL.lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty || name == "/" ? nil : name
     }
 }
 

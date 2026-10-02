@@ -31,4 +31,17 @@ final class SidebarSectionTargetSource: PaletteTargetSource {
             return next.targets(of: kind)
         }
     }
+
+    /// A section's own title; nil for an untitled one, whose listed label
+    /// ("Workspaces", its first item) is not a name to rename from.
+    func title(of target: ActionTargetRef) -> String? {
+        switch target.kind {
+        case .sidebarSection:
+            services.sidebarLayout.document.sections.first { $0.id.rawValue == target.id }?.title.flatMap { $0.isEmpty ? nil : $0 }
+        case .sidebarItem:
+            targets(of: .sidebarItem).first { $0.id == target.id }?.title
+        default:
+            next.title(of: target)
+        }
+    }
 }

@@ -101,6 +101,8 @@ struct PaletteArgumentFlow {
             title: Self.stepTitle(descriptor, argument),
             placeholder: argument.title,
             symbol: descriptor.symbol,
+            initialText: argument.isTargetName ? currentName(of: collected.target) ?? "" : "",
+            skipsUnchangedText: argument.isTargetName,
             submitTitle: { text in PaletteStrings.submitText(title: descriptor.title, text: text) },
             isValid: { text in
                 !text.trimmingCharacters(in: .whitespaces).isEmpty && argument.parse(text) != nil
@@ -110,6 +112,12 @@ struct PaletteArgumentFlow {
                 return flow.effect(collected: next)
             }
         )
+    }
+
+    /// The name `target` shows now (a rename starts from it).
+    private func currentName(of target: ActionTargetRef?) -> String? {
+        guard let target else { return nil }
+        return targets?.title(of: target)
     }
 
     private func listPage(for argument: ActionArgument, options: [PaletteTargetOption], collected: ActionInvocation,
