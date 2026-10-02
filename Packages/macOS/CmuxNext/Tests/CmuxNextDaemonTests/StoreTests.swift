@@ -187,4 +187,26 @@ import Testing
         #expect(store.tab(surface: 3)?.pinned == true)
         #expect(store.tab(surface: 3)?.gitBranch == "main")
     }
+
+    /// Regression: Ghostty's zsh integration reports `kitty-shell-cwd://` URLs, which
+    /// the pinned daemon reads as no directory, so it clears the tab's cwd at the
+    /// first prompt. The folder the shell reported to this app's own surface keeps
+    /// the tab's cwd, so ⌘T and the new tab page start in it; a daemon cwd wins.
+    @Test func theShellsReportedFolderKeepsTheTabCwdWhenTheDaemonClearsIt() throws {
+        let store = try loadedStore()
+        var tab = try #require(store.tab(surface: 3)).snapshot
+        tab.cwd = nil
+        let cleared = TabDelta(workspace: 1, screen: 5, pane: 4, surface: 3, index: 0, entity: tab)
+        _ = store.apply(.tabChanged(cleared))
+        store.noteTerminalDirectory("/Users/me/code/web-app", surface: 3)
+        #expect(store.tab(surface: 3)?.cwd == "/Users/me/code/web-app")
+        _ = store.apply(.tabChanged(cleared))
+        #expect(store.tab(surface: 3)?.cwd == "/Users/me/code/web-app")
+        store.noteTerminalDirectory("file://host/Users/me/code/api%20server", surface: 3)
+        #expect(store.tab(surface: 3)?.cwd == "/Users/me/code/api server")
+
+        tab.cwd = "/srv"
+        _ = store.apply(.tabChanged(TabDelta(workspace: 1, screen: 5, pane: 4, surface: 3, index: 0, entity: tab)))
+        #expect(store.tab(surface: 3)?.cwd == "/srv")
+    }
 }

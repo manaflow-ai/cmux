@@ -138,6 +138,9 @@ public final class DaemonStore {
     public func screen(_ handle: ScreenID) -> ScreenModel? { screensByHandle[handle] }
     public func pane(_ handle: PaneID) -> PaneModel? { panesByHandle[handle] }
     public func tab(surface: SurfaceID) -> TabModel? { tabsBySurface[surface] }
+
+    /// The folder the shell in `surface` last reported to this app (OSC 7).
+    public func noteTerminalDirectory(_ directory: String?, surface: SurfaceID) {}
     public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
     /// The tab with durable id `id` (`TabModel.id`).
     public func tab(id: String) -> TabModel? { tabsBySurface.values.first { $0.id == id } }
