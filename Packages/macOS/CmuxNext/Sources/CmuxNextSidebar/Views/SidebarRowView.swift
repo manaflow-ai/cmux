@@ -62,7 +62,22 @@ class SidebarRowView: NSView {
     var titleFont: NSFont { SidebarStyle.titleFont }
     func setTitleHidden(_ hidden: Bool) {}
 
-    func hoverChanged() { needsDisplay = true }
+    func hoverChanged() {
+        fadesNextFill = true
+        needsDisplay = true
+    }
+
+    /// The next fill change came from hover, so it fades
+    /// (`MotionFade.hover`); reloads and theme changes apply at once.
+    var fadesNextFill = false
+
+    /// Paints `color` on the row's backing layer, fading when hover changed
+    /// it. Call from `updateLayer()` inside the theme scope.
+    func paintFill(_ color: NSColor?) {
+        guard let layer else { return }
+        ChromeHover.paint(layer, color, animated: fadesNextFill)
+        fadesNextFill = false
+    }
 
     /// Size the row is animating toward. Content lays out for the final size
     /// up front, so an animated frame change never shows a stale layout.
