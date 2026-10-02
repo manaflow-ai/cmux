@@ -6691,6 +6691,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "settings customize-appearance",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "appearance.customize",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
       "cli" : "stepAdjust",
       "cli_name" : "settings increase-interface-size",
       "context_menu" : "stepAdjust",
