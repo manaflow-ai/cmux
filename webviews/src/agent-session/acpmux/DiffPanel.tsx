@@ -132,6 +132,14 @@ export function DiffPanel({ files, initialPath, onClose }: { files: TurnFile[]; 
   const revealing = useRef(initialPath);
   const stopRevealing = () => { revealing.current = undefined; };
   const revealFromTree = (path: string) => { revealing.current = path; reveal(path); };
+  // Wheel, pointer or key input in the diffs means the reader is moving on their own.
+  useEffect(() => {
+    const node = body.current;
+    if (!node) return;
+    const stop = () => { revealing.current = undefined; };
+    for (const type of ["wheel", "pointerdown", "keydown"]) node.addEventListener(type, stop, { passive: true });
+    return () => { for (const type of ["wheel", "pointerdown", "keydown"]) node.removeEventListener(type, stop); };
+  }, []);
   const onPainted = useStableCallback(() => { if (revealing.current) reveal(revealing.current); });
   // Focus moves into the view, so keys reach it and a screen reader announces it.
   useEffect(() => { back.current?.focus(); if (initialPath) reveal(initialPath); }, [initialPath]);
@@ -156,7 +164,7 @@ export function DiffPanel({ files, initialPath, onClose }: { files: TurnFile[]; 
       </div>
     </header>
     <div className="acpmux-diff-main">
-      <div ref={body} className="acpmux-diff-body" onWheel={stopRevealing} onPointerDown={stopRevealing} onKeyDown={stopRevealing}>{files.length === 0 ? <div className="acpmux-muted">No file changes in this turn.</div> : files.flatMap((file) => file.edits.map((edit, index) => <EditBlock key={`${file.path}\u0000${edit.toolId}\u0000${index}`} file={file} edit={edit} index={index} layout={layout} onPainted={onPainted} />))}</div>
+      <div ref={body} className="acpmux-diff-body">{files.length === 0 ? <div className="acpmux-muted">No file changes in this turn.</div> : files.flatMap((file) => file.edits.map((edit, index) => <EditBlock key={`${file.path}\u0000${edit.toolId}\u0000${index}`} file={file} edit={edit} index={index} layout={layout} onPainted={onPainted} />))}</div>
       <nav className="acpmux-diff-tree" aria-label="Changed files"><ChangedFilesTree files={files} selected={selected} onSelect={revealFromTree} /></nav>
     </div>
   </section>;
