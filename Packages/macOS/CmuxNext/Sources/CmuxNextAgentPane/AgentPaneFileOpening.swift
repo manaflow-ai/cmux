@@ -2,7 +2,10 @@ public import Foundation
 
 /// Why `file.open` does not open a file.
 public nonisolated enum AgentPaneFileRefusal: Error, Equatable, Sendable {
-    /// Not an absolute path to an existing regular file.
+    /// A relative path: the CLI sends the path as typed, and the app has no
+    /// working directory to resolve it against.
+    case relativePath
+    /// Not an existing regular file.
     case notAFile
     /// A tab would show it as a page, so it opens in the editor only.
     case notInTab
@@ -23,6 +26,7 @@ public nonisolated struct AgentPaneFileOpening: Equatable, Sendable {
         target: AgentPaneFileTarget,
         editor: @MainActor () -> URL? = { AgentPaneFileOpen.editorApplication() }
     ) throws -> AgentPaneFileOpening {
+        guard path.isEmpty || path.hasPrefix("/") else { throw AgentPaneFileRefusal.relativePath }
         guard let url = AgentPaneFileOpen.resolve(path) else { throw AgentPaneFileRefusal.notAFile }
         switch target {
         case .tab:

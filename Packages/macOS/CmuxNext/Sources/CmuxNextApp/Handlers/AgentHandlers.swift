@@ -108,11 +108,15 @@ enum AgentHandlers {
     /// invocation's pane, else the focused one.
     private static func openFile(_ invocation: ActionInvocation, context: AppActionContext) throws {
         let path = invocation["path"]?.stringValue ?? ""
-        // The registry and the control socket accept only the catalog's choices.
-        guard let target = AgentPaneFileTarget(rawValue: invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue) else { return }
+        // The palette and the control socket accept only the catalog's choices;
+        // an in-app caller that passes another place is refused, not ignored.
+        let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
+        guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
         let opening: AgentPaneFileOpening
         do {
             opening = try AgentPaneFileOpening.plan(path: path, target: target)
+        } catch AgentPaneFileRefusal.relativePath {
+            throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
         } catch AgentPaneFileRefusal.notInTab {
             throw ActionFailure(message: MiscHandlerStrings.fileNotInTab(path))
         } catch AgentPaneFileRefusal.noEditor {

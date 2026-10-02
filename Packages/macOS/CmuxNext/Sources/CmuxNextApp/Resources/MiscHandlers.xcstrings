@@ -4061,6 +4061,268 @@
           }
         }
       }
+    },
+    "handlers.misc.failed.pathNotAbsolute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is a relative path. Give the file's absolute path."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は相対パスです。ファイルの絶対パスを指定してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ مسار نسبي. أدخل المسار المطلق للملف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ je relativna putanja. Navedite apsolutnu putanju datoteke."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er en relativ sti. Angiv filens absolutte sti."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ist ein relativer Pfad. Gib den absoluten Pfad der Datei an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ es una ruta relativa. Indica la ruta absoluta del archivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ est un chemin relatif. Indiquez le chemin absolu du fichier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ è un percorso relativo. Indica il percorso assoluto del file."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ជាផ្លូវទាក់ទង។ សូមផ្ដល់ផ្លូវពេញលេញរបស់ឯកសារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@은(는) 상대 경로입니다. 파일의 절대 경로를 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er en relativ bane. Oppgi filens absolutte bane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ to ścieżka względna. Podaj ścieżkę bezwzględną pliku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ é um caminho relativo. Informe o caminho absoluto do arquivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ — относительный путь. Укажите абсолютный путь к файлу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ เป็นพาธสัมพัทธ์ โปรดระบุพาธสัมบูรณ์ของไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ göreli bir yol. Dosyanın mutlak yolunu verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ — відносний шлях. Укажіть абсолютний шлях до файлу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ là đường dẫn tương đối. Hãy nhập đường dẫn tuyệt đối của tệp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 是相对路径。请提供文件的绝对路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 是相對路徑。請提供檔案的絕對路徑。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.invalidPlace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not a place to open a file. Use tab or editor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はファイルを開く場所ではありません。tab または editor を指定してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ليس مكانًا لفتح ملف. استخدم tab أو editor."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nije mjesto za otvaranje datoteke. Koristite tab ili editor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke et sted at åbne en fil. Brug tab eller editor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ist kein Ort zum Öffnen einer Datei. Verwende tab oder editor."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ no es un lugar para abrir un archivo. Usa tab o editor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ n’est pas un emplacement d’ouverture de fichier. Utilisez tab ou editor."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ non è un luogo in cui aprire un file. Usa tab o editor."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ មិនមែនជាកន្លែងសម្រាប់បើកឯកសារទេ។ សូមប្រើ tab ឬ editor។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@은(는) 파일을 열 위치가 아닙니다. tab 또는 editor를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke et sted å åpne en fil. Bruk tab eller editor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nie jest miejscem otwierania pliku. Użyj tab lub editor."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ não é um local para abrir um arquivo. Use tab ou editor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ — не место для открытия файла. Используйте tab или editor."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ไม่ใช่ตำแหน่งสำหรับเปิดไฟล์ ใช้ tab หรือ editor"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ bir dosyayı açmak için bir yer değil. tab veya editor kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ — не місце для відкриття файлу. Використовуйте tab або editor."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ không phải là nơi để mở tệp. Hãy dùng tab hoặc editor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 不是打开文件的位置。请使用 tab 或 editor。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 不是打開檔案的位置。請使用 tab 或 editor。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

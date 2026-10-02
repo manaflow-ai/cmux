@@ -22,3 +22,20 @@ extension ActionRegistry {
         bind(.newAgentChat, invoke: openNewChat)
     }
 }
+
+extension ActionRegistry {
+    /// Opens an agent tab's changed file through `file.open` on `pane`, the
+    /// path the palette and `cmux file open` take. False when the handler
+    /// refused, so the page shows its notice instead of the app's beep; an
+    /// editor that fails after it starts opening is not reported back.
+    @discardableResult
+    public func openAgentFile(path: String, target: AgentPaneFileTarget, pane: String) -> Bool {
+        let invocation = ActionInvocation(
+            target: ActionTargetRef(kind: .pane, id: pane),
+            arguments: ["path": .string(path), "where": .string(target.rawValue)]
+        )
+        var performed = false
+        let refusal = reportingRefusal { performed = perform(.fileOpen, invocation: invocation) }
+        return performed && refusal == nil
+    }
+}

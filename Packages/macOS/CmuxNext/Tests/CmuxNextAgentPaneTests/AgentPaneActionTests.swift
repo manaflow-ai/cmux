@@ -32,4 +32,20 @@ import Testing
         #expect(descriptor.cliName == "file open")
         #expect(descriptor.arguments.map(\.name) == ["path", "where"])
     }
+
+    /// The page hears a refusal as a failure: a handler that refuses (no pane,
+    /// or a file that changed since the page's check) is not a success.
+    @Test func theAgentPaneHearsWhenFileOpenRefuses() {
+        let registry = ActionRegistry.standard()
+        var asked: [ActionInvocation] = []
+        #expect(registry.bind(.fileOpen, invoke: { invocation in
+            asked.append(invocation)
+            if invocation["where"]?.stringValue == "editor" { registry.refuse("no editor") }
+        }))
+        #expect(registry.openAgentFile(path: "/repo/Retry.swift", target: .tab, pane: "pane-1"))
+        #expect(asked.last?.target == ActionTargetRef(kind: .pane, id: "pane-1"))
+        #expect(asked.last?["path"]?.stringValue == "/repo/Retry.swift")
+        #expect(!registry.openAgentFile(path: "/repo/Retry.swift", target: .editor, pane: "pane-1"))
+        #expect(asked.count == 2)
+    }
 }
