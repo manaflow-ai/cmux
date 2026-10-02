@@ -80,7 +80,7 @@ test("code spaces and unopenable links are measured as drawn", () => {
 });
 
 describe("acpmux pane header", () => {
-  const snapshot = (patch: Partial<AcpmuxSnapshot>): AcpmuxSnapshot => ({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connected", isWorking: false, queue: [], ...patch });
+  const snapshot = (patch: Partial<AcpmuxSnapshot>): AcpmuxSnapshot => ({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connected", isWorking: false, queue: [], catalog: [], canLoadOlder: false, ...patch });
   const prompt = "Run total.py and tell me what it prints";
   /// The title repeated the session's first prompt, which the picker and the transcript already show,
   /// and the status showed the client's last event ("session changed", "tool_call").
