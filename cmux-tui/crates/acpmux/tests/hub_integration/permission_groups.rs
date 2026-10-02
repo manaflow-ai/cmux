@@ -153,8 +153,12 @@ async fn permission_groups_fixture_chat_isolation_policy_and_stop() {
     );
     c.request(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await.unwrap();
     let events = hub.events(&id, 0, 1000).unwrap();
-    assert!(find(&events, "permission_auto").last().unwrap().msg["optionId"]
-        .as_str().unwrap().starts_with("no-"));
+    assert!(
+        find(&events, "permission_auto").last().unwrap().msg["optionId"]
+            .as_str()
+            .unwrap()
+            .starts_with("no-")
+    );
     r.request(method::MUX_SET_RULES, json!({"sessionId":id,"rules":null})).await.unwrap();
     let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await;
     let g = ready(&mut c).await;
@@ -211,31 +215,48 @@ async fn permission_groups_fixture_only_one_responder_wins() {
 #[tokio::test]
 async fn permission_groups_fixture_policy_edit_cannot_be_bypassed_by_legacy() {
     let (hub, mut c) = setup(PermissionPolicy::Ask).await;
-    let id = new_session(&mut c,"policy-change").await;
-    let rid = c.send(method::SESSION_PROMPT,prompt(&id,"permission-batch: single",None)).await;
+    let id = new_session(&mut c, "policy-change").await;
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await;
     let g = ready(&mut c).await;
     let mut r = connect(&hub).await;
-    r.request(method::MUX_SET_POLICY,json!({"sessionId":id,"policy":"deny-all"})).await.unwrap();
-    assert!(r.request(method::MUX_PERMISSION_RESPOND,json!({"sessionId":id,
+    r.request(method::MUX_SET_POLICY, json!({"sessionId":id,"policy":"deny-all"})).await.unwrap();
+    assert!(
+        r.request(
+            method::MUX_PERMISSION_RESPOND,
+            json!({"sessionId":id,
         "permissionId":g["items"][0]["permissionId"],
-        "optionId":g["items"][0]["request"]["options"][0]["optionId"]})).await.unwrap_err().contains("policy_changed"));
-    let state = r.request(GROUPS,json!({"sessionId":id,"groupId":g["groupId"]})).await.unwrap();
+        "optionId":g["items"][0]["request"]["options"][0]["optionId"]})
+        )
+        .await
+        .unwrap_err()
+        .contains("policy_changed")
+    );
+    let state = r.request(GROUPS, json!({"sessionId":id,"groupId":g["groupId"]})).await.unwrap();
     let current = &state["groups"][0];
-    assert!(r.request(RESPOND,decision(&id,current,"blocked","allow_once")).await.unwrap_err().contains("policy_changed"));
-    r.request(RESPOND,decision(&id,current,"deny","deny")).await.unwrap();
+    assert!(
+        r.request(RESPOND, decision(&id, current, "blocked", "allow_once"))
+            .await
+            .unwrap_err()
+            .contains("policy_changed")
+    );
+    r.request(RESPOND, decision(&id, current, "deny", "deny")).await.unwrap();
     assert!(c.response(rid).await.0.is_ok());
 }
 
 #[tokio::test]
 async fn permission_groups_fixture_deny_without_option_records_cancellation() {
     let (hub, mut c) = setup(PermissionPolicy::Ask).await;
-    let id = new_session(&mut c,"cancel-option").await;
-    let rid = c.send(method::SESSION_PROMPT,prompt(&id,"permission-batch: no-reject",None)).await;
+    let id = new_session(&mut c, "cancel-option").await;
+    let rid =
+        c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: no-reject", None)).await;
     let g = ready(&mut c).await;
     let mut r = connect(&hub).await;
-    let result = r.request(RESPOND,decision(&id,&g,"deny","deny")).await.unwrap();
-    assert_eq!(result["group"]["items"][0]["state"],"cancelled");
-    assert_eq!(result["group"]["decision"],"deny");
+    let result = r.request(RESPOND, decision(&id, &g, "deny", "deny")).await.unwrap();
+    assert_eq!(result["group"]["items"][0]["state"], "cancelled");
+    assert_eq!(result["group"]["decision"], "deny");
     assert!(c.response(rid).await.0.is_ok());
-    assert_eq!(find(&hub.events(&id,0,1000).unwrap(),"permission_decision")[0].msg["outcome"]["outcome"],"cancelled");
+    assert_eq!(
+        find(&hub.events(&id, 0, 1000).unwrap(), "permission_decision")[0].msg["outcome"]["outcome"],
+        "cancelled"
+    );
 }

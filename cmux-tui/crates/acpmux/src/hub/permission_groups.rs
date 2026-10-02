@@ -313,9 +313,14 @@ impl Hub {
         let g = &mut state.groups[index];
         for item in &mut g.items {
             if item.state == "pending" {
-                item.state = if replies.iter().any(|(id, _, outcome)| {
-                    id == &item.id && outcome["outcome"] == "cancelled"
-                }) { "cancelled" } else { "resolved" };
+                item.state = if replies
+                    .iter()
+                    .any(|(id, _, outcome)| id == &item.id && outcome["outcome"] == "cancelled")
+                {
+                    "cancelled"
+                } else {
+                    "resolved"
+                };
             }
         }
         g.state = "resolved";
