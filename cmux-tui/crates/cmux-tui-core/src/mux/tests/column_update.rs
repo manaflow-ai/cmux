@@ -71,9 +71,13 @@ fn send(mux: &Arc<Mux>, operation: &str, params: Value, key: &str) -> Result<Val
         "params": params,
         "idempotency_key": key,
     });
-    let response =
-        crate::resource_router::handle_resource_message(mux, &request.to_string()).unwrap();
-    if response["ok"] == false { Err(response["error"].clone()) } else { Ok(response) }
+    // Catalog validation rejects before dispatch (Err); a dispatched request
+    // that fails answers with an ok:false response.
+    match crate::resource_router::handle_resource_message(mux, &request.to_string()) {
+        Err(error) => Err(serde_json::json!({"code": error.code, "message": error.message})),
+        Ok(response) if response["ok"] == false => Err(response["error"].clone()),
+        Ok(response) => Ok(response),
+    }
 }
 
 fn flag(edge: StickyEdge, mode: StickyMode) -> Option<ColumnSticky> {
