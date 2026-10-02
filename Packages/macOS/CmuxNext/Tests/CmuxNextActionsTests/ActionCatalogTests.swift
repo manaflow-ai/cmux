@@ -78,7 +78,7 @@ import Testing
         .browser: 110, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions
         .sidebar: 30,
         .notifications: 18,
-        .agents: 17, // + Resume Agent Session
+        .agents: 18, // + Resume Agent Session, Show ACP Inspector
         .cloud: 28, // + accounts.show, refresh, reauthenticate, connect, remove
         .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
         .settings: 49, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only)

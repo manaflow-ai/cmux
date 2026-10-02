@@ -12,6 +12,16 @@ export const SHOWN_ROWS = 500;
 
 export type InspectorView = "wire" | "session";
 
+/** What the host did with an export: saved it, the user cancelled its save panel, or it cannot save (the log is copied instead). */
+export type ExportOutcome = "saved" | "cancelled" | "unavailable";
+
+/** `acp-<session8>-<yyyyMMdd-HHmmss>.jsonl` in local time; `acp-<time>.jsonl` without a session. */
+export function exportFileName(sessionId: string | undefined, at: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const stamp = `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}-${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}`;
+  return ["acp", sessionId?.slice(0, 8), stamp].filter(Boolean).join("-") + ".jsonl";
+}
+
 export type InspectorRow = { key: string; at: number; dir: string; kind: string; name: string; latencyMs?: number; size?: number; body: string };
 
 /** HH:MM:SS.mmm in local time. */
@@ -84,8 +94,8 @@ export function Inspector({ snapshot, sessionEvents, onClose, onExport, wire = a
   /** The selected session's ACP events as the client holds them. */
   sessionEvents: () => EventRecord[];
   onClose: () => void;
-  /** Saves the exported log; resolves false when the host cannot, and the log is copied instead. */
-  onExport?: (text: string) => Promise<boolean>;
+  /** Saves the exported log under a suggested file name. Without it, or when it resolves (or fails) as unavailable, the log is copied instead. */
+  onExport?: (text: string, suggestedName: string) => Promise<ExportOutcome>;
   wire?: AcpWireLog;
 }) {
   const [view, setView] = useState<InspectorView>("wire");
@@ -106,8 +116,11 @@ export function Inspector({ snapshot, sessionEvents, onClose, onExport, wire = a
 
   const exportLog = async () => {
     const text = wire.exportJsonl({ sessionId: snapshot.sessionId, connection: snapshot.connection, sessionStatus: snapshot.summary?.status });
-    const saved = onExport ? await onExport(text).catch(() => false) : false;
-    setNotice(saved ? "Saved" : copyText(text) ? "Copied as JSON Lines" : "Could not copy");
+    const outcome = onExport ? await onExport(text, exportFileName(snapshot.sessionId, new Date())).catch((): ExportOutcome => "unavailable") : "unavailable";
+    // A cancelled save panel was the user's choice: nothing is copied.
+    if (outcome === "saved") setNotice("Saved");
+    else if (outcome === "cancelled") setNotice(undefined);
+    else setNotice(copyText(text) ? "Copied as JSON Lines" : "Could not copy");
   };
 
   return <section className="acpmux-inspector" aria-label="ACP inspector">
