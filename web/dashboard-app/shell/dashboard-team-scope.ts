@@ -69,6 +69,7 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
   const activeSwitchId = useRef(0);
   const nextSwitchId = useRef(0);
   const pendingSwitches = useRef(0);
+  const refreshGeneration = useRef(0);
   const confirmedSwitchState = useRef<ConfirmedTeamSwitchState | null>(null);
   const switchPersistenceTail = useRef<Promise<void>>(Promise.resolve());
   const [refreshError, setRefreshError] = useState(false);
@@ -89,6 +90,7 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
   if (teams.length === 0) return { status: "unavailable" };
   const selected = selectedTeam(teams, data.selectedTeamId, searchParams.get("team"));
 
+  /** Optimistically select a team, persist it, then reconcile the dashboard. */
   const switchTeam = async (team: DashboardCatalogTeam) => {
     const currentCatalog = queryClient.getQueryData<DashboardTeamCatalog>(queryKey) ?? data;
     if (
@@ -188,19 +190,28 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
       // The picker and URL already reflect the confirmed team. Reconcile the
       // server-rendered dashboard in the background so a slow page dependency
       // cannot keep the completed switch in its pending state.
-      void url.refresh().then(
-        () => setRefreshError(false),
-        () => setRefreshError(true),
-      );
+      startRefresh();
     }
     finish();
   };
 
+  /** Retry the latest failed dashboard reconciliation. */
   const retryRefresh = () => {
+    startRefresh();
+  };
+
+  /** Apply refresh status only while this refresh remains the newest request. */
+  const startRefresh = () => {
+    refreshGeneration.current += 1;
+    const generation = refreshGeneration.current;
     setRefreshError(false);
     void url.refresh().then(
-      () => setRefreshError(false),
-      () => setRefreshError(true),
+      () => {
+        if (isCurrentRefreshGeneration(refreshGeneration.current, generation)) setRefreshError(false);
+      },
+      () => {
+        if (isCurrentRefreshGeneration(refreshGeneration.current, generation)) setRefreshError(true);
+      },
     );
   };
 
@@ -233,6 +244,12 @@ export function selectedTeam(
   return teams.find((team) => team.personal) ?? teams[0];
 }
 
+/** Return whether a refresh completion still belongs to the newest request. */
+export function isCurrentRefreshGeneration(current: number, completion: number): boolean {
+  return current === completion;
+}
+
+/** Load and validate the authenticated user's dashboard team catalog. */
 async function loadTeamCatalog(signal: AbortSignal): Promise<DashboardTeamCatalog> {
   const catalog = await dashboardClient.teams.catalog(undefined, { signal, context: { timeoutMs: CATALOG_TIMEOUT_MS } });
   const parsed = parseTeamCatalog(catalog);

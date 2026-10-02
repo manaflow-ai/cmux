@@ -64,7 +64,13 @@ mock.module("@/services/coderouter/organizationScope", () => ({
   },
 }));
 
-const { useDashboardTeamScope, parseTeamCatalog, selectedTeam, permittedTeams } = await import(
+const {
+  useDashboardTeamScope,
+  isCurrentRefreshGeneration,
+  parseTeamCatalog,
+  selectedTeam,
+  permittedTeams,
+} = await import(
   "../dashboard-app/shell/dashboard-team-scope"
 );
 
@@ -188,6 +194,14 @@ describe("dashboard team scope", () => {
     expect(selectedTeam(teams, "team-2", "user-1").id).toBe("user-1");
     expect(selectedTeam(teams, "stale", "missing").id).toBe("user-1");
     expect(selectedTeam(teams, null, null).id).toBe("user-1");
+  });
+
+  test("ignores an older refresh completion when refreshes overlap", () => {
+    const firstRefresh = 1;
+    const retryRefresh = 2;
+
+    expect(isCurrentRefreshGeneration(retryRefresh, firstRefresh)).toBe(false);
+    expect(isCurrentRefreshGeneration(retryRefresh, retryRefresh)).toBe(true);
   });
 
   test("rejects malformed catalogs instead of rendering them", () => {
