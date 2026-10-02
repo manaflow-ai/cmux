@@ -136,7 +136,7 @@ fn darwin_user_temp_dir() -> Option<PathBuf> {
 
 /// `…/Foo.app` for an executable at `…/Foo.app/Contents/Resources/bin/cmux`
 /// or `…/Foo.app/Contents/MacOS/cmux`.
-fn containing_app_bundle(exe: &Path) -> Option<PathBuf> {
+pub(crate) fn containing_app_bundle(exe: &Path) -> Option<PathBuf> {
     exe.ancestors()
         .find(|path| path.extension().is_some_and(|extension| extension == "app"))
         .filter(|bundle| exe.starts_with(bundle.join("Contents")))

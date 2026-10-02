@@ -11,7 +11,7 @@ use cmux_tui_core::resource::{PROTOCOL, ResourceOperation, ResponseEnvelope};
 use serde_json::{Map, Value, json};
 
 use super::OutputMode;
-use super::command::{RequestPlan, Resolve};
+use super::command::{RequestPlan, Resolve, ZoomStep};
 use super::wire::{print_operation_error, random_request_id, read_envelope};
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
@@ -20,11 +20,21 @@ pub(super) enum Failure {
     /// A resource error from the daemon, or a local one in that shape.
     Resource(Value),
     Transport(String),
+    /// The request belongs to the app, not the daemon: run this app action
+    /// (by id) on this target instead (a browser tab's page zoom).
+    AppAction {
+        action: &'static str,
+        target: String,
+    },
 }
 
 impl Failure {
     pub(super) fn report(self, output: OutputMode) -> i32 {
         match self {
+            Self::AppAction { action, .. } => {
+                eprintln!("cmux: {action} is an app action and this cmux cannot reach the app");
+                3
+            }
             Self::Resource(error) => print_operation_error(&error, output),
             Self::Transport(message) => {
                 eprintln!("{message}");
@@ -66,9 +76,97 @@ pub(super) fn apply(
                     params.insert(field.into(), Value::String(id));
                 }
             }
+            Resolve::TabZoom { step } => {
+                let tab = params.get("tab").cloned().unwrap_or(Value::Null);
+                let mut selector = route.clone();
+                selector.insert("tab".into(), tab);
+                let snapshot = read(reader, ResourceOperation::TabGet, selector)?;
+                if let Some(action) = tab_zoom_route(&snapshot, step)? {
+                    let tab = snapshot.get("id").and_then(Value::as_str).unwrap_or_default();
+                    let pane = snapshot.get("pane_id").and_then(Value::as_str).unwrap_or_default();
+                    let shown = shown_tab(reader, &route, pane)?;
+                    if shown.as_deref() != Some(tab) {
+                        return Err(zoom_error(
+                            "tab.not_shown",
+                            format!(
+                                "page zoom acts on the tab its pane shows, and pane {pane} shows \
+                                 another tab; run `cmux tab {tab} focus` first"
+                            ),
+                        ));
+                    }
+                    return Err(Failure::AppAction { action, target: format!("pane:{pane}") });
+                }
+            }
         }
     }
     Ok(())
+}
+
+/// `Some(app action)` when `tab` is a browser tab, whose page zoom the app
+/// that hosts the page owns; `None` for a terminal's font zoom, which the
+/// daemon's `tab.update` sets.
+fn tab_zoom_route(tab: &Value, step: ZoomStep) -> Result<Option<&'static str>, Failure> {
+    let browser = tab.get("content_kind").and_then(Value::as_str) == Some("browser");
+    match (browser, step) {
+        (false, ZoomStep::In | ZoomStep::Out) => Err(zoom_error(
+            "validation.invalid",
+            "zoom in|out applies to browser tabs; give a terminal tab a value: zoom <0.25..5>|reset"
+                .into(),
+        )),
+        (false, _) => Ok(None),
+        (true, ZoomStep::Value) => Err(zoom_error(
+            "validation.invalid",
+            "a browser tab's page zoom takes in, out or reset; the app has no action that sets an \
+             exact page zoom yet"
+                .into(),
+        )),
+        (true, ZoomStep::In) => Ok(Some("browserZoomIn")),
+        (true, ZoomStep::Out) => Ok(Some("browserZoomOut")),
+        (true, ZoomStep::Reset) => Ok(Some("browserZoomReset")),
+    }
+}
+
+fn zoom_error(code: &str, message: String) -> Failure {
+    Failure::Resource(json!({
+        "code": code,
+        "message": message,
+        "details": {},
+        "retryable": false,
+    }))
+}
+
+/// The tab `pane` shows: its leaf's `active_tab_id` in its screen's layout.
+fn shown_tab(
+    reader: &mut Reader,
+    route: &Map<String, Value>,
+    pane: &str,
+) -> Result<Option<String>, Failure> {
+    let mut selector = route.clone();
+    selector.insert("pane".into(), Value::String(pane.to_owned()));
+    let pane_snapshot = read(reader, ResourceOperation::PaneGet, selector)?;
+    let Some(screen) = pane_snapshot.get("screen_id").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let mut selector = route.clone();
+    selector.insert("screen".into(), Value::String(screen.to_owned()));
+    let screen = read(reader, ResourceOperation::ScreenGet, selector)?;
+    Ok(active_tab_of(&screen, pane))
+}
+
+/// Searches every layout object of a screen snapshot for the leaf of `pane`.
+fn active_tab_of(value: &Value, pane: &str) -> Option<String> {
+    match value {
+        Value::Object(object) => {
+            if object.get("pane_id").and_then(Value::as_str) == Some(pane)
+                && let Some(active) = object.get("active_tab_id").and_then(Value::as_str)
+            {
+                return Some(active.to_owned());
+            }
+            object.values().find_map(|value| active_tab_of(value, pane))
+        }
+        Value::Array(values) => values.iter().find_map(|value| active_tab_of(value, pane)),
+        _ => None,
+    }
 }
 
 fn route(params: &Map<String, Value>) -> Map<String, Value> {
@@ -138,7 +236,7 @@ fn state_id(field: &str, value: &str, records: &Value) -> Result<Option<String>,
 }
 
 /// One read on the connection; returns its result.
-fn read(
+pub(super) fn read(
     reader: &mut Reader,
     operation: ResourceOperation,
     params: Map<String, Value>,
@@ -214,6 +312,35 @@ mod tests {
         assert_eq!(error["code"], "selector.ambiguous");
         assert_eq!(error["details"]["candidates"], json!(["g1", "g2"]));
         assert!(error["message"].as_str().unwrap().contains("tab group"));
+    }
+
+    #[test]
+    fn browser_zoom_goes_to_the_app_and_terminal_zoom_to_the_daemon() {
+        let browser = json!({"id": "tab_1", "content_kind": "browser", "pane_id": "pane_1"});
+        let terminal = json!({"id": "tab_2", "content_kind": "terminal", "pane_id": "pane_1"});
+        let route = |tab: &Value, step| match tab_zoom_route(tab, step) {
+            Ok(action) => Ok(action),
+            Err(Failure::Resource(error)) => Err(error["code"].as_str().unwrap().to_owned()),
+            Err(_) => Err("other".into()),
+        };
+        assert_eq!(route(&browser, ZoomStep::In), Ok(Some("browserZoomIn")));
+        assert_eq!(route(&browser, ZoomStep::Out), Ok(Some("browserZoomOut")));
+        assert_eq!(route(&browser, ZoomStep::Reset), Ok(Some("browserZoomReset")));
+        assert_eq!(route(&browser, ZoomStep::Value), Err("validation.invalid".into()));
+        assert_eq!(route(&terminal, ZoomStep::Value), Ok(None));
+        assert_eq!(route(&terminal, ZoomStep::Reset), Ok(None));
+        assert_eq!(route(&terminal, ZoomStep::In), Err("validation.invalid".into()));
+    }
+
+    #[test]
+    fn the_shown_tab_is_read_from_the_pane_leaf_of_the_screen_layout() {
+        let screen = json!({"layout": {"root": {"columns": [{"root": {
+            "kind": "split",
+            "first": {"kind": "leaf", "pane_id": "pane_a", "active_tab_id": "tab_a"},
+            "second": {"kind": "leaf", "pane_id": "pane_b", "active_tab_id": "tab_b"},
+        }}]}}});
+        assert_eq!(active_tab_of(&screen, "pane_b").as_deref(), Some("tab_b"));
+        assert_eq!(active_tab_of(&screen, "pane_c"), None);
     }
 
     #[test]

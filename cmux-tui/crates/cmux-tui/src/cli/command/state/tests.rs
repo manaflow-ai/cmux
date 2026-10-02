@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use super::super::{CommandPlan, RequestPlan, Resolve, Selectors, parse};
+use super::super::{CommandPlan, RequestPlan, Resolve, Selectors, ZoomStep, parse};
 use super::status_target;
 use crate::cli::Surface;
 use cmux_tui_core::resource::ResourceOperation as Op;
@@ -179,6 +179,9 @@ fn status_without_a_selector_targets_the_caller_then_current() {
 fn tab_pin_zoom_and_update() {
     assert_eq!(sent(&["tab", TAB, "pin"]), ("tab.pin".into(), json!({"tab": TAB})));
     assert_eq!(sent(&["tab", TAB, "unpin"]), ("tab.unpin".into(), json!({"tab": TAB})));
+    // Every zoom first reads the tab: a browser tab's page zoom is the app's.
+    let zoom = plan(&["tab", TAB, "zoom", "1.5"]);
+    assert_eq!(zoom.resolve, vec![Resolve::TabZoom { step: ZoomStep::Value }]);
     assert_eq!(
         sent(&["tab", TAB, "zoom", "1.5"]),
         ("tab.update".into(), json!({"tab": TAB, "zoom": 1.5}))
@@ -187,25 +190,21 @@ fn tab_pin_zoom_and_update() {
         sent(&["tab", TAB, "zoom", "reset"]),
         ("tab.update".into(), json!({"tab": TAB, "zoom": null}))
     );
+    assert_eq!(
+        plan(&["tab", TAB, "zoom", "in"]).resolve,
+        vec![Resolve::TabZoom { step: ZoomStep::In }]
+    );
+    assert_eq!(
+        plan(&["tab", TAB, "update", "--clear-zoom"]).resolve,
+        vec![Resolve::TabZoom { step: ZoomStep::Reset }]
+    );
     // The shorthand fills `current`.
     assert_eq!(sent(&["tab", "pin"]).1["tab"], "current");
-    assert_eq!(
-        sent(&[
-            "tab",
-            TAB,
-            "update",
-            "--back",
-            "https://a.example,https://b.example",
-            "--forward",
-            ""
-        ]),
-        (
-            "tab.update".into(),
-            json!({"tab": TAB, "back": ["https://a.example", "https://b.example"], "forward": []})
-        )
-    );
+    // The CLI never writes a browser tab's history.
+    let _ = rejects(&["tab", TAB, "update", "--back", "https://a.example"]);
+    assert!(rejects(&["tab", TAB, "update", "--zoom", "1", "--back", "x"]).contains("--back"));
     assert!(rejects(&["tab", TAB, "zoom", "9"]).contains("0.25"));
-    assert!(rejects(&["tab", TAB, "update"]).contains("change flag"));
+    assert!(rejects(&["tab", TAB, "update"]).contains("--zoom"));
 }
 
 #[test]

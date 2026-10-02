@@ -527,7 +527,7 @@ fn busy_retry_delay(error: &Value) -> Duration {
         .min(MAX_BUSY_RETRY_DELAY)
 }
 
-fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
+pub(super) fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
     let messages = &crate::localization::catalog().app_control;
     if let Some(path) = &global.app_socket {
         return Ok(path.clone());
@@ -539,7 +539,7 @@ fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
     Ok(identity.control_socket(&home))
 }
 
-fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
+pub(super) fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
     let messages = &crate::localization::catalog().app_control;
     UnixStream::connect(socket).map_err(|error| {
         messages
@@ -561,7 +561,7 @@ fn with_read_barrier(mut params: Value) -> Value {
     params
 }
 
-fn request(
+pub(super) fn request(
     stream: &mut UnixStream,
     method: &str,
     params: Value,
@@ -645,7 +645,7 @@ fn stream_events(stream: &mut UnixStream, params: Value, output: OutputMode) -> 
     0
 }
 
-fn failure(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
+pub(super) fn failure(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
     super::wire::print_local_error(
         &json!({ "code": code, "message": message, "details": {}, "retryable": false }),
         output,

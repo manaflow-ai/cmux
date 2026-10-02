@@ -93,9 +93,11 @@ Some have UI actions that act on the focused browser and return no data:
 `cmux browser screenshot-page`, `browser screenshot-section`,
 `browser toggle-developer-tools`, `browser show-javascript-console`,
 `browser delete-site-data`, `browser import-data`, `browser new-profile`,
-`browser zoom-in`, `browser zoom-out`, `browser toggle-design-mode`,
-`browser toggle-focus-mode`, `browser toggle-react-grab`. List them with
-`cmux action list --noun browser`.
+`browser toggle-design-mode`, `browser toggle-focus-mode`,
+`browser toggle-react-grab`. List them with `cmux action list --noun browser`.
+Page zoom of an app browser tab is `cmux tab <tab_…> zoom in|out|reset`, which
+runs the app's zoom action on the tab's pane (the tab must be the one its pane
+shows); the CLI never writes the browser tab record.
 
 ## Troubleshooting
 

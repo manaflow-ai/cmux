@@ -1236,6 +1236,32 @@ pub(crate) struct AppControlMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct CodeRouterMessages {
+    pub usage: &'static str,
+    pub unknown_claude_verb: &'static str,
+    pub add_kind_required: &'static str,
+    pub add_kind_unsupported: &'static str,
+    pub secret_in_argv: &'static str,
+    pub bedrock_model: &'static str,
+    pub bedrock_only: &'static str,
+    pub bedrock_region: &'static str,
+    pub bedrock_keys: &'static str,
+    pub no_secret: &'static str,
+    pub hidden_prompt: &'static str,
+    pub oauth_label: &'static str,
+    pub api_key_label: &'static str,
+    pub not_oauth_token: &'static str,
+    pub not_api_key: &'static str,
+    pub account_required: &'static str,
+    pub account_not_found: &'static str,
+    pub account_ambiguous: &'static str,
+    pub unexpected_argument: &'static str,
+    pub no_bundle: &'static str,
+    pub missing_binary: &'static str,
+    pub exec_failed: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
     pub startup: StartupMessages,
@@ -1260,6 +1286,7 @@ pub(crate) struct Catalog {
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
     pub app_control: AppControlMessages,
+    pub coderouter: CodeRouterMessages,
 }
 
 impl Catalog {
@@ -1271,6 +1298,30 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    coderouter: CodeRouterMessages {
+        usage: "usage: cmux coderouter <status|machines|claude> [--team ID] [--json]\n\nThe cmux app manages the team's CodeRouter model plane. Any other verb, and\nevery `cmux cr ...`, runs the CodeRouter CLI bundled in the app unchanged.\n\n  cmux coderouter status [--team ID]\n      Sign-in state, team, and the team's Claude upstream accounts.\n  cmux coderouter machines [--team ID]\n      30-day CodeRouter usage per Cloud machine.\n  cmux coderouter claude list [--team ID]\n      The team's Claude upstream accounts; secrets are never printed.\n  cmux coderouter claude add oauth-token|api-key [--label L] [--stdin] [--team ID]\n      Add a Claude Code OAuth token (CLAUDE_CODE_OAUTH_TOKEN) or an Anthropic\n      API key (ANTHROPIC_API_KEY), from that variable, --stdin, or a hidden\n      prompt. Never pass a secret as an argument.\n  cmux coderouter claude add bedrock [--label L] [--region R] [--model CLAUDE=BEDROCK]...\n      Add Amazon Bedrock credentials from AWS_ACCESS_KEY_ID,\n      AWS_SECRET_ACCESS_KEY and AWS_SESSION_TOKEN.\n  cmux coderouter claude remove|disable|enable ACCOUNT [--team ID]\n      ACCOUNT is the id, label, or masked identifier.\n  cmux coderouter claude clear [--team ID]\n      Remove every Claude upstream account of the team.\n",
+        unknown_claude_verb: "unknown coderouter claude verb \"{verb}\"; use list, add, remove, disable, enable, or clear",
+        add_kind_required: "coderouter claude add needs a credential kind: oauth-token, api-key, or bedrock",
+        add_kind_unsupported: "coderouter claude add: unsupported credential kind \"{kind}\"; use oauth-token, api-key, or bedrock",
+        secret_in_argv: "never pass a secret as an argument: set its environment variable, pipe it with --stdin, or type it at the hidden prompt",
+        bedrock_model: "--model needs CLAUDE_MODEL=BEDROCK_MODEL, not \"{value}\"",
+        bedrock_only: "--region and --model apply only to bedrock",
+        bedrock_region: "coderouter claude add bedrock needs --region or AWS_REGION / AWS_DEFAULT_REGION",
+        bedrock_keys: "coderouter claude add bedrock reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from the environment; export both, then retry",
+        no_secret: "no {label}: set {env}, pipe it with --stdin, or type it at the prompt",
+        hidden_prompt: "{label} (input hidden): ",
+        oauth_label: "Claude Code OAuth token",
+        api_key_label: "Anthropic API key",
+        not_oauth_token: "that is not a Claude Code OAuth token (expected sk-ant-oat01-...); for an Anthropic API key use `cmux coderouter claude add api-key`",
+        not_api_key: "that is not an Anthropic API key (expected sk-ant-...); for a Claude Code OAuth token use `cmux coderouter claude add oauth-token`",
+        account_required: "{command} needs an account id, label, or identifier; run `cmux coderouter claude list`",
+        account_not_found: "no Claude upstream account matches \"{account}\"; run `cmux coderouter claude list` and use its id",
+        account_ambiguous: "\"{account}\" matches {count} Claude upstream accounts; use the id from `cmux coderouter claude list`",
+        unexpected_argument: "{command}: unexpected argument \"{value}\"",
+        no_bundle: "this cmux is not inside a cmux app, so it has no bundled CodeRouter CLI; use the cmux in the app (Contents/Resources/bin/cmux)",
+        missing_binary: "the bundled CodeRouter CLI is missing at {path}",
+        exec_failed: "cannot run {path}: {error}",
+    },
     app_control: AppControlMessages {
         action_describe_usage: "usage: cmux action describe <action id or CLI name>",
         action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]",
@@ -1323,7 +1374,7 @@ static ENGLISH: Catalog = Catalog {
         root_server_usage: "  cmux server <start|ensure|status|stats|stop|reload-config> [OPTIONS]",
         root_server_scope: "  server        Manage one named local durable session owner",
         root_acp_scope: "  acp           Agent sessions (acpmux); `cmux acp --help`",
-        cmux_root_help: "cmux - terminal multiplexer and cmux app control\n\nUSAGE\n  cmux                          Open the TUI (attach to or start the session)\n  cmux attach [START OPTIONS]\n  cmux [GLOBAL OPTIONS] <scope> <action>\n\nGLOBAL OPTIONS\n  --socket <path>           Connect to an exact local session socket\n  --session <name>          Route through a named local session\n  --app-socket <path>       Connect to an exact app control socket\n  --idempotency-key <key>   Retry a failed change with the key it printed\n  --json                    Print one JSON result\n  --jsonl                   Print one JSON value per result or event\n  --quiet                   Suppress successful output\n  -h, --help                Show command help\n\nSCOPES\n  workspace     Create and organize workspaces\n  screen        Create and organize screens\n  pane          Split, focus, and organize panes\n  tab           Create and organize terminal or browser tabs\n  terminal      Read, write, and attach to terminals\n  browser       Navigate browsers and drive app browser pages\n  notification  List and create notifications\n  agent         List and report agent state; install agent hooks\n  room          Organize workspaces into rooms\n  closed        List and reopen closed tabs, screens, workspaces\n  acp           Agent sessions (acpmux); `cmux acp --help`\n  window        List the app's windows\n  settings      Read and change cmux.json settings\n  events        Stream app events as JSON lines\n  history       List and search the app's history\n  bookmark      List and search browser bookmarks\n  app           ping, identify, capabilities, and app actions\n  action        List, describe, and run app actions\n  server        Start, inspect, and stop the local session owner\n\nApp actions marked for the CLI also run by their CLI name (`cmux action list`\nshows them). An action waits until its work is done; --no-wait returns when\nthe app accepts it.\n\nRun `cmux <scope> --help` for scope-specific paths, `cmux help start` for\nstart options and `cmux help shorthands` for tmux-style shorthands.\n",
+        cmux_root_help: "cmux - terminal multiplexer and cmux app control\n\nUSAGE\n  cmux                          Open the TUI (attach to or start the session)\n  cmux attach [START OPTIONS]\n  cmux [GLOBAL OPTIONS] <scope> <action>\n\nGLOBAL OPTIONS\n  --socket <path>           Connect to an exact local session socket\n  --session <name>          Route through a named local session\n  --all-sessions            Run a list on every local session (records gain `session`)\n  <session>:<id>            An id on another local session (`build:ws_…`) routes there\n  --app-socket <path>       Connect to an exact app control socket\n  --idempotency-key <key>   Retry a failed change with the key it printed\n  --json                    Print one JSON result\n  --jsonl                   Print one JSON value per result or event\n  --quiet                   Suppress successful output\n  -h, --help                Show command help\n\nSCOPES\n  workspace     Create and organize workspaces\n  screen        Create and organize screens\n  pane          Split, focus, and organize panes\n  tab           Create and organize terminal or browser tabs\n  terminal      Read, write, and attach to terminals\n  browser       Navigate browsers and drive app browser pages\n  notification  List and create notifications\n  agent         List and report agent state; install agent hooks\n  room          Organize workspaces into rooms\n  closed        List and reopen closed tabs, screens, workspaces\n  acp           Agent sessions (acpmux); `cmux acp --help`\n  coderouter    CodeRouter team accounts; `cr` and other verbs run the bundled CodeRouter CLI\n  window        List the app's windows\n  settings      Read and change cmux.json settings\n  events        Stream app events as JSON lines\n  history       List and search the app's history\n  bookmark      List and search browser bookmarks\n  app           ping, identify, capabilities, and app actions\n  action        List, describe, and run app actions\n  server        Start, inspect, and stop the local session owner\n\nApp actions marked for the CLI also run by their CLI name (`cmux action list`\nshows them). An action waits until its work is done; --no-wait returns when\nthe app accepts it.\n\nRun `cmux <scope> --help` for scope-specific paths, `cmux help start` for\nstart options and `cmux help shorthands` for tmux-style shorthands.\n",
         scope_not_in_cmux: "\"{scope}\" is not part of cmux; run `cmux --help` for its scopes",
         mutation_key_note: "idempotency key: {key}\nThe change may still apply. To retry it safely, run the same command with --idempotency-key {key}.",
         session_stop_help: "  cmux session <name>|current stop",
@@ -2021,6 +2072,30 @@ socket.
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    coderouter: CodeRouterMessages {
+        usage: "使い方: cmux coderouter <status|machines|claude> [--team ID] [--json]\n\ncmux アプリがチームの CodeRouter モデルプレーンを管理します。その他の動詞と\n`cmux cr ...` はすべて、アプリ同梱の CodeRouter CLI をそのまま実行します。\n\n  cmux coderouter status [--team ID]\n      サインイン状態、チーム、チームの Claude アップストリームアカウント。\n  cmux coderouter machines [--team ID]\n      Cloud マシンごとの 30 日間の CodeRouter 使用量。\n  cmux coderouter claude list [--team ID]\n      チームの Claude アップストリームアカウント。シークレットは表示しません。\n  cmux coderouter claude add oauth-token|api-key [--label L] [--stdin] [--team ID]\n      Claude Code OAuth トークン (CLAUDE_CODE_OAUTH_TOKEN) または Anthropic API\n      キー (ANTHROPIC_API_KEY) を、その変数、--stdin、または非表示の入力から追加。\n      シークレットを引数で渡さないでください。\n  cmux coderouter claude add bedrock [--label L] [--region R] [--model CLAUDE=BEDROCK]...\n      AWS_ACCESS_KEY_ID、AWS_SECRET_ACCESS_KEY、AWS_SESSION_TOKEN から\n      Amazon Bedrock の認証情報を追加。\n  cmux coderouter claude remove|disable|enable アカウント [--team ID]\n      アカウントは ID、ラベル、またはマスクされた識別子。\n  cmux coderouter claude clear [--team ID]\n      チームの Claude アップストリームアカウントをすべて削除。\n",
+        unknown_claude_verb: "coderouter claude の動詞「{verb}」は不明です。list、add、remove、disable、enable、clear のいずれかを使ってください",
+        add_kind_required: "coderouter claude add には認証情報の種類 (oauth-token、api-key、bedrock) が必要です",
+        add_kind_unsupported: "coderouter claude add: 認証情報の種類「{kind}」には対応していません。oauth-token、api-key、bedrock のいずれかを使ってください",
+        secret_in_argv: "シークレットを引数で渡さないでください。環境変数に設定するか、--stdin で渡すか、非表示の入力で入力してください",
+        bedrock_model: "--model には CLAUDE モデル=BEDROCK モデル が必要です (「{value}」は不正)",
+        bedrock_only: "--region と --model は bedrock でのみ使えます",
+        bedrock_region: "coderouter claude add bedrock には --region または AWS_REGION / AWS_DEFAULT_REGION が必要です",
+        bedrock_keys: "coderouter claude add bedrock は環境変数 AWS_ACCESS_KEY_ID と AWS_SECRET_ACCESS_KEY を読み取ります。両方を設定してから再試行してください",
+        no_secret: "{label}がありません: {env} を設定するか、--stdin で渡すか、入力欄で入力してください",
+        hidden_prompt: "{label} (入力は表示されません): ",
+        oauth_label: "Claude Code OAuth トークン",
+        api_key_label: "Anthropic API キー",
+        not_oauth_token: "Claude Code OAuth トークンではありません (sk-ant-oat01-... が必要)。Anthropic API キーには `cmux coderouter claude add api-key` を使ってください",
+        not_api_key: "Anthropic API キーではありません (sk-ant-... が必要)。Claude Code OAuth トークンには `cmux coderouter claude add oauth-token` を使ってください",
+        account_required: "{command} にはアカウントの ID、ラベル、または識別子が必要です。`cmux coderouter claude list` で確認してください",
+        account_not_found: "「{account}」に一致する Claude アップストリームアカウントはありません。`cmux coderouter claude list` で ID を確認してください",
+        account_ambiguous: "「{account}」は {count} 個の Claude アップストリームアカウントに一致します。`cmux coderouter claude list` の ID を使ってください",
+        unexpected_argument: "{command}: 予期しない引数「{value}」",
+        no_bundle: "この cmux は cmux アプリ内にないため、同梱の CodeRouter CLI がありません。アプリ内の cmux (Contents/Resources/bin/cmux) を使ってください",
+        missing_binary: "同梱の CodeRouter CLI が {path} にありません",
+        exec_failed: "{path} を実行できません: {error}",
+    },
     app_control: AppControlMessages {
         action_describe_usage: "使い方: cmux action describe <アクション ID または CLI 名>",
         action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]",
@@ -2073,7 +2148,7 @@ static JAPANESE: Catalog = Catalog {
         root_server_usage: "  cmux server <start|ensure|status|stats|stop|reload-config> [オプション]",
         root_server_scope: "  server        一つの名前付きローカル永続セッション所有者を管理",
         root_acp_scope: "  acp           エージェントセッション (acpmux)。`cmux acp --help`",
-        cmux_root_help: "cmux - ターミナルマルチプレクサと cmux アプリの操作\n\n使い方\n  cmux                          TUI を開く (セッションに接続、なければ開始)\n  cmux attach [開始オプション]\n  cmux [グローバルオプション] <スコープ> <アクション>\n\nグローバルオプション\n  --socket <パス>           指定したローカルセッションソケットに接続\n  --session <名前>          名前付きローカルセッションを経由\n  --app-socket <パス>       指定したアプリ制御ソケットに接続\n  --idempotency-key <キー>  失敗した変更を、表示されたキーで再試行\n  --json                    JSON の結果を一つ出力\n  --jsonl                   結果またはイベントごとに JSON 値を一つ出力\n  --quiet                   成功時の出力を省略\n  -h, --help                コマンドのヘルプを表示\n\nスコープ\n  workspace     ワークスペースの作成と整理\n  screen        スクリーンの作成と整理\n  pane          ペインの分割、フォーカス、整理\n  tab           ターミナルタブやブラウザタブの作成と整理\n  terminal      ターミナルの読み取り、書き込み、接続\n  browser       ブラウザの移動とアプリのブラウザページの操作\n  notification  通知の一覧と作成\n  agent         エージェント状態の一覧と報告、エージェントフックの導入\n  room          ワークスペースをルームに整理\n  closed        閉じたタブ、スクリーン、ワークスペースの一覧と再オープン\n  acp           エージェントセッション (acpmux)。`cmux acp --help`\n  window        アプリのウィンドウ一覧\n  settings      cmux.json の設定の読み取りと変更\n  events        アプリのイベントを JSON 行で表示\n  history       アプリの履歴の一覧と検索\n  bookmark      ブラウザのブックマークの一覧と検索\n  app           ping、identify、capabilities とアプリのアクション\n  action        アプリのアクションの一覧、説明、実行\n  server        ローカルセッション所有者の開始、確認、停止\n\nCLI 向けのアプリのアクションは CLI 名でも実行できます (`cmux action list` で表示)。\nアクションは処理の完了を待ちます。--no-wait を付けると、アプリが受け付けた時点で戻ります。\n\nスコープごとの使い方は `cmux <スコープ> --help`、開始オプションは `cmux help start`、\ntmux 風の短縮形は `cmux help shorthands` で表示します。\n",
+        cmux_root_help: "cmux - ターミナルマルチプレクサと cmux アプリの操作\n\n使い方\n  cmux                          TUI を開く (セッションに接続、なければ開始)\n  cmux attach [開始オプション]\n  cmux [グローバルオプション] <スコープ> <アクション>\n\nグローバルオプション\n  --socket <パス>           指定したローカルセッションソケットに接続\n  --session <名前>          名前付きローカルセッションを経由\n  --all-sessions            一覧をすべてのローカルセッションで実行 (各レコードに `session` を追加)\n  <セッション>:<ID>         別のローカルセッションの ID (`build:ws_…`) はそのセッションへ送る\n  --app-socket <パス>       指定したアプリ制御ソケットに接続\n  --idempotency-key <キー>  失敗した変更を、表示されたキーで再試行\n  --json                    JSON の結果を一つ出力\n  --jsonl                   結果またはイベントごとに JSON 値を一つ出力\n  --quiet                   成功時の出力を省略\n  -h, --help                コマンドのヘルプを表示\n\nスコープ\n  workspace     ワークスペースの作成と整理\n  screen        スクリーンの作成と整理\n  pane          ペインの分割、フォーカス、整理\n  tab           ターミナルタブやブラウザタブの作成と整理\n  terminal      ターミナルの読み取り、書き込み、接続\n  browser       ブラウザの移動とアプリのブラウザページの操作\n  notification  通知の一覧と作成\n  agent         エージェント状態の一覧と報告、エージェントフックの導入\n  room          ワークスペースをルームに整理\n  closed        閉じたタブ、スクリーン、ワークスペースの一覧と再オープン\n  acp           エージェントセッション (acpmux)。`cmux acp --help`\n  coderouter    CodeRouter のチームアカウント。`cr` とその他の動詞は同梱の CodeRouter CLI を実行\n  window        アプリのウィンドウ一覧\n  settings      cmux.json の設定の読み取りと変更\n  events        アプリのイベントを JSON 行で表示\n  history       アプリの履歴の一覧と検索\n  bookmark      ブラウザのブックマークの一覧と検索\n  app           ping、identify、capabilities とアプリのアクション\n  action        アプリのアクションの一覧、説明、実行\n  server        ローカルセッション所有者の開始、確認、停止\n\nCLI 向けのアプリのアクションは CLI 名でも実行できます (`cmux action list` で表示)。\nアクションは処理の完了を待ちます。--no-wait を付けると、アプリが受け付けた時点で戻ります。\n\nスコープごとの使い方は `cmux <スコープ> --help`、開始オプションは `cmux help start`、\ntmux 風の短縮形は `cmux help shorthands` で表示します。\n",
         scope_not_in_cmux: "\"{scope}\" は cmux のスコープではありません。`cmux --help` でスコープを確認してください",
         mutation_key_note: "冪等キー: {key}\n変更はまだ適用される可能性があります。安全に再試行するには、同じコマンドに --idempotency-key {key} を付けて実行してください。",
         session_stop_help: "  cmux session <名前>|current stop",
