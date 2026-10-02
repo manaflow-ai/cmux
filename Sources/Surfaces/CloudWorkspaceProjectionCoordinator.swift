@@ -109,6 +109,7 @@ final class CloudWorkspaceProjectionCoordinator {
             && catalog.cloudPlacementCoordinator.allowsNativeReconciliation(state)
     }
 
+    /// Reconciles every local workspace bound to the current Cloud graph.
     private func reconcile(state: CloudVMState, catalog: SurfaceCatalog) async {
         let machine = state.machine
         for (workspaceID, binding) in environment.bindings() where binding.vmID == machine.rawValue {

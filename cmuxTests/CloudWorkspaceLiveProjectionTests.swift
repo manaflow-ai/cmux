@@ -14,6 +14,7 @@ import WebKit
 struct CloudWorkspaceLiveProjectionTests {
     private let machine = SurfaceMachineID.cloud("live-fixture")
 
+    /// Keeps a second local binding convergent when a preview has no membership view.
     @Test("A missing preview membership does not wedge Cloud reconciliation")
     func missingPreviewMembershipIsSkipped() async throws {
         let display = SurfaceResourcePlacement(
