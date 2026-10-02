@@ -45,6 +45,16 @@ enum AgentMessageCenter {
 
     private static let settingsObserver = AgentMessageEnabledObserver()
 
+    /// Opens the store (journal replay, the launch sweep, maybe a compaction)
+    /// on a background queue at launch, so the first command palette open or
+    /// inbox read on main finds it ready. `static let` initialization runs
+    /// once; a main-thread caller that races it waits for the same load.
+    static func warmStoreOffMain() {
+        DispatchQueue.global(qos: .utility).async {
+            _ = store
+        }
+    }
+
     /// The app-wide switch, `agentMessages.enabled` in cmux.json and
     /// Settings > Automation > Agent Messages.
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
@@ -53,14 +63,31 @@ enum AgentMessageCenter {
 
     /// Turns messages for one surface or workspace off or on. Turning them
     /// off fails what was queued for it. The single entry point for the
-    /// socket method, the CLI and the command palette.
+    /// socket method, the CLI and the command palette. Pass
+    /// ``openRecipientsIfAtCapacity()`` so a full store drops an opt-out for
+    /// something already closed rather than one still open.
     @discardableResult
     static func setReceivingEnabled(
         _ enabled: Bool,
         scope: AgentMessageRecipientScope,
-        id: UUID
+        id: UUID,
+        openRecipients: AgentMessageOpenRecipients? = nil
     ) throws -> [AgentMessage] {
-        try store.setReceivingEnabled(enabled, scope: scope, id: id.uuidString)
+        try store.setReceivingEnabled(enabled, scope: scope, id: id.uuidString, openRecipients: openRecipients)
+    }
+
+    /// Every open surface and workspace, gathered only when the opt-out store
+    /// is full; `nil` otherwise, which is almost always.
+    @MainActor
+    static func openRecipientsIfAtCapacity() -> AgentMessageOpenRecipients? {
+        guard store.isAtOptOutCapacity, let app = AppDelegate.shared else { return nil }
+        let workspaces = app.listMainWindowSummaries()
+            .compactMap { app.tabManagerFor(windowId: $0.windowId) }
+            .flatMap(\.tabs)
+        return AgentMessageOpenRecipients(
+            surfaceIds: Set(workspaces.flatMap { $0.panels.keys.map(\.uuidString) }),
+            workspaceIds: Set(workspaces.map(\.id.uuidString))
+        )
     }
 
     /// True when the surface or workspace turned messages off.

@@ -69,8 +69,16 @@ extension TerminalController {
 
         var failed: [AgentMessage] = []
         if let enabled = params["enabled"] as? Bool {
+            var open: AgentMessageOpenRecipients?
+            if !enabled, AgentMessageCenter.store.isAtOptOutCapacity {
+                do {
+                    open = try await v2MainAsync { AgentMessageCenter.openRecipientsIfAtCapacity() }
+                } catch {
+                    return Self.agentMessageMainHopFailure(error)
+                }
+            }
             do {
-                failed = try AgentMessageCenter.setReceivingEnabled(enabled, scope: resolved.scope, id: resolved.id)
+                failed = try AgentMessageCenter.setReceivingEnabled(enabled, scope: resolved.scope, id: resolved.id, openRecipients: open)
             } catch let error as AgentMessagePersistenceError {
                 return .err(
                     code: "storage_failed",

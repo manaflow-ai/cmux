@@ -16,7 +16,7 @@ The target can be a workspace or surface id or ref, or a workspace title (exact 
 
 ## Delivery
 
-Each message moves through three states: `queued`, then `delivered`, then `read`. A queued message whose recipient turns messages off moves to `failed` instead (see [Turning messages off](#turning-messages-off)).
+A message is in one of four states. It starts `queued`, then becomes `delivered`, then `read`. A queued message whose recipient turns messages off moves to `failed` instead (see [Turning messages off](#turning-messages-off)).
 
 | Agent | How a message arrives |
 | --- | --- |
@@ -46,14 +46,14 @@ The terminal's chat view (Open terminal as chat) shows each delivered message as
 Messages can be turned off for all of cmux, for one agent, or for one workspace.
 
 - **Everywhere:** set `agentMessages.enabled` to `false` in `~/.config/cmux/cmux.json`, or turn off **Settings > Automation > Agent Messages**. `cmux agent message` then fails with "Agent messages are turned off (agentMessages.enabled is false)." and nothing is stored.
-- **One agent:** `cmux agent messages off` inside the agent's surface, or `cmux agent messages off <target>` from anywhere (the target resolves the same way as for `cmux agent message`). The command palette has **Turn Off Agent Messages for This Tab** for the focused terminal. Sending to it fails with "Recipient <name> has messages disabled."
+- **One agent:** `cmux agent messages off` inside the agent's surface, or `cmux agent messages off <target>` from anywhere (the target resolves the same way as for `cmux agent message`). A workspace target turns off the one agent surface it resolves to now; that surface stays off if a different surface later becomes the workspace's agent. Use `--workspace` to cover the whole workspace. The command palette has **Turn Off Agent Messages for This Tab** for the focused terminal. Sending to it fails with "Recipient <name> has messages disabled."
 - **One workspace:** `cmux agent messages off --workspace [<target>]` covers every surface in the workspace.
 
 `cmux agent messages on ...` turns them back on, and `cmux agent messages [status] [<target>]` shows the current setting.
 
-When messages are turned off, anything already queued for the affected recipients moves to `failed` with a `failure_reason` of `messages_disabled`, `recipient_disabled` or `workspace_disabled`, and is never delivered, even if messages are turned back on. Agents stop receiving at once: their hooks see no queued messages. A refused send stores nothing; `agent.message.send` answers with the error code `messages_disabled`, `recipient_disabled` or `workspace_disabled`.
+When messages are turned off, anything already queued for the affected recipients moves to `failed` with a `failure_reason` of `messages_disabled`, `recipient_disabled` or `workspace_disabled`, and is never delivered, even if messages are turned back on. Delivery checks the setting for each message in the same step that hands it over, so a message handed over after the switch turns off fails instead. A message a wake hook has already shown to its agent is recorded as `delivered` when the hook acknowledges it, even if the switch turned off in between, because the agent has seen it. A refused send stores nothing; `agent.message.send` answers with the error code `messages_disabled`, `recipient_disabled` or `workspace_disabled`.
 
-Per-agent and per-workspace settings are kept with the messages, so they survive a restart. cmux keeps the newest 1,000 of them; past that the oldest is dropped.
+Per-agent and per-workspace settings are kept with the messages, so they survive a restart. cmux keeps 1,000 of them. Past that it drops the oldest setting for a surface or workspace that is no longer open, or the oldest overall if every one is still open, which turns messages back on for it. Each drop is logged.
 
 ## Limits
 

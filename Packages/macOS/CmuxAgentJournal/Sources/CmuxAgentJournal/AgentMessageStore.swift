@@ -123,6 +123,9 @@ public final class AgentMessageStore: @unchecked Sendable {
     var disabledSurfaceIds: Set<String> = []
     var disabledWorkspaceIds: Set<String> = []
     var optOutOrder: [AgentMessageOptOut] = []
+    /// Runs just before a delivery takes the lock, so tests can turn a switch
+    /// off at the last moment.
+    var beforeDeliveryLockForTesting: (@Sendable () -> Void)?
 
     /// Opens the store at `fileURL`, or an in-memory store when `nil`.
     /// `isEnabled` is the app-wide switch; while it returns false nothing is
@@ -197,20 +200,21 @@ public final class AgentMessageStore: @unchecked Sendable {
     }
 
     /// Marks every queued message for the recipient delivered and returns
-    /// them, oldest first.
+    /// them, oldest first. A message whose recipient is blocked fails
+    /// instead, decided under the same lock that delivers it.
     @discardableResult
     public func claimQueued(recipientSurfaceId: String, via: String) -> [AgentMessage] {
-        failBlockedQueued(recipientSurfaceId: recipientSurfaceId)
-        let claimed = advance(
+        beforeDeliveryLockForTesting?()
+        return advance(
             where: {
                 $0.recipientSurfaceId == recipientSurfaceId
                     && $0.state == .queued
                     && !isDeferredMessageReserved($0.id)
             },
             to: .delivered,
-            via: via
+            via: via,
+            failingBlocked: true
         )
-        return claimed
     }
 
     /// Acknowledges a wake hook after it has written its rendered messages to
@@ -322,13 +326,16 @@ public final class AgentMessageStore: @unchecked Sendable {
     /// still owns it. A superseded poller gets `nil` so it cannot wake the same
     /// surface after a newer hook has taken over. Reservations keep a
     /// concurrent prompt hook from claiming the same messages after this wake
-    /// has rendered them.
+    /// has rendered them. A message whose recipient is blocked fails instead
+    /// of joining the lease, decided under the lock that builds the lease.
     public func deferredMessages(
         recipientSurfaceId: String,
         pollerKey: String,
         limit: Int = 100
     ) -> AgentMessageDeferredLease? {
-        failBlockedQueued(recipientSurfaceId: recipientSurfaceId)
+        beforeDeliveryLockForTesting?()
+        var failed: [AgentMessage] = []
+        defer { publish(failed, as: .failed) }
         lock.lock()
         defer { lock.unlock() }
         pruneExpiredDeferredLeases()
@@ -341,6 +348,10 @@ public final class AgentMessageStore: @unchecked Sendable {
                   message.recipientSurfaceId == recipientSurfaceId,
                   message.state == .queued,
                   !reserved.contains(id) else { continue }
+            if let block = blockLocked(recipientSurfaceId: message.recipientSurfaceId, recipientWorkspaceId: message.recipientWorkspaceId) {
+                failed.append(failLocked(id: id, block: block, at: now()))
+                continue
+            }
             result.append(message)
         }
         guard !result.isEmpty else {
@@ -389,9 +400,11 @@ public final class AgentMessageStore: @unchecked Sendable {
         where matches: (AgentMessage) -> Bool,
         to state: AgentMessageDeliveryState,
         via: String?,
-        allowDeferredLease: Bool = false
+        allowDeferredLease: Bool = false,
+        failingBlocked: Bool = false
     ) -> [AgentMessage] {
         var changed: [AgentMessage] = []
+        var failed: [AgentMessage] = []
         lock.lock()
         pruneExpiredDeferredLeases()
         let at = now()
@@ -400,6 +413,13 @@ public final class AgentMessageStore: @unchecked Sendable {
                   matches(message),
                   (allowDeferredLease || !isDeferredMessageReserved(id)),
                   message.state.canAdvance(to: state) else { continue }
+            if failingBlocked, let block = blockLocked(
+                recipientSurfaceId: message.recipientSurfaceId,
+                recipientWorkspaceId: message.recipientWorkspaceId
+            ) {
+                failed.append(failLocked(id: id, block: block, at: at))
+                continue
+            }
             Self.apply(state: state, at: at, via: via, reason: nil, to: &message)
             messagesById[id] = message
             // State records are best effort: if one is lost, a restart
@@ -416,10 +436,15 @@ public final class AgentMessageStore: @unchecked Sendable {
             compact(to: fileURL)
         }
         lock.unlock()
-        for message in changed {
+        publish(failed, as: .failed)
+        publish(changed, as: state)
+        return changed
+    }
+
+    func publish(_ messages: [AgentMessage], as state: AgentMessageDeliveryState) {
+        for message in messages {
             onChange?(AgentMessageStoreChange(message: message, state: state))
         }
-        return changed
     }
 
     static func apply(

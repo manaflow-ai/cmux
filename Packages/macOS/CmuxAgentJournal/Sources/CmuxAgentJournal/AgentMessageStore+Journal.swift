@@ -70,9 +70,10 @@ extension AgentMessageStore {
                 messagesById[id] = message
             case .recipient:
                 guard let id = record.id, let scope = record.scope, let enabled = record.enabled else { continue }
-                applyRecipientSetting(enabled: enabled, scope: scope, id: id)
+                applyRecipientSetting(enabled: enabled, scope: scope, id: id, capping: false)
             }
         }
+        trimOptOuts()
         if order.count > Self.compactionThreshold {
             compact(to: fileURL)
         }

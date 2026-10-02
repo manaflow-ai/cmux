@@ -17,6 +17,10 @@ extension CMUXCLI {
         surface it runs in. --workspace applies to every surface in the
         workspace instead.
 
+        Without --workspace, a workspace target means the one agent surface it
+        resolves to now. That surface stays off even if a different surface
+        becomes the workspace's agent later.
+
         To turn agent messages off everywhere, set agentMessages.enabled to
         false in ~/.config/cmux/cmux.json or turn off Settings > Automation >
         Agent Messages.

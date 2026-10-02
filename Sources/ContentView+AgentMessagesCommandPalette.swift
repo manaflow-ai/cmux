@@ -41,7 +41,12 @@ extension ContentView {
             }
             let disabled = AgentMessageCenter.isReceivingDisabled(scope: .surface, id: panelContext.panelId)
             do {
-                try AgentMessageCenter.setReceivingEnabled(disabled, scope: .surface, id: panelContext.panelId)
+                try AgentMessageCenter.setReceivingEnabled(
+                    disabled,
+                    scope: .surface,
+                    id: panelContext.panelId,
+                    openRecipients: disabled ? nil : AgentMessageCenter.openRecipientsIfAtCapacity()
+                )
             } catch {
                 NSSound.beep()
             }
