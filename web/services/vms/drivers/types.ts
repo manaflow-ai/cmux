@@ -314,6 +314,28 @@ export type ExecResult = {
   stderr: string;
 };
 
+export type VMFileEntry = {
+  name: string;
+  kind: "file" | "directory" | "symlink";
+  size?: number;
+  mode?: number;
+  modifiedAt?: number;
+};
+
+export type VMFileContents = {
+  path: string;
+  data: Uint8Array;
+  size: number;
+};
+
+export type VMFileStat = {
+  path: string;
+  kind: "file" | "directory" | "symlink";
+  size?: number;
+  mode?: number;
+  modifiedAt?: number;
+};
+
 export type ExecOptions = {
   readonly timeoutMs?: number;
   /** Server-side metadata persisted with the VM row, used for durable-home routing. */
@@ -501,6 +523,14 @@ export interface VMProvider {
   setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
+
+  /** Backend-wrapped guest filesystem operations. Paths are validated by the route and driver. */
+  listFiles?(vmId: string, path: string): Promise<VMFileEntry[]>;
+  readFile?(vmId: string, path: string): Promise<VMFileContents>;
+  writeFile?(vmId: string, path: string, data: Uint8Array, mode?: number): Promise<void>;
+  makeDirectory?(vmId: string, path: string): Promise<void>;
+  removeFile?(vmId: string, path: string): Promise<void>;
+  statFile?(vmId: string, path: string): Promise<VMFileStat>;
 
   // Optional: mint a private, token-gated HTTPS preview URL for an arbitrary HTTP port on the
   // VM (the exe.dev "https://vmname.exe.xyz:3456" equivalent). openUrl embeds the token as a
