@@ -77,13 +77,13 @@ describe("CLI config route", () => {
 
       const confirmation = new URL(body.auth.confirmUrl);
       confirmation.searchParams.set("login_code", "fresh-test-login-code");
-      const signIn = new URL("https://cmux.com/handler/sign-in");
+      const signIn = new URL("https://cmux.com/sign-in");
       signIn.searchParams.set(
         "after_auth_return_to",
         `${confirmation.pathname}${confirmation.search}`,
       );
       expect(signIn.toString()).toBe(
-        "https://cmux.com/handler/sign-in?after_auth_return_to=%2Fhandler%2Fcli-auth-confirm%3Flogin_code%3Dfresh-test-login-code",
+        "https://cmux.com/sign-in?after_auth_return_to=%2Fhandler%2Fcli-auth-confirm%3Flogin_code%3Dfresh-test-login-code",
       );
     });
   });

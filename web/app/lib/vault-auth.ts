@@ -1,7 +1,9 @@
+import { SIGN_IN_PATH } from "./auth-paths";
+
 export function vaultSignInHref(returnPath: string): string {
   const afterSignIn = new URL("/handler/after-sign-in", "https://cmux.com");
   afterSignIn.searchParams.set("after_auth_return_to", returnPath);
-  const signIn = new URL("/handler/sign-in", "https://cmux.com");
+  const signIn = new URL(SIGN_IN_PATH, "https://cmux.com");
   signIn.searchParams.set(
     "after_auth_return_to",
     `${afterSignIn.pathname}${afterSignIn.search}`,

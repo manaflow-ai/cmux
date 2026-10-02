@@ -45,7 +45,7 @@ async function captureAlert(error: Error): Promise<string> {
 /** Captures the same-origin recovery redirect without opening a browser. */
 async function captureRedirect(
   error: Error,
-  href = "https://cmux.com/handler/sign-in",
+  href = "https://cmux.com/sign-in",
 ): Promise<{
   readonly url: string;
   readonly alertCalled: boolean;
@@ -102,7 +102,7 @@ describe("Stack Auth async error alerts", () => {
 
     const result = await captureRedirect(
       error,
-      "https://cmux.com/handler/sign-in?after_auth_return_to=%2Fhandler%2Fafter-sign-in%3Fnonce%3Dopaque&web_return_to=%2Fdashboard",
+      "https://cmux.com/sign-in?after_auth_return_to=%2Fhandler%2Fafter-sign-in%3Fnonce%3Dopaque&web_return_to=%2Fdashboard",
     );
     const redirect = new URL(result.url);
     expect(redirect.pathname).toBe("/handler/auth-error");

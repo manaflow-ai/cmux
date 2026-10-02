@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "../../env";
 import { stackServerApp } from "../../lib/stack";
 import { requestOrigin } from "../../lib/request-origin";
+import { isSignInPath } from "../../lib/auth-paths";
 import { isPublicationToken } from "../../../services/vm-publications/security";
 
 type SignOutAndSignInDependencies = {
@@ -39,7 +40,7 @@ function validatedNativeSignInTarget(request: NextRequest): string | null {
 
 function validatedCliSignInTarget(request: NextRequest): string | null {
   const target = sameOriginURL(request.nextUrl.searchParams.get("after_auth_return_to"), request);
-  if (!target || target.pathname !== "/handler/sign-in") return null;
+  if (!target || !isSignInPath(target.pathname)) return null;
   if (!onlySearchParams(target, ["after_auth_return_to"])) return null;
 
   const confirmation = sameOriginURL(target.searchParams.get("after_auth_return_to"), request);
@@ -68,7 +69,7 @@ function onlySearchParams(url: URL, allowed: readonly string[]): boolean {
 // transaction. Every hop is same-origin and the transaction is opaque.
 function validatedPublicationSignInTarget(request: NextRequest): string | null {
   const target = sameOriginURL(request.nextUrl.searchParams.get("after_auth_return_to"), request);
-  if (!target || target.pathname !== "/handler/sign-in") return null;
+  if (!target || !isSignInPath(target.pathname)) return null;
   if (!onlySearchParams(target, ["after_auth_return_to"])) return null;
 
   const afterAuth = sameOriginURL(target.searchParams.get("after_auth_return_to"), request);

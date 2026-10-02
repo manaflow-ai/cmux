@@ -20,6 +20,7 @@ import {
 } from "./app/lib/dashboard-return-path";
 import { localizedVaultPath, vaultSignInHref } from "./app/lib/vault-auth";
 import { hasStackRefreshCookie } from "./app/lib/stack-session-cookies";
+import { AUTH_PAGE_HANDLERS } from "./app/lib/auth-paths";
 import {
   VM_REFLECTION_ALIAS_HEADER,
   VM_REFLECTION_ALIAS_VALUE,
@@ -197,10 +198,26 @@ function handlePageRoutes(
   pathname: string,
 ): NextResponse | undefined {
   return (
+    handleAuthPageRoutes(request, pathname) ??
     handleAgentAndImageRoutes(request, pathname) ??
     handleBillingAndCloudRoutes(request, pathname) ??
     handleAssetRoutes(pathname)
   );
+}
+
+// /sign-in and /sign-up are the public URLs of the handler's sign-in and
+// sign-up pages. The rewrite keeps the browser on the canonical URL; the
+// handler paths themselves 308 here from next.config, which matches only the
+// incoming URL, so the two never loop.
+function handleAuthPageRoutes(
+  request: NextRequest,
+  pathname: string,
+): NextResponse | undefined {
+  const page = AUTH_PAGE_HANDLERS.get(pathname);
+  if (!page) return undefined;
+  const url = request.nextUrl.clone();
+  url.pathname = `/handler/${page}`;
+  return NextResponse.rewrite(url);
 }
 
 function handleAgentAndImageRoutes(

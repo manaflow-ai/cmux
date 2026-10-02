@@ -1,4 +1,5 @@
 import { MagicLinkSignIn, StackHandler } from "@hexclave/next";
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
@@ -12,11 +13,41 @@ import { hostedAuthErrorRedirect } from "../sign-in-entry";
 import hosted from "../hosted.module.css";
 import { preferredLocaleFromAcceptLanguage } from "../../../i18n/accept-language";
 import { loadMessages } from "../../../i18n/messages";
+import { canonicalAuthUrl } from "../../lib/auth-paths";
 
 // Stack Auth owns this catch-all route and reads its URL before it can render.
 // Keep authentication reliable instead of withholding it behind an empty
 // instant-navigation boundary.
 export const instant = false;
+
+/**
+ * Search metadata for the sign-in and sign-up pages, which are served at
+ * /sign-in and /sign-up. Their canonical tag names that URL whichever alias
+ * the visitor came through.
+ */
+export async function generateMetadata(
+  props: { params: Promise<{ stack: string[] }> },
+): Promise<Metadata> {
+  const { stack } = await props.params;
+  const page = stack.length === 1 ? stack[0] : null;
+  if (page !== "sign-in" && page !== "sign-up") return {};
+  const requestHeaders = await headers();
+  if (coderouterHost(requestHeaders.get("host"))) return {};
+  const messages = (await loadMessages(
+    preferredLocaleFromAcceptLanguage(requestHeaders.get("accept-language") ?? ""),
+  )).cmuxSignIn as CmuxSignInMessages;
+  const title = page === "sign-in" ? messages.signInTitle : messages.signUpTitle;
+  // The two subtitles match, so lead with the title to keep each description
+  // distinct.
+  const description = `${title}. ${page === "sign-in" ? messages.signInSubtitle : messages.signUpSubtitle}`;
+  const url = canonicalAuthUrl(page);
+  return {
+    title,
+    description,
+    alternates: { canonical: url },
+    openGraph: { title, description, url, siteName: "cmux", type: "website" },
+  };
+}
 
 export default async function StackHandlerPage(
   props: {

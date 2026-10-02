@@ -75,7 +75,7 @@ describe("localized browser auth error page", () => {
 
     expect(html).toContain('data-auth-error="emailUnverified"');
     expect(html).toContain("Verify your email to continue");
-    expect(html).toContain('href="/handler/sign-in"');
+    expect(html).toContain('href="/sign-in"');
     expect(html).not.toContain("USER_EMAIL_ALREADY_EXISTS");
     expect(html).not.toContain("buyer@example.com");
   });
@@ -131,7 +131,7 @@ describe("localized browser auth error page", () => {
     const html = renderToStaticMarkup(element);
 
     expect(html).toContain(
-      'href="/handler/sign-in?after_auth_return_to=%2Fhandler%2Fafter-sign-in%3Fnonce%3Dopaque"',
+      'href="/sign-in?after_auth_return_to=%2Fhandler%2Fafter-sign-in%3Fnonce%3Dopaque"',
     );
     expect(html).not.toContain("not-forwarded");
   });

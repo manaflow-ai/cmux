@@ -111,7 +111,7 @@ describe("sign-ins for the Mac app", () => {
 });
 
 describe("OAuth return marker", () => {
-  const page = "https://cmux.test/handler/sign-in?after_auth_return_to=%2Fdashboard&prompt=select_account";
+  const page = "https://cmux.test/sign-in?after_auth_return_to=%2Fdashboard&prompt=select_account";
 
   test("round trips on the page URL without touching other params", () => {
     const marked = new URL(withContinueMarker(page));
@@ -133,13 +133,13 @@ describe("OAuth return marker", () => {
 
 describe("links that keep the return target", () => {
   test("sign-in, sign-up and forgot-password carry only after_auth_return_to", () => {
-    expect(handlerHref("sign-up", "/dashboard?team=t1")).toBe("/handler/sign-up?after_auth_return_to=%2Fdashboard%3Fteam%3Dt1");
+    expect(handlerHref("sign-up", "/dashboard?team=t1")).toBe("/sign-up?after_auth_return_to=%2Fdashboard%3Fteam%3Dt1");
     expect(handlerHref("forgot-password", null)).toBe("/handler/forgot-password");
   });
 
   test("password sign-up waits on the pending page with all three return params", () => {
     const current = new URL(
-      "https://cmux.test/handler/sign-up?after_auth_return_to=%2Fa&web_return_to=%2Fb&native_app_return_to=cmux%3A%2F%2Fauth-callback&other=x",
+      "https://cmux.test/sign-up?after_auth_return_to=%2Fa&web_return_to=%2Fb&native_app_return_to=cmux%3A%2F%2Fauth-callback&other=x",
     );
     const pending = new URL(signUpPendingHref(current));
     expect(pending.pathname).toBe("/handler/auth-error");
@@ -167,7 +167,7 @@ describe("native sign-in prompt", () => {
 
   test("passes select_account through to the sign-in page", () => {
     const location = new URL(start(`&prompt=${SELECT_ACCOUNT_PROMPT}`).headers.get("location")!);
-    expect(location.pathname).toBe("/handler/sign-in");
+    expect(location.pathname).toBe("/sign-in");
     expect(location.searchParams.get("prompt")).toBe(SELECT_ACCOUNT_PROMPT);
   });
 
@@ -338,7 +338,7 @@ describe("switch account from the dashboard", () => {
   test("opens the chooser and comes back to the dashboard through after-sign-in", async () => {
     const { vaultSwitchAccountHref } = await import("../app/lib/vault-auth");
     const href = new URL(vaultSwitchAccountHref("/en/dashboard"), "https://cmux.test");
-    expect(href.pathname).toBe("/handler/sign-in");
+    expect(href.pathname).toBe("/sign-in");
     expect(href.searchParams.get("prompt")).toBe(SELECT_ACCOUNT_PROMPT);
     const afterSignIn = new URL(href.searchParams.get("after_auth_return_to")!, "https://cmux.test");
     expect(afterSignIn.pathname).toBe("/handler/after-sign-in");

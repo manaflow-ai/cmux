@@ -155,7 +155,7 @@ describe("app session handoff", () => {
 
     expect(response.status).toBe(303);
     expect(new URL(response.headers.get("location")!).pathname).toBe(
-      "/handler/sign-in",
+      "/sign-in",
     );
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(getUser).not.toHaveBeenCalled();
@@ -170,7 +170,7 @@ describe("app session handoff", () => {
     }));
 
     const location = new URL(response.headers.get("location")!);
-    expect(location.pathname).toBe("/handler/sign-in");
+    expect(location.pathname).toBe("/sign-in");
     expect(location.searchParams.get("after_auth_return_to")).toBe(
       "/dashboard/testflight",
     );
@@ -236,7 +236,7 @@ describe("app session handoff", () => {
     const response = await POST(request);
 
     const location = new URL(response.headers.get("location")!);
-    expect(location.pathname).toBe("/handler/sign-in");
+    expect(location.pathname).toBe("/sign-in");
     const calls = (checkRateLimit as unknown as {
       mock: { calls: Array<[string, { request: Request }]> };
     }).mock.calls;
@@ -261,7 +261,7 @@ describe("app session handoff", () => {
     const response = await POST(request);
 
     expect(new URL(response.headers.get("location")!).pathname).toBe(
-      "/handler/sign-in",
+      "/sign-in",
     );
     expect(readBody).not.toHaveBeenCalled();
     expect(getUser).not.toHaveBeenCalled();
@@ -334,7 +334,7 @@ describe("app session handoff", () => {
     }));
 
     expect(new URL(blocked.headers.get("location")!).pathname).toBe(
-      "/handler/sign-in",
+      "/sign-in",
     );
     expect(getUser).toHaveBeenCalledTimes(60);
   });
@@ -363,7 +363,7 @@ describe("app session handoff", () => {
     }, headers));
     expect(blocked.status).toBe(303);
     expect(new URL(blocked.headers.get("location")!).pathname).toBe(
-      "/handler/sign-in",
+      "/sign-in",
     );
 
     now += 60_001;

@@ -1,6 +1,8 @@
 // Decides what the sign-in page shows before any form renders. Kept free of
 // React and the SDK so every branch is unit tested.
 
+import { SIGN_IN_PATH, SIGN_UP_PATH } from "../lib/auth-paths";
+
 export type SignInEntry = "form" | "choose-account" | "continue" | "onboarding";
 
 /** Asks the page to confirm the account even when the browser is signed in. */
@@ -105,9 +107,13 @@ export function withoutContinueMarker(href: string): string {
 
 // MARK: Links that keep the return target
 
-/** `/handler/<page>` with only `after_auth_return_to` carried over. */
+/**
+ * The page's URL with only `after_auth_return_to` carried over: `/sign-in`
+ * and `/sign-up` (canonical), `/handler/forgot-password`.
+ */
 export function handlerHref(page: "sign-in" | "sign-up" | "forgot-password", returnTo: string | null): string {
-  const url = new URL(`/handler/${page}`, "https://cmux.com");
+  const path = page === "sign-in" ? SIGN_IN_PATH : page === "sign-up" ? SIGN_UP_PATH : `/handler/${page}`;
+  const url = new URL(path, "https://cmux.com");
   if (returnTo) url.searchParams.set("after_auth_return_to", returnTo);
   return `${url.pathname}${url.search}`;
 }

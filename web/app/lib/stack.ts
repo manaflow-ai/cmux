@@ -2,6 +2,7 @@ import { trace } from "@opentelemetry/api";
 import { cache } from "react";
 import { StackServerApp } from "@hexclave/next";
 import { env } from "../env";
+import { HEXCLAVE_AUTH_PAGE_URLS } from "./auth-paths";
 import { stackApiBaseURL } from "../../services/auth/stackApiBaseURL";
 import { cloudDb } from "../../db/client";
 import { withFreshAccountMetadataUser } from "../../services/account/metadataMutation";
@@ -63,6 +64,7 @@ export function getStackServerApp(): StackServerApp<true> {
     secretServerKey,
     tokenStore: "nextjs-cookie",
     urls: {
+      ...HEXCLAVE_AUTH_PAGE_URLS,
       afterSignIn: "/handler/after-sign-in",
       afterSignUp: "/handler/after-sign-in",
       accountSettings: "/dashboard/settings",
@@ -107,6 +109,7 @@ export function getNonRedirectingStackServerApp(): StackServerApp<true> {
     tokenStore: "nextjs-cookie",
     redirectMethod: "none",
     urls: {
+      ...HEXCLAVE_AUTH_PAGE_URLS,
       afterSignIn: "/handler/after-sign-in",
       afterSignUp: "/handler/after-sign-in",
       accountSettings: "/dashboard/settings",

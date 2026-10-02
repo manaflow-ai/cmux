@@ -119,7 +119,7 @@ describe("dashboard account menu", () => {
     expect(html).toContain("signOut");
     // Switch account opens the sign-in page's chooser, back to the dashboard.
     expect(html).toContain(">switchAccount<");
-    expect(html).toMatch(/href="\/handler\/sign-in\?[^"]*prompt=select_account/);
+    expect(html).toMatch(/href="\/sign-in\?[^"]*prompt=select_account/);
     // Without a team catalog the menu has no team entry at all.
     expect(html).not.toContain("team-submenu");
   });
@@ -175,9 +175,9 @@ describe("dashboard account menu", () => {
     const html = renderMenu(currentUser);
 
     expect(html).toContain('aria-label="signIn"');
-    expect(html).toContain('href="/handler/sign-in?');
+    expect(html).toContain('href="/sign-in?');
     expect(html).toContain("dashboard");
-    expect(html).not.toContain("/en/handler/sign-in");
+    expect(html).not.toContain("/en/sign-in");
   });
 
   test("shows a retry action when the dashboard refresh fails after switching", () => {
