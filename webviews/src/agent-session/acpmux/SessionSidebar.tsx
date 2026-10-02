@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useState } from "react";
+import React, { createContext, memo, useContext, useMemo, useState } from "react";
 import {
   groupMark,
   sessionMark,
@@ -20,6 +20,7 @@ import {
   NeedsInputIcon,
   NewChatIcon,
   PullIcon,
+  SearchIcon,
   WorkingIcon,
   WorktreeIcon,
 } from "./sidebarIcons";
@@ -50,83 +51,94 @@ const VIEW_TITLES: Record<Exclude<SidebarView, "sessions">, string> = {
 };
 
 /** The pane's sidebar: an icon rail, the list it switches, and the account at the bottom. */
+/** Sessions already open in a tab, when the list is a history layer beside them. */
+const OpenSessions = createContext<ReadonlySet<string> | undefined>(undefined);
+
 export function SessionSidebar({
   sessions,
   selectedId,
+  openIds,
   onSelect,
   onNewChat,
   account,
 }: {
   sessions: AcpmuxSessionEntry[];
   selectedId?: string;
+  /** Sessions already open in a tab; their rows say so, and opening one jumps to it. */
+  openIds?: ReadonlySet<string>;
   onSelect: (sessionId: string) => void;
   onNewChat?: () => void;
   account?: SidebarAccount;
 }) {
   const [view, setView] = useState<SidebarView>("sessions");
-  // Kept here so expanded projects survive a trip to another rail view.
+  // Kept here so expanded projects and a search survive a trip to another rail view.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
   const needsInput = useMemo(
     () => sessions.some((session) => sessionMark(session, session.sessionId === selectedId) === "input"),
     [sessions, selectedId],
   );
   return (
-    <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label="Sessions">
-      <div className="acpmux-rail">
-        <RailButton label="New chat" title="Home: new chat" onClick={onNewChat} icon={<HomeIcon />} />
-        <RailButton
-          label="Sessions"
-          current={view === "sessions"}
-          dot={needsInput}
-          onClick={() => setView("sessions")}
-          icon={<ChatsIcon />}
-        />
-        <RailButton
-          label="History"
-          current={view === "history"}
-          onClick={() => setView("history")}
-          icon={<ClockIcon />}
-        />
-        <RailButton
-          label="Pull requests"
-          current={view === "pulls"}
-          onClick={() => setView("pulls")}
-          icon={<PullIcon />}
-        />
-        <RailButton
-          label="Closed sessions"
-          title="More: closed sessions"
-          current={view === "closed"}
-          onClick={() => setView("closed")}
-          icon={<MoreIcon />}
-        />
-      </div>
-      <div className="acpmux-sidebar-body">
-        <div className="acpmux-sidebar-scroll">
-          {view === "sessions" ? (
-            <SessionsView
-              sessions={sessions}
-              selectedId={selectedId}
-              onSelect={onSelect}
-              onNewChat={onNewChat}
-              expanded={expanded}
-              onExpand={(key) => setExpanded((current) => new Set(current).add(key))}
-            />
-          ) : (
-            <FlatView view={view} sessions={sessions} selectedId={selectedId} onSelect={onSelect} />
+    <OpenSessions.Provider value={openIds}>
+      <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label="Sessions">
+        <div className="acpmux-rail">
+          <RailButton label="New chat" title="Home: new chat" onClick={onNewChat} icon={<HomeIcon />} />
+          <RailButton
+            label="Sessions"
+            current={view === "sessions"}
+            dot={needsInput}
+            onClick={() => setView("sessions")}
+            icon={<ChatsIcon />}
+          />
+          <RailButton
+            label="History"
+            current={view === "history"}
+            onClick={() => setView("history")}
+            icon={<ClockIcon />}
+          />
+          <RailButton
+            label="Pull requests"
+            current={view === "pulls"}
+            onClick={() => setView("pulls")}
+            icon={<PullIcon />}
+          />
+          <RailButton
+            label="Closed sessions"
+            title="More: closed sessions"
+            current={view === "closed"}
+            onClick={() => setView("closed")}
+            icon={<MoreIcon />}
+          />
+        </div>
+        <div className="acpmux-sidebar-body">
+          <div className="acpmux-sidebar-scroll">
+            {view === "sessions" ? (
+              <SessionsView
+                sessions={sessions}
+                selectedId={selectedId}
+                onSelect={onSelect}
+                onNewChat={onNewChat}
+                query={query}
+                onQuery={setQuery}
+                expanded={expanded}
+                onExpand={(key) => setExpanded((current) => new Set(current).add(key))}
+              />
+            ) : (
+              <FlatView view={view} sessions={sessions} selectedId={selectedId} onSelect={onSelect} />
+            )}
+          </div>
+          {account && (
+            <div className="acpmux-account">
+              <span className="acpmux-avatar" aria-hidden="true">
+                {account.name.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="acpmux-account-name">{account.name}</span>
+              {account.detail && <span className="acpmux-account-detail">{account.detail}</span>}
+            </div>
           )}
         </div>
-        {account && (
-          <div className="acpmux-account">
-            <span className="acpmux-avatar" aria-hidden="true">
-              {account.name.slice(0, 1).toUpperCase()}
-            </span>
-            <span className="acpmux-account-name">{account.name}</span>
-            {account.detail && <span className="acpmux-account-detail">{account.detail}</span>}
-          </div>
-        )}
-      </div>
-    </nav>
+      </nav>
+    </OpenSessions.Provider>
   );
 }
 
@@ -167,6 +179,8 @@ function SessionsView({
   selectedId,
   onSelect,
   onNewChat,
+  query,
+  onQuery,
   expanded,
   onExpand,
 }: {
@@ -174,6 +188,8 @@ function SessionsView({
   selectedId?: string;
   onSelect: (sessionId: string) => void;
   onNewChat?: () => void;
+  query: string;
+  onQuery: (query: string) => void;
   expanded: Set<string>;
   onExpand: (groupKey: string) => void;
 }) {
@@ -183,7 +199,8 @@ function SessionsView({
       <span>New chat</span>
     </button>
   );
-  const { pinned, groups } = useMemo(() => sidebarSections(sessions), [sessions]);
+  const searching = query.trim() !== "";
+  const { pinned, groups } = useMemo(() => sidebarSections(sessions, query), [sessions, query]);
   if (sessions.length === 0)
     return (
       <>
@@ -193,9 +210,37 @@ function SessionsView({
     );
   // Section labels only earn their place when both sections show.
   const labelled = pinned.length > 0 && groups.length > 0;
+  // Escape clears a query first; with the field empty it reaches the overlay, which closes.
+  const onSearchKey = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Escape") return;
+    // During IME composition Escape cancels the composition, and closes nothing.
+    // WebKit can end the composition before this keydown, which then reports only keyCode 229.
+    const composing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+    if (!composing && !query) return;
+    event.stopPropagation();
+    if (!composing) onQuery("");
+  };
   return (
     <>
       {newChat}
+      <search className="acpmux-sidebar-search">
+        <label>
+          <SearchIcon />
+          <input
+            type="search"
+            aria-label="Search sessions"
+            placeholder="Search"
+            spellCheck={false}
+            value={query}
+            onChange={(event) => onQuery(event.target.value)}
+            onKeyDown={onSearchKey}
+          />
+        </label>
+      </search>
+      {/* Always present, so a screen reader announces the text when it appears. */}
+      <output className="acpmux-sidebar-empty">
+        {pinned.length === 0 && groups.length === 0 ? "No matching sessions" : ""}
+      </output>
       {pinned.length > 0 && (
         <section className="acpmux-sidebar-pinned" aria-label="Pinned">
           {labelled && (
@@ -223,7 +268,8 @@ function SessionsView({
             </div>
           )}
           {groups.map((group) => {
-            const { rows, hidden } = visibleSessions(group, expanded.has(group.key), selectedId);
+            // A search shows every match, so it never hides rows behind "Show more".
+            const { rows, hidden } = visibleSessions(group, searching || expanded.has(group.key), selectedId);
             const mark = groupMark(group, selectedId);
             return (
               <section className="acpmux-sidebar-group" key={group.key}>
@@ -352,6 +398,7 @@ const SessionRow = memo(function SessionRow({
   flat?: boolean;
   trailing?: string;
 }) {
+  const open = useContext(OpenSessions)?.has(session.sessionId);
   const mark = sessionMark(session, selected);
   const title = session.displayTitle || session.sessionId.slice(0, 8);
   const place = sessionPlace(session, groupHost);
@@ -362,11 +409,13 @@ const SessionRow = memo(function SessionRow({
     <li>
       <button
         type="button"
-        className={`acpmux-session-row${flat ? " is-flat" : ""}${selected ? " is-selected" : ""}${session.status === "closed" ? " is-closed" : ""}`}
+        className={`acpmux-session-row${flat ? " is-flat" : ""}${selected ? " is-selected" : ""}${open ? " is-open" : ""}${session.status === "closed" ? " is-closed" : ""}`}
         aria-current={selected ? "true" : undefined}
         aria-label={
-          mark || place || trailing
-            ? [title, trailing, placeLabel, mark && MARK_LABELS[mark]].filter(Boolean).join(", ")
+          mark || place || trailing || open
+            ? [title, open && "Open in a tab", trailing, placeLabel, mark && MARK_LABELS[mark]]
+                .filter(Boolean)
+                .join(", ")
             : undefined
         }
         title={placeLabel ? `${title}\n${placeLabel}` : title}

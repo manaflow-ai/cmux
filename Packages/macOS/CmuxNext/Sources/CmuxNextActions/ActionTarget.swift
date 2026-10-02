@@ -22,6 +22,22 @@ public nonisolated enum ActionTargetKind: String, CaseIterable, Sendable, Hashab
     case bookmark
 }
 
+extension ActionTargetKind {
+    /// The kinds an object of this kind lies inside: a tab is in a pane, a
+    /// column, a screen and a workspace. Surface coverage counts a tab
+    /// menu row for a pane action, because the pane handlers resolve a tab
+    /// target to its pane (`ActionSurfaceParityTests`).
+    public nonisolated var containers: [ActionTargetKind] {
+        switch self {
+        case .tab: [.pane, .column, .screen, .workspace]
+        case .pane: [.column, .screen, .workspace]
+        case .column: [.screen, .workspace]
+        case .screen, .tabGroup: [.workspace]
+        default: []
+        }
+    }
+}
+
 /// A reference to one object: what the user right-clicked, what the CLI
 /// named with `--target`, or what the palette picked.
 public nonisolated struct ActionTargetRef: Sendable, Hashable, Codable, CustomStringConvertible {
@@ -46,8 +62,8 @@ public nonisolated struct ActionTargetRef: Sendable, Hashable, Codable, CustomSt
     public var description: String { "\(kind.rawValue):\(id)" }
 }
 
-/// Surfaces with a right-click menu. Each has an ordered list of action IDs
-/// in `ContextMenuCatalog`; the registry renders them.
+/// Surfaces with a right-click menu. `ContextMenuCatalog` generates each
+/// from the actions' placements; the registry renders them.
 public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hashable, Codable {
     case tab
     case tabGroup
@@ -56,13 +72,11 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     /// A screen group chip in the screen bar.
     case screenGroup
     case pane
-    case column
     case workspaceRow
     case workspaceGroup
     case sidebarBackground
     case terminalSelection
     case browserPage
-    case link
     /// A Cloud machine's sidebar section header.
     case cloudMachine
     /// An SSH machine's sidebar section header.
@@ -77,6 +91,10 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case bookmark
     /// The bookmarks bar's empty area.
     case bookmarksBar
+    /// The screen bar's empty area or its new screen (+) button.
+    case screenBar
+    /// A row of the notifications panel.
+    case notification
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -85,8 +103,10 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .tabGroup: .tabGroup
         case .screen: .screen
         case .screenGroup: .screenGroup
-        case .pane, .terminalSelection, .browserPage, .link, .newTab: .pane
-        case .column: .column
+        // A terminal or page right-click targets its tab (the App passes the
+        // tab; a tab names its pane).
+        case .terminalSelection, .browserPage: .tab
+        case .pane, .newTab: .pane
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
         case .sidebarBackground: nil
@@ -94,7 +114,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .profile: .profile
         case .browserProfile: .browserProfile
         case .bookmark: .bookmark
-        case .bookmarksBar: nil
+        case .bookmarksBar, .screenBar, .notification: nil
         }
     }
 }

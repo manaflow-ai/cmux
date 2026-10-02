@@ -71,7 +71,7 @@ Every user-visible capability is ONE `ActionDescriptor` in CmuxNextActions plus 
 | --- | --- |
 | Command palette | lists every available action; args collected inline from the action's argument schema |
 | Keyboard | every action is bindable; default shortcut optional; user bindings in cmux.json `shortcuts.<actionID>`; Settings shortcut editor lists the registry |
-| Right-click | menus are declared as ordered lists of action IDs per context (tab, tab group, pane, column, workspace row, workspace group, sidebar background, terminal selection, browser page, link); the menu builder renders title/shortcut/enabled state from the registry |
+| Right-click | each action declares placements (menu context, group, rank) in its `surfacePlan`; `ContextMenuCatalog` generates every menu from them (plans/cmux-next/actions.md); the menu builder renders title/shortcut/enabled state from the registry |
 | CLI | `cmux action list [--json]`, `cmux action run <id> [--arg k=v ...] [--target ref]`; plus a friendly generated verb per action (`cliName`, e.g. `cmux tab-group create --name X`), all over the app control socket (`action.list`, `action.run`, `action.describe`) |
 | Menu bar | main menu built from action IDs too |
 
@@ -186,3 +186,7 @@ User: "more undesigned and minimal, liquid glass; right now it's overwhelming." 
 ## Sticky columns and strip scrollbar (user 2026-10-01; plans/cmux-next/sticky-column.md)
 
 User: a sticky column (not pane) that holds panes like any column, docked or overlay, plus a strip scrollbar that can be turned off. Decisions (reversible): the flag lives on the daemon column (`set-column-sticky`, `columns[].sticky`, `sticky-columns-v1`), one per edge (a new one on that edge replaces the old), at least one column scrolls; default edge right, default mode docked. Sticky width is a share of the whole viewport (max 3/4, 2/5 each with both edges); docked strip widths are shares of the remaining strip; overlay keeps full-width shares and adds an inset at that end so columns can scroll out from under it. Dragging the last pane out removes the sticky column (daemon columns cannot be empty). Overlay = Liquid Glass rim + soft shadow with an opaque theme fill behind the panes (no glass behind terminal text). `layout.stripScrollbar` auto (default) | always | off. No default shortcut. Actions stay disabled with the daemon's reason until the cmux-tui pin includes `sticky-columns-v1`.
+
+## Split and new column sizing (user 2026-10-01; plans/cmux-next/column-sizing.md)
+
+Cmd-D / Cmd-Shift-D split in place and never open a column or scroll; a column too narrow refuses with a HUD (keyboard and menu refusals now show a HUD instead of a beep). `layout.splitSizing` even (default) | halve; `layout.newColumnWidth` matchCurrent (default, no resize) | fitScreen | fixed; sticky defaults and minimum pane size are settings. New Column keeps Cmd-Shift-Opt-N (Cmd-Opt-D is the macOS Dock shortcut and Split Browser Right). `layout.closeSizing` waits for the store's ClosePane op; `layout.closeFocus` is the focus-after-close lead's.
