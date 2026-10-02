@@ -31,6 +31,11 @@ final class CEFRestoredSession {
     /// Back and Forward entries, and the page scrolls back to its position.
     func restore(_ entries: [BrowserSavedEntry], current: Int) {
         guard let tab, entries.indices.contains(current), !tab.isClosed else { return }
+        // Only web pages come back as Back and Forward entries: a replace
+        // to another scheme may not navigate at all.
+        let kept = entries.indices.filter { $0 == current || Self.isWebPage(entries[$0].url) }
+        let current = kept.firstIndex(of: current) ?? 0
+        let entries = kept.map { entries[$0] }
         history = BrowserRestoredHistory(entries: entries, current: current)
         for entry in entries where entry.scrollY != nil {
             knownScrollY[entry.url] = entry.scrollY
@@ -121,20 +126,27 @@ final class CEFRestoredSession {
 
     /// A navigation committed: a replace this tab started shows its saved
     /// entry's scroll position once loaded.
-    func navigationCommitted() {
+    func navigationCommitted(url: URL?) {
         guard let entry = restoringEntry else { return }
         restoringEntry = nil
-        pendingScrollY = entry.scrollY
+        // Another page committed (the replace did not navigate): its scroll
+        // position is not the saved entry's.
+        if url == entry.url { pendingScrollY = entry.scrollY }
     }
 
-    /// The document loaded: scroll a restored page back to where it was,
-    /// and drop the saved forward entries once the user went somewhere new
-    /// (Chromium left its first entry, the one the saved ones sit around).
+    /// The document loaded: scroll a restored page back to where it was.
     func documentLoaded() {
         if let y = pendingScrollY {
             pendingScrollY = nil
             if y > 0 { restoreScroll(y) }
         }
+        dropForwardIfLeftFirstEntry()
+    }
+
+    /// Drops the saved forward entries once the user went somewhere new:
+    /// Chromium left its first entry, the one the saved ones sit around
+    /// (Chromium's Back state, which a same-document navigation also sets).
+    func dropForwardIfLeftFirstEntry() {
         guard let tab, var saved = history, !saved.forward.isEmpty, restoringEntry == nil,
               tab.nativeHistory.back else { return }
         saved.dropForward()
@@ -162,6 +174,10 @@ final class CEFRestoredSession {
         })(\(y))
         """
         Task { @MainActor [weak tab] in _ = try? await tab?.evaluate(script, world: .isolated) }
+    }
+
+    static func isWebPage(_ url: URL) -> Bool {
+        url.scheme == "http" || url.scheme == "https"
     }
 
     /// `text` as a JavaScript string literal.

@@ -13,6 +13,7 @@ extension CEFTab {
         case .loadingState(_, let loading, let back, let forward):
             nativeHistory = (back, forward)
             restored.applyAvailability()
+            restored.dropForwardIfLeftFirstEntry()
             if loading, !state.isLoading {
                 let id = makeNavigationID()
                 navigation = id
@@ -29,7 +30,7 @@ extension CEFTab {
                 machine.apply(.started(id, url: URL(string: url)))
             }
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
-            restored.navigationCommitted()
+            restored.navigationCommitted(url: URL(string: url))
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)

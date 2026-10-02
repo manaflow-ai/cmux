@@ -43,14 +43,15 @@ import Testing
         _ = try WireCoding.decodeResponse(SetFrontendBrowserHistoryRequest.Response.self, from: Data(set.utf8))
     }
 
-    /// The bound keeps the current entry and those nearest it.
+    /// The bound keeps the current entry and those nearest it, alternating
+    /// back and forward.
     @Test func boundedKeepsTheEntriesNearestTheCurrentOne() throws {
         let short = Self.history(3, index: 1)
         #expect(short.bounded(maxEntries: 5) == short)
 
         let middle = try #require(Self.history(40, index: 20).bounded(maxEntries: 5))
-        #expect(middle.entries.map(\.url) == (16...20).map { "https://e\($0).test/" })
-        #expect(middle.index == 4)
+        #expect(middle.entries.map(\.url) == (18...22).map { "https://e\($0).test/" })
+        #expect(middle.index == 2)
 
         let start = try #require(Self.history(40, index: 2).bounded(maxEntries: 5))
         #expect(start.entries.map(\.url) == (0...4).map { "https://e\($0).test/" })
@@ -61,5 +62,12 @@ import Testing
         #expect(end.index == 4)
 
         #expect(Self.history(3, index: 3).bounded() == nil)
+
+        // Long URLs stop the growth before the daemon's size limit.
+        let long = FrontendBrowserHistory(entries: (0..<10).map { .init(url: "https://e\($0).test/" + String(repeating: "x", count: 10_000)) },
+                                          index: 5)
+        let trimmed = try #require(long.bounded())
+        #expect(trimmed.entries.count == 4)
+        #expect(trimmed.entries[trimmed.index] == long.entries[5])
     }
 }

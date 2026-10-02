@@ -107,6 +107,27 @@ import Testing
         #expect(tab.state.canGoBack && !tab.state.canGoForward)
     }
 
+    /// A same-document navigation sends no load end; Chromium's Back state
+    /// alone drops the saved forward entries.
+    @Test func aSameDocumentNavigationAlsoDropsTheSavedForwardEntries() {
+        let tab = makeTab(showing: "b")
+        tab.restoreSession([Self.entry("a"), Self.entry("b"), Self.entry("c")], current: 1)
+        tab.handle(.loadingState(browser: 1, loading: false, canGoBack: true, canGoForward: false))
+        #expect(tab.restored.history?.forward.isEmpty == true)
+        #expect(tab.state.canGoBack && !tab.state.canGoForward)
+    }
+
+    /// Only web pages come back as Back and Forward entries: a replace to
+    /// another scheme may not navigate.
+    @Test func onlyWebPagesComeBackAsSavedEntries() {
+        let tab = makeTab(showing: "b")
+        let file = BrowserSavedEntry(url: URL(string: "file:///tmp/a.html")!)
+        tab.restoreSession([file, Self.entry("a"), Self.entry("b"), BrowserSavedEntry(url: URL(string: "data:text/plain,x")!)], current: 2)
+        #expect(tab.restored.history?.back == [Self.entry("a")])
+        #expect(tab.restored.history?.forward.isEmpty == true)
+        #expect(tab.state.canGoBack && !tab.state.canGoForward)
+    }
+
     @Test func theSavedSessionKeepsTheScrollPositionsItKnows() async throws {
         let tab = makeTab(showing: "b")
         tab.restoreSession([Self.entry("a", scrollY: 100), Self.entry("b", scrollY: 250), Self.entry("c")], current: 1)

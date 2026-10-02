@@ -176,8 +176,11 @@ final class BrowserTabService {
             // The page may have been released or replaced while the daemon
             // answered: its record writer is then gone.
             guard let self, let record, self.writers[id] === record, self.historyWriters[id] == nil else { return }
+            // The saved page is the one the tab reopened at, and the user
+            // has not gone elsewhere while the daemon answered.
             if let saved, let session = BrowserHistoryWriter.session(saved),
-               session.entries[session.current].url.absoluteString == recordURL {
+               session.entries[session.current].url.absoluteString == recordURL,
+               restoring.state.url.map({ $0.absoluteString == recordURL }) ?? true {
                 restoring.restoreSession(session.entries, current: session.current)
             }
             self.historyWriters[id] = BrowserHistoryWriter(page: restoring, recorded: saved, delay: self.writeBackDelay,
