@@ -120,11 +120,13 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     }
 }
 
-/// Footer: current page on the left; primary action with Return and
-/// "Actions ⌘K" on the right, both clickable.
+/// Footer: current page on the left; the row's close command with Cmd-W
+/// (when it has one), the primary action with Return and "Actions ⌘K" on
+/// the right, all clickable.
 final class PaletteFooterView: NSView {
     var onPrimary: (() -> Void)?
     var onActions: (() -> Void)?
+    var onClose: (() -> Void)?
 
     private let pageIcon = NSImageView()
     private let pageLabel = PaletteText.label(Typography.caption, tone: .secondary)
@@ -135,9 +137,17 @@ final class PaletteFooterView: NSView {
     private let actionsButton = PaletteClickView()
     private let actionsLabel = PaletteText.label(Typography.caption, tone: .secondary)
     private let actionsKeys = PaletteKeycapsView()
+    private let closeButton = PaletteClickView()
+    private let closeLabel = PaletteText.label(Typography.caption, tone: .secondary)
+    private let closeKeys = PaletteKeycapsView()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        closeKeys.keycaps = ["⌘", "W"]
+        closeButton.onClick = { [weak self] in self?.onClose?() }
+        closeButton.addSubview(closeLabel)
+        closeButton.addSubview(closeKeys)
+        closeButton.isHidden = true
         primaryKeys.keycaps = ["↩"]
         actionsKeys.keycaps = ["⌘", "K"]
         actionsLabel.stringValue = PaletteStrings.actions
@@ -148,13 +158,15 @@ final class PaletteFooterView: NSView {
         primaryButton.addSubview(primaryKeys)
         actionsButton.addSubview(actionsLabel)
         actionsButton.addSubview(actionsKeys)
-        [pageIcon, pageLabel, primaryButton, divider, actionsButton].forEach(addSubview)
+        [pageIcon, pageLabel, closeButton, primaryButton, divider, actionsButton].forEach(addSubview)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    func update(pageTitle: String, pageSymbol: String, primaryTitle: String?, actionsEnabled: Bool) {
+    func update(pageTitle: String, pageSymbol: String, primaryTitle: String?, actionsEnabled: Bool, closeTitle: String? = nil) {
+        closeLabel.stringValue = closeTitle ?? ""
+        closeButton.isHidden = closeTitle == nil
         pageIcon.image = PaletteText.symbol(pageSymbol, size: Metrics.smallIconSize)
         pageLabel.stringValue = pageTitle
         primaryLabel.stringValue = primaryTitle ?? ""
@@ -188,6 +200,10 @@ final class PaletteFooterView: NSView {
                                    width: Metrics.dividerThickness, height: dividerHeight)
             right -= Metrics.dividerThickness + Metrics.space4
             right = layoutButton(primaryButton, label: primaryLabel, keys: primaryKeys, right: right)
+        }
+        if !closeButton.isHidden {
+            right -= Metrics.space5
+            right = layoutButton(closeButton, label: closeLabel, keys: closeKeys, right: right)
         }
         let labelX = pageIcon.frame.maxX + Metrics.space3
         let height = pageLabel.intrinsicContentSize.height

@@ -21,6 +21,9 @@ final class PageState {
     var highlightedItemID: String?
     /// A closing command of this page ran: leaving it is not a cancel.
     var committed = false
+    /// Rows closed with Cmd-W (`PaletteItem.closeCommand`): hidden from
+    /// this page while it lives, whatever the providers still report.
+    var removedItemIDs = Set<String>()
 
     /// Merged provider items, their section table, and the Sendable search
     /// entries handed to the searcher. `version` bumps on every rebuild so
@@ -55,7 +58,7 @@ final class PageState {
         var sectionIndexByID: [String: Int] = [:]
         var seen = Set<String>()
         for provider in page.providers {
-            for item in providerItems[provider.id] ?? [] where seen.insert(item.id).inserted {
+            for item in providerItems[provider.id] ?? [] where !removedItemIDs.contains(item.id) && seen.insert(item.id).inserted {
                 let sectionIndex: Int
                 if let existing = sectionIndexByID[item.section.id] {
                     sectionIndex = existing

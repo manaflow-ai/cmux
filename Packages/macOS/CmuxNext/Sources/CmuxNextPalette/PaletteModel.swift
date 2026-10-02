@@ -137,6 +137,7 @@ public final class PaletteModel {
 
     public func push(_ page: PalettePageSpec) {
         let state = PageState(kind: .list(page))
+        state.query = page.initialQuery
         stack.append(state)
         actionsMenu = nil
         load(state)
@@ -214,6 +215,23 @@ public final class PaletteModel {
         case .textInput(let spec):
             pushTextInput(spec)
         }
+    }
+
+    /// Runs a row's close command without closing the palette. Returns
+    /// false when it refused (its reason becomes the row's notice).
+    func performClose(_ command: PaletteCommand) -> Bool {
+        let handler: @MainActor () -> Void
+        switch command.effect.resolved() {
+        case .perform(let run), .performKeepingOpen(let run): handler = run
+        case .push, .textInput, .deferred: return false
+        }
+        guard let performer, let reason = performer(handler) else {
+            if performer == nil { handler() }
+            return true
+        }
+        notice = PaletteNotice(rowID: selectedRowID ?? rows.first?.id ?? "", text: reason)
+        publish(sections, resetSelection: false)
+        return false
     }
 
     /// Runs `handler`; a refusal becomes the notice on `rowID` (the page's

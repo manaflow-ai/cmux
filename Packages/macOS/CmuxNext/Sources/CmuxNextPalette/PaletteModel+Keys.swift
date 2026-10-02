@@ -48,10 +48,38 @@ extension PaletteModel {
         case .back:
             guard query.isEmpty else { return false }
             pop()
+        case .closeItem:
+            guard let item = selectedItem, item.closeCommand != nil else { return false }
+            closeRow(item)
         case .actionsFilterAppend, .actionsFilterDeleteBackward:
             return false
         }
         return true
+    }
+
+    /// Runs `item`'s close command and keeps the palette open. Unless the
+    /// command refused, the row leaves this page's list (the page's own
+    /// view state: the owner's change reaches the source later) and the
+    /// row after it, else the one before, is selected.
+    func closeRow(_ item: PaletteItem) {
+        guard item.isEnabled, let command = item.closeCommand, let state = current else { return }
+        let ids = rows.map(\.id)
+        guard performClose(command) else { return }
+        if let next = Self.selection(afterRemoving: item.id, from: ids) {
+            selectedRowID = next
+            state.selectedRowID = next
+        }
+        state.removedItemIDs.insert(item.id)
+        state.rebuild()
+        refreshResults(resetSelection: false)
+    }
+
+    /// The row to select after `removed` leaves `rows`: the next one, else
+    /// the previous one, else none.
+    nonisolated public static func selection(afterRemoving removed: String, from rows: [String]) -> String? {
+        guard let index = rows.firstIndex(of: removed) else { return nil }
+        if index + 1 < rows.count { return rows[index + 1] }
+        return index > 0 ? rows[index - 1] : nil
     }
 
     func handleActionsMenu(_ command: PaletteKeyCommand) -> Bool {
@@ -76,12 +104,16 @@ extension PaletteModel {
             else { return true }
             let command = visible[menu.selectedIndex]
             actionsMenu = nil
-            run(command, of: item)
+            if command.id == item.closeCommand?.id {
+                closeRow(item)
+            } else {
+                run(command, of: item)
+            }
         case .toggleActions, .closeActions, .escape:
             actionsMenu = nil
         case .openActions:
             break
-        case .back:
+        case .back, .closeItem:
             return false
         case .actionsFilterAppend(let text):
             menu.filter += text

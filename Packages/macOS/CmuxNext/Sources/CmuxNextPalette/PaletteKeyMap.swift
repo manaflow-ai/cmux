@@ -29,10 +29,17 @@ public struct PaletteKeyMap {
         default: break
         }
         if flags == .command, key == "k" { return .toggleActions }
+        if !actionsMenuOpen, isCloseItem(event) { return .closeItem }
         if actionsMenuOpen, flags.isSubset(of: [.shift]), let characters = event.characters, !characters.isEmpty,
            characters.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) {
             return .actionsFilterAppend(characters)
         }
         return nil
+    }
+
+    /// Cmd-W, the chord that closes the selected row's object.
+    public static func isCloseItem(_ event: NSEvent) -> Bool {
+        event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command
+            && event.charactersIgnoringModifiers?.lowercased() == "w"
     }
 }
