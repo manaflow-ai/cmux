@@ -204,7 +204,12 @@ test("an input method's Enter and Escape stay with it; Enter mid-search picks th
   await key("Enter");
   expect(picked).toEqual(["Sources/Fleet/retry.ts"]);
   hold?.(mockFileSearch("~/code/cmux", "retry.", 50));
-  await key("Tab");
+  // Tab closes without moving focus on: the palette hands it back to the prompt.
+  const tab = new dom.window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+  await act(async () => {
+    doc.activeElement!.dispatchEvent(tab);
+  });
+  expect(tab.defaultPrevented).toBe(true);
   expect(closed).toBe(1);
 });
 
