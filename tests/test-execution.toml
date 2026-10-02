@@ -49,6 +49,34 @@ path = "tests/test_cli_tmux_wait_for_private_dir.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_cli_command_tree_snapshot.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_dispatch_parity.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_facade_behavior_parity.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_ssh_pty_attach_retry_suppression.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+# Parses the generated scripts with bash -n, zsh -n and fish --no-execute. The
+# fish requirement also selects the post-fish lane, like the other fish-dependent
+# entries.
+[[test]]
+path = "tests/test_cli_completion_scripts.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli", "fish"]
+
+[[test]]
 path = "tests/test_cli_layout_focus_contract.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]

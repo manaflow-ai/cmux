@@ -188,7 +188,7 @@ cask "cmux" do
   url "https://github.com/manaflow-ai/cmux/releases/download/v#{version}/cmux-macos.dmg"
   name "cmux"
   desc "Lightweight native macOS terminal with vertical tabs for AI coding agents"
-  homepage "https://github.com/manaflow-ai/cmux"
+  homepage "https://cmux.com/"
 
   livecheck do
     url :url
@@ -199,6 +199,7 @@ cask "cmux" do
 
   app "cmux.app"
   binary "#{appdir}/cmux.app/Contents/Resources/bin/cmux"
+  generate_completions_from_executable "#{HOMEBREW_PREFIX}/bin/cmux", "completion"
 
   zap trash: [
     "~/Library/Application Support/cmux",

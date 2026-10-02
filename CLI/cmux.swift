@@ -4172,6 +4172,10 @@ struct CMUXCLI {
     let initialSIGPIPEInspectionPayload: [String: Any]?
     let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
 
+    /// Value-taking global options recognized before the command token, shared
+    /// with `CMUXTermMain.firstNonGlobalArgument` so the two option lists cannot drift.
+    static let valueTakingGlobalOptionNames: Set<String> = ["--socket", "--password", "--window", "--id-format"]
+
     private enum NotifyTargetResolution {
         case surface(
             rawSurface: String,
@@ -4181,6 +4185,16 @@ struct CMUXCLI {
         )
         case workspace(String)
         case caller([String: Any])
+    }
+
+    /// Splits `--name=value` into its parts for the value-taking global options.
+    /// Anything else, including the `--name value` form, comes back unchanged with
+    /// a nil inline value, meaning the value is the argument that follows.
+    static func splitGlobalOption(_ argument: String) -> (name: String, inlineValue: String?) {
+        guard let equalsIndex = argument.firstIndex(of: "=") else { return (argument, nil) }
+        let name = String(argument[argument.startIndex..<equalsIndex])
+        guard valueTakingGlobalOptionNames.contains(name) else { return (argument, nil) }
+        return (name, String(argument[argument.index(after: equalsIndex)...]))
     }
 
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
@@ -4837,7 +4851,7 @@ struct CMUXCLI {
         }
     }
 
-    func localizedCoderouterAliases() -> String {
+    static func localizedCoderouterAliases() -> String {
         let defaultValue = "coderouter|cr [coderouter-args...]                 (aliases for the CodeRouter CLI; offers to install it when missing)"
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         let catalogValue = String(
@@ -4879,41 +4893,33 @@ struct CMUXCLI {
         var index = 1
         while index < args.count {
             let arg = args[index]
-            if arg == "--socket" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--socket requires a path")
+            // `--name=value` is accepted alongside `--name value`, matching
+            // `CMUXTermMain.firstNonGlobalArgument`. Without this, routing would
+            // skip `--window=w:1` while this loop treated it as the command name.
+            let (optionName, inlineValue) = Self.splitGlobalOption(arg)
+            if Self.valueTakingGlobalOptionNames.contains(optionName) {
+                let value: String
+                if let inlineValue, !inlineValue.isEmpty {
+                    value = inlineValue
+                } else if inlineValue == nil, index + 1 < args.count {
+                    value = args[index + 1]
+                } else {
+                    let requirement = optionName == "--id-format" ? "a value (refs|uuids|both)" : optionName == "--window" ? "a window id" : optionName == "--socket" ? "a path" : "a value"
+                    throw CLIError(message: "\(optionName) requires \(requirement)")
                 }
-                explicitSocketPath = args[index + 1]
-                index += 2
+                switch optionName {
+                case "--socket": explicitSocketPath = value
+                case "--id-format": idFormatArg = value
+                case "--window": windowId = value
+                case "--password": socketPasswordArg = value
+                default: break
+                }
+                index += inlineValue == nil ? 2 : 1
                 continue
             }
             if arg == "--json" {
                 jsonOutput = true
                 index += 1
-                continue
-            }
-            if arg == "--id-format" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--id-format requires a value (refs|uuids|both)")
-                }
-                idFormatArg = args[index + 1]
-                index += 2
-                continue
-            }
-            if arg == "--window" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--window requires a window id")
-                }
-                windowId = args[index + 1]
-                index += 2
-                continue
-            }
-            if arg == "--password" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--password requires a value")
-                }
-                socketPasswordArg = args[index + 1]
-                index += 2
                 continue
             }
             if arg == "-v" || arg == "--version" {
@@ -20507,12 +20513,14 @@ struct CMUXCLI {
             """
         case "wait-for":
             return """
-            Usage: cmux wait-for [-S|--signal] <name> [--timeout <seconds>]
+            Usage: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]
 
-            Wait for or signal a named synchronization token.
+            Wait for or signal a named synchronization token, or lock/unlock it.
 
             Flags:
               -S, --signal           Signal the token instead of waiting
+              -L                     Take the token's lock, waiting up to the timeout
+              -U                     Release the token's lock
               --timeout <seconds>    Wait timeout (default: 30)
             """
         case "swap-pane":
@@ -28134,6 +28142,8 @@ struct CMUXCLI {
 
         case "wait-for":
             let signal = commandArgs.contains("-S") || commandArgs.contains("--signal")
+            let lock = commandArgs.contains("-L")
+            let unlock = commandArgs.contains("-U")
             let timeoutRaw = optionValue(commandArgs, name: "--timeout")
             let timeout = timeoutRaw.flatMap { Double($0) } ?? 30.0
             let name = commandArgs.first(where: { !$0.hasPrefix("-") }) ?? ""
@@ -28143,6 +28153,18 @@ struct CMUXCLI {
             let waitForSignal = TmuxWaitForSignal(name: name)
             if signal {
                 try waitForSignal.signal()
+                print("OK")
+                return
+            }
+            if unlock {
+                try waitForSignal.unlock()
+                print("OK")
+                return
+            }
+            if lock {
+                guard try waitForSignal.lock(timeout: timeout) else {
+                    throw CLIError(message: "wait-for timed out waiting to lock '\(name)'")
+                }
                 print("OK")
                 return
             }
@@ -42797,7 +42819,8 @@ export default {
         return URL(fileURLWithPath: expanded).standardizedFileURL
     }
 }
-private enum CMUXCLIOutput {
+
+enum CMUXCLIOutput {
     static func writeStandardError(_ message: String) {
         cliWriteStderr(message)
     }
@@ -42808,6 +42831,12 @@ struct CMUXTermMain {
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()
+
+        if shouldUseFacade() {
+            await CmuxCommand.runFacade()
+            return
+        }
+
         let cli = CMUXCLI(
             args: CommandLine.arguments,
             initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload
@@ -42821,5 +42850,60 @@ struct CMUXTermMain {
             let exitCode = (error as? CLIError)?.exitCode ?? 1
             exit(exitCode)
         }
+    }
+
+    /// ArgumentParser runs an invocation only when the first non-global argument
+    /// names a command the facade implements itself (completion and the tree
+    /// dump). Every other command, declared or not, stays on the hand-rolled
+    /// parser: its declaration exists for completion and typo suggestions, and
+    /// its `run()` would re-parse the raw argv anyway, so parsing it here first
+    /// could only reject shapes the legacy runner accepts. A command family
+    /// joins `facadeNativeCommandNames` when its runner moves into the facade.
+    private static func shouldUseFacade() -> Bool {
+        if ProcessInfo.processInfo.environment["CMUX_CLI_LEGACY_PARSER"] == "1" {
+            return false
+        }
+        // A shell's generated completion script invokes the binary as
+        // `cmux ---completion <command path...> -- <argument> <partial>` to
+        // resolve a `.custom` completion handler. That marker is always the
+        // literal first argument, is not a declared command name, and must
+        // always reach ArgumentParser or every dynamic completion silently
+        // breaks in real shell usage.
+        if CommandLine.arguments.dropFirst().first == "---completion" {
+            return true
+        }
+        guard let command = firstNonGlobalArgument(CommandLine.arguments.dropFirst()) else {
+            return false
+        }
+        return CmuxCommand.facadeNativeCommandNames.contains(command)
+    }
+
+    private static func firstNonGlobalArgument(_ arguments: ArraySlice<String>) -> String? {
+        let optionsWithValues = CMUXCLI.valueTakingGlobalOptionNames
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            index = arguments.index(after: index)
+            if argument == "--" {
+                // Everything after a bare `--` is payload, not a global option
+                // or a command name, so there is nothing left to route on.
+                return nil
+            }
+            if argument == "--json" {
+                continue
+            }
+            // An empty inline value (`--socket=`) is malformed; leave it as the
+            // routing token so the legacy path rejects it like `CMUXCLI.run()`.
+            if let inlineValue = CMUXCLI.splitGlobalOption(argument).inlineValue, !inlineValue.isEmpty {
+                continue
+            }
+            if optionsWithValues.contains(argument) {
+                guard index < arguments.endIndex else { return nil }
+                index = arguments.index(after: index)
+                continue
+            }
+            return argument
+        }
+        return nil
     }
 }

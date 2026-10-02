@@ -4,13 +4,15 @@ import Foundation
 /// The marker file behind `cmux wait-for`: `-S` creates it and a waiter
 /// consumes it, so a signal sent before the wait still wakes the waiter.
 ///
-/// Signals live in a private per-user directory, so no other user can plant,
-/// redirect or fake one. Files are opened relative to the verified directory
-/// and never through a symlink.
+/// Signals, and the `-L`/`-U` lock beside them, live in a private per-user
+/// directory, so no other user can plant, redirect or fake one. Files are
+/// opened relative to the verified directory and never through a symlink.
 struct TmuxWaitForSignal {
     let path: String
+    let lockPath: String
     private let directoryPath: String
     private let fileName: String
+    private let lockFileName: String
 
     init(name: String) {
         // Encode the complete UTF-8 name so distinct channels remain
@@ -20,9 +22,12 @@ struct TmuxWaitForSignal {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
-        fileName = (encoded.isEmpty ? "empty" : encoded) + ".sig"
+        let baseName = encoded.isEmpty ? "empty" : encoded
+        fileName = baseName + ".sig"
+        lockFileName = baseName + ".lock"
         directoryPath = Self.userTemporaryDirectory() + "cmux-wait-for"
         path = directoryPath + "/" + fileName
+        lockPath = directoryPath + "/" + lockFileName
     }
 
     func signal() throws {
@@ -52,6 +57,57 @@ struct TmuxWaitForSignal {
     /// `watching` runs once, after the directory watch is registered and the
     /// first check found no signal, so any signal sent after it wakes this wait.
     func wait(timeout: TimeInterval, watching: () -> Void = {}) throws -> Bool {
+        try watchDirectory(timeout: timeout, watching: watching) { consume(in: $0) }
+    }
+
+    /// Takes the channel's lock, waiting up to `timeout` for its holder to
+    /// unlock it. Returns false on timeout. `watching` runs once the lock was
+    /// found held and the directory watch is registered.
+    func lock(timeout: TimeInterval, watching: () -> Void = {}) throws -> Bool {
+        try watchDirectory(timeout: timeout, watching: watching) { try createLock(in: $0) }
+    }
+
+    /// Unlocking an unlocked channel is a no-op, but a removal that actually
+    /// failed (permissions, I/O) must not report success: the lock file
+    /// survives and every waiter stays blocked while the caller believes the
+    /// channel is free.
+    func unlock() throws {
+        let directory = try openDirectory()
+        defer { Darwin.close(directory) }
+        let removed = lockFileName.withCString { Darwin.unlinkat(directory, $0, 0) }
+        if removed != 0, errno != ENOENT {
+            throw CLIError(message: "wait-for could not remove its lock file: \(Self.errorDescription())")
+        }
+    }
+
+    /// Creates the lock file exclusively. `O_EXCL` also fails on an existing
+    /// symlink, so a planted link is treated as a held lock, never written through.
+    private func createLock(in directory: Int32) throws -> Bool {
+        let fd = lockFileName.withCString {
+            Darwin.openat(
+                directory,
+                $0,
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK,
+                mode_t(S_IRUSR | S_IWUSR)
+            )
+        }
+        if fd >= 0 {
+            Darwin.close(fd)
+            return true
+        }
+        guard errno == EEXIST else {
+            throw CLIError(message: "wait-for could not create its lock file: \(Self.errorDescription())")
+        }
+        return false
+    }
+
+    /// Runs `attempt` until it succeeds or `timeout` passes, waking on changes
+    /// to the private directory instead of polling.
+    private func watchDirectory(
+        timeout: TimeInterval,
+        watching: () -> Void,
+        attempt: (Int32) throws -> Bool
+    ) throws -> Bool {
         let directory = try openDirectory()
         defer { Darwin.close(directory) }
         let queue = kqueue()
@@ -59,7 +115,7 @@ struct TmuxWaitForSignal {
             throw CLIError(message: "wait-for could not watch its signal directory: \(Self.errorDescription())")
         }
         defer { Darwin.close(queue) }
-        // Register before the first check so a signal landing between them still wakes the wait.
+        // Register before the first attempt so a change landing between them still wakes the wait.
         var change = kevent(
             ident: UInt(directory),
             filter: Int16(EVFILT_VNODE),
@@ -75,7 +131,7 @@ struct TmuxWaitForSignal {
         let deadline = Date().addingTimeInterval(max(0, timeout))
         var announcedWatching = false
         while true {
-            if consume(in: directory) {
+            if try attempt(directory) {
                 return true
             }
             if !announcedWatching {
