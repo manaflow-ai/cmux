@@ -23,14 +23,12 @@ nonisolated enum PinnedDaemonBinary {
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: PinnedDaemonBinary.url != nil, "needs the pinned cmux-tui"))
 struct FirstLaunchTests {
     /// Returns once `store` has a tab or `limit` passes, whichever is first.
+    /// A poll, not a task group over `Observations`: the Swift 6.2 region
+    /// isolation checker rejects that pattern in this suite.
     private static func firstTab(in store: DaemonStore, within limit: Duration) async {
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { @MainActor in
-                for await count in Observations({ Self.tabs(store) }) where count > 0 { return }
-            }
-            group.addTask { try? await Task.sleep(for: limit) }
-            await group.next()
-            group.cancelAll()
+        let deadline = ContinuousClock.now + limit
+        while tabs(store) == 0, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
         }
     }
 
