@@ -114,7 +114,10 @@ enum TabLifecycle {
         }
         guard let pane = ctx.daemonPane(invocation) else { return }
         let engine = invocation["engine"]?.stringValue
-        noteUserChoice(.browser(engine: engine), ctx, invocation, pane: pane)
+        // A refused engine is not remembered, or Auto would repeat the refusal on every Cmd-T in the folder.
+        if case .open? = ctx.services.cache.browserTabs?.resolve(requested: engine) {
+            noteUserChoice(.browser(engine: engine), ctx, invocation, pane: pane)
+        }
         // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md).
         let cache: TabContentCache? = ctx.services.cache
         var agentTab: (@MainActor (SurfaceID) -> Void)?
