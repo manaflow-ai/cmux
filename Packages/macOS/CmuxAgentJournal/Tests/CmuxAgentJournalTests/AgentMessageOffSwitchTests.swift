@@ -144,6 +144,15 @@ struct AgentMessageOffSwitchTests {
 
     // MARK: - Per surface
 
+    @Test("Only a queued message can fail; one already shown stays delivered or read")
+    func onlyQueuedCanFail() {
+        #expect(AgentMessageDeliveryState.queued.canAdvance(to: .failed))
+        #expect(!AgentMessageDeliveryState.delivered.canAdvance(to: .failed))
+        #expect(!AgentMessageDeliveryState.read.canAdvance(to: .failed))
+        #expect(!AgentMessageDeliveryState.failed.canAdvance(to: .read))
+        #expect(AgentMessageDeliveryState.delivered.canAdvance(to: .read))
+    }
+
     @Test("A surface that turned messages off refuses new ones and fails its queue")
     func surfaceOptOut() throws {
         let store = AgentMessageStore(fileURL: nil)

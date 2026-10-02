@@ -23,9 +23,11 @@ public enum AgentMessageDeliveryState: String, Codable, Sendable, CaseIterable {
         }
     }
 
-    /// True when moving from `self` to `next` goes forward.
+    /// True when moving from `self` to `next` goes forward. Only a queued
+    /// message can fail: one already shown to its agent stays delivered or read.
     public func canAdvance(to next: AgentMessageDeliveryState) -> Bool {
-        next.rank > rank
+        if next == .failed { return self == .queued }
+        return next.rank > rank
     }
 }
 

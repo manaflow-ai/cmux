@@ -607365,6 +607365,65 @@
         }
       }
     },
+    "cli.agentMessages.workspaceOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its workspace has messages off, so it receives none."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الرسائل متوقفة في مساحة العمل التي يتبع لها، لذا لا يتلقى أي رسالة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In seinem Workspace sind Nachrichten ausgeschaltet, daher erhält es keine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su espacio de trabajo tiene los mensajes desactivados, así que no recibe ninguno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les messages sont désactivés pour son espace de travail, il n'en reçoit donc aucun."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所属するワークスペースでメッセージがオフのため、メッセージは届きません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "속한 워크스페이스의 메시지가 꺼져 있어 메시지를 받지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它所在的工作区已关闭消息，因此不会收到任何消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它所在的工作區已關閉訊息，因此不會收到任何訊息。"
+          }
+        }
+      }
+    },
     "cli.agentMessages.off": {
       "extractionState": "manual",
       "localizations": {

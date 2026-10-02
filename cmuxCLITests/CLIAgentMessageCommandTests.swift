@@ -103,6 +103,17 @@ struct CLIAgentMessageCommandTests {
         #expect(statusParams["target"] as? String == "surface:4")
     }
 
+    @Test func statusSaysWhenTheSurfacesWorkspaceIsOff() throws {
+        let settings: [String: Any] = [
+            "scope": "surface", "id": "s", "ref": "surface:4", "workspace_title": "",
+            "receiving": true, "messages_enabled": true, "failed": [String](), "workspace_receiving": false
+        ]
+        let run = try runCLI(arguments: ["agent", "messages", "status"], responses: ["agent.message.settings": settings])
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
+        #expect(run.result.stdout.contains("Messages to surface:4 are on."))
+        #expect(run.result.stdout.contains("Its workspace has messages off, so it receives none."))
+    }
+
     @Test func messageHelpNeedsNoSocket() throws {
         let run = try runCLI(arguments: ["agent", "message", "--help"])
 

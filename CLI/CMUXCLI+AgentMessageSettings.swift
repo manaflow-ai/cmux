@@ -93,6 +93,12 @@ extension CMUXCLI {
             ? String(localized: "cli.agentMessages.off", defaultValue: "Messages to %@ are off.")
             : String(localized: "cli.agentMessages.on", defaultValue: "Messages to %@ are on.")
         print(String(format: format, label))
+        if payload["workspace_receiving"] as? Bool == false {
+            print(String(
+                localized: "cli.agentMessages.workspaceOff",
+                defaultValue: "Its workspace has messages off, so it receives none."
+            ))
+        }
         if payload["messages_enabled"] as? Bool == false {
             print(String(
                 localized: "cli.agentMessages.globalOff",

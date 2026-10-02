@@ -8,6 +8,9 @@ private struct AgentMessageSettingsTarget: Sendable {
     let id: UUID
     let ref: String
     let workspaceTitle: String
+    /// The workspace a surface target is in now, so a status read can say
+    /// when that workspace turned messages off. Nil for a workspace target.
+    let surfaceWorkspaceId: UUID?
 }
 
 extension TerminalController {
@@ -92,7 +95,7 @@ extension TerminalController {
                 return .err(code: "internal_error", message: String(describing: error), data: nil)
             }
         }
-        return .ok([
+        var result: [String: Any] = [
             "scope": resolved.scope.rawValue,
             "id": resolved.id.uuidString,
             "ref": resolved.ref,
@@ -100,7 +103,12 @@ extension TerminalController {
             "receiving": !AgentMessageCenter.isReceivingDisabled(scope: resolved.scope, id: resolved.id),
             "messages_enabled": AgentMessageCenter.isEnabled(),
             "failed": failed.map(\.id),
-        ])
+        ]
+        // A surface whose workspace is off receives nothing, whatever its own setting.
+        if let workspaceId = resolved.surfaceWorkspaceId {
+            result["workspace_receiving"] = !AgentMessageCenter.isReceivingDisabled(scope: .workspace, id: workspaceId)
+        }
+        return .ok(result)
     }
 
     @MainActor
@@ -139,14 +147,16 @@ extension TerminalController {
                 scope: .surface,
                 id: surfaceId,
                 ref: v2EnsureHandleRef(kind: .surface, uuid: surfaceId),
-                workspaceTitle: workspace.title
+                workspaceTitle: workspace.title,
+                surfaceWorkspaceId: workspace.id
             )
         case .workspace:
             return AgentMessageSettingsTarget(
                 scope: .workspace,
                 id: workspace.id,
                 ref: v2EnsureHandleRef(kind: .workspace, uuid: workspace.id),
-                workspaceTitle: workspace.title
+                workspaceTitle: workspace.title,
+                surfaceWorkspaceId: nil
             )
         }
     }

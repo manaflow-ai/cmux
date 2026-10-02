@@ -74,7 +74,7 @@ Per-agent and per-workspace settings are kept with the messages, so they survive
 | `agent.message.ack` | `surface_id`, `poller_key`, `lease_id`, optional `via` | Acknowledges a rendered deferred wake and marks its leased messages delivered; an expired or unknown lease acknowledges nothing |
 | `agent.message.mark_read` | `ids`, `id` or `surface_id` | `read`: the ids marked read |
 | `agent.message.poll` | `surface_id`, `poller_key`, optional `register` and `mark_delivered_read` | `status`: `current` (with `queued` and `held`) or `superseded`. Claims nothing. |
-| `agent.message.settings` | `surface_id` (the caller) or `target`, optional `scope` (`surface` or `workspace`), `workspace_id`, `enabled` | Without `enabled`, reads the setting; with it, turns messages off or on. Returns `scope`, `id`, `ref`, `workspace_title`, `receiving`, `messages_enabled` and `failed` (ids failed by this call). Not available through the `cmux ssh` relay. |
+| `agent.message.settings` | `surface_id` (the caller) or `target`, optional `scope` (`surface` or `workspace`), `workspace_id`, `enabled` | Without `enabled`, reads the setting; with it, turns messages off or on. Returns `scope`, `id`, `ref`, `workspace_title`, `receiving`, `messages_enabled` and `failed` (ids failed by this call). For a surface it also returns `workspace_receiving`, false when the surface's workspace has messages off; a workspace opt-out applies to the workspace a message was sent to. Not available through the `cmux ssh` relay. |
 
 `cmux events --category agent` publishes `agent.message.queued`, `agent.message.delivered`, `agent.message.read` and `agent.message.failed` with the message id, thread, sender and recipient. Bodies are not included; read them with `agent.message.list`.
 
