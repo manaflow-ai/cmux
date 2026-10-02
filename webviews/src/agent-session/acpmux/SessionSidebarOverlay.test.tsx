@@ -157,7 +157,7 @@ test("a resize across the threshold resets the list and keeps the toggle in step
   }
 });
 
-test("reopening the overlay with a leftover search that hides every row focuses the search field", async () => {
+test("reopening the overlay with a leftover search that hides the selected row focuses the current view", async () => {
   const host = dom.window as unknown as {
     cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
     cmuxAcpmuxBridge?: { receive(snapshot: AcpmuxSnapshot): void };
@@ -179,6 +179,7 @@ test("reopening the overlay with a leftover search that hides every row focuses 
         queue: [],
         catalog: [],
         canLoadOlder: false,
+        sessionId: "a",
         sessions: [{ sessionId: "a", displayTitle: "First", cwd: "/src/web", updatedAt: 2 }],
       }),
     );
@@ -192,8 +193,9 @@ test("reopening the overlay with a leftover search that hides every row focuses 
       props.onChange({ target: field, currentTarget: field });
     });
     await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-sidebar-scrim")!.click());
+    expect(container.querySelector(".acpmux-session-row")).toBeNull();
     await act(async () => toggle().click());
-    expect(dom.window.document.activeElement).toBe(field);
+    expect(dom.window.document.activeElement?.getAttribute("aria-label")).toBe("Sessions");
   } finally {
     await act(async () => root.unmount());
     delete host.cmuxAcpmuxActions;

@@ -241,3 +241,26 @@ export function visibleSessions(
   if (open) return { rows: group.sessions, hidden: 0 };
   return { rows: group.sessions.slice(0, GROUP_ROWS), hidden: group.sessions.length - GROUP_ROWS };
 }
+
+/** A project header's mark: the most urgent of its sessions' needs-input and lost marks. */
+export function groupMark(group: SessionGroup, selectedId?: string): "input" | "error" | undefined {
+  let mark: "input" | "error" | undefined;
+  for (const session of group.sessions) {
+    const own = sessionMark(session, session.sessionId === selectedId);
+    if (own === "input") return "input";
+    if (own === "error") mark = "error";
+  }
+  return mark;
+}
+
+/** A compact age for the history list: `now`, `5m`, `3h`, `2d`, `6w`. */
+export function shortAge(updatedAt: number | undefined, now: number): string {
+  if (updatedAt === undefined) return "";
+  const minutes = Math.max(0, Math.floor((now - updatedAt) / 60_000));
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return days < 14 ? `${days}d` : `${Math.floor(days / 7)}w`;
+}

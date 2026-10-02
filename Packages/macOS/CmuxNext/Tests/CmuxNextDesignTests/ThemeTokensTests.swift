@@ -41,9 +41,10 @@ import Testing
             #expect(t.textSecondary.contrast(with: surface) >= 4.5, "\(name) secondary on \(surface)")
             #expect(t.textTertiary.contrast(with: surface) >= 3.0, "\(name) tertiary on \(surface)")
         }
-        for mark in [t.attention, t.danger, t.success] {
+        for mark in [t.attention, t.danger, t.success, t.highlight] {
             #expect(mark.contrast(with: bg) >= 3.0, "\(name) status \(mark)")
         }
+        #expect(t.highlightText.contrast(with: t.highlight) >= 4.5, "\(name) text on highlight")
     }
 
     @Test(arguments: ThemeFixtures.all.map(\.0))
@@ -78,6 +79,9 @@ import Testing
         #expect(t.danger.red > t.danger.green && t.danger.red > t.danger.blue)
         #expect(ThemeTokens.derive(from: ThemeFixtures.catppuccinMocha).attention == ThemeRGB(hex: 0xF9E2AF))
         #expect(ThemeTokens.derive(from: ThemeFixtures.githubLight).success == ThemeRGB(hex: 0x116329))
+        let mocha = ThemeTokens.derive(from: ThemeFixtures.catppuccinMocha)
+        #expect(mocha.highlight == ThemeRGB(hex: 0x89B4FA))
+        #expect(mocha.highlightText == ThemeRGB(hex: 0x1E1E2E))
     }
 
     @Test func translucentBackgroundCarriesItsOpacity() {
