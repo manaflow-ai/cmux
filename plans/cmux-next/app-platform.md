@@ -247,3 +247,12 @@ Inputs: `first-party-apps.md` section 12 (open points against v2) and `finder.md
 
 ### 14.3 Open
 - Who builds `cmux link` SFTP and the host key sheet (transport lead, lane 12): questions in `finder.md` section 11 go there through the coordinator.
+
+### 14.4 Host capabilities (system features through host ops, never through app code)
+Apps reach system features only through ops owned by the native host of the machine; app code never spawns processes or calls system APIs.
+
+| Capability | Ops | Owner | Rules | Users |
+| --- | --- | --- | --- | --- |
+| Power assertions | `power.assertion.create {kinds: display|idle|disk|system|user, reason, until: {pid|terminal|task|deadline}}` -> `pwr_…`, `power.assertion.release {assertion|all}`, `power.assertion.list`, stream `power.assertion.watch` | the native host on that machine (IOKit power assertions; no process spawn) | scope `power:write` (list: `power:read`); an agent may bind an assertion only to its own terminal and for at most 4 h; `until-stopped` and releasing another actor's assertion need origin user; every assertion ends with its binding (pid exit, terminal idle, task done, deadline) | Caffeinate app (PR 16998), cmux server health, CLI `cmux power keep-awake|list|stop|watch` (request sent to the Rust CLI owner) |
+
+The app supervisor lane adds the power ops after PR 16872 lands; the catalog generates the CLI verbs and MCP tools.
