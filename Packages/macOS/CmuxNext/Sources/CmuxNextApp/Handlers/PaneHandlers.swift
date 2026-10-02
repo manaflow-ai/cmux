@@ -48,7 +48,7 @@ enum PaneHandlers {
             let preferred: PaneDirection = frame.width >= frame.height ? .right : .down
             let other: PaneDirection = preferred == .right ? .down : .right
             // The longer side first; the other axis when only it has room.
-            let fitsPreferred = if case .refused = ctx.services.splitRoom(for: pane.pane, edge: edge(preferred)) { false } else { true }
+            let fitsPreferred = if case .split = ctx.services.splitRoom(for: pane.pane, edge: edge(preferred)) { true } else { false }
             split(ctx, invocation, direction: fitsPreferred ? preferred : other)
         })
     }
@@ -66,29 +66,20 @@ enum PaneHandlers {
         let workspace = ctx.services.workspaceKey(of: pane)
         let keep = invocation["keep"]?.boolValue == true ? true : nil
         let logger = ctx.services.daemon.logger
+        // A split always stays in its pane's column: it never opens a column
+        // and never scrolls the strip (user decision, column-sizing.md).
         switch ctx.services.splitRoom(for: pane, edge: edge(direction)) {
         case .split:
             break
         case .refused(let reason):
             return ctx.refuse(reason)
-        case .newColumn(_, let anchor):
-            let intent = content?.beginFocusIntent()
-            let spawn = ctx.services.newColumnWidth(nextTo: pane)
-            let width = spawn.width
-            ctx.registry.track(Task {
-                do {
-                    let created = try await connection.newColumn(rightOf: anchor, width: width,
-                                                                 options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
-                    content?.expectFocus(on: created.surface, generation: intent)
-                    spawn.commit()
-                    return nil
-                } catch {
-                    logger.error("new-pane-right failed: \(String(describing: error), privacy: .public)")
-                    return "new-pane-right: \(error)"
-                }
-            })
-            return
+        case .newColumn:
+            return ctx.refuse(RefusalStrings.columnTooNarrowToSplit)
         }
+        let axis: SplitAxis = direction == .left || direction == .right ? .horizontal : .vertical
+        let sizing = controller.flatMap { controller in
+            content?.layoutModel.splitSizingChanges(splitting: controller.layoutPaneID, axis: axis)
+        } ?? []
         let daemonDirection: SplitDirection = direction == .left || direction == .right ? .right : .down
         let swapTowards: PaneDirection? = switch direction {
         case .left: .right
@@ -101,6 +92,7 @@ enum PaneHandlers {
                 let created = try await connection.split(handle, direction: daemonDirection, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
                 if let swapTowards { try await connection.swapPane(handle, with: .direction(swapTowards)) }
                 content?.expectFocus(on: created.surface, generation: intent)
+                content?.layoutModel.applySplitSizing(sizing)
                 return nil
             } catch {
                 logger.error("split failed: \(String(describing: error), privacy: .public)")

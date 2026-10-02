@@ -17,7 +17,7 @@
   --color-token-border: var(--agent-border);
   --color-token-border-heavy: var(--agent-border-strong);
   --color-token-focus-border: var(--agent-accent);
-  --color-token-button-foreground: var(--agent-text);
+  --color-token-button-foreground: var(--agent-accent-text, #ffffff);
   --color-token-button-background: var(--agent-accent);
   --color-token-button-secondary-foreground: var(--agent-text);
   --color-token-button-secondary-background: var(--agent-control);
@@ -133,17 +133,17 @@
 :root {
   color-scheme: dark;
   font-family: var(--font-sans);
-  color: var(--agent-text, #f1f0e8);
+  color: var(--agent-text, #ececec);
   background: transparent;
   --agent-page-bg: transparent;
-  --agent-surface: rgba(28, 31, 27, 0.34);
-  --agent-surface-elevated: rgba(28, 31, 27, 0.48);
-  --agent-input-bg: rgba(8, 10, 8, 0.36);
-  --agent-border: rgba(233, 231, 216, 0.12);
-  --agent-border-strong: rgba(233, 231, 216, 0.22);
-  --agent-text: #f1f0e8;
-  --agent-muted: rgba(241, 240, 232, 0.58);
-  --agent-soft: rgba(241, 240, 232, 0.78);
+  --agent-surface: rgba(30, 30, 30, 0.34);
+  --agent-surface-elevated: rgba(30, 30, 30, 0.48);
+  --agent-input-bg: rgba(8, 8, 8, 0.36);
+  --agent-border: rgba(255, 255, 255, 0.12);
+  --agent-border-strong: rgba(255, 255, 255, 0.22);
+  --agent-text: #ececec;
+  --agent-muted: rgba(236, 236, 236, 0.58);
+  --agent-soft: rgba(236, 236, 236, 0.78);
   --agent-accent: #8ab4f8;
   --agent-accent-soft: rgba(138, 180, 248, 0.2);
   --agent-danger: #ff8d7e;
@@ -153,7 +153,7 @@
   --agent-control: color-mix(in srgb, var(--agent-input-bg) 44%, transparent);
   --agent-control-hover: color-mix(in srgb, var(--agent-soft) 8%, transparent);
   --agent-primary: color-mix(in srgb, var(--agent-accent) 90%, var(--agent-text));
-  --agent-primary-text: #ffffff;
+  --agent-primary-text: var(--agent-accent-text, #ffffff);
   --cubic-enter: cubic-bezier(0.19, 1, 0.22, 1);
   --cubic-exit-snappy: cubic-bezier(0.65, 0, 0.4, 1);
   --transition-duration-basic: 0.15s;

@@ -140,9 +140,9 @@ final class CEFTabContentView: NSView {
     /// The page (the pane's shared `CEFHostView` and the snapshot) takes
     /// the page frame; a docked DevTools and its divider take the rest.
     func layoutContent() {
-        let frames = tab?.devToolsFrames(in: bounds)
+        let frames = tab?.devToolsController.frames(in: bounds)
             ?? CEFDevToolsLayout.Frames(page: bounds, devTools: .zero, line: .zero, grab: .zero)
-        let devToolsHost = tab?.devToolsViews?.host
+        let devToolsHost = tab?.devToolsController.views?.host
         for subview in subviews {
             let frame: CGRect
             if subview is SidePanelHeaderView {
@@ -162,7 +162,7 @@ final class CEFTabContentView: NSView {
     /// Shows `image` over the page area (nil removes it).
     func showSnapshot(_ image: CGImage?) {
         if let image {
-            let page = tab?.devToolsFrames(in: bounds).page ?? bounds
+            let page = tab?.devToolsController.frames(in: bounds).page ?? bounds
             snapshotView.image = NSImage(cgImage: image, size: page.size)
             snapshotView.frame = page
             if snapshotView.superview == nil { addSubview(snapshotView) }

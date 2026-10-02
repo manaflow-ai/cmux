@@ -272,12 +272,16 @@ extension PaneController {
             select(id)
             let target = ActionTargetRef(kind: .tab, id: id.rawValue)
             guard let tab = tab(id), tab.kind == .browser else {
-                return registry.makeContextMenu(for: .tab, target: target)
+                // Hibernation discards a page; a terminal has none.
+                let hidden: Set<ContextMenuEntry> = [.action("hibernateTab"), .action("wakeTab")]
+                let entries = ContextMenuCatalog.shared.entries(for: .tab).filter { !hidden.contains($0) }
+                return registry.makeContextMenu(for: .tab, target: target, entries: entries)
             }
             // A browser tab offers the engine it is not on.
             let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
-            // Terminal themes do not apply to a page.
-            let hidden: Set<ContextMenuEntry> = [.action(other), .choices("terminal.setTheme"), .action("terminal.clearTheme")]
+            // Terminal themes and keep-running do not apply to a page.
+            let hidden: Set<ContextMenuEntry> = [.action(other), .choices("terminal.setTheme"), .action("terminal.clearTheme"),
+                                                 .action("terminal.keep")]
             let entries = ContextMenuCatalog.shared.entries(for: .tab).filter { !hidden.contains($0) }
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
         case .group(let group), .savedGroup(let group):

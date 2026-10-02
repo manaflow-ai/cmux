@@ -57,7 +57,10 @@ class MockBridge {
     switch (message.method) {
       case "ready":
         this.emit();
-        return { ok: true, value: { protocolVersion: 1, transport: "preview" } };
+        return {
+          ok: true,
+          value: { protocolVersion: 1, transport: "preview", account: { name: "Leo", detail: "Max" } },
+        };
       case "chat.send": {
         const text = String(message.params?.text ?? "");
         const user: AcpmuxRow = { id: `preview-user-${Date.now()}`, version: 1, at: Date.now(), kind: "user", text };
