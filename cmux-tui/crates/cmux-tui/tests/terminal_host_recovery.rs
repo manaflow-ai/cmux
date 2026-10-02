@@ -4461,6 +4461,7 @@ fn daemon_restart_prunes_every_dead_host_behind_one_pane_and_keeps_its_tabs() {
 /// must keep every workspace, screen, pane and tab and show the tabs dead.
 #[test]
 fn host_death_keeps_tabs_across_daemon_restart() {
+    let _exclusive = exclusive_process_test();
     let mut harness = RecoveryHarness::start("dead-hosts-keep-tabs");
     let names = ["one", "two", "three"];
     let terminals = names
@@ -4531,6 +4532,7 @@ fn host_death_keeps_tabs_across_daemon_restart() {
 /// tab, dead.
 #[test]
 fn host_death_keeps_layout_when_daemon_and_hosts_stop_together() {
+    let _exclusive = exclusive_process_test();
     let mut harness = RecoveryHarness::start("logout-keeps-layout");
     let names = ["left", "right"];
     for (index, name) in names.iter().enumerate() {
@@ -4583,6 +4585,7 @@ fn host_death_keeps_layout_when_daemon_and_hosts_stop_together() {
 /// and its tab goes.
 #[test]
 fn session_shutdown_signal_exits_keep_tabs_dead() {
+    let _exclusive = exclusive_process_test();
     let mut harness = RecoveryHarness::start("session-shutdown-keeps-tabs");
     let run_recorded_shell = |harness: &RecoveryHarness, id: usize, name: &str| {
         let pid_file = harness.dir.join(format!("{name}.pid"));
@@ -4690,6 +4693,7 @@ fn session_shutdown_signal_exits_keep_tabs_dead() {
 /// status reaches the daemon) leaves its tab in place, dead.
 #[test]
 fn host_death_keeps_tab_under_running_daemon() {
+    let _exclusive = exclusive_process_test();
     let harness = RecoveryHarness::start("running-host-sigkill-keeps-tab");
     let (terminal_id, _) = run_cat_workspace(&harness.socket, 1, "killed");
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
@@ -5849,6 +5853,17 @@ fn receipted_input_is_acknowledged_behind_an_output_backlog() {
     let elapsed = started.elapsed();
     assert_eq!(write["ok"], true, "receipted write behind an output backlog failed: {write}");
     assert!(elapsed < Duration::from_secs(2), "write waited {elapsed:?} for its receipt");
+}
+
+/// Serializes the timed hundred-terminal close tests (`close_path`) with the
+/// tests that SIGKILL daemons and terminal hosts. Full mode runs this binary
+/// with two test threads; a kill-and-restart test next to a timed close made
+/// the close miss its bound on loaded macOS runners. Other tests stay parallel.
+static EXCLUSIVE_PROCESS_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn exclusive_process_test() -> std::sync::MutexGuard<'static, ()> {
+    // A failed test poisons the lock; the next test still runs alone.
+    EXCLUSIVE_PROCESS_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 #[path = "terminal_host_recovery/close_path.rs"]
