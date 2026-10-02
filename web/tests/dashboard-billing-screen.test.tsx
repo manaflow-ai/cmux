@@ -336,6 +336,20 @@ describe("dashboard billing screen", () => {
     expect(html).not.toContain("Cancel plan");
   });
 
+  test("a Billing Portal cancel (cancel_at only) ends on Stripe's date instead of renewing", async () => {
+    // Since Stripe's Basil API the Portal sets `cancel_at` and leaves
+    // `cancel_at_period_end` false; the plan must not read as renewing.
+    subscriptionRows = [stripeSubscriptionRow({ cancelAtPeriodEnd: false, cancelAt: 1_793_625_720 })];
+    customerRows = [{ id: "cus_123" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).not.toContain("Renews on");
+    expect(html).toContain("Ends on Nov 2, 2026");
+    expect(html).toContain("Resume Pro");
+    expect(html).not.toContain("Cancel plan");
+  });
+
   test("an App Store-only subscriber gets the App Store notice and no Stripe portal", async () => {
     appleRows = [appleMaxRow()];
 
@@ -631,6 +645,7 @@ function stripeSubscriptionRow({
   currency = "usd",
   billingInterval,
   recurringInterval = "month",
+  cancelAt,
 }: {
   cancelAtPeriodEnd: boolean;
   status?: string;
@@ -642,6 +657,8 @@ function stripeSubscriptionRow({
   currency?: string;
   billingInterval?: "month" | "year";
   recurringInterval?: "month" | "year";
+  /** Stripe's `cancel_at` (unix seconds), as a Billing Portal cancel sets it. */
+  cancelAt?: number;
 }) {
   return {
     id: "sub_123",
@@ -653,6 +670,7 @@ function stripeSubscriptionRow({
     currentPeriodEnd: new Date("2026-12-01T00:00:00Z"),
     cancelAtPeriodEnd,
     raw: {
+      ...(cancelAt === undefined ? {} : { cancel_at: cancelAt, cancel_at_period_end: false }),
       metadata: billingInterval ? { billingInterval } : {},
       items: {
         data: [

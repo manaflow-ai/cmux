@@ -27,7 +27,7 @@ let stackConfigured = true;
 let stripeConfigured = true;
 let returnNullUser: unknown = signedInUser;
 let anonymousIfExistsUser: unknown = null;
-let subscriptionRows: { id: string }[] = [{ id: "sub_123" }];
+let subscriptionRows: { id: string; raw?: unknown }[] = [{ id: "sub_123" }];
 const dbUpdates: Array<{ values: Record<string, unknown> }> = [];
 
 const getUser = mock(async (options?: unknown) => {
@@ -166,6 +166,17 @@ describe("billing subscription route", () => {
     expect(updateSubscription).toHaveBeenCalledWith("sub_123", {
       cancel_at_period_end: false,
     });
+    expect(dbUpdates[0].values.cancelAtPeriodEnd).toBe(false);
+  });
+
+  test("resumes a Billing Portal cancellation by clearing cancel_at", async () => {
+    // A Portal cancel sets only `cancel_at`; `cancel_at_period_end: false` would leave it scheduled.
+    subscriptionRows = [{ id: "sub_123", raw: { cancel_at_period_end: false, cancel_at: 1_793_625_720 } }];
+
+    const response = await postAction("resume");
+
+    expect(response.status).toBe(303);
+    expect(updateSubscription).toHaveBeenCalledWith("sub_123", { cancel_at: "" });
     expect(dbUpdates[0].values.cancelAtPeriodEnd).toBe(false);
   });
 
