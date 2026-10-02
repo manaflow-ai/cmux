@@ -520,7 +520,9 @@ struct CloudTreeNodeActions {
                 Task { @MainActor in
                     defer { onDidMutate() }
                     do {
-                        let client = VMClient.shared
+                        guard let client = VMClient.shared else {
+                            throw VMClientError.notSignedIn
+                        }
                         let existing = try await client.listPublications().first {
                             $0.vmID == resource.machine.rawValue && $0.port == port
                         }
