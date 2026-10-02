@@ -34,23 +34,37 @@ import Testing
         }
     }
 
-    /// With background-opacity below 1 the window's backdrop shows through
-    /// the terminal; the pane must let the same amount through. The page
-    /// paints the theme's color once; the composer's field sits on the page,
-    /// so it must add only a faint tint. A field painted with the page's own
-    /// translucent color stacks with it (0.8 over 0.8 is 0.96), a near-solid
-    /// block over the blur. Text and labels on the accent stay opaque.
-    @Test func aTranslucentPaneLetsAsMuchThroughAsTheTerminal() throws {
-        let translucent = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0x1E1E2E), foreground: ThemeRGB(hex: 0xCDD6F4), backgroundOpacity: 0.8))
-        let values = AgentPaneTheme.values(translucent)
-        let page = try #require(Self.rgba(values["pageBackground"]))
-        #expect(abs(page.alpha - 0.8) < 0.001)
+    /// In a translucent window the window root paints the one translucent
+    /// sheet (`WindowBackdrop`) and every layer above it stays clear, so the
+    /// terminal shows the background at the configured opacity once. The
+    /// page must too: its own copy of the color over the sheet (0.8 over 0.8
+    /// is 0.96) is a near-solid block over the blur. The field adds only a
+    /// faint tint; text and labels on the accent stay opaque. A macOS glass
+    /// style makes the window non-opaque even at opacity 1.
+    @Test(arguments: [(0.8, 20), (1.0, -1)])
+    func aTranslucentWindowsPaneLetsAsMuchThroughAsTheTerminal(opacity: Double, blur: Int) throws {
+        let tokens = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0x1E1E2E), foreground: ThemeRGB(hex: 0xCDD6F4),
+                                                         backgroundOpacity: opacity, backgroundBlur: blur))
+        #expect(!WindowBackdrop(tokens).panesPaintBackground)
+        let values = AgentPaneTheme.values(tokens)
+        for key in ["pageBackground", "surfaceBackground"] {
+            #expect(Self.rgba(values[key])?.alpha == 0, "\(key) is \(values[key] ?? "nil")")
+        }
+        let sheet = tokens.backgroundOpacity
         let field = try #require(Self.rgba(values["inputBackground"]))
-        let fieldOverPage = page.alpha + field.alpha * (1 - page.alpha)
-        #expect(fieldOverPage < page.alpha + 0.05, "the field over the page lets through \(1 - fieldOverPage)")
+        let fieldOverSheet = sheet + field.alpha * (1 - sheet)
+        #expect(fieldOverSheet < sheet + 0.05, "the field over the sheet lets through \(1 - fieldOverSheet)")
         for key in ["text", "accent", "accentText"] {
             #expect(Self.rgba(values[key])?.alpha == 1, "\(key) is \(values[key] ?? "nil")")
         }
+        #expect(AgentPaneTheme.underPageColor(tokens).alpha == 0)
+    }
+
+    /// An opaque window's panes paint the background, and so does the page.
+    @Test func anOpaqueWindowsPagePaintsTheBackground() {
+        let values = AgentPaneTheme.values(.fallback)
+        #expect(values["pageBackground"] as? String == AgentPaneTheme.css(ThemeTokens.fallback.contentBackground))
+        #expect(AgentPaneTheme.underPageColor(.fallback) == ThemeTokens.fallback.contentBackground)
     }
 
     /// An opaque theme looks as it did: the field's tint over the page is the
@@ -62,15 +76,6 @@ import Testing
         let shown = field.composited(over: tokens.contentBackground)
         let before = tokens.hoverFill.composited(over: tokens.contentBackground)
         #expect(abs(shown.red - before.red) < 0.005 && abs(shown.green - before.green) < 0.005 && abs(shown.blue - before.blue) < 0.005)
-    }
-
-    /// WebKit paints the under-page color behind the page too; a translucent
-    /// one stacks under the page's own fill, so it is clear then (as
-    /// `WebKitTab` does).
-    @Test func theUnderPageColorIsClearForATranslucentTheme() {
-        let translucent = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0x1E1E2E), foreground: ThemeRGB(hex: 0xCDD6F4), backgroundOpacity: 0.8))
-        #expect(AgentPaneTheme.underPageColor(translucent).alpha == 0)
-        #expect(AgentPaneTheme.underPageColor(.fallback) == ThemeTokens.fallback.contentBackground)
     }
 
     /// `rgba(r, g, b, a)` as the page receives it.
