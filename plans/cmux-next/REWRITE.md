@@ -70,7 +70,7 @@ Every user-visible capability is ONE `ActionDescriptor` in CmuxNextActions plus 
 | --- | --- |
 | Command palette | lists every available action; args collected inline from the action's argument schema |
 | Keyboard | every action is bindable; default shortcut optional; user bindings in cmux.json `shortcuts.<actionID>`; Settings shortcut editor lists the registry |
-| Right-click | menus are declared as ordered lists of action IDs per context (tab, tab group, pane, column, workspace row, workspace group, sidebar background, terminal selection, browser page, link); the menu builder renders title/shortcut/enabled state from the registry |
+| Right-click | each action declares placements (menu context, group, rank) in its `surfacePlan`; `ContextMenuCatalog` generates every menu from them (plans/cmux-next/actions.md); the menu builder renders title/shortcut/enabled state from the registry |
 | CLI | `cmux action list [--json]`, `cmux action run <id> [--arg k=v ...] [--target ref]`; plus a friendly generated verb per action (`cliName`, e.g. `cmux tab-group create --name X`), all over the app control socket (`action.list`, `action.run`, `action.describe`) |
 | Menu bar | main menu built from action IDs too |
 

@@ -39,8 +39,8 @@ import Testing
             }
             for placement in plan.contextMenus {
                 if placement.style == .choices {
-                    let first = descriptor.arguments.first?.kind
-                    if case .enumeration = first {} else { Issue.record("\(id): choices needs an enumeration argument") }
+                    let hasChoices = descriptor.arguments.contains { ActionRegistry.menuChoices($0) != nil }
+                    #expect(hasChoices, "\(id): choices needs an argument with menu choices")
                 }
                 if let parent = placement.parent {
                     let anchored = catalog.first { $0.id == parent }?.surfacePlan.contextMenus.contains {
@@ -53,14 +53,23 @@ import Testing
     }
 
     /// A right-click on an object offers every action that acts on that
-    /// kind of object, unless the action says why not.
+    /// kind of object (its default target, or an argument a right-click
+    /// target supplies), unless the action says why not. A placement in an
+    /// object-less menu (the sidebar or screen bar background) also counts:
+    /// creating actions take their place from the focused object there; so
+    /// does a menu on a contained object (a tab's menu reaches its pane).
     @Test func everyTargetKindMenuShowsItsActions() {
         let kindsWithMenus = Set(ActionMenuContext.allCases.compactMap(\.targetKind))
         var gaps: [String] = []
         for descriptor in catalog {
             guard let kind = descriptor.targets.first, kindsWithMenus.contains(kind) else { continue }
             let plan = descriptor.surfacePlan
-            let placed = plan.contextMenus.contains { $0.context.targetKind == kind }
+            var kinds = Set(descriptor.targets)
+            for argument in descriptor.arguments { if case .target(let argumentKind) = argument.kind { kinds.insert(argumentKind) } }
+            let placed = plan.contextMenus.contains { placement in
+                guard let menuKind = placement.context.targetKind else { return true }
+                return kinds.contains(menuKind) || !kinds.isDisjoint(with: menuKind.containers)
+            }
             if !placed && plan.contextMenuExemption == nil {
                 gaps.append("\(descriptor.id.rawValue) (\(kind.rawValue))")
             }

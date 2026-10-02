@@ -81,12 +81,12 @@ public nonisolated enum SurfaceDecision: Sendable, Hashable {
 /// order with a separator between them, so a new action lands in the right
 /// area of every menu by naming its group.
 public nonisolated enum MenuGroup: Int, CaseIterable, Sendable, Hashable, Comparable {
-    /// New, duplicate, split, open a kind of tab.
-    case create
-    /// Back, forward, reload.
-    case navigate
     /// Copy, paste, select all, use selection.
     case edit
+    /// Back, forward, reload, open a link or a row.
+    case navigate
+    /// New, duplicate, split, open a kind of tab.
+    case create
     /// Reopen in another engine or profile.
     case reopen
     /// Rename, color, icon, pin, read state, theme, status, defaults.
