@@ -14,7 +14,7 @@ public import CoreGraphics
 ///
 /// ```swift
 /// let backdrop = WindowBackdrop(themeTokens, reduceTransparency: false)
-/// WindowBlurRadius.set(backdrop.windowBlurRadius, on: window)
+/// window.setBackgroundBlurRadius(backdrop.windowBlurRadius)
 /// ```
 public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// The one material behind the window's content.
@@ -33,7 +33,7 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// terminal shows the background at the configured opacity once.
     public var panesPaintBackground: Bool { isOpaque }
     /// The behind-window blur radius the window takes for this backdrop
-    /// (``WindowBlurRadius``): frosted's own `background-blur` radius, and
+    /// (``NSWindow/setBackgroundBlurRadius(_:)``): frosted's own `background-blur` radius, and
     /// 0 for every other material, which clears an earlier frost (glass
     /// blurs in its own view; see-through and opaque have none).
     public let windowBlurRadius: Int

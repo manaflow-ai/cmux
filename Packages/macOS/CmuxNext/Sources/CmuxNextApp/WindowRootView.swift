@@ -49,7 +49,7 @@ final class WindowRootView: NSView {
     ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
     init(sidebar: SidebarContainerView, rail: WindowRailView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
-         applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { WindowBlurRadius.set($1, on: $0) }) {
+         applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) }) {
         self.sidebar = sidebar
         self.rail = rail
         self.reduceTransparency = reduceTransparency
