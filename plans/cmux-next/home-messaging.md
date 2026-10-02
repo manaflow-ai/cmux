@@ -1,6 +1,8 @@
 # cmux-next Home messaging backend: conversations, inbox, chiefs, search, invites
 
-Status: proposal, first cut 2026-10-02 (lane 15, Home messaging backend). Spec proposal:
+Status: proposal, revision 2, 2026-10-02 (lane 15, Home messaging backend). Revision 2 applies decisions
+D-H1..D-H8, the engine answers E1-E6 (PR 16827) and adds section 16 (relationships, membership,
+roles) and section 15 (invite copy). Spec proposal:
 home-messaging. Binding: OWNERSHIP-PRINCIPLES.md, spec `home-and-agents.md`, `backend.md`,
 `identity-and-permissions.md`, decisions IOS2, IOS4, B10, N10-N13, SV1-SV3. Local-only
 conversations stay as designed in `home.md` (crate `cmux-conversation`, capability
@@ -39,10 +41,9 @@ from `cmux-conversation::encode_id` unless stated).
 | Chief record | `agent_<26>` | `owner_user`, `team?`, `name`, `avatar?`, `parent?` (subchief), `brain: local|cloud`, `brain_host?` (host id for local), `thread` (its `chief` conversation), `reachability: owner|team|shared` (who may DM it), `grant` (grant id, identity spec 4), `archived_at?` |
 | Contact | `contact_<26>` = base32(HMAC-SHA256(`HOME_CONTACT_KEY`, normalized address))[0..26] | `channel`, `address` (normalized: lowercase email with IDNA host; E.164 phone), `linked_user?`, `suppression? {reason: opted_out|bounced|complained|reported|admin, at}`, rate windows (section 9), delivery ledger |
 
-Normalization: email = trim, lowercase, IDNA host, no plus-stripping (a different mailbox for some
-providers). Phone = E.164 via libphonenumber rules with the inviter's region as default; only
-mobile numbers in allowed countries (OPEN: start with US and Canada, the SMS/iMessage provider's
-coverage).
+Normalization: email = trim, lowercase, no plus-stripping (a different mailbox for some
+providers). Phone = E.164 with the inviter's region as default; US and Canada only at launch (D-H5),
+toll-free and premium area codes refused.
 
 ## 3. Owners
 
@@ -71,7 +72,7 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | Op | Params | Key | Callers | Rules |
 | --- | --- | --- | --- | --- |
 | `conversation.create` | `{kind: group|chief, title?, participants[], first_message?}` | client key; the Worker derives the id `conv_` + base32(sha256(user + key))[0..26], so a retry reaches the same object | session, install, chief (group only) | creator becomes `owner`; participants must pass the add rule below; `chief` kind is created only by `chief.create` (system) |
-| `dm.open` | `{peer: user_id | {email}|{phone}}` | client key; id is deterministic (section 2) | session, install | idempotent by id; a peer address resolves to a user (if discoverable, OPEN D-H3) or to a contact plus an implicit `invite.create` |
+| `dm.open` | `{peer: user_id | {email}|{phone}}` | client key; id is deterministic (section 2) | session, install | idempotent by id; a typed address resolves to a related user's profile only (section 16); otherwise it becomes a contact plus an implicit `invite.create`, the same answer whether or not the address has an account |
 | `message.send` | `{client_msg_id, parts, reply_to?, thread_root?}` | must equal `client_msg_id` | participants (human, chief) | `cmux-conversation` rules; agent turn budget; contacts cannot send |
 | `message.edit` / `message.retract` | `{message_id, parts}` / `{message_id}` | client key | author | not after retraction; retraction clears parts and reactions and removes the search row |
 | `reaction.add` / `reaction.remove` | `{message_id, part_index, reaction}` | client key | participants | one per (author, part, kind) |
@@ -81,7 +82,8 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | `participants.remove` | `{participant}` | client key | self (leave), conversation owner, chief owner (for their chief) | removing the last human archives the conversation |
 | `invite.create` | `{invite_id, contact, channel, display_name, locale, copy_variant}` | `invite_id` (the Worker derives it from the client key) | members | Worker first runs `contact.ensure` and `invite.quota.take`; commit emits outbox `contact.deliver` (send happens after commit); max 20 pending invites per conversation |
 | `invite.revoke` | `{invite_id}` | client key | inviter, conversation owner | pending only |
-| `invite.accept` | `{secret}` | client key | session (any signed-in user) | finds the invite by `token_hash`; pending and not expired; replaces the contact participant with the user in one commit (`participants.bind`), records `accepted_by`; email invites need the account's verified email to match or the inviter's approval (OPEN D-H4) |
+| `invite.accept` | `{secret}` | client key | session (any signed-in user) | finds the invite by `token_hash`; pending and not expired; replaces the contact participant with the user in one commit, records `accepted_by`. D-H4: `dm` invites admit any holder of the link once; `group` email invites need the principal's verified email to equal the invited address, otherwise the join waits as `pending_approval` |
+| `invite.approve_join` | `{invite_id, approve}` | client key | inviter, conversation owner | decides a `pending_approval` join |
 | `invite.preview` (read) | `{secret}` | n/a | link | inviter name, conversation kind, first message preview (trusted inviters only, section 9); rate limited per conversation and IP |
 | `invite.delivery.report` | `{invite_id, delivery}` | `delivery:<invite>:<state>` | system (ContactDO) | delivery state only moves forward |
 | `conversation.settings.set` | `{wake_policy?, agent_budget?, history_visible?}` | client key | conversation owner | |
@@ -140,8 +142,10 @@ Invite by email or phone (compose "just works", IOS2):
    only to the private allow list, refused before the provider call), sends through the provider
    with the invite id as the provider idempotency key, records the result and reports
    `invite.delivery.report`.
-5. Recipient opens `https://cmux.com/i/<g|d><26-char conversation suffix>#<26-char secret>`
-   (OPEN D-H1 for the domain). The secret is in the fragment, so it never reaches server logs or
+5. Recipient opens `<accept origin>/i/<g|d><26-char conversation suffix>#<26-char secret>`. D-H1:
+   the origin is `https://cmux.com` once that route ships (a main PR); until then the environment's
+   dashboard (`https://console-staging.cmux.dev`, `https://console.cmux.dev`). `inviteOrigin` has no
+   default and throws for an unknown environment. In every SMS the URL is alone on the last line. The secret is in the fragment, so it never reaches server logs or
    link scanners, and a prefetch cannot consume it. iOS opens the app through universal links;
    otherwise the web page shows the preview (`invite.preview`), then Stack sign-up with the
    address prefilled, then `invite.accept`, then the thread (web Home, or the app when installed).
@@ -278,7 +282,7 @@ new body. No raw address, token or token hash is ever projected.
   is instant.
 - Local-only conversations (home.md) search in the daemon's SQLite with FTS5 (trigram tokenizer);
   the client merges both result lists by `created_at`.
-- Self-hosted servers use the same SQL on their own Postgres (SV2), without partitions.
+- Self-hosted servers use the same SQL on their own Postgres (SV2, D-H6), without partitions.
 
 ## 9. Invites: limits and abuse controls
 
@@ -302,7 +306,8 @@ new body. No raw address, token or token hash is ever projected.
   other recipient with `delivery.state = refused_env` and no provider call. A global kill switch
   (`HOME_INVITES_SEND=off`) refuses everything.
 - Every email has a one-click unsubscribe (List-Unsubscribe and List-Unsubscribe-Post headers)
-  and a "report spam" link; every first SMS to a number says how to stop (OPEN D-H5).
+  and a "report spam" link (routes `/u/<token>` and `/r/<token>` on the accept origin); the first
+  SMS to a number carries "Reply STOP to opt out." before the link (D-H5); inbound STOP suppresses.
 
 ## 10. Retention
 
@@ -318,55 +323,208 @@ new body. No raw address, token or token hash is ever projected.
 
 ## 11. Self-hosted implementation (cmux server, team VM)
 
-- The `cmux` daemon on a server (SV1) hosts the conversation owner from `cmux-conversation`
-  (Rust), the same crate the Mac uses for local-only conversations, extended with the cloud
-  fields (kinds, contacts, invites, settings) behind the same reducer rules. State in the
-  daemon's SQLite file; search with SQLite FTS5 (or the server's Postgres, SV2, OPEN D-H6).
-- Protocol: the server speaks `cmux.wire/1` (the same op, result, reject, request-settled,
-  event and snapshot frames and the same op names and params as the cloud) over its authenticated
-  WireGuard listener; the Mac app and iOS use one client with two transports.
-- Conformance: one JSON corpus of reducer cases (`backend/packages/home-core/conformance/`) that
-  both `home-core` (vitest) and `cmux-conversation` (cargo test, on a testbox) must pass.
+- D-H2: `home-core` is TypeScript, and the self-hosted owner may run the same TypeScript (the
+  backend lead is trying Rust Workers on emscripten first; the language of the self-hosted
+  owner follows that trial). The Mac's local-only owner stays the Rust crate `cmux-conversation`.
+- Contract: the conformance corpus (`backend/packages/home-core/conformance/*.json`) is the
+  protocol; every owner (cloud TS, self-hosted, Rust local) must pass the cases it supports.
+- State: the owner's own SQLite; search and the conversation index in the server's Postgres with
+  the same SQL as the cloud (SV2, D-H6), without hash partitions.
+- Protocol: the server speaks `cmux.wire/1` (same frames, op names and params as the cloud) over
+  its authenticated WireGuard listener; the Mac app and iOS use one client with two transports.
 - What a server cannot do alone: push (APNs keys stay with cmux) and invites (provider keys and
   the suppression list stay central). A server calls the cloud relay ops `push.relay` and
   `invite.relay` with its host install token; the cloud applies the same limits and suppression.
 
-## 12. Needs from the backend lead (engine and infra)
+## 12. Engine and infra (answered by the backend lead, PR 16827)
 
-- E1. Row-backed domains: `OwnerEngine` stores the whole state as one JSON row. A conversation
-  needs message rows in tables: let a domain return row writes (upserts and deletes on its own
-  tables) committed in the same transaction as the ledger, events and outbox, and let `reduce`
-  read rows through a read-only handle.
-- E2. Two streams in UserDO (`user:` and `inbox:`) or a separate engine instance per stream in one
-  object.
-- E3. Event log retention (prune `own_events` by age and count; resume falls back to a snapshot).
-- E4. DO-to-DO outbox items (kind with a target class and name) drained by RPC, at-least-once,
-  next to the Postgres drain.
-- E5. A `cmux.wire/1` path for the conversation socket and the inbox stream through the UserDO
-  gateway, with ticketed subscription to a ConversationDO.
-- E6. Secrets per environment: `HOME_CONTACT_KEY` (HMAC), `RESEND_API_KEY`, `SENDBLUE_*`,
-  `HOME_INVITE_ALLOWLIST` (staging, development, previews only); Cloudflare rate limiting bindings.
+- E1 row mode: `Domain.reduce(head, op, params, ctx)` reads rows through `ctx.rows` (RowReader)
+  and returns `{state, value, writes, outbox}`, committed in one SQLite transaction; events carry
+  `effects {state, writes}`; snapshots carry the head plus the tail of `rowMode.snapshotTable`
+  (`msg` for ConversationDO); older pages through `conversation.history`.
+- E2: one engine per stream in UserDO (`own_` for `user:`, `inbox_` for `inbox:`), each with its
+  own seq, ledger, outbox and subscription.
+- E3: `pruneEvents` keeps 30 days or the last 10,000 events; older resumes get a snapshot.
+- E4: outbox items with `target {class, name, coalesce?}` drain in seq order through
+  `systemSubmit` with the item key as idempotency key, per-target backoff; `inbox.bump`
+  coalesces per (target, conversation).
+- E5: the UserDO gateway carries `user:<id>` and `inbox:<id>`; an open conversation uses
+  `GET /v1/wire/conv/<id>`; ConversationDO checks participation and closes the stream on removal.
+- E6: secrets per environment `HOME_CONTACT_KEY`, `HOME_INVITE_ALLOWLIST_EMAILS`,
+  `HOME_INVITE_ALLOWLIST_PHONES` (non-production), kill switch `HOME_INVITES_SEND`; Cloudflare
+  rate-limit bindings for `invite.create`, `dm.open` by address and `invite.preview`.
+
+File boundaries: lane 15 writes `backend/packages/home-core/**` (reducers for conversation,
+inbox, mux and contact; invite links, limits, policy and copy; the conformance corpus) and this
+file. The backend lead writes the DO classes and bindings (ConversationDO, MuxDO, ContactDO, the
+UserDO second stream), `/v1/wire/conv/<id>`, op routing, rate limits, the ContactDO provider
+sends (it may import `deliverInvite` from `@cmux/home-core/invites`), the accept route, migration
+`0005_home.sql` and every deploy.
 
 ## 13. Client API (iOS and Mac)
 
 - HTTP: `POST /v1/ops` (every mutation above), `POST /v1/read` (`inbox.list`,
   `conversation.snapshot`, `conversation.history`, `home.search`, `invite.preview`),
   `POST /v1/invites/accept` (thin alias for the web landing page).
-- WebSocket `cmux.wire/1`: the UserDO gateway carries `inbox:<user>` (inbox events: bump, pin,
-  mute, archive) and the chief wake stream for brain hosts; the open conversation subscribes to
-  `conv:<id>` (snapshot with `tail`, resume with `after_seq`, events `message`, `message-updated`,
+- WebSocket `cmux.wire/1`: the UserDO gateway carries `user:<user>` and `inbox:<user>` (inbox
+  events: bump, pin, mute, archive); brain hosts subscribe to `mux:<agent>`; the open
+  conversation uses `GET /v1/wire/conv/<id>` (snapshot with `tail`, resume with `after_seq`, events `message`, `message-updated`,
   `read-cursor`, `conversation`, `typing`, `invite`).
 - Generated clients: the TS client in `clients/ts/cloud` and the Swift client from the same
   catalog; the Swift Home client keeps the mirror + intent log from home.md section 3.
 
-## 14. Open items (DECISION lines in the lane report)
+## 14. Decisions
 
-- D-H1 invite link domain (`cmux.com/i/…` recommended).
-- D-H2 reducer language for the cloud (TypeScript `home-core` plus the shared conformance corpus
-  recommended; alternative: `cmux-conversation` compiled to WebAssembly inside the DO).
-- D-H3 email and phone discovery (who can find you by address).
-- D-H4 binding an email invite to the accepting account's verified email.
-- D-H5 SMS opt-out wording and the allowed countries.
-- D-H6 self-hosted search store (SQLite FTS5 or the server's Postgres).
-- D-H7 history visibility for new group members (`all` recommended).
-- D-H8 invite copy variant (section 15, next revision).
+- D-H1 (coordinator): invite links on `cmux.com/i/<code>`; the environment's dashboard until that
+  route ships.
+- D-H2 (Lawrence): TypeScript `home-core`; the self-hosted owner may be TypeScript too.
+- D-H3 (Lawrence): compose shows profiles only for people you share a team or a relationship
+  with; otherwise only an invite. Redesign of relationships and membership: section 16.
+- D-H4 (coordinator): group email invites bind to the verified email (else inviter approval);
+  one-to-one invites admit any holder once.
+- D-H5 (coordinator): STOP line in the first text; US and Canada first.
+- D-H6 (Lawrence): Postgres on servers with the cloud's SQL.
+- D-H7 (coordinator): per-group `history_visible`, default `all`.
+- D-H8 (Lawrence): variant A (the inviter's words) with B as the fallback; each invite records
+  its variant.
+
+## 15. Invite copy (shipped strings: `home-core/src/invites/copy-strings.ts`)
+
+The link is always alone on the last line (message apps detect it and show a preview card); the
+first text to a number has "Reply STOP to opt out." on the line before it. Inviter name, title and
+preview are cleaned (no links, no control characters, capped); A needs a trusted inviter (verified
+email, account at least 24 h old, no reports) and falls back to B.
+
+| Variant | SMS (dm) | Email subject (dm) |
+| --- | --- | --- |
+| A, their words (default) | Lawrence sent you a message on cmux: "want to try my agents?" | Lawrence: want to try my agents? |
+| B, the product (fallback) | Lawrence invited you to chat on cmux, the app where their AI agents report in. | Lawrence invited you to chat on cmux |
+| C, short | Lawrence wants to talk with you on cmux. | Lawrence wants you on cmux |
+
+Group forms name the group ("added you to \"Launch\"") for trusted inviters only. Japanese
+strings exist for every variant and need review. Email body: lead line, the quoted words (A), the
+link on its own line and as a dark button (no blue), one line on what cmux is, then why the
+recipient got it, one-click unsubscribe and report spam.
+
+
+## 16. Relationships, membership and roles (proposal, from first principles)
+
+Lawrence (D-H3): compose shows profiles only for people you share a team or a relationship with;
+inviting someone into a team must be explicit and safe; more roles than admin and member (for
+example "someone I can chat with"); teams may be the wrong abstraction.
+
+### 16.1 The questions a permission answers
+
+1. Reach: who may message me, add me to a group, or talk to my chief?
+2. Discovery: who may see my profile (name, avatar) and find me by email or phone?
+3. Access: who may use a resource (a host, a Cloud VM, the team VM, a chief, an automation, an
+   integration, a document)?
+4. Administration: who sets policy, manages members and pays?
+
+Today a team answers all four at once. That is why "someone I can chat with" does not fit: it
+needs reach and discovery but no access and no administration. The proposal splits them into
+three primitives that never imply each other.
+
+### 16.2 Three primitives
+
+| Primitive | Answers | Created by | Revoked by | Owner |
+| --- | --- | --- | --- | --- |
+| Relationship (product word "Contacts"): a symmetric person-to-person link | reach and discovery between two people only | consent of both: one asks (a DM, an invite, a message request), the other accepts | either side: remove (back to none) or block | the pair's DM ConversationDO (`conv_dm_` id of the two users): one object per pair is the single writer of the pair's state |
+| Grant (identity spec section 4): one principal may use one resource | access, per resource | the resource's owner (or a role, below) | the issuer, an admin of the issuing org, expiry | the resource owner's DO (UserDO for personal, TeamDO for org grants) |
+| Organization (today's team): owns resources, policy, billing and an audit log | administration, and the default grants of its roles | explicit `org.invite` accepted by the invitee, or SSO/SCIM provisioning | admin removal, self leave, deprovisioning | TeamDO |
+
+A role is a named bundle of default grants inside an organization, not a separate system:
+
+| Role | Reach and discovery inside the org | Access | Administration |
+| --- | --- | --- | --- |
+| guest ("someone I can chat with") | profiles of people in conversations they share; may be added to org conversations; no directory | none (no hosts, VMs, chiefs, automations, integrations) | none |
+| member | the org directory; DM any member; talk to org chiefs | org resources as the org's policy grants members (hosts per host policy, team VM account, automations they create, integrations within connection grants) | none |
+| admin | member's | member's plus resource administration | members, roles, policy |
+| owner | admin's | admin's | plus billing, transfer, delete |
+| billing | none beyond guest | none | billing only |
+
+Custom roles later are new bundles over the same grant classes (`read`, `mutate-own`,
+`mutate-shared`, `execute`, `send-external`, `money`, `destructive`). A personal account is an org
+of one, so "share this Mac with Austin" is a grant to Austin's user, not an org change.
+
+### 16.3 What each grants in Home
+
+- A relationship lets the two people see each other's profile, find each other in the compose
+  dropdown, DM without a request, add each other to groups, @mention each other, and reach each
+  other's chiefs when the chief's reachability is `contacts`.
+- Org membership (any role) lets members see each other per their role (guests: only people in
+  shared conversations) and appear in each other's compose dropdown; it creates no relationship,
+  so leaving the org ends that visibility.
+- Neither grants access to resources; only grants do.
+- Being in the same group conversation shows names inside that conversation only; it creates no
+  relationship and no dropdown entry.
+
+### 16.4 Discovery and the compose dropdown
+
+- `home.compose.resolve {query}` (read, Worker): matches names, handles and addresses only among
+  the caller's relationships and org co-members visible to the caller's role.
+- A typed full email or phone that belongs to an unrelated user returns the same answer as an
+  unknown address: "invite will be sent". The inviter learns nothing about the address.
+- That user receives a message request in Home (and, by their setting, an email or text), not a
+  silent join. Accepting creates the relationship and moves the conversation into their inbox;
+  declining or blocking ends it. Until acceptance the sender sees no delivery or read state.
+- Unknown addresses get the invite flow (sections 5 and 9). Accepting a one-to-one invite also
+  creates the relationship (consent by both).
+- Profile fields (display name, avatar, handle) are owned by UserDO; they are published to the
+  user's relationship pair objects and org TeamDOs only, never to a global directory.
+
+### 16.5 Inviting into an organization (explicit and safe)
+
+- A separate op, `org.invite {org, address|user, role}`, from a separate UI: the sheet names the
+  org, the role and what it grants ("Austin will see Manaflow's machines, chiefs and automations,
+  and Manaflow pays for a seat"), with a confirmation. The chat compose can never produce it.
+- The invitee's accept screen states the same facts and the org's policy (retention, admin
+  visibility) before they join. Guests see "you can chat with people at Manaflow; you get no
+  access to its machines".
+- Only admins and owners can invite members or admins; members may invite guests when the org's
+  policy allows (default off).
+- Email and SMS for org invites reuse the invite channel, limits and suppression, with their own
+  copy (not the chat variants).
+
+### 16.6 Block, remove and leave
+
+- Remove a relationship: the pair state goes to `none`; the old DM stays readable for both; new
+  messages from the other person arrive as a message request.
+- Block: the pair state records the blocker; the blocked person cannot DM, request, invite (chat
+  or org), add the blocker to groups or find the blocker; in shared groups the blocker's clients
+  hide the blocked person's messages. Unblock is the blocker's op only.
+- Leave or removal from an org: org grants end at once (the next token refresh fails and every
+  owner rechecks grants); org conversations (`team` set) remove the member; personal DMs
+  continue only where a relationship exists, otherwise they turn read-only.
+
+### 16.7 Owners, ops and sync
+
+| State | Owner | Ops | Projections |
+| --- | --- | --- | --- |
+| Pair relationship `{state: none|requested|connected, requested_by?, blocked_by[], since}` | DM ConversationDO of the pair | `relation.request` (implicit in `dm.open` and DM invites), `relation.accept`, `relation.decline`, `relation.remove`, `relation.block`, `relation.unblock` | each side's UserDO (`relations` rows, outbox with target), Postgres `home_relations (user_id, other_id, state)` for server-side checks |
+| Org membership and roles | TeamDO | `org.invite`, `org.invite.accept`, `org.invite.revoke`, `org.member.role.set`, `org.member.remove`, `org.leave` | UserDO memberships, Postgres `memberships` (exists, `role` gains `guest` and `billing`) |
+| Grants | UserDO or TeamDO (issuer) | identity spec section 4 | the resource owners check by grant id |
+| Profile and discovery settings | UserDO | `profile.set`, `home.settings.set {allow_requests_from: anyone|orgs|nobody, email_requests: on|off}` | TeamDOs and pair objects of the user |
+
+Checks: a group ConversationDO accepts `participants.add` of a human only when the adder and the
+addee are connected or share an org where the adder's role may add people, read from the adder's
+UserDO projection (eventually consistent; a block takes effect at the pair owner at once and in
+projections within one drain).
+
+### 16.8 Migration from today
+
+`memberships.role` today is owner, admin or member; add `guest` and `billing` (expand
+migration). Existing team members keep their roles. No relationships exist yet; the first DM
+between two existing org members creates their relationship only when both send a message
+(implicit consent), so org departures do not erase working DMs.
+
+### 16.9 Open questions for Lawrence
+
+- R1. Name the organization primitive: keep "team", or "org", or "workspace"? (proposal: keep
+  "team" in product copy, `team_` ids unchanged; this section says org only to separate it from
+  relationships).
+- R2. Should a message request from an unrelated user ever send an email or a text, or stay
+  in-app only? (proposal: in-app only, email opt-in).
+- R3. Naming clash: the backend's `ContactDO` (an email or phone address) versus the product
+  word "Contacts" (relationships). Proposal: rename the address owner to `AddressDO` and
+  participants `addr_<26>` before either lands in production.
