@@ -2,7 +2,7 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
-    /// Mirrors Code Puppy's CONFIG_DIR, not the unsupported CODE_PUPPY_HOME variable.
+    /// Mirrors Code Puppy's CONFIG_DIR for ownership metadata.
     static func codePuppyConfigDirectory(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL {
@@ -13,6 +13,13 @@ extension CMUXCLI {
         return URL(fileURLWithPath: home).appendingPathComponent(".code_puppy")
     }
 
+    /// User-plugin discovery is hard-coded independently of CONFIG_DIR in supported releases.
+    private static func codePuppyPluginDirectory() -> URL {
+        let home = ProcessInfo.processInfo.environment["HOME"]
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        return URL(fileURLWithPath: home).appendingPathComponent(".code_puppy/plugins/cmux-session")
+    }
+
     private struct CodePuppyFileEdit {
         let url: URL
         let old: Data?
@@ -21,7 +28,7 @@ extension CMUXCLI {
 
     func installCodePuppyPlugin(_ def: AgentHookDef) throws {
         let directory = Self.codePuppyConfigDirectory()
-        let pluginDirectory = directory.appendingPathComponent("plugins/cmux-session")
+        let pluginDirectory = Self.codePuppyPluginDirectory()
         let moduleURL = pluginDirectory.appendingPathComponent("register_callbacks.py")
         let registryURL = directory.appendingPathComponent(CodePuppyPlugin.registryFileName)
         guard let executable = Self.pinnedAgentHookCLIPath() else {
@@ -31,6 +38,10 @@ extension CMUXCLI {
             ))
         }
         let oldModule = try codePuppyOwnedModule(at: moduleURL)
+        if oldModule == nil, FileManager.default.fileExists(atPath: pluginDirectory.path),
+           !(try FileManager.default.contentsOfDirectory(atPath: pluginDirectory.path)).isEmpty {
+            throw codePuppyOwnershipError(pluginDirectory)
+        }
         let oldRegistry = try codePuppyFileData(at: registryURL)
         let registry: Data
         do {
@@ -49,7 +60,8 @@ extension CMUXCLI {
         ]
         // Remove only our legacy native hook entries, otherwise callbacks would dispatch twice.
         // Native hooks cannot carry canonical autosave IDs or completion outcomes.
-        let legacyURL = directory.appendingPathComponent("hooks.json")
+        let legacyURL = Self.codePuppyPluginDirectory().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("hooks.json")
         if let old = try codePuppyFileData(at: legacyURL) {
             let new = try removingCodePuppyNativeHooks(old, at: legacyURL, def: def)
             if old != new { edits.append(CodePuppyFileEdit(url: legacyURL, old: old, new: new)) }
@@ -85,7 +97,7 @@ extension CMUXCLI {
 
     func uninstallCodePuppyPlugin(_ def: AgentHookDef) throws {
         let directory = Self.codePuppyConfigDirectory()
-        let pluginDirectory = directory.appendingPathComponent("plugins/cmux-session")
+        let pluginDirectory = Self.codePuppyPluginDirectory()
         let moduleURL = pluginDirectory.appendingPathComponent("register_callbacks.py")
         let registryURL = directory.appendingPathComponent(CodePuppyPlugin.registryFileName)
         let module = try codePuppyOwnedModule(at: moduleURL)
@@ -100,7 +112,8 @@ extension CMUXCLI {
             CodePuppyFileEdit(url: moduleURL, old: module, new: nil),
             CodePuppyFileEdit(url: registryURL, old: registry, new: updated),
         ]
-        let legacyURL = directory.appendingPathComponent("hooks.json")
+        let legacyURL = Self.codePuppyPluginDirectory().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("hooks.json")
         if let old = try codePuppyFileData(at: legacyURL) {
             let new = try removingCodePuppyNativeHooks(old, at: legacyURL, def: def)
             edits.append(CodePuppyFileEdit(url: legacyURL, old: old, new: new))

@@ -75,7 +75,7 @@ Grok uses its `Notification` hook for user-facing completion messages. cmux reco
 ## Code Puppy callback plugin
 
 `cmux hooks setup code-puppy` (or `pup`) installs a cmux-owned Python callback
-module in Code Puppy's discovered `plugins/cmux-session/` directory. Code Puppy
+module in Code Puppy's discovered `~/.code_puppy/plugins/cmux-session/` directory. Code Puppy
 loads it on the next launch. Install is idempotent; uninstall removes only the
 owned module and registration, keeping other plugins and user hooks. Setup also
 removes cmux's older native `hooks.json` entries to avoid duplicate events.
@@ -93,11 +93,12 @@ becomes restorable after Code Puppy saves it, normally by turn completion.
 Explicit `--resume` launches retain the shared resume path.
 
 Code Puppy has no `CODE_PUPPY_HOME` override. With explicitly set XDG variables,
-configuration/plugins live in `$XDG_CONFIG_HOME/code_puppy` and sessions in
+configuration lives in `$XDG_CONFIG_HOME/code_puppy` and sessions in
 `$XDG_CACHE_HOME/code_puppy/autosaves`; otherwise both use `~/.code_puppy`.
-cmux captures the cache override for restore. `external_plugins.json` records
-cmux ownership; current Code Puppy versions discover the plugin directory
-rather than reading that registry.
+cmux captures the cache override for restore. Plugin discovery in the tested
+versions is hard-coded to `~/.code_puppy/plugins`, even with XDG config overrides.
+`external_plugins.json` in the config root records cmux ownership; Code Puppy
+discovers the plugin directory rather than reading that registry.
 
 ## Workspace auto-naming
 

@@ -31,11 +31,12 @@ required.
 `cmux hooks setup code-puppy`, `cmux hooks code-puppy install --yes` and the
 explicit `pup` alias install:
 
-- `plugins/cmux-session/register_callbacks.py` under Code Puppy's config root;
-- a cmux-owned record in `external_plugins.json`.
+- `~/.code_puppy/plugins/cmux-session/register_callbacks.py`;
+- a cmux-owned record in `external_plugins.json` under Code Puppy's config root.
 
-Current Code Puppy versions discover the plugin directory directly; the JSON
-registry is cmux ownership metadata, not an assumed native loader API.
+Current Code Puppy versions discover the plugin directory directly and ignore
+XDG for plugin discovery; the JSON registry is cmux ownership metadata, not an
+assumed native loader API.
 Installation is idempotent. Uninstall removes only the owned module and
 registration. Unknown modules, registry collisions, malformed files and
 symlinks are rejected rather than overwritten. Unrelated plugins and hook
@@ -98,7 +99,8 @@ Code Puppy has **no `CODE_PUPPY_HOME`**. Its explicit-XDG convention is:
 
 | Content | Explicit override | Default |
 | --- | --- | --- |
-| Config/plugins | `$XDG_CONFIG_HOME/code_puppy` | `~/.code_puppy` |
+| Config/ownership registry | `$XDG_CONFIG_HOME/code_puppy` | `~/.code_puppy` |
+| Discovered plugins | none (hard-coded in tested releases) | `~/.code_puppy/plugins` |
 | Autosaves | `$XDG_CACHE_HOME/code_puppy/autosaves` | `~/.code_puppy/autosaves` |
 
 Restore captures `XDG_CACHE_HOME`. Global default-agent selection accepts the
