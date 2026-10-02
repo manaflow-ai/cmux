@@ -49,6 +49,7 @@ public nonisolated enum SidebarEdits {
             return mutateWorkspaces(ids, in: &sections) { ws in
                 switch (ws.icon, color) {
                 case let (.symbol(name, _)?, color): ws.icon = .symbol(name, tint: color)
+                case (.emoji?, _): break // an emoji keeps its own colors
                 case let (_, color?): ws.icon = .swatch(color)
                 case (.swatch?, nil), (nil, nil): ws.icon = nil
                 }

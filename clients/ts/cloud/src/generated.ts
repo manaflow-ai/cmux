@@ -362,6 +362,31 @@ export type RunId = string
 
 export type RunState = "queued" | "running" | "sleeping" | "waiting" | "succeeded" | "failed" | "cancelled" | "skipped" | "dead"
 
+export type SsoConnection = {
+  readonly id: SsoConnectionId
+  readonly kind: "oidc"
+  readonly state: "draft" | "active" | "disabled"
+  readonly domains: ReadonlyArray<EmailDomain>
+  readonly oidc: {
+    readonly issuer: string
+    readonly client_id: string
+    readonly scopes: ReadonlyArray<string>
+    readonly authorization_endpoint: string | null
+    readonly token_endpoint: string | null
+    readonly jwks_uri: string | null
+  }
+  readonly secret_set: boolean
+  readonly secret_generation?: number
+  readonly jit: {
+    readonly enabled: boolean
+    readonly default_role: "member" | "admin"
+  }
+  readonly created_at: number
+  readonly updated_at: number
+}
+
+export type SsoConnectionId = string
+
 export type Step = {
   readonly type: "sleep"
   readonly seconds: number
@@ -380,12 +405,14 @@ export type TargetPolicy = {
 
 export type TeamDomain = {
   readonly domain: EmailDomain
-  readonly state: "pending" | "verified" | "lost"
+  readonly state: "pending" | "verified" | "lost" | "lapsed"
   readonly record_name: string
   readonly record_value: string
   readonly requested_at: number
   readonly expires_at: number
   readonly verified_at: number | null
+  readonly last_checked_at?: number
+  readonly check_failures?: number
 }
 
 /** A team; a personal account is a team of one. */
@@ -1079,6 +1106,51 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
+  /** Fetch the issuer's OpenID discovery document and activate the connection (owners and admins). Needs the secret and every domain verified by this team. */
+  readonly "sso.connection.activate": {
+    readonly params: {
+      readonly connection: SsoConnectionId
+    }
+    readonly result: SsoConnection
+  }
+  /** Create an OIDC connection in draft (owners and admins). Then set its client secret and activate it. */
+  readonly "sso.connection.create": {
+    readonly params: {
+      readonly issuer: string
+      readonly client_id: string
+      readonly domains: ReadonlyArray<EmailDomain>
+      readonly scopes?: ReadonlyArray<string>
+      readonly jit?: {
+        readonly enabled: boolean
+        readonly default_role: "member" | "admin"
+      }
+    }
+    readonly result: SsoConnection
+  }
+  /** Disable a connection (owners and admins): sign-in discovery stops routing to it. */
+  readonly "sso.connection.disable": {
+    readonly params: {
+      readonly connection: SsoConnectionId
+    }
+    readonly result: SsoConnection
+  }
+  /** The team's SSO connections, without secrets (owners and admins). */
+  readonly "sso.connection.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly connections: ReadonlyArray<SsoConnection>
+      readonly revision: string
+    }
+  }
+  /** Seal the OIDC client secret (owners and admins). The secret is never returned, logged or recorded in events. */
+  readonly "sso.connection.set_secret": {
+    readonly params: {
+      readonly connection: SsoConnectionId
+      readonly client_secret: string
+    }
+    readonly result: SsoConnection
+  }
   /** Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
   readonly "team.device.compliance": {
     readonly params: Readonly<Record<string, never>>
@@ -1278,6 +1350,11 @@ export const cloudOpMeta = {
   "linear.issue.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "linear.teams.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "slack.post_as_bot": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "sso.connection.activate": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "sso.connection.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "sso.connection.disable": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "sso.connection.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "sso.connection.set_secret": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.device.policy": { class: "read", owner: "cloud:TeamDO", risk: "read" },
