@@ -65,6 +65,9 @@ export function Composer({
   // A send waiting on confirmSend; a second Enter meanwhile does nothing.
   const confirming = useRef(false);
   const [text, setText] = useState("");
+  // The prompt as it is now, for a send that waited on confirmSend while the user kept typing.
+  const textNow = useRef(text);
+  textNow.current = text;
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
@@ -133,9 +136,14 @@ export function Composer({
     if (!prompt) plusDraft.current = undefined;
     if (!prompt || confirming.current) return;
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
+    const submitted = text;
     const send = () => {
       plusDraft.current = undefined;
-      edit("", 0);
+      // What was typed while the send waited stays, without the prompt that went.
+      const now = textNow.current;
+      const rest = now === submitted ? "" : now.startsWith(submitted) ? now.slice(submitted.length).trimStart() : now;
+      edit(rest, rest.length);
+      if (rest) pendingCaret.current = rest.length;
       sentAt.current = Date.now();
       refocusSend.current = fromSend;
       onSend(prompt);

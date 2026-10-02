@@ -126,6 +126,30 @@ test("a send waits on confirmSend: no keeps the prompt, yes sends it once, and a
   expect(sent).toEqual(["Fix the build", "Then the tests"]);
 });
 
+test("typing while a send waits on confirmSend stays in the prompt, without the prompt that went", async () => {
+  const sent: string[] = [];
+  let answer: ((go: boolean) => void) | undefined;
+  await act(async () =>
+    root.render(
+      createElement(Composer, {
+        snapshot: snapshot(),
+        chips: () => null,
+        onSend: (text: string) => sent.push(text),
+        onStop: () => {},
+        confirmSend: () => new Promise<boolean>((resolve) => (answer = resolve)),
+      }),
+    ),
+  );
+  await settle();
+  const prompt = promptField(doc);
+  await act(async () => typeInto(prompt, "Fix the build"));
+  await key(prompt.element, "Enter");
+  await act(async () => typeInto(prompt, "Fix the build then the tests"));
+  await act(async () => answer!(true));
+  expect(sent).toEqual(["Fix the build"]);
+  expect(prompt.value).toBe("then the tests");
+});
+
 test("the dialog names the folder and the agent, focuses Trust folder, and Escape, Close or Cancel back out", async () => {
   let trusted = 0;
   let cancelled = 0;

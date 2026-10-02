@@ -704,12 +704,14 @@ function AcpmuxPane() {
   // A new chat centers its composer under the hero.
   const freshChat = isNewChat(snapshot);
   // The first prompt in a folder the user hasn't decided on waits behind "Trust this folder?".
+  const trustOpen = useRef(false);
   const [trustAsk, setTrustAsk] = useState<{
     sessionId?: string;
     cwd: string;
     agent: string;
     answer(go: boolean): void;
   }>();
+  trustOpen.current = trustAsk !== undefined;
   const sendContext = useRef({
     freshChat,
     sessionId: snapshot.sessionId,
@@ -885,7 +887,8 @@ function AcpmuxPane() {
     };
     window.cmuxAcpmuxBridge = {
       command(name) {
-        if (name === "searchChats") setSearching((open) => !open);
+        // Search chats would open under "Trust this folder?", outside the dialog's inert siblings.
+        if (name === "searchChats" && !trustOpen.current) setSearching((open) => !open);
       },
       receive(next) {
         if (next.protocolVersion !== 1) return;
