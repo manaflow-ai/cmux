@@ -1,6 +1,6 @@
 import type { CompiledNetwork } from "./compile.ts"
 import { FreestyleError, type FreestyleNetworkApi, type FsTunnelDetail } from "./freestyle-client.ts"
-import { MANAGED_MARKER, fnv64, planFreestyle, teamTag, tunnelSlug, vpcSlug, type FsAction, type FsActual, type FsPlan } from "./freestyle-plan.ts"
+import { MANAGED_MARKER, fnv64, planFreestyle, teamTag, tunnelSlug, vpcSlug, type FsAction, type FsActual, type FsPlan, type FsRule, type FsVpc } from "./freestyle-plan.ts"
 import type { Directory } from "./types.ts"
 
 /**
@@ -78,32 +78,53 @@ const errorOf = (e: unknown) =>
     ? { status: e.status, code: e.code, message: e.message, indeterminate: e.indeterminate }
     : { status: 0, code: "exception", message: e instanceof Error ? e.message : String(e), indeterminate: true }
 
-const execute = async (api: FreestyleNetworkApi, team: string, a: FsAction): Promise<void> => {
+type Effect =
+  | { readonly kind: "none" }
+  | { readonly kind: "vpc"; readonly vpc: FsVpc }
+  | { readonly kind: "tunnel"; readonly tunnel: FsTunnelDetail }
+  | { readonly kind: "rule"; readonly rule: FsRule }
+
+const execute = async (api: FreestyleNetworkApi, team: string, a: FsAction): Promise<Effect> => {
   switch (a.op) {
     case "rule.delete":
-      return api.deleteRule(a.ruleId)
+      await api.deleteRule(a.ruleId)
+      return { kind: "none" }
     case "tunnel.delete":
-      return api.deleteTunnel(a.tunnelId)
+      await api.deleteTunnel(a.tunnelId)
+      return { kind: "none" }
     case "vpc.delete":
-      return api.deleteVpc(a.vpcId)
+      await api.deleteVpc(a.vpcId)
+      return { kind: "none" }
     case "vpc.create":
-      await api.createVpc({ slug: a.slug, displayName: `cmux team network ${teamTag(team)}` })
-      return
+      return { kind: "vpc", vpc: await api.createVpc({ slug: a.slug, displayName: `cmux team network ${teamTag(team)}` }) }
     case "tunnel.create":
-      await api.createTunnel({ slug: a.slug, displayName: `cmux device ${a.install.slice(0, 12)}`, clientPublicKey: a.publicKey, routes: a.routes, vpcId: a.vpcId })
-      return
+      return { kind: "tunnel", tunnel: await api.createTunnel({ slug: a.slug, displayName: `cmux device ${a.install.slice(0, 12)}`, clientPublicKey: a.publicKey, routes: a.routes, vpcId: a.vpcId }) }
     case "tunnel.rotate":
-      await api.rotateTunnelKey(a.tunnelId, a.publicKey)
-      return
+      return { kind: "tunnel", tunnel: await api.rotateTunnelKey(a.tunnelId, a.publicKey) }
     case "tunnel.attach":
-      await api.attachVpc(a.tunnelId, a.vpcId)
-      return
+      return { kind: "tunnel", tunnel: await api.attachVpc(a.tunnelId, a.vpcId) }
     case "rule.create":
       // The key is stable for the same rule in the same team, so a retried create can be deduplicated server-side if Freestyle honors it.
-      await api.createRule(a.spec, `cmux-np-${fnv64(`${team}:${a.key}`)}`)
-      return
+      return { kind: "rule", rule: await api.createRule(a.spec, `cmux-np-${fnv64(`${team}:${a.key}`)}`) }
   }
 }
+
+type Working = { vpc: FsVpc | null; tunnelDetails: Array<FsTunnelDetail>; rules: Array<FsRule> }
+
+/** Applies a successful action to the working copy, so the next phase plans without a re-read. */
+const merge = (w: Working, a: FsAction, e: Effect) => {
+  if (a.op === "tunnel.delete") {
+    w.tunnelDetails = w.tunnelDetails.filter((t) => t.tunnelId !== a.tunnelId)
+    w.rules = w.rules.filter((r) => r.source.tunnelId !== a.tunnelId && r.destination.tunnelId !== a.tunnelId)
+  } else if (a.op === "rule.delete") w.rules = w.rules.filter((r) => r.id !== a.ruleId)
+  else if (e.kind === "vpc") w.vpc = e.vpc
+  else if (e.kind === "tunnel") w.tunnelDetails = [...w.tunnelDetails.filter((t) => t.tunnelId !== e.tunnel.tunnelId), e.tunnel]
+  else if (e.kind === "rule") w.rules = [...w.rules, e.rule]
+}
+
+const asActual = (w: Working): FsActual => ({ vpc: w.vpc, tunnels: w.tunnelDetails, rules: w.rules })
+
+const PHASES: ReadonlyArray<ReadonlyArray<FsAction["op"]>> = [["tunnel.delete"], ["rule.delete"], ["vpc.create"], ["tunnel.create", "tunnel.rotate", "tunnel.attach"], ["rule.create"]]
 
 const parallel = async <T, R>(items: ReadonlyArray<T>, n: number, fn: (t: T) => Promise<R>): Promise<Array<R>> => {
   const out: Array<R> = new Array(items.length)
@@ -131,31 +152,41 @@ export const reconcile = async (api: FreestyleNetworkApi, team: string, compiled
   let passes = 0
   let converged = false
 
-  const run = async (a: FsAction): Promise<ActionOutcome> => {
+  const run = async (a: FsAction): Promise<ActionOutcome & { effect?: Effect }> => {
     const t = now()
     try {
-      await execute(api, team, a)
-      return { action: a, ok: true, ms: now() - t }
+      const effect = await execute(api, team, a)
+      return { action: a, ok: true, ms: now() - t, effect }
     } catch (e) {
       return { action: a, ok: false, ms: now() - t, error: errorOf(e) }
     }
   }
 
+  // A pass drives a working copy to an empty plan one phase at a time (revocations first; each
+  // phase plans from the previous phase's results, so a new tunnel's rules follow in the same
+  // pass), then re-reads Freestyle to verify. A failure ends the pass early; the re-read settles it.
   while (passes < maxPasses) {
-    const plan = planFreestyle(team, compiled, dir, actual)
-    deferred = plan.deferred
-    if (passes === 0 && opts.expectConverged) drift = plan.actions
-    if (plan.actions.length === 0) {
-      converged = plan.deferred.every((d) => d.reason.includes("no provider id"))
+    const w: Working = { vpc: actual.vpc, tunnelDetails: [...actual.tunnelDetails], rules: [...actual.rules] }
+    let worked = false
+    for (let step = 0; step < PHASES.length * 2; step++) {
+      const plan = planFreestyle(team, compiled, dir, asActual(w))
+      deferred = plan.deferred
+      if (passes === 0 && step === 0 && opts.expectConverged) drift = plan.actions
+      const group = PHASES.map((ops) => plan.actions.filter((x) => ops.includes(x.op))).find((g) => g.length > 0)
+      if (!group) break
+      worked = true
+      const results = await parallel(group, concurrency, run)
+      for (const { effect, ...o } of results) {
+        outcomes.push(o)
+        if (o.ok && effect) merge(w, o.action, effect)
+      }
+      if (results.some((r) => !r.ok)) break
+    }
+    if (!worked) {
+      converged = deferred.every((d) => d.reason.includes("no provider id"))
       break
     }
     passes++
-    // Phases keep revocation ahead of grants: deletes, then the VPC, then tunnels, then rules.
-    const phase = (ops: ReadonlyArray<FsAction["op"]>) => plan.actions.filter((a) => ops.includes(a.op))
-    for (const group of [phase(["tunnel.delete"]), phase(["rule.delete"]), phase(["vpc.create"]), phase(["tunnel.create", "tunnel.rotate", "tunnel.attach"]), phase(["rule.create"])]) {
-      if (group.length === 0) continue
-      outcomes.push(...(await parallel(group, concurrency, run)))
-    }
     actual = await readActual(api, team)
   }
 
