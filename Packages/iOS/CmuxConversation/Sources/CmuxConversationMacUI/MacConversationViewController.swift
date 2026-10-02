@@ -546,6 +546,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     public override func cancelOperation(_ sender: Any?) {
+        if reactionBar != nil { dismissReactionFocus(); return }
         exitReplyOrEdit()
     }
 
@@ -579,7 +580,56 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             NSWorkspace.shared.open(url)
             return true
         }
+        if rowView.contentFrame.contains(local), model.message.seq != nil, isHold(after: event) {
+            showReactionFocus(model, in: rowView)
+            return true
+        }
         return false
+    }
+
+    /// Press-and-hold on a bubble: tracks the mouse for Messages' long-press
+    /// interval; a release or drag first means an ordinary click.
+    private func isHold(after event: NSEvent) -> Bool {
+        guard let window = view.window else { return false }
+        let start = event.locationInWindow
+        let deadline = Date(timeIntervalSinceNow: Self.holdInterval)
+        while let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: deadline, inMode: .eventTracking, dequeue: false) {
+            if next.type == .leftMouseUp { return false }
+            if hypot(next.locationInWindow.x - start.x, next.locationInWindow.y - start.y) > 4 { return false }
+            _ = window.nextEvent(matching: [.leftMouseDragged], until: .distantPast, inMode: .eventTracking, dequeue: true)
+        }
+        return true
+    }
+
+    static let holdInterval: TimeInterval = 0.45
+
+    /// Messages' tapback focus: the transcript blurs, the held bubble lifts in
+    /// place with a small pop, and a glass reactions capsule appears above it.
+    func showReactionFocus(_ model: MacMessageRowModel, in row: MacMessageRowView) {
+        replyFocus?.removeFromSuperview()
+        let focus = MacReplyFocusView(frame: scrollView.frame)
+        focus.autoresizingMask = [.width, .height]
+        focus.messageID = model.message.id
+        focus.onDismiss = { [weak self] in self?.dismissReactionFocus() }
+        view.addSubview(focus, positioned: .above, relativeTo: scrollView)
+        let frame = row.convert(row.bounds, to: focus)
+        let mine = model.message.reactions.first { $0.participantID == store.meID }?.reaction
+        let bar = MacTapbackBarController(current: mine) { [weak self] reaction in
+            self?.store.react(messageID: model.message.id, reaction: mine == reaction ? nil : reaction)
+            self?.dismissReactionFocus()
+        }
+        reactionBar = bar
+        let content = row.convert(row.contentFrame, to: focus)
+        focus.present(snapshotOf: row, from: frame, to: frame, pop: true)
+        focus.showAccessory(bar.view, anchoredAbove: CGRect(x: content.minX, y: frame.minY, width: content.width, height: content.maxY - frame.minY), trailing: model.isOutgoing)
+        replyFocus = focus
+    }
+
+    private var reactionBar: MacTapbackBarController?
+
+    func dismissReactionFocus() {
+        reactionBar = nil
+        dismissReplyFocus(sent: false)
     }
 
     private func link(in model: MacMessageRowModel, at point: CGPoint, width: CGFloat) -> URL? {
@@ -712,12 +762,13 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             let visible = tableView.rows(in: scrollView.contentView.bounds)
             let ids = (visible.location..<min(rows.count, visible.location + visible.length)).compactMap { messageModel(at: $0)?.message.id }
             return "visible \(ids.joined(separator: ","))"
-        case "tapback", "menu", "reply", "edit":
+        case "tapback", "menu", "reply", "edit", "hold":
             guard let index = lastMessageRow(matching: argument), let model = messageModel(at: index) else { return "error no row" }
             tableView.scrollRowToVisible(index)
             guard let rowView = rowView(at: index) else { return "error not visible" }
             switch verb {
             case "tapback": showTapbackBar(model, in: rowView)
+            case "hold": showReactionFocus(model, in: rowView)
             case "reply": enterReply(model.message)
             case "edit": enterEdit(model.message)
             default:
@@ -1006,11 +1057,51 @@ final class MacReplyFocusView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if !snapshotView.frame.contains(point) { onDismiss?() }
+        if !snapshotView.frame.contains(point), accessoryView?.frame.contains(point) != true { onDismiss?() }
     }
 
     // AppKit-backed layers anchor at their origin, so position == frame origin.
-    func present(snapshotOf row: NSView, from source: CGRect, to target: CGRect) {
+    private var accessoryView: NSView?
+
+    func showAccessory(_ content: NSView, anchoredAbove anchor: CGRect, trailing: Bool) {
+        let glass: NSView
+        if #available(macOS 26.0, *) {
+            let effect = NSGlassEffectView()
+            effect.contentView = content
+            effect.cornerRadius = 21
+            glass = effect
+        } else {
+            let effect = NSVisualEffectView()
+            effect.material = .popover
+            effect.state = .active
+            effect.wantsLayer = true
+            effect.layer?.cornerRadius = 21
+            effect.addSubview(content)
+            glass = effect
+        }
+        let size = content.fittingSize
+        let width = max(size.width, 100), height = max(size.height, 42)
+        let x = trailing ? anchor.maxX - width : anchor.minX
+        glass.frame = CGRect(x: min(max(8, x), bounds.width - width - 8), y: max(8, anchor.minY - height - 6), width: width, height: height)
+        content.frame = CGRect(origin: .zero, size: glass.frame.size)
+        addSubview(glass)
+        accessoryView = glass
+        glass.wantsLayer = true
+        let pop = CASpringAnimation(keyPath: "transform.scale")
+        pop.fromValue = 0.6
+        pop.toValue = 1
+        pop.damping = 18
+        pop.stiffness = 320
+        pop.duration = pop.settlingDuration
+        glass.layer?.add(pop, forKey: "pop")
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = 0.15
+        glass.layer?.add(fade, forKey: "fade")
+    }
+
+    func present(snapshotOf row: NSView, from source: CGRect, to target: CGRect, pop: Bool = false) {
         // Render the layer tree: bubbles are CALayers that cacheDisplay skips.
         let scale = window?.backingScaleFactor ?? 2
         let size = row.bounds.size
@@ -1032,7 +1123,14 @@ final class MacReplyFocusView: NSView {
         lift.stiffness = 300
         lift.mass = 1
         lift.duration = lift.settlingDuration
-        snapshot.add(lift, forKey: "lift")
+        if source != target { snapshot.add(lift, forKey: "lift") }
+        if pop {
+            let scale = CAKeyframeAnimation(keyPath: "transform.scale")
+            scale.values = [1, 1.04, 1]
+            scale.keyTimes = [0, 0.4, 1]
+            scale.duration = 0.3
+            snapshot.add(scale, forKey: "pop")
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.22
             blur.animator().alphaValue = 1
@@ -1040,6 +1138,12 @@ final class MacReplyFocusView: NSView {
     }
 
     func dismiss(returningTo destination: CGRect?) {
+        if let accessoryView {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.15
+                accessoryView.animator().alphaValue = 0
+            }
+        }
         if let destination {
             let current = snapshot.presentation()?.position ?? snapshot.position
             snapshotView.frame = destination

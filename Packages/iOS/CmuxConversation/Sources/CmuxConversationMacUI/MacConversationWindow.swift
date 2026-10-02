@@ -130,20 +130,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
     static let videoItem = NSToolbarItem.Identifier("conversation.video")
 
     /// Measured: Messages' toolbar glyphs are ~15 pt wide.
-    private static let toolbarSymbol = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-
-    private static func offsetGlyph(_ symbol: String, label: String, offset: CGFloat, lift: CGFloat = 1.5) -> NSView {
-        let slot = NSView(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
-        slot.translatesAutoresizingMaskIntoConstraints = false
-        slot.widthAnchor.constraint(equalToConstant: 28).isActive = true
-        slot.heightAnchor.constraint(equalToConstant: 28).isActive = true
-        let button = MacToolbarGlyphButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: label)?.withSymbolConfiguration(toolbarSymbol) ?? NSImage(), target: nil, action: nil)
-        button.isBordered = false
-        button.frame = NSRect(x: offset, y: lift, width: 28, height: 28)
-        button.setAccessibilityLabel(label)
-        slot.addSubview(button)
-        return slot
-    }
+    private static let toolbarSymbol = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
 
     func makeToolbar() -> NSToolbar {
         let toolbar = NSToolbar(identifier: "cmux.conversation")
@@ -165,22 +152,20 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         let item = NSToolbarItem(itemIdentifier: identifier)
         switch identifier {
+        // Messages' toolbar controls are Liquid Glass buttons (the macOS 26
+        // default bordered toolbar style); only the title cluster is plain.
         case Self.filterItem:
             item.image = NSImage(systemSymbolName: "line.3.horizontal.decrease", accessibilityDescription: nil)?.withSymbolConfiguration(Self.toolbarSymbol)
             item.label = String(localized: "conversation.toolbar.filter", defaultValue: "Filter", bundle: .module)
-            item.isBordered = false
-            if #available(macOS 26.0, *) { item.style = .plain }
+            item.isBordered = true
         case Self.composeItem:
+            item.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: nil)?.withSymbolConfiguration(Self.toolbarSymbol)
             item.label = String(localized: "conversation.toolbar.compose", defaultValue: "New Message", bundle: .module)
-            item.view = Self.offsetGlyph("square.and.pencil", label: item.label, offset: 0)
-            item.isBordered = false
-            if #available(macOS 26.0, *) { item.style = .plain }
+            item.isBordered = true
         case Self.videoItem:
+            item.image = NSImage(systemSymbolName: "video", accessibilityDescription: nil)?.withSymbolConfiguration(Self.toolbarSymbol)
             item.label = String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module)
-            // Messages' video glyph sits 2.5 pt inboard of the toolbar's trailing slot.
-            item.view = Self.offsetGlyph("video", label: item.label, offset: -2.5, lift: 0.5)
-            item.isBordered = false
-            if #available(macOS 26.0, *) { item.style = .plain }
+            item.isBordered = true
         case Self.titleItem:
             item.view = titleView
             item.label = ""
@@ -575,27 +560,3 @@ public enum MacConversationLab {
 }
 #endif
 
-#if os(macOS)
-/// Toolbar glyph that dims with its window like Messages' plain toolbar items.
-final class MacToolbarGlyphButton: NSButton {
-    private var observers: [any NSObjectProtocol] = []
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        observers.forEach(NotificationCenter.default.removeObserver)
-        observers = []
-        guard let window else { return }
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-            observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.updateKeyState() }
-            })
-        }
-        updateKeyState()
-    }
-
-    private func updateKeyState() {
-        // Measured: inactive glyphs drop to ~46% of their key-window contrast.
-        alphaValue = window?.isKeyWindow == true ? 1 : 0.46
-    }
-}
-#endif
