@@ -164,6 +164,7 @@
     "window_record.put",
     "workspace.close",
     "workspace.create",
+    "workspace.ensure_home",
     "workspace.focus",
     "workspace.get",
     "workspace.layout.apply",

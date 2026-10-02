@@ -6,14 +6,14 @@ selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/2` transports 184 operations for exactly one local mux
+`cmux.protocol/2` transports 185 operations for exactly one local mux
 session. Cross-machine aggregation and provider lifecycle require a later
 broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
 | `read` | 53 | Reads state and forbids an idempotency key |
-| `mutation` | 112 | Requires an idempotency key and returns a mutation result |
+| `mutation` | 113 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 5 | Opens a connection-owned typed stream |
 | `connection_control` | 12 | Changes only connection-local state |
 
@@ -50,7 +50,7 @@ correlation, and idempotency metadata.
 | `tab_group` | 9 | `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.get`, `tab_group.list`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update` |
 | `terminal` | 23 | `terminal.attach`, `terminal.close`, `terminal.copy`, `terminal.get`, `terminal.history.clear`, `terminal.history.read`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.list`, `terminal.move`, `terminal.output_read`, `terminal.process.get`, `terminal.project`, `terminal.renderer_grant.create`, `terminal.screen.read`, `terminal.state.read`, `terminal.viewer.release`, `terminal.viewer.resize`, `terminal.viewport.scroll`, `terminal.wait`, `terminal.wait_exit` |
 | `window_record` | 3 | `window_record.delete`, `window_record.list`, `window_record.put` |
-| `workspace` | 19 | `workspace.close`, `workspace.create`, `workspace.focus`, `workspace.get`, `workspace.layout.apply`, `workspace.list`, `workspace.move`, `workspace.place`, `workspace.placement.list`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_log.list`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
+| `workspace` | 20 | `workspace.close`, `workspace.create`, `workspace.ensure_home`, `workspace.focus`, `workspace.get`, `workspace.layout.apply`, `workspace.list`, `workspace.move`, `workspace.place`, `workspace.placement.list`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_log.list`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
 | `workspace_group` | 5 | `workspace_group.create`, `workspace_group.delete`, `workspace_group.list`, `workspace_group.move`, `workspace_group.update` |
 
 ## Local operations
