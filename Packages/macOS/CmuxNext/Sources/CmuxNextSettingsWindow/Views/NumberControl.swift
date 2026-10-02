@@ -2,7 +2,7 @@ import CmuxNextDesign
 import CmuxNextSettings
 import SwiftUI
 
-/// A slider (points, seconds, fractions) or a stepper (counts).
+/// A slider (points, seconds, fractions) or a stepper (counts, days).
 struct NumberControl: View {
     let model: SettingsWindowModel
     let descriptor: SettingDescriptor
@@ -13,7 +13,7 @@ struct NumberControl: View {
         let shown = stored ?? number.placeholder
         let binding = Binding<Double>(get: { shown }, set: { model.set(descriptor, .number(NumberText.snap($0, number))) })
         HStack(spacing: Metrics.space4) {
-            if number.unit == .count {
+            if number.unit == .count || number.unit == .days {
                 Stepper(value: binding, in: number.range, step: number.step) { EmptyView() }.labelsHidden()
             } else {
                 Slider(value: binding, in: number.range, step: number.step)
@@ -38,12 +38,21 @@ enum NumberText {
 
     static func format(_ value: Double, unit: SettingNumber.Unit) -> String {
         if unit == .fraction { return value.formatted(.percent.precision(.fractionLength(0))) }
+        if unit == .days { return days(Int(value.rounded())) }
         let text = value.formatted(.number.precision(.fractionLength(0...1)))
         switch unit {
         case .points: return SettingsWindowStrings.points(text)
         case .seconds: return SettingsWindowStrings.seconds(text)
         case .minutes: return SettingsWindowStrings.minutes(text)
-        case .count, .fraction: return text
+        case .count, .fraction, .days: return text
         }
+    }
+
+    /// "30 days", localized by Foundation.
+    private static func days(_ count: Int) -> String {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.day]
+        formatter.unitsStyle = .full
+        return formatter.string(from: DateComponents(day: count)) ?? String(count)
     }
 }

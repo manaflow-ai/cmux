@@ -56,6 +56,16 @@ public nonisolated enum SettingsSchema {
                 keywords: ["history", "commands", "shell", "privacy", "osc 133"]
             ),
             SettingDescriptor(
+                CommandRetentionSetting.configPath, section: .general, group: history,
+                title: SettingsText.text("settings.history.commandRetentionDays", "Keep Terminal Commands For"),
+                help: SettingsText.text("settings.history.commandRetentionDays.help",
+                                        "Each machine deletes recorded commands that are older."),
+                kind: .number(SettingNumber(Double(CommandRetentionSetting.range.lowerBound)...Double(CommandRetentionSetting.range.upperBound),
+                                            step: 1, unit: .days)),
+                default: .number(Double(CommandRetentionSetting.fallback)),
+                keywords: ["history", "commands", "retention", "delete", "privacy", "days"]
+            ),
+            SettingDescriptor(
                 WindowTitlebarSetting.configPath, section: .general, group: window,
                 title: SettingsText.text("settings.window.titlebar", "Titlebar"),
                 help: SettingsText.text("settings.window.titlebar.help", "Minimal has no titlebar strip; the top row moves the window."),

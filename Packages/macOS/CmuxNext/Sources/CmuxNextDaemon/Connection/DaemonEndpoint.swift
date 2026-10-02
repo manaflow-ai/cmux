@@ -122,15 +122,17 @@ public struct DaemonCapabilities: Sendable {
     /// but they are not in `optional` (the pinned daemon must serve every
     /// `optional` capability, BranchDaemonTests). The pin commit that brings
     /// one moves it into `optional`.
-    /// Finished shell commands (OSC 133) journaled as `shell.command.finished`
-    /// once `set-terminal-command-history` turns it on (plans/cmux-next/history.md 6).
-    public let terminalCommandJournal = "terminal-command-journal-v1"
+    /// Finished shell commands (OSC 133) stored as deletable rows with a
+    /// retention once `set-terminal-command-history` turns it on; read with
+    /// `list-terminal-commands`, deleted with `delete-terminal-commands`
+    /// (plans/cmux-next/history.md 6).
+    public let terminalCommandHistory = "terminal-command-history-v1"
     /// Protocol-v2 state operations on the workspace store (`screen.update`,
     /// `screen.move`, `screen_group.*`, ...) with idempotency keys, one commit
     /// path shared with the raw commands (PR #16174, cmux-tui 52103e740).
     public let stateResources = "state-resources-v1"
     public var awaitingPin: [String] {
-        [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns,
+        [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandHistory, stickyColumns,
          endTerminalsKeepLayout, stateResources]
     }
 
