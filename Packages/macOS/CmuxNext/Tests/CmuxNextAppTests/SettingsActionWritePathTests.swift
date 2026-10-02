@@ -72,10 +72,10 @@ import Testing
                 #expect(descriptor.accepts(value), "\(action.rawValue) wrote \(key) = \(value.compactText)")
             }
         }
-        // The live values landed on the context's design (the last rows set
-        // compact density, the minimal titlebar and the glow ring).
-        #expect(design.density == .compact)
-        #expect(design.titlebar == .minimal)
+        // The live values landed on the context's design: each of these
+        // differs from a fresh DesignSettings.
+        #expect(design.animationSpeed == .normal)
+        #expect(design.centerFocusedColumn == .always)
         #expect(design.focusRing.style == .glow)
     }
 }
