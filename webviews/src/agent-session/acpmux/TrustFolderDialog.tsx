@@ -1,18 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
+import { t } from "./i18n";
 
-/// Dialog copy. English defaults until the host passes localized labels, as the rest of the pane does today.
-export const TRUST_LABELS = {
-  title: "Trust this folder?",
-  body: "{agent} can read, edit, and execute files here. Folder settings can also run code automatically, even without a model request. Continue only if you trust these files.",
-  trust: "Trust folder",
-  cancel: "Cancel",
-  close: "Close",
-  failed: "Couldn't save that. Try again.",
-  /// The agent's name when the session doesn't say which agent it runs.
-  agent: "The agent",
-};
-
-/// Codex's "Trust this folder?" (codex-atlas-clone reference fixture-trust-dialog), asked
+/// "Trust this folder?", asked
 /// before the first prompt in a folder the user hasn't decided on. Trust folder records the
 /// decision and lets the prompt go; Cancel, the close button and Escape keep the prompt unsent.
 export function TrustFolderDialog({
@@ -80,28 +69,28 @@ export function TrustFolderDialog({
   return (
     <div ref={scrim} className="acpmux-trust-scrim">
       <dialog open className="acpmux-trust" aria-modal="true" aria-labelledby={titleId} aria-describedby={bodyId}>
-        <button type="button" className="acpmux-trust-close" aria-label={TRUST_LABELS.close} onClick={onCancel}>
+        <button type="button" className="acpmux-trust-close" aria-label={t("trust.close")} onClick={onCancel}>
           <svg width={14} height={14} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
             <path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
           </svg>
         </button>
         <h2 id={titleId} className="acpmux-trust-title">
-          {TRUST_LABELS.title}
+          {t("trust.title")}
         </h2>
         <div className="acpmux-trust-path">{cwd}</div>
         <p id={bodyId} className="acpmux-trust-body">
-          {TRUST_LABELS.body.replace("{agent}", agent)}
+          {t("trust.body", { agent })}
         </p>
         {failed && (
           <p className="acpmux-trust-error" role="alert">
-            {TRUST_LABELS.failed}
+            {t("trust.failed")}
           </p>
         )}
         <button ref={trustButton} type="button" className="acpmux-trust-primary" aria-busy={saving} onClick={trust}>
-          {TRUST_LABELS.trust}
+          {t("trust.trust")}
         </button>
         <button type="button" className="acpmux-trust-secondary" onClick={onCancel}>
-          {TRUST_LABELS.cancel}
+          {t("trust.cancel")}
         </button>
       </dialog>
     </div>

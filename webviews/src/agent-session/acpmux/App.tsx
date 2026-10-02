@@ -28,7 +28,8 @@ import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import { needsTrust, type TrustSource } from "./folderTrust";
-import { TRUST_LABELS, TrustFolderDialog } from "./TrustFolderDialog";
+import { TrustFolderDialog } from "./TrustFolderDialog";
+import { t } from "./i18n";
 import { agentName } from "./agents";
 import { DiffPanel } from "./DiffPanel";
 import type { ChangesSource } from "./changes/model";
@@ -730,7 +731,7 @@ function AcpmuxPane() {
       setTrustAsk({
         sessionId,
         cwd,
-        agent: harness ? agentName(harness) : TRUST_LABELS.agent,
+        agent: harness ? agentName(harness) : t("trust.agent"),
         answer: (go) => {
           setTrustAsk(undefined);
           resolve(go);

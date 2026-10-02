@@ -91,7 +91,7 @@
 .acpmux-context-chip{display:flex;align-items:center;gap:6px;min-width:0;height:26px;padding:0 10px 0 8px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);white-space:nowrap}
 .acpmux-context-chip>span{overflow:hidden;text-overflow:ellipsis}
 .acpmux-context-chip .acpmux-icon{color:var(--agent-muted)}
-/* Trust this folder?: Codex's centered confirmation over a dimmed pane. */
+/* Trust this folder?: a centered confirmation over a dimmed pane. */
 .acpmux-trust-scrim{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:16px;background:color-mix(in srgb,var(--agent-page-bg,var(--acpmux-base)) 55%,transparent)}
 .acpmux-trust{position:relative;display:flex;flex-direction:column;gap:12px;width:min(440px,100%);margin:0;padding:24px 22px 20px;box-sizing:border-box;border:0;border-radius:18px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 24px 60px var(--agent-shadow,rgb(0 0 0/.4));color:var(--agent-text);text-align:center}
 .acpmux-trust-title{margin:0 24px;font-size:19px;font-weight:600;line-height:26px}

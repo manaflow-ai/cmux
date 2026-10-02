@@ -15,6 +15,10 @@ Object.assign(globals, {
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  // The composer's prompt is a Milkdown (ProseMirror) editor.
+  Node: dom.window.Node,
+  getSelection: dom.window.getSelection.bind(dom.window),
+  MutationObserver: dom.window.MutationObserver,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(() => Object.assign(globals, saved));
@@ -25,6 +29,7 @@ const { Composer } = await import("./Composer");
 const { TrustFolderDialog } = await import("./TrustFolderDialog");
 const { needsTrust, readTrust, stricterTrust } = await import("./folderTrust");
 const { MockAcpmuxSocket } = await import("./mock");
+const { promptField, typeInto } = await import("./promptFieldTesting");
 
 const doc = dom.window.document;
 let root: ReturnType<typeof createRoot>;
@@ -72,15 +77,6 @@ const snapshot = (): AcpmuxSnapshot => ({
   catalog: [],
   canLoadOlder: false,
 });
-/// Types into the prompt through React's onChange (see composer.test.tsx).
-function typeInto(node: HTMLTextAreaElement, value: string) {
-  node.value = value;
-  node.setSelectionRange(value.length, value.length);
-  const props = (node as unknown as Record<string, { onChange(event: { target: HTMLTextAreaElement }): void }>)[
-    Object.keys(node).find((name) => name.startsWith("__reactProps$"))!
-  ]!;
-  props.onChange({ target: node });
-}
 
 test("a send waits on confirmSend: no keeps the prompt, yes sends it once, and a failure sends it", async () => {
   const sent: string[] = [];
@@ -104,25 +100,27 @@ test("a send waits on confirmSend: no keeps the prompt, yes sends it once, and a
       }),
     ),
   );
-  const prompt = doc.querySelector("textarea")!;
+  // Milkdown makes its editor a task after the composer mounts.
+  await settle();
+  const prompt = promptField(doc);
   await act(async () => typeInto(prompt, "Fix the build"));
-  await key(prompt, "Enter");
+  await key(prompt.element, "Enter");
   // A second Enter while the first waits asks nothing more.
-  await key(prompt, "Enter");
+  await key(prompt.element, "Enter");
   expect(asked).toBe(1);
   expect(sent).toEqual([]);
   await act(async () => answer!(false));
   expect(sent).toEqual([]);
   expect(prompt.value).toBe("Fix the build");
-  await key(prompt, "Enter");
+  await key(prompt.element, "Enter");
   // The dialog took focus; sending from Enter hands it back to the prompt.
   (doc.activeElement as HTMLElement | null)?.blur();
   await act(async () => answer!(true));
   expect(sent).toEqual(["Fix the build"]);
   expect(prompt.value).toBe("");
-  expect(doc.activeElement).toBe(prompt);
+  expect(doc.activeElement).toBe(prompt.element);
   await act(async () => typeInto(prompt, "Then the tests"));
-  await key(prompt, "Enter");
+  await key(prompt.element, "Enter");
   await act(async () => fail!(new Error("host gone")));
   await settle();
   expect(sent).toEqual(["Fix the build", "Then the tests"]);

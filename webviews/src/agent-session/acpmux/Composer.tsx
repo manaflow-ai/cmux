@@ -148,7 +148,7 @@ export function Composer({
         confirming.current = false;
         if (go) send();
         // The dialog that asked took focus with it; a send from the button refocuses that instead.
-        if (!go || !fromSend) textarea.current?.focus();
+        if (!go || !fromSend) field.current?.focus();
       });
   };
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
