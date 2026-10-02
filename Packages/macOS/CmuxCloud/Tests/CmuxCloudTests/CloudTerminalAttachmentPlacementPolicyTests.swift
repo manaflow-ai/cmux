@@ -59,6 +59,26 @@ struct CloudTerminalAttachmentPlacementPolicyTests {
     }
 
     @Test
+    func restoredRepairRequiresSavedWorkspace() {
+        let policy = CloudTerminalAttachmentPlacementPolicy(
+            expectedResource: resource,
+            expectedWorkspaceID: nil,
+            expectedTabID: "deleted-tab",
+            allowsRepair: true
+        )
+        #expect(throws: CloudDiagnosticFailure.placement) {
+            try policy.validate(
+                resourceID: resource,
+                remoteTabID: "deleted-tab",
+                catalogPlacement: nil,
+                materializedPlacement: SurfaceRemotePlacement(
+                    workspaceID: "fallback-workspace", tabID: "replacement"
+                )
+            )
+        }
+    }
+
+    @Test
     func resourceAndTabIdentityRemainStrictDuringRepair() {
         let policy = CloudTerminalAttachmentPlacementPolicy(
             expectedResource: resource,

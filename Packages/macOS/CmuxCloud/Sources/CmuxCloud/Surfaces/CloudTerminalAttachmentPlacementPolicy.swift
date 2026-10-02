@@ -45,6 +45,12 @@ public struct CloudTerminalAttachmentPlacementPolicy: Sendable {
               remoteTabID == nil || expectedTabID == nil || remoteTabID == expectedTabID else {
             throw CloudDiagnosticFailure.placement
         }
+        // A restored tab may be repaired only when its saved workspace is known.
+        // Without that boundary, a replacement from a fallback workspace could
+        // silently rebind the pane to a different layout.
+        guard !(allowsRepair && expectedWorkspaceID == nil) else {
+            throw CloudDiagnosticFailure.placement
+        }
         guard expectedWorkspaceID != nil || expectedTabID != nil else {
             return materializedPlacement
         }
