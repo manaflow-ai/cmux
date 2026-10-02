@@ -44,7 +44,7 @@ extension SSHFileExplorerProvider {
 extension SSHFileExplorerConnection {
     /// Components that identify the remote SSH transport and its options.
     var identityComponents: [String] {
-        [
+        let fields = [
             destination,
             port.map(String.init) ?? "",
             identityFile ?? "",
@@ -52,9 +52,10 @@ extension SSHFileExplorerConnection {
             useIPv4 ? "4" : "",
             useIPv6 ? "6" : "",
             forwardAgent ? "A" : "",
-            compressionEnabled ? "C" : "",
-            sshOptions.joined(separator: "\u{1f}")
+            compressionEnabled ? "C" : ""
         ]
+            + sshOptions
+        return fields.map { "\($0.utf8.count):\($0)" }
     }
 
     /// Creates the Files transport identity from an interactive SSH process.

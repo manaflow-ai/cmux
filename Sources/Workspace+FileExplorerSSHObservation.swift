@@ -16,6 +16,15 @@ struct FileExplorerSelectedTerminalContext: Equatable, Sendable {
 
 @MainActor
 extension Workspace {
+    func postFileExplorerShellActivityChangeIfFocused(panelId: UUID) {
+        guard panelId == focusedPanelId else { return }
+        NotificationCenter.default.post(
+            name: .workspaceShellActivityDidChange,
+            object: self,
+            userInfo: ["workspaceId": id, "panelId": panelId]
+        )
+    }
+
     /// Returns the selected local terminal's current TTY and remote title cwd.
     /// Managed remote workspaces are deliberately excluded because their
     /// configured transport remains authoritative.
