@@ -1005,7 +1005,7 @@ struct ContentView: View {
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
     @State private var commandPaletteCloudWorkspaceTargetsCache: [CommandPaletteCloudWorkspaceTarget] = []
-    @State private var commandPaletteCloudWorkspaceTargetsCacheKey: Int?
+    @State private var commandPaletteCloudWorkspaceTargetsFingerprint: Int?
 
     private var isCommandPalettePresented: Bool {
         commandPaletteOverlayState.isCommandPalettePresented
@@ -5643,7 +5643,6 @@ struct ContentView: View {
             return hasher.finalize()
         }
         let windowContexts = commandPaletteSwitcherWindowContexts()
-        let cloudWorkspaceTargets = commandPaletteCloudWorkspaceTargets()
         let fingerprintContexts = windowContexts.map { context in
             CommandPaletteSwitcherFingerprintContext(
                 windowId: context.windowId,
@@ -5677,11 +5676,7 @@ struct ContentView: View {
             )
         }
         var fingerprint = CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts)
-        for target in cloudWorkspaceTargets {
-            fingerprint = fingerprint &* 31 &+ target.machine.rawValue.hashValue
-            fingerprint = fingerprint &* 31 &+ target.workspace.id.hashValue
-            fingerprint = fingerprint &* 31 &+ target.workspace.name.hashValue
-        }
+        fingerprint = fingerprint &* 31 &+ (commandPaletteCloudWorkspaceTargetsFingerprint ?? 0)
         return fingerprint
     }
 
@@ -5763,21 +5758,6 @@ struct ContentView: View {
         guard CloudMachinesFeature.isEnabled else { return [] }
         let catalog = SurfaceCatalog.shared
         let snapshot = catalog.snapshot
-        var keyHasher = Hasher()
-        for machine in snapshot.machines where !machine.id.isLocal {
-            keyHasher.combine(machine.id.rawValue)
-            keyHasher.combine(machine.name)
-            for workspace in machine.remoteWorkspaces ?? [] {
-                keyHasher.combine(workspace.id)
-                keyHasher.combine(workspace.name)
-                keyHasher.combine(workspace.index)
-            }
-        }
-        keyHasher.combine(String(describing: catalog.sidebarOrganization.state))
-        let cacheKey = keyHasher.finalize()
-        if commandPaletteCloudWorkspaceTargetsCacheKey == cacheKey {
-            return commandPaletteCloudWorkspaceTargetsCache
-        }
         let allNodes = CloudTreeNodeBuilder.nodes(
             machines: [],
             snapshot: snapshot,
@@ -5805,7 +5785,14 @@ struct ContentView: View {
                   seen.insert("\(machine.rawValue):\(workspace.id)").inserted else { return nil }
             return CommandPaletteCloudWorkspaceTarget(machine: machine, workspace: workspace, group: group)
         }
-        commandPaletteCloudWorkspaceTargetsCacheKey = cacheKey
+        var fingerprintHasher = Hasher()
+        for target in targets {
+            fingerprintHasher.combine(target.machine.rawValue)
+            fingerprintHasher.combine(target.workspace.id)
+            fingerprintHasher.combine(target.workspace.name)
+            target.group.remoteWorkspaceID.map(fingerprintHasher.combine)
+        }
+        commandPaletteCloudWorkspaceTargetsFingerprint = fingerprintHasher.finalize()
         commandPaletteCloudWorkspaceTargetsCache = targets
         return targets
     }
@@ -10139,6 +10126,8 @@ struct ContentView: View {
     }
 
     private func openCommandPaletteSwitcher() {
+        commandPaletteCloudWorkspaceTargetsCache = []
+        commandPaletteCloudWorkspaceTargetsFingerprint = nil
         handleCommandPaletteListRequest(scope: .switcher)
     }
 
