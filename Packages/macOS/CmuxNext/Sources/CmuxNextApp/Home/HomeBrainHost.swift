@@ -16,9 +16,11 @@ nonisolated struct HomeBrainHost: Sendable {
     let executable: URL
     let muxHome: URL
     let daemonSocket: String
+    /// This app's control socket, so the mux's `cmux` calls reach this app (tagged builds included).
+    let controlSocket: String
     let acpmux: AcpmuxEnvironment?
 
-    static func resolve(daemonSocket: String, tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
+    static func resolve(daemonSocket: String, controlSocket: String, tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
                         userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> HomeBrainHost? {
         guard let path = environment["CMUX_NEXT_MUX_HOST"], !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) else {
             return nil
@@ -33,7 +35,7 @@ nonisolated struct HomeBrainHost: Sendable {
             home = base
         }
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home, daemonSocket: daemonSocket,
+        return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home, daemonSocket: daemonSocket, controlSocket: controlSocket,
                              acpmux: AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment))
     }
 
@@ -44,7 +46,10 @@ nonisolated struct HomeBrainHost: Sendable {
 
     var childEnvironment: [String: String] {
         var variables: [String: String] = [
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin",
+            // The app's bundled CLI first, so `cmux` in the mux's shell is this build's.
+            "PATH": [Bundle.main.resourceURL?.appendingPathComponent("bin").path, "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"]
+                .compactMap { $0 }.joined(separator: ":"),
+            "CMUX_SOCKET_PATH": controlSocket,
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
             "MUX_HOST_LOG": muxHome.appendingPathComponent("host.log").path,
         ]

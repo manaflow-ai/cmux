@@ -56,7 +56,8 @@ final class HomeService {
         // task-owner: reads the endpoint, then spawns the detached host once
         Task { [weak self] in
             guard let self, let socket = await connection.endpoint?.socketPath,
-                  let host = HomeBrainHost.resolve(daemonSocket: socket, tag: services.environment.tag) else { return }
+                  let host = HomeBrainHost.resolve(daemonSocket: socket, controlSocket: services.environment.launch.socketPath,
+                                                       tag: services.environment.tag) else { return }
             guard !startedBrainHost else { return }
             startedBrainHost = true
             await host.launch()
