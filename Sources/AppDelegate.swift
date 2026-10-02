@@ -698,6 +698,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static let persistedWindowGeometryDefaultsKey = SessionSnapshotPersistenceWriter.persistedWindowGeometryDefaultsKey
 #if DEBUG
     nonisolated static var debugPersistedWindowGeometryDefaultsKey: String { persistedWindowGeometryDefaultsKey }
+
+    private nonisolated static func forgetPersistedWindowGeometryForTestProcess() {
+        UserDefaults.standard.removeObject(forKey: persistedWindowGeometryDefaultsKey)
+        removeLegacyPersistedWindowGeometry()
+    }
 #endif
 
     weak var tabManager: TabManager?
@@ -3951,10 +3956,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         if !didApplyStartupSessionRestore, didAttemptStartupSessionRestore {
             // No snapshot restore ran (fresh start / restore disabled):
-            // startup restore has settled now. When a restore DID run,
-            // completeSessionRestoreOperation settles it after every restored
-            // window exists and the panel-identity aliases are recorded.
-            noteStartupSessionRestoreSettled()
+            // replay the agent journal now. When a restore DID run,
+            // completeSessionRestoreOperation triggers replay after the
+            // restored panel-identity aliases are recorded.
+            AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
             scheduleAgentSessionRecoveryAfterUncleanLaunchIfNeeded()
         }
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
@@ -4067,7 +4072,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         // Every restored workspace has enqueued its identity aliases by now;
         // the journal consumer is FIFO, so the replay fold sees all of them.
-        noteStartupSessionRestoreSettled()
+        AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
         if !isManualReopen {
             scheduleAgentSessionRecoveryAfterUncleanLaunchIfNeeded()
         }
@@ -4096,17 +4101,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Auto-resume input can be queued before tmux has spawned; preserve
             // restored process-detected bindings until a later live scan.
             _ = saveSessionSnapshot(includeScrollback: false)
-        }
-    }
-
-    /// The one place startup session restore reports that it settled: either
-    /// the snapshot was applied with every restored window created, or there
-    /// was nothing to restore. Consumers must tolerate repeat calls (window
-    /// registrations and manual reopens land here too).
-    private func noteStartupSessionRestoreSettled() {
-        AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
-        if !isRunningUnderXCTestCached {
-            WhatsNewCenter.shared.startupSessionRestoreDidSettle()
         }
     }
 
