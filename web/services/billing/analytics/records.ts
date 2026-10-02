@@ -8,6 +8,7 @@
 // a moment in time.
 
 import { APPLE_USD_LIST_PRICE } from "../apple/config";
+import { GO_PRICING_USD, MAX_PRICING_USD, PRO_PRICING_USD, TEAM_PRICING_USD } from "../plans";
 import { toUsd } from "./fx";
 
 export type AnalyticsSource = "apple" | "stripe";
@@ -48,7 +49,7 @@ export type SubscriptionRecord = {
   readonly intervals: readonly CoverageInterval[];
   /** Why the final paid run ended, when it has ended. */
   readonly endReason: "expired" | "revoked" | "canceled" | null;
-  /** Count of prices converted with a fallback because the currency is unknown. */
+  /** Count of prices estimated from a list price (missing price or unknown currency). */
   readonly fxFallbacks: number;
 };
 
@@ -314,12 +315,27 @@ function stripeIntervalMonths(row: StripeSubscriptionInput): number {
 
 type StripePrice = { readonly chargeUsd: number; readonly fallback: boolean };
 
-/** Gross list price of one charge (unit amount times seats), before discounts. */
+/** Web list price per month (per seat for Team), USD. */
+const STRIPE_USD_MONTHLY_LIST_PRICE: Readonly<Record<string, number>> = {
+  go: GO_PRICING_USD.month.monthlyEquivalent,
+  pro: PRO_PRICING_USD.month.monthlyEquivalent,
+  max: MAX_PRICING_USD.month.monthlyEquivalent,
+  team: TEAM_PRICING_USD.month.monthlyEquivalent,
+};
+
+/**
+ * Gross list price of one charge (unit amount times seats), before discounts.
+ * A missing unit amount or an unknown currency falls back to the plan's web
+ * list price for the period and is counted, like the Apple path, so a paid
+ * subscription never adds zero to MRR silently.
+ */
 export function stripeChargeUsd(row: StripeSubscriptionInput): StripePrice {
-  if (row.unitAmount === null) return { chargeUsd: 0, fallback: true };
-  const quantity = row.quantity ?? row.seats ?? 1;
-  const converted = toUsd((row.unitAmount / 100) * Math.max(quantity, 1), row.currency);
-  if (converted === null) return { chargeUsd: 0, fallback: true };
+  const quantity = Math.max(row.quantity ?? row.seats ?? 1, 1);
+  const converted = row.unitAmount === null ? null : toUsd((row.unitAmount / 100) * quantity, row.currency);
+  if (converted === null) {
+    const listPrice = STRIPE_USD_MONTHLY_LIST_PRICE[row.plan] ?? 0;
+    return { chargeUsd: roundCents(listPrice * stripeIntervalMonths(row) * quantity), fallback: true };
+  }
   return { chargeUsd: roundCents(converted), fallback: false };
 }
 
