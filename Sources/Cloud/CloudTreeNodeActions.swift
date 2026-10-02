@@ -522,7 +522,7 @@ struct CloudTreeNodeActions {
                         throw VMClientError.notSignedIn
                     }
                     do {
-                        let publication = try await CloudPortShareService.prepare(
+                        let publication = try await CloudPortShareService().prepare(
                             client: client,
                             vmID: resource.machine.rawValue,
                             port: port

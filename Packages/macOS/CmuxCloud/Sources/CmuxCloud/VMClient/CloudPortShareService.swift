@@ -7,9 +7,10 @@ public enum CloudPortShareError: Error, Equatable, Sendable {
 }
 
 /// Creates or reuses a protected publication and only returns an active URL target.
-public enum CloudPortShareService {
+public struct CloudPortShareService {
+    public init() {}
     /// Prepares the protected publication for one VM port.
-    public static func prepare(
+    public func prepare(
         client: VMClient,
         vmID: String,
         port: Int
