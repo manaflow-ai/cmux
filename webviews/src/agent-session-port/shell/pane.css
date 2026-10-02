@@ -1,0 +1,250 @@
+/* Right pane box (window coordinates). */
+.cx-sidepane {
+  position: absolute;
+  left: 1141.5px;
+  top: 44px;
+  right: 4px;
+  bottom: 4px;
+  background: var(--cx-main);
+  box-shadow: -1px 0 0 #383934;
+  border-radius: 0 11.75px 11.75px 0;
+  overflow: hidden;
+  font-size: 14px;
+  color: var(--cx-text-strong);
+}
+
+/* ---------- Browser new tab (pane-local coordinates) ---------- */
+.cx-newtab {
+  container: cx-newtab / inline-size;
+  background: #262722;
+}
+/* Content column: up to 768px, centered, at least 20px from the left edge and 21px from the
+   right (the 582.5px page's grid spans x 20..561.5). */
+.cx-newtab__content {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: min(768px, 100% - 41px);
+  left: calc((100% - min(768px, 100% - 41px)) / 2 - 0.5px);
+}
+.cx-newtab__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 48px;
+  background: #272823;
+  border-bottom: 1px solid #363732;
+}
+.cx-newtab__nav,
+.cx-newtab__url,
+.cx-newtab__btn {
+  position: absolute;
+  top: 7.5px;
+  height: 32.5px;
+  border-radius: 16.25px;
+  background: #3a3b35;
+  box-shadow:
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.09),
+    0 1px 2px rgb(0 0 0 / 0.12);
+  color: #999993;
+}
+.cx-newtab__nav {
+  left: 7.5px;
+  width: 98px;
+}
+.cx-newtab__navicon {
+  position: absolute;
+  top: 8.25px;
+}
+.cx-newtab__navicon:nth-child(-n + 2) {
+  color: #6b6c67;
+}
+.cx-newtab__reload {
+  color: #c9c9c3;
+}
+.cx-newtab__navsep {
+  position: absolute;
+  left: 63px;
+  top: 8px;
+  width: 1px;
+  height: 16.5px;
+  background: #4d4e49;
+}
+.cx-newtab__url {
+  left: 114.5px;
+  right: 115px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: #8d8e88;
+}
+.cx-newtab__btn {
+  width: 33px;
+  height: 33px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cx-text-strong);
+}
+.cx-newtab__btn--chat {
+  right: 45.5px;
+}
+.cx-newtab__btn--more {
+  right: 7.5px;
+}
+.cx-newtab__h {
+  position: absolute;
+  left: 0.5px;
+  line-height: 18px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.cx-newtab__grid {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 114.5px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: 39.5px;
+  column-gap: 16px;
+  row-gap: 4.5px;
+}
+.cx-newtab__card {
+  position: relative;
+  border-radius: 8px;
+  background: #2d2e29;
+  display: flex;
+  align-items: center;
+}
+.cx-newtab__cardicon {
+  position: absolute;
+  left: 10px;
+  top: 11.75px;
+  display: flex;
+  color: #a2a29c;
+}
+.cx-newtab__cardlabel {
+  position: absolute;
+  left: 34px;
+  font-size: 13px;
+}
+.cx-newtab__keys {
+  position: absolute;
+  right: 10px;
+  top: 12.5px;
+  height: 15px;
+  padding: 0 6.5px;
+  border-radius: 7.5px;
+  background: #3a3b36;
+  font-size: 13px;
+  line-height: 15px;
+  color: #a2a29c;
+}
+.cx-newtab__more {
+  position: absolute;
+  right: 16px;
+  top: 11.75px;
+  display: flex;
+  color: #a2a29c;
+}
+/* Suggested sites: at least 140px each over the content column plus 6px each side; a narrow
+   pane scrolls them sideways (its thumb is .cx-newtab__hscroll). */
+.cx-newtab__sites {
+  position: absolute;
+  top: 293px;
+  left: -6px;
+  right: -6px;
+  display: flex;
+}
+.cx-newtab__site {
+  flex: 1 0 140px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.cx-newtab__fav {
+  display: flex;
+  height: 32px;
+}
+.cx-newtab__sitelabel {
+  margin-top: 20.5px;
+  max-width: calc(100% - 36.5px);
+  letter-spacing: 0.15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 18px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.cx-newtab__hscroll {
+  position: absolute;
+  left: 3px;
+  top: 380px;
+  width: 531px;
+  height: 6px;
+  border-radius: 3px;
+  background: #373833;
+}
+/* Four 140px sites overflow the column (+12px) below a 589px pane. */
+@container cx-newtab (width >= 589px) {
+  .cx-newtab__hscroll {
+    display: none;
+  }
+}
+/* Recents (live-devapps-*.png, 1911px window): a 28px icon tile, title over kind, date. */
+.cx-newtab__pager {
+  position: absolute;
+  top: 468px;
+  right: 6px;
+  display: flex;
+  gap: 17.5px;
+  color: #6f706a;
+}
+.cx-newtab__recents {
+  position: absolute;
+  top: 501px;
+  left: 4px;
+  right: 0;
+}
+.cx-newtab__recent {
+  position: relative;
+  height: 56px;
+  border-radius: 0 0 16px 16px;
+  box-shadow: 0 0.5px 0 #34352f;
+  font-size: 13px;
+  line-height: 18px;
+}
+.cx-newtab__recenticon {
+  position: absolute;
+  left: 9px;
+  top: 14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #41423c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cx-newtab__recenttitle {
+  position: absolute;
+  left: 49px;
+  top: 10.5px;
+}
+.cx-newtab__recentkind {
+  position: absolute;
+  left: 49px;
+  top: 29.5px;
+  color: #8d8e88;
+}
+.cx-newtab__recentdate {
+  position: absolute;
+  right: 12.5px;
+  top: 19px;
+  color: #b9bab4;
+}

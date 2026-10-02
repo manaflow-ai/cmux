@@ -1,0 +1,331 @@
+/* Menus opened from the icon rail, the sidebar title and the composer chips. Each is a
+   top-layer Popover anchored to its control (src/shell/Popover.tsx); the offsets below are
+   from the control's edges, measured on profile-menu-real, explore-menu, mode-menu-native,
+   model-menu and permissions-menu (1728x1084). popover.css adds the viewport fallbacks. */
+
+/* Pressed rail button behind an open rail menu. */
+.cx-window:has(.rm-menu) .cx-rail__btn.is-hover {
+  background: #474844;
+}
+.rm-menu .cx-menu__icon {
+  color: #c8c8c3;
+}
+.rm-menu .cx-menu__header .cx-menu__icon {
+  color: inherit;
+}
+.rm-pin {
+  margin-left: auto;
+  color: #999a95;
+}
+.rm-menu {
+  font-size: 13px;
+  background: rgb(57 58 53 / 0.9);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+.rm-menu .cx-menu__item,
+.rm-menu .cx-menu__header {
+  gap: 5px;
+}
+.cx-window:has(.rm-menu) .cx-rail__btn.is-hover {
+  color: var(--cx-text-strong);
+}
+/* Profile menu row metrics measured from profile-menu-real.png. */
+.rm-menu--profile {
+  padding-top: 4.5px;
+  padding-bottom: 4px;
+}
+.rm-menu--profile .cx-menu__sep {
+  margin-bottom: 4.5px;
+}
+.rm-menu--profile .cx-menu__sep + .cx-menu__item {
+  min-height: 28px;
+}
+.rm-menu--profile .cx-menu__sep + .cx-menu__item + .cx-menu__item {
+  min-height: 28.5px;
+}
+.rm-menu--profile .cx-menu__sep:nth-child(5) + .cx-menu__item {
+  min-height: 29px;
+}
+.rm-menu--profile {
+  padding-bottom: 5px;
+}
+.rm-menu--profile .cx-menu__item,
+.rm-menu--profile .cx-menu__header {
+  padding-left: 6.5px;
+  gap: 6px;
+}
+.rm-menu--profile .cx-menu__item {
+  padding-right: 6px;
+}
+.rm-menu--profile .cx-menu__chevron {
+  transform: scale(1.12);
+}
+.rm-menu .cx-menu__header {
+  color: #9a9a95;
+}
+.rm-menu .cx-menu__header .cx-menu__icon {
+  color: #858581;
+}
+.rm-menu {
+  box-shadow:
+    inset 0 0 0 0.5px var(--cx-menu-border),
+    0 4px 12px rgb(0 0 0 / 0.12);
+}
+.rm-menu--explore .cx-menu__item {
+  padding-left: 7px;
+  padding-right: 6px;
+  gap: 6.5px;
+}
+
+/* ---------- Placements ---------- */
+/* Profile menu: beside the settings button, its bottom 1px below the button's. */
+.rm-menu--profile {
+  left: calc(anchor(right) + 4px);
+  bottom: calc(anchor(bottom) - 1px);
+  translate: 0.5px 0.5px;
+}
+/* Explore menu: beside the ⋯ button, 2px above its top. */
+.rm-menu--explore {
+  left: calc(anchor(right) + 5px);
+  top: calc(anchor(top) - 2px);
+  padding: 4px;
+  translate: 0.5px 0.5px;
+}
+
+/* ---------- Codex mode menu (sidebar title) ---------- */
+.app-modehover {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  width: 83.5px;
+  height: 31px;
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.05);
+}
+.app-mode {
+  left: calc(anchor(left) - 5.5px);
+  top: calc(anchor(bottom) + 11.25px);
+  width: 240px;
+  height: 113px;
+  border-radius: 14px;
+  background: rgb(58 59 54 / 0.9);
+  backdrop-filter: blur(8px);
+  box-shadow:
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.16),
+    0 8px 24px rgb(0 0 0 / 0.25);
+  color: var(--cx-text-strong);
+}
+.app-mode__item {
+  position: absolute;
+  left: 12.5px;
+  right: 12px;
+  height: 40px;
+}
+.app-mode__label {
+  position: absolute;
+  top: -0.5px;
+  line-height: 18px;
+  font-size: 13px;
+}
+.app-mode__desc {
+  position: absolute;
+  top: 16px;
+  line-height: 18px;
+  font-size: 12px;
+  letter-spacing: 0.05px;
+  color: var(--cx-text-muted);
+}
+.app-mode__check {
+  position: absolute;
+  right: 0;
+  top: 8px;
+}
+
+/* ---------- Effort popover (composer model chip) ---------- */
+/* "Select effort" replaces the model chip while the popover is open. */
+.app-effort {
+  height: 27px;
+  margin-right: 9px;
+  padding: 0 10px 0 11px;
+  border-radius: 14px;
+  background: #4a4b46;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cx-text-dim);
+}
+/* 8.5px above the chip, centered on it (2.5px to the left, as captured). */
+.app-effort-pop {
+  left: calc(anchor(center) - 128px);
+  bottom: calc(anchor(top) + 8.5px);
+  width: 255px;
+  height: 97.5px;
+  border-radius: 16px;
+  background: rgb(57 58 53 / 0.92);
+  backdrop-filter: blur(6px);
+  box-shadow:
+    inset 0 0 0 0.5px #4e4f4a,
+    0 8px 24px rgb(0 0 0 / 0.25);
+  font-size: 13px;
+  color: var(--cx-text-strong);
+}
+.app-effort-pop > * {
+  position: absolute;
+}
+.app-effort-pop__title {
+  left: 0;
+  right: 0;
+  top: 11px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 18px;
+  color: #b5b39d;
+}
+.app-effort-pop__model {
+  left: 0;
+  right: 0;
+  top: 29px;
+  font-size: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+  line-height: 18px;
+  color: var(--cx-text-dim);
+}
+.app-effort-pop__reset {
+  left: 225px;
+  top: 12px;
+  color: var(--cx-text-dim);
+}
+.app-slider {
+  left: 12.5px;
+  top: 61px;
+  width: 230px;
+  height: 23.5px;
+  border-radius: 12px;
+  background: #4a4b46;
+}
+.app-slider__fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 12px;
+  background: #9b9682;
+}
+.app-slider__dot {
+  position: absolute;
+  top: 10.5px;
+  width: 3px;
+  height: 3px;
+  margin-left: -1.5px;
+  border-radius: 50%;
+  background: #6f6e62;
+}
+.app-slider__thumb {
+  position: absolute;
+  top: -2.5px;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+/* ---------- Permissions menu (composer permission chip) ---------- */
+/* The pressed chip is padded (permissions-menu.png). */
+.app-window .cx-permission.is-active {
+  margin-left: 5.5px;
+  padding: 0 7px;
+}
+/* 2px above the chip, 0.5px right of its left edge. */
+.app-perm {
+  left: calc(anchor(left) + 0.5px);
+  bottom: calc(anchor(top) + 2px);
+  width: 440px;
+  height: 162px;
+  box-sizing: border-box;
+  border-radius: 16px;
+  background: rgb(58 59 54 / 0.89);
+  backdrop-filter: blur(8px);
+  box-shadow:
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.16),
+    0 8px 24px rgb(0 0 0 / 0.25);
+  color: var(--cx-text-strong);
+  font-size: 13px;
+  white-space: nowrap;
+  padding-top: 33px;
+}
+.app-perm__header {
+  position: absolute;
+  left: 12.5px;
+  right: 12px;
+  top: 8.5px;
+  line-height: 18px;
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  color: var(--cx-text-muted);
+}
+.app-perm__learn {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.app-perm__item {
+  position: relative;
+  height: 42.5px;
+}
+.app-perm__icon {
+  position: absolute;
+  left: 12.5px;
+  top: 10.5px;
+  display: flex;
+  color: var(--cx-text-dim);
+}
+.app-perm__label {
+  position: absolute;
+  left: 35px;
+  letter-spacing: 0.05px;
+  top: 2.5px;
+  line-height: 18px;
+}
+.app-perm__desc {
+  position: absolute;
+  left: 34.5px;
+  top: 18.5px;
+  font-size: 12px;
+  letter-spacing: 0.05px;
+  line-height: 18px;
+  color: var(--cx-text-muted);
+}
+.app-perm__item.is-warning,
+.app-perm__item.is-warning .app-perm__desc,
+.app-perm__item.is-warning .app-perm__icon {
+  color: var(--cx-warning);
+}
+.app-perm__check {
+  position: absolute;
+  left: 411px;
+  top: 11px;
+  color: var(--cx-warning);
+}
+
+/* ---------- "No commands" (composer slash commands) ---------- */
+/* The composer's width, 8.5px above it. */
+.app-nocmd {
+  left: anchor(left);
+  bottom: calc(anchor(top) + 8.5px);
+  width: anchor-size(width);
+  box-sizing: border-box;
+  height: 38.5px;
+  border-radius: 19.25px;
+  background: #3a3b36;
+  box-shadow: inset 0 0 0 1px #474843;
+  padding-left: 13.5px;
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: var(--cx-text-muted);
+}

@@ -1,0 +1,120 @@
+// Named token sets for capture families whose measured metrics differ from the Codex
+// defaults in conversation.css. Pass one to <Thread tokens={…}>.
+import type { ConversationTokens } from "./tokens";
+
+/** Narrow (431px) merge thread of manual-*.png, measured on manual-changes-current.png. */
+const manual: ConversationTokens = {
+  shiftX: 0,
+  bubbleLineHeight: 22.75,
+  bubblePadding: "9.5px 16px 6.25px",
+  userActionsGap: 4,
+  userActionsRight: 4,
+  turnAfter: 12,
+  workedTop: 18.25,
+  workedHeight: 26.5,
+  workedPadTop: 0,
+  workedAfter: 15,
+  workedChevronGap: 4,
+  workedNumeric: "normal",
+  mdInset: 0.5,
+  mdLineHeight: 23,
+  paraAfter: 14.5,
+  mdAfter: 13.5,
+  listBefore: 2.5,
+  listAfter: 7,
+  bulletSize: 4.5,
+  link: "#cacbc6",
+  ghIconAlign: -2,
+  ghIconMargin: "0 4px 0 1.5px",
+  codeFont: '"SF Mono", monospace',
+  codeSize: 12.5,
+  codeRadius: 6,
+  codeLineHeight: "1",
+  codePadding: "1.5px 6.5px 1px 6px",
+  codeTracking: -0.09,
+  editedBefore: -1.5,
+  editedAfter: 14,
+  editedIconSize: 16,
+  editedIconHeight: 40,
+  editedIconColor: "currentColor",
+  editedTitleWeight: "400",
+  editedViewRing: 0.5,
+  turnActionsLeft: -4,
+  turnActionsTop: -0.5,
+};
+
+/** "Find SOTA harness research" in the active window's 850.5px main column (changes.png, model-menu.png, …). */
+const sota: ConversationTokens = {
+  shiftX: -0.25,
+  text: "var(--cx-text-strong)",
+  textMuted: "var(--cx-text-muted)",
+  tracking: 0.05,
+  timestampAfter: 15,
+  bubbleBg: "#343530",
+  bubbleWidth: "515px",
+  bubblePadding: "10px 16px",
+  bubbleLineHeight: 23,
+  userAfter: 14,
+  workedHeight: 28,
+  workedPadTop: 3,
+  workedGap: 4,
+  workedChevronGap: 1,
+  workedAfter: 16.5,
+  workedNumeric: "normal",
+  mdAfter: 14.5,
+  paraAfter: 14.5,
+  listBefore: 14,
+  bulletLeft: 12,
+  toolBefore: 0,
+  toolAfter: 14,
+  toolHeight: 25,
+  toolGap: 7.5,
+  toolStrong: "var(--cx-text-muted)",
+  toolDetail: "currentColor",
+  toolChevronGap: -0.5,
+  citation: "var(--cx-text-muted)",
+  citationIconAlign: -0.4,
+  tableBefore: 16.5,
+  tableSize: 12,
+  tableLineHeight: 22.75,
+  tableTracking: 0.15,
+  thPadTop: 0,
+  thPadBottom: 2,
+  tdPadY: 9,
+  scrollBg: "var(--cx-main)",
+  scrollRing: "inset 0 0 0 0.5px #4e4f4a",
+};
+
+/** Fixture-project captures (fixture-*.png): the 736px column at window x 483.5. */
+const fixture: ConversationTokens = {
+  shiftX: 0,
+  bubblePadding: "10.5px 16px 8.5px",
+  turnActionsLeft: -3.5,
+  turnActionsTop: -5.75,
+  scrollBg: "var(--cx-main)",
+  scrollRing: "inset 0 0 0 0.5px #4e4f4a",
+};
+
+/** "Inspect UI Atlas fixture changes" in the fixture window (fixture-actions-menu.png). */
+const inspect: ConversationTokens = {
+  ...fixture,
+  bubblePadding: "10px 16px 8.25px",
+  workedAfter: 16.5,
+  mdLineHeight: 23.33,
+  listBefore: 3.67,
+  listAfter: 6.17,
+  bulletTop: 10,
+  bulletSize: 4.5,
+  codeLineHeight: "1",
+  codePadding: "1px 6px",
+  codeTracking: -0.08,
+  mdAfter: 7.33,
+  turnActionsLeft: -3.5,
+  turnActionsTop: -2,
+};
+
+/** "Inspect UI Atlas Changes" beside the Changes pane (diff-second-pass-*.png). */
+export const variants = { manual, sota, fixture, inspect } satisfies Record<
+  string,
+  ConversationTokens
+>;

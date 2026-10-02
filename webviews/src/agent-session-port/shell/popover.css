@@ -1,0 +1,49 @@
+/* Anchored popovers (Popover.tsx). The reset has zero specificity, so every component class
+   (.cx-menu, .chg-menu, …) overrides it, and it still beats the UA [popover] box (inset 0,
+   margin auto, border, padding, Canvas colors). Top-layer boxes are fixed: their containing
+   block is the viewport, so the fallbacks below keep them inside it. */
+:where(.cx-popover) {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+  background: none;
+  color: inherit;
+  font: inherit;
+  /* Flip to the other side of the anchor when this side overflows; otherwise pin to the
+     viewport edge it overflows (a tall menu near the bottom, a wide one at the right). */
+  position-try-fallbacks:
+    flip-block,
+    flip-inline,
+    flip-block flip-inline,
+    --cx-pin-bottom,
+    --cx-pin-top,
+    --cx-pin-right,
+    --cx-pin-left;
+}
+
+/* Pinned fallbacks keep the cross axis from the base placement. 8px from the edge. */
+@position-try --cx-pin-bottom {
+  top: auto;
+  bottom: 8px;
+}
+@position-try --cx-pin-top {
+  bottom: auto;
+  top: 8px;
+}
+@position-try --cx-pin-right {
+  left: auto;
+  right: 8px;
+}
+@position-try --cx-pin-left {
+  right: auto;
+  left: 8px;
+}
+
+/* A captured window (`.cx-capture`: a fixed 1728x1084 window offset on a canvas, or a crop
+   of one) is not the viewport: its popovers keep the placement they have in the window. */
+.cx-capture .cx-popover {
+  position-try-fallbacks: none;
+}

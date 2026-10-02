@@ -1,0 +1,66 @@
+/* Codex desktop design tokens, sampled from reference/screenshots/chatgpt/home.png.
+   All sizes are CSS px at the 2x capture scale (reference px / 2). */
+:root {
+  --cx-font: system-ui; /* SF Pro in the capture Chromium. -apple-system resolves to Times there, and a list after system-ui changes nothing. */
+  --cx-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Surfaces */
+  --cx-chrome: #3f403c; /* window background: title bar, icon rail */
+  --cx-panel-border: #484945; /* hairline around the content panel */
+  --cx-sidebar: #2f302b; /* sidebar column */
+  --cx-main: #272823; /* main (conversation) column */
+  --cx-divider: #4e4f4b; /* sidebar | main hairline */
+  --cx-row-selected: #3e3f3b; /* selected sidebar row */
+  --cx-row-hover: #3e3f3b;
+  --cx-rail-active: #4d4e4a; /* active icon-rail button */
+  --cx-scroll-thumb: #3f403b;
+
+  /* Composer */
+  --cx-composer: #42433e;
+  --cx-composer-border: #4d4e49;
+  --cx-context-bar: #363732;
+  --cx-send: #9d9d98;
+  --cx-send-icon: #3a3b36;
+
+  /* Menus / popovers */
+  --cx-menu: #393a35;
+  --cx-menu-border: #4e4f4a;
+  --cx-menu-separator: #4a4b46;
+  --cx-menu-hover: #45463f;
+
+  /* Text */
+  --cx-text-strong: #f8f8f3; /* hero, composer text, active icons */
+  --cx-text: #dadad4; /* sidebar rows */
+  --cx-text-selected: #ddddd7;
+  --cx-text-muted: #94948f; /* sidebar icons, "Show more" */
+  --cx-text-section: #7b7b76; /* "Projects", "Recents" */
+  --cx-text-dim: #9d9e98; /* "Medium", chevrons in composer */
+  --cx-placeholder: #6f706b;
+  --cx-icon: #9c9c97; /* title bar + rail icons */
+  --cx-icon-disabled: #646560;
+  --cx-warning: #ef8b57; /* "Full access" */
+  --cx-logo: #666661;
+  --cx-underline: #8f908a;
+
+  /* Type scale */
+  /* Sidebar rows in the capture run ~0.04px/glyph wider than headless Chromium's SF. */
+  --cx-row-tracking: 0.04px;
+  --cx-fs-body: 14px; /* sidebar rows, titles */
+  --cx-fs-chip: 13px; /* context chips, composer bottom bar */
+  --cx-fs-composer: 14px;
+  --cx-fs-small: 13px;
+  --cx-fs-title: 18px; /* "Codex" */
+  --cx-fs-hero: 28px;
+
+  /* Geometry */
+  --cx-window-radius: 16px;
+  --cx-titlebar-h: 44px; /* panel content starts here; its 0.5px border sits at 43.5 */
+  --cx-rail-w: 52px;
+  --cx-panel-radius: 11.75px;
+  --cx-sidebar-w: 238.5px; /* panel inner left edge to divider */
+  --cx-row-h: 30px;
+  --cx-row-gap: 1px;
+  --cx-row-radius: 8px;
+  --cx-composer-radius: 22px 22px 24px 24px;
+  --cx-menu-radius: 12px;
+}

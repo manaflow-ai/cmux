@@ -1,0 +1,624 @@
+/* Codex Changes pane chrome. Positions are CSS px measured from
+   reference/screenshots/chatgpt/manual-changes-current.png (native px / 2), relative to the
+   pane's padding box (window x 775.5, y 44). */
+.cx-changes {
+  --cx-bg: #272823;
+  --cx-line: #383934;
+  --cx-pill: #3a3b36;
+  --cx-pill-ring: rgba(255, 255, 255, 0.09);
+  --cx-fg: #f8f8f3;
+  --cx-dim: #8f908a;
+  --cx-add: #90b345;
+  --cx-del: #b4365e;
+  --cx-ui: system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  position: absolute;
+  box-sizing: border-box;
+  /* The pane is the size container its internal layout derives from; below the header
+     rows the banner and the diff body are in flow (header rows end at y 40.5, or 80.5 with
+     the branch pill on its own row). */
+  container: changes / inline-size;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--cx-line);
+  background: var(--cx-bg);
+  color: var(--cx-fg);
+  font-family: var(--cx-ui);
+  font-size: 13px;
+  line-height: 20px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+:where(.cx-changes) button {
+  all: unset;
+  box-sizing: border-box;
+  cursor: default;
+}
+
+.cx-counts {
+  display: inline-flex;
+  gap: 4px;
+  white-space: nowrap;
+}
+.cx-add {
+  color: var(--cx-add);
+}
+.cx-del {
+  color: var(--cx-del);
+}
+
+/* Scope pill: [Branch ⌄] +130 -273 */
+.cx-scope-pill,
+.cx-branch-pill,
+.cx-toolgroup {
+  position: absolute;
+  left: 7.5px;
+  top: 7.5px;
+  height: 33px;
+  border-radius: 16.5px;
+  background: var(--cx-pill);
+  box-shadow:
+    inset 0 0 0 0.5px var(--cx-pill-ring),
+    0 1px 2px rgba(0, 0, 0, 0.12);
+  display: flex;
+  align-items: center;
+}
+.cx-scope-pill {
+  padding: 0 6px 0 2.5px;
+  font-size: 14px;
+}
+.cx-scope-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 29px;
+  padding: 0 6px 0 12px;
+  border-radius: 14.5px;
+  font-size: 13px;
+  gap: 5px;
+}
+.cx-scope-chevron {
+  color: var(--cx-fg);
+}
+.cx-scope-pill .cx-counts {
+  margin-left: 1.5px;
+  letter-spacing: 0.2px;
+}
+
+/* Scope and branch pills: one row beside the toolbar (live-freestyle-*.png), wrapping
+   under it when the row is too narrow; header rows end at y 40.5 or 80.5. */
+.cx-pills {
+  --cx-toolbar-w: 224.5px;
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 8px;
+  margin: 7.5px 0 0 7.5px;
+  max-width: calc(100% - 7.5px - var(--cx-toolbar-w) - 17px);
+}
+.cx-pills > * {
+  position: relative;
+  left: auto;
+  top: auto;
+  flex: none;
+}
+/* The manual captures draw the branch pill on its own row. */
+.cx-changes[data-build="manual"] .cx-pills {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.cx-branch-pill {
+  letter-spacing: 0.1px;
+  padding: 0 8px 0 10.5px;
+  gap: 0;
+}
+.cx-branch-arrow {
+  color: #999994;
+  margin: 0 14px 0 9px;
+}
+.cx-branch-chevron {
+  margin-left: 6px;
+}
+
+/* The full toolbar ends 9px from the pane's right edge at any pane width (x 716 in the
+   949.5px manual pane). */
+.cx-toolgroup {
+  left: auto;
+  right: 9px;
+  width: 224.5px;
+}
+.cx-tool {
+  position: absolute;
+  top: 2.5px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999993;
+}
+.cx-tool[data-id="tree"] {
+  color: #c0beb1;
+}
+.cx-tool[data-active] {
+  background: #32332c;
+}
+.cx-tool[data-hover] {
+  background: #494a44;
+}
+.cx-tool[data-focus] {
+  background: #494a44;
+  box-shadow: 0 0 0 1.5px #a09f93;
+}
+
+/* Tracked-only warning card: 15px under the header rows, 8px from the pane's right edge.
+   The actions keep their place at the card's right edge and the text takes the rest
+   (live-freestyle-*.png, 820px pane, matches manual-changes-current.png, 949.5px); a narrow
+   pane stacks the actions under the text (the app's `stackOnNarrow`). Offsets are from the
+   card's padding box, as measured. */
+.cx-banner {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  margin: 15px 8px 0 7.5px;
+  min-height: 95.5px;
+  box-sizing: border-box;
+  /* The 0.5px borders lay out as 1px: these keep the measured edges. */
+  padding-right: 20.45px;
+  border-radius: 16px;
+  border: 0.5px solid #3f403a;
+  border-left: 2px solid #9f6240;
+  background: #27251f;
+}
+.cx-banner-icon {
+  flex: none;
+  margin: 38px 0 0 18.5px;
+  color: #ef8b57;
+}
+.cx-banner-text {
+  flex: 1;
+  min-width: 0;
+  margin: 14.5px 0 0 13px;
+  padding-bottom: 15.5px;
+}
+.cx-banner-title {
+  font-weight: 600;
+  line-height: 21px;
+}
+.cx-banner-body {
+  color: #afaea8;
+  letter-spacing: 0.045px;
+  padding-top: 0.5px;
+  line-height: 21px;
+}
+.cx-banner-divider {
+  flex: none;
+  width: 1px;
+  height: 24px;
+  margin: 35.5px 0 0 19.5px;
+  background: #383630;
+}
+.cx-banner-action {
+  flex: none;
+  margin: 35.5px 0 0 12px;
+  height: 24px;
+  padding: 0 8.25px;
+  border-radius: 12px;
+  border: 1px solid #3f3d37;
+  background: #2e2c26;
+  line-height: 22px;
+}
+.cx-banner-secondary {
+  flex: none;
+  margin: 35.5px 0 0 17.4px;
+  line-height: 24px;
+  color: #8f8e88;
+}
+@container changes (width < 640px) {
+  .cx-banner {
+    flex-wrap: wrap;
+    padding-bottom: 14px;
+  }
+  .cx-banner-text {
+    flex-basis: calc(100% - 48.5px);
+    padding-bottom: 8px;
+  }
+  .cx-banner-divider {
+    display: none;
+  }
+  .cx-banner-action {
+    margin: 0 0 0 48.5px;
+  }
+  .cx-banner-secondary {
+    margin-top: 0;
+  }
+}
+
+/* Diffs + tree: the rest of the pane, 8px under the header rows or the banner. */
+.cx-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin-top: 8px;
+  border-top: 1px solid var(--cx-line);
+  display: flex;
+}
+.cx-diffs {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  /* The pane restores its captured diff scroll; scroll anchoring would move it again as diffs paint. */
+  overflow-anchor: none;
+}
+.cx-vscroll {
+  position: relative;
+  flex: 0 0 11.5px;
+}
+.cx-vscroll .cx-thumb {
+  position: absolute;
+  right: 2px;
+  width: 6px;
+  border-radius: 3px;
+  background: var(--cx-line);
+}
+.cx-hscroll {
+  position: relative;
+  height: 16.5px;
+}
+.cx-hscroll .cx-thumb {
+  position: absolute;
+  top: 4px;
+  height: 8px;
+  border-radius: 4px;
+  background: #666762;
+}
+.cx-tree {
+  flex: 0 0 250px;
+  border-left: 1px solid var(--cx-line);
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.cx-changes[data-build="live"] .cx-tree {
+  flex-basis: 200px;
+}
+.cx-tree-host {
+  display: block;
+  height: 100%;
+}
+
+/* File header (rendered into Pierre's custom header slot). */
+.cx-file-header {
+  display: flex;
+  align-items: center;
+  height: 37px;
+  box-sizing: content-box;
+  border-bottom: 1px solid var(--cx-line);
+  margin-bottom: 1px;
+  padding: 0 0 2px 16px;
+  height: 35px;
+  font-family: var(--cx-ui);
+  font-size: 14px;
+  color: var(--cx-fg);
+  background: var(--cx-bg);
+}
+.cx-fh-icon {
+  display: inline-flex;
+  width: 16px;
+  margin-right: 8px;
+}
+.cx-fh-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cx-fh-dir {
+  color: var(--cx-dim);
+}
+/* A compact pane (< 700px) shows only the file name, cut at its start ("…hange-log.md"):
+   right-to-left overflow puts the ellipsis first, the name itself stays left-to-right. */
+@container changes (width < 700px) {
+  .cx-fh-dir {
+    display: none;
+  }
+  .cx-fh-name {
+    direction: rtl;
+  }
+  /* The name keeps clear of the counts: the hover chevron's slot (8.5 + 14px) and 13.5px. */
+  .cx-file-header:not([data-hovered]) .cx-fh-name {
+    margin-right: 36px;
+  }
+  .cx-fh-chevron {
+    flex: none;
+    margin-right: 13.5px;
+  }
+  .cx-fh-base {
+    unicode-bidi: isolate;
+    direction: ltr;
+  }
+}
+.cx-fh-chevron {
+  /* manual/open-*-tooltip.png: 13px from the name to the hover chevron. */
+  margin-left: 8.5px;
+  color: var(--cx-dim);
+}
+.cx-fh-spacer {
+  flex: 1;
+}
+.cx-file-header .cx-counts {
+  font-size: 14px;
+  gap: 5px;
+}
+.cx-fh-actions {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 7px;
+  margin-right: 5.5px;
+}
+.cx-fh-btn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cx-dim);
+}
+.cx-fh-btn[data-id="open-tab"],
+.cx-fh-btn[data-id="open-editor"] {
+  width: 20px;
+}
+.cx-fh-slot[data-id="open-tab"] {
+  margin-left: 1.75px;
+}
+.cx-fh-slot[data-id="actions"] {
+  margin-left: 1.5px;
+}
+.cx-fh-btn[data-id="open-editor"] {
+  color: var(--cx-fg);
+}
+
+/* Filter input in the tree header slot. */
+.cx-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 8px 1px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 9px;
+  border: 1px solid #3f403a;
+  border-radius: 8px;
+  background: #2e2f2a;
+  color: #93938e;
+}
+.cx-filter input {
+  all: unset;
+  flex: 1;
+  min-width: 0;
+  font: 14px var(--cx-ui);
+  color: var(--cx-fg);
+}
+.cx-filter input::placeholder {
+  color: #93938e;
+}
+
+/* ---------- Top layer: menus and tooltips (parts/TopLayer.tsx) ----------
+   Shell Popovers (src/shell/popover.css resets the UA box and adds the viewport
+   fallbacks). Offsets are from the anchor's edges, measured in the captures (CSS px). */
+.chg-top {
+  color: var(--cx-fg);
+}
+
+/* Menus (changes-branch-menu.png, changes-options.png, manual/file-menu-mark-viewed.png). */
+.chg-menu {
+  box-sizing: border-box;
+  background: #3a3b36;
+  border-radius: 16px;
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
+    0 8px 24px rgba(0, 0, 0, 0.3),
+    0 1px 3px rgba(0, 0, 0, 0.25);
+  padding: 4px 0;
+  font: 13px/20px var(--cx-ui);
+  text-align: left;
+  cursor: default;
+}
+.chg-menu-item {
+  display: flex;
+  align-items: center;
+  height: 28.5px;
+  padding: 0 13px 0 12.5px;
+  white-space: nowrap;
+}
+.chg-menu-item[aria-disabled] {
+  color: #7d7e78;
+}
+.chg-menu-icon {
+  display: inline-flex;
+  width: 16px;
+  margin-right: 5.5px;
+  color: #c9c9c4;
+}
+.chg-menu-item[aria-disabled] .chg-menu-icon {
+  color: #6e6f6a;
+}
+.chg-menu-trail {
+  margin-left: auto;
+  color: #a8a9a3;
+}
+.chg-menu-check {
+  color: var(--cx-fg);
+}
+.chg-menu-sep {
+  height: 1px;
+  margin: 4px 12px;
+  background: #4a4b46;
+}
+/* Below the scope button, 1px in from its left edge. */
+.chg-scope-menu {
+  left: calc(anchor(left) + 1px);
+  top: calc(anchor(bottom) + 2px);
+  width: 201px;
+}
+/* Right-aligned under the toolbar ⋯ button. */
+.chg-options-menu {
+  right: calc(anchor(right) + 0.75px);
+  top: calc(anchor(bottom) + 2.5px);
+  width: 220px;
+}
+/* Under the file header ⋯ slot, its right edge 3px inside the slot's. */
+.chg-file-menu {
+  right: calc(anchor(right) + 3px);
+  top: calc(anchor(top) + 24.5px);
+  width: 220px;
+}
+
+/* Tooltips (manual/open-*-tooltip.png): 13px label in a 28px pill, centered on the anchor. */
+.chg-tooltip {
+  left: anchor(center);
+  translate: -50% 0;
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 13.25px;
+  border-radius: 14px;
+  background: #3a3b36;
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
+    0 4px 12px rgba(0, 0, 0, 0.3);
+  font: 13px/30px var(--cx-ui);
+  letter-spacing: -0.08px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.chg-tooltip-above {
+  top: calc(anchor(top) - 28.5px);
+}
+.chg-tooltip-below {
+  top: calc(anchor(top) + 36px);
+}
+
+/* ---------- Header buttons ---------- */
+.cx-fh-slot {
+  position: relative;
+  display: inline-flex;
+}
+.cx-fh-btn[data-hover] {
+  color: var(--cx-fg);
+}
+.cx-scope-btn[data-open] {
+  background: #484945;
+}
+.cx-tool[data-pressed] {
+  background: #4a4b45;
+  color: var(--cx-fg);
+}
+
+/* ---------- Not loaded (error, loading, empty) ----------
+   No counts, branch pill or banner: a compact header (pill and toolbar at y 7) measured from changes.png and diff-second-pass-changes-*.png. */
+.cx-changes:not([data-status="loaded"]) {
+  border-radius: 0 11.75px 11.75px 0;
+}
+.cx-changes:not([data-status="loaded"]) .cx-toolgroup {
+  top: 7px;
+}
+.cx-changes:not([data-status="loaded"]) .cx-pills {
+  margin: 7px 0 0.5px 7.5px;
+}
+.cx-changes:not([data-status="loaded"]) .cx-scope-pill {
+  padding: 0;
+}
+.cx-changes:not([data-status="loaded"]) .cx-scope-btn {
+  height: 33px;
+  padding: 0 7px 0 12.5px;
+  gap: 3px;
+}
+.cx-changes[data-status="loading"] .cx-scope-btn {
+  padding: 0 9px 0 14.5px;
+}
+.cx-changes:not([data-status="loaded"]) .cx-filter {
+  margin-top: 3px;
+  padding-left: 8px;
+}
+/* Compact toolbar (pane < 700px): ⋯ (Refresh while loading), Jump to file and the tree
+   toggle, 30px apart, 8px from the edge. */
+@container changes (width < 700px) {
+  .cx-toolgroup {
+    right: 8px;
+    width: 92.5px;
+  }
+  .cx-pills {
+    --cx-toolbar-w: 92.5px;
+  }
+  .cx-tool:is([data-id="wrap"], [data-id="collapse"], [data-id="split"]) {
+    display: none;
+  }
+  .cx-toolgroup:not([data-refreshing]) .cx-tool[data-id="refresh"],
+  .cx-toolgroup[data-refreshing] .cx-tool[data-id="options"] {
+    display: none;
+  }
+  .cx-tool:is([data-id="options"], [data-id="refresh"]) {
+    left: 2.5px !important;
+  }
+  .cx-tool[data-id="jump"] {
+    left: 32.5px !important;
+  }
+  .cx-tool[data-id="tree"] {
+    left: 62.5px !important;
+  }
+}
+
+/* "Couldn't load changes", centered over the whole diff column including the 11.5px
+   scrollbar lane (hence the 5.75px shift). */
+.cx-load-message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  transform: translateX(5.75px);
+}
+.cx-load-message h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 22px;
+}
+.cx-load-message p {
+  margin: 9.5px 0 0;
+  font-size: 13px;
+  color: #afafaa;
+  line-height: 18px;
+  /* SF Pro is narrower in headless Chromium than in Electron (see README). */
+  letter-spacing: 0.055px;
+}
+.cx-load-message-action {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 12.5px;
+  height: 28px;
+  padding: 0 8.5px;
+  font-size: 13px;
+  border-radius: 8px;
+  background: #30312c;
+}
+
+/* "No matching files" under the filter, in Pierre's header slot. */
+.cx-tree-empty {
+  margin: 8px 0 0 24px;
+  color: #a8a9a3;
+  letter-spacing: 0.05px;
+}
+
+/* One line under a diff that is not shown in full (binary, too large) or changed mode. */
+.cx-file-note {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--cx-line);
+  color: var(--cx-dim);
+  font-size: 12px;
+  line-height: 16px;
+}

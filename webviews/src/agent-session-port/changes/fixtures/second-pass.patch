@@ -1,0 +1,173 @@
+diff --git a/README.md b/README.md
+index 73d560b..feb70cf 100644
+--- a/README.md
++++ b/README.md
+@@ -18,3 +18,7 @@ This line was added to force a populated Changes view.
+ ## Changed after baseline
+ 
+ Added **review** text.
++
++## Modified in second pass
++
++This paragraph intentionally creates a Markdown diff with a long line: edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-
+diff --git a/data/config.json b/data/config.json
+index 592dccd..e8b5b24 100644
+--- a/data/config.json
++++ b/data/config.json
+@@ -1 +1 @@
+-{"name":"fixture-updated","enabled":false,"limits":{"soft":8,"hard":20}}
++{"name":"fixture-v2","enabled":true,"limits":{"soft":13,"hard":34},"new":true}
+diff --git a/docs/sample.log b/docs/sample.log
+deleted file mode 100644
+index ccf3d2f..0000000
+--- a/docs/sample.log
++++ /dev/null
+@@ -1,3 +0,0 @@
+-2026-09-30T17:10:00Z INFO fixture start
+-2026-09-30T17:10:01Z WARN simulated warning
+-2026-09-30T17:10:02Z ERROR simulated error
+diff --git a/media/baseline.png b/media/baseline.png
+index ae6ab0254c266a26cc4ccebb0e9ba02767db2d5e..edbde1941eb45f3fe6cd038121c5e458be15a9b2 100644
+GIT binary patch
+literal 3194
+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
+UXN3c*F*>y*V}m;V)Q3Xjf2u-wG5`Po
+
+literal 3544
+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
+
+diff --git a/media/sample.jsonl b/media/sample.jsonl
+index e3d3eb2..c577bc0 100644
+--- a/media/sample.jsonl
++++ b/media/sample.jsonl
+@@ -1,2 +1,3 @@
+ {"event":"start","ok":true}
+ {"event":"finish","ok":false,"error":"fixture"}
++{"event":"delta","n":3}
+diff --git a/media/sample.pdf b/media/sample.pdf
+index 64ae93e..ddc8e21 100644
+--- a/media/sample.pdf
++++ b/media/sample.pdf
+@@ -1,2 +1,4 @@
+ %PDF-1.4
+ % fixture
++
++% second-pass-pdf-diff
+diff --git a/media/sample.svg b/media/sample.svg
+index 1b62906..3bc92c1 100644
+--- a/media/sample.svg
++++ b/media/sample.svg
+@@ -1 +1 @@
+-<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#0f172a"/><circle cx="160" cy="90" r="55" fill="#38bdf8"/><text x="160" y="98" text-anchor="middle" fill="white">SVG</text></svg>
++<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#0f172a"/><circle cx="160" cy="90" r="55" fill="#fbbf24"/><text x="160" y="98" text-anchor="middle" fill="white">SVG</text></svg>
+diff --git a/scripts/run.sh b/scripts/run.sh
+old mode 100755
+new mode 100644
+diff --git a/src/example.js b/src/example.js
+deleted file mode 100644
+index f6ff5a7..0000000
+--- a/src/example.js
++++ /dev/null
+@@ -1 +0,0 @@
+-export function greet(name) { return `hello, ${name}`; }
+diff --git a/src/example.py b/src/example.py
+index 56822a6..23f2d8d 100644
+--- a/src/example.py
++++ b/src/example.py
+@@ -3,5 +3,5 @@ from dataclasses import dataclass
+ class Example:
+     name: str
+     def greet(self) -> str:
+-        return f"Hello, {self.name}"
++        return f"HELLO, {self.name}"
+ # Updated for the populated diff fixture
+diff --git a/src/go/main.go b/src/go/main.go
+index 02dee6f..7e89e13 100644
+--- a/src/go/main.go
++++ b/src/go/main.go
+@@ -1,3 +1,5 @@
+ package main
+ import "fmt"
+ func main() { fmt.Println("hello") }
++
++// changed for diff capture
+diff --git a/src/rust/lib.rs b/src/rust/lib.rs
+index 2cbd81b..504dd5e 100644
+--- a/src/rust/lib.rs
++++ b/src/rust/lib.rs
+@@ -1 +1 @@
+-pub fn greet(name: &str) -> String { format!("hello, {name}") }
++pub fn greet(name: &str) -> String { format!("HELLO, {name}") }

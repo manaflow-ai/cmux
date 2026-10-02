@@ -1,0 +1,829 @@
+/* Codex desktop chrome. Coordinates in comments are window CSS px measured
+   from reference/screenshots/chatgpt/home.png (1728x1084 @2x). */
+
+.cx-window {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--cx-window-radius);
+  background: var(--cx-chrome);
+  color: var(--cx-text);
+  font-family: var(--cx-font);
+  font-size: var(--cx-fs-body);
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+:where(.cx-window) button {
+  all: unset;
+  box-sizing: border-box;
+}
+
+/* ---------- Title bar ---------- */
+
+.cx-titlebar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--cx-titlebar-h);
+}
+
+.cx-traffic {
+  position: absolute;
+  left: 16px;
+  top: 15px;
+  display: flex;
+  gap: 9px;
+}
+
+.cx-traffic span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.18);
+}
+
+.cx-traffic__close {
+  background: radial-gradient(circle at 50% 55%, #e1675b 0, #e05d4f 70%, #e46a5c 100%);
+}
+.cx-traffic__min {
+  background: radial-gradient(circle at 50% 55%, #f4c32d 0, #f2bd00 70%, #f2bf10 100%);
+}
+.cx-traffic__max {
+  background: radial-gradient(circle at 50% 55%, #61bd2d 0, #4db800 70%, #55ba08 100%);
+}
+.cx-traffic--dimmed span {
+  /* Flat gray sampled from every inactive capture. */
+  background: #555652;
+  box-shadow: none;
+}
+
+.cx-titlebtn {
+  position: absolute;
+  top: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cx-icon);
+}
+.cx-titlebtn.is-disabled {
+  color: var(--cx-icon-disabled);
+}
+.cx-titlebtn.is-active {
+  background: #484945;
+  color: var(--cx-text-strong);
+}
+
+.cx-titlebar__divider {
+  position: absolute;
+  top: 12px;
+  width: 0.5px;
+  height: 20px;
+  background: var(--cx-rail-active);
+}
+
+.cx-titlebar__title {
+  position: absolute;
+  top: 0;
+  height: var(--cx-titlebar-h);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--cx-text-strong);
+  white-space: nowrap;
+}
+.cx-titlebar__title-icon {
+  display: flex;
+  margin-left: -1.5px;
+}
+
+.cx-titlebar__actions {
+  position: absolute;
+  top: 8px;
+  display: flex;
+  gap: 6px;
+  color: var(--cx-icon);
+}
+.cx-titlebar__actions > * {
+  position: static !important;
+}
+
+.cx-tabstrip {
+  position: absolute;
+  top: 5.5px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.cx-tab {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 12px;
+  border-radius: 8px;
+  color: var(--cx-text-strong);
+  font-size: var(--cx-fs-body);
+}
+.cx-tab.is-active {
+  background: var(--cx-rail-active);
+  box-shadow: inset 0 0 0 0.5px #5b5c58;
+}
+.cx-tab__icon {
+  display: flex;
+}
+.cx-tab__label {
+  flex: 1;
+}
+.cx-tab__close {
+  display: flex;
+  color: var(--cx-icon);
+}
+.cx-tabstrip__add {
+  display: flex;
+  color: var(--cx-icon);
+}
+
+/* ---------- Icon rail ---------- */
+
+.cx-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--cx-rail-w);
+  padding-top: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.cx-rail__btn {
+  margin-left: 8px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  color: var(--cx-icon);
+}
+.cx-rail__btn.is-active {
+  background: var(--cx-rail-active);
+  color: var(--cx-text-strong);
+}
+.cx-rail__btn.is-hover {
+  background: var(--cx-rail-active);
+}
+.cx-rail__sep {
+  margin-left: 14px;
+  width: 24px;
+  height: 1px;
+  background: var(--cx-divider);
+}
+/* Settings sits 8px above the window's bottom edge at any height (y 1040 in 1084). */
+.cx-rail__settings {
+  position: absolute;
+  bottom: 8px;
+}
+
+/* ---------- Content panel ---------- */
+
+.cx-panel {
+  position: absolute;
+  left: var(--cx-rail-w);
+  top: var(--cx-titlebar-h);
+  right: 4px;
+  bottom: 4px;
+  box-shadow: 0 0 0 0.5px var(--cx-panel-border);
+  border-radius: var(--cx-panel-radius);
+  background: var(--cx-main);
+  overflow: hidden;
+}
+
+/* ---------- Sidebar (local origin = window 52,44) ---------- */
+
+.cx-sidebar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: calc(var(--cx-sidebar-w) - 0.5px);
+  background: var(--cx-sidebar);
+  /* Chromium snaps box edges to whole CSS px here; a 0.5px shadow reaches the half pixel. */
+  box-shadow: 0.5px 0 0 var(--cx-divider);
+  overflow: hidden;
+}
+
+.cx-sidebar__header {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 44px;
+}
+.cx-sidebar__title {
+  position: absolute;
+  left: 15.5px;
+  top: 15.75px;
+  font-size: var(--cx-fs-title);
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--cx-text);
+}
+.cx-sidebar__title-chevron,
+.cx-sidebar__bell,
+.cx-sidebar__search {
+  position: absolute;
+  color: var(--cx-text-muted);
+}
+.cx-sidebar__title-chevron {
+  left: 73.5px;
+  top: 18.75px;
+}
+.cx-sidebar__bell {
+  left: 172px;
+  top: 17.2px;
+}
+.cx-sidebar__search {
+  left: 204.1px;
+  top: 17.4px;
+}
+
+/* Real scroll container; the overlay thumb is drawn from its live metrics (Sidebar). */
+.cx-sidebar__body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 44px;
+  bottom: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.cx-sidebar__body::-webkit-scrollbar {
+  display: none;
+}
+/* The list ends 76px above the scroller's bottom: the captured thumbs (home, SOTA) both
+   derive from the real content height with this inset. */
+.cx-sidebar__content {
+  padding-top: 9px;
+  padding-bottom: 76px;
+}
+/* "New chat" stays pinned while the list scrolls under it. */
+.cx-sidebar__sticky {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-top: -9px;
+  padding-top: 9px;
+  background: var(--cx-sidebar);
+  container-type: scroll-state;
+}
+/* Once rows scroll under it, the pinned block grows 8px over them and ends in a hairline
+   (diff-second-pass-*). */
+.cx-sidebar__stuck-rule {
+  display: none;
+}
+@container scroll-state(stuck: top) {
+  .cx-sidebar__stuck-rule {
+    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    height: 8px;
+    background: var(--cx-sidebar);
+    box-shadow: 0 0.5px 0 #3e3f3a;
+  }
+}
+
+.cx-sidebar__thumb {
+  position: absolute;
+  left: 230px;
+  width: 6px;
+  border-radius: 3px;
+  background: var(--cx-scroll-thumb);
+}
+.cx-sidebar.is-hovered .cx-sidebar__thumb {
+  background: #4f504a;
+}
+
+.cx-row {
+  position: relative;
+  height: var(--cx-row-h);
+  margin: 0 19px var(--cx-row-gap) 8px;
+  padding: 0 7.5px 0 8px;
+  border-radius: var(--cx-row-radius);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: var(--cx-row-h);
+  white-space: nowrap;
+  color: var(--cx-text);
+  letter-spacing: var(--cx-row-tracking);
+}
+.cx-row--indent {
+  padding-left: 32px;
+}
+.cx-row--project,
+.cx-row--newchat {
+  padding-left: 9px;
+}
+.cx-row--newchat {
+  margin-top: -1px;
+}
+.cx-sidebar__sticky + .cx-section {
+  margin-top: 9.5px;
+}
+.cx-row.is-selected,
+.cx-row.is-hover {
+  background: var(--cx-row-selected);
+  color: var(--cx-text-selected);
+}
+.cx-row__icon {
+  flex: none;
+  margin-left: -1px;
+}
+.cx-row__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+}
+.cx-row--more {
+  color: var(--cx-text-muted);
+}
+/* Hovered row's pin + archive buttons (profile-menu-real, diff-second-pass-changes-tab). */
+.cx-row__actions {
+  position: relative;
+  flex: none;
+  align-self: stretch;
+  width: 49.5px;
+  color: #9b9b96;
+}
+.cx-row__actions svg {
+  position: absolute;
+}
+.cx-row__pin {
+  left: 4px;
+  top: 8.5px;
+  width: 12.5px;
+  height: 12.5px;
+}
+.cx-row__archive {
+  left: 32.5px;
+  top: 9px;
+}
+
+.cx-section {
+  position: relative;
+  height: 30.5px;
+  margin: 8.5px 0 1px;
+  padding-left: 16px;
+  line-height: 30px;
+  font-weight: 500;
+  color: var(--cx-text-section);
+}
+.cx-section--recents {
+  margin-top: 21.5px;
+}
+.cx-project + .cx-project {
+  margin-top: 10px;
+}
+/* A project whose list ends without "Show more" sits 1px closer to the next one; an empty
+   project ("No chats") 2.5px closer (measured on manual-* and fixture-* captures). */
+.cx-project:not(:has(.cx-row--more), .cx-project--collapsed) + .cx-project {
+  margin-top: 9px;
+}
+.cx-project:has(.cx-row--empty) + .cx-project {
+  margin-top: 7.5px;
+}
+.cx-project--collapsed + .cx-project {
+  margin-top: 0;
+}
+.cx-row.cx-row--empty {
+  color: #61625d;
+  pointer-events: none;
+}
+.cx-section__label {
+  display: inline-block;
+  transform: translateY(-0.5px);
+}
+.cx-section__chevron,
+.cx-section__more,
+.cx-section__compose {
+  position: absolute;
+  color: var(--cx-text-muted);
+}
+.cx-section__chevron {
+  left: 71.5px;
+  top: 5.8px;
+  color: #8d8e89;
+}
+/* Measured on project-chooser.png: the Projects chevron sits 1px right and 1px lower. */
+.cx-section:not(.cx-section--recents) .cx-section__chevron {
+  left: 72.5px;
+  top: 6.8px;
+}
+.cx-section__more {
+  left: 165px;
+  top: 7.5px;
+}
+.cx-section__compose {
+  left: 193px;
+  top: 7.7px;
+}
+
+/* ---------- Main column ---------- */
+
+.cx-main {
+  position: absolute;
+  left: var(--cx-sidebar-w);
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--cx-main);
+  color: var(--cx-text-strong);
+}
+
+.cx-hero {
+  position: absolute;
+  top: 372px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: var(--cx-text-strong);
+}
+.cx-hero__logo {
+  display: flex;
+  justify-content: center;
+  color: var(--cx-logo);
+}
+.cx-hero__logo svg {
+  transform: translate(0.5px, 0.5px); /* capture's mark sits on the half pixel */
+}
+.cx-hero__title {
+  margin-top: 27.5px;
+  font-size: var(--cx-fs-hero);
+  line-height: 36px;
+  white-space: nowrap;
+}
+.cx-hero__project {
+  position: relative;
+}
+/* 1px-on/1px-off dotted rule 2.35px under the baseline. text-decoration dots and
+   backgrounds land on whole CSS px here; the transform reaches the capture's x.5 phase. */
+.cx-hero__project::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 30px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--cx-underline) 50%, transparent 0) 0 0 / 2px 1px repeat-x;
+  transform: translateX(-0.5px);
+}
+
+.cx-dock {
+  position: absolute;
+  left: 0.5px;
+  /* Box edges snap to whole CSS px; the capture's composer border sits on x.5. */
+  transform: translateX(-0.5px);
+  right: 0;
+  display: flex;
+  justify-content: center;
+}
+
+/* ---------- Composer ---------- */
+
+.cx-composer-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.cx-context {
+  height: 58px;
+  margin: 0 13px -20px;
+  padding: 0 0 0 13px;
+  border-radius: 12px 12px 0 0;
+  background: var(--cx-context-bar);
+  display: flex;
+  align-items: flex-start;
+  color: var(--cx-text-strong);
+  white-space: nowrap;
+}
+.cx-chip {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--cx-fs-chip);
+}
+.cx-chip + .cx-chip {
+  margin-left: 26px;
+}
+
+.cx-composer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--cx-composer);
+  box-shadow: inset 0 0 0 0.5px var(--cx-composer-border);
+  border-radius: var(--cx-composer-radius);
+}
+.cx-composer__input {
+  flex: 1;
+  position: relative;
+  padding: 14px 12.5px 44px;
+  font-size: var(--cx-fs-composer);
+  line-height: 20px;
+  color: var(--cx-text-strong);
+  white-space: pre-wrap;
+}
+.cx-composer__placeholder {
+  color: var(--cx-placeholder);
+}
+/* Editable composer (Composer `onDraftChange`): a bare textarea drawn like the static text. */
+.cx-composer__field {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  resize: none;
+  field-sizing: content;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+.cx-composer__mirror {
+  position: absolute;
+  inset: 14px 12.5px auto;
+  color: transparent;
+  pointer-events: none;
+}
+.cx-caret-inline {
+  display: inline-block;
+  width: 1.5px;
+  height: 15.5px;
+  margin-left: -1px;
+  vertical-align: -3px;
+  background: var(--cx-text-strong);
+}
+.cx-composer__field::placeholder {
+  color: var(--cx-placeholder);
+  opacity: 1;
+}
+.cx-caret {
+  position: absolute;
+  left: 12.5px;
+  top: 15.5px;
+  width: 1.5px;
+  height: 16px;
+  background: var(--cx-text-strong);
+}
+.cx-composer__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 7.5px 0 7.5px;
+  font-size: var(--cx-fs-chip);
+}
+.cx-composer__plus {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cx-text-strong);
+}
+.cx-permission {
+  height: 28px;
+  margin-left: 8.5px;
+  padding: 0 8px 0 4px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cx-warning);
+}
+.cx-permission.is-active {
+  background: #4a4b46;
+}
+.cx-composer__spacer {
+  flex: 1;
+}
+.cx-model {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 18.5px;
+  white-space: nowrap;
+}
+.cx-model__name {
+  color: var(--cx-text-strong);
+  letter-spacing: 0.3px;
+  word-spacing: 1px;
+}
+.cx-model__effort {
+  color: var(--cx-text-dim);
+}
+.cx-model__chevron {
+  color: var(--cx-text-dim);
+  margin-left: 1px;
+}
+.cx-send {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cx-send);
+  color: var(--cx-send-icon);
+}
+.cx-send--ready {
+  background: var(--cx-text-strong);
+  color: #1f201c;
+}
+
+/* ---------- Menu / tooltip ---------- */
+
+.cx-menu {
+  position: absolute;
+  z-index: 10;
+  padding: 6px;
+  border-radius: var(--cx-menu-radius);
+  background: var(--cx-menu);
+  box-shadow:
+    inset 0 0 0 0.5px var(--cx-menu-border),
+    0 10px 30px rgb(0 0 0 / 0.35);
+  color: var(--cx-text-strong);
+  font-size: 14px;
+  line-height: 18px;
+}
+.cx-menu__item,
+.cx-menu__header {
+  min-height: 28.5px;
+  padding: 0 8px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.cx-menu__header {
+  color: var(--cx-text-muted);
+}
+.cx-menu__item.has-description {
+  align-items: flex-start;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.cx-menu__item.is-active {
+  background: var(--cx-menu-hover);
+}
+.cx-menu__item.is-disabled {
+  color: var(--cx-text-muted);
+}
+.cx-menu__item.is-warning {
+  color: var(--cx-warning);
+}
+.cx-menu__item.is-danger {
+  color: #ff6b6b;
+}
+.cx-menu__icon {
+  width: 16px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.cx-menu__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cx-menu__desc {
+  color: var(--cx-text-muted);
+}
+.cx-menu__item.is-warning .cx-menu__desc {
+  color: inherit;
+}
+.cx-menu__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cx-menu__header .cx-menu__label {
+  flex: 1;
+}
+.cx-menu__trailing {
+  color: var(--cx-text-muted);
+}
+.cx-menu__shortcut {
+  color: var(--cx-text-muted);
+  margin-left: 16px;
+}
+.cx-menu__check,
+.cx-menu__chevron {
+  flex: none;
+  align-self: center;
+}
+.cx-menu__chevron {
+  color: var(--cx-text-muted);
+}
+.cx-menu__sep {
+  height: 0.5px;
+  margin: 4px 6px;
+  background: var(--cx-menu-separator);
+}
+
+.cx-tooltip {
+  position: absolute;
+  z-index: 20;
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: #1f201c;
+  box-shadow: inset 0 0 0 0.5px #4e4f4a;
+  color: var(--cx-text-strong);
+  font-size: 13px;
+  line-height: 16px;
+  white-space: nowrap;
+  display: flex;
+  gap: 8px;
+}
+.cx-tooltip__shortcut {
+  color: var(--cx-text-muted);
+}
+
+/* ---------- Window states ---------- */
+
+/* Inactive (non-key) window palette, sampled from every inactive capture
+   (changes-open, fixture-actions-menu, diff-inspection-loading-stuck, manual-view-changes). */
+.cx-window.is-inactive {
+  --cx-chrome: #32332e;
+  --cx-sidebar: #2a2c26;
+  --cx-rail-active: #41423d;
+}
+.cx-window.is-inactive .cx-tab.is-active {
+  box-shadow: inset 0 0 0 0.5px #50514c;
+}
+
+/* Window captured with its macOS shadow at an offset on a transparent desktop
+   (WindowFrame `capture`). The fixed window inside is positioned against this box. */
+.cx-capture {
+  --cx-capture-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.94), 0 19px 40px rgb(0 0 0 / 0.7);
+  --cx-capture-rim: inset 0 0 0 1px rgb(255 255 255 / 0.1);
+  position: fixed;
+  width: 1728px;
+  height: 1084px;
+  border-radius: var(--cx-window-radius);
+  contain: layout;
+  box-shadow: var(--cx-capture-shadow);
+}
+.cx-capture.is-inactive {
+  --cx-capture-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.85), 0 5px 10px rgb(0 0 0 / 0.4), 0 6px 22px rgb(0 0 0 / 0.2);
+  --cx-capture-rim: inset 0 0 0 0.5px #42433f;
+}
+.cx-capture::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  border-radius: inherit;
+  box-shadow: var(--cx-capture-rim);
+  pointer-events: none;
+}
+
+/* ---------- Split title bar (TitleBar `pane` / `inspector`) ---------- */
+
+.cx-titlebar__sep {
+  position: absolute;
+  top: 14px;
+  width: 0.5px;
+  height: 16px;
+  background: #4e4f4b;
+}
+.cx-pane-tabs .cx-tabstrip {
+  gap: 14px;
+  transform: translate(-0.5px, -0.5px);
+}
+.cx-pane-tabs .cx-tab {
+  padding-left: 10px;
+  gap: 5px;
+  font-size: 13px;
+}
