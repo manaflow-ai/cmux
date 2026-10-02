@@ -262,9 +262,13 @@ switch (descriptor titles are built once at launch).
 - Custom icons (emoji, SF Symbol or image) for workspaces and Home: the existing workspace
   `icon` string of workspace-metadata-v1 is extended (sidebar sections lead); the Home lead reuses
   it. Done: one emoji draws as text, any other value is an SF Symbol name
-  (`WorkspaceIcon.parse`). Images need a store blob: proposal `icon` = `image:sha256-<hex>` naming
-  a personal blob put through a new `icon_image.put {media_type, data (base64, at most 256 KiB)}`
-  state op, so the image syncs with the workspace; waits for #16174.
+  (`WorkspaceIcon.parse`). Images: accepted (Lawrence, 2026-10-02); the state-module owner asked for a generic
+  shape. `blob.put {media_type, data}` -> `{ref: "blob:sha256-<hex>", size}` and `blob.get {ref}`,
+  personal store, content-addressed and idempotent by hash, at most 256 KiB, png/jpeg/webp (svg
+  refused for now); the workspace `icon` holds `blob:sha256-<hex>`. GC: a sweep at daemon start and
+  after each put deletes blobs no registered reference field names and older than 7 days, and a
+  64 MiB total cap refuses a put the sweep cannot make room for. Built after #16174 merges,
+  reviewed by the state-module owner.
 - Home is a workspace with `kind: home` (Home lead, plans/cmux-next/home.md section 7): created once
   by the store, not closable, first in its top section; tab bar hidden, fixed and not closable are
   derived from kind on the client. The sidebar item stays `built_in:home`; it runs `home.show`

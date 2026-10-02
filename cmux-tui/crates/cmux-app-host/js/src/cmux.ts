@@ -14,6 +14,10 @@ export interface Native {
   clearTimer(timerId: number): void
   log(level: string, message: string): void
   commandDone(cbId: number, ok: boolean, resultJSON: string): void
+  /** A batch of palette items for request `reqId` (ABI.md, palette). */
+  paletteBatch?(reqId: number, generation: number, itemsJSON: string, isFinal: boolean, replace: boolean): void
+  /** The end of palette request `reqId`: ok `{count}` or the detail, error `{code, message, details?}`. */
+  paletteDone?(reqId: number, ok: boolean, json: string): void
 }
 
 export class CmuxError extends Error {
@@ -28,15 +32,25 @@ export class CmuxError extends Error {
   }
 }
 
+/** The cancellation signal the runtime hands to palette sources (engines may lack AbortController). */
+export interface AbortSignalLike {
+  readonly aborted: boolean
+  readonly reason: unknown
+  addEventListener(type: "abort", fn: () => void): void
+  removeEventListener(type: "abort", fn: () => void): void
+}
+
 export interface CallOptions {
   idempotencyKey?: string
   expectedRevision?: string
   /** A user-gesture token from cmux.gesture(); lets the owner accept a focus-changing op once. */
   gesture?: string
+  /** Rejects the call with `aborted` when the signal fires; never sent to the host. */
+  signal?: AbortSignalLike
 }
 
 /** Ops the host always provides, whatever the catalog lists. */
-const HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request"])
+const HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write"])
 
 export interface CallResult<T = unknown> {
   value: T
@@ -82,27 +96,49 @@ const safeJSON = (v: unknown) => {
   }
 }
 
-/** Calls one catalog op; resolves with `{value, revision, transaction, replayed}`. */
-export function callRaw<T = unknown>(name: string, params: unknown = {}, options: CallOptions = {}): Promise<CallResult<T>> {
+const aborted = () => new CmuxError("aborted", "the request was cancelled")
+
+/**
+ * Calls one catalog op; resolves with `{value, revision, transaction, replayed}`.
+ * The gesture sent is, in order: `invocationGesture` (a command's
+ * per-invocation `ctx.cmux`, palette-scopes.md 6.7 B2), an explicit
+ * `options.gesture`, or the ambient gesture of a user event handler or
+ * command running synchronously. The host validates every token.
+ */
+export function callWith<T = unknown>(name: string, params: unknown, options: CallOptions | undefined, invocationGesture: string | undefined): Promise<CallResult<T>> {
   if (state.knownOps && !state.knownOps.has(name) && !HOST_OPS.has(name)) {
     return Promise.reject(new CmuxError("operation.unsupported", `${name} is not an operation of this cmux version`, { op: name }))
   }
   if (state.allowedOps && !state.allowedOps.has(name) && !HOST_OPS.has(name)) {
     return Promise.reject(new CmuxError("scope.missing", `this app cannot call ${name}`, { op: name }))
   }
-  // Calls made synchronously inside a user handler carry its gesture; later calls only when passed explicitly.
-  if (state.gesture && options.gesture === undefined) options = { ...options, gesture: state.gesture }
+  const { signal, ...rest } = (options ?? {}) as CallOptions & Record<string, unknown>
+  const gesture = invocationGesture ?? (typeof rest.gesture === "string" ? rest.gesture : undefined) ?? state.gesture ?? undefined
+  delete rest.gesture
+  if (gesture) rest.gesture = gesture
+  if (signal?.aborted) return Promise.reject(aborted())
   const cbId = state.nextCallback++
   return new Promise<CallResult<T>>((resolve, reject) => {
-    state.pending.set(cbId, { resolve: resolve as (v: CallResult) => void, reject })
+    const onAbort = () => {
+      if (state.pending.delete(cbId)) reject(aborted())
+    }
+    const settle = <A>(fn: (a: A) => void) => (a: A) => {
+      signal?.removeEventListener("abort", onAbort)
+      fn(a)
+    }
+    state.pending.set(cbId, { resolve: settle(resolve as (v: CallResult) => void), reject: settle(reject) })
+    signal?.addEventListener("abort", onAbort)
     try {
-      native().call(name, JSON.stringify(params ?? {}), JSON.stringify(options ?? {}), cbId)
+      native().call(name, JSON.stringify(params ?? {}), JSON.stringify(rest), cbId)
     } catch (e) {
       state.pending.delete(cbId)
+      signal?.removeEventListener("abort", onAbort)
       reject(e instanceof CmuxError ? e : new CmuxError("app.host", String(e)))
     }
   })
 }
+
+export const callRaw = <T = unknown>(name: string, params: unknown = {}, options: CallOptions = {}): Promise<CallResult<T>> => callWith<T>(name, params, options, undefined)
 
 /** Calls one op and resolves with its value. */
 export const call = async <T = unknown>(name: string, params?: unknown, options?: CallOptions): Promise<T> => (await callRaw<T>(name, params, options)).value
@@ -212,87 +248,103 @@ export interface FetchResponse {
   json<T = unknown>(): T
 }
 
-async function netFetch(url: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<FetchResponse> {
-  const r = await call<{ status: number; headers?: Record<string, string>; body?: string }>("net.fetch", { url, method: init.method ?? "GET", headers: init.headers ?? {}, body: init.body ?? null })
-  const body = r.body ?? ""
-  return { status: r.status, ok: r.status >= 200 && r.status < 300, headers: r.headers ?? {}, text: () => body, json: <T>() => JSON.parse(body) as T }
-}
+/** Members other modules add to every `cmux` object (`palette`, `act`); set once by index.ts. */
+export const sharedMembers: Record<string, unknown> = {}
 
-const opFunction = (name: string) => {
-  const fn = (params?: unknown, options?: CallOptions) => call(name, params, options)
-  return Object.assign(fn, { opName: name, raw: (params?: unknown, options?: CallOptions) => callRaw(name, params, options) })
-}
+/**
+ * Builds a `cmux` object whose op calls carry `gesture()` (undefined for the
+ * global). The global never carries a gesture; a command's `ctx.cmux` does
+ * while the command runs.
+ */
+export function createCmux(gesture: () => string | undefined): Record<string, unknown> {
+  const g = <T = unknown>(name: string, params?: unknown, options?: CallOptions) => callWith<T>(name, params ?? {}, options, gesture())
+  const c = async <T = unknown>(name: string, params?: unknown, options?: CallOptions): Promise<T> => (await g<T>(name, params, options)).value
 
-const familyProxy = (prefix: string): unknown =>
-  new Proxy(Object.create(null), {
-    get(_t, key) {
-      if (typeof key !== "string" || key === "then") return undefined
-      return familyOrOp(`${prefix}.${key}`)
-    }
-  })
+  const netFetch = async (url: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<FetchResponse> => {
+    const r = await c<{ status: number; headers?: Record<string, string>; body?: string }>("net.fetch", { url, method: init.method ?? "GET", headers: init.headers ?? {}, body: init.body ?? null })
+    const body = r.body ?? ""
+    return { status: r.status, ok: r.status >= 200 && r.status < 300, headers: r.headers ?? {}, text: () => body, json: <T>() => JSON.parse(body) as T }
+  }
 
-// `cmux.browser.session.open` is a nested family; `cmux.workspace.list` an op.
-// A member is callable as an op and also indexable as a deeper family.
-const familyOrOp = (name: string): unknown =>
-  new Proxy(opFunction(name), {
-    get(target, key) {
-      if (key in target) return (target as unknown as Record<string | symbol, unknown>)[key]
-      if (typeof key !== "string" || key === "then") return undefined
-      return familyOrOp(`${name}.${key}`)
-    }
-  })
+  const opFunction = (name: string) => {
+    const fn = (params?: unknown, options?: CallOptions) => c(name, params, options)
+    return Object.assign(fn, { opName: name, raw: (params?: unknown, options?: CallOptions) => g(name, params, options) })
+  }
 
-const builtins: Record<string, unknown> = {
-  call,
-  callRaw,
-  live,
-  log: (...parts: unknown[]) => log("info", ...parts),
-  CmuxError,
-  events: { on },
-  actions: { run: (id: string, args: Record<string, unknown> = {}) => call("action.run", { id, args }), list: () => call("action.list", {}) },
-  storage: {
-    get: <T = unknown>(key: string) => call<T | null>("app.storage.get", { key }),
-    set: (key: string, value: unknown) => call("app.storage.set", { key, value }),
-    delete: (key: string) => call("app.storage.delete", { key }),
-    keys: () => call<string[]>("app.storage.keys", {})
-  },
-  net: { fetch: netFetch },
-  integrations: new Proxy(Object.create(null), {
-    get: (_t, provider) => (typeof provider === "string" ? { request: (params: Record<string, unknown>) => call("integration.request", { provider, ...params }) } : undefined)
-  }),
-  timer: { after: (ms: number, fn: () => void) => setTimer(ms, false, fn), every: (ms: number, fn: () => void) => setTimer(ms, true, fn), clear: clearTimer },
-  app: {
-    get id() {
-      return state.app.id
-    },
-    get version() {
-      return state.app.version
-    },
-    get apiVersion() {
-      return state.apiVersion
-    },
-    get locale() {
-      return state.locale
-    },
-    settings: Object.assign(() => state.settings[0](), {
-      set: (values: Record<string, unknown>) => call("app.settings.set", { values })
+  const familyProxy = (prefix: string): unknown =>
+    new Proxy(Object.create(null), {
+      get(_t, key) {
+        if (typeof key !== "string" || key === "then") return undefined
+        return familyOrOp(`${prefix}.${key}`)
+      }
     })
-  },
-  /** The current user-gesture token (only inside a user event handler, before its first await). */
-  gesture: () => state.gesture,
-  /** The app's string for `key` in the user's locale (strings/<lang>.json), else `fallback`; `{name}` placeholders. */
-  t: (key: string, fallbackOrParams?: string | Record<string, unknown>, params?: Record<string, unknown>) => {
-    const fallback = typeof fallbackOrParams === "string" ? fallbackOrParams : key
-    const values = (typeof fallbackOrParams === "object" ? fallbackOrParams : params) ?? {}
-    return (state.strings[key] ?? fallback).replace(/\{(\w+)\}/g, (m, k: string) => (k in values ? String(values[k]) : m))
+
+  // `cmux.browser.session.open` is a nested family; `cmux.workspace.list` an op.
+  // A member is callable as an op and also indexable as a deeper family.
+  const familyOrOp = (name: string): unknown =>
+    new Proxy(opFunction(name), {
+      get(target, key) {
+        if (key in target) return (target as unknown as Record<string | symbol, unknown>)[key]
+        if (typeof key !== "string" || key === "then") return undefined
+        return familyOrOp(`${name}.${key}`)
+      }
+    })
+
+  const builtins: Record<string, unknown> = {
+    call: c,
+    callRaw: g,
+    live,
+    log: (...parts: unknown[]) => log("info", ...parts),
+    CmuxError,
+    events: { on },
+    actions: { run: (id: string, args: Record<string, unknown> = {}) => c("action.run", { id, args }), list: () => c("action.list", {}) },
+    storage: {
+      get: <T = unknown>(key: string) => c<T | null>("app.storage.get", { key }),
+      set: (key: string, value: unknown) => c("app.storage.set", { key, value }),
+      delete: (key: string) => c("app.storage.delete", { key }),
+      keys: () => c<string[]>("app.storage.keys", {})
+    },
+    net: { fetch: netFetch },
+    integrations: new Proxy(Object.create(null), {
+      get: (_t, provider) => (typeof provider === "string" ? { request: (params: Record<string, unknown>) => c("integration.request", { provider, ...params }) } : undefined)
+    }),
+    timer: { after: (ms: number, fn: () => void) => setTimer(ms, false, fn), every: (ms: number, fn: () => void) => setTimer(ms, true, fn), clear: clearTimer },
+    app: {
+      get id() {
+        return state.app.id
+      },
+      get version() {
+        return state.app.version
+      },
+      get apiVersion() {
+        return state.apiVersion
+      },
+      get locale() {
+        return state.locale
+      },
+      settings: Object.assign(() => state.settings[0](), {
+        set: (values: Record<string, unknown>) => c("app.settings.set", { values })
+      })
+    },
+    /** The current user-gesture token: on a command's `ctx.cmux`, the invocation's token while the command runs; otherwise the event token of a user event handler running synchronously; else null. */
+    gesture: () => gesture() ?? state.gesture,
+    /** The app's string for `key` in the user's locale (strings/<lang>.json), else `fallback`; `{name}` placeholders. */
+    t: (key: string, fallbackOrParams?: string | Record<string, unknown>, params?: Record<string, unknown>) => {
+      const fallback = typeof fallbackOrParams === "string" ? fallbackOrParams : key
+      const values = (typeof fallbackOrParams === "object" ? fallbackOrParams : params) ?? {}
+      return (state.strings[key] ?? fallback).replace(/\{(\w+)\}/g, (m, k: string) => (k in values ? String(values[k]) : m))
+    }
   }
+
+  return new Proxy(builtins, {
+    get(target, key) {
+      if (typeof key !== "string") return undefined
+      if (key in target) return target[key]
+      if (key in sharedMembers) return sharedMembers[key]
+      if (key === "then") return undefined
+      return familyProxy(key)
+    }
+  })
 }
 
-export const cmux: Record<string, unknown> = new Proxy(builtins, {
-  get(target, key) {
-    if (typeof key !== "string") return undefined
-    if (key in target) return target[key]
-    if (key === "then") return undefined
-    return familyProxy(key)
-  }
-})
+export const cmux: Record<string, unknown> = createCmux(() => undefined)

@@ -72,14 +72,18 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
         if (replyTo.part_index >= replied!.parts.length) fail("invalid_part_index")
       }
       const nowMs = parseRfc3339Millis(now) ?? 0
-      // Cloud heads carry the loop guard; local heads use the Rust row window when the host passes it.
-      const budget = cloud ? checkAgentStreak(head, request.actor, parts, nowMs) : request.recent ? checkAgentBudget(head, request.actor, parts, request.recent, nowMs) : null
+      // Every head carries the loop guard (O(1), no row window, so work cards cannot hide agent
+      // turns). A head written before the counters existed falls back to the row window once.
+      const counted = head.agent_text_streak !== undefined
+      const budget = counted || cloud ? checkAgentStreak(head, request.actor, parts, nowMs) : request.recent ? checkAgentBudget(head, request.actor, parts, request.recent, nowMs) : null
       if (budget) fail(budget)
       next.last_seq = head.last_seq + 1
       next.updated_at = now
-      if (cloud && hasText(parts)) {
+      if (hasText(parts)) {
         if (actor.kind === "agent") {
-          next.agent_text_streak = (head.agent_text_streak ?? 0) + 1
+          // A legacy head (no counters yet) seeds the streak from the host window's trailing agent texts.
+          const seed = counted || cloud || !request.recent ? (head.agent_text_streak ?? 0) : trailingAgentTexts(head, request.recent)
+          next.agent_text_streak = seed + 1
           next.last_agent_text_at = now
         } else {
           next.agent_text_streak = 0
@@ -199,3 +203,14 @@ const updated = (next: Draft, message: Message): Commit => {
 /** Keys in code-unit order, as the Rust `BTreeMap` serializes them. */
 const sortedRecord = (record: Readonly<Record<string, number>>): Record<string, number> =>
   Object.fromEntries(Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+
+/** Agent text messages at the newest end of `recent` (newest first), up to the first human text. */
+const trailingAgentTexts = (head: ConversationHead, recent: ReadonlyArray<Message>): number => {
+  let count = 0
+  for (const message of recent) {
+    if (!hasText(message.parts)) continue
+    if (findParticipant(head, message.author)?.kind !== "agent") break
+    count++
+  }
+  return count
+}
