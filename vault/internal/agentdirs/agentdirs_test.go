@@ -99,6 +99,31 @@ func TestOpenRegularFileNoSymlinkRejectsHardLinks(t *testing.T) {
 	}
 }
 
+func TestOpenDiscoveredSessionRejectsSwappedFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	writeFile(t, path, `{"cwd":"/a"}`+"\n")
+	session, err := statSession("claude", dir, path, "id", "/a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := OpenDiscoveredSession(session)
+	if err != nil {
+		t.Fatalf("expected discovered file to open: %v", err)
+	}
+	_ = file.Close()
+
+	other := filepath.Join(dir, "other.jsonl")
+	writeFile(t, other, `{"cwd":"/private"}`+"\n")
+	if err := os.Rename(other, path); err != nil {
+		t.Fatal(err)
+	}
+	if file, err := OpenDiscoveredSession(session); err == nil {
+		_ = file.Close()
+		t.Fatal("expected swapped file to be rejected")
+	}
+}
+
 func TestDiscoverSymlinkedRoots(t *testing.T) {
 	base := t.TempDir()
 	shared := filepath.Join(base, "shared")
