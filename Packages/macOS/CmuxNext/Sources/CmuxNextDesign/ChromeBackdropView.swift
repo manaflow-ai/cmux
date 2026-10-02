@@ -19,6 +19,11 @@ public final class ChromeBackdropView: NSView {
     /// The theme color over the blur, read inside this view's scope.
     public var tint: @MainActor () -> NSColor { didSet { applyTheme() } }
     public var tintOpacity: CGFloat { didSet { applyTheme() } }
+    /// Whether Reduce Transparency is on (tests pin it; the host setting
+    /// differs between machines).
+    var reduceTransparency: @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency } {
+        didSet { applyTheme() }
+    }
     private let effect = NSVisualEffectView()
     private let tintView = NSView()
 
@@ -69,7 +74,7 @@ public final class ChromeBackdropView: NSView {
     private func applyTheme() {
         performWithTheme {
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-            let solid = WindowBackdrop(tokens).isOpaque || NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            let solid = WindowBackdrop(tokens).isOpaque || reduceTransparency()
             effect.isHidden = solid
             let color = tint()
             tintView.layer?.backgroundColor = color.withAlphaComponent(solid ? color.alphaComponent : color.alphaComponent * tintOpacity).cgColor

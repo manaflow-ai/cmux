@@ -156,3 +156,48 @@ test("a resize across the threshold resets the list and keeps the toggle in step
     delete host.cmuxAcpmuxActions;
   }
 });
+
+test("reopening the overlay with a leftover search that hides the selected row focuses the current view", async () => {
+  const host = dom.window as unknown as {
+    cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    cmuxAcpmuxBridge?: { receive(snapshot: AcpmuxSnapshot): void };
+  };
+  host.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "test" }) };
+  media.matches = false;
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const toggle = () => container.querySelector<HTMLButtonElement>(".acpmux-sidebar-toggle")!;
+  try {
+    await act(async () => root.render(createElement(AcpmuxApp)));
+    await act(async () =>
+      host.cmuxAcpmuxBridge!.receive({
+        type: "snapshot",
+        protocolVersion: 1,
+        rows: [],
+        connection: "connected",
+        isWorking: false,
+        queue: [],
+        catalog: [],
+        canLoadOlder: false,
+        sessionId: "a",
+        sessions: [{ sessionId: "a", displayTitle: "First", cwd: "/src/web", updatedAt: 2 }],
+      }),
+    );
+    await act(async () => toggle().click());
+    const field = container.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
+    await act(async () => {
+      // React's change events depend on what react-dom detected when another test file first
+      // loaded it, and CI and local runs differ; call the field's onChange with its new value.
+      field.value = "zzz";
+      const props = Object.entries(field).find(([key]) => key.startsWith("__reactProps$"))![1];
+      props.onChange({ target: field, currentTarget: field });
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-sidebar-scrim")!.click());
+    expect(container.querySelector(".acpmux-session-row")).toBeNull();
+    await act(async () => toggle().click());
+    expect(dom.window.document.activeElement?.getAttribute("aria-label")).toBe("Sessions");
+  } finally {
+    await act(async () => root.unmount());
+    delete host.cmuxAcpmuxActions;
+  }
+});

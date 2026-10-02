@@ -40,16 +40,23 @@ enum TabGroupHandlers {
         return (id, pane)
     }
 
+    /// The connection of `pane`'s own daemon; refuses (daemon offline) without one.
+    static func connection(for pane: PaneModel, _ ctx: AppActionContext) -> DaemonConnection? {
+        ctx.services.daemon(for: pane).connection ?? ctx.refuse(MiscHandlerStrings.daemonOffline)
+    }
+
+    /// The pane holding `group`, on whichever machine owns it (`GroupOwnership`).
     static func pane(holding group: GroupID, _ ctx: AppActionContext) -> PaneModel? {
-        ctx.services.activeDaemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.tabGroups.contains { $0.id == group } }
+        GroupOwnership.pane(holdingTabGroup: group, machines: ctx.services.machines)?.pane
     }
 
     /// Runs a group command with a transaction and an optimistic patch;
     /// a rejection re-pushes daemon truth into the pane's strip.
     static func run(_ label: String, pane: PaneModel?, patch: OptimisticPatch = .custom { _ in }, _ ctx: AppActionContext,
                     _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
-        guard ctx.connection() != nil else { return }
-        let daemon = ctx.services.activeDaemon
+        // The pane's own machine, not the active window's daemon.
+        let daemon = pane.map { ctx.services.daemon(for: $0) } ?? ctx.services.activeDaemon
+        guard daemon.connection ?? ctx.refuse(MiscHandlerStrings.daemonOffline) != nil else { return }
         Task {
             let ok = await daemon.perform(label, patch: patch, expectEcho: false, body)
             if !ok, let pane { ctx.services.paneController(for: pane)?.resyncStrip() }
@@ -64,7 +71,9 @@ enum TabGroupHandlers {
             guard !tab.pinned else { return ctx.refuse(RefusalStrings.pinnedCannotGroup) }
             let surface = tab.surface, handle = pane.handle
             let name = invocation["name"]?.stringValue
-            let color = invocation["color"]?.stringValue ?? GroupColor.grey.rawValue
+            // The same color rule as screen groups (`TabGroupOrdering.nextColor`).
+            let color = invocation["color"]?.stringValue
+                ?? TabGroupOrdering.nextColor(used: pane.tabGroups.compactMap { $0.color.flatMap(GroupColor.init(rawValue:)) }).rawValue
             run("create-tab-group", pane: pane, ctx) { c, t in
                 _ = try await c.createTabGroup(in: handle, tabs: [surface], name: name, color: color, transaction: t)
             }
@@ -75,6 +84,9 @@ enum TabGroupHandlers {
             guard !tab.pinned else { return ctx.refuse(RefusalStrings.pinnedCannotGroup) }
             let group = GroupID(rawValue: ref.id), surface = tab.surface
             guard let pane = pane(holding: group, ctx) ?? ctx.refuse(RefusalStrings.noOpenTabGroup(ref.id)) else { return }
+            // The tab must be on the group's machine (surface ids are per daemon).
+            guard GroupOwnership.owner(ofTabGroup: group, sameMachineAs: ctx.services.machines.daemon(forTab: tab),
+                                       machines: ctx.services.machines) != nil else { return ctx.refuse(RefusalStrings.otherMachine) }
             run("add-tabs-to-group", pane: pane, ctx) { c, t in _ = try await c.addTabs([surface], toGroup: group, transaction: t) }
         }
         bind("tabGroup.removeTab") { invocation in
@@ -89,7 +101,8 @@ enum TabGroupHandlers {
             let cwd = pane.tabs.last { $0.tabGroup == group }?.cwd
             let controller = ctx.services.paneController(for: pane)
             let workspace = ctx.services.workspaceKey(of: pane)
-            guard let connection = ctx.connection() else { return }
+            guard let connection = connection(for: pane, ctx) else { return }
+            let logger = ctx.services.daemon(for: pane).logger
             Task {
                 do {
                     let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace))
@@ -100,7 +113,7 @@ enum TabGroupHandlers {
                         controller.workspace?.expectFocus(on: created.surface)
                     }
                 } catch {
-                    ctx.services.daemon.logger.error("new-tab-in-group failed: \(String(describing: error), privacy: .public)")
+                    logger.error("new-tab-in-group failed: \(String(describing: error), privacy: .public)")
                 }
             }
         }
@@ -139,10 +152,13 @@ enum TabGroupHandlers {
         let collapsed = value ?? !current
         guard collapsed != current else { return }
         if collapsed, let controller = ctx.services.paneController(for: pane) {
+            // Chrome's rule (`TabGroupOrdering`), shared with screen groups.
+            let strip = controller.stripModel
             let stripGroup = CmuxNextTabs.TabGroupID(group.rawValue)
-            if let selected = controller.stripModel.selectedID, controller.stripModel.tab(selected)?.groupID == stripGroup,
-               let outside = controller.stripModel.orderedTabs.first(where: { $0.groupID != stripGroup }) {
-                controller.select(outside.id)
+            let collapsedGroups = Set(strip.groups.filter(\.isCollapsed).map(\.id))
+            if let next = TabGroupOrdering.selectionBeforeCollapsing(stripGroup, in: strip.orderedTabs, collapsed: collapsedGroups,
+                                                                    selected: strip.selectedID) {
+                controller.select(next)
             }
         }
         run("update-tab-group", pane: pane, patch: .setTabGroupCollapsed(group, collapsed: collapsed), ctx) { c, t in
