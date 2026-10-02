@@ -10,11 +10,14 @@ const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
   ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
 );
+const { proseMirrorGlobals, promptField, typeInto } = await import("./promptFieldTesting");
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  // The composer's prompt is a Milkdown (ProseMirror) editor.
+  ...proseMirrorGlobals(dom.window as unknown as Window & typeof globalThis),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(() => Object.assign(globals, saved));
@@ -66,15 +69,8 @@ const modes = {
   ],
 };
 
-/// Types into the prompt through React's change handler (see composer.test.tsx for why).
-function typeInto(node: HTMLTextAreaElement, value: string) {
-  node.value = value;
-  node.setSelectionRange(value.length, value.length);
-  const props = (node as unknown as Record<string, { onChange(event: { target: HTMLTextAreaElement }): void }>)[
-    Object.keys(node).find((key) => key.startsWith("__reactProps$"))!
-  ]!;
-  props.onChange({ target: node });
-}
+/// Milkdown makes the composer's editor a task after it mounts.
+const ready = () => act(() => new Promise((resolve) => setTimeout(resolve, 10)));
 
 describe("acpmux composer pickers", () => {
   let root: ReturnType<typeof createRoot>;
@@ -289,10 +285,10 @@ describe("acpmux composer send button", () => {
   let root: ReturnType<typeof createRoot>;
   let sent: string[];
   let stops: number;
-  const textarea = () => doc.querySelector("textarea")!;
+  const textarea = () => promptField(doc);
   const send = () => doc.querySelector(".acpmux-send")!;
-  const render = async (value: AcpmuxSnapshot) =>
-    act(async () =>
+  const render = async (value: AcpmuxSnapshot) => {
+    await act(async () =>
       root.render(
         createElement(Composer, {
           snapshot: value,
@@ -306,6 +302,8 @@ describe("acpmux composer send button", () => {
         }),
       ),
     );
+    await ready();
+  };
   const key = async (name: string, init: KeyboardEventInit = {}) =>
     act(async () => {
       textarea().dispatchEvent(
@@ -379,8 +377,8 @@ describe("acpmux composer send button", () => {
 describe("acpmux composer context", () => {
   test("the tray names the project, the machine and the branch, and the worktree switch shows whether the session has one", async () => {
     const root = createRoot(doc.getElementById("root")!);
-    const render = async (summary: Partial<NonNullable<AcpmuxSnapshot["summary"]>>) =>
-      act(async () =>
+    const render = async (summary: Partial<NonNullable<AcpmuxSnapshot["summary"]>>) => {
+      await act(async () =>
         root.render(
           createElement(Composer, {
             snapshot: snapshot(summary),
@@ -390,6 +388,8 @@ describe("acpmux composer context", () => {
           }),
         ),
       );
+      await ready();
+    };
     const chips = () =>
       [...doc.querySelectorAll(".acpmux-context-chip")].map(
         (chip) => `${chip.textContent}|${chip.getAttribute("title") ?? ""}`,
@@ -430,8 +430,8 @@ describe("acpmux composer context", () => {
 describe("acpmux composer queue", () => {
   test("queued prompts list above the bar in order, and the list goes away when empty", async () => {
     const root = createRoot(doc.getElementById("root")!);
-    const render = async (queue: AcpmuxSnapshot["queue"]) =>
-      act(async () =>
+    const render = async (queue: AcpmuxSnapshot["queue"]) => {
+      await act(async () =>
         root.render(
           createElement(Composer, {
             snapshot: { ...snapshot({}, true), queue },
@@ -441,6 +441,8 @@ describe("acpmux composer queue", () => {
           }),
         ),
       );
+      await ready();
+    };
     try {
       await render([
         { id: "p1", prompt: "first" },
@@ -454,9 +456,9 @@ describe("acpmux composer queue", () => {
       ]);
       expect(list.nextElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
       // The slash menu anchors to the field, so the queue never pushes it up.
-      await act(async () => typeInto(doc.querySelector("textarea")!, "/"));
+      await act(async () => typeInto(promptField(doc), "/"));
       expect(doc.querySelector(".acpmux-composer-box > .acpmux-slash-menu")).not.toBeNull();
-      await act(async () => typeInto(doc.querySelector("textarea")!, ""));
+      await act(async () => typeInto(promptField(doc), ""));
       await render([]);
       expect(doc.querySelector(".acpmux-composer-queue")).toBeNull();
     } finally {
