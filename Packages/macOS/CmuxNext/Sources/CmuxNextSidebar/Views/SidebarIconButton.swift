@@ -75,6 +75,7 @@ final class SidebarIconButton: NSButton {
 
     /// NSButton tracks the click inside `super.mouseDown` and returns on release.
     override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return super.mouseDown(with: event) }
         changeHover { $0.pressed = true }
         super.mouseDown(with: event)
         changeHover { $0.pressed = false }

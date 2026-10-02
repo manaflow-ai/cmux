@@ -72,16 +72,19 @@ public final class ChromeHover {
     /// view's theme scope.
     public static func paint(_ layer: CALayer, _ color: NSColor?, animated: Bool) {
         let target = color?.cgColor
-        guard layer.backgroundColor != target else { return }
+        // A faded-out fill keeps an alpha-0 model value: already clear.
+        let shown = color == nil && layer.backgroundColor?.alpha == 0 ? nil : layer.backgroundColor
+        guard shown != target else { return }
         guard animated else {
             layer.removeAnimation(forKey: "backgroundColor")
             Motion.transaction(nil) { layer.backgroundColor = target }
             return
         }
-        // Fade to or from the same color at alpha 0, not to black, then
-        // leave no fill once it is gone.
+        // Fade to or from the same color at alpha 0, not to black, starting
+        // from what is on screen so a reversal mid-fade never jumps.
         let clear = (color ?? layer.backgroundColor.flatMap(NSColor.init(cgColor:)) ?? .clear).withAlphaComponent(0).cgColor
-        Motion.set(layer, "backgroundColor", to: target ?? clear, fade: .hover, from: layer.backgroundColor ?? clear)
+        let start = layer.presentation()?.backgroundColor ?? layer.backgroundColor ?? clear
+        Motion.set(layer, "backgroundColor", to: target ?? clear, fade: .hover, from: start)
     }
 
     /// The fill as drawn now (model value), and where it is drawn.
@@ -103,7 +106,8 @@ public final class ChromeHover {
         tracking = area
     }
 
-    /// Re-resolves the colors (theme or appearance change) without a fade.
+    /// Applies the state's colors, fading the fill when `animated`; pass
+    /// false to re-resolve them at once (theme or appearance change).
     public func refresh(animated: Bool = true) {
         guard let view else { return }
         view.performWithTheme {

@@ -48,6 +48,9 @@ class SidebarRowView: NSView {
         configuredContent = nil
         self.key = key
         isHovered = false
+        // A recycled row shows its new content's fill at once.
+        fadesNextFill = false
+        layer?.removeAnimation(forKey: "backgroundColor")
         targetSize = nil
         alphaValue = 1
         setTitleHidden(false)

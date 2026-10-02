@@ -49,7 +49,7 @@ struct ChromeHoverTests {
         #expect(layer.animation(forKey: "backgroundColor") == nil)
     }
 
-    @Test func clearingFadesOutToTransparentAndInstantClearLeavesNone() {
+    @Test func aFadedOutFillCountsAsClear() {
         defer { Motion.reduceMotionOverride = nil }
         Motion.reduceMotionOverride = false
         let layer = CALayer()
@@ -57,7 +57,10 @@ struct ChromeHoverTests {
         ChromeHover.paint(layer, nil, animated: true)
         #expect(layer.backgroundColor?.alpha == 0)
         ChromeHover.paint(layer, nil, animated: false)
-        #expect(layer.backgroundColor == nil)
+        #expect(layer.animation(forKey: "backgroundColor") != nil, "an unrelated repaint keeps the fade-out running")
+        ChromeHover.paint(layer, Palette.hoverFill, animated: false)
+        #expect(layer.backgroundColor == Palette.hoverFill.cgColor)
+        #expect(layer.animation(forKey: "backgroundColor") == nil)
     }
 
     @Test func focusDrawsARingAndNoFill() {
