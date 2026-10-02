@@ -224,7 +224,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             iconAssetName: contract.iconAssetName,
             detect: CmuxVaultAgentDetectRule(
                 processNames: contract.directBasenames,
-                alternateArgvContains: contract.vaultAlternateArgvContains
+                alternateArgvContainsAny: contract.vaultAlternateArgvContainsAny
             ),
             sessionIdSource: .argvOption(contract.resumeOption),
             resumeCommand: contract.resumeCommand,

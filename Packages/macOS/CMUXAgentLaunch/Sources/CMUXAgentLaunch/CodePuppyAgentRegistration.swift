@@ -68,7 +68,7 @@ public struct CodePuppyAgentRegistration: Equatable, Sendable {
     /// The directory containing Code Puppy's persisted sessions.
     public let sessionDirectory: String
     /// Argument tokens used by the Vault detector for wrapped launches.
-    public let vaultAlternateArgvContains: [String]
+    public let vaultAlternateArgvContainsAny: [String]
 
     /// Creates the canonical Code Puppy integration contract.
     public init() {
@@ -101,7 +101,7 @@ public struct CodePuppyAgentRegistration: Equatable, Sendable {
         resumeOption = "--resume"
         resumeCommand = "{{executable}} --resume {{sessionId}}"
         sessionDirectory = "~/.code_puppy/autosaves"
-        vaultAlternateArgvContains = ["code_puppy"]
+        vaultAlternateArgvContainsAny = argumentNeedles
     }
 
     /// The canonical contract for the built-in Code Puppy integration.
