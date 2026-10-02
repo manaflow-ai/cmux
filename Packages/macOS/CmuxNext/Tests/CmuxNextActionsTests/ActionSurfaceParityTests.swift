@@ -1,0 +1,150 @@
+import AppKit
+@testable import CmuxNextActions
+import Foundation
+import Testing
+
+/// The surface parity rule (plans/cmux-next/actions.md): every action is
+/// offered on the CLI, a right-click menu and the palette, or names why not.
+/// The catalog is finite, so each property below is checked for every
+/// element: an exhaustive check, not a sample.
+@MainActor
+@Suite struct ActionSurfaceParityTests {
+    let catalog = ActionCatalog.all
+
+    @Test func everyActionDeclaresEverySurface() {
+        var missing: [String] = []
+        for descriptor in catalog {
+            for surface in ActionSurface.allCases where descriptor.surfacePlan.decision(for: surface) == nil {
+                missing.append("\(descriptor.id.rawValue): \(surface.rawValue)")
+            }
+        }
+        #expect(missing.isEmpty, "\(missing.count) undeclared surfaces:\n\(missing.joined(separator: "\n"))")
+    }
+
+    /// Placements and exemptions never contradict each other, and every
+    /// exemption fits the descriptor facts it claims.
+    @Test func declarationsAreConsistent() {
+        for descriptor in catalog {
+            let plan = descriptor.surfacePlan
+            let id = descriptor.id.rawValue
+            #expect(plan.contextMenus.isEmpty || plan.contextMenuExemption == nil, "\(id): placed and exempt")
+            #expect((plan.palette.exemption == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(id): palette")
+            if descriptor.isDebugOnly {
+                #expect(plan.cli == .exempt(.devOnly), "\(id): a debug-only action has no CLI verb")
+            }
+            if plan.cli == .exempt(.devOnly) { #expect(descriptor.isDebugOnly, "\(id): devOnly but not debug-only") }
+            if let mcp = plan.mcpExemption {
+                #expect(plan.cli?.isOffered == true, "\(id): an MCP exemption without a CLI verb")
+                #expect([.credentials, .endsApp, .systemChange].contains(mcp), "\(id): MCP reason \(mcp)")
+            }
+            for placement in plan.contextMenus {
+                if placement.style == .choices {
+                    let first = descriptor.arguments.first?.kind
+                    if case .enumeration = first {} else { Issue.record("\(id): choices needs an enumeration argument") }
+                }
+                if let parent = placement.parent {
+                    let anchored = catalog.first { $0.id == parent }?.surfacePlan.contextMenus.contains {
+                        $0.context == placement.context && $0.style == .submenu
+                    }
+                    #expect(anchored == true, "\(id): parent \(parent) is no submenu in \(placement.context)")
+                }
+            }
+        }
+    }
+
+    /// A right-click on an object offers every action that acts on that
+    /// kind of object, unless the action says why not.
+    @Test func everyTargetKindMenuShowsItsActions() {
+        let kindsWithMenus = Set(ActionMenuContext.allCases.compactMap(\.targetKind))
+        var gaps: [String] = []
+        for descriptor in catalog {
+            guard let kind = descriptor.targets.first, kindsWithMenus.contains(kind) else { continue }
+            let plan = descriptor.surfacePlan
+            let placed = plan.contextMenus.contains { $0.context.targetKind == kind }
+            if !placed && plan.contextMenuExemption == nil {
+                gaps.append("\(descriptor.id.rawValue) (\(kind.rawValue))")
+            }
+        }
+        #expect(gaps.isEmpty, "actions missing from their target's menu:\n\(gaps.joined(separator: "\n"))")
+    }
+
+    /// The menus are generated from the placements: each menu shows exactly
+    /// the actions placed in it, nothing hand-added and nothing dropped.
+    @Test func generatedMenusShowExactlyThePlacements() {
+        for context in ActionMenuContext.allCases {
+            let shown = Set(ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: context)))
+            let placed = Set(catalog.filter { $0.surfacePlan.contextMenus.contains { $0.context == context } }.map(\.id))
+            #expect(shown == placed, "\(context): shown-only \(shown.subtracting(placed)), placed-only \(placed.subtracting(shown))")
+            #expect(!shown.isEmpty, "\(context) menu is empty")
+        }
+    }
+
+    @Test func cliNamesAndShortcutsAreUnique() {
+        var byName: [String: ActionID] = [:]
+        for descriptor in catalog where descriptor.surfacePlan.cli?.isOffered == true {
+            if let other = byName[descriptor.cliName] {
+                Issue.record("cliName \(descriptor.cliName): \(other) and \(descriptor.id)")
+            }
+            byName[descriptor.cliName] = descriptor.id
+        }
+        #expect(ActionRegistry.standard().shortcutConflicts().isEmpty)
+    }
+
+    /// Every right-click item runs the action it shows through
+    /// `ActionRegistry.perform` with the item's target and the user origin:
+    /// the same path the palette, the keyboard and the CLI use.
+    @Test func everyMenuItemRunsItsOwnActionThroughTheRegistry() throws {
+        let registry = ActionRegistry.standard()
+        registry.context = ActionContext(rawValue: .max)
+        var runs: [(ActionID, ActionInvocation)] = []
+        for descriptor in catalog {
+            let id = descriptor.id
+            registry.bind(id, invoke: { runs.append((id, $0)) })
+        }
+        registry.argumentCollector = { runs.append(($0, $1)) }
+        registry.confirmationPresenter = { id, invocation, _ in runs.append((id, invocation)) }
+        var checked = 0
+        for context in ActionMenuContext.allCases {
+            let target = context.targetKind.map { ActionTargetRef(kind: $0, id: "t1") }
+            let menu = registry.makeContextMenu(for: context, target: target)
+            for item in Self.leafItems(menu) {
+                guard let payload = item.representedObject as? ActionMenuPayload else {
+                    Issue.record("\(context): \(item.title) has no action payload")
+                    continue
+                }
+                runs.removeAll()
+                _ = (item.target as? NSObject)?.perform(item.action, with: item)
+                let run = try #require(runs.first, "\(context): \(payload.id) did not run")
+                #expect(run.0 == payload.id, "\(context): item \(payload.id) ran \(run.0)")
+                #expect(run.1.target == target, "\(context): \(payload.id) target")
+                #expect(run.1.origin == .user, "\(context): \(payload.id) origin")
+                checked += 1
+            }
+        }
+        #expect(checked > 300)
+    }
+
+    /// The checked-in export (`plans/cmux-next/action-surfaces.json`) that
+    /// the Rust CLI and MCP parity tests read matches the catalog.
+    /// `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter ActionSurfaceParityTests` rewrites it.
+    @Test func exportIsFresh() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("plans/cmux-next/action-surfaces.json")
+        let current = ActionSurfaceExport.json(catalog)
+        if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
+            try current.write(to: url, atomically: true, encoding: .utf8)
+        }
+        let stored = try String(contentsOf: url, encoding: .utf8)
+        #expect(stored == current, "action-surfaces.json is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
+    }
+
+    static func leafItems(_ menu: NSMenu) -> [NSMenuItem] {
+        menu.items.flatMap { item -> [NSMenuItem] in
+            if item.isSeparatorItem { return [] }
+            if let submenu = item.submenu, item.representedObject == nil { return leafItems(submenu) }
+            return [item]
+        }
+    }
+}
