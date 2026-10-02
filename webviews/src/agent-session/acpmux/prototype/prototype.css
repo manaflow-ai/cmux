@@ -1,0 +1,320 @@
+/* Sidebar prototype (#16688). The window fills the page; the wallpaper (set by a capture as
+   --proto-wallpaper) shows through the rail and the stack, which are modestly translucent. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: var(--proto-wallpaper, #11111b) center / cover;
+}
+.proto-window {
+  position: relative;
+  display: grid;
+  grid-template-columns: 52px 252px 1fr;
+  height: 100%;
+  color: var(--agent-text);
+  font:
+    13px -apple-system,
+    BlinkMacSystemFont,
+    "Helvetica Neue",
+    sans-serif;
+  letter-spacing: 0.04px;
+}
+.proto-window button {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: default;
+}
+
+/* Rail and stack: one translucent sidebar surface. */
+.proto-rail,
+.proto-stack {
+  background: color-mix(in srgb, var(--agent-page-bg) 78%, transparent);
+  -webkit-backdrop-filter: blur(30px) saturate(1.2);
+  backdrop-filter: blur(30px) saturate(1.2);
+}
+.proto-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 44px;
+}
+.proto-lights {
+  position: absolute;
+  z-index: 5;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  gap: 8px;
+}
+.proto-lights i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--agent-text) 22%, transparent);
+}
+.proto-rail-button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--agent-muted) !important;
+}
+.proto-rail-button:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.proto-rail-button.is-active {
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  color: var(--agent-text) !important;
+}
+
+.proto-stack {
+  overflow: auto;
+  padding: 44px 8px 24px 4px;
+  border-right: 0.5px solid var(--agent-border);
+}
+.proto-stack ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.proto-stack-label {
+  height: 30px;
+  padding-left: 9px;
+  line-height: 30px;
+  color: var(--agent-muted);
+  font-weight: 500;
+}
+.proto-workspace,
+.proto-workspace-tab {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 32px;
+  margin-bottom: 1px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  transition: background-color 0.5s;
+}
+.proto-workspace svg {
+  flex: none;
+  color: var(--agent-muted);
+}
+/* An agent session is the one kind in full text colour: special, not siloed. */
+.proto-workspace.is-agent > svg {
+  color: var(--agent-text);
+}
+.proto-workspace:hover,
+.proto-workspace-tab:hover {
+  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+}
+.proto-workspace.is-active,
+.proto-workspace-tab.is-active {
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+}
+.proto-workspace.is-flash {
+  background: color-mix(in srgb, var(--agent-accent) 22%, transparent);
+  transition: none;
+}
+.proto-workspace-title,
+.proto-workspace-tab span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.proto-workspace-count {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.proto-workspace-tabs {
+  margin: 2px 0 6px !important;
+}
+.proto-workspace-tab {
+  height: 28px;
+  padding-left: 34px;
+  color: var(--agent-muted);
+}
+.proto-workspace-tab svg {
+  flex: none;
+}
+.proto-workspace-tab.is-active {
+  color: var(--agent-text);
+}
+
+/* History: a temporary layer over the stack, not working state. */
+.proto-scrim {
+  position: absolute;
+  z-index: 3;
+  inset: 0 0 0 52px;
+  border: 0;
+  padding: 0;
+  background: rgb(0 0 0 / 18%);
+}
+.proto-history {
+  position: absolute;
+  z-index: 4;
+  top: 8px;
+  bottom: 8px;
+  left: 60px;
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+  border: 0.5px solid var(--agent-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--agent-surface) 92%, transparent);
+  -webkit-backdrop-filter: blur(30px);
+  backdrop-filter: blur(30px);
+  box-shadow: 0 12px 36px var(--agent-shadow, rgb(0 0 0 / 40%));
+  overflow: hidden;
+}
+.proto-history header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 14px 10px 6px 17px;
+}
+.proto-history h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.proto-history p {
+  margin: 2px 0 0;
+  color: var(--agent-muted);
+  font-size: 12px;
+}
+.proto-history header button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--agent-muted);
+}
+.proto-history header button:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.proto-history .acpmux-sidebar {
+  display: flex;
+  position: static;
+  flex: 1;
+  min-height: 0;
+  width: auto;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.proto-history .acpmux-sidebar-scroll {
+  padding: 4px 8px 16px;
+}
+/* Rows already open in a tab read at full strength and say so; the rest are history. */
+.proto-history .acpmux-session-row:not(.is-open) {
+  color: var(--agent-soft, var(--agent-muted));
+}
+.proto-history .acpmux-session-row.is-open::after {
+  content: "Open";
+  flex: none;
+  padding: 0 5px;
+  border: 0.5px solid var(--agent-border);
+  border-radius: 4px;
+  color: var(--agent-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* Content: a quiet tab strip over the active tab. */
+.proto-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--agent-page-bg);
+}
+.proto-tabs {
+  display: flex;
+  gap: 2px;
+  flex: none;
+  height: 38px;
+  padding: 5px 8px 0;
+  box-sizing: border-box;
+  border-bottom: 0.5px solid var(--agent-border);
+}
+.proto-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 260px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--agent-muted) !important;
+}
+.proto-tab span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.proto-tab[aria-selected="true"] {
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  color: var(--agent-text) !important;
+}
+.proto-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.proto-agent {
+  height: 100%;
+}
+.proto-agent[hidden] {
+  display: none;
+}
+/* The pane's own session list is the history layer now. */
+.proto-agent .acpmux-sidebar,
+.proto-agent .acpmux-sidebar-toggle,
+.proto-agent .acpmux-sidebar-scrim {
+  display: none !important;
+}
+.proto-terminal {
+  height: 100%;
+  margin: 0;
+  padding: 14px 18px;
+  box-sizing: border-box;
+  font: 12.5px/1.5 var(--font-mono, ui-monospace, monospace);
+}
+.proto-browser {
+  display: grid;
+  place-content: center;
+  height: 100%;
+  gap: 4px;
+  text-align: center;
+  color: var(--agent-muted);
+}
+.proto-browser div {
+  color: var(--agent-text);
+  font-size: 15px;
+}
+/* The history layer is the session list alone: the pane's own rail and New chat stay in the pane. */
+.proto-history .acpmux-rail,
+.proto-history .acpmux-sidebar-action,
+.proto-history .acpmux-account {
+  display: none;
+}

@@ -125,9 +125,13 @@ public struct DaemonCapabilities: Sendable {
     /// Finished shell commands (OSC 133) journaled as `shell.command.finished`
     /// once `set-terminal-command-history` turns it on (plans/cmux-next/history.md 6).
     public let terminalCommandJournal = "terminal-command-journal-v1"
+    /// Protocol-v2 state operations on the workspace store (`screen.update`,
+    /// `screen.move`, `screen_group.*`, ...) with idempotency keys, one commit
+    /// path shared with the raw commands (PR #16174, cmux-tui 52103e740).
+    public let stateResources = "state-resources-v1"
     public var awaitingPin: [String] {
         [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns,
-         endTerminalsKeepLayout]
+         endTerminalsKeepLayout, stateResources]
     }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
