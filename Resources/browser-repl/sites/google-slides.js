@@ -19,6 +19,39 @@
         async slides(deck, options = {}) {
           return ed.deck("googleSlides.slides", ref(deck, "googleSlides.slides", options));
         },
+        // Sets one slide's speaker notes (1-based index), replacing what is
+        // there: { status: "notes set", slide, verified }. Private deck: at once; else a draft.
+        async setNotes(deck, index, text, options) {
+          if (typeof deck === "string" && /^draft-\d+-[0-9a-f]+$/.test(deck)) return ed.edit("googleSlides", "setNotes", "googleSlides.setNotes", null, deck, index);
+          if (!Number.isInteger(index) || index < 1) throw new S.SiteError("invalid", `googleSlides.setNotes: index: expected a slide number from 1, got ${JSON.stringify(index)}`);
+          if (typeof text !== "string") throw new S.SiteError("invalid", "googleSlides.setNotes: text: expected text");
+          const r = ref(deck, "googleSlides.setNotes", options || {});
+          const count = (await ed.deck("googleSlides.setNotes", r)).length;
+          if (index > count) throw new S.SiteError("invalid", `googleSlides.setNotes: slide ${index} does not exist; the deck has ${count} slides`);
+          const norm = (x) => String(x).replace(/\s+/g, " ").trim();
+          return ed.edit("googleSlides", "setNotes", "googleSlides.setNotes", r, {}, options, () => ({
+            summary: `Set the speaker notes of slide ${index} in Google Slides ${r.id}`,
+            preview: { file: deck, slide: index, notes: text },
+            run: async (page) => {
+              // The slide's thumbnail in the filmstrip, then the notes box, with typed keys.
+              await page.locator(`[id^="filmstrip-slide-${index - 1}-"]`).first().click();
+              await t.sleep(500);
+              await page.locator("#speakernotes-workspace").click();
+              await t.sleep(300);
+              await page.keyboard.press("Meta+A");
+              if (!text) await page.keyboard.press("Delete");
+              const lines = text.split("\n");
+              for (let i = 0; i < lines.length; i++) {
+                if (i) await page.keyboard.press("Enter");
+                if (lines[i]) await page.keyboard.type(lines[i]);
+              }
+              await page.keyboard.press("Escape");
+              await ed.saved(page);
+              const verified = await ed.verify(async () => norm((await ed.deck("googleSlides.setNotes", r))[index - 1].notes) === norm(text));
+              return { status: "notes set", slide: index, verified };
+            },
+          }));
+        },
         // Replaces every occurrence of `find` in the deck (Find and replace):
         // { status: "replaced", count, verified }. Private deck: at once; else a draft.
         replace(deck, find, replacement, options) {
