@@ -12,7 +12,7 @@ export type TabKind = (typeof TAB_KINDS)[number];
 export const NEW_TAB_LABELS = {
   kinds: { terminal: "Terminal", browser: "Browser", agent: "Agent" } satisfies Record<TabKind, string>,
   placeholder: {
-    terminal: (folder: string) => `Run a command in ${folder}`,
+    terminal: (folder: string) => (folder ? `Run a command in ${folder}` : "Run a command"),
     browser: () => "Search or type a URL",
     agent: (agent: string) => `Ask ${agent} to build, fix or explain`,
   } satisfies Record<TabKind, (name: string) => string>,
@@ -126,7 +126,8 @@ export function NewTabPage({
   const field = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
   const recent = useMemo(() => recentSessions(snapshot.sessions), [snapshot.sessions]);
-  const folder = projectLabel(cwd);
+  // A pane without a known folder names none rather than showing "No folder".
+  const folder = cwd ? projectLabel(cwd) : "";
   const agent = agentDisplayName(snapshot.summary?.harness ?? snapshot.catalog[0]?.id ?? "agent");
   const placeholder = NEW_TAB_LABELS.placeholder[kind](kind === "agent" ? agent : folder);
 
@@ -204,7 +205,7 @@ export function NewTabPage({
         </div>
         <div className="acpmux-newtab-under">
           <span className="acpmux-newtab-context">
-            {kind === "browser" ? null : (
+            {kind === "browser" || !folder ? null : (
               <span className="acpmux-newtab-chip">
                 <FolderIcon />
                 {folder}

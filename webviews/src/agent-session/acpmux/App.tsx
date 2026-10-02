@@ -840,6 +840,8 @@ function AcpmuxPane() {
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot);
   const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
+  // The page's recent sessions stand in for the session list, which opens on demand (All sessions).
+  const shellSidebar = showNewTab && sidebar === "auto" ? "closed" : sidebar;
   const openFromNewTab = (kind: TabKind, text: string) => {
     if (kind !== "agent") {
       void callNative("tab.open", { kind, text });
@@ -849,7 +851,7 @@ function AcpmuxPane() {
     if (text) void callNative("chat.send", { text });
   };
   return (
-    <section className="acpmux-shell" data-sidebar={sidebar}>
+    <section className="acpmux-shell" data-sidebar={shellSidebar}>
       <SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />
       {sidebar === "open" && (
         <button

@@ -105,5 +105,5 @@
 .acpmux-newtab-card-tag{flex:none;display:flex;align-items:center;gap:4px}
 .acpmux-newtab-card-tag .acpmux-icon{width:13px;height:13px}
 .acpmux-newtab-empty{margin:0;padding:18px 4px;color:var(--acpmux-composer-dim)}
-@container (max-width:640px){.acpmux-newtab-kind kbd,.acpmux-newtab-hint{display:none}.acpmux-newtab-recent ul{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container (max-width:640px){.acpmux-newtab-hint{display:none}.acpmux-newtab-recent ul{grid-template-columns:repeat(2,minmax(0,1fr))}}@container (max-width:540px){.acpmux-newtab-kind kbd{display:none}}
 @container (max-width:460px){.acpmux-newtab-kind>span{display:none}.acpmux-newtab-recent ul{grid-template-columns:minmax(0,1fr)}}

@@ -132,3 +132,22 @@ test("the page switches kind with Tab, submits the field, and opens or edits fro
   expect(opened).toEqual(["ask"]);
   await act(async () => root.unmount());
 });
+
+test("a pane without a known folder names none", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  await act(async () =>
+    root.render(
+      createElement(NewTabPage, {
+        snapshot,
+        initialKind: "terminal",
+        onSubmit: () => {},
+        onOpenSession: () => {},
+        onShowAll: () => {},
+      }),
+    ),
+  );
+  expect(container.querySelector<HTMLInputElement>(".acpmux-newtab-field")!.placeholder).toBe("Run a command");
+  expect(container.querySelector(".acpmux-newtab-context")!.textContent).not.toContain("No folder");
+  await act(async () => root.unmount());
+});
