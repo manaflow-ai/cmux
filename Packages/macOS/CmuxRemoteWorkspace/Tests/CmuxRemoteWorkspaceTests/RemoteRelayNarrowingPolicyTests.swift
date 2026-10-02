@@ -63,6 +63,41 @@ struct RemoteRelayNarrowingPolicyTests {
         #expect(commandVerdict("notification.create_for_target", params) == .allow)
     }
 
+    @Test("relay notifications may toggle the command effect")
+    func notificationCommandEffectIsAllowed() throws {
+        let params: [String: Any] = [
+            "workspace_id": owner.uuidString,
+            "surface_id": surface.uuidString,
+            "title": "Build finished",
+            "effects": ["command": true, "desktop": false],
+        ]
+        #expect(decision("notification.create_for_target", params) == .allowed)
+        #expect(commandVerdict("notification.create_for_target", params) == .allow)
+    }
+
+    @Test("a command key outside a boolean notification effects object is still denied")
+    func commandKeyOutsideTheEffectsPatchIsDenied() throws {
+        let selectors: [String: Any] = [
+            "workspace_id": owner.uuidString,
+            "surface_id": surface.uuidString,
+            "title": "Build finished",
+        ]
+        let attempts: [(method: String, params: [String: Any])] = [
+            ("notification.create_for_target", selectors.merging(["command": "id"]) { $1 }),
+            ("notification.create_for_target", selectors.merging(["command": true]) { $1 }),
+            ("notification.create_for_target", selectors.merging(["effects": ["command": "id"]]) { $1 }),
+            ("notification.create_for_target", selectors.merging(["effects": ["command": 1]]) { $1 }),
+            ("notification.create_for_target", selectors.merging(["effects": ["command": ["argv": ["id"]]]]) { $1 }),
+            ("notification.create_for_target", selectors.merging(["effects": ["command": true, "script": true]]) { $1 }),
+            ("notification.create_for_target", selectors.merging(["body": ["command": true]]) { $1 }),
+            ("surface.send_text", selectors.merging(["text": "x", "effects": ["command": true]]) { $1 }),
+        ]
+        for attempt in attempts {
+            #expect(decision(attempt.method, attempt.params) != .allowed, "\(attempt.params)")
+            #expect(commandVerdict(attempt.method, attempt.params) != .allow, "\(attempt.params)")
+        }
+    }
+
     private func decision(_ method: String, _ parameters: [String: Any]) -> RemoteRelayAuthorizationPolicy.Decision {
         RemoteRelayAuthorizationPolicy().validate(method: method, parameters: parameters,
             ownerWorkspaceID: owner, surfaceIDs: [surface])
