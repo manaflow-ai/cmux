@@ -59,5 +59,12 @@ nonisolated enum AgentActivityStrings {
         }
     }
 
+    static var thisMac: String { t("machine.thisMac", "This Mac") }
     static var foregroundOnly: String { t("pane.foregroundOnly", "Foreground only") }
+}
+
+/// Strings the App needs for the pane (tab title, local machine name).
+public nonisolated enum AgentActivityPaneStrings {
+    public static var title: String { AgentActivityStrings.title }
+    public static var thisMac: String { AgentActivityStrings.thisMac }
 }

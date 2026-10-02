@@ -20,8 +20,12 @@ public protocol PaneContentChrome: AnyObject {
     /// or hide, column scroll), so window-relative chrome can re-check
     /// itself (a tab strip under the traffic lights).
     func paneFrameInWindowDidChange()
+    /// How strongly the view's own chrome (its tab strip) draws: full in
+    /// the focused pane, subtle in the others (`appearance.focusIndicator`).
+    func setChromeEmphasis(_ emphasis: ChromeEmphasis, animated: Bool)
 }
 
 extension PaneContentChrome {
     public func paneFrameInWindowDidChange() {}
+    public func setChromeEmphasis(_ emphasis: ChromeEmphasis, animated: Bool) {}
 }

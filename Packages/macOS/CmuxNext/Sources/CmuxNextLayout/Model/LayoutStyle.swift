@@ -49,12 +49,19 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// of `focusRing.contrast`; nil follows the setting. Read here, in the
     /// observed style, so a slider move repaints the ring at once.
     public var focusRingAlphaOverride: CGFloat?
+    /// `appearance.focusIndicator`, and how unfocused panes' tabs draw
+    /// subtler when it marks tabs (`ChromeEmphasis.forPane`).
+    public var focusIndicator: FocusIndicator = .both
+    public var inactiveTabStyle: InactiveTabStyle = .fade
+    public var inactiveTabStrength: CGFloat = 0.35
     /// Fraction of a pane's extent that counts as an edge drop zone.
     public var dropEdgeFraction: CGFloat = 0.28
     /// Clamp for the edge drop band.
     public var dropEdgeRange: ClosedRange<CGFloat> = 28...180
     /// Width of the "new column" drop zone centered on each column gap.
     public var newColumnDropWidth: CGFloat = 36
+    /// DEV layout model prototype (Debug Settings `layout.prototype.*`); off draws the real layout.
+    public var prototype = LayoutPrototypeSettings()
 
     public init() {}
 
@@ -83,6 +90,9 @@ extension LayoutStyle {
         style.showsPaneBorder = Metrics.paneBorder == .subtle
         style.drawsLines = Borders.drawsLines
         style.focusRing = DesignSettings.shared.focusRing
+        style.focusIndicator = DesignSettings.shared.effectiveFocusIndicator
+        style.inactiveTabStyle = FocusIndicatorTunables.inactiveTabStyle.value
+        style.inactiveTabStrength = FocusIndicatorTunables.inactiveTabStrength.value
         style.attention = DesignSettings.shared.attention
         if !style.drawsLines {
             // No outlines: the focused pane is marked by the others' dim
@@ -107,6 +117,9 @@ extension LayoutStyle {
         if let value = LayoutTunables.newColumnDropWidth.override { style.newColumnDropWidth = value }
         if let width = LayoutTunables.minimumContentWidth.override { style.minimumPaneContentSize.width = width }
         if let height = LayoutTunables.minimumContentHeight.override { style.minimumPaneContentSize.height = height }
+        style.prototype = LayoutPrototypeSettings(model: LayoutTunables.prototypeModel.value, dockEdge: LayoutTunables.prototypeDockEdge.value,
+                                                  orientation: LayoutTunables.prototypeOrientation.value,
+                                                  dockMode: LayoutTunables.prototypeDockMode.value.stickyMode)
         return style
     }
 }

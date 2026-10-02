@@ -30,10 +30,12 @@ public final class DesignSettings {
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
     /// clamped by `setPaneChrome`.
     public private(set) var paneChrome = PaneChromeOverrides()
-    /// `layout.centerFocusedColumn` (niri `center-focused-column`).
+    /// `layout.centerFocusedColumn`.
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .auto
+    /// `sidebar.*`: section look and sticky band caps.
+    public var sidebarSections = SidebarSectionsPreferences.defaults
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
@@ -52,9 +54,23 @@ public final class DesignSettings {
     public var focusRing = FocusRingSettings()
     /// `notifications.attention.*`: the unread pane's attention ring.
     public var attention = AttentionSettings()
+    /// `appearance.statusIndicator.*`: loading and status indicators on
+    /// sidebar rows, tabs, sections and pane headers.
+    public var statusIndicator = StatusIndicatorSettings()
+    /// `status.*`: inferred command busy and run notifications.
+    public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `appearance.focusIndicator`: what marks the focused pane.
+    public var focusIndicator: FocusIndicator = .both
+    /// `appearance.tabBarBackground`: the tab strip's negative space.
+    public var tabBarBackground: TabBarBackground = .window
+
+    /// `focusIndicator` unless Debug Settings overrides it.
+    public var effectiveFocusIndicator: FocusIndicator { FocusIndicatorTunables.indicator.override ?? focusIndicator }
+    /// `tabBarBackground` unless Debug Settings overrides it.
+    public var effectiveTabBarBackground: TabBarBackground { FocusIndicatorTunables.tabBarBackground.override ?? tabBarBackground }
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
     /// `window.rail`: the window's icon rail, off by default.

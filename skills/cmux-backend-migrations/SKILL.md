@@ -57,13 +57,16 @@ Also run `bun run test` in `backend/apps/api` when the drain or a read changes.
 
 1. Open the PR (same-repo branch; fork PRs cannot reach the databases). `backend.yml` runs
    the tests, every migration from zero on a scratch Postgres, applies to `development` and
-   deploys the preview Worker. `backend-migrations.yml` (`pull_request_target`, runs from the
-   base branch and reads only your SQL) runs the guard and the parsed-SQL lint.
+   deploys the preview Worker. `backend-migrations.yml` (`pull_request_target`; GitHub runs it
+   from `main`, uses the PR base branch's `migrate.ts`, and reads only your SQL as flat regular
+   files) runs the guard and the parsed-SQL lint. Edits to that workflow take effect only once
+   they reach `main`.
 2. Review the migration with a review subagent (correctness: expand rules, locks on large
    tables, idempotent backfill).
-3. Add the label `backend:apply-migrations` (no human step). It applies to `staging`, then to
-   production (`main` branch of `cmux-next`) only if staging succeeded, then removes the label.
-   Any later push that changes migrations needs the label again.
+3. Add the label `backend:apply-migrations` (no human step). Adding it starts the apply, which
+   first removes the label, then applies to `staging`, then to production (`main` branch of
+   `cmux-next`) only if staging succeeded. A later push never applies by itself: add the label
+   again. Only PRs into `main` or `feat-cmux-next` from this repository can apply.
 4. Wait for the required check `backend migrations applied`, then merge. It passes at once for
    PRs without migration changes; otherwise the tree's migrations must equal what staging and
    production have. A push to `feat-cmux-next` deploys staging; a push to `main` (or
@@ -71,6 +74,21 @@ Also run `bun run test` in `backend/apps/api` when the drain or a read changes.
 5. A failed apply blocks the merge. Fix forward with a **new** migration; never edit the
    applied one, never apply by hand outside the runner. An applied migration whose PR is
    abandoned blocks every later migration PR: land it, or have an operator remove its row.
+
+## Direct pushes to feat-cmux-next
+
+Agents push straight to `feat-cmux-next`, and nothing blocks a push. A migration must still
+travel through a PR, and three checks catch a mistake:
+- `python3 scripts/verify-local.py` (check `backend-migrations`) fails when your outgoing
+  commits add or change files under `backend/db/migrations` without an open PR into
+  `feat-cmux-next` or `main`. Set `CMUX_BACKEND_MIGRATION_PR=1` only on the PR branch itself
+  before its PR exists.
+- After a push, the `migrations-push-guard` job turns red when a shared migration changed, a
+  number is not above the previous head, a contract migration landed on `feat-cmux-next`, or
+  the lint fails.
+- The staging deploy refuses (step "Staging schema matches this commit", with an annotation
+  and summary naming the commit) while staging lacks a migration of the pushed tree or has
+  one the tree lacks. Fix forward: open the PR with the migration and label it, or revert.
 
 ## Manual commands (operators, emergencies)
 
@@ -83,6 +101,6 @@ bun migrate.ts --env production --confirm-production
 
 The runner refuses credentials for any other PlanetScale branch (it checks the branch id in
 the role name), so a `cmux-prod` URL cannot be used by mistake. Secrets: GitHub environments
-`cmux-next-staging` and `cmux-next-production` (deployment branches: `main`, `feat-cmux-next`
-and their merge-queue refs) hold `CMUX_NEXT_PG_MIGRATOR_URL` and `JWT_PRIVATE_JWK`;
+`cmux-next-staging` and `cmux-next-production` (deployment branches: `main` and
+`feat-cmux-next` only; merge-queue runs get no secrets) hold `CMUX_NEXT_PG_MIGRATOR_URL` and `JWT_PRIVATE_JWK`;
 `cmux-next-production` also holds `CMUX_NEXT_STAGING_MIGRATOR_URL` for the gate.

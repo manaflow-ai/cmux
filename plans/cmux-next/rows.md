@@ -1,15 +1,12 @@
 # cmux next: rows (each column a vertical strip of rows)
 
 Status: design 2026-10-01, not implemented. Owner: rows lead (branch `feat-cmux-next-rows`).
-User request (verbatim): "potentially we want to support rows in addition to columns so we go
-beyond niri. so potentially we want D and shift d. but then we'll need new shortcut for the
-zellij equivalent of cmd ctrl n? wait we won't right?? u should start agent on niri-like rows
-(in addition to columns) remember to be careful about ownership, same way that columns stuff
-lives in rust right? well need pretty big rust changes for this, make sure to design it to be
-perfectly cohesive".
+User request (2026-10-01, paraphrased): support rows in addition to columns, with D-based
+chords for new columns and new rows; check whether the auto-layout pane chord (Cmd-Ctrl-N)
+needs a new shortcut; keep ownership in Rust as for columns; design it to be cohesive.
 
 Binding: OWNERSHIP-PRINCIPLES.md, layout-invariants.md, column-sizing.md, sticky-column.md,
-niri.md. Formal model: `formal/LayoutRows.tla`.
+column-scroll.md. Formal model: `formal/LayoutRows.tla`.
 
 ## Answer: Cmd-Ctrl-N needs no new shortcut
 
@@ -53,12 +50,12 @@ action-surfaces lead); Open Diff Viewer moves to Cmd-Ctrl-Shift-G, and
 
 A column is a vertical band of the screen's horizontal strip. A row is a horizontal band of its
 column's vertical strip. The row is to the column what the column is to the screen: the same
-niri rules, transposed. Today's column is exactly a column with one row of full height, so
+column scroll rules, transposed. Today's column is exactly a column with one row of full height, so
 nothing changes until a column gets a second row.
 
 Strongest objection: a "row" in (c) is not a screen-wide band. Two columns scroll vertically on
 their own, so the screen can look ragged (column A shows its first row while column B shows its
-third), and a user who expects a spreadsheet row that spans every column gets bands per column.
+third), and a user who expects a row that spans every column gets bands per column.
 Answer: screen-wide vertical stacking already exists as screens; a screen-wide band would make
 the new-row command move every column off screen, which is the "make room by squashing or
 hiding everything else" behavior that Ctrl chords exist to avoid. The ragged look is a view
@@ -71,7 +68,7 @@ terminal belongs to scrollback, so rows cannot take plain vertical wheel events 
 ```
 Screen { columns: [Column] }                          // horizontal strip, unchanged
 Column { id, width_permille, sticky?, rows: [Row] }    // rows non-empty
-Row    { id, height_permille, root: SplitTree, zellij_auto_layout? }  // id never reused
+Row    { id, height_permille, root: SplitTree, creation_order_auto_layout? }  // id never reused
 SplitTree = Leaf(pane) | Split { id, dir, ratio_permille, a, b } | Stack { panes, expanded }
 ```
 
@@ -201,16 +198,16 @@ Daemon (cmux-tui) under capability `rows-v1`:
 
 - Undo: `ScreenLayoutSnapshot` holds the columns with their rows, so `undo-layout` covers rows.
 - Model change in `model.rs`: `LayoutColumn.root` becomes `rows: Vec<LayoutRow>` (non-empty by
-  construction, like `StackPanes`); `zellij_auto_layout` moves to the row. `Screen::root` stays
+  construction, like `StackPanes`); `creation_order_auto_layout` moves to the row. `Screen::root` stays
   the compat projection for split-tree consumers. The TUI frontend renders rows as a vertical
   chain that fits the height until it gets row scrolling (step 6).
 
 ## Geometry
 
-- G1. A row's height is a share of the column's viewport height, gaps included like niri W3:
+- G1. A row's height is a share of the column's viewport height, gaps included as for column widths:
   `(view - gap) * p - gap`.
 - G2. Fill under, scroll over: when a column's heights sum to at most 1000, its rows fill the
-  column in proportion (niri windows in a column fill its height); above 1000 the rows keep their
+  column in proportion (as stacked panes fill a column today); above 1000 the rows keep their
   heights and the column scrolls vertically. One full-height row is today's column.
 - G3. New Row height: `layout.newRowHeight` = `matchCurrent` (default: the focused row's stored
   height, so a full-height row gives a full-height new row) | `fitScreen` (the column's rows
@@ -229,9 +226,9 @@ Daemon (cmux-tui) under capability `rows-v1`:
   rows (a row pinned to its column's top or bottom edge, same rules as sticky columns) are not
   in `rows-v1`; the field name `sticky` on rows is reserved.
 
-## Viewport (client view state; niri rules on the vertical axis)
+## Viewport (client view state; column scroll rules on the vertical axis)
 
-The column scroll reducer (`ColumnScrollState.reduce`, niri.md) becomes axis-generic
+The column scroll reducer (`ColumnScrollState.reduce`, the column scroll plan) becomes axis-generic
 (`StripScrollState<Axis>`): the horizontal strip uses it as today, and each column with more
 than 1000‰ of rows, sticky columns included, gets its own vertical instance keyed by column id.
 `ColumnViewOffset.fit` keeps its semantics (stay if visible, else the nearer edge) so the
@@ -240,7 +237,7 @@ close-focus lead's strip model check stays valid. The close-focus lead's `ListVi
 `CmuxNextDesign/CloseFocus`, with `FocusAfterClose` and `FocusTopology.screens`) is reused for
 the row axis; the app step builds on 6553984ff79 or later.
 
-- V1. Reveal (niri F1 to F7 transposed): the focused row plus padding fully visible means no
+- V1. Reveal (column scroll rules F1 to F7, transposed): the focused row plus padding fully visible means no
   motion; otherwise align the edge that needs less motion; `layout.centerFocusedRow` mirrors
   `layout.centerFocusedColumn` (default `never`).
 - V2. Camera anchor (L1 to L7 transposed): inserting, removing or resizing a row keeps the
@@ -300,12 +297,42 @@ the row axis; the app step builds on 6553984ff79 or later.
 - Z3. Equalize Splits (Ctrl-Shift-Cmd-=) also equalizes the focused column's rows when they fit
   (sum at most 1000); otherwise only the splits.
 
+## Off switch (`layout.rows`)
+
+Requirement (Lawrence): rows must be easy to turn off without affecting anything else.
+
+- O1. Setting `layout.rows`: `true` (default, for dogfood) | `false`, in Settings (General >
+  Columns), cmux.json and the palette (Toggle Rows). A test checks the default in the parser,
+  the schema and the settings window, like the other layout defaults. It is client
+  preference (config layer); the store and the daemon never read it.
+- O2. Off hides every row entry point: `newRow` (shortcut, palette, menus, CLI answers
+  `rows-disabled`), the new-row drop targets (D1), the row axis of D2 (a top or bottom edge
+  drop with no room opens a column, as today), row scrolling (V5) and the row scrollbar.
+  Cmd-Ctrl-Shift-D does nothing (it stays reserved for `newRow`).
+- O3. Off, a column that already has two or more rows renders its rows as stacked panes that
+  fit the column (heights in proportion, never scrolling), the same picture as the compat chain.
+  The divider between two rows trades height between them (`SetRowHeights` with `fit`). Splits,
+  closes, moves and focus work on the panes inside as on any stacked panes. Nothing flattens on
+  its own: Flatten Rows (`column flatten-rows`, palette and column menu, shown in both modes) is
+  the only path that folds rows into one row's vertical splits, through a reducer op
+  `FlattenRows {column}` (conserves tabs and panes; row heights become split ratios).
+- O4. With no column holding two or more rows, off and on behave the same: layout, sticky
+  columns, close, focus, scrolling, drops and the wire are unchanged from today, because a
+  column with one full-height row is today's column (G2) and no row op is ever sent while off.
+  Tests: the column geometry, scroll, drop resolver and focus-after-close suites run with
+  `layout.rows` off and on over layouts without rows and must give identical results.
+- O5. A client may ignore `rows-v1` completely (older apps, the TUI, iOS): it reads the compat
+  chain (step 3). An off client still decodes `rows` so it can draw O3 and refuse writes to
+  synthetic splits correctly.
+
 ## Surfaces (action-surface rule)
 
 | Action id | Title | Shortcut | Palette | CLI verb | Context menu | MCP |
 | --- | --- | --- | --- | --- | --- | --- |
 | `newRow` | New Row | Cmd-Ctrl-Shift-D | yes | `pane new-row` (`--height`, `--cwd`) | pane > create, after New Column | generated |
 | `equalizeRows` | Equalize Rows | none | yes | `column equalize-rows` | column | generated |
+| `flattenRows` | Flatten Rows | none | yes | `column flatten-rows` | column | generated |
+| `layout.rows` toggle | Toggle Rows | none | yes | `settings toggle-rows` | none (exemption: setting) | generated |
 | `centerFocusedRow` | Center Focused Row | none | yes | `pane center-row` | none (exemption: view command) | generated |
 | `layout.centerFocusedRow.*` | Row centering modes | none | yes | `settings ...` | none (exemption: setting) | generated |
 
@@ -326,7 +353,7 @@ cmux-tui serves `rows-v1` (awaitingPin until the pin owner cuts a pin).
   Details in formal/README.md.
 - proptest in `cmux-layout-reducer`: random sequences that include the row ops, invariants R1 to
   R5 and idempotent replay; daemon sequences that compare the reducer with the live result.
-- Swift: seeded property tests for the drop resolver with rows, the vertical strip reducer (niri
+- Swift: seeded property tests for the drop resolver with rows, the vertical strip reducer (column scroll
   tests transposed), geometry G1 to G4, decode of `rows` and the compat chain.
 - Live (tagged no-activate build, screenshots): New Row reveal, row scroll with the modifier,
   drop between rows, close of the last pane of a row, rows inside a sticky column, an old app
@@ -344,16 +371,15 @@ cmux-tui serves `rows-v1` (awaitingPin until the pin owner cuts a pin).
 5. Surfaces: actions, drops, menus, palette, CLI request, `debug.rows`, settings.
 6. cmux-tui TUI rendering of rows (scrolling).
 
-## Decisions for the user
+## Decisions (Lawrence, 2026-10-02, through the coordinator)
 
-1. Model (c), columns of rows (recommended), against (b), screen-wide rows of columns.
-2. Resolved 2026-10-02: New Row is Cmd-Ctrl-Shift-D; Open Diff Viewer moves to
-   Cmd-Ctrl-Shift-G.
-3. Row scroll modifier: Command (recommended) | Option | none (scroll only over gaps and the
-   scrollbar).
-4. Sticky rows in a later capability, or never.
-5. Legacy `apply-layout` (blueprints) on a screen with rows: refused (proposed) until
-   blueprints carry rows.
+1. Model (c), columns of rows: approved, with the off switch below as a hard requirement.
+2. New Row is Cmd-Ctrl-Shift-D; Open Diff Viewer moves to Cmd-Ctrl-Shift-G.
+3. Row scroll modifier: Command, plus plain scroll over the gaps between rows and on the row
+   scrollbar (V5).
+4. Sticky rows: decided later, not in `rows-v1`.
+5. Legacy `apply-layout` (blueprints) on a screen with rows is refused
+   (`rows-layout-replace-unsupported`) until blueprints carry rows.
 
 ## Agent review (2026-10-01)
 

@@ -7,6 +7,9 @@
 use super::*;
 use crate::workspace_registry::PersonalSnapshot;
 
+mod bookmarks;
+pub use bookmarks::BookmarksChange;
+
 impl Mux {
     pub fn personal_snapshot(&self) -> anyhow::Result<PersonalSnapshot> {
         self.workspace_registry.lock().unwrap().personal_snapshot()

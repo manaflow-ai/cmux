@@ -68,7 +68,7 @@ extension PageInfoController {
     // MARK: Live data
 
     /// Keeps the rows current while the bubble is open, and closes it when
-    /// the page navigates (Chrome closes page info on navigation).
+    /// the page navigates.
     func startObserving() {
         observation?.cancel()
         observation = ObservationLoop { [weak self] in

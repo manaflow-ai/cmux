@@ -37,7 +37,7 @@ public nonisolated struct BrowserProfileID: RawRepresentable, Hashable, Sendable
 }
 
 /// Identity of the pane that shows a tab. CEF tabs of one pane (and one
-/// profile) share a Chromium window, so extensions see one Chrome window per
+/// profile) share a Chromium window, so extensions see one window per
 /// pane. The App layer maps the daemon's pane id onto this value.
 public nonisolated struct BrowserPaneID: RawRepresentable, Hashable, Sendable, Codable, CustomStringConvertible {
     public let rawValue: String

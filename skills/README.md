@@ -27,6 +27,7 @@ parsing, test compilation, executed tests and runtime evidence.
 | Instrumentation and app/runtime implementation bugs | [cmux-debugging](cmux-debugging/SKILL.md) |
 | User-facing strings and localization | [cmux-localization](cmux-localization/SKILL.md) |
 | CLI/socket implementation, threading and focus | [cmux-socket-policy](cmux-socket-policy/SKILL.md) |
+| Any cmux-next feature, action, setting, op or agent capability (standing rules) | [cmux-next-feature](cmux-next-feature/SKILL.md) |
 | Shared actions across multiple entry points | [cmux-shared-behavior](cmux-shared-behavior/SKILL.md) |
 | Ghostty submodule or GhosttyKit | [cmux-ghostty](cmux-ghostty/SKILL.md) |
 | Versions, changelog and release artifacts | [cmux-release](cmux-release/SKILL.md) |

@@ -1,4 +1,6 @@
-import type { AcpmuxFileDiff, AcpmuxRow } from "./model";
+import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxRow } from "./model";
+
+type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type DiffLine = { type: "context" | "add" | "del"; text: string; oldLine?: number; newLine?: number };
 export type DiffHunk = { lines: DiffLine[] };
@@ -162,27 +164,30 @@ function commonDirectory(paths: string[]): string {
 
 /// Every file the turn's tool calls changed, in the order first changed, each edit in turn.
 export function turnFiles(rows: AcpmuxRow[]): TurnFile[] {
+  return toolFiles(
+    rows.flatMap((row) => (row.kind === "activity" ? (row.items ?? []).flatMap((item) => item.tool ?? []) : [])),
+  );
+}
+
+/// The files these tool calls changed, each edit in turn, named from their shared directory.
+export function toolFiles(tools: readonly Tool[]): TurnFile[] {
   const files = new Map<string, TurnFile>();
-  for (const row of rows) {
-    if (row.kind !== "activity") continue;
-    for (const item of row.items ?? []) {
-      for (const change of item.tool?.diffs ?? []) {
-        let file = files.get(change.path);
-        if (!file) {
-          file = {
-            path: change.path,
-            displayPath: change.path,
-            edits: [],
-            additions: 0,
-            deletions: 0,
-            created: change.oldText == null,
-          };
-          files.set(change.path, file);
-        }
-        file.edits.push(fileEdit(item.tool!.id, change));
+  for (const tool of tools)
+    for (const change of tool.diffs ?? []) {
+      let file = files.get(change.path);
+      if (!file) {
+        file = {
+          path: change.path,
+          displayPath: change.path,
+          edits: [],
+          additions: 0,
+          deletions: 0,
+          created: change.oldText == null,
+        };
+        files.set(change.path, file);
       }
+      file.edits.push(fileEdit(tool.id, change));
     }
-  }
   const list = [...files.values()];
   const base = commonDirectory(list.map((file) => file.path));
   for (const file of list) {

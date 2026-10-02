@@ -48,10 +48,53 @@ extension PaletteModel {
         case .back:
             guard query.isEmpty else { return false }
             pop()
+        case .closeItem:
+            return handleCloseItem()
         case .actionsFilterAppend, .actionsFilterDeleteBackward:
             return false
         }
         return true
+    }
+
+    /// Cmd-W. With the selected row's close command: runs it, keeps the
+    /// palette open, re-reads the page's providers (the row leaves once
+    /// the owner's visible state drops it; nothing is hidden here) and
+    /// selects the row after it in its section, else the one before. A
+    /// page that owns the key (`PalettePageSpec.ownsCloseKey`) consumes it
+    /// also without such a row. While a search is in flight it waits for
+    /// that search, like Return.
+    func handleCloseItem() -> Bool {
+        let owns = currentPageOwnsCloseKey
+        guard owns || selectedItem?.closeCommand != nil else { return false }
+        actionsMenu = nil
+        if searchTask != nil {
+            pendingSubmit = .closeItem
+            return true
+        }
+        if let item = selectedItem, item.closeCommand != nil, item.isEnabled { closeRow(item) }
+        return true
+    }
+
+    func closeRow(_ item: PaletteItem) {
+        guard item.isEnabled, let command = item.closeCommand, current != nil else { return }
+        let placed = sections.flatMap { section in section.rows.map { (id: $0.id, section: section.section.id) } }
+        guard performClose(command, rowID: item.id) else { return }
+        if let next = Self.selection(afterRemoving: item.id, from: placed) {
+            selectedRowID = next
+            current?.selectedRowID = next
+        }
+        reload()
+    }
+
+    /// The row to select after `removed` leaves `rows`: the next row of its
+    /// section, else the previous row of its section, else none (repeated
+    /// Cmd-W never walks from open tabs into another section).
+    nonisolated public static func selection(afterRemoving removed: String, from rows: [(id: String, section: String)]) -> String? {
+        guard let index = rows.firstIndex(where: { $0.id == removed }) else { return nil }
+        let section = rows[index].section
+        if index + 1 < rows.count, rows[index + 1].section == section { return rows[index + 1].id }
+        if index > 0, rows[index - 1].section == section { return rows[index - 1].id }
+        return nil
     }
 
     func handleActionsMenu(_ command: PaletteKeyCommand) -> Bool {
@@ -76,13 +119,19 @@ extension PaletteModel {
             else { return true }
             let command = visible[menu.selectedIndex]
             actionsMenu = nil
-            run(command, of: item)
+            if let close = item.closeCommand, command.id == close.id, command.title == close.title, item.secondary.allSatisfy({ $0.id != close.id }) {
+                closeRow(item)
+            } else {
+                run(command, of: item)
+            }
         case .toggleActions, .closeActions, .escape:
             actionsMenu = nil
         case .openActions:
             break
         case .back:
             return false
+        case .closeItem:
+            return handleCloseItem()
         case .actionsFilterAppend(let text):
             menu.filter += text
             menu.selectedIndex = 0

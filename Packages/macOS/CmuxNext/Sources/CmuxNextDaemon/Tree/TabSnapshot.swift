@@ -32,7 +32,7 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     public var browserEngine: String?
     public var faviconURL: String?
     public var browserProfileID: String?
-    /// Chrome-style group membership (`tab-groups-v1`, wire `group`).
+    /// Tab group membership (`tab-groups-v1`, wire `group`).
     public var tabGroup: TabGroupID?
     /// The terminal a `remote-terminal` tab references (`remote-terminal-tabs-v1`).
     public var remote: RemoteTerminalRef?

@@ -5,7 +5,7 @@ import Foundation
 /// and menus). Every request that would open one arrives here: a link that
 /// opens a new window or popup, `window.open`, a link from a `chrome://`
 /// page, `chrome.windows.create`, `chrome.tabs.create` without a window,
-/// "Open Link in New Window/Incognito Window", Chrome commands (New Window,
+/// "Open Link in New Window/Incognito Window", Chromium commands (New Window,
 /// Task Manager), a Browser Chromium created on its own. The runtime turns
 /// each into a cmux tab through one decision (`CEFWindowPolicy.decide`).
 nonisolated struct CEFWindowRequest: Equatable, Sendable {
@@ -28,7 +28,7 @@ nonisolated struct CEFWindowRequest: Equatable, Sendable {
     var kind: Kind
     /// `cef_window_open_disposition_t` as Chromium asked.
     var disposition: CEFDisposition
-    /// The tab that asked, or 0 (Chrome UI, an extension's background).
+    /// The tab that asked, or 0 (Chromium's own UI, an extension's background).
     var sourceBrowser: Int32
     /// Window features or requested bounds (screen DIPs), when given.
     var bounds: CGRect?

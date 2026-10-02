@@ -164,6 +164,15 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], arguments: [CatalogArgument.tabTab], targets: [.tab], cliName: "tab go-to"
             ),
             ActionDescriptor(
+                id: "tab.search",
+                title: String(localized: "action.tab.search", defaultValue: "Search Tabs…", bundle: .module),
+                keywords: ["tab", "search", "find", "switch", "switcher", "recently closed", "url", "folder", "process"],
+                defaultShortcut: Shortcut("a", modifiers: [.command, .shift]), category: .tab, symbol: "magnifyingglass",
+                surfaces: [.palette, .keyboard, .menu], arguments: [CatalogArgument.queryString], cliName: "tab search",
+                mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
                 id: "palette.moveTabToNewWorkspace",
                 title: String(localized: "action.palette.moveTabToNewWorkspace", defaultValue: "Move Tab to New Workspace", bundle: .module),
                 keywords: ["tab", "detach"], category: .tab, symbol: "rectangle.portrait.and.arrow.right",

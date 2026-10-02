@@ -27,10 +27,11 @@ extension WorkspaceContentController {
                 ?? (tabs.isEmpty ? nil : tabs[min(max(model.defaultTabIndex, 0), tabs.count - 1)].id)
             panes.append(FocusTopology.Pane(id: id.rawValue, tabs: tabs, selected: selected))
         }
-        let screens = layoutModel.screens.map { screen -> [[String]] in
+        let screens = layoutModel.screens.map { screen -> [FocusTopology.Column] in
             switch screen.layout {
-            case .splits(let root): [root.panes.map(\.rawValue)]
-            case .columns: screen.layout.visualColumns.map { $0.root.panes.map(\.rawValue) }
+            case .splits(let root): [FocusTopology.Column(id: screen.id.rawValue, panes: root.panes.map(\.rawValue))]
+            case .columns:
+                screen.layout.visualColumns.map { FocusTopology.Column(id: $0.id.rawValue, panes: $0.root.panes.map(\.rawValue)) }
             }
         }
         return FocusTopology(workspace: workspace.id, panes: panes, screens: screens)

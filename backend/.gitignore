@@ -10,3 +10,4 @@ dist/
 .nitro/
 .tanstack/
 *.log
+apps/api/wrangler.*.generated.jsonc

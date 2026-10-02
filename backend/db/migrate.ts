@@ -36,6 +36,9 @@ export const phaseOf = (sql: string): Phase | undefined => sql.match(/^--\s*phas
 type Node = Record<string, any>
 const kind = (stmt: Node) => Object.keys(stmt)[0]!
 
+/** Extensions an expand migration may add (available on PlanetScale Postgres 18; additive only). */
+const ALLOWED_EXTENSIONS = new Set(["pg_trgm", "btree_gin"])
+
 /** Expand = only additions the deployed code survives. Everything else is contract. */
 const expandProblems = (stmts: Array<Node>): Array<string> => {
   const problems: Array<string> = []
@@ -69,6 +72,9 @@ const expandProblems = (stmts: Array<Node>): Array<string> => {
             problems.push(`ALTER TABLE ${cmd.subtype} is a contract change`)
           }
         }
+        break
+      case "CreateExtensionStmt":
+        if (!b.if_not_exists || !ALLOWED_EXTENSIONS.has(b.extname)) problems.push(`CREATE EXTENSION must be IF NOT EXISTS and one of ${[...ALLOWED_EXTENSIONS].join(", ")}`)
         break
       case "UpdateStmt":
       case "InsertStmt":
@@ -169,7 +175,12 @@ if (import.meta.main) {
     const applied = new Map(rows.map((r) => [r.version, r.checksum]))
     // A row the repo lacks: another PR's migration (merge its base first) or an abandoned one (operator fix).
     const unknown = [...applied.keys()].filter((v) => !files.includes(v))
-    if (unknown.length) throw new Error(`${target} has migrations this tree lacks: ${unknown.join(", ")}; merge the base branch first`)
+    if (unknown.length) {
+      // Development is shared by every open PR's preview, so it may hold another PR's
+      // unmerged migration; staging and production must match the tree exactly.
+      if (envName === "development") console.warn(`${target} also has migrations this tree lacks: ${unknown.join(", ")} (other open PRs)`)
+      else throw new Error(`${target} has migrations this tree lacks: ${unknown.join(", ")}; merge the base branch first`)
+    }
     const pending: Array<string> = []
     for (const f of files) {
       const sql = readFileSync(join(dir, f), "utf8")

@@ -21,7 +21,7 @@ import Testing
     // MARK: Defaults
 
     @Test func defaultsAreHomeWorkspacesSettingsAccount() {
-        #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.home)])
+        #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore)])
         #expect(defaults.sections(in: .middle, room: nil).map(\.content) == [.workspaces])
         #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
         #expect(defaults.sections.filter { $0.region != .middle }.allSatisfy { $0.look == .builtIn && $0.title == nil })
@@ -30,17 +30,17 @@ import Testing
 
     // MARK: Items
 
-    @Test func removeHomeLeavesAnEmptyTopSectionAndCmdOneFallsBack() throws {
+    @Test func removeHomeMakesTheAppStoreTheFirstTopItem() throws {
         let doc = try reduce(defaults, .itemRemove(home))
         #expect(doc.firstItem(with: .builtIn(.home)) == nil)
-        #expect(doc.firstTopItem(room: nil) == nil)
+        #expect(doc.firstTopItem(room: nil)?.ref == .builtIn(.appStore))
         #expect(doc.revision == defaults.revision + 1)
     }
 
     @Test func addPinsAtIndexAndClampsTheIndex() throws {
         let ws = LayoutItem(id: LayoutItemID("itm_ws"), ref: .workspace("local:ws_1"))
         let doc = try reduce(defaults, .itemAdd(ws, section: SidebarLayoutDocument.topSectionID, index: 99))
-        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [home, ws.id])
+        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [home, LayoutItemID("itm_app_store"), ws.id])
         let front = try reduce(defaults, .itemAdd(ws, section: SidebarLayoutDocument.topSectionID, index: -3))
         #expect(front.section(SidebarLayoutDocument.topSectionID)?.items.first?.id == ws.id)
     }
@@ -71,7 +71,7 @@ import Testing
     @Test func moveAcrossRegionsKeepsTheItem() throws {
         let doc = try reduce(defaults, .itemMove(home, section: SidebarLayoutDocument.bottomSectionID, index: 1))
         #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [settings, home, LayoutItemID("itm_account")])
-        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.isEmpty == true)
+        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [LayoutItemID("itm_app_store")])
         #expect(Set(Self.itemIDs(doc)) == Set(Self.itemIDs(defaults)))
     }
 
@@ -157,6 +157,38 @@ import Testing
         #expect(try reduce(defaults, .reset) == defaults)
     }
 
+    @Test func showsTitleRoundTripsAndDefaultsToTrue() throws {
+        let doc = try reduce(defaults, .sectionUpdate(SidebarLayoutDocument.bottomSectionID, SectionPatch(title: .set("Tools"), showsTitle: false)))
+        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.headerTitle == nil)
+        let json = #"{"id":"sec_x","region":"top","look":"list","content":"items"}"#
+        let section = try JSONDecoder().decode(LayoutSection.self, from: Data(json.utf8))
+        #expect(section.showsTitle && section.items.isEmpty)
+    }
+
+    @Test func titlesCountUnicodeScalarsAndIDsAreUniqueAcrossSectionsAndItems() throws {
+        let flags = String(repeating: "\u{1F1EF}\u{1F1F5}", count: 41) // 82 scalars, 41 graphemes
+        #expect(reject(defaults, .sectionUpdate(SidebarLayoutDocument.bottomSectionID, SectionPatch(title: .set(flags)))) == .invalidTitle)
+        let clash = LayoutSection(id: LayoutSectionID("itm_home"), region: .top)
+        #expect(reject(defaults, .sectionAdd(clash, index: 0)) == .duplicateID)
+        let item = LayoutItem(id: LayoutItemID("sec_bottom"), ref: .builtIn(.history))
+        #expect(reject(defaults, .itemAdd(item, section: SidebarLayoutDocument.topSectionID, index: 0)) == .duplicateID)
+    }
+
+    @Test func removeRefTakesEveryCopyOutOfTheSidebar() throws {
+        let copy = LayoutItem(id: LayoutItemID("itm_h2"), ref: .builtIn(.home))
+        let two = try reduce(defaults, .itemAdd(copy, section: SidebarLayoutDocument.bottomSectionID, index: 0))
+        let none = try reduce(two, .itemRemoveRef(.builtIn(.home)))
+        #expect(none.firstItem(with: .builtIn(.home)) == nil)
+        #expect(none.revision == two.revision + 1)
+        #expect(reject(none, .itemRemoveRef(.builtIn(.home))) == .unknownItem)
+    }
+
+    @Test func itemUpdateTogglesTheLabel() throws {
+        let doc = try reduce(defaults, .itemUpdate(LayoutItemID("itm_account"), showsLabel: true))
+        #expect(doc.item(LayoutItemID("itm_account"))?.showsLabel == true)
+        #expect(reject(defaults, .itemUpdate(LayoutItemID("itm_nope"), showsLabel: true)) == .unknownItem)
+    }
+
     @Test func emptyPatchIsANoOp() throws {
         #expect(try reduce(defaults, .sectionUpdate(SidebarLayoutDocument.topSectionID, SectionPatch())) == defaults)
     }
@@ -206,7 +238,7 @@ import Testing
 
     @Test func plannerRemove() throws {
         let op = try #require(SidebarLayoutPlanner.remove(.builtIn(.home), in: defaults))
-        #expect(op == .itemRemove(home))
+        #expect(op == .itemRemoveRef(.builtIn(.home)))
         #expect(SidebarLayoutPlanner.remove(.builtIn(.history), in: defaults) == nil)
     }
 
@@ -220,6 +252,9 @@ import Testing
         #expect(owner.document.revision == 1)
         #expect(owner.apply(.itemRemove(settings), key: "k1") == .failure(.idempotencyConflict))
         #expect(owner.document.item(settings) != nil)
+        let label = SidebarLayoutOp.itemUpdate(LayoutItemID("itm_account"), showsLabel: true)
+        #expect(owner.apply(label, key: "k2") == owner.apply(label, key: "k2"))
+        #expect(owner.document.revision == 2)
     }
 
     // MARK: Wire
@@ -234,6 +269,8 @@ import Testing
             .itemAdd(LayoutItem(id: LayoutItemID("itm_b"), ref: .url("https://cmux.com")), section: LayoutSectionID("sec_top"), index: 1),
             .itemMove(LayoutItemID("itm_b"), section: LayoutSectionID("sec_bottom"), index: 0),
             .itemRemove(LayoutItemID("itm_b")),
+            .itemUpdate(LayoutItemID("itm_account"), showsLabel: true),
+            .itemRemoveRef(.app("manaflow-ai/github-prs")),
             .reset,
         ]
         for op in ops {
@@ -283,6 +320,7 @@ import Testing
             if case .sectionMove = op { #expect(Set(ids) == Set(Self.itemIDs(before))) }
             #expect(doc.revision == before.revision + (doc.sections == before.sections ? 0 : 1))
             #expect(doc.sections.filter { $0.content == .workspaces }.allSatisfy { $0.room == nil })
+            #expect(doc.sections.allSatisfy { $0.arrangement.isValid && ($0.maxRows.map(SidebarLayoutReducer.maxRowsRange.contains) ?? true) })
         }
     }
 
@@ -299,14 +337,24 @@ import Testing
             let content: SectionContent = Int.random(in: 0..<10, using: &rng) == 0 ? .workspaces : .items
             return .sectionAdd(LayoutSection(id: LayoutSectionID("sec_r\(step)"), region: region, content: content), index: index)
         case 1:
-            return .sectionUpdate(sections.randomElement(using: &rng)!, SectionPatch(title: .set("T\(step)"), maxRows: .set(Int.random(in: 0...52, using: &rng))))
+            let layout = SectionArrangement.Layout.allCases.randomElement(using: &rng)!
+            let align = SectionArrangement.Alignment.allCases.randomElement(using: &rng)!
+            let patch = SectionPatch(title: .set("T\(step)"), maxRows: .set(Int.random(in: 0...52, using: &rng)),
+                                     layout: layout, align: align, gap: .set(Int.random(in: -2...34, using: &rng)),
+                                     columns: Bool.random(using: &rng) ? .clear : .set(Int.random(in: 0...14, using: &rng)))
+            return .sectionUpdate(sections.randomElement(using: &rng)!, patch)
         case 2: return .sectionMove(sections.randomElement(using: &rng)!, region: region, index: index)
         case 3: return .sectionRemove(sections.randomElement(using: &rng)!)
         case 4, 5:
             return .itemAdd(LayoutItem(id: LayoutItemID("itm_r\(step)"), ref: refs.randomElement(using: &rng)!),
                             section: sections.randomElement(using: &rng)!, index: index)
         case 6: return .itemMove(items.randomElement(using: &rng)!, section: sections.randomElement(using: &rng)!, index: index)
-        case 7: return .itemRemove(items.randomElement(using: &rng)!)
+        case 7:
+            switch Int.random(in: 0..<3, using: &rng) {
+            case 0: return .itemRemove(items.randomElement(using: &rng)!)
+            case 1: return .itemRemoveRef(refs.randomElement(using: &rng)!)
+            default: return .itemUpdate(items.randomElement(using: &rng)!, showsLabel: Bool.random(using: &rng))
+            }
         default: return Int.random(in: 0..<20, using: &rng) == 0 ? .reset : .itemMove(items.randomElement(using: &rng)!, section: sections.randomElement(using: &rng)!, index: index)
         }
     }

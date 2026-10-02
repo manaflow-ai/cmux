@@ -1,5 +1,5 @@
 //! Durable screen presentation: each screen's color, icon, and pin, the
-//! Chrome-style screen groups of every workspace, and saved screen groups.
+//! Screen groups of every workspace, and saved screen groups.
 //!
 //! The same rules as `presentation_store` apply: every table is additive with
 //! no foreign key, so an older binary ignores them and no schema version bump

@@ -1,8 +1,7 @@
 // Chrome extensions (Chromium tabs). Titles live in Extensions.xcstrings.
 // Every action is in the palette, the CLI (`cmux extension ...`) and a
 // context menu (the page menu, the Extensions menu or an extension's menu),
-// and can take a shortcut in cmux.json; none has a default shortcut, as in
-// Chrome.
+// and can take a shortcut in cmux.json; none has a default shortcut.
 
 nonisolated enum ExtensionActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
