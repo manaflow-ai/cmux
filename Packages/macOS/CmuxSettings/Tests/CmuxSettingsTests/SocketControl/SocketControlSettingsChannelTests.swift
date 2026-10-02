@@ -21,12 +21,12 @@ import Testing
         #expect(SocketControlSettings.migrateMode("allow-all") == .allowAll)
     }
 
-    @Test func socketFilePermissionsAreRestrictiveExceptForAllowAll() {
+    @Test func socketFilePermissionsAreOwnerPrivateForEveryMode() {
         #expect(SocketControlMode.off.socketFilePermissions == 0o600)
         #expect(SocketControlMode.cmuxOnly.socketFilePermissions == 0o600)
         #expect(SocketControlMode.automation.socketFilePermissions == 0o600)
         #expect(SocketControlMode.password.socketFilePermissions == 0o600)
-        #expect(SocketControlMode.allowAll.socketFilePermissions == 0o666)
+        #expect(SocketControlMode.allowAll.socketFilePermissions == 0o600)
     }
 
     @Test func invalidEnvSocketModeDoesNotOverrideUserMode() {
