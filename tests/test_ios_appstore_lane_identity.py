@@ -600,6 +600,10 @@ if "--force" in args:
             entitlements = plistlib.loads((target / "FakeSignedEntitlements.plist").read_bytes())
             entitlements["keychain-access-groups"] = [override_group]
             (target / "FakeSignedEntitlements.plist").write_bytes(plist_bytes(entitlements))
+        if os.environ.get("CMUX_FAKE_SIGNED_NO_PACKET_TUNNEL") == "1" and target.name.endswith(".app"):
+            entitlements = plistlib.loads((target / "FakeSignedEntitlements.plist").read_bytes())
+            entitlements["com.apple.developer.networking.networkextension"] = ["app-proxy-provider"]
+            (target / "FakeSignedEntitlements.plist").write_bytes(plist_bytes(entitlements))
     sys.exit(0)
 sys.exit(0)
 """,
@@ -1067,6 +1071,31 @@ def test_upload_keychain_group_failure_does_not_dump_entitlements(
         and '"aps-environment"' not in result.stderr
         and '"com.apple.developer.applesignin"' not in result.stderr,
         "keychain-group failure does not dump signed entitlements",
+    )
+
+
+def test_upload_appstore_rejects_host_without_packet_tunnel(tmp: Path, fakebin: Path) -> None:
+    env = _base_env(tmp, fakebin)
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    env["CMUX_FAKE_SIGNED_NO_PACKET_TUNNEL"] = "1"
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-app-store.sh"),
+            "--signing",
+            "manual",
+            "--export-only",
+            "--build-number",
+            "20260710041751",
+        ],
+        env=env,
+        tmp=tmp,
+    )
+    _check(result.returncode != 0, "App Store lane rejects a host app without packet-tunnel-provider")
+    _check(
+        "signed App Store app lacks com.apple.developer.networking.networkextension[packet-tunnel-provider]"
+        in result.stderr,
+        "App Store lane names the missing host Network Extension entitlement (ITMS-90525)",
     )
 
 
@@ -1961,6 +1990,7 @@ def main() -> None:
         )
         test_bump_ios_version_accepts_trailing_appstore_lane(tmp / "version-bump-test", fakebin)
         test_upload_appstore_lane_uses_production_bundle_id(tmp / "upload-test", fakebin)
+        test_upload_appstore_rejects_host_without_packet_tunnel(tmp / "upload-no-packet-tunnel-test", fakebin)
         test_official_testflight_workflow_publishes_generated_notes()
         test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
