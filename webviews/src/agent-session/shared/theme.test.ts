@@ -65,7 +65,8 @@ describe("agent theme", () => {
   test("labels on the accent use the accent label color", () => {
     const acpmux = css("../acpmux/styles.css");
     expect(acpmux).toMatch(/--acpmux-base:var\(--agent-accent-text/);
-    expect(acpmux).toMatch(/\.acpmux-send-ready[^{]*\{[^}]*color:var\(--acpmux-base\)/);
+    // Send fills with the highlight; its arrow is the highlight's label color, else the opaque base.
+    expect(acpmux).toMatch(/\.acpmux-send\{[^}]*color:var\(--agent-highlight-text,var\(--acpmux-base\)\)/);
     const shared = css("./styles.css");
     expect(shared).toMatch(/--color-token-button-foreground:\s*var\(--agent-accent-text/);
     expect(shared).toMatch(/--agent-primary-text:\s*var\(--agent-accent-text/);
@@ -114,8 +115,9 @@ describe("agent theme", () => {
     const overlay = acpmux.match(/\[data-sidebar=open\] \.acpmux-sidebar\{[^}]*\}/)?.[0] ?? "";
     expect(overlay).toMatch(/background:var\(--acpmux-base\)/);
     for (const hover of [
-      /\.acpmux-composer-plus:hover:enabled\{[^}]*\}/,
+      // The + menu is a picker, so the picker hover covers it.
       /\.acpmux-picker-button:hover[^{]*\{[^}]*\}/,
+      /\.acpmux-plan:hover\{[^}]*\}/,
     ]) {
       const rule = acpmux.match(hover)?.[0] ?? "";
       expect(rule).not.toBe("");
