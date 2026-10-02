@@ -40,16 +40,18 @@ enum TabGroupHandlers {
         return (id, pane)
     }
 
+    /// The pane holding `group`, on whichever machine owns it (`GroupOwnership`).
     static func pane(holding group: GroupID, _ ctx: AppActionContext) -> PaneModel? {
-        ctx.services.activeDaemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.tabGroups.contains { $0.id == group } }
+        GroupOwnership.pane(holdingTabGroup: group, machines: ctx.services.machines)?.pane
     }
 
     /// Runs a group command with a transaction and an optimistic patch;
     /// a rejection re-pushes daemon truth into the pane's strip.
     static func run(_ label: String, pane: PaneModel?, patch: OptimisticPatch = .custom { _ in }, _ ctx: AppActionContext,
                     _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
-        guard ctx.connection() != nil else { return }
-        let daemon = ctx.services.activeDaemon
+        // The pane's own machine, not the active window's daemon.
+        let daemon = pane.map { ctx.services.daemon(for: $0) } ?? ctx.services.activeDaemon
+        guard daemon.connection != nil else { return }
         Task {
             let ok = await daemon.perform(label, patch: patch, expectEcho: false, body)
             if !ok, let pane { ctx.services.paneController(for: pane)?.resyncStrip() }
@@ -89,7 +91,7 @@ enum TabGroupHandlers {
             let cwd = pane.tabs.last { $0.tabGroup == group }?.cwd
             let controller = ctx.services.paneController(for: pane)
             let workspace = ctx.services.workspaceKey(of: pane)
-            guard let connection = ctx.connection() else { return }
+            guard let connection = ctx.services.daemon(for: pane).connection else { return }
             Task {
                 do {
                     let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace))

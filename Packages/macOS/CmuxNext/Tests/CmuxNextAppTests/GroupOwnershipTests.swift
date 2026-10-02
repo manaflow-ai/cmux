@@ -42,4 +42,18 @@ struct GroupOwnershipTests {
         #expect(GroupOwnership.daemon(holdingTabGroup: TabGroupID(rawValue: "tg_gone"), machines: machines) == nil,
                 "a group no daemon holds has no owner (the command is refused)")
     }
+
+    @Test func aScreenGroupIsOwnedByTheDaemonThatHoldsIt() throws {
+        let (machines, remote) = try Self.machines()
+        #expect(GroupOwnership.daemon(holdingScreenGroup: ScreenGroupID(rawValue: "sgrp_here"), machines: machines) === machines.local)
+        #expect(GroupOwnership.daemon(holdingScreenGroup: ScreenGroupID(rawValue: "sgrp_there"), machines: machines) === remote)
+        #expect(GroupOwnership.daemon(holdingScreenGroup: ScreenGroupID(rawValue: "sgrp_gone"), machines: machines) == nil)
+    }
+
+    @Test func thePaneHoldingAGroupComesWithItsDaemon() throws {
+        let (machines, remote) = try Self.machines()
+        let found = try #require(GroupOwnership.pane(holdingTabGroup: TabGroupID(rawValue: "tg_there"), machines: machines))
+        #expect(found.daemon === remote)
+        #expect(found.pane === remote.store.workspaces.first?.screens.first?.panes.first)
+    }
 }
