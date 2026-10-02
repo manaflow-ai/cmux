@@ -2,6 +2,8 @@
 
 use super::*;
 
+use super::adoption::{Adoption, adopted_in, session_cwd};
+
 impl Hub {
     // --------------------------------------------------------- lifecycle
 
@@ -68,13 +70,6 @@ impl Hub {
             "retainedProfiles": retained, "modelProbePending": true}))
     }
 
-    /// The session that already adopted `agent_session_id` in `family`, so
-    /// adopting twice opens the same session instead of two resuming one.
-    /// Any profile of the family counts: they share one store.
-    fn adopted_session(&self, family: &str, agent_session_id: &str) -> Option<Arc<Session>> {
-        adopted_in(&self.sessions.lock().unwrap(), family, agent_session_id)
-    }
-
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
         // Harness discovery and launcher checks finish in the background.
         self.wait_startup().await;
@@ -137,58 +132,11 @@ impl Hub {
             || defaults.env.values().any(|v| v.contains("${model}"));
         // Adopting checks the id against the harness's own store before
         // anything is created, and takes the conversation's recorded cwd.
-        let adopted = match &adopt {
-            Some(a) => {
-                if let Some(asked) = &a.harness
-                    && asked != agent
-                    && asked != &family
-                {
-                    return Err(RpcError::invalid_params(format!(
-                        "adopt names harness {asked} but the session resolves to {agent}"
-                    )));
-                }
-                if let Some(existing) = self.adopted_session(&family, &a.agent_session_id) {
-                    return Ok(existing);
-                }
-                // The store walk and the record read are file I/O.
-                let homes = self.harness_homes.lock().unwrap().clone();
-                let (fam, id) = (family.clone(), a.agent_session_id.clone());
-                let found =
-                    tokio::task::spawn_blocking(move || crate::adopt::find(&fam, &id, &homes))
-                        .await
-                        .map_err(|e| RpcError::internal(e.to_string()))?
-                        .map_err(RpcError::invalid_params)?;
-                Some(found)
-            }
-            None => None,
+        let recorded = match self.adoption(adopt.as_ref(), agent, &family).await? {
+            Adoption::Existing(existing) => return Ok(existing),
+            Adoption::Found(recorded) => recorded,
         };
-        let recorded = adopted.as_ref().and_then(|a| a.cwd.clone());
-        let cwd = match (cwd, &recorded) {
-            (Some(given), Some(recorded)) if family == "claude" && !same_dir(&given, recorded) => {
-                // Claude keeps a conversation under its cwd's project; resuming elsewhere finds nothing.
-                return Err(RpcError::invalid_params(format!(
-                    "cwd {} does not match the adopted session's {}",
-                    given.display(),
-                    recorded.display()
-                )));
-            }
-            (Some(given), _) => given,
-            (None, Some(recorded)) => recorded.clone(),
-            (None, None) => {
-                dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
-            }
-        };
-        let cwd = if cwd.is_absolute() {
-            cwd
-        } else {
-            std::env::current_dir().unwrap_or_default().join(cwd)
-        };
-        if !cwd.is_dir() {
-            return Err(RpcError::invalid_params(format!(
-                "cwd {} is not a directory",
-                cwd.display()
-            )));
-        }
+        let cwd = session_cwd(cwd, recorded, &family)?;
         let id = uuid::Uuid::now_v7().to_string();
         let now = now_ms();
         let mut meta = SessionMeta {
@@ -267,17 +215,9 @@ impl Hub {
             let _ = self.kill(&session, true).await;
             return Err(e);
         }
-        // An agent that could not load the adopted session started a fresh
-        // one instead; with no acpmux history to rehydrate, that would be a
-        // new conversation posing as the adopted one.
-        if let Some(a) = &adopt
-            && session.meta().agent_session_id.as_deref() != Some(a.agent_session_id.as_str())
-        {
-            let _ = self.kill(&session, true).await;
-            return Err(RpcError::internal(format!(
-                "{agent} could not resume session {}",
-                a.agent_session_id
-            )));
+        // An agent that started fresh instead of resuming fails creation.
+        if let Some(a) = &adopt {
+            self.check_resumed(&session, a, agent).await?;
         }
         // Defaults and explicit values, applied once the harness is up. A bad
         // value fails creation loudly rather than starting a session that
@@ -1028,31 +968,6 @@ pub fn expand_env_value(
         out = format!("{}/{rest}", home.to_string_lossy());
     }
     out
-}
-
-/// The session in `sessions` that adopted `agent_session_id` in `family`.
-fn adopted_in(
-    sessions: &HashMap<String, Arc<Session>>,
-    family: &str,
-    agent_session_id: &str,
-) -> Option<Arc<Session>> {
-    sessions
-        .values()
-        .find(|s| {
-            let m = s.meta();
-            m.family.as_deref() == Some(family)
-                && m.agent_session_id.as_deref() == Some(agent_session_id)
-        })
-        .cloned()
-}
-
-/// True when both paths name one directory (`/tmp` and `/private/tmp`,
-/// a trailing slash, a relative path).
-fn same_dir(a: &std::path::Path, b: &std::path::Path) -> bool {
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => a == b,
-    }
 }
 
 #[cfg(test)]

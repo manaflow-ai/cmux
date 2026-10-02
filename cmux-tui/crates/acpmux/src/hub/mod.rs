@@ -4,8 +4,10 @@
 //! Method groups live in sibling files: `peers` (remote daemons), `lifecycle`
 //! (spawn, resume, fork), `permissions` (agent requests and policy), `turns`
 //! (prompt, cancel, config), `transfer` (export, import), `views` (summaries),
-//! `handoff` (a reviewed first message to a new session on another harness).
+//! `handoff` (a reviewed first message to a new session on another harness),
+//! `adoption` (resuming a harness's own session on `session/new`).
 
+mod adoption;
 mod handoff;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod lifecycle;
