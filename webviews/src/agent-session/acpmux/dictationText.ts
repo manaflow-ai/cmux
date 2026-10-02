@@ -129,8 +129,11 @@ function remainder(text: string, anchor: DictationAnchor): { rest: string; glued
     if (!midWord) return { rest, glued: false };
     return anchor.continues ? { rest, glued: true } : { rest: rest.replace(/^[\p{L}\p{N}]+/u, ""), glued: false };
   }
-  // Scripts without spaces: by character.
-  if (unspaced.test(handed) && !/\s/u.test(handed.trim())) return { rest: text.slice(handed.length), glued: false };
+  // Scripts without spaces: by character, after the handed text's last character.
+  if (unspaced.test(handed) && !/\s/u.test(handed.trim())) {
+    const at = nearest([...text], (character) => character === handed.at(-1), handed.length - 1);
+    return { rest: at < 0 ? "" : text.slice(at + 1), glued: false };
+  }
   const old = words(handed), next = words(text);
   const target = plain(old.join(""));
   // The revision's shortest run of words that spells the handed words ("ice cream" as
@@ -141,9 +144,20 @@ function remainder(text: string, anchor: DictationAnchor): { rest: string; glued
     if (spelled === target) return wholeWords(next.slice(index + 1));
     if (!target.startsWith(spelled)) break;
   }
-  // A different spelling of the same number of words or fewer adds nothing; a longer one adds
-  // the words past the handed count.
-  return wholeWords(next.length > old.length ? next.slice(old.length) : []);
+  // Respelled ("I'm" as "I am", "21" as "twenty one"): what follows the handed text's last word
+  // is new. Without that word nothing is.
+  const last = plain(old.at(-1) ?? "");
+  const at = last ? nearest(next, (word) => plain(word) === last, old.length - 1) : -1;
+  return wholeWords(at < 0 ? [] : next.slice(at + 1));
+}
+
+/// The index of the item matching `test` closest to `around` (the later one on a tie), or -1.
+function nearest<T>(items: T[], test: (item: T) => boolean, around: number): number {
+  let best = -1;
+  items.forEach((item, index) => {
+    if (test(item) && (best < 0 || Math.abs(index - around) <= Math.abs(best - around))) best = index;
+  });
+  return best;
 }
 
 /// Whole words: a word boundary goes before them.

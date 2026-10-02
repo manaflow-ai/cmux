@@ -169,6 +169,12 @@ describe("dictation text", () => {
     expect(revise("I want ice cream", "We want ice cream", "I want icecream please")).toBe("We want ice cream please");
     expect(revise("I like hel", "I love hel", "I liked hello")).toBe("I love hel");
     expect(revise("a b c", "A b c", "a b c")).toBe("A b c");
+    // Respelled words: only what follows the last handed word is new.
+    expect(revise("I'm going", "I'm Going", "I am going home")).toBe("I'm Going home");
+    expect(revise("it's done", "It's done", "it is done now")).toBe("It's done now");
+    expect(revise("gonna go", "Gonna go", "going to go home")).toBe("Gonna go home");
+    expect(revise("I have 21", "We have 21", "I have twenty one dollars")).toBe("We have 21");
+    expect(revise("I will", "I Will", "I'll go")).toBe("I Will");
     // A longer revision adds the words past the handed ones.
     expect(revise("I scream for", "We scream for", "ice cream for you")).toBe("We scream for you");
   });
@@ -177,6 +183,9 @@ describe("dictation text", () => {
     const edit = (value: string) => (index: number, current: PromptState) => (index === 1 ? caretAt(value) : current);
     expect(run(caretAt(""), [update("listening", "今天天气"), update("listening", "今天天气很好"), update("idle", "今天天气很好，我们去公园。")], edit("明天天气")).prompt.value)
       .toBe("明天天气很好，我们去公园。");
+    // The engine respells the handed characters: what follows their last one is new.
+    expect(run(caretAt(""), [update("listening", "今天天气"), update("listening", "今天的天气很好")], edit("明天天气")).prompt.value).toBe("明天天气很好");
+    expect(run(caretAt(""), [update("listening", "今天天气"), update("listening", "今天气很好")], edit("明天天气")).prompt.value).toBe("明天天气很好");
     expect(run(caretAt(""), [update("listening", "こんにちは"), update("listening", "こんにちは世界")], edit("こんばんは")).prompt.value).toBe("こんばんは世界");
   });
 
