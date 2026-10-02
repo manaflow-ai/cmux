@@ -2,6 +2,11 @@ import Foundation
 
 /// Pure remote catalog selector and placement resolution shared by the app and CLI.
 enum CmuxTuiRemoteRouting {
+    /// Keeps the app-host test and legacy app-facing alias on the shared package contract.
+    static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
+        CodexForkMonitorArguments().make(environment: environment)
+    }
+
     /// Every `cmux vm agent` option that takes a value, so the alias walk and
     /// the help scan skip the value instead of reading it as the first provider
     /// argument (or as `--help`).
