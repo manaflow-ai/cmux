@@ -4632,7 +4632,7 @@ impl Mux {
         }
     }
 
-    fn ordinary_workspace_selectors(
+    pub(crate) fn ordinary_workspace_selectors(
         &self,
         workspace: WorkspaceId,
     ) -> Option<crate::ResourceSelectors> {
@@ -4671,7 +4671,7 @@ impl Mux {
         })
     }
 
-    fn commit_ordinary_topology_operation(
+    pub(crate) fn commit_ordinary_topology_operation(
         self: &Arc<Self>,
         operation: ResourceOperation,
         selectors: crate::ResourceSelectors,
@@ -4731,7 +4731,7 @@ impl Mux {
         }
     }
 
-    fn ordinary_created_surface(
+    pub(crate) fn ordinary_created_surface(
         &self,
         commit: &ResourcePatchCommit,
     ) -> anyhow::Result<Arc<Surface>> {
