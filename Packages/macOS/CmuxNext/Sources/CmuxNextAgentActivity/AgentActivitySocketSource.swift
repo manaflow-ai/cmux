@@ -187,7 +187,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     }
 
     private func request(_ method: String, _ args: [String: Any]) async throws -> [String: Any] {
-        try await CuaSocketRequest.send(method, args, configuration: config)
+        try await CuaSocketClient(configuration: config).send(method, args)
     }
 }
 

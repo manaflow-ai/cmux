@@ -91,7 +91,8 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
     /// One `permissions_status`; nil when the daemon did not answer (the
     /// rows keep what they showed).
     private func read() async -> ComputerUsePermissions? {
-        guard let status = try? await CuaSocketRequest.send("permissions_status", configuration: configuration, deadline: .seconds(2)) else {
+        let client = CuaSocketClient(configuration: configuration)
+        guard let status = try? await client.send("permissions_status", deadline: .seconds(2)) else {
             return nil
         }
         if let pid = (status["source"] as? [String: Any])?["pid"] as? Int,
