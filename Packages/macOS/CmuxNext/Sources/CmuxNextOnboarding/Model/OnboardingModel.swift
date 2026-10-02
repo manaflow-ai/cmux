@@ -9,7 +9,7 @@ public import Observation
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        case role, defaultBrowser, importData, theme, accounts
+        case role, defaultBrowser, importData, theme, computerUse, accounts
     }
 
     public private(set) var step: Step
@@ -19,6 +19,7 @@ public final class OnboardingModel {
     public let theme: ThemeStepModel
     public let importer: ImportStepModel
     public let defaults: DefaultAppsStepModel
+    public let computerUse: ComputerUseStepModel
     @ObservationIgnored public let services: any OnboardingServices
     /// Set once the flow ended, so a second close does not report twice.
     public private(set) var ended = false
@@ -27,13 +28,21 @@ public final class OnboardingModel {
 
     public init(services: any OnboardingServices, start: Step? = nil) {
         self.services = services
-        let steps = Step.allCases.filter { $0 != .accounts || services.hasAccountsStep }
+        let computerUseSource = services.computerUsePermissions
+        let steps = Step.allCases.filter { step in
+            switch step {
+            case .accounts: services.hasAccountsStep
+            case .computerUse: computerUseSource != nil
+            default: true
+            }
+        }
         self.steps = steps
         step = start.flatMap { steps.contains($0) ? $0 : nil } ?? steps[0]
         role = RoleStepModel(services: services)
         theme = ThemeStepModel(services: services)
         importer = ImportStepModel(services: services)
         defaults = DefaultAppsStepModel(services: services)
+        computerUse = ComputerUseStepModel(source: computerUseSource)
     }
 
     public var index: Int { steps.firstIndex(of: step) ?? 0 }
@@ -86,10 +95,12 @@ public final class OnboardingModel {
 
     /// Starts the step's lazy work (handler state, browser detection, theme files).
     public func stepDidAppear() {
+        if step != .computerUse { computerUse.stop() }
         switch step {
         case .defaultBrowser: defaults.refresh()
         case .importData: importer.detect()
         case .theme: theme.load()
+        case .computerUse: computerUse.start()
         case .role, .accounts: break
         }
     }
@@ -99,6 +110,7 @@ public final class OnboardingModel {
     public func finish(completed: Bool) {
         guard !ended else { return }
         ended = true
+        computerUse.stop()
         if !completed, !theme.isCommitted { theme.revert() }
         services.onboardingDidEnd(completed: completed)
         onEnd?(completed)

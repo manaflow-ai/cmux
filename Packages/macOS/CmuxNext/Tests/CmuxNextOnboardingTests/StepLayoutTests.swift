@@ -12,6 +12,7 @@ import Testing
     func stepLaysOutInTheWindow(_ step: OnboardingModel.Step) async {
         let services = MockOnboardingServices()
         services.accountsView = NSView()
+        services.computerUseSource = MockComputerUsePermissionSource()
         services.themeChoices = (0..<9).map { ThemeChoice(name: "Theme \($0)", input: .ghosttyDefault) }
         let model = OnboardingModel(services: services, start: step)
         let controller = OnboardingWindowController(model: model)
