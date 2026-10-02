@@ -283,6 +283,28 @@ describe("grouped permission protocol", () => {
     },
   );
 
+  test("a fresh client restores read-first retry for its durable pending decision", async () => {
+    const storage = new MemoryStorage();
+    const pending = { sessionId: "session-1", groupId: "group-1", revision: 2, decision: "allow_once", decisionKey: "before-reconnect" };
+    storage.values.set("cmux.permission.group:session-1", pending);
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const client = new PermissionGroupClient(async (method, params) => {
+      calls.push({ method, params });
+      return method === PERMISSION_GROUP_OPS.groups ? list : receipt();
+    }, () => {}, storage);
+    client.configure(true);
+    client.select("session-1");
+    await client.refresh();
+    expect(client.state.uncertain).toBe(true);
+    expect(client.state.error).toBeTruthy();
+    await expect(client.respond("group-1", 2, "deny")).rejects.toMatchObject({ reason: "uncertain" });
+    await client.retry();
+    expect(calls.map((call) => call.method)).toEqual([PERMISSION_GROUP_OPS.groups, PERMISSION_GROUP_OPS.groups, PERMISSION_GROUP_OPS.respond]);
+    expect(calls[2]?.params).toEqual(pending);
+    expect(client.state.uncertain).toBe(false);
+    expect(storage.values.size).toBe(0);
+  });
+
   test("wrong-session owner data never becomes ready or gets adopted", async () => {
     const wrong = { ...list, groups: [{ ...group, sessionId: "other-session" }] };
     const client = new PermissionGroupClient(
