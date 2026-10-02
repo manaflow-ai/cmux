@@ -16,11 +16,12 @@ struct StickyColumnViewTests {
         return [LayoutScreen(id: "s", name: "", layout: .columns(columns))]
     }
 
-    private func makeRoot(_ sticky: StickyColumn, scrollbar: StripScrollbarMode = .auto) -> (LayoutRootView, NSWindow) {
+    private func makeRoot(_ sticky: StickyColumn, scrollbar: StripScrollbarMode = .auto,
+                          scrollbarClock: any Clock<Duration> = ManualClock()) -> (LayoutRootView, NSWindow) {
         let model = LayoutModel(screens: screens(sticky), activeScreenID: "s", focusedPane: "a")
         model.followsDesignMetrics = false
         model.stripScrollbarOverride = scrollbar
-        let view = LayoutRootView(model: model, contentProvider: StickyStubProvider.shared)
+        let view = LayoutRootView(model: model, contentProvider: StickyStubProvider.shared, scrollbarClock: scrollbarClock)
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = view
@@ -118,13 +119,19 @@ struct StickyColumnViewTests {
     }
 
     @Test func theScrollbarShowsOnScrollAndHidesWhenOff() async {
-        let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked), scrollbar: .auto)
+        let clock = ManualClock()
+        let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked), scrollbar: .auto, scrollbarClock: clock)
         defer { window.close() }
         let screen = view.screenViews["s"]!
         #expect(screen.scrollbar?.isShown == false)
         view.model.focus("c")
         await settle { screen.scroll.target > 0 }
         runToRest(view)
+        // Reproduces #16607: the idle delay elapses before the check, as it
+        // did when a loaded runner stalled the settle loop past 1.2 s.
+        await clock.sleepers(atLeast: 1)
+        clock.advance(by: StripScrollbarView.idleDelay)
+        await settle { screen.scrollbar?.isShown == false }
         #expect(screen.scrollbar?.isShown == true)
         let report = screen.scrollbarReport
         // The track spans the strip's uncovered range only.

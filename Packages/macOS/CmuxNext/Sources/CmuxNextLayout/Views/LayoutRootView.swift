@@ -46,9 +46,12 @@ public final class LayoutRootView: NSView {
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
-    public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider) {
+    /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline;
+    /// tests inject a manual clock.
+    public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
+                scrollbarClock: any Clock<Duration> = ContinuousClock()) {
         self.model = model
-        self.context = LayoutViewContext(model: model, provider: contentProvider)
+        self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock)
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
