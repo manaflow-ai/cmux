@@ -83,6 +83,17 @@ impl Group {
 }
 
 impl PermissionState {
+    pub(super) fn pending_records(&self) -> Vec<Value> {
+        self.pending
+            .iter()
+            .map(|(id, pending)| {
+                let group = self.groups.iter().find(|g| g.items.iter().any(|item| &item.id == id));
+                json!({"permissionId":id,"request":pending.request,
+                    "groupId":group.map(|g| &g.id),"turnId":group.and_then(|g| g.turn_id.as_ref())})
+            })
+            .collect()
+    }
+
     // Returns the group id and whether a new timer is needed.
     pub fn register(
         &mut self,

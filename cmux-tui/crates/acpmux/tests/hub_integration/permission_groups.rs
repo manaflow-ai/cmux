@@ -27,6 +27,13 @@ async fn permission_groups_fixture_burst_and_retry() {
     let id = new_session(&mut c, "batch").await;
     let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: parallel", None)).await;
     let g = ready(&mut c).await;
+    let detail = c.request(method::MUX_INFO, json!({"sessionId":id})).await.unwrap();
+    let pending = detail["pending"].as_array().unwrap();
+    assert_eq!(pending.len(), 3);
+    for item in pending {
+        assert_eq!(item["groupId"], g["groupId"]);
+        assert_eq!(item["turnId"], g["turnId"]);
+    }
     assert_eq!(g["items"].as_array().unwrap().len(), 3);
     assert!(g["turnId"].is_string());
     let body = decision(&id, &g, "first", "allow_once");
