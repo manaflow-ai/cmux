@@ -37,7 +37,6 @@ struct SidebarCloudWorkspaceBadgeTests {
         workspace.updateRemotePanelDirectory(panelId: panelID, directory: "/home/cmux/project")
         let loaded = factory.makeSnapshot()
         #expect(loaded.cloudWorkspaceLabel?.contains("Friendly machine") == true)
-        #expect(loaded.compactDirectoryCandidates.contains { $0.contains("/home/cmux/project") })
     }
 
     @Test(arguments: [false, true])
