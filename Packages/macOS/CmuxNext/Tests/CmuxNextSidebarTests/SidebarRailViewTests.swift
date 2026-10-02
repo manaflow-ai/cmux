@@ -61,6 +61,34 @@ import Testing
         #expect(view.layoutResult.overflow == [LayoutItemID("itm_home")])
     }
 
+    /// A short rail lists what does not fit under a More button, whose
+    /// menu runs each item as its button would; a tall rail drops it.
+    @Test func moreListsTheOverflowAndActivatesAnItem() throws {
+        let doc = SidebarLayoutDocument(sections: [
+            LayoutSection(id: LayoutSectionID("a"), region: .top, look: .builtIn,
+                          items: [LayoutItem(id: LayoutItemID("a_0"), ref: .builtIn(.home)),
+                                  LayoutItem(id: LayoutItemID("a_1"), ref: .builtIn(.history))]),
+            LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, content: .workspaces),
+            LayoutSection(id: LayoutSectionID("z"), region: .bottom, look: .builtIn,
+                          items: [LayoutItem(id: LayoutItemID("z_0"), ref: .builtIn(.settings))]),
+        ])
+        let view = rail(doc, height: 160)
+        let more = try #require(view.moreView)
+        #expect(more.frame == view.layoutResult.more)
+        #expect(more.toolTip == SectionStrings.more)
+        var activated: [LayoutItemID] = []
+        view.onActivate = { activated.append($0) }
+        let menu = view.overflowMenu()
+        #expect(menu.items.map(\.title) == [SidebarBuiltIn.home.title, SidebarBuiltIn.history.title])
+        menu.performActionForItem(at: 1)
+        #expect(activated == [LayoutItemID("a_1")])
+
+        view.frame.size.height = 600
+        view.layoutSubtreeIfNeeded()
+        #expect(view.moreView == nil)
+        #expect(view.itemView(LayoutItemID("a_1")) != nil)
+    }
+
     @Test func eachSectionLineIsALayer() {
         let doc = SidebarLayoutDocument(sections: [
             LayoutSection(id: LayoutSectionID("a"), region: .top, look: .builtIn,

@@ -54,6 +54,24 @@ struct WindowRailTests {
         withExtendedLifetime(services) {}
     }
 
+    /// Right-clicking a rail item or the empty rail shows the sidebar's
+    /// menus, so pinning, removing and reordering work from the rail while
+    /// the sidebar hides its bands.
+    @Test func railItemsShowTheSidebarsMenus() throws {
+        let services = Coverage.boundServices()
+        let saved = DesignSettings.shared.rail
+        defer { DesignSettings.shared.rail = saved }
+        let controller = makeWindow(services, .leading)
+        let column = controller.root.rail.column
+        let home = LayoutItemID("itm_home")
+        let menu = try #require(column.contextMenuProvider?(.layoutItem(home)))
+        #expect(!menu.items.isEmpty)
+        #expect(menu.items.map(\.title) == controller.sidebar.contextMenu(for: .layoutItem(home))?.items.map(\.title))
+        #expect(column.contextMenuProvider?(.background) != nil)
+        close(controller)
+        withExtendedLifetime(services) {}
+    }
+
     /// Waits (bounded) for main-actor observation hops.
     private func eventually(line: Int = #line, _ condition: () -> Bool) async throws {
         for _ in 0..<100 where !condition() { try await Task.sleep(for: .milliseconds(20)) }

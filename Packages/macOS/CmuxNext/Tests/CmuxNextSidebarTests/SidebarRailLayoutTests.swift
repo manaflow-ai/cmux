@@ -5,7 +5,7 @@ import Testing
 /// The rail look (plans/cmux-next/sidebar-sections.md 11): the sticky
 /// bands as one icon column, the band above the workspace list from the
 /// top and the band below it pinned to the bottom, lines between sections,
-/// and overflow when the column is short.
+/// and overflow into a More button when the column is short.
 @Suite struct SidebarRailLayoutTests {
     private let m = SidebarRailMetrics(width: 48, buttonSize: 34, buttonGap: 4, sectionGap: 8, lineWidth: 1,
                                        lineInset: 12, topInset: 40, bottomInset: 12)
@@ -89,20 +89,40 @@ import Testing
         #expect(rail.separators.isEmpty)
     }
 
-    /// A short rail keeps the bottom band and drops top buttons that would
-    /// reach it, with the line of a section that lost every button.
-    @Test func aShortRailOverflowsTheTopBand() {
+    /// A short rail keeps the bottom band and moves top buttons that would
+    /// reach it into a More button, which takes the last slot that fits
+    /// (its item joins the list); a section that lost every button loses
+    /// its line.
+    @Test func aShortRailOverflowsTheTopBandIntoMore() {
         let doc = document([section("a", region: .top, refs: [.builtIn(.home), .builtIn(.history)]),
                             section("b", region: .top, refs: [.builtIn(.notifications)]),
                             section("z", region: .bottom, refs: [.builtIn(.settings)])])
         // 40 top + 34 + 4 + 34 = 112 for section a; the bottom button sits at 160 - 12 - 34 = 114.
         let rail = SidebarRailLayout.make(document: doc, room: nil, height: 160, metrics: m)
-        #expect(rail.buttons.map(\.item.rawValue) == ["a_0", "z_0"])
-        #expect(rail.overflow.map(\.rawValue) == ["a_1", "b_0"])
+        #expect(rail.buttons.map(\.item.rawValue) == ["z_0"])
+        #expect(rail.overflow.map(\.rawValue) == ["a_0", "a_1", "b_0"])
+        #expect(rail.more?.minY == 40)
         #expect(rail.separators.isEmpty)
-        for button in rail.buttons where button.section != LayoutSectionID("z") {
-            #expect(button.frame.maxY <= 114 - 8)
-        }
+        #expect((rail.more?.maxY ?? .infinity) <= 114 - 8)
+    }
+
+    /// The More button keeps the line of the section whose slot it takes.
+    @Test func moreKeepsTheLineOfItsSection() {
+        let doc = document([section("a", region: .top, refs: [.builtIn(.home)]),
+                            section("b", region: .top, refs: [.builtIn(.history), .builtIn(.notifications)]),
+                            section("z", region: .bottom, refs: [.builtIn(.settings)])])
+        // a_0 40-74, line 82, b_0 91-125, b_1 129-163; the limit is 200 - 12 - 34 - 8 = 146.
+        let rail = SidebarRailLayout.make(document: doc, room: nil, height: 200, metrics: m)
+        #expect(rail.buttons.map(\.item.rawValue) == ["a_0", "z_0"])
+        #expect(rail.overflow.map(\.rawValue) == ["b_0", "b_1"])
+        #expect(rail.more == CGRect(x: 7, y: 91, width: 34, height: 34))
+        #expect(rail.separators.map(\.minY) == [82])
+    }
+
+    @Test func nothingOverflowsAndNoMoreWhenEverythingFits() {
+        let rail = SidebarRailLayout.make(document: .defaults, room: nil, height: 600, metrics: m)
+        #expect(rail.overflow.isEmpty)
+        #expect(rail.more == nil)
     }
 
     @Test func buttonAtFindsTheButtonUnderThePoint() {

@@ -58,8 +58,12 @@ public nonisolated struct SidebarRailLayout: Hashable, Sendable {
     public var separators: [CGRect]
     /// Top-band items that do not fit above the bottom band, in order.
     public var overflow: [LayoutItemID]
+    /// The More button that lists `overflow`, in the last top slot that
+    /// fits (its own item moves into the list); nil when nothing overflows
+    /// or no slot fits.
+    public var more: CGRect?
 
-    public static let empty = SidebarRailLayout(buttons: [], separators: [], overflow: [])
+    public static let empty = SidebarRailLayout(buttons: [], separators: [], overflow: [], more: nil)
 
     /// The button under `point`, or nil.
     public func button(at point: CGPoint) -> Button? { buttons.first { $0.frame.contains(point) } }
@@ -69,7 +73,7 @@ public nonisolated struct SidebarRailLayout: Hashable, Sendable {
     /// - Parameter height: The rail's height.
     /// - Parameter metrics: The sizes.
     /// - Returns: The buttons and lines. The bottom band always shows;
-    ///   top-band buttons that would reach it overflow.
+    ///   top-band buttons that would reach it overflow into a More button.
     public static func make(document: SidebarLayoutDocument, room: String?, height: CGFloat,
                             metrics m: SidebarRailMetrics) -> SidebarRailLayout {
         let bands = document.bands(room: room)
@@ -81,13 +85,22 @@ public nonisolated struct SidebarRailLayout: Hashable, Sendable {
         let top = stack(columns(bands.above), metrics: m)
         let limit = bottomButtons.isEmpty ? height - m.bottomInset : bottomTop - m.sectionGap
         let topButtons = top.buttons.map { offset($0, by: m.topInset) }
-        let kept = topButtons.filter { $0.frame.maxY <= limit }
-        let keptSections = Set(kept.map(\.section))
+        var kept = topButtons.filter { $0.frame.maxY <= limit }
+        var overflow = topButtons.filter { $0.frame.maxY > limit }.map(\.item)
+        var more: CGRect?
+        var moreSection: LayoutSectionID?
+        // The More button takes the last slot that fits; with no slot (the
+        // first one already overflows) the items wait for a taller window.
+        if !overflow.isEmpty, let last = kept.popLast() {
+            overflow.insert(last.item, at: 0)
+            more = last.frame
+            moreSection = last.section
+        }
+        let keptSections = Set(kept.map(\.section) + [moreSection].compactMap { $0 })
         // A line belongs to the section below it: it shows only while that
-        // section keeps a button.
+        // section keeps a button (the More button counts).
         let topLines = top.lines.filter { keptSections.contains($0.before) }.map { $0.rect.offsetBy(dx: 0, dy: m.topInset) }
-        return SidebarRailLayout(buttons: kept + bottomButtons, separators: topLines + bottomLines,
-                                 overflow: topButtons.filter { $0.frame.maxY > limit }.map(\.item))
+        return SidebarRailLayout(buttons: kept + bottomButtons, separators: topLines + bottomLines, overflow: overflow, more: more)
     }
 
     /// The item ids each band section shows: item sections only, items this

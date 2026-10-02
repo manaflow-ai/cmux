@@ -28,6 +28,8 @@ final class SidebarRailView: NSView {
     private(set) var layoutResult = SidebarRailLayout.empty
     private var content: Content?
     private var itemViews: [LayoutItemID: SidebarItemRowView] = [:]
+    /// Lists the top-band items a short rail has no room for.
+    private(set) var moreView: SidebarItemRowView?
     private var lineLayers: [CALayer] = []
 
     init() {
@@ -80,6 +82,15 @@ final class SidebarRailView: NSView {
             view.toolTip = content.toolTips[button.item] ?? info.title
             view.frame = button.frame
         }
+        if let frame = result.more {
+            let view = moreView ?? makeMore()
+            view.configure(SidebarItemInfo(title: SectionStrings.more, symbol: "ellipsis"), style: .icon)
+            view.toolTip = SectionStrings.more
+            view.frame = frame
+        } else {
+            moreView?.removeFromSuperview()
+            moreView = nil
+        }
         while lineLayers.count > result.separators.count { lineLayers.removeLast().removeFromSuperlayer() }
         while lineLayers.count < result.separators.count {
             let line = CALayer()
@@ -101,6 +112,38 @@ final class SidebarRailView: NSView {
         addSubview(view)
         itemViews[id] = view
         return view
+    }
+
+    private func makeMore() -> SidebarItemRowView {
+        let view = SidebarItemRowView()
+        view.onPress = { [weak self, weak view] in
+            guard let self, let view else { return }
+            overflowMenu().popUp(positioning: nil, at: NSPoint(x: view.bounds.maxX, y: view.bounds.minY), in: view)
+        }
+        addSubview(view)
+        moreView = view
+        return view
+    }
+
+    /// The overflowing items, each running what its button would.
+    func overflowMenu() -> NSMenu {
+        let menu = NSMenu()
+        for id in layoutResult.overflow {
+            let info = content?.infos[id]
+                ?? content?.document.item(id).map { SidebarItemInfo.fallback(for: $0.ref) }
+                ?? SidebarItemInfo(title: "", symbol: "circle", isMissing: true)
+            let item = NSMenuItem(title: info.title, action: #selector(activateOverflowItem(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = id.rawValue
+            item.image = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func activateOverflowItem(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String else { return }
+        onActivate?(LayoutItemID(raw))
     }
 
     override var wantsUpdateLayer: Bool { true }
