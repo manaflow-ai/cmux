@@ -27,13 +27,18 @@ export type AcpmuxSessionEntry = {
   preview?: string;
 };
 
-export type SessionPullRequest = { number: number; title: string; state: "open" | "draft" | "merged" | "closed"; reviewReady?: boolean };
+export type SessionPullRequest = {
+  number: number;
+  title: string;
+  state: "open" | "draft" | "merged" | "closed";
+  reviewReady?: boolean;
+};
 const PR_STATES = new Set(["open", "draft", "merged", "closed"]);
 
 /** A non-empty string, else undefined. */
-export const text = (value: unknown) => typeof value === "string" && value ? value : undefined;
+export const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
 /** "local" or "cloud", else undefined. */
-export const hostKind = (value: unknown) => value === "local" || value === "cloud" ? value : undefined;
+export const hostKind = (value: unknown) => (value === "local" || value === "cloud" ? value : undefined);
 
 export type SessionGroup = { key: string; label: string; cwd?: string; sessions: AcpmuxSessionEntry[] };
 
@@ -70,8 +75,14 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
 
 function pullRequest(value: any): SessionPullRequest | undefined {
   // A pull request the pane can't name or place is left out rather than guessed at.
-  if (!Number.isInteger(value?.number) || value.number <= 0 || !text(value.title) || !PR_STATES.has(value.state)) return undefined;
-  return { number: value.number, title: value.title, state: value.state, reviewReady: value.reviewReady === true || undefined };
+  if (!Number.isInteger(value?.number) || value.number <= 0 || !text(value.title) || !PR_STATES.has(value.state))
+    return undefined;
+  return {
+    number: value.number,
+    title: value.title,
+    state: value.state,
+    reviewReady: value.reviewReady === true || undefined,
+  };
 }
 
 /** The title (the first prompt) when the name was generated (`codex`, `codex-3`), else the name the user gave. */
@@ -79,7 +90,10 @@ export function sessionTitle(session: { title?: string; name?: string; harness?:
   const name = session.name ?? "";
   const harness = session.harness ?? "";
   const bare = name.split("/").pop() ?? name;
-  const generated = !name || (harness !== "" && (bare === harness || (bare.startsWith(`${harness}-`) && /^\d+$/.test(bare.slice(harness.length + 1)))));
+  const generated =
+    !name ||
+    (harness !== "" &&
+      (bare === harness || (bare.startsWith(`${harness}-`) && /^\d+$/.test(bare.slice(harness.length + 1)))));
   const title = session.title?.trim();
   if (generated) return title || name || session.sessionId.slice(0, 8);
   return name;
@@ -120,9 +134,15 @@ export function sessionMark(session: AcpmuxSessionEntry, selected: boolean): Ses
 }
 
 /** The rows a group shows: all of a short group, else its first GROUP_ROWS unless expanded or holding the selection. */
-export function visibleSessions(group: SessionGroup, expanded: boolean, selectedId?: string): { rows: AcpmuxSessionEntry[]; hidden: number } {
-  const open = expanded || group.sessions.length <= GROUP_ROWS + 1 || group.sessions.slice(GROUP_ROWS).some((session) => session.sessionId === selectedId);
+export function visibleSessions(
+  group: SessionGroup,
+  expanded: boolean,
+  selectedId?: string,
+): { rows: AcpmuxSessionEntry[]; hidden: number } {
+  const open =
+    expanded ||
+    group.sessions.length <= GROUP_ROWS + 1 ||
+    group.sessions.slice(GROUP_ROWS).some((session) => session.sessionId === selectedId);
   if (open) return { rows: group.sessions, hidden: 0 };
   return { rows: group.sessions.slice(0, GROUP_ROWS), hidden: group.sessions.length - GROUP_ROWS };
 }
-

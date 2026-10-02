@@ -2,10 +2,21 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
 
-const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
+const dom = new JSDOM("<!doctype html><div id=root></div>", {
+  pretendToBeVisual: true,
+  virtualConsole: new VirtualConsole(),
+});
 const globals = globalThis as Record<string, unknown>;
-const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
-Object.assign(globals, { window: dom.window, document: dom.window.document, navigator: dom.window.navigator, HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true });
+const saved = Object.fromEntries(
+  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+);
+Object.assign(globals, {
+  window: dom.window,
+  document: dom.window.document,
+  navigator: dom.window.navigator,
+  HTMLElement: dom.window.HTMLElement,
+  IS_REACT_ACT_ENVIRONMENT: true,
+});
 afterAll(() => Object.assign(globals, saved));
 
 const { act, createElement } = await import("react");
@@ -18,11 +29,24 @@ const { Composer } = await import("./Composer");
 function typeInto(node: HTMLTextAreaElement, value: string) {
   node.value = value;
   node.setSelectionRange(value.length, value.length);
-  const props = (node as unknown as Record<string, { onChange(event: { target: HTMLTextAreaElement }): void }>)[Object.keys(node).find((key) => key.startsWith("__reactProps$"))!]!;
+  const props = (node as unknown as Record<string, { onChange(event: { target: HTMLTextAreaElement }): void }>)[
+    Object.keys(node).find((key) => key.startsWith("__reactProps$"))!
+  ]!;
   props.onChange({ target: node });
 }
 
-const snapshot = (commands?: AcpmuxSnapshot["commands"]): AcpmuxSnapshot => ({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connected", isWorking: false, queue: [], catalog: [], canLoadOlder: false, commands });
+const snapshot = (commands?: AcpmuxSnapshot["commands"]): AcpmuxSnapshot => ({
+  type: "snapshot",
+  protocolVersion: 1,
+  rows: [],
+  sessions: [],
+  connection: "connected",
+  isWorking: false,
+  queue: [],
+  catalog: [],
+  canLoadOlder: false,
+  commands,
+});
 const commands = [
   { name: "compact", description: "Summarize the conversation" },
   { name: "review", description: "Review changes", hint: "branch or PR" },
@@ -33,17 +57,42 @@ describe("acpmux composer slash menu", () => {
   let root: ReturnType<typeof createRoot>;
   let sent: string[];
   const textarea = () => dom.window.document.querySelector("textarea")!;
-  const rows = () => [...dom.window.document.querySelectorAll(".acpmux-slash-row")].map((row) => row.querySelector(".acpmux-slash-name")!.textContent);
+  const rows = () =>
+    [...dom.window.document.querySelectorAll(".acpmux-slash-row")].map(
+      (row) => row.querySelector(".acpmux-slash-name")!.textContent,
+    );
   const active = () => dom.window.document.querySelector(".acpmux-slash-active .acpmux-slash-name")?.textContent;
   const menu = () => dom.window.document.querySelector(".acpmux-slash-menu");
   const type = async (value: string) => act(async () => typeInto(textarea(), value));
   /// jsdom fires `select` a task after the caret moves; let it land inside act.
   const settle = async () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
-  const key = async (name: string, isComposing = false) => act(async () => { textarea().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, isComposing, bubbles: true, cancelable: true })); });
-  const render = async (value: AcpmuxSnapshot) => act(async () => root.render(createElement(Composer, { snapshot: value, chips: () => null, onSend: (text: string) => { sent.push(text); }, onStop: () => {} })));
+  const key = async (name: string, isComposing = false) =>
+    act(async () => {
+      textarea().dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: name, isComposing, bubbles: true, cancelable: true }),
+      );
+    });
+  const render = async (value: AcpmuxSnapshot) =>
+    act(async () =>
+      root.render(
+        createElement(Composer, {
+          snapshot: value,
+          chips: () => null,
+          onSend: (text: string) => {
+            sent.push(text);
+          },
+          onStop: () => {},
+        }),
+      ),
+    );
 
-  beforeEach(() => { sent = []; root = createRoot(dom.window.document.getElementById("root")!); });
-  afterEach(async () => { await act(async () => root.unmount()); });
+  beforeEach(() => {
+    sent = [];
+    root = createRoot(dom.window.document.getElementById("root")!);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+  });
 
   test("a leading slash lists the agent's commands and narrows as the word grows", async () => {
     await render(snapshot(commands));
@@ -52,7 +101,9 @@ describe("acpmux composer slash menu", () => {
     expect(rows()).toEqual(["/compact", "/review", "/pr-comments"]);
     await type("/com");
     expect(rows()).toEqual(["/compact", "/pr-comments"]);
-    expect([...dom.window.document.querySelectorAll(".acpmux-slash-row mark")].map((mark) => mark.textContent)).toEqual(["com", "com"]);
+    expect([...dom.window.document.querySelectorAll(".acpmux-slash-row mark")].map((mark) => mark.textContent)).toEqual(
+      ["com", "com"],
+    );
     await type("/review ");
     expect(menu()).toBeNull();
     await type("say /com");
@@ -81,7 +132,11 @@ describe("acpmux composer slash menu", () => {
   test("pressing a row picks it and Escape closes the menu until the prompt changes", async () => {
     await render(snapshot(commands));
     await type("/pr");
-    await act(async () => { dom.window.document.querySelector(".acpmux-slash-row")!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })); });
+    await act(async () => {
+      dom.window.document
+        .querySelector(".acpmux-slash-row")!
+        .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
     await settle();
     expect(textarea().value).toBe("/pr-comments ");
     await type("/c");
@@ -161,7 +216,8 @@ describe("acpmux composer slash menu", () => {
   });
 
   test("+ keeps a pasted path whole, keeps a named command's slash, and Escape puts the draft back", async () => {
-    const plus = async () => act(async () => (dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement).click());
+    const plus = async () =>
+      act(async () => (dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement).click());
     await render(snapshot(commands));
     await type("/Users/leo/x.txt is broken");
     await plus();
@@ -180,8 +236,14 @@ describe("acpmux composer slash menu", () => {
   });
 
   test("what + wrote never reaches the agent: Send and leaving the composer take the draft back", async () => {
-    const plus = async () => act(async () => (dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement).click());
-    const submit = async () => act(async () => { dom.window.document.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    const plus = async () =>
+      act(async () => (dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement).click());
+    const submit = async () =>
+      act(async () => {
+        dom.window.document
+          .querySelector("form")!
+          .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+      });
     await render(snapshot(commands));
     await type("fix the bug");
     await plus();
@@ -194,7 +256,9 @@ describe("acpmux composer slash menu", () => {
     await settle();
     // Called directly for the same reason as typeInto: react-dom may load before the DOM exists.
     const form = dom.window.document.querySelector("form")!;
-    const props = (form as unknown as Record<string, { onBlur(event: { currentTarget: Element; relatedTarget: Element }): void }>)[Object.keys(form).find((key) => key.startsWith("__reactProps$"))!]!;
+    const props = (
+      form as unknown as Record<string, { onBlur(event: { currentTarget: Element; relatedTarget: Element }): void }>
+    )[Object.keys(form).find((key) => key.startsWith("__reactProps$"))!]!;
     await act(async () => props.onBlur({ currentTarget: form, relatedTarget: dom.window.document.body }));
     expect(textarea().value).toBe("look again");
     expect(menu()).toBeNull();
@@ -205,16 +269,40 @@ describe("acpmux composer slash menu", () => {
   });
 
   test("a leading override replaces +, and null leaves the slot empty", async () => {
-    await act(async () => root.render(createElement(Composer, { snapshot: snapshot(commands), chips: () => null, onSend: () => {}, onStop: () => {}, leading: null })));
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          snapshot: snapshot(commands),
+          chips: () => null,
+          onSend: () => {},
+          onStop: () => {},
+          leading: null,
+        }),
+      ),
+    );
     expect(dom.window.document.querySelector(".acpmux-composer-plus")).toBeNull();
-    await act(async () => root.render(createElement(Composer, { snapshot: snapshot(commands), chips: () => null, onSend: () => {}, onStop: () => {}, leading: createElement("button", { type: "button", className: "attach" }) })));
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          snapshot: snapshot(commands),
+          chips: () => null,
+          onSend: () => {},
+          onStop: () => {},
+          leading: createElement("button", { type: "button", className: "attach" }),
+        }),
+      ),
+    );
     expect(dom.window.document.querySelector(".acpmux-composer-bar > .attach")).not.toBeNull();
   });
 
   test("submitting sends the trimmed prompt and clears the box", async () => {
     await render(snapshot(commands));
     await type("  /review main  ");
-    await act(async () => { dom.window.document.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    await act(async () => {
+      dom.window.document
+        .querySelector("form")!
+        .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    });
     expect(sent).toEqual(["/review main"]);
     expect(textarea().value).toBe("");
   });

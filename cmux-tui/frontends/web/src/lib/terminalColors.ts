@@ -9,9 +9,7 @@ type CursorColors = {
 export type CursorOptionsPatch = Partial<Pick<ITerminalOptions, "cursorStyle" | "cursorBlink">>;
 
 /** Map host-owned selection colors without changing xterm's OSC restore defaults. */
-export function colorsToSelectionThemePatch(
-  colors: Partial<TerminalColors> | null | undefined,
-): ITheme | null {
+export function colorsToSelectionThemePatch(colors: Partial<TerminalColors> | null | undefined): ITheme | null {
   if (colors == null) return null;
 
   const patch: ITheme = {};
@@ -21,9 +19,7 @@ export function colorsToSelectionThemePatch(
 }
 
 /** Apply effective OSC 10/11/12 colors without replacing xterm's restore baseline. */
-export function colorsToDynamicColorSequence(
-  colors: Partial<TerminalColors> | null | undefined,
-): string | null {
+export function colorsToDynamicColorSequence(colors: Partial<TerminalColors> | null | undefined): string | null {
   if (colors == null) return null;
 
   let sequence = "";
@@ -34,9 +30,7 @@ export function colorsToDynamicColorSequence(
 }
 
 /** Reset xterm's live palette to its host theme, then apply PTY-authored OSC 4 entries. */
-export function colorsToPaletteSequence(
-  colors: Partial<TerminalColors> | null | undefined,
-): string | null {
+export function colorsToPaletteSequence(colors: Partial<TerminalColors> | null | undefined): string | null {
   if (colors?.palette === undefined) return null;
 
   const overrides: Array<[number, string]> = [];
@@ -46,23 +40,15 @@ export function colorsToPaletteSequence(
     overrides.push([index, color]);
   }
   overrides.sort(([left], [right]) => left - right);
-  return `\x1b]104\x1b\\${overrides
-    .map(([index, color]) => `\x1b]4;${index};${color}\x1b\\`)
-    .join("")}`;
+  return `\x1b]104\x1b\\${overrides.map(([index, color]) => `\x1b]4;${index};${color}\x1b\\`).join("")}`;
 }
 
 /** Map protocol cursor metadata while ignoring null and unknown wire values. */
-export function colorsToCursorOptionsPatch(
-  colors: CursorColors | null | undefined,
-): CursorOptionsPatch | null {
+export function colorsToCursorOptionsPatch(colors: CursorColors | null | undefined): CursorOptionsPatch | null {
   if (colors == null) return null;
 
   const patch: CursorOptionsPatch = {};
-  if (
-    colors.cursor_style === "block"
-    || colors.cursor_style === "underline"
-    || colors.cursor_style === "bar"
-  ) {
+  if (colors.cursor_style === "block" || colors.cursor_style === "underline" || colors.cursor_style === "bar") {
     patch.cursorStyle = colors.cursor_style;
   }
   if (typeof colors.cursor_blink === "boolean") patch.cursorBlink = colors.cursor_blink;

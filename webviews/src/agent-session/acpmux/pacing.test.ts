@@ -8,15 +8,31 @@ function fakeClock() {
   const frames = new Map<number, (now: number) => void>();
   const timers = new Map<number, { at: number; callback: () => void }>();
   const clock: PacingClock = {
-    requestFrame: (callback) => { const handle = nextHandle++; frames.set(handle, callback); return handle; },
-    cancelFrame: (handle) => { frames.delete(handle); },
-    setTimer: (callback, ms) => { const handle = nextHandle++; timers.set(handle, { at: now + ms, callback }); return handle; },
-    clearTimer: (handle) => { timers.delete(handle as number); },
+    requestFrame: (callback) => {
+      const handle = nextHandle++;
+      frames.set(handle, callback);
+      return handle;
+    },
+    cancelFrame: (handle) => {
+      frames.delete(handle);
+    },
+    setTimer: (callback, ms) => {
+      const handle = nextHandle++;
+      timers.set(handle, { at: now + ms, callback });
+      return handle;
+    },
+    clearTimer: (handle) => {
+      timers.delete(handle as number);
+    },
   };
   /** Advances by one frame of `interval` ms, running due timers first. */
   const frame = (interval: number) => {
     now += interval;
-    for (const [handle, timer] of Array.from(timers)) if (timer.at <= now) { timers.delete(handle); timer.callback(); }
+    for (const [handle, timer] of Array.from(timers))
+      if (timer.at <= now) {
+        timers.delete(handle);
+        timer.callback();
+      }
     const pending = [...frames];
     frames.clear();
     for (const [, callback] of pending) callback(now);
@@ -29,7 +45,10 @@ test("a settled scroll reports its frame intervals once and stops sampling", () 
   const reports: number[][] = [];
   const pacing = new ScrollPacing((intervals) => reports.push(intervals), clock);
   pacing.scrolled();
-  for (const interval of [6, 6, 12, 6]) { pacing.scrolled(); frame(interval); }
+  for (const interval of [6, 6, 12, 6]) {
+    pacing.scrolled();
+    frame(interval);
+  }
   expect(reports).toEqual([]);
   for (let index = 0; index < 50 && !reports.length; index += 1) frame(6);
   expect(reports.length).toBe(1);

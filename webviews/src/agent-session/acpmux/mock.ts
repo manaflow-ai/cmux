@@ -1,5 +1,15 @@
 import type { AcpmuxHostConfig, EventRecord } from "./direct";
-import { claudeModels, codexModels, mockSessions, newSessionSummary, sessionHistory, sessionSummary, workedTurn, WORKED_SESSION, type SeedStep } from "./mockFixture";
+import {
+  claudeModels,
+  codexModels,
+  mockSessions,
+  newSessionSummary,
+  sessionHistory,
+  sessionSummary,
+  workedTurn,
+  WORKED_SESSION,
+  type SeedStep,
+} from "./mockFixture";
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
 // acpmux daemon is wanted (demos, screenshots, tests). The page then runs the
@@ -9,15 +19,43 @@ import { claudeModels, codexModels, mockSessions, newSessionSummary, sessionHist
 // the workspace in mockFixture.ts, so the pane opens populated.
 
 const sessionId = WORKED_SESSION;
-const harnesses = [{ id: "claude", name: "Claude Code", models: claudeModels }, { id: "codex", name: "Codex", models: codexModels }];
+const harnesses = [
+  { id: "claude", name: "Claude Code", models: claudeModels },
+  { id: "codex", name: "Codex", models: codexModels },
+];
 /// A recorded MockScript replays against the catalog and session it was recorded with.
-const scriptHarnesses = [{ id: "claude", name: "Claude Code", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] }, { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] }];
-const commands = [{ name: "compact", description: "Clear conversation history but keep a summary in context", input: { hint: "optional custom summarization instructions" } }, { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" }, { name: "pr-comments", description: "Get comments from a GitHub pull request" }, { name: "review", description: "Review a pull request" }];
+const scriptHarnesses = [
+  { id: "claude", name: "Claude Code", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] },
+  { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] },
+];
+const commands = [
+  {
+    name: "compact",
+    description: "Clear conversation history but keep a summary in context",
+    input: { hint: "optional custom summarization instructions" },
+  },
+  { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" },
+  { name: "pr-comments", description: "Get comments from a GitHub pull request" },
+  { name: "review", description: "Review a pull request" },
+];
 /// The one empty session a recorded MockScript replays into.
-const scriptSession = { sessionId, title: "Mock session", harness: "claude", model: "claude-sonnet", status: "idle", turnCount: 0 };
+const scriptSession = {
+  sessionId,
+  title: "Mock session",
+  harness: "claude",
+  model: "claude-sonnet",
+  status: "idle",
+  turnCount: 0,
+};
 
 /// The host config the page connects with in mock mode.
-export const mockHost: AcpmuxHostConfig = { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://mock.invalid/acp", token: "mock", sessionId };
+export const mockHost: AcpmuxHostConfig = {
+  protocolVersion: 1,
+  transport: "acpmux-websocket",
+  endpoint: "ws://mock.invalid/acp",
+  token: "mock",
+  sessionId,
+};
 
 export function mockReply(prompt: string): string {
   return `Mock reply to **${prompt.replace(/[*_`]/g, "")}**. No acpmux daemon is attached; this pane is running in mock mode.`;
@@ -31,9 +69,24 @@ type Step = { update: Update } | { mux: string; msg?: Record<string, unknown> };
 /// started, so durations read as recorded; steps are delivered without pacing.
 export type MockScript = { steps: Array<Step & { atMs?: number }>; endAtMs?: number };
 
-const text = (value: string): Update => ({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: value } });
-const tool = (toolCallId: string, kind: string, title: string, status: string, extra: Update = {}): Update => ({ sessionUpdate: "tool_call", toolCallId, kind, title, status, ...extra });
-const done = (toolCallId: string, extra: Update = {}): Update => ({ sessionUpdate: "tool_call_update", toolCallId, status: "completed", ...extra });
+const text = (value: string): Update => ({
+  sessionUpdate: "agent_message_chunk",
+  content: { type: "text", text: value },
+});
+const tool = (toolCallId: string, kind: string, title: string, status: string, extra: Update = {}): Update => ({
+  sessionUpdate: "tool_call",
+  toolCallId,
+  kind,
+  title,
+  status,
+  ...extra,
+});
+const done = (toolCallId: string, extra: Update = {}): Update => ({
+  sessionUpdate: "tool_call_update",
+  toolCallId,
+  status: "completed",
+  ...extra,
+});
 
 /// A turn shaped like a real agent's: text, a tool call, more text, file edits, a closing answer.
 export function mockTurn(prompt: string, turn: number): Step[] {
@@ -42,13 +95,46 @@ export function mockTurn(prompt: string, turn: number): Step[] {
   return [
     { update: text("I'll look at the greeting helper") },
     { update: text(" first.") },
-    { update: tool(`read-${turn}`, "read", "Read src/greeting.ts", "in_progress", { locations: [{ path: greeting }] }) },
-    { update: done(`read-${turn}`, { content: [{ type: "content", content: { type: "text", text: 'export function greet(name: string) {\n  return "Hello " + name;\n}' } }] }) },
+    {
+      update: tool(`read-${turn}`, "read", "Read src/greeting.ts", "in_progress", { locations: [{ path: greeting }] }),
+    },
+    {
+      update: done(`read-${turn}`, {
+        content: [
+          {
+            type: "content",
+            content: { type: "text", text: 'export function greet(name: string) {\n  return "Hello " + name;\n}' },
+          },
+        ],
+      }),
+    },
     { update: text("It concatenates without punctuation, so I'll add an optional argument and a notes file.") },
-    { update: tool(`edit-${turn}`, "edit", "Edit src/greeting.ts", "in_progress", { locations: [{ path: greeting, line: 1 }], content: [{ type: "diff", path: greeting, oldText: 'export function greet(name: string) {\n  return "Hello " + name;\n}\n', newText: 'export function greet(name: string, punctuation = "!") {\n  return `Hello, ${name}${punctuation}`;\n}\n' }] }) },
+    {
+      update: tool(`edit-${turn}`, "edit", "Edit src/greeting.ts", "in_progress", {
+        locations: [{ path: greeting, line: 1 }],
+        content: [
+          {
+            type: "diff",
+            path: greeting,
+            oldText: 'export function greet(name: string) {\n  return "Hello " + name;\n}\n',
+            newText:
+              'export function greet(name: string, punctuation = "!") {\n  return `Hello, ${name}${punctuation}`;\n}\n',
+          },
+        ],
+      }),
+    },
     { update: done(`edit-${turn}`) },
-    { update: tool(`write-${turn}`, "edit", "Write NOTES.md", "completed", { locations: [{ path: notes }], content: [{ type: "diff", path: notes, newText: `# Notes\n\nMock turn ${turn}.\n` }] }) },
-    { update: text(`${mockReply(prompt)}\n\n- \`greet(name)\` now ends with "!"\n- \`greet(name, "?")\` picks the punctuation:\n  - \`greet("Ada", "?")\` returns \`Hello, Ada?\`\n  - the default keeps old callers working`) },
+    {
+      update: tool(`write-${turn}`, "edit", "Write NOTES.md", "completed", {
+        locations: [{ path: notes }],
+        content: [{ type: "diff", path: notes, newText: `# Notes\n\nMock turn ${turn}.\n` }],
+      }),
+    },
+    {
+      update: text(
+        `${mockReply(prompt)}\n\n- \`greet(name)\` now ends with "!"\n- \`greet(name, "?")\` picks the punctuation:\n  - \`greet("Ada", "?")\` returns \`Hello, Ada?\`\n  - the default keeps old callers working`,
+      ),
+    },
   ];
 }
 
@@ -73,11 +159,18 @@ export class MockAcpmuxSocket {
   private queue: Promise<unknown> = Promise.resolve();
 
   /// `delay` paces the scripted turn; tests pass one that resolves at once.
-  constructor(private readonly delay: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)), private readonly script?: MockScript) {
+  constructor(
+    private readonly delay: (ms: number) => Promise<void> = (ms) =>
+      new Promise((resolve) => window.setTimeout(resolve, ms)),
+    private readonly script?: MockScript,
+  ) {
     // A replayed turn starts from an empty session, as the recording did.
     if (script) this.sessions = [{ ...scriptSession }];
     else this.seed(Date.now());
-    queueMicrotask(() => { this.readyState = 1; this.onopen?.(); });
+    queueMicrotask(() => {
+      this.readyState = 1;
+      this.onopen?.();
+    });
   }
 
   /// The fixture's sessions, each with its history; the worked session also lists Claude's commands.
@@ -100,7 +193,8 @@ export class MockAcpmuxSocket {
   private closeSeededTurn(target: string, status: "completed" | "cancelled"): void {
     if (!this.openTurns.delete(target)) return;
     const pending = this.events.find((event) => event.sessionId === target && event.kind === "permission_request");
-    if (pending) this.emit(target, { mux: "permission_decision", msg: { permissionId: (pending.msg as any).permissionId } });
+    if (pending)
+      this.emit(target, { mux: "permission_decision", msg: { permissionId: (pending.msg as any).permissionId } });
     this.emit(target, { mux: "turn_result", msg: { status } });
     this.touch(target, { status: "idle", pendingPermissions: 0 });
   }
@@ -129,38 +223,64 @@ export class MockAcpmuxSocket {
   private async answer(method: string, params: Record<string, any>): Promise<unknown> {
     const target = String(params.sessionId ?? sessionId);
     switch (method) {
-      case "_acpmux/watch": return { sessions: this.sessions };
-      case "_acpmux/harnesses": return { harnesses: this.script ? scriptHarnesses : harnesses };
+      case "_acpmux/watch":
+        return { sessions: this.sessions };
+      case "_acpmux/harnesses":
+        return { harnesses: this.script ? scriptHarnesses : harnesses };
       case "_acpmux/attach": {
         this.attached = target;
         // Opening a session reads it; it keeps its place in the list.
-        if (this.sessions.find((entry) => entry.sessionId === target)?.unread) this.touch(target, { unread: false }, false);
-        return { session: this.sessions.find((entry) => entry.sessionId === target), events: this.events.filter((event) => event.sessionId === target) };
+        if (this.sessions.find((entry) => entry.sessionId === target)?.unread)
+          this.touch(target, { unread: false }, false);
+        return {
+          session: this.sessions.find((entry) => entry.sessionId === target),
+          events: this.events.filter((event) => event.sessionId === target),
+        };
       }
-      case "_acpmux/events": return this.page(target, params);
+      case "_acpmux/events":
+        return this.page(target, params);
       case "_acpmux/permission_respond": {
         const allowed = String(params.optionId ?? "").startsWith("allow");
-        const tool = this.events.find((event) => event.sessionId === target && event.kind === "tool_call" && (event.msg as any)?.params?.update?.status === "pending");
+        const tool = this.events.find(
+          (event) =>
+            event.sessionId === target &&
+            event.kind === "tool_call" &&
+            (event.msg as any)?.params?.update?.status === "pending",
+        );
         const toolCallId = (tool?.msg as any)?.params?.update?.toolCallId;
-        if (toolCallId) this.emit(target, { update: { sessionUpdate: "tool_call_update", toolCallId, status: allowed ? "completed" : "failed" } });
+        if (toolCallId)
+          this.emit(target, {
+            update: { sessionUpdate: "tool_call_update", toolCallId, status: allowed ? "completed" : "failed" },
+          });
         this.closeSeededTurn(target, "completed");
         return {};
       }
       case "session/new": {
         // A new chat opens in the project of the session it was started from.
         const from = this.sessions.find((entry) => entry.sessionId === this.attached) ?? this.sessions[0];
-        const created = newSessionSummary(`mock-session-${this.sessions.length + 1}`, String(params.cwd ?? from?.cwd ?? "~/code/cmux"), Date.now());
+        const created = newSessionSummary(
+          `mock-session-${this.sessions.length + 1}`,
+          String(params.cwd ?? from?.cwd ?? "~/code/cmux"),
+          Date.now(),
+        );
         if (!this.script) this.listCommands(String(created.sessionId));
         this.sessions.push(created);
-        this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
+        this.deliver({
+          jsonrpc: "2.0",
+          method: "_acpmux/session_changed",
+          params: { kind: "created", session: created },
+        });
         return { sessionId: created.sessionId };
       }
       case "session/prompt": {
-        const turn = this.queue.then(() => this.prompt(target, String(params.prompt?.[0]?.text ?? ""), params._meta?.acpmux?.promptId));
+        const turn = this.queue.then(() =>
+          this.prompt(target, String(params.prompt?.[0]?.text ?? ""), params._meta?.acpmux?.promptId),
+        );
         this.queue = turn.catch(() => undefined);
         return turn;
       }
-      default: return {};
+      default:
+        return {};
     }
   }
 
@@ -170,7 +290,11 @@ export class MockAcpmuxSocket {
     this.turns += 1;
     // A prompt into a seeded open turn ends that turn first, as a new prompt supersedes it.
     this.closeSeededTurn(target, "cancelled");
-    this.touch(target, { turnCount: Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1, unread: false, status: "running" });
+    this.touch(target, {
+      turnCount: Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1,
+      unread: false,
+      status: "running",
+    });
     const running = { cancelled: false, target };
     this.running = running;
     const started = Date.now();
@@ -183,7 +307,11 @@ export class MockAcpmuxSocket {
       this.emit(target, step, step.atMs === undefined ? undefined : started + step.atMs);
     }
     const endAt = this.script?.endAtMs;
-    this.emit(target, { mux: "turn_result", msg: { status: running.cancelled ? "cancelled" : "completed" } }, endAt !== undefined ? started + endAt : undefined);
+    this.emit(
+      target,
+      { mux: "turn_result", msg: { status: running.cancelled ? "cancelled" : "completed" } },
+      endAt !== undefined ? started + endAt : undefined,
+    );
     this.running = undefined;
     this.touch(target, { status: "idle" });
     return { stopReason: running.cancelled ? "cancelled" : "end_turn" };
@@ -202,9 +330,12 @@ export class MockAcpmuxSocket {
   /// newest `limit` before `beforeSeq`; `kinds` keeps the commands or the transcript.
   private page(target: string, params: Record<string, any>): { events: EventRecord[]; more: boolean } {
     const kinds: string[] = Array.isArray(params.kinds) ? params.kinds : [];
-    const wanted = (event: EventRecord) => kinds.length === 0 || (event.kind === "available_commands_update" ? kinds.includes(event.kind) : kinds.includes("transcript"));
+    const wanted = (event: EventRecord) =>
+      kinds.length === 0 ||
+      (event.kind === "available_commands_update" ? kinds.includes(event.kind) : kinds.includes("transcript"));
     const own = this.events.filter((event) => event.sessionId === target && wanted(event));
-    if (params.beforeSeq === undefined) return { events: own.filter((event) => event.seq > Number(params.afterSeq ?? 0)), more: false };
+    if (params.beforeSeq === undefined)
+      return { events: own.filter((event) => event.seq > Number(params.afterSeq ?? 0)), more: false };
     const older = own.filter((event) => event.seq < Number(params.beforeSeq));
     const limit = Math.max(1, Number(params.limit ?? older.length));
     return { events: older.slice(-limit), more: older.length > limit };
@@ -212,16 +343,28 @@ export class MockAcpmuxSocket {
 
   private record(target: string, step: Step, at = Date.now()): EventRecord {
     this.seq += 1;
-    const event: EventRecord = "update" in step
-      ? { sessionId: target, seq: this.seq, at, dir: "in", kind: String(step.update.sessionUpdate), msg: { method: "session/update", params: { sessionId: target, update: step.update } } }
-      : { sessionId: target, seq: this.seq, at, dir: "mux", kind: step.mux, msg: step.msg ?? {} };
+    const event: EventRecord =
+      "update" in step
+        ? {
+            sessionId: target,
+            seq: this.seq,
+            at,
+            dir: "in",
+            kind: String(step.update.sessionUpdate),
+            msg: { method: "session/update", params: { sessionId: target, update: step.update } },
+          }
+        : { sessionId: target, seq: this.seq, at, dir: "mux", kind: step.mux, msg: step.msg ?? {} };
     this.events.push(event);
     return event;
   }
 
-  private emit(target: string, step: Step, at?: number): void { this.deliver({ jsonrpc: "2.0", method: "_acpmux/event", params: this.record(target, step, at) }); }
+  private emit(target: string, step: Step, at?: number): void {
+    this.deliver({ jsonrpc: "2.0", method: "_acpmux/event", params: this.record(target, step, at) });
+  }
 
   private deliver(message: unknown): void {
-    queueMicrotask(() => { if (this.readyState === 1) this.onmessage?.({ data: JSON.stringify(message) }); });
+    queueMicrotask(() => {
+      if (this.readyState === 1) this.onmessage?.({ data: JSON.stringify(message) });
+    });
   }
 }

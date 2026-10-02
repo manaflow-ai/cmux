@@ -184,9 +184,7 @@ function cmuxLanguageForFileName(filePath: string): string | undefined {
 }
 
 function stringLanguage(language: unknown): string | undefined {
-  return typeof language === "string" && language.trim().length > 0
-    ? language.trim()
-    : undefined;
+  return typeof language === "string" && language.trim().length > 0 ? language.trim() : undefined;
 }
 
 function diffTextLines(fileDiff: DiffFileText | null | undefined): string[] {

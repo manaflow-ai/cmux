@@ -13,7 +13,9 @@ describe("animation-frame batching", () => {
         callbacks.set(frame, callback);
         return frame;
       },
-      (frame) => { callbacks.delete(frame); },
+      (frame) => {
+        callbacks.delete(frame);
+      },
     );
 
     batch.schedule("delta-1");
@@ -36,7 +38,9 @@ describe("animation-frame batching", () => {
         callbacks.set(7, callback);
         return 7;
       },
-      (frame) => { callbacks.delete(frame); },
+      (frame) => {
+        callbacks.delete(frame);
+      },
     );
 
     batch.schedule("stale");
