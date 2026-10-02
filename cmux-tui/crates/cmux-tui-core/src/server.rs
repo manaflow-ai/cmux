@@ -206,8 +206,7 @@ pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";
 /// `set-workspace-metadata` and the `marked_unread` workspace field.
 pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
-/// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the
-/// `tab-changed` delta.
+/// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
 /// Frontend-rendered browser tabs (WebKit or CEF): `new-frontend-browser-tab`,
 /// `update-frontend-browser-tab`, and the `browser_renderer`,
@@ -426,6 +425,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
         FRONTEND_BROWSER_OWNER_CAPABILITY,
+        crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -11127,7 +11127,7 @@ fn response_error_code(error: &anyhow::Error) -> Option<String> {
                 .downcast_ref::<crate::ColumnStickyError>()
                 .and_then(|error| error.code().map(str::to_string))
         })
-        .or_else(|| bookmarks::error_code(error))
+        .or_else(|| bookmarks::error_code(error).or_else(|| crate::state::home_error_code(error)))
 }
 
 /// Answers a request line that did not decode into a command. The reply
@@ -27270,7 +27270,7 @@ mod tests {
                 "bootstrap-receipt-00000001",
                 None,
                 &WorkspaceMutation::new("bootstrap-create", "chrome-gui").unwrap(),
-                false,
+                Default::default(),
             )
             .unwrap();
         assert!(!created.replayed);

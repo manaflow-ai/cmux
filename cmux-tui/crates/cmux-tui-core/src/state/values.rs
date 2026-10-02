@@ -70,6 +70,10 @@ fn workspace_extra(
     if ephemeral {
         fields.insert("ephemeral".into(), json!(true));
     }
+    // `workspace-kind-v1`: absent for a normal workspace.
+    if let Some(kind) = super::home_store::workspace_kind(connection, workspace_id)? {
+        fields.insert("kind".into(), json!(kind));
+    }
     Ok(fields)
 }
 

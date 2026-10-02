@@ -6659,6 +6659,40 @@
         "extra": false
       }
     },
+    "home.not_closable": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "workspace_id": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "The home workspace (workspace-kind-v1). It is never closed."
+          }
+        },
+        "extra": false
+      }
+    },
+    "home.pinned_first": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "workspace_id": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "The home workspace (workspace-kind-v1). It stays first and ungrouped in the personal order."
+          }
+        },
+        "extra": false
+      }
+    },
     "idempotency.conflict": {
       "retryable": false,
       "details": {
@@ -9239,6 +9273,7 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -10974,6 +11009,7 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -13127,6 +13163,7 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -14526,6 +14563,7 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -16033,6 +16071,7 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -16123,6 +16162,44 @@
         "mutation.indeterminate",
         "operation.failed",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace.ensure_home": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "The hosting app sends it on every connect when the server advertises workspace-kind-v1. The store creates the one home workspace (extra.kind home) on the first call, places it first and ungrouped in the personal order, and replays it after that. The idempotency key does not select the home: every call names the same workspace. workspace.create never accepts kind."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "CreatedWorkspaceOnly"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -16401,6 +16478,7 @@
         ]
       },
       "errors": [
+        "home.pinned_first",
         "idempotency.conflict",
         "operation.failed",
         "resource.not_found",

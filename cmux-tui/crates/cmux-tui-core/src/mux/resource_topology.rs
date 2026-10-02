@@ -288,7 +288,7 @@ impl Mux {
         correlation_key: &str,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
-        ephemeral: bool,
+        mark: crate::state::home_store::EmptyWorkspaceMark,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let mut fingerprint = json!({
             "operation":"workspace.create",
@@ -298,8 +298,8 @@ impl Mux {
                 "name":&name,
             },
         });
-        if ephemeral {
-            fingerprint["fields"]["ephemeral"] = Value::Bool(true);
+        if let Some((field, value)) = mark.fingerprint_field() {
+            fingerprint["fields"][field] = value;
         }
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
@@ -458,9 +458,7 @@ impl Mux {
             *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
         }
         let marked = public_id.as_str().to_string();
-        let mark = move |tx: &rusqlite::Transaction<'_>| {
-            crate::state::store::mark_workspace_ephemeral(tx, &marked)
-        };
+        let write_mark = move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked);
         let (commit, workspace_revision) = registry.commit_resource_creation_patch(
             correlation_key,
             mutation,
@@ -471,7 +469,8 @@ impl Mux {
             &created_path,
             &plan.deltas,
             plan.workspace_ledger.as_ref(),
-            ephemeral.then_some(&mark as crate::workspace_registry::RegistryTransactionWrite<'_>),
+            mark.writes()
+                .then_some(&write_mark as crate::workspace_registry::RegistryTransactionWrite<'_>),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);
         // Push the same coarse tree event a terminal-bearing create emits
@@ -2645,11 +2644,15 @@ impl Mux {
                     ) {
                         Ok(committed) => committed,
                         Err(error) => {
-                            let error = ResourceError::operation_failed(
-                                &operation_name,
-                                format!("{error:#}"),
-                                json!({"idempotency_key":mutation.id}),
-                            );
+                            // A refused home close is a typed, committed failure.
+                            let error = crate::state::home_store::resource_error(&error)
+                                .unwrap_or_else(|| {
+                                    ResourceError::operation_failed(
+                                        &operation_name,
+                                        format!("{error:#}"),
+                                        json!({"idempotency_key":mutation.id}),
+                                    )
+                                });
                             if self
                                 .commit_resource_effect(
                                     &mutation.id,
@@ -2679,9 +2682,12 @@ impl Mux {
                     Err(error)
                         if error
                             .downcast_ref::<ResourceError>()
-                            .is_some_and(|error| error.code == "confirmation.required") =>
+                            .is_some_and(|error| error.code == "confirmation.required")
+                            || crate::state::home_store::resource_error(&error).is_some() =>
                     {
-                        let error = error.downcast_ref::<ResourceError>().expect("checked").clone();
+                        let error = crate::state::home_store::resource_error(&error)
+                            .or_else(|| error.downcast_ref::<ResourceError>().cloned())
+                            .expect("checked");
                         let outcome = ResourceEffectOutcome::Failure(error.clone());
                         if self
                             .commit_resource_effect(
@@ -3590,6 +3596,10 @@ impl Mux {
         let mut workspace_close = None;
         let mut workspace_was_active = false;
         if let Some((workspace, index, workspace_key)) = workspace_metadata {
+            // `home_not_closable`: refused before any terminal ends.
+            registry.read_state(|connection| {
+                crate::state::home_store::refuse_close_key(connection, &workspace_key)
+            })?;
             workspace_was_active = projected.active_workspace == index;
             let previous_active = projected.active_pane();
             let active_id =

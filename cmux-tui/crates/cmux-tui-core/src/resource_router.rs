@@ -1012,6 +1012,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::ClosedReopen
         | ResourceOperation::WindowRecordList
         | ResourceOperation::WindowRecordPut
+        | ResourceOperation::WorkspaceEnsureHome
         | ResourceOperation::WindowRecordDelete
         | ResourceOperation::WorkspaceStatusList
         | ResourceOperation::WorkspaceStatusSet
@@ -1601,6 +1602,9 @@ pub(super) fn required_u64(fields: &Map<String, Value>, field: &str) -> Result<u
 pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
     if let Some(resource) = error.downcast_ref::<ResourceError>() {
         return resource.clone();
+    }
+    if let Some(home) = crate::state::home_store::resource_error(&error) {
+        return home;
     }
     if let Some(failure) = error.downcast_ref::<crate::terminal_host_protocol::HostLaunchFailure>()
     {
