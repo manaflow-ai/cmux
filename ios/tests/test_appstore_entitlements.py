@@ -39,6 +39,7 @@ class AppStoreEntitlementTests(unittest.TestCase):
         self.assertIn('codesign --force --sign "$identity" --entitlements "$merged_entitlements"', function)
 
         call = script.index('resign_cloud_vpn_extension \\\n', function_end)
+        self.assertIn('if [[ "$LANE" == "appstore" ]]', script[call - 80:call])
         host_resign = script.index('codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS"', call)
         self.assertLess(call, host_resign)
 

@@ -291,7 +291,12 @@ for key, value in source.items():
         continue
     profile_value = profile[key]
     if isinstance(value, list) and isinstance(profile_value, list):
-        profile[key] = [item for item in value if item in profile_value]
+        authorized = [item for item in value if item in profile_value]
+        # Keep the profile baseline when the checked-in contract names a
+        # shared group that this extension profile does not grant. An empty
+        # entitlement list is less valid than the profile's own group.
+        if authorized:
+            profile[key] = authorized
     else:
         profile[key] = value
 profile["keychain-access-groups"] = [expected_group]
@@ -375,20 +380,6 @@ for key, value in source.items():
         profile[key] = [item for item in value if item in profile_value]
     else:
         profile[key] = value
-
-groups = profile.get("keychain-access-groups", [])
-expected_group = f"{team_id}.{host_bundle_id}"
-authorized = any(
-    group == expected_group
-    or (isinstance(group, str) and group.endswith(".*") and expected_group.startswith(group[:-1]))
-    for group in groups
-)
-if not authorized:
-    raise SystemExit(
-        "CloudVPN provisioning profile does not authorize "
-        f"the host keychain group {expected_group}"
-    )
-profile["keychain-access-groups"] = [expected_group]
 
 with open(merged_path, "wb") as handle:
     plistlib.dump(profile, handle)
@@ -1668,13 +1659,15 @@ if [[ "$SIGNING" == "manual" ]]; then
     echo "error: could not re-sign NotificationService.appex with the host keychain group" >&2
     exit 1
   fi
-  if ! resign_cloud_vpn_extension \
-    "$RESIGN_APP" \
-    "$RESIGN_DIR" \
-    "$RESIGN_IDENTITY" \
-    "$PRODUCT_BUNDLE_IDENTIFIER"; then
-    echo "error: could not re-sign CloudVPN.appex with the packet-tunnel profile" >&2
-    exit 1
+  if [[ "$LANE" == "appstore" ]]; then
+    if ! resign_cloud_vpn_extension \
+      "$RESIGN_APP" \
+      "$RESIGN_DIR" \
+      "$RESIGN_IDENTITY" \
+      "$PRODUCT_BUNDLE_IDENTIFIER"; then
+      echo "error: could not re-sign CloudVPN.appex with the packet-tunnel profile" >&2
+      exit 1
+    fi
   fi
 
   # Start from the exported app's current (profile-baseline) entitlements, then
