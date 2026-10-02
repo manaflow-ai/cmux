@@ -659,6 +659,7 @@
 		C10657000000000000000003 /* CLILocalTmuxIdentityRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10657000000000000000004 /* CLILocalTmuxIdentityRegressionTests.swift */; };
 		C10657000000000000000001 /* CLILocalTmuxReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10657000000000000000002 /* CLILocalTmuxReviewRegressionTests.swift */; };
 		C10657000000000000000005 /* CLILocalTmuxSurfaceRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10657000000000000000006 /* CLILocalTmuxSurfaceRecoveryTests.swift */; };
+		2C9251ADDC95C0A1551E89C2 /* CLILocalZellijLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D945F0FC95EFD48BC4D6AA94 /* CLILocalZellijLifecycleTests.swift */; };
 		A5D41330A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41331A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift */; };
 		11189000A1B2C3D4E5F60718 /* CLINotificationPaneAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11189001A1B2C3D4E5F60718 /* CLINotificationPaneAttributionTests.swift */; };
 		F0F0CF0E0000000000000001 /* CLINotifyClaudeForkOfForkRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0CF0E0000000000000002 /* CLINotifyClaudeForkOfForkRegressionTests.swift */; };
@@ -1222,6 +1223,8 @@
 		C0DE10651000000000000005 /* CMUXCLI+LocalTmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000015 /* CMUXCLI+LocalTmux.swift */; };
 		C0DE10651000000000000007 /* CMUXCLI+LocalTmuxAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000017 /* CMUXCLI+LocalTmuxAttachment.swift */; };
 		C0DE10651000000000000006 /* CMUXCLI+LocalTmuxLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000016 /* CMUXCLI+LocalTmuxLifecycle.swift */; };
+		ECE2BCED26297F4BA02A8C2F /* CMUXCLI+LocalZellij.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4F0BCAE5293FE56458A3C01 /* CMUXCLI+LocalZellij.swift */; };
+		5A0D9D31BD1F9C0C04961C23 /* CMUXCLI+LocalZellijLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7966402D4863074B1F0A1D8D /* CMUXCLI+LocalZellijLifecycle.swift */; };
 		B9000071A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000070A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift */; };
 		906902000000000000000002 /* CMUXCLI+MemoryAttribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906902000000000000000001 /* CMUXCLI+MemoryAttribution.swift */; };
 		812600000000000000000005 /* CMUXCLI+MoshTerminalTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 812600000000000000000006 /* CMUXCLI+MoshTerminalTransport.swift */; };
@@ -2333,6 +2336,7 @@
 		D10799020000000000000001 /* LiveTabDragCapabilityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10799010000000000000001 /* LiveTabDragCapabilityResolver.swift */; };
 		DB326399C791DD70E9D6997A /* LiveWorkspaceFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B507A66B0F521925687F2ED /* LiveWorkspaceFixture.swift */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
+		FB25E56BD61C9F5999CA3CB6 /* LocalSessionAttachProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 349A471149F2DC7797EE24F7 /* LocalSessionAttachProfile.swift */; };
 		8F3CFE9C065FF1BD53D150CF /* LocalSurfaceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EDD243C7C87A2AB78B12BAD /* LocalSurfaceProvider.swift */; };
 		540A9F26DCDFD0C16B257D6F /* LocalSurfaceProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64C68B378B6071B213B4AA57 /* LocalSurfaceProviderTests.swift */; };
 		A1329C010000000000000101 /* LocalTerminalSharingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1329C010000000000000001 /* LocalTerminalSharingController.swift */; };
@@ -2351,6 +2355,8 @@
 		C11218000000000000000014 /* LocalTmuxSessionListParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1065100000000000001A /* LocalTmuxSessionListParser.swift */; };
 		C0DE1065100000000000000C /* LocalTmuxSessionReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1065100000000000001C /* LocalTmuxSessionReconciler.swift */; };
 		C0DE10651000000000000001 /* LocalTmuxSessionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000011 /* LocalTmuxSessionRegistry.swift */; };
+		46B3714B4885B3FE8D511EF2 /* LocalZellijCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3754097117785696FCE0B6 /* LocalZellijCommandBuilder.swift */; };
+		B3F35A1B08D1DD75015193B5 /* LocalZellijInvocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE9B07608AA39A7201AE18BB /* LocalZellijInvocation.swift */; };
 		53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */; };
 				A11D00000000000000000001 /* MacDevicesComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11D00000000000000000002 /* MacDevicesComposition.swift */; };
 		A12677000000000000000001 /* MachineCreateCoordinator+Selection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12677000000000000000002 /* MachineCreateCoordinator+Selection.swift */; };
@@ -5152,6 +5158,7 @@
 		C10657000000000000000004 /* CLILocalTmuxIdentityRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalTmuxIdentityRegressionTests.swift; sourceTree = "<group>"; };
 		C10657000000000000000002 /* CLILocalTmuxReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalTmuxReviewRegressionTests.swift; sourceTree = "<group>"; };
 		C10657000000000000000006 /* CLILocalTmuxSurfaceRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalTmuxSurfaceRecoveryTests.swift; sourceTree = "<group>"; };
+		D945F0FC95EFD48BC4D6AA94 /* CLILocalZellijLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalZellijLifecycleTests.swift; sourceTree = "<group>"; };
 		A5D41331A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIMockSocketServerSupport.swift; sourceTree = "<group>"; };
 		11189001A1B2C3D4E5F60718 /* CLINotificationPaneAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotificationPaneAttributionTests.swift; sourceTree = "<group>"; };
 		F0F0CF0E0000000000000002 /* CLINotifyClaudeForkOfForkRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyClaudeForkOfForkRegressionTests.swift; sourceTree = "<group>"; };
@@ -5690,6 +5697,8 @@
 		C0DE10651000000000000015 /* CMUXCLI+LocalTmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+LocalTmux.swift"; sourceTree = "<group>"; };
 		C0DE10651000000000000017 /* CMUXCLI+LocalTmuxAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+LocalTmuxAttachment.swift"; sourceTree = "<group>"; };
 		C0DE10651000000000000016 /* CMUXCLI+LocalTmuxLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+LocalTmuxLifecycle.swift"; sourceTree = "<group>"; };
+		E4F0BCAE5293FE56458A3C01 /* CMUXCLI+LocalZellij.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+LocalZellij.swift"; sourceTree = "<group>"; };
+		7966402D4863074B1F0A1D8D /* CMUXCLI+LocalZellijLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+LocalZellijLifecycle.swift"; sourceTree = "<group>"; };
 		B9000070A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Memory.swift"; sourceTree = "<group>"; };
 		906902000000000000000001 /* CMUXCLI+MemoryAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MemoryAttribution.swift"; sourceTree = "<group>"; };
 		812600000000000000000006 /* CMUXCLI+MoshTerminalTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MoshTerminalTransport.swift"; sourceTree = "<group>"; };
@@ -6688,6 +6697,7 @@
 		D10799010000000000000001 /* LiveTabDragCapabilityResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTabDragCapabilityResolver.swift; sourceTree = "<group>"; };
 		7B507A66B0F521925687F2ED /* LiveWorkspaceFixture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveWorkspaceFixture.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		349A471149F2DC7797EE24F7 /* LocalSessionAttachProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSessionAttachProfile.swift; sourceTree = "<group>"; };
 		1EDD243C7C87A2AB78B12BAD /* LocalSurfaceProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalSurfaceProvider.swift; sourceTree = "<group>"; };
 		64C68B378B6071B213B4AA57 /* LocalSurfaceProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalSurfaceProviderTests.swift; sourceTree = "<group>"; };
 		A1329C010000000000000001 /* LocalTerminalSharingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTerminalSharingController.swift; sourceTree = "<group>"; };
@@ -6701,6 +6711,8 @@
 		C0DE1065100000000000001A /* LocalTmuxSessionListParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTmuxSessionListParser.swift; sourceTree = "<group>"; };
 		C0DE1065100000000000001C /* LocalTmuxSessionReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTmuxSessionReconciler.swift; sourceTree = "<group>"; };
 		C0DE10651000000000000011 /* LocalTmuxSessionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTmuxSessionRegistry.swift; sourceTree = "<group>"; };
+		4E3754097117785696FCE0B6 /* LocalZellijCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalZellijCommandBuilder.swift; sourceTree = "<group>"; };
+		DE9B07608AA39A7201AE18BB /* LocalZellijInvocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalZellijInvocation.swift; sourceTree = "<group>"; };
 		53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacAuthComposition.swift; sourceTree = "<group>"; };
 				A11D00000000000000000002 /* MacDevicesComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/MacDevicesComposition.swift"; sourceTree = "<group>"; };
 		A12677000000000000000002 /* MachineCreateCoordinator+Selection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MachineCreateCoordinator+Selection.swift"; sourceTree = "<group>"; };
@@ -8970,6 +8982,7 @@
 				C11757000000000000000023 /* CodexTeamsResumedBackfillTests.swift */,
 				C11757000000000000000024 /* CodexTerminalErrorNotificationTests.swift */,
 				C11757000000000000000025 /* KimiHookConfigLocationTests.swift */,
+				D945F0FC95EFD48BC4D6AA94 /* CLILocalZellijLifecycleTests.swift */,
 				A62542679E9A9BFDD99A7BC6 /* CodexAutoNamingArgumentsTests.swift */,
 				BDFFD7A7DDFCA73EF207C81D /* CLIVMReadyPollIntervalTests.swift */,
 			);
@@ -12024,6 +12037,11 @@
 				C79470010000000000000002 /* CMUXCLI+SocketClientCapability.swift */,
 				585DB0D17871621020CC9BBC /* CMUXCLI+CodexForkSessionWatcher.swift */,
 				C532996D674A93214E4AB1FC /* CMUXCLI+RestoreLaunchConflict.swift */,
+				4E3754097117785696FCE0B6 /* LocalZellijCommandBuilder.swift */,
+				DE9B07608AA39A7201AE18BB /* LocalZellijInvocation.swift */,
+				349A471149F2DC7797EE24F7 /* LocalSessionAttachProfile.swift */,
+				E4F0BCAE5293FE56458A3C01 /* CMUXCLI+LocalZellij.swift */,
+				7966402D4863074B1F0A1D8D /* CMUXCLI+LocalZellijLifecycle.swift */,
 				356578A4696939A1CB24F66D /* CMUXCLI+AgentHibernation.swift */,
 				50748DE10A0E397E5C77A025 /* CMUXCLI+Screenshot.swift */,
 				0221E931A45B517F9BCC1EF5 /* CMUXCLI+ClaudeHookStopFailure.swift */,
@@ -14009,6 +14027,7 @@
 				C1175700000000000000002E /* CLIExplicitSurfaceRoutingTests.swift in Sources */,
 				C1175700000000000000002F /* CLIHookNoResponseTests.swift in Sources */,
 				C11757000000000000000044 /* CLIHookProcessRunner.swift in Sources */,
+				2C9251ADDC95C0A1551E89C2 /* CLILocalZellijLifecycleTests.swift in Sources */,
 				C11757000000000000000030 /* CLIOmpSupersededCleanupTests.swift in Sources */,
 				C117570000000000000000A2 /* CLIPasteCommandTests.swift in Sources */,
 				C11757000000000000000031 /* CLIRelayQueuedHookRegressionTests.swift in Sources */,
@@ -16768,6 +16787,8 @@
 				C0DE10651000000000000005 /* CMUXCLI+LocalTmux.swift in Sources */,
 				C0DE10651000000000000007 /* CMUXCLI+LocalTmuxAttachment.swift in Sources */,
 				C0DE10651000000000000006 /* CMUXCLI+LocalTmuxLifecycle.swift in Sources */,
+				ECE2BCED26297F4BA02A8C2F /* CMUXCLI+LocalZellij.swift in Sources */,
+				5A0D9D31BD1F9C0C04961C23 /* CMUXCLI+LocalZellijLifecycle.swift in Sources */,
 				B9000071A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift in Sources */,
 				906902000000000000000002 /* CMUXCLI+MemoryAttribution.swift in Sources */,
 				812600000000000000000005 /* CMUXCLI+MoshTerminalTransport.swift in Sources */,
@@ -16883,6 +16904,7 @@
 				A5FB1308 /* JSONCObjectEditor+Remove.swift in Sources */,
 				A5FB1312 /* JSONCObjectEditor+Set.swift in Sources */,
 				C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */,
+				FB25E56BD61C9F5999CA3CB6 /* LocalSessionAttachProfile.swift in Sources */,
 				C0DE10651000000000000002 /* LocalTmuxCommandBuilder.swift in Sources */,
 				C0DE10651000000000000004 /* LocalTmuxInvocation.swift in Sources */,
 				C0DE10651000000000000003 /* LocalTmuxProcessRunner.swift in Sources */,
@@ -16892,6 +16914,8 @@
 				C0DE1065100000000000000A /* LocalTmuxSessionListParser.swift in Sources */,
 				C0DE1065100000000000000C /* LocalTmuxSessionReconciler.swift in Sources */,
 				C0DE10651000000000000001 /* LocalTmuxSessionRegistry.swift in Sources */,
+				46B3714B4885B3FE8D511EF2 /* LocalZellijCommandBuilder.swift in Sources */,
+				B3F35A1B08D1DD75015193B5 /* LocalZellijInvocation.swift in Sources */,
 					A10240060000000000000001 /* OwnedProcessSupervisor.swift in Sources */,
 						C08672010000000000000007 /* PiCompactedFeedEventExpander.swift in Sources */,
 				835000000000000000000002 /* RemoteInitialCommandBootstrap.swift in Sources */,
