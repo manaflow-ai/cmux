@@ -70,6 +70,12 @@ Setup must be automatic on first contact and deterministic after.
   shell cmux starts). Control-plane storage per (user, project) with materialization
   at setup and revocation with access is the next step, and the long game is values
   living at the TLS edge (docs/vm-identity-edge-auth.md), not in the guest at all.
+  Scripts can preflight the names today with `cmux vm env require <machine>
+  DATABASE_URL [KEY2 …]`: exit `0` means all named keys are in the managed env
+  file; exit `1` reports missing names, and `--json` returns
+  `{ready, required, missing, path}` without values. Inside a machine use the
+  same `cmux env require` command. Configure values once with stdin or
+  `--from-file`, then use the check for every new workspace and agent session.
 - **Layout** (`layout`) is the workspace shape the manifest can carry — the same
   `CmuxLayoutNode` document `cmux vm layout apply` takes today — so `vm dev` can end
   in a finished workspace (agent pane, test watcher, dev server + browser) instead

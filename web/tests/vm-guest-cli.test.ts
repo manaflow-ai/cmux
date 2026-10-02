@@ -1280,6 +1280,29 @@ describe("in-VM cmux shim: agent primitives", () => {
       expect(JSON.parse((await runStateful(fresh, ["env", "ls", "--json"])).stdout)).toEqual({ path: join(fresh, ".config", "cmux", "env"), keys: [] });
     });
 
+    test("require checks names without exposing values and exits nonzero when a key is absent", async () => {
+      const dir = makeStatefulDir();
+      await runStateful(dir, ["env", "set", "GITHUB_TOKEN=super-secret", "REPO=cmux"]);
+      const ready = await runStateful(dir, ["env", "require", "GITHUB_TOKEN", "REPO"]);
+      expect(ready.status).toBe(0);
+      expect(ready.stdout).toContain("OK environment ready: 2 required variables set");
+      expect(ready.stdout).not.toContain("super-secret");
+      const missing = await runStateful(dir, ["env", "require", "GITHUB_TOKEN", "NPM_TOKEN"]);
+      expect(missing.status).toBe(1);
+      expect(missing.stdout).toContain("environment is missing: NPM_TOKEN");
+      expect(missing.stdout).not.toContain("super-secret");
+      const json = await runStateful(dir, ["env", "require", "GITHUB_TOKEN", "NPM_TOKEN", "--json"]);
+      expect(json.status).toBe(1);
+      expect(JSON.parse(json.stdout)).toEqual({
+        ready: false,
+        required: ["GITHUB_TOKEN", "NPM_TOKEN"],
+        missing: ["NPM_TOKEN"],
+        path: join(dir, ".config", "cmux", "env"),
+      });
+      expect(json.stdout).not.toContain("super-secret");
+      expect((await runStateful(dir, ["env", "require", "BAD-KEY"])).status).toBe(2);
+    });
+
     test("env receive --stdin: READY first, then OK with the key count; values are byte-literal", async () => {
       const dir = makeStatefulDir();
       const payload = "FOO=bar\nBAZ=it's  here \nURL=postgres://u:p%40ss@h/db?x=1\n";

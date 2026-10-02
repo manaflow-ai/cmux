@@ -28,7 +28,7 @@
     "topologyRenamePartial": "ターミナル %s の名前変更は %s 個の配置を変更した時点で停止しました。変更済みの名前は残ります。再試行前に cmux tree で確認してください。",
     "topologyRenameReceipt": "ターミナル %s の名前変更結果が無効、または世代が変わりました。一部の名前は変更済みの可能性があります。再試行前に cmux tree で確認してください。",
     "topologyRenamed": "OK ターミナル %s の名前を変更しました（配置 %s 個）",
-    "envHelp": "cmux env — このマシンの cmux シェルとエージェントの環境変数。\n\n  cmux env set -                             標準入力から KEY=VALUE を読み込み（推奨：値が ps や履歴に残りません）\n  cmux env set --from-file <.env>            dotenv ファイル（# コメント、export、引用符に対応）\n  cmux env set KEY=VALUE [KEY2=VALUE2 ...]   コマンドラインで一行の値を指定\n  cmux env ls [--show] [--json]              変数名を表示（値は --show 指定時のみ）\n  cmux env rm KEY [KEY2 ...]                 変数を削除\n  cmux env path                              保存先：~/.config/cmux/env（モード 0600）\n  cmux env receive [--stdin]                 Mac の cmux vm env set とピア専用の受信処理。\n                                             暗号化リンクで base64 を受信します。\n                                             CMUX-ENV-READY / CMUX-ENV-OK / CMUX-ENV-ERR は通信プロトコルです。\n\n新しいシェルは ~/.profile と ~/.bashrc から読み込みます。\n既存の端末では . ~/.config/cmux/env を実行してください。Mac からは cmux vm env … <machine>。",
+    "envHelp": "cmux env — このマシンの cmux シェルとエージェントの環境変数。\n\n  cmux env set -                             標準入力から KEY=VALUE を読み込み（推奨：値が ps や履歴に残りません）\n  cmux env set --from-file <.env>            dotenv ファイル（# コメント、export、引用符に対応）\n  cmux env set KEY=VALUE [KEY2=VALUE2 ...]   コマンドラインで一行の値を指定\n  cmux env ls [--show] [--json]              変数名を表示（値は --show 指定時のみ）\n  cmux env require KEY [KEY2 ...] [--json]   必要な変数名を値を表示せず確認\n  cmux env rm KEY [KEY2 ...]                 変数を削除\n  cmux env path                              保存先：~/.config/cmux/env（モード 0600）\n  cmux env receive [--stdin]                 Mac の cmux vm env set とピア専用の受信処理。\n                                             暗号化リンクで base64 を受信します。\n                                             CMUX-ENV-READY / CMUX-ENV-OK / CMUX-ENV-ERR は通信プロトコルです。\n\n新しいシェルは ~/.profile と ~/.bashrc から読み込みます。\n既存の端末では . ~/.config/cmux/env を実行してください。Mac からは cmux vm env … <machine>。",
     "terminalHelp": "cmux terminal send <id> [text] [--keys k1,k2,...]   改行せずにテキストを入力し、指定キーを送信\ncmux terminal read <id> [--json]                    現在の画面を表示\ncmux terminal wait <id> --pattern <regex> [--timeout <seconds>]   一致しない場合は終了コード 1\ncmux terminal wait-exit <id> [--timeout <seconds>] [--json]   プロセス終了まで待機: \"exited code=<n>\" / \"exited signal=<n>\"。未終了なら終了コード 1\ncmux terminal output <id> [--after <offset>] [--max-bytes <n>] [--json]   出力ストリーム（スクロールバック）。next_offset から続きを取得\ncmux terminal close <id>                            端末のプロセスとタブを終了\ncmux send [--terminal <id>] <text> / cmux send-key [--terminal <id>] <key...> / cmux read-screen [--terminal <id>]\n   既定の端末はこのシェルの端末（$CMUX_TUI_TERMINAL_ID）。ID は cmux terminal list で確認できます。\n\n名前と既存の配置の操作: cmux workspace help（workspace/tab/terminal rename、tab move、pane split/swap/resize/focus）。",
     "layoutHelp": "cmux layout export [--workspace <ws_id|name|current>] [--raw] [--json]\n    ワークスペースのレイアウトを {name, cwd, layout} として出力します。\n    cmux new-workspace --layout、cmux layout open、cmux layout apply と共通の形式です。\n    --raw はデーモンの LayoutDocument（ペインとタブの ID）を出力します。\ncmux layout apply [--workspace <ws_id|name>] [--name <new-workspace>] [--cwd <dir>] [--json] [<file>|-]\n    レイアウトノード、{layout: …}、または {workspace: {layout: …}} からペイン・分割・タブを作成。\n    --workspace がなければ新規作成（--name、文書の名前、または layout）。\n    指定した既存のワークスペースは空である必要があります。\n    端末は cwd と環境変数を持つログインシェルです。command は入力として送信されます。\n    ブラウザーのサーフェスはタブを開きます。",
     "workspaceCreateFailed": "ピアにワークスペースを作成できませんでした。コマンドは開始されていません。",
@@ -124,7 +124,12 @@
     "workspaceReuseNeedsName": "ワークスペースの再利用には空でない --name が必要です。",
     "workspaceReuseUnavailable": "ワークスペースの状態が変更されたか取得できません。再接続して再試行してください。",
     "workspaceReuseAmbiguous": "同じ名前のワークスペースが複数あります。ID を指定するか別の名前を選択してください。",
-    "workspacePreparationChanged": "別のコマンドがこのワークスペースを作成しました。vm dev を再実行して現在のレイアウトを再利用してください。"
+    "workspacePreparationChanged": "別のコマンドがこのワークスペースを作成しました。vm dev を再実行して現在のレイアウトを再利用してください。",
+    "envRequireUnknownOption": "env require: 不明なオプション %s",
+    "envRequireInvalidKey": "env require: 無効なキー '%s'",
+    "envRequireUsage": "使用法: cmux env require KEY [KEY2 ...] [--json]",
+    "envRequireMissing": "環境に不足している変数: %s（cmux env set または cmux vm env set で設定）",
+    "envRequireReady": "OK 環境準備完了: 必要な変数 %s%s"
   },
   "billingRecovery": {
     "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください",

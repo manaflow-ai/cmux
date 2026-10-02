@@ -532,10 +532,17 @@ cmux vm env set <id> KEY=VALUE [KEY2=VALUE2 …]        # ~/.config/cmux/env (06
 cmux vm env set <id> --from-file .env                 # dotenv rules: blank and # lines skipped, optional `export `, matching quotes stripped
 cmux vm env set <id> -                                # KEY=VALUE lines on stdin (preferred for scripts: nothing in argv)
 cmux vm env ls <id> [--show] [--json]                 # names; --show adds values; --json {path, keys, values?}
+cmux vm env require <id> KEY [KEY2 …] [--json]        # preflight required names; exits 1 with missing names
 cmux vm env rm <id> KEY [KEY2 …]
 ```
 
 Values are sourced by every login/interactive shell on the machine (a one-line hook in `~/.profile` and `~/.bashrc`, installed on first `set`), so every terminal cmux starts (`vm open`, `surface new-terminal`, `vm agent`, layout panes), `vm exec`, and the in-VM `cmux agent …` see them. Keys must match `[A-Za-z_][A-Za-z0-9_]*`.
+
+Use `require` before opening another workspace or starting agents to check that
+the shared machine setup is present. It returns only required and missing names;
+`--json` prints `{ready, required, missing, path}`, including on exit `1`. A key
+with an empty value counts as present. This checks the durable managed env file,
+so ambient variables from the current shell do not satisfy a requirement.
 
 Transport: `vm env set` uses the secret-safe receiver path rather than `vm.exec`. Values go to the app over the local socket and from there over the machine's cmux-tui link (Noise-authenticated end to end, on the private WireGuard network) into the machine's `cmux env receive`: a receiver terminal turns PTY echo off, prints `CMUX-ENV-READY`, reads base64 lines until `CMUX-ENV-END`, writes `~/.config/cmux/env` (0600), and answers `CMUX-ENV-OK keys=<n>`; the sender closes the terminal. For `--from-file` and stdin, the value is not placed in the command line, control plane, or provider API, and it is not shown on a screen or in scrollback (the daemon does not journal input). The direct `KEY=VALUE` form can appear in local shell history or process arguments, so do not use it for secrets. `ls` never prints a value without `--show`. Inside a machine, `cmux vm env set <peer> …` uses the same handshake toward a linked peer. Snapshots, forks, and templates carry the file (it lives in the work user's home): `cmux vm env rm` what must not travel before `vm promote-template`. A machine whose shim predates the verb is reported as such (reconnect: `cmux vm tree <id> --refresh`).
 

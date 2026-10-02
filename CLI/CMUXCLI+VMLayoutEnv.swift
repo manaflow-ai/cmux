@@ -67,7 +67,7 @@ extension CMUXCLI {
         and only names are ever printed back (use --show to see values). Forks, snapshots, and
         templates of the machine inherit the file; `cmux vm env rm` before you promote one.
         Keys match [A-Za-z_][A-Za-z0-9_]*. Add --json for the raw result.
-        """)
+        """) + "\n" + String(localized: "cli.vm.env.requireUsage", defaultValue: "  cmux vm env require <machine> KEY [KEY2 …] [--json] — Check required names without revealing their values.")
 
     /// `vm.exec` budgets. Export is one snapshot read; apply spawns a handful of shells
     /// and waits for their prompts; the control plane caps a single exec at five minutes.
@@ -373,6 +373,32 @@ extension CMUXCLI {
             )
             Self.printVerbatim(result.stdout)
 
+        case "require", "check":
+            let known: Set<String> = ["--json"]
+            if let unknown = tail.first(where: { $0.hasPrefix("-") && !known.contains($0) }) {
+                throw CLIError(message: String(format: String(localized: "cli.vm.env.requireUnknownFlag", defaultValue: "vm env require: unknown flag '%1$@'\n\n%2$@"), String(describing: unknown), String(describing: Self.vmEnvUsage)), exitCode: 2)
+            }
+            let positional = tail.filter { !$0.hasPrefix("-") }
+            guard let machine = positional.first, !machine.isEmpty, positional.count >= 2 else {
+                throw CLIError(message: Self.vmEnvUsage, exitCode: 2)
+            }
+            let keys = Array(positional.dropFirst())
+            if let bad = keys.first(where: { !Self.isValidVMEnvKey($0) }) {
+                throw CLIError(message: String(format: String(localized: "cli.vm.env.requireInvalidVariableName", defaultValue: "vm env require: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"), String(describing: bad)), exitCode: 2)
+            }
+            let result = try runVMShim(
+                Self.vmEnvRequireCommand(keys: keys, json: jsonOutput),
+                machine: machine,
+                client: client,
+                timeoutMs: Self.vmEnvExecTimeoutMs,
+                feature: "env require",
+                allowedExitCodes: [0, 1]
+            )
+            Self.printVerbatim(result.stdout)
+            if result.exitCode != 0 {
+                throw CLIError(message: String(format: String(localized: "cli.vm.env.requireMissing", defaultValue: "vm env require: missing required variables on %1$@"), String(describing: machine)), exitCode: 1)
+            }
+
         case "rm", "remove", "unset":
             if let unknown = tail.first(where: { $0.hasPrefix("-") }) {
                 throw CLIError(message: String(format: String(localized: "cli.vm.env.rmUnknownFlag", defaultValue: "vm env rm: unknown flag '%1$@'\n\n%2$@"), String(describing: unknown), String(describing: Self.vmEnvUsage)))
@@ -433,7 +459,8 @@ extension CMUXCLI {
         machine: String,
         client: SocketClient,
         timeoutMs: Int,
-        feature: String
+        feature: String,
+        allowedExitCodes: Set<Int> = [0]
     ) throws -> VMShimResult {
         let response = try client.sendV2(
             method: "vm.exec",
@@ -446,7 +473,7 @@ extension CMUXCLI {
         if Self.vmShimPredatesSupport(stdout: stdout, stderr: stderr) {
             throw CLIError(message: Self.vmShimOutdatedMessage(machine: machine, feature: feature))
         }
-        if exitCode != 0 {
+        if !allowedExitCodes.contains(exitCode) {
             let detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             let fallback = stdout.trimmingCharacters(in: .whitespacesAndNewlines)
             let text = detail.isEmpty ? (fallback.isEmpty ? String(format: String(localized: "cli.vm.layoutEnv.cmuxValueFailedOnValueExitValue", defaultValue: "cmux %1$@ failed on %2$@ (exit %3$@)"), String(describing: feature), String(describing: machine), String(describing: exitCode)) : fallback) : detail
@@ -514,6 +541,12 @@ extension CMUXCLI {
     static func vmEnvListCommand(show: Bool, json: Bool) -> String {
         var argv = ["cmux", "env", "ls"]
         if show { argv.append("--show") }
+        if json { argv.append("--json") }
+        return argv.joined(separator: " ")
+    }
+
+    static func vmEnvRequireCommand(keys: [String], json: Bool) -> String {
+        var argv = ["cmux", "env", "require"] + keys.map(vmShimShellQuote)
         if json { argv.append("--json") }
         return argv.joined(separator: " ")
     }
