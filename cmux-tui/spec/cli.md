@@ -366,6 +366,13 @@ notification ack --client <id> <notification-id>...
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [<path>...]
+git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...] [--exclude <path,...>]
+  [--reason manual|handoff] [--max-bytes <n>] [--max-files <n>]
+  [--expected-repository <id>] [--expected-worktree <id>]
+git checkpoint get [TARGET] <checkpoint> | --key <idempotency-key>
+git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
+git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
+git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 agent list|report
 agent plugin list|install|use|update|remove
@@ -452,6 +459,38 @@ most `--max-files` (500) files with the rest counted in `files_omitted`, and
 counts at most 200 untracked files, reporting the rest as `untracked_skipped`.
 A repository's filter drivers never run: every configured `filter.<driver>` is
 blanked for the read. One reply carries at most 8 MiB of patches.
+
+`git checkpoint` (`git.checkpoint.create|get|list|pin|unpin`, capability
+`git-checkpoints-v1`) stores an immutable checkpoint of a repository: the raw
+index entries, the tracked worktree files, and the untracked files the caller
+names (or `--untracked eligible` for every eligible one), each tree with its
+modes and raw bytes, plus `metadata.json`, in one parentless commit published
+as `refs/cmux/checkpoints/<worktree_id>/<checkpoint_id>`. Capture never changes
+HEAD, the index, the worktree or any branch, and runs no hooks, filters or
+fsmonitor. Untracked files are read without following links. Refusals are
+`operation.failed` whose `details.reason` is the machine reason and whose
+`extra.message` explains it: `unsupported_index` for skip-worktree,
+assume-unchanged, intent-to-add, unmerged, split or sparse indexes;
+`repository_changed` when the repository changes under the capture, an
+`--expected-*` id no longer matches, or a key is reused for a target that now
+resolves elsewhere; `budget_exceeded` past `--max-bytes` (128 MiB) or
+`--max-files` (1000); and `no_state_directory`, `store_failed`,
+`not_a_repository`, `no_working_directory` or `git_failed`. Ignored,
+credential (`.env*`, `.netrc`, `.npmrc`, `.pypirc`, `.git-credentials`,
+`credentials`, SSH private keys, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`,
+`*.keystore`), over-10 MB, nested-repository and unselected untracked files
+are skipped and reported. `complete` is false when anything other than an
+ignored or credential file was skipped. Checkpoints live in the session's
+state directory, so an in-memory session refuses with `no_state_directory`.
+Mutations are recorded in the session's resource mutation ledger: a create,
+pin or unpin retried with the same key and arguments replays its first
+result, and `get --key` finds a create of the same worktree after an
+uncertain reply. A create that stopped after publishing its ref is finished
+by its retry, and a create sweeps refs of its worktree that have no record.
+`list --candidates` counts every ignored path in `ignored_total` and lists at
+most 200 of them. Unpinned checkpoints expire after 7 days and at most 50 are
+kept per repository; pins never expire, and pins beginning `handoff:` or
+`restore:` are owned by cmux and cannot be removed with `unpin`.
 
 ## Local sidebar plugins
 

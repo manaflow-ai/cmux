@@ -1,14 +1,17 @@
 //! `git.diff` and `git.status`: read-only git reads of the repository a path
 //! or a terminal's working directory is in. The session host answers them
 //! without store state; each request runs git on its own connection thread,
-//! bounded by a deadline and output limits.
+//! bounded by a deadline and output limits. `git.checkpoint.*` captures
+//! immutable checkpoints through a separate write runner (`checkpoint`).
 
+mod checkpoint;
 mod diff;
 mod parse;
 mod run;
 mod target;
 #[cfg(test)]
 mod tests;
+mod write_run;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -24,8 +27,13 @@ use run::{GitFailure, GitOutput, run_git};
 const MAX_SMALL_OUTPUT_BYTES: usize = 64 * 1024;
 const MAX_STATUS_BYTES: usize = 256 * 1024;
 
+/// Advertised in identify: the session host owns `git.checkpoint.create`,
+/// `get`, `list`, `pin` and `unpin`.
+pub(crate) const CHECKPOINTS_CAPABILITY: &str = "git-checkpoints-v1";
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(operation, ResourceOperation::GitDiff | ResourceOperation::GitStatus)
+        || checkpoint::handles(operation)
 }
 
 pub(crate) fn dispatch(
@@ -33,6 +41,9 @@ pub(crate) fn dispatch(
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     debug_assert!(handles(request.envelope.operation));
+    if checkpoint::handles(request.envelope.operation) {
+        return checkpoint::dispatch(mux, request);
+    }
     let operation = match request.envelope.operation {
         ResourceOperation::GitDiff => "git.diff",
         ResourceOperation::GitStatus => "git.status",

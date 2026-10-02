@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "f8f24ae1158d3022636ec26fa7f14939ff6c0c5733ace48d20f8aa8ca5359ad0",
+  "catalog_sha256": "a4a6e1038d6cca2230d219b8ee35ce165dbe9d31961f7a3adb918d0b547b360e",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -86,6 +86,21 @@
       "class": "read"
     },
     "frontend_projection.put": {
+      "class": "mutation"
+    },
+    "git.checkpoint.create": {
+      "class": "mutation"
+    },
+    "git.checkpoint.get": {
+      "class": "read"
+    },
+    "git.checkpoint.list": {
+      "class": "read"
+    },
+    "git.checkpoint.pin": {
+      "class": "mutation"
+    },
+    "git.checkpoint.unpin": {
       "class": "mutation"
     },
     "git.diff": {

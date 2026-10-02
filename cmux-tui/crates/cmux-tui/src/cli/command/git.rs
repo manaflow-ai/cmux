@@ -1,4 +1,4 @@
-//! `git status|diff`: the session host's read-only git reads. The repository
+//! `git status|diff|checkpoint`: the session host's git operations. The repository
 //! is the one `--path` is in, or the working directory of the terminal a
 //! `--workspace`, `--screen`, `--pane`, `--tab` or `--terminal` selector
 //! names; with none of them, the current directory's.
@@ -24,6 +24,7 @@ pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan
     let mut params = Map::new();
     let selectors = target(flags, &mut params)?;
     let operation = match words {
+        ["checkpoint", action @ ..] => return checkpoint::parse(action, flags, &selectors, params),
         ["status"] => Op::GitStatus,
         ["diff", paths @ ..] => {
             let scope = flags.take("scope").unwrap_or_else(|| "uncommitted".to_string());
@@ -78,5 +79,6 @@ fn target(flags: &mut Flags, params: &mut Map<String, Value>) -> Result<Selector
     Ok(selectors)
 }
 
+mod checkpoint;
 #[cfg(test)]
 mod tests;

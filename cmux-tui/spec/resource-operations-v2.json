@@ -27,7 +27,8 @@
     "room",
     "screen_group",
     "closed",
-    "window_record"
+    "window_record",
+    "git_checkpoint"
   ],
   "types": {
     "JsonValue": {
@@ -6677,6 +6678,488 @@
       },
       "extra": false
     },
+    "GitCheckpointSkipCode": {
+      "kind": "enum",
+      "values": [
+        "not_selected",
+        "over_limit",
+        "excluded",
+        "credential",
+        "ignored",
+        "nested_repository",
+        "submodule",
+        "unsupported_type",
+        "unreadable"
+      ]
+    },
+    "GitCheckpointSkip": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Relative to the repository root; a folder ends with /."
+        },
+        "code": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointSkipCode"
+          }
+        },
+        "bytes": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The file's size, when known; saturates at 4294967295."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointPin": {
+      "kind": "object",
+      "fields": {
+        "pin_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Pins beginning handoff: or restore: are managed; unpin refuses them."
+        },
+        "reason": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          }
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointBase": {
+      "kind": "object",
+      "fields": {
+        "head": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "description": "The HEAD commit at capture; null before the first commit. Context only: capture never moves HEAD."
+        },
+        "branch": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "description": "The branch HEAD named, or null when detached."
+        },
+        "detached": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointCoverage": {
+      "kind": "object",
+      "fields": {
+        "included": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Worktree paths stored: tracked files and selected untracked files."
+        },
+        "omitted": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Paths left out by selection, bounds, exclusions or ignore rules."
+        },
+        "unavailable": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Paths that cannot be stored: nested repositories, submodule contents, devices, unreadable files."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointIncluded": {
+      "kind": "object",
+      "fields": {
+        "tracked": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Tracked worktree files stored."
+        },
+        "untracked": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Untracked files stored."
+        },
+        "staged_entries": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Index entries in the index tree."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointBytes": {
+      "kind": "object",
+      "fields": {
+        "logical": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Bytes of worktree content the checkpoint holds."
+        },
+        "newly_stored": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Bytes whose content differs from the index: an upper bound on new object storage."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointLimits": {
+      "kind": "object",
+      "fields": {
+        "max_bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Newly stored bytes one capture may write; more refuses it with budget_exceeded."
+        },
+        "max_files": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The cap on skipped entries returned, on candidates and on selected untracked files."
+        },
+        "max_untracked_file_bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "An untracked file is eligible only when strictly smaller (10000000)."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpoint": {
+      "kind": "object",
+      "fields": {
+        "checkpoint_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "repository_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Daemon-minted; names the repository's common git directory."
+        },
+        "worktree_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Daemon-minted; names the worktree's own git directory."
+        },
+        "ref": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "refs/cmux/checkpoints/<worktree_id>/<checkpoint_id>: a local ref, never a branch, stash or HEAD."
+        },
+        "object_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The immutable synthetic commit the ref names. Its tree holds index, worktree and untracked trees and metadata.json."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The record's own revision; pin and unpin advance it."
+        },
+        "complete": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when any eligible path was not stored; ignored and credential paths do not count."
+        },
+        "skipped": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitCheckpointSkip"
+            }
+          },
+          "description": "At most limits.max_files entries."
+        },
+        "skipped_total": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Every skipped path, including those past the cap."
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "RFC 3339, UTC."
+        },
+        "expires_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "description": "When an unpinned record becomes eligible for pruning; null while pinned."
+        },
+        "base": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointBase"
+          }
+        },
+        "coverage": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointCoverage"
+          }
+        },
+        "included": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointIncluded"
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointBytes"
+          }
+        },
+        "limits": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointLimits"
+          }
+        },
+        "pins": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitCheckpointPin"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointCandidate": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Relative to the repository root; a folder ends with /."
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Saturates at 4294967295; 0 for a folder."
+        },
+        "eligible": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "reason": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointSkipCode"
+          },
+          "description": "Why an ineligible candidate cannot be selected."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointList": {
+      "kind": "object",
+      "fields": {
+        "repository_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "worktree_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "checkpoints": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitCheckpoint"
+            }
+          },
+          "description": "This worktree's checkpoints, newest first."
+        },
+        "next_cursor": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          }
+        },
+        "candidates": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitCheckpointCandidate"
+            }
+          },
+          "description": "With include_candidates: untracked files and folders, in path order, then at most 200 ignored paths."
+        },
+        "ignored_total": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "With include_candidates: how many ignored paths there are. Ignored paths never count against max_files."
+        },
+        "limits": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointLimits"
+          }
+        }
+      },
+      "extra": false
+    },
     "GitStatusResult": {
       "kind": "object",
       "fields": {
@@ -7125,7 +7608,8 @@
                 "room",
                 "screen_group",
                 "closed",
-                "window_record"
+                "window_record",
+                "git_checkpoint"
               ]
             }
           },
@@ -9114,6 +9598,483 @@
         "selector.invalid",
         "selector.not_found",
         "validation.invalid"
+      ]
+    },
+    "git.checkpoint.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "expected_repository_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Refuse with repository_changed when the target now names another repository."
+          },
+          "expected_worktree_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Refuse with repository_changed when the target now names another worktree."
+          },
+          "include_untracked": {
+            "required": false,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "max_items": 5000
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "eligible"
+                  ]
+                }
+              ],
+              "constraints": [
+                "Exactly one variant is sent; absent means []."
+              ]
+            },
+            "description": "Untracked files to store, relative to the root, or eligible for every eligible candidate. An eligible file left out is skipped as not_selected."
+          },
+          "exclude_paths": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              },
+              "max_items": 256
+            },
+            "description": "Files or folders, relative to the root, left out of every tree; they are skipped as excluded."
+          },
+          "reason": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "manual",
+                "handoff"
+              ]
+            },
+            "default": "manual"
+          },
+          "limits": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "max_bytes": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "uint32",
+                    "minimum": 1,
+                    "maximum": 1073741824
+                  },
+                  "description": "Default 134217728."
+                },
+                "max_files": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "uint32",
+                    "minimum": 1,
+                    "maximum": 5000
+                  },
+                  "description": "Default 1000."
+                }
+              },
+              "extra": false
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitCheckpoint"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Capture never changes HEAD, the index or the worktree: trees are built in a temporary index, raw bytes are hashed without filters and hooks never run.",
+        "Unsupported index modes (sparse checkout, split index, unresolved stages, intent-to-add, assume-unchanged, skip-worktree) refuse with unsupported_index.",
+        "A change to HEAD, the index or a captured file during capture refuses with repository_changed; nothing is published.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.checkpoint.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "checkpoint_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "idempotency_key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The key a create used: recovers an uncertain reply before a retry."
+          }
+        },
+        "extra": false,
+        "one_of": [
+          {
+            "required": [
+              "checkpoint_id"
+            ],
+            "forbidden": [
+              "idempotency_key"
+            ]
+          },
+          {
+            "required": [
+              "idempotency_key"
+            ],
+            "forbidden": [
+              "checkpoint_id"
+            ]
+          }
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitCheckpoint"
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Exactly one of checkpoint_id and idempotency_key.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.checkpoint.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "next_cursor from the previous page."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "default": 50
+          },
+          "include_candidates": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Also list untracked candidates for selection."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitCheckpointList"
+      },
+      "errors": [
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "More untracked, nonignored candidates than limits.max_files refuses with budget_exceeded and extra.candidate_total.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.checkpoint.pin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "checkpoint_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "pin_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Distinct pin ids commute. Ids beginning handoff: or restore: are managed."
+          },
+          "reason": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitCheckpoint"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A pinned record is never pruned.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.checkpoint.unpin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "checkpoint_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "pin_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Distinct pin ids commute. Ids beginning handoff: or restore: are managed."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitCheckpoint"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A managed pin (handoff: or restore:) refuses with managed_pin. Unpin never deletes a checkpoint.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
       ]
     },
     "git.diff": {
