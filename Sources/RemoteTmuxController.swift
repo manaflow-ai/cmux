@@ -31,7 +31,7 @@ final class RemoteTmuxController {
     private var connectionsByHostSession: [String: RemoteTmuxControlConnection] = [:]
     private var connectionObserverTokensByHostSession: [String: RemoteTmuxControlConnection.ObserverToken] = [:]
 
-    /// Ssh-tmux's local browser-preview proxy (one forward per host,
+    /// Ssh-tmux's local browser-preview proxy (one credentialed listener per host,
     /// refcounted by mirror workspace). Acquired lazily on first browser
     /// preview, never at mirror creation. Feeds both the sibling browser tab
     /// (`Workspace.newBrowserSurface`) and the side-by-side browser split
@@ -43,14 +43,10 @@ final class RemoteTmuxController {
         browserProxyRegistry.transportProvider = { [weak self] host in
             self?.transport(for: host) ?? RemoteTmuxSSHTransport(host: host)
         }
-        browserProxyRegistry.existingTransport = { [weak self] host in
-            guard let self, self.transportRegistry.contains(connectionHash: host.connectionHash) else { return nil }
-            return self.transport(for: host)
-        }
         transportRegistry.onHostRemoved = { [weak self] connectionHash in
             self?.browserProxyRegistry.releaseHost(connectionHash: connectionHash)
         }
-        // A host's forward is shared by every mirror workspace on it. The
+        // A host's browser proxy is shared by every mirror workspace on it. The
         // workspace that called `acquire` gets its result directly from the
         // returned `Task`, but a teardown (SSH master exits, host removed)
         // or a later change must also reach every OTHER mirror workspace

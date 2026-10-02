@@ -9,15 +9,10 @@ import Network
 /// `makeRemoteDaemonProxySession`, the same SOCKS5/HTTP-CONNECT handshake
 /// parser and loopback-alias HTTP rewriter `cmux ssh`'s daemon-backed proxy
 /// uses — its concrete `RemoteDaemonProxySession` implementation is
-/// intentionally not public), backed by a ``RemoteTmuxSocksProxyStreamClient``
-/// that dials the second hop out through ssh-tmux's `-D` dynamic forward.
-///
-/// Two distinct local ports are involved and must never be confused: this
-/// listener's port is the one published to `BrowserPanel` (it does the HTTP
-/// rewriting so Vite-style host-checking dev servers accept the request);
-/// the `-D` forward's port is a private implementation detail only this
-/// listener's sessions ever dial into. Never publish the `-D` port directly
-/// — it has no HTTP awareness at all.
+/// intentionally not public), backed by an owner-only
+/// ``RemoteTmuxSSHStreamClient``. Each accepted browser connection opens a
+/// pipe-backed `ssh -W host:port` channel through the authenticated
+/// ControlMaster; there is no unauthenticated local TCP hop.
 ///
 /// Isolation design mirrors `RemoteDaemonProxyTunnel`: every mutable property
 /// is confined to the private serial `queue`. `@unchecked Sendable` because
@@ -43,7 +38,7 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
     private static let maxConcurrentSessions = 256
 
     private let localPort: Int
-    private let dynamicForwardPort: Int
+    private let streamOpener: any RemoteProxyStreamOpening
     private let credential: BrowserProxyCredential
     private let sessionFactory = RemoteDaemonProxySessionFactory()
     private let queue = DispatchQueue(label: "com.cmuxterm.app.remote-tmux.browser-proxy-listener.\(UUID().uuidString)", qos: .utility)
@@ -72,12 +67,14 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
     /// - Parameters:
     ///   - localPort: The loopback port this listener binds to; this is the
     ///     port published to `BrowserPanel`.
-    ///   - dynamicForwardPort: The already-open `ssh -D` port every accepted
-    ///     session's outgoing leg dials into.
-    init(localPort: Int, dynamicForwardPort: Int, credential: BrowserProxyCredential) {
+    init(
+        localPort: Int,
+        credential: BrowserProxyCredential,
+        streamOpener: any RemoteProxyStreamOpening
+    ) {
         self.localPort = localPort
-        self.dynamicForwardPort = dynamicForwardPort
         self.credential = credential
+        self.streamOpener = streamOpener
     }
 
     /// Binds the listener and waits for it to actually become ready; throws
@@ -193,11 +190,10 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
             return
         }
         let sessionQueue = DispatchQueue(label: "com.cmuxterm.app.remote-tmux.browser-proxy-session.\(UUID().uuidString)", qos: .utility)
-        let streamClient = RemoteTmuxSocksProxyStreamClient(localForwardPort: dynamicForwardPort)
         let session = sessionFactory.makeSession(
             connection: connection,
             credential: credential,
-            rpcClient: streamClient,
+            rpcClient: streamOpener,
             queue: sessionQueue
         ) { [weak self] id in
             self?.queue.async {
