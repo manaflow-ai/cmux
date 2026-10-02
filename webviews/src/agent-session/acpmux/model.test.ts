@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Tokens } from "marked";
 import {
   diffRows,
+  editedCardHeight,
   layoutConversation,
   markdownBlocks,
   measuredText,
@@ -194,6 +195,7 @@ describe("turn row estimates", () => {
   test("an edit copied into an open fold estimates as tool rows, not the edited-files card", () => {
     const items = [tool("e1", "edit"), tool("e2", "edit")];
     expect(estimate({ id: "e:fold", version: 1, at: 0, kind: "activity", items })).toBe(62);
-    expect(estimate({ id: "e", version: 1, at: 0, kind: "activity", items })).toBe(56);
+    // Outside the fold it is the edited-files card: two diffless files listed under its head.
+    expect(estimate({ id: "e", version: 1, at: 0, kind: "activity", items })).toBe(14 + editedCardHeight(0, 2));
   });
 });

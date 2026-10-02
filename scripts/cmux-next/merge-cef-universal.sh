@@ -10,6 +10,8 @@
 #   - in one dist only          -> copied (arch-named files such as
 #                                  v8_context_snapshot.<arch>.bin)
 #   - identical in both         -> copied once
+#   - property lists that differ only in the Xcode and SDK the arch was
+#     built with (DT* keys, BuildMachineOSBuild) -> the arm64 copy
 #   - different, not Mach-O     -> the arm64 copy when the name is in
 #                                  ALLOWED_DIFFERENT (caches the engine
 #                                  rebuilds), otherwise the merge fails
@@ -45,7 +47,7 @@ tmp="$(mktemp -d "$root/.merging.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 echo "==> merging CEF arm64 + x86_64 into $final" >&2
 /usr/bin/python3 - "$arm/$FW" "$x86/$FW" "$tmp/$FW" "$ALLOWED_DIFFERENT" <<'PY'
-import filecmp, os, shutil, subprocess, sys
+import filecmp, os, plistlib, shutil, subprocess, sys
 
 arm, x86, out, allowed = sys.argv[1], sys.argv[2], sys.argv[3], set(sys.argv[4].split())
 MACHO = {b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xfe\xed\xfa\xce", b"\xca\xfe\xba\xbe"}
@@ -53,6 +55,20 @@ MACHO = {b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xfe\x
 def macho(path):
     with open(path, "rb") as handle:
         return handle.read(4) in MACHO
+
+def same_plist(a, x):
+    """Equal apart from the build machine's Xcode and SDK keys (the arches
+    may be built on different Macs)."""
+    if not a.endswith(".plist"):
+        return False
+    try:
+        with open(a, "rb") as fa, open(x, "rb") as fx:
+            pa, px = plistlib.load(fa), plistlib.load(fx)
+    except Exception:
+        return False
+    def strip(p):
+        return {k: v for k, v in p.items() if not (k.startswith("DT") or k == "BuildMachineOSBuild")}
+    return isinstance(pa, dict) and isinstance(px, dict) and strip(pa) == strip(px)
 
 def files(base):
     found = set()
@@ -81,7 +97,7 @@ for rel in sorted(arm_files | x86_files):
         subprocess.run(["lipo", "-create", a, x, "-output", target], check=True)
         shutil.copymode(a, target)
         merged += 1
-    elif filecmp.cmp(a, x, shallow=False):
+    elif filecmp.cmp(a, x, shallow=False) or same_plist(a, x):
         copy(a, target)
     elif os.path.basename(rel) in allowed:
         print(f"note: {rel} differs between arches; keeping the arm64 copy", file=sys.stderr)
