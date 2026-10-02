@@ -11,6 +11,10 @@ import { ChangedFilesTree } from "./changes/ChangedFilesTree";
 import { Counts } from "./changes/Counts";
 import { EditBlock, type DiffLayout } from "./changes/EditBlock";
 import type { FileActions } from "./changes/FileHeader";
+import { LoadState } from "./changes/LoadState";
+import { changeSetFiles, type ChangeScope, type ChangesSource } from "./changes/model";
+import { ScopeMenu } from "./changes/ScopeMenu";
+import { useScopeChanges } from "./changes/useScopeChanges";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
 const WRAP_KEY = "cmux.acpmux.diffWrap";
@@ -34,18 +38,31 @@ function store(key: string, value: string) {
 
 type Tool = "collapse" | "wrap" | "split" | "tree";
 
-/// The changes one turn's tool calls made, file by file. Read-only; Back or Escape returns
-/// to the transcript.
+/// The changes one turn's tool calls made, file by file, or a git scope of the session's
+/// repository from `source`. Read-only; Back or Escape returns to the transcript.
 export function DiffPanel({
-  files,
+  files: turnFiles,
   initialPath,
   onClose,
+  source,
 }: {
   files: TurnFile[];
   initialPath?: string;
   onClose: () => void;
+  source?: ChangesSource;
 }) {
   registerAgentDiffTheme();
+  const [scope, setScope] = useState<ChangeScope>("lastTurn");
+  const { load, retry } = useScopeChanges(source, scope);
+  const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
+  const files = scope === "lastTurn" ? turnFiles : scopeFiles;
+  /// A git scope's body before its files: loading, failed or empty.
+  const scopeState =
+    scope === "lastTurn" || (load.state === "loaded" && files.length > 0)
+      ? undefined
+      : load.state === "loaded"
+        ? "empty"
+        : load.state;
   const [layout, setLayout] = useState<DiffLayout>(() => (stored(LAYOUT_KEY) === "split" ? "split" : "unified"));
   const [wrap, setWrap] = useState(() => stored(WRAP_KEY) === "on");
   const [showTree, setShowTree] = useState(() => stored(TREE_KEY) !== "off");
@@ -178,10 +195,15 @@ export function DiffPanel({
         <button ref={back} type="button" className="acpmux-diff-back" aria-label="Back to transcript" onClick={onClose}>
           <ChevronLeft />
         </button>
-        <div className="acpmux-diff-scope">
-          <strong>{files.length === 1 ? "1 file changed" : `${files.length} files changed`}</strong>
-          <Counts additions={totals.additions} deletions={totals.deletions} />
-        </div>
+        <ScopeMenu
+          scope={scope}
+          onScope={(next) => {
+            stopRevealing();
+            setScope(next);
+          }}
+        >
+          {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
+        </ScopeMenu>
         <div className="acpmux-diff-tools" role="toolbar" aria-label="Changes view">
           {tools.map((tool) => (
             <button
@@ -201,7 +223,9 @@ export function DiffPanel({
       </header>
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">
-          {files.length === 0 ? (
+          {scopeState ? (
+            <LoadState state={scopeState} onRetry={retry} />
+          ) : files.length === 0 ? (
             <div className="acpmux-muted">No file changes in this turn.</div>
           ) : (
             files.flatMap((file) =>

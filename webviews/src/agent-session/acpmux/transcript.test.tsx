@@ -1490,6 +1490,8 @@ describe("acpmux turn diff", () => {
       const failure = panel.querySelector('[role="alert"]');
       expect(failure?.querySelector("strong")?.textContent).toBe("Couldn't load changes");
       expect(paths()).toEqual([]);
+      // With no files the pill names the scope only, as in Codex.
+      expect(pill.querySelector(".acpmux-diff-counts")).toBeNull();
       await click([...failure!.querySelectorAll("button")].find((button) => button.textContent === "Retry")!);
       expect(asked).toEqual([{ scope: "uncommitted" }, { scope: "uncommitted" }]);
       expect(panel.querySelector('[role="alert"]')).toBeNull();
