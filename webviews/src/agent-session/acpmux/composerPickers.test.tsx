@@ -8,13 +8,17 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+  ["window", "document", "navigator", "HTMLElement", "requestAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [
+    key,
+    globals[key],
+  ]),
 );
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(() => Object.assign(globals, saved));
@@ -24,6 +28,7 @@ const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
 const { ComposerPickers, isPlan, loadRecents, rememberCombo, unrestricted } = await import("./ComposerPickers");
 const { openPicker, pickerLabels } = await import("./pickerOpeners");
+const { createAcpmuxDebug } = await import("./debug");
 
 const doc = dom.window.document;
 const snapshot = (
@@ -165,11 +170,50 @@ describe("acpmux composer pickers", () => {
       slider()!.dispatchEvent(new dom.window.KeyboardEvent("keyup", { key: "ArrowLeft", bubbles: true }));
     });
     expect(calls).toEqual(["effort reasoning_effort medium"]);
-    // Escape commits nothing more and hands focus back to the chip.
+    // Escape backs out of a move not yet sent, and hands focus back to the chip.
+    await slide(1);
     await key(slider()!, "Escape");
     expect(doc.querySelector(".acpmux-effort-pop")).toBeNull();
     expect(doc.activeElement).toBe(button("Effort"));
     expect(calls).toEqual(["effort reasoning_effort medium"]);
+  });
+
+  test("a click outside the effort popover keeps the level under the thumb, by its id", async () => {
+    await render(snapshot({ configOptions: [effort] }));
+    await act(async () => button("Effort")!.click());
+    await slide(0);
+    // A live update puts a level in front; the thumb stays on Medium, not on what is now first.
+    await render(
+      snapshot({ configOptions: [{ ...effort, options: [{ value: "low", name: "Low" }, ...effort.options] }] }),
+    );
+    expect(doc.querySelector(".acpmux-effort-name")!.textContent).toBe("Medium");
+    await act(async () => {
+      doc.body.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+    });
+    expect(doc.querySelector(".acpmux-effort-pop")).toBeNull();
+    expect(calls).toEqual(["effort reasoning_effort medium"]);
+  });
+
+  test("automation reports each menu open, the listbox and the effort slider alike", async () => {
+    await render(snapshot({ configOptions: [effort] }));
+    const debug = createAcpmuxDebug({ replaceRows: () => {}, rowCount: () => 0 });
+    // openMenu waits on real frames, so React renders on its own schedule here, as in the pane.
+    globals.IS_REACT_ACT_ENVIRONMENT = false;
+    try {
+      for (const label of ["Model", "Effort"]) {
+        expect(await debug.openMenu(label)).toEqual({ opened: label, open: true });
+        doc.activeElement!.dispatchEvent(
+          new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    } finally {
+      globals.IS_REACT_ACT_ENVIRONMENT = true;
+    }
+    expect(await debug.openMenu("Approvals")).toEqual({
+      error: 'no menu labelled "Approvals"',
+      menus: ["Model", "Effort"],
+    });
   });
 
   test("the effort popover's model line opens the model menu", async () => {

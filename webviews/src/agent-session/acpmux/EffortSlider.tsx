@@ -31,9 +31,11 @@ export function EffortSlider({
     0,
     levels.findIndex((level) => level.id === current),
   );
-  // The level under the thumb; it is sent when the drag or key press ends, not at each step.
-  const [pending, setPending] = useState<number | undefined>(undefined);
-  const shown = pending ?? at;
+  // The level under the thumb, by id so a live update to the levels can't shift it; it is
+  // sent when the drag or key press ends, not at each step.
+  const [pending, setPending] = useState<string | undefined>(undefined);
+  const pendingAt = levels.findIndex((level) => level.id === pending);
+  const shown = pendingAt >= 0 ? pendingAt : at;
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const slider = useRef<HTMLInputElement>(null);
@@ -50,16 +52,17 @@ export function EffortSlider({
   useEffect(() => {
     if (!open) return;
     slider.current?.focus();
+    // Every way out but Escape keeps the level under the thumb, as a key or drag ending would.
     const away = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      if (!root.current?.contains(event.target as Node)) dismissRef.current();
     };
-    const blur = () => setOpen(false);
+    const blur = () => dismissRef.current();
     // Escape inside the popover closes it and hands focus back to the chip.
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || !root.current?.contains(event.target as Node)) return;
       event.preventDefault();
       event.stopPropagation();
-      closeRef.current();
+      cancelRef.current();
     };
     document.addEventListener("pointerdown", away);
     document.addEventListener("keydown", escape, true);
@@ -73,27 +76,30 @@ export function EffortSlider({
 
   const commit = () => {
     if (pending === undefined) return;
-    const level = levels[pending];
     setPending(undefined);
-    if (level && level.id !== current) onEffort(level.id);
+    if (pendingAt >= 0 && pending !== current) onEffort(pending);
   };
-  const close = () => {
+  const dismiss = () => {
     commit();
+    setOpen(false);
+  };
+  // Escape backs out: the level the thumb was moved to but not yet sent is dropped.
+  const cancel = () => {
+    setPending(undefined);
     setOpen(false);
     trigger.current?.focus();
   };
-  const closeRef = useRef(close);
-  closeRef.current = close;
+  const dismissRef = useRef(dismiss);
+  dismissRef.current = dismiss;
+  const cancelRef = useRef(cancel);
+  cancelRef.current = cancel;
 
   return (
     <span
       ref={root}
       className="acpmux-picker acpmux-effort"
       onBlur={(event) => {
-        if (open && !root.current?.contains(event.relatedTarget as Node | null)) {
-          commit();
-          setOpen(false);
-        }
+        if (open && !root.current?.contains(event.relatedTarget as Node | null)) dismiss();
       }}
     >
       <button
@@ -104,7 +110,11 @@ export function EffortSlider({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? popId : undefined}
-        onClick={() => (open ? close() : show())}
+        onClick={() => {
+          if (!open) return show();
+          dismiss();
+          trigger.current?.focus();
+        }}
       >
         <span>{levels[at]?.name ?? label}</span>
         {chevron}
@@ -117,8 +127,7 @@ export function EffortSlider({
               type="button"
               className="acpmux-effort-model"
               onClick={() => {
-                commit();
-                setOpen(false);
+                dismiss();
                 onModel?.();
               }}
             >
@@ -162,7 +171,7 @@ export function EffortSlider({
               value={shown}
               aria-label={label}
               aria-valuetext={levels[shown]?.name}
-              onChange={(event) => setPending(Number(event.target.value))}
+              onChange={(event) => setPending(levels[Number(event.target.value)]?.id)}
               onPointerUp={commit}
               onKeyUp={(event) => {
                 if (event.key !== "Escape" && event.key !== "Tab") commit();
