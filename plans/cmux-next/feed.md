@@ -195,7 +195,7 @@ Rules:
 5. Cloud items are read-only while the Mac is offline (U5: nothing queues). An agent that waits on a cloud item keeps waiting; its native prompt in the terminal still works (section 8), and an answer there cancels the item after reconnect.
 6. The DO never hands items back to a local owner. Local storage is the fallback, not a second home.
 
-This is single-writer handoff, not a merge: no item is ever writable in two places, so no conflict resolution exists. The TLA+ model `formal/FeedHandoff.tla` (step F4) checks: at most one owner accepts ops per item, no answer is lost, a waiter sees the final state.
+This is single-writer handoff, not a merge: no item is ever writable in two places, so no conflict resolution exists. The TLA+ model `formal/FeedHandoff.tla` checks it (`formal/run-feed-tlc.sh`): at most one owner accepts ops (`SingleWriter`), at most one answer (`AtMostOneAnswer`), a local answer reaches the cloud copy (`NoLostAnswer`), the waiter reports the final answer (`WaiterSeesFinal`), and a started handoff completes despite bounded loss (`HandoffCompletes`). 114 distinct states pass; the NoFreeze mutant (ops accepted while the adopt is in flight) fails `NoLostAnswer`, and the Unfreeze mutant (back to owned on a timeout) fails `SingleWriter`.
 
 Considered and rejected: the posting host as the permanent owner, with the DO as a cache. It lets a user answer an agent on an offline Mac, but VM, server, automation and integration items have no host, the feed would have many owners per user, and ordering, counts and push need one place. The local fallback covers the offline Mac for new items.
 
