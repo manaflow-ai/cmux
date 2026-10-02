@@ -95,7 +95,10 @@ def discover(root: Path) -> list[Path]:
 
 def load_metadata(name: str) -> dict:
     with (ROOT / "scripts" / name).open(encoding="utf-8") as handle:
-        return json.load(handle)
+        try:
+            return json.load(handle, object_pairs_hook=unique_object)
+        except ValueError as error:
+            raise ValueError(f"scripts/{name}: {error}") from error
 
 
 def placeholders(value: str) -> list[str]:

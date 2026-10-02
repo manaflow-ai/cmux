@@ -39,6 +39,74 @@ struct CloudMachinesHeaderCountTests {
         #expect(CloudTreeRowContentView.groupCount(for: .cloudMachinesSection(canCreateMachine: true)) == nil)
     }
 
+    @Test("Narrow Cloud headers move machine actions into one overflow menu")
+    func narrowHeaderCollapsesMachineActions() async throws {
+        _ = NSApplication.shared
+        let client = TeamChangeAuthClient(
+            firstTeamName: "Team with a long name for the narrow Cloud sidebar"
+        )
+        let flow = try await HostAccountFlow.makeForTeamChangeTests(client: client)
+        let host = NSHostingView(rootView: CloudTeamPickerHeader(
+            accountFlow: flow, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
+            isRefreshing: false, onRefresh: {}, onNewMachine: {},
+            agentMenu: { Image(systemName: "sparkles").frame(width: 22, height: 20) },
+            status: { EmptyView() }
+        ))
+        host.frame = NSRect(x: 0, y: 0, width: 220, height: 40)
+        host.autoresizingMask = [.width, .height]
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 40),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.contentView = host
+        defer { window.orderOut(nil); window.contentView = nil }
+        host.setFrameSize(NSSize(width: 220, height: 40))
+        window.makeKeyAndOrderFront(nil)
+        host.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        host.layoutSubtreeIfNeeded()
+
+        let buttons = Self.descendants(of: host).compactMap { $0 as? NSButton }
+        let menu = try #require(buttons.first { $0.accessibilityIdentifier() == "CloudMachinesActionsMenu" })
+        #expect(menu.menu?.items.map(\.title) == ["Refresh Machines", "New Machine"])
+        #expect(!buttons.contains { $0.accessibilityLabel() == "Refresh Machines" })
+    }
+
+    @Test("A wide Cloud header keeps refresh and new machine buttons inline")
+    func wideHeaderKeepsMachineActionsInline() async throws {
+        _ = NSApplication.shared
+        let client = TeamChangeAuthClient(
+            firstTeamName: "Team with a long name for the narrow Cloud sidebar"
+        )
+        let flow = try await HostAccountFlow.makeForTeamChangeTests(client: client)
+        let host = NSHostingView(rootView: CloudTeamPickerHeader(
+            accountFlow: flow, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
+            isRefreshing: false, onRefresh: {}, onNewMachine: {},
+            agentMenu: { Image(systemName: "sparkles").frame(width: 22, height: 20) },
+            status: { EmptyView() }
+        ))
+        host.frame = NSRect(x: 0, y: 0, width: 420, height: 40)
+        host.autoresizingMask = [.width, .height]
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 40),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.contentView = host
+        defer { window.orderOut(nil); window.contentView = nil }
+        host.setFrameSize(NSSize(width: 420, height: 40))
+        window.makeKeyAndOrderFront(nil)
+        host.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        host.layoutSubtreeIfNeeded()
+
+        let buttons = Self.descendants(of: host).compactMap { $0 as? NSButton }
+        #expect(buttons.contains { $0.accessibilityLabel() == "Refresh Machines" })
+        #expect(buttons.contains { $0.accessibilityLabel() == "New Machine" })
+        #expect(!buttons.contains { $0.accessibilityIdentifier() == "CloudMachinesActionsMenu" })
+    }
+
     @Test("A free plan at its limit turns orange and names the upgrade", arguments: [
         (1, "Your plan includes 1 machine. Upgrade to create more."),
         (50, "Your plan includes 50 machines. Upgrade to create more."),
@@ -200,7 +268,9 @@ struct CloudMachinesHeaderCountTests {
 
     private func headerHeight<Status: View>(@ViewBuilder status: @escaping () -> Status) -> CGFloat {
         NSHostingView(rootView: CloudTeamPickerHeader(
-            accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor, status: status
+            accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
+            isRefreshing: false, onRefresh: {}, onNewMachine: {},
+            agentMenu: { EmptyView() }, status: status
         )).fittingSize.height
     }
 
@@ -254,6 +324,10 @@ struct CloudMachinesHeaderCountTests {
         guard let first = columns.first, let last = columns.last else { return nil }
         let scale = CGFloat(width) / view.bounds.width
         return CGFloat(first) / scale...CGFloat(last + 1) / scale
+    }
+
+    private static func descendants(of view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap { descendants(of: $0) }
     }
 
     private func headerCell(usage: CloudMachinesUsage) -> CloudTreeCellView {

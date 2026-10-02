@@ -77,9 +77,11 @@ Installs supported agent hooks whose binaries are on `PATH`. See [Agent hook int
 | Claude Code  | wrapper-injected                          | PermissionRequest        |
 | Codex        | `~/.codex/hooks.json`                     | PreToolUse / PermissionRequest telemetry |
 | Grok         | `~/.grok/hooks/cmux-session.json`         | PreToolUse               |
+| Hermes Agent | `~/.hermes/config.yaml` or `$HERMES_HOME/config.yaml` | pre_tool_call / post_tool_call / pre_approval_request / post_approval_response |
 | OpenCode     | `~/.config/opencode/plugins/cmux-feed.js` | plugin event bus         |
 | Cursor CLI   | `~/.cursor/hooks.json`                    | beforeShellExecution     |
 | Gemini       | `~/.gemini/settings.json`                 | PreToolUse               |
+| Kiro CLI     | `~/.kiro/agents/cmux.json` or `$KIRO_HOME/agents/cmux.json` | preToolUse / postToolUse |
 | Copilot      | `~/.copilot/config.json`                  | PreToolUse               |
 | CodeBuddy    | `~/.codebuddy/settings.json`              | PreToolUse               |
 | Factory      | `~/.factory/settings.json`                | PreToolUse               |
