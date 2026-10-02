@@ -38,7 +38,10 @@ describe("text confirmation rule", () => {
     expect(needsConfirmation({ channel: "text", risk: "access" })).toBe(true)
     expect(needsConfirmation({ channel: "text", risk: "mutate-shared" })).toBe(false)
     expect(needsConfirmation({ channel: "app", risk: "destructive" })).toBe(false)
-    expect(needsConfirmation({ channel: "text", risk: "destructive", setting: "off" })).toBe(false)
+    expect(needsConfirmation({ channel: "text", risk: "destructive", level: "off" })).toBe(false)
+    expect(needsConfirmation({ channel: "text", risk: "destructive", level: "destructive-only" })).toBe(true)
+    expect(needsConfirmation({ channel: "text", risk: "execute", irreversible: true, level: "destructive-only" })).toBe(true)
+    for (const risk of ["money", "send-external", "access"] as const) expect(needsConfirmation({ channel: "text", risk, level: "destructive-only" })).toBe(false)
   })
 })
 
@@ -70,7 +73,7 @@ describe("pending confirmations in MuxDO", () => {
     expect(o.submit("mux.confirm.decide", { confirm: id, approve: true }, { ...macApp, agent: "agent_chief" })).toEqual({ ok: false, code: "forbidden" })
     expect(o.submit("mux.confirm.decide", { confirm: id, approve: true }, macApp, NOW, "cli")).toEqual({ ok: false, code: "forbidden" })
     expect(o.submit("mux.confirm.decide", { confirm: id, approve: true }, macApp)).toMatchObject({ ok: true })
-    expect(o.submit("mux.text_confirm.set", { setting: "off" }, chief)).toEqual({ ok: false, code: "forbidden" })
+    expect(o.submit("mux.text_confirm.level.set", { level: "off" }, chief)).toEqual({ ok: false, code: "forbidden" })
   })
 
   it("declines, expires, and refuses a consume after a decline or expiry", () => {
@@ -100,11 +103,8 @@ describe("pending confirmations in MuxDO", () => {
     expect(o.submit("mux.confirm.consume", { confirm: id, op: "vm.delete", params_hash: "h1" }, chief, NOW + 1)).toEqual({ ok: false, code: "confirm.unknown" })
   })
 
-  it("stores the owner's setting and refuses malformed requests", () => {
+  it("refuses malformed requests", () => {
     const o = owner()
-    expect(o.submit("mux.text_confirm.set", { setting: "off" }, ownerApp)).toMatchObject({ ok: true })
-    expect(o.head.text_confirm).toBe("off")
-    expect(o.submit("mux.text_confirm.set", { setting: "off" }, ownerApp)).toMatchObject({ ok: true, changed: false })
     expect(o.submit("mux.confirm.request", { ...ask, risk: "nuke" }, chief)).toEqual({ ok: false, code: "invalid_params" })
     expect(o.submit("mux.confirm.request", { ...ask, source: { conversation: "c", seq: 0 } }, chief)).toEqual({ ok: false, code: "invalid_params" })
   })

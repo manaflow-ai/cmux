@@ -1,5 +1,6 @@
 import type { Principal, ReduceContext, ReduceResult, RowWrite } from "../conversation/engine-types.ts"
 import { rowsOf } from "../conversation/engine-types.ts"
+import { isOwnerApp, type ConfirmLevel } from "./confirm-level.ts"
 
 /**
  * In-app confirmation for risky actions a Chief was asked to do by text
@@ -12,7 +13,7 @@ import { rowsOf } from "../conversation/engine-types.ts"
  * approval is single use within 15 minutes of the request. Executor contract:
  * the action's idempotency key derives from the confirm id, so a replayed
  * consume cannot run the action twice. The owner can
- * turn the rule off (`text_confirm: off`). MuxDO hosts it; pure.
+ * choose a level (confirm-level.ts). MuxDO hosts it; pure.
  */
 export const TABLE_CONFIRM = "confirm"
 export const CONFIRM_TTL_MS = 15 * 60_000
@@ -23,16 +24,20 @@ const PENDING_SCAN = 64
 /** `access`: grants, installs, addresses, tokens, invites into teams, the text channel itself. */
 export type RiskClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive" | "access"
 export type Channel = "app" | "text"
-export type TextConfirm = "destructive" | "off"
 
 /**
  * The decision rule: which actions need the in-app confirmation. Destructive and irreversible
  * by class (destructive, money, send-external: a sent message cannot be recalled, access:
  * what a stolen number would change first), plus any action flagged irreversible.
  */
-const CONFIRMED_RISKS: ReadonlySet<RiskClass> = new Set(["destructive", "money", "send-external", "access"])
-export const needsConfirmation = (input: { readonly channel: Channel; readonly risk: RiskClass; readonly irreversible?: boolean; readonly setting?: TextConfirm }): boolean =>
-  input.channel === "text" && (input.setting ?? "destructive") !== "off" && (CONFIRMED_RISKS.has(input.risk) || input.irreversible === true)
+const STRICT_RISKS: ReadonlySet<RiskClass> = new Set(["destructive", "money", "send-external", "access"])
+export const needsConfirmation = (input: { readonly channel: Channel; readonly risk: RiskClass; readonly irreversible?: boolean; readonly level?: ConfirmLevel }): boolean => {
+  if (input.channel !== "text") return false
+  const level = input.level ?? "strict"
+  if (level === "off") return false
+  if (input.irreversible === true || input.risk === "destructive") return true
+  return level === "strict" && STRICT_RISKS.has(input.risk)
+}
 
 export type ConfirmState = "pending" | "approved" | "declined" | "consumed" | "expired"
 
@@ -56,27 +61,21 @@ export interface Confirmation {
 export interface ConfirmHeadPart {
   readonly agent: string | null
   readonly owner_user: string | null
-  readonly text_confirm?: TextConfirm
   readonly confirm_n?: number
 }
 
 type Params = Readonly<Record<string, unknown>>
 const str = (v: unknown, max = 256): v is string => typeof v === "string" && v.length > 0 && v.length <= max
 const RISKS = new Set<RiskClass>(["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive", "access"])
-/** Installs that are a person's app (never a daemon, CLI or VM install, where a chief may run). */
-const USER_APP_KINDS: ReadonlySet<string> = new Set(["mac", "ios", "web"])
-
-export const CONFIRM_OPS = new Set(["mux.confirm.request", "mux.confirm.decide", "mux.confirm.consume", "mux.text_confirm.set"])
+export const CONFIRM_OPS = new Set(["mux.confirm.request", "mux.confirm.decide", "mux.confirm.consume"])
 
 const userOf = (p: Principal) => (p.user ? (p.user.startsWith("user_") ? p.user : `user_${p.user}`) : null)
 
 /** Who may call each op: the chief requests and consumes; only the owner's app decides or changes the setting. */
 export const authorizeConfirm = (head: ConfirmHeadPart, op: string, p: Principal): boolean => {
   const isChief = p.kind === "agent" && p.agent !== undefined && p.agent === head.agent
-  const isPersonApp = p.kind === "session" || (p.kind === "install" && !p.agent && USER_APP_KINDS.has(p.install_kind ?? ""))
-  const isOwnerApp = isPersonApp && head.owner_user !== null && userOf(p) === head.owner_user
   if (op === "mux.confirm.request" || op === "mux.confirm.consume") return isChief
-  if (op === "mux.confirm.decide" || op === "mux.text_confirm.set") return isOwnerApp
+  if (op === "mux.confirm.decide") return isOwnerApp(head, p)
   return false
 }
 
@@ -88,14 +87,6 @@ export const reduceConfirm = <H extends ConfirmHeadPart>(head: H, op: string, pa
   const load = (id: unknown) => (str(id, 64) ? rows.get<Confirmation>(TABLE_CONFIRM, id) : undefined)
   const live = (c: Confirmation): Confirmation => (c.state === "pending" && ctx.now >= c.expires_at ? { ...c, state: "expired" } : c)
   switch (op) {
-    case "mux.text_confirm.set": {
-      // Only a person's own action in the app, never automation acting with their identity.
-      if (ctx.origin !== "user") return refuse("forbidden")
-      const { setting } = params
-      if (setting !== "destructive" && setting !== "off") return refuse("invalid_params")
-      if ((head.text_confirm ?? "destructive") === setting) return { ok: true, state: head, value: { setting }, changed: false }
-      return { ok: true, state: { ...head, text_confirm: setting }, value: { setting } }
-    }
     case "mux.confirm.request": {
       const { op: action, params_hash, risk, summary, source } = params
       const src = source as { conversation?: unknown; seq?: unknown } | null

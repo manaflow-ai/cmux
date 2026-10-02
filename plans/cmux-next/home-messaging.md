@@ -654,10 +654,39 @@ Goal: a person texts the cmux line and talks to their Chief; Chief replies in th
   secrets; anything that would show one opens the app. Strongest objection: with the full
   default, a SIM swap, a stolen phone or a recycled number gives full Chief power by text.
   Decided (Lawrence, 2026-10-02) and built (`mux/text-confirm.ts`): an in-app confirmation for
-  destructive or irreversible actions requested by text. Rule `needsConfirmation`: channel text
-  and risk `destructive`, `money`, `send-external` or `access` (grants, installs, addresses,
-  tokens, team invites, the text channel), or an action flagged irreversible, unless the owner set
-  `text_confirm: off` (`mux.text_confirm.set`, owner's app only). MuxDO ops (idempotency keys
+  destructive or irreversible actions requested by text.
+  Rule `needsConfirmation(level)` (levels decided 2026-10-02, `mux/confirm-level.ts`), per user
+  (stored in each of the user's MuxDOs):
+  - `strict` (default): text requests that are `destructive`, `money`, `send-external` or
+    `access` (grants, installs, addresses, tokens, team invites, the text channel), or flagged
+    irreversible;
+  - `destructive-only`: `destructive` or flagged irreversible only;
+  - `off`: no confirmation.
+  The old boolean migrates on read (on -> strict, off -> off). `mux.text_confirm.level.set
+  {level}` (owner's app, origin `user`): a safer level applies at once; a riskier level only
+  records a pending change, which `mux.text_confirm.level.confirm {change, approve}` (owner's
+  app, origin `user`, within 5 minutes) applies after a second dialog that states the risk. A
+  text, the chief, a daemon or CLI install, or a non-user origin can neither set nor confirm.
+  `mux.text_confirm.lock {level | null, by: team_policy | mdm, name}` (system principal only,
+  pushed by the Worker from TeamPolicy or MDM) wins over the user, clears a pending change and is
+  shown as "Locked by <name>"; unlock keeps the locked level. Every set, raise request, raise
+  confirm or decline, lock and unlock is an audit row (table `level_audit`, last 100).
+  Settings copy (en; all 21 locales in `home-core/copy/text-confirm-levels.json`, ja written by
+  the agent, other locales `needs_review`):
+  - title: "Confirm risky actions asked by text"
+  - strict: "Strict (recommended): when a text asks Chief to delete something, spend money, send
+    something outside cmux or change who has access, you confirm it in the app first."
+  - destructiveOnly: "Destructive only: you confirm deletions and actions that cannot be undone.
+    Chief spends money, sends messages and changes access from a text without asking."
+  - off: "Off: Chief does everything a text asks without asking you."
+  - simSwapRisk (shown under every level): "Anyone who takes control of your phone number (a
+    stolen phone, a SIM swap or a recycled number) can text Chief as you. The less you confirm,
+    the more that person can do."
+  - raiseTitle, raiseBody, raiseConfirm (the second dialog): "Lower your protection?" / "With
+    this level, a person who takes over your phone number can do more as you. Continue only if
+    you accept that risk." / "Lower protection"
+  - lockedBy: "Locked by {name}"
+  MuxDO ops (idempotency keys
   from the caller): `mux.confirm.request {op, params_hash, risk, summary, source}` by the chief
   (row in table `confirm`, at most 64 rows and 20 live pending); `mux.confirm.decide {confirm,
   approve}` only by the owner's session or Mac, iPhone or web app install acting for no agent,

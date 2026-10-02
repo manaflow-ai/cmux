@@ -1,0 +1,779 @@
+{
+ "note": "Settings copy for the text confirmation level (home-messaging.md section 19). en is final; ja is agent-written; other locales are machine translations that need review. Keys go into the Settings module's Localizable.xcstrings as textConfirm.<key>. Keep {name} and the product names cmux and Chief.",
+ "strings": {
+  "textConfirm.title": {
+   "en": {
+    "value": "Confirm risky actions asked by text",
+    "state": "translated"
+   },
+   "ar": {
+    "value": "تأكيد الإجراءات الخطرة المطلوبة عبر الرسائل",
+    "state": "needs_review"
+   },
+   "bs": {
+    "value": "Potvrdi rizične radnje tražene porukom",
+    "state": "needs_review"
+   },
+   "da": {
+    "value": "Bekræft risikable handlinger bedt om via sms",
+    "state": "needs_review"
+   },
+   "de": {
+    "value": "Riskante Aktionen per Nachricht bestätigen",
+    "state": "needs_review"
+   },
+   "es": {
+    "value": "Confirmar acciones de riesgo pedidas por mensaje",
+    "state": "needs_review"
+   },
+   "fr": {
+    "value": "Confirmer les actions risquées demandées par message",
+    "state": "needs_review"
+   },
+   "it": {
+    "value": "Conferma le azioni rischiose richieste via messaggio",
+    "state": "needs_review"
+   },
+   "ja": {
+    "value": "テキストで頼まれた危険な操作を確認",
+    "state": "translated"
+   },
+   "km": {
+    "value": "បញ្ជាក់សកម្មភាពប្រថុយប្រថានដែលស្នើតាមសារ",
+    "state": "needs_review"
+   },
+   "ko": {
+    "value": "문자로 요청된 위험한 작업 확인",
+    "state": "needs_review"
+   },
+   "nb": {
+    "value": "Bekreft risikable handlinger bedt om via melding",
+    "state": "needs_review"
+   },
+   "pl": {
+    "value": "Potwierdzaj ryzykowne działania zlecone SMS-em",
+    "state": "needs_review"
+   },
+   "pt-BR": {
+    "value": "Confirmar ações arriscadas pedidas por mensagem",
+    "state": "needs_review"
+   },
+   "ru": {
+    "value": "Подтверждать рискованные действия, запрошенные по SMS",
+    "state": "needs_review"
+   },
+   "th": {
+    "value": "ยืนยันการกระทำที่มีความเสี่ยงซึ่งสั่งผ่านข้อความ",
+    "state": "needs_review"
+   },
+   "tr": {
+    "value": "Mesajla istenen riskli işlemleri onayla",
+    "state": "needs_review"
+   },
+   "uk": {
+    "value": "Підтверджувати ризиковані дії, запитані повідомленням",
+    "state": "needs_review"
+   },
+   "vi": {
+    "value": "Xác nhận hành động rủi ro được yêu cầu qua tin nhắn",
+    "state": "needs_review"
+   },
+   "zh-Hans": {
+    "value": "确认通过短信请求的风险操作",
+    "state": "needs_review"
+   },
+   "zh-Hant": {
+    "value": "確認透過簡訊要求的風險操作",
+    "state": "needs_review"
+   }
+  },
+  "textConfirm.strict": {
+   "en": {
+    "value": "Strict (recommended): when a text asks Chief to delete something, spend money, send something outside cmux or change who has access, you confirm it in the app first.",
+    "state": "translated"
+   },
+   "ar": {
+    "value": "صارم (موصى به): عندما تطلب رسالة من Chief حذف شيء أو إنفاق مال أو إرسال شيء خارج cmux أو تغيير الصلاحيات، تؤكد ذلك في التطبيق أولاً.",
+    "state": "needs_review"
+   },
+   "bs": {
+    "value": "Strogo (preporučeno): kada poruka traži od Chiefa da nešto obriše, potroši novac, pošalje nešto izvan cmuxa ili promijeni pristup, prvo to potvrdiš u aplikaciji.",
+    "state": "needs_review"
+   },
+   "da": {
+    "value": "Streng (anbefalet): Når en besked beder Chief om at slette noget, bruge penge, sende noget uden for cmux eller ændre adgang, bekræfter du det først i appen.",
+    "state": "needs_review"
+   },
+   "de": {
+    "value": "Streng (empfohlen): Wenn eine Nachricht Chief bittet, etwas zu löschen, Geld auszugeben, etwas außerhalb von cmux zu senden oder Zugriff zu ändern, bestätigst du es zuerst in der App.",
+    "state": "needs_review"
+   },
+   "es": {
+    "value": "Estricto (recomendado): cuando un mensaje pide a Chief borrar algo, gastar dinero, enviar algo fuera de cmux o cambiar el acceso, lo confirmas primero en la app.",
+    "state": "needs_review"
+   },
+   "fr": {
+    "value": "Strict (recommandé) : quand un message demande à Chief de supprimer quelque chose, de dépenser de l'argent, d'envoyer quelque chose hors de cmux ou de modifier les accès, vous le confirmez d'abord dans l'app.",
+    "state": "needs_review"
+   },
+   "it": {
+    "value": "Rigoroso (consigliato): quando un messaggio chiede a Chief di eliminare qualcosa, spendere denaro, inviare qualcosa fuori da cmux o cambiare gli accessi, lo confermi prima nell'app.",
+    "state": "needs_review"
+   },
+   "ja": {
+    "value": "厳格（推奨）: テキストでチーフに削除、支払い、cmux外への送信、アクセス権の変更を頼んだときは、先にアプリで確認します。",
+    "state": "translated"
+   },
+   "km": {
+    "value": "តឹងរ៉ឹង (ណែនាំ)៖ នៅពេលសារស្នើឱ្យ Chief លុប ចំណាយលុយ ផ្ញើអ្វីមួយក្រៅ cmux ឬប្ដូរសិទ្ធិចូល អ្នកបញ្ជាក់វានៅក្នុងកម្មវិធីជាមុនសិន។",
+    "state": "needs_review"
+   },
+   "ko": {
+    "value": "엄격(권장): 문자가 Chief에게 삭제, 결제, cmux 밖으로의 전송, 접근 권한 변경을 요청하면 먼저 앱에서 확인합니다.",
+    "state": "needs_review"
+   },
+   "nb": {
+    "value": "Streng (anbefalt): Når en melding ber Chief slette noe, bruke penger, sende noe utenfor cmux eller endre tilgang, bekrefter du det i appen først.",
+    "state": "needs_review"
+   },
+   "pl": {
+    "value": "Ścisły (zalecany): gdy wiadomość prosi Chiefa o usunięcie czegoś, wydanie pieniędzy, wysłanie czegoś poza cmux lub zmianę dostępu, najpierw potwierdzasz to w aplikacji.",
+    "state": "needs_review"
+   },
+   "pt-BR": {
+    "value": "Rigoroso (recomendado): quando uma mensagem pede ao Chief para excluir algo, gastar dinheiro, enviar algo para fora do cmux ou mudar acessos, você confirma primeiro no app.",
+    "state": "needs_review"
+   },
+   "ru": {
+    "value": "Строго (рекомендуется): когда сообщение просит Chief что-то удалить, потратить деньги, отправить что-то за пределы cmux или изменить доступ, вы сначала подтверждаете это в приложении.",
+    "state": "needs_review"
+   },
+   "th": {
+    "value": "เข้มงวด (แนะนำ): เมื่อข้อความขอให้ Chief ลบบางอย่าง ใช้เงิน ส่งบางอย่างออกนอก cmux หรือเปลี่ยนสิทธิ์การเข้าถึง คุณจะยืนยันในแอปก่อน",
+    "state": "needs_review"
+   },
+   "tr": {
+    "value": "Katı (önerilen): Bir mesaj Chief'ten bir şeyi silmesini, para harcamasını, cmux dışına bir şey göndermesini veya erişimi değiştirmesini istediğinde önce uygulamada onaylarsın.",
+    "state": "needs_review"
+   },
+   "uk": {
+    "value": "Суворо (рекомендовано): коли повідомлення просить Chief щось видалити, витратити гроші, надіслати щось за межі cmux або змінити доступ, ви спершу підтверджуєте це в застосунку.",
+    "state": "needs_review"
+   },
+   "vi": {
+    "value": "Nghiêm ngặt (khuyên dùng): khi tin nhắn yêu cầu Chief xóa thứ gì đó, tiêu tiền, gửi thứ gì ra ngoài cmux hoặc thay đổi quyền truy cập, bạn xác nhận trong ứng dụng trước.",
+    "state": "needs_review"
+   },
+   "zh-Hans": {
+    "value": "严格（推荐）：当短信要求 Chief 删除内容、花钱、向 cmux 之外发送内容或更改访问权限时，你需要先在应用中确认。",
+    "state": "needs_review"
+   },
+   "zh-Hant": {
+    "value": "嚴格（建議）：當簡訊要求 Chief 刪除內容、花錢、向 cmux 以外傳送內容或變更存取權限時，你需要先在 App 中確認。",
+    "state": "needs_review"
+   }
+  },
+  "textConfirm.destructiveOnly": {
+   "en": {
+    "value": "Destructive only: you confirm deletions and actions that cannot be undone. Chief spends money, sends messages and changes access from a text without asking.",
+    "state": "translated"
+   },
+   "ar": {
+    "value": "الإجراءات المدمرة فقط: تؤكد عمليات الحذف والإجراءات التي لا يمكن التراجع عنها. ينفق Chief المال ويرسل الرسائل ويغير الصلاحيات من رسالة دون أن يسأل.",
+    "state": "needs_review"
+   },
+   "bs": {
+    "value": "Samo destruktivne: potvrđuješ brisanja i radnje koje se ne mogu poništiti. Chief troši novac, šalje poruke i mijenja pristup iz poruke bez pitanja.",
+    "state": "needs_review"
+   },
+   "da": {
+    "value": "Kun destruktive: Du bekræfter sletninger og handlinger, der ikke kan fortrydes. Chief bruger penge, sender beskeder og ændrer adgang fra en besked uden at spørge.",
+    "state": "needs_review"
+   },
+   "de": {
+    "value": "Nur destruktive: Du bestätigst Löschungen und Aktionen, die sich nicht rückgängig machen lassen. Chief gibt Geld aus, sendet Nachrichten und ändert Zugriff per Nachricht ohne Rückfrage.",
+    "state": "needs_review"
+   },
+   "es": {
+    "value": "Solo destructivas: confirmas los borrados y las acciones que no se pueden deshacer. Chief gasta dinero, envía mensajes y cambia accesos desde un mensaje sin preguntar.",
+    "state": "needs_review"
+   },
+   "fr": {
+    "value": "Destructives uniquement : vous confirmez les suppressions et les actions irréversibles. Chief dépense, envoie des messages et modifie les accès depuis un message sans demander.",
+    "state": "needs_review"
+   },
+   "it": {
+    "value": "Solo distruttive: confermi eliminazioni e azioni irreversibili. Chief spende, invia messaggi e cambia gli accessi da un messaggio senza chiedere.",
+    "state": "needs_review"
+   },
+   "ja": {
+    "value": "破壊的な操作のみ: 削除と取り消せない操作だけを確認します。支払い、送信、アクセス権の変更はテキストから確認なしで行われます。",
+    "state": "translated"
+   },
+   "km": {
+    "value": "តែសកម្មភាពបំផ្លិចបំផ្លាញ៖ អ្នកបញ្ជាក់ការលុប និងសកម្មភាពដែលមិនអាចត្រឡប់វិញបាន។ Chief ចំណាយលុយ ផ្ញើសារ និងប្ដូរសិទ្ធិចូលពីសារដោយមិនសួរ។",
+    "state": "needs_review"
+   },
+   "ko": {
+    "value": "파괴적 작업만: 삭제와 되돌릴 수 없는 작업만 확인합니다. Chief는 결제, 전송, 접근 권한 변경을 문자만으로 묻지 않고 합니다.",
+    "state": "needs_review"
+   },
+   "nb": {
+    "value": "Bare destruktive: Du bekrefter slettinger og handlinger som ikke kan angres. Chief bruker penger, sender meldinger og endrer tilgang fra en melding uten å spørre.",
+    "state": "needs_review"
+   },
+   "pl": {
+    "value": "Tylko destrukcyjne: potwierdzasz usunięcia i działania, których nie da się cofnąć. Chief wydaje pieniądze, wysyła wiadomości i zmienia dostęp z wiadomości bez pytania.",
+    "state": "needs_review"
+   },
+   "pt-BR": {
+    "value": "Só destrutivas: você confirma exclusões e ações que não podem ser desfeitas. O Chief gasta, envia mensagens e muda acessos a partir de uma mensagem sem perguntar.",
+    "state": "needs_review"
+   },
+   "ru": {
+    "value": "Только разрушительные: вы подтверждаете удаления и необратимые действия. Chief тратит деньги, отправляет сообщения и меняет доступ по сообщению без вопросов.",
+    "state": "needs_review"
+   },
+   "th": {
+    "value": "เฉพาะที่ทำลาย: คุณยืนยันการลบและการกระทำที่ย้อนกลับไม่ได้ Chief ใช้เงิน ส่งข้อความ และเปลี่ยนสิทธิ์จากข้อความโดยไม่ถาม",
+    "state": "needs_review"
+   },
+   "tr": {
+    "value": "Yalnızca yıkıcı: Silmeleri ve geri alınamayan işlemleri onaylarsın. Chief para harcar, mesaj gönderir ve erişimi bir mesajla sormadan değiştirir.",
+    "state": "needs_review"
+   },
+   "uk": {
+    "value": "Лише руйнівні: ви підтверджуєте видалення та незворотні дії. Chief витрачає гроші, надсилає повідомлення й змінює доступ із повідомлення без запитань.",
+    "state": "needs_review"
+   },
+   "vi": {
+    "value": "Chỉ hành động phá hủy: bạn xác nhận việc xóa và các hành động không thể hoàn tác. Chief tiêu tiền, gửi tin nhắn và thay đổi quyền truy cập từ tin nhắn mà không hỏi.",
+    "state": "needs_review"
+   },
+   "zh-Hans": {
+    "value": "仅破坏性操作：你只需确认删除和无法撤销的操作。Chief 会根据短信直接花钱、发送消息和更改访问权限，不再询问。",
+    "state": "needs_review"
+   },
+   "zh-Hant": {
+    "value": "僅限破壞性操作：你只需確認刪除和無法復原的操作。Chief 會依簡訊直接花錢、傳送訊息並變更存取權限，不再詢問。",
+    "state": "needs_review"
+   }
+  },
+  "textConfirm.off": {
+   "en": {
+    "value": "Off: Chief does everything a text asks without asking you.",
+    "state": "translated"
+   },
+   "ar": {
+    "value": "إيقاف: ينفذ Chief كل ما تطلبه الرسالة دون أن يسألك.",
+    "state": "needs_review"
+   },
+   "bs": {
+    "value": "Isključeno: Chief radi sve što poruka traži bez pitanja.",
+    "state": "needs_review"
+   },
+   "da": {
+    "value": "Fra: Chief gør alt, hvad en besked beder om, uden at spørge dig.",
+    "state": "needs_review"
+   },
+   "de": {
+    "value": "Aus: Chief tut alles, worum eine Nachricht bittet, ohne dich zu fragen.",
+    "state": "needs_review"
+   },
+   "es": {
+    "value": "Desactivado: Chief hace todo lo que pide un mensaje sin preguntarte.",
+    "state": "needs_review"
+   },
+   "fr": {
+    "value": "Désactivé : Chief fait tout ce qu'un message demande sans vous demander.",
+    "state": "needs_review"
+   },
+   "it": {
+    "value": "Disattivato: Chief fa tutto ciò che un messaggio chiede senza chiederti nulla.",
+    "state": "needs_review"
+   },
+   "ja": {
+    "value": "オフ: チーフはテキストで頼まれたことを確認なしですべて行います。",
+    "state": "translated"
+   },
+   "km": {
+    "value": "បិទ៖ Chief ធ្វើគ្រប់យ៉ាងដែលសារស្នើដោយមិនសួរអ្នក។",
+    "state": "needs_review"
+   },
+   "ko": {
+    "value": "끔: Chief는 문자가 요청한 모든 것을 묻지 않고 합니다.",
+    "state": "needs_review"
+   },
+   "nb": {
+    "value": "Av: Chief gjør alt en melding ber om uten å spørre deg.",
+    "state": "needs_review"
+   },
+   "pl": {
+    "value": "Wyłączone: Chief robi wszystko, o co prosi wiadomość, bez pytania.",
+    "state": "needs_review"
+   },
+   "pt-BR": {
+    "value": "Desativado: o Chief faz tudo o que uma mensagem pede sem perguntar.",
+    "state": "needs_review"
+   },
+   "ru": {
+    "value": "Выкл.: Chief делает всё, о чём просит сообщение, не спрашивая вас.",
+    "state": "needs_review"
+   },
+   "th": {
+    "value": "ปิด: Chief ทำทุกอย่างที่ข้อความขอโดยไม่ถามคุณ",
+    "state": "needs_review"
+   },
+   "tr": {
+    "value": "Kapalı: Chief, bir mesajın istediği her şeyi sana sormadan yapar.",
+    "state": "needs_review"
+   },
+   "uk": {
+    "value": "Вимк.: Chief робить усе, про що просить повідомлення, не питаючи вас.",
+    "state": "needs_review"
+   },
+   "vi": {
+    "value": "Tắt: Chief làm mọi thứ tin nhắn yêu cầu mà không hỏi bạn.",
+    "state": "needs_review"
+   },
+   "zh-Hans": {
+    "value": "关闭：Chief 会直接执行短信要求的一切，不询问你。",
+    "state": "needs_review"
+   },
+   "zh-Hant": {
+    "value": "關閉：Chief 會直接執行簡訊要求的一切，不詢問你。",
+    "state": "needs_review"
+   }
+  },
+  "textConfirm.simSwapRisk": {
+   "en": {
+    "value": "Anyone who takes control of your phone number (a stolen phone, a SIM swap or a recycled number) can text Chief as you. The less you confirm, the more that person can do.",
+    "state": "translated"
+   },
+   "ar": {
+    "value": "أي شخص يسيطر على رقم هاتفك (هاتف مسروق أو تبديل شريحة SIM أو رقم معاد تدويره) يمكنه مراسلة Chief باسمك. كلما قل ما تؤكده، زاد ما يمكن لذلك الشخص فعله.",
+    "state": "needs_review"
+   },
+   "bs": {
+    "value": "Svako ko preuzme tvoj broj telefona (ukraden telefon, zamjena SIM kartice ili reciklirani broj) može pisati Chiefu kao ti. Što manje potvrđuješ, ta osoba može više.",
+    "state": "needs_review"
+   },
+   "da": {
+    "value": "Alle, der overtager dit telefonnummer (en stjålet telefon, et SIM-bytte eller et genbrugt nummer), kan skrive til Chief som dig. Jo mindre du bekræfter, jo mere kan den person gøre.",
+    "state": "needs_review"
+   },
+   "de": {
+    "value": "Wer deine Telefonnummer übernimmt (gestohlenes Telefon, SIM-Tausch oder neu vergebene Nummer), kann Chief als du schreiben. Je weniger du bestätigst, desto mehr kann diese Person tun.",
+    "state": "needs_review"
+   },
+   "es": {
+    "value": "Quien tome el control de tu número de teléfono (un teléfono robado, un cambio de SIM o un número reciclado) puede escribir a Chief como tú. Cuanto menos confirmes, más podrá hacer esa persona.",
+    "state": "needs_review"
+   },
+   "fr": {
+    "value": "Toute personne qui prend le contrôle de votre numéro (téléphone volé, échange de SIM ou numéro réattribué) peut écrire à Chief en votre nom. Moins vous confirmez, plus cette personne peut agir.",
+    "state": "needs_review"
+   },
+   "it": {
+    "value": "Chiunque prenda il controllo del tuo numero (telefono rubato, scambio di SIM o numero riassegnato) può scrivere a Chief come te. Meno confermi, più quella persona può fare.",
+    "state": "needs_review"
+   },
+   "ja": {
+    "value": "あなたの電話番号を乗っ取った人（盗まれた電話、SIMスワップ、再利用された番号）は、あなたとしてチーフにテキストを送れます。確認が少ないほど、その人ができることは増えます。",
+    "state": "translated"
+   },
+   "km": {
+    "value": "អ្នកណាដែលគ្រប់គ្រងលេខទូរស័ព្ទរបស់អ្នក (ទូរស័ព្ទដែលត្រូវលួច ការប្ដូរ SIM ឬលេខដែលប្រើឡើងវិញ) អាចផ្ញើសារទៅ Chief ក្នុងនាមអ្នក។ អ្នកបញ្ជាក់កាន់តែតិច មនុស្សនោះអាចធ្វើបានកាន់តែច្រើន។",
+    "state": "needs_review"
+   },
+   "ko": {
+    "value": "전화번호를 장악한 사람(도난된 휴대폰, SIM 스와프, 재사용된 번호)은 당신인 척 Chief에게 문자를 보낼 수 있습니다. 확인을 적게 할수록 그 사람이 할 수 있는 일이 많아집니다.",
+    "state": "needs_review"
+   },
+   "nb": {
+    "value": "Alle som tar kontroll over telefonnummeret ditt (en stjålet telefon, et SIM-bytte eller et gjenbrukt nummer) kan sende meldinger til Chief som deg. Jo mindre du bekrefter, jo mer kan den personen gjøre.",
+    "state": "needs_review"
+   },
+   "pl": {
+    "value": "Każdy, kto przejmie Twój numer telefonu (skradziony telefon, podmiana karty SIM lub ponownie przydzielony numer), może pisać do Chiefa jako Ty. Im mniej potwierdzasz, tym więcej ta osoba może zrobić.",
+    "state": "needs_review"
+   },
+   "pt-BR": {
+    "value": "Quem assumir o controle do seu número (celular roubado, troca de SIM ou número reciclado) pode mandar mensagens ao Chief como você. Quanto menos você confirma, mais essa pessoa pode fazer.",
+    "state": "needs_review"
+   },
+   "ru": {
+    "value": "Любой, кто завладеет вашим номером (украденный телефон, подмена SIM или повторно выданный номер), может писать Chief от вашего имени. Чем меньше вы подтверждаете, тем больше может сделать этот человек.",
+    "state": "needs_review"
+   },
+   "th": {
+    "value": "ใครก็ตามที่ควบคุมหมายเลขโทรศัพท์ของคุณได้ (โทรศัพท์ถูกขโมย การสลับซิม หรือหมายเลขที่นำกลับมาใช้) สามารถส่งข้อความถึง Chief ในนามคุณ ยิ่งคุณยืนยันน้อย คนนั้นก็ยิ่งทำได้มาก",
+    "state": "needs_review"
+   },
+   "tr": {
+    "value": "Telefon numaranın kontrolünü ele geçiren herkes (çalınan telefon, SIM değiştirme veya yeniden atanmış numara) Chief'e senin yerine yazabilir. Ne kadar az onaylarsan o kişi o kadar çok şey yapabilir.",
+    "state": "needs_review"
+   },
+   "uk": {
+    "value": "Будь-хто, хто заволодіє вашим номером (викрадений телефон, заміна SIM або повторно виданий номер), може писати Chief від вашого імені. Що менше ви підтверджуєте, то більше може зробити ця людина.",
+    "state": "needs_review"
+   },
+   "vi": {
+    "value": "Bất kỳ ai chiếm được số điện thoại của bạn (điện thoại bị đánh cắp, hoán đổi SIM hoặc số được cấp lại) đều có thể nhắn cho Chief với tư cách là bạn. Bạn xác nhận càng ít, người đó càng làm được nhiều.",
+    "state": "needs_review"
+   },
+   "zh-Hans": {
+    "value": "任何控制了你的电话号码的人（手机被盗、SIM 卡被换或号码被回收再分配）都能以你的身份给 Chief 发短信。你确认得越少，这个人能做的就越多。",
+    "state": "needs_review"
+   },
+   "zh-Hant": {
+    "value": "任何控制了你電話號碼的人（手機遭竊、SIM 卡被換或號碼被回收再分配）都能以你的身分傳簡訊給 Chief。你確認得越少，這個人能做的就越多。",
+    "state": "needs_review"
+   }
+  },
+  "textConfirm.raiseTitle": {
+   "en": {
+    "value": "Lower your protection?",
+    "state": "translated"
+   },
+   "ar": {
+    "value": "هل تريد تقليل الحماية؟",
+    "state": "needs_review"
+   },
+   "bs": {
+    "value": "Smanjiti zaštitu?",
+    "state": "needs_review"
+   },
+   "da": {
+    "value": "Sænk din beskyttelse?",
+    "state": "needs_review"
+   },
+   "de": {
+    "value": "Schutz verringern?",
+    "state": "needs_review"
+   },
+   "es": {
+    "value": "¿Reducir tu protección?",
+    "state": "needs_review"
+   },
+   "fr": {
+    "value": "Réduire votre protection ?",
+    "state": "needs_review"
+   },
+   "it": {
+    "value": "Ridurre la protezione?",
+    "state": "needs_review"
+   },
+   "ja": {
+    "value": "保護を弱めますか？",
+    "state": "translated"
+   },
+   "km": {
+    "value": "បន្ថយការការពាររបស់អ្នក?",
+    "state": "needs_review"
+   },
+   "ko": {
+    "value": "보호 수준을 낮출까요?",
+    "state": "needs_review"
+   },
+   "nb": {
+    "value": "Senke beskyttelsen?",
+    "state": "needs_review"
+   },
+   "pl": {
+    "value": "Obniżyć ochronę?",
+    "state": "needs_review"
+   },
+   "pt-BR": {
+    "value": "Reduzir sua proteção?",
+    "state": "needs_review"
+   },
+   "ru": {
+    "value": "Снизить защиту?",
+    "state": "needs_review"
+   },
+   "th": {
+    "value": "ลดการป้องกันของคุณหรือไม่",
+    "state": "needs_review"
+   },
+   "tr": {
+    "value": "Korumanı düşürmek mi istiyorsun?",
+    "state": "needs_review"
+   },
+   "uk": {
+    "value": "Знизити захист?",
+    "state": "needs_review"
+   },
+   "vi": {
+    "value": "Giảm mức bảo vệ?",
+    "state": "needs_review"
+   },
+   "zh-Hans": {
+    "value": "降低你的保护级别？",
+    "state": "needs_review"
+   },
+   "zh-Hant": {
+    "value": "降低你的保護等級？",
+    "state": "needs_review"
+   }
+  },
+  "textConfirm.raiseBody": {
+   "en": {
+    "value": "With this level, a person who takes over your phone number can do more as you. Continue only if you accept that risk.",
+    "state": "translated"
+   },
+   "ar": {
+    "value": "في هذا المستوى، يمكن لشخص يستولي على رقم هاتفك أن يفعل المزيد باسمك. تابع فقط إذا كنت تقبل هذه المخاطرة.",
+    "state": "needs_review"
+   },
+   "bs": {
+    "value": "Na ovom nivou osoba koja preuzme tvoj broj može učiniti više u tvoje ime. Nastavi samo ako prihvataš taj rizik.",
+    "state": "needs_review"
+   },
+   "da": {
+    "value": "På dette niveau kan en person, der overtager dit nummer, gøre mere som dig. Fortsæt kun, hvis du accepterer den risiko.",
+    "state": "needs_review"
+   },
+   "de": {
+    "value": "Auf dieser Stufe kann jemand, der deine Nummer übernimmt, mehr in deinem Namen tun. Fahre nur fort, wenn du dieses Risiko akzeptierst.",
+    "state": "needs_review"
+   },
+   "es": {
+    "value": "Con este nivel, quien se apodere de tu número puede hacer más en tu nombre. Continúa solo si aceptas ese riesgo.",
+    "state": "needs_review"
+   },
+   "fr": {
+    "value": "À ce niveau, une personne qui prend votre numéro peut faire davantage en votre nom. Continuez seulement si vous acceptez ce risque.",
+    "state": "needs_review"
+   },
+   "it": {
+    "value": "Con questo livello, chi si impossessa del tuo numero può fare di più a tuo nome. Continua solo se accetti questo rischio.",
+    "state": "needs_review"
+   },
+   "ja": {
+    "value": "このレベルでは、電話番号を乗っ取った人があなたとしてより多くのことを行えます。そのリスクを受け入れる場合のみ続けてください。",
+    "state": "translated"
+   },
+   "km": {
+    "value": "នៅកម្រិតនេះ អ្នកដែលយកលេខទូរស័ព្ទរបស់អ្នកអាចធ្វើបានច្រើនជាងមុនក្នុងនាមអ្នក។ បន្តតែបើអ្នកទទួលយកហានិភ័យនោះ។",
+    "state": "needs_review"
+   },
+   "ko": {
+    "value": "이 수준에서는 전화번호를 가로챈 사람이 당신 이름으로 더 많은 일을 할 수 있습니다. 그 위험을 받아들일 때만 계속하세요.",
+    "state": "needs_review"
+   },
+   "nb": {
+    "value": "På dette nivået kan en person som tar over nummeret ditt gjøre mer som deg. Fortsett bare hvis du godtar den risikoen.",
+    "state": "needs_review"
+   },
+   "pl": {
+    "value": "Na tym poziomie osoba, która przejmie Twój numer, może zrobić więcej w Twoim imieniu. Kontynuuj tylko, jeśli akceptujesz to ryzyko.",
+    "state": "needs_review"
+   },
+   "pt-BR": {
+    "value": "Neste nível, quem tomar seu número pode fazer mais em seu nome. Continue só se aceitar esse risco.",
+    "state": "needs_review"
+   },
+   "ru": {
+    "value": "На этом уровне человек, захвативший ваш номер, может сделать больше от вашего имени. Продолжайте, только если принимаете этот риск.",
+    "state": "needs_review"
+   },
+   "th": {
+    "value": "ในระดับนี้ คนที่ยึดหมายเลขของคุณได้จะทำสิ่งต่างๆ ในนามคุณได้มากขึ้น ดำเนินการต่อเฉพาะเมื่อคุณยอมรับความเสี่ยงนั้น",
+    "state": "needs_review"
+   },
+   "tr": {
+    "value": "Bu seviyede numaranı ele geçiren biri senin adına daha fazlasını yapabilir. Yalnızca bu riski kabul ediyorsan devam et.",
+    "state": "needs_review"
+   },
+   "uk": {
+    "value": "На цьому рівні людина, яка захопила ваш номер, може зробити більше від вашого імені. Продовжуйте, лише якщо приймаєте цей ризик.",
+    "state": "needs_review"
+   },
+   "vi": {
+    "value": "Ở mức này, người chiếm số điện thoại của bạn có thể làm nhiều hơn nhân danh bạn. Chỉ tiếp tục nếu bạn chấp nhận rủi ro đó.",
+    "state": "needs_review"
+   },
+   "zh-Hans": {
+    "value": "在此级别下，夺取你号码的人能以你的名义做更多事。只有在你接受这一风险时才继续。",
+    "state": "needs_review"
+   },
+   "zh-Hant": {
+    "value": "在此等級下，奪取你號碼的人能以你的名義做更多事。只有在你接受這項風險時才繼續。",
+    "state": "needs_review"
+   }
+  },
+  "textConfirm.raiseConfirm": {
+   "en": {
+    "value": "Lower protection",
+    "state": "translated"
+   },
+   "ar": {
+    "value": "تقليل الحماية",
+    "state": "needs_review"
+   },
+   "bs": {
+    "value": "Smanji zaštitu",
+    "state": "needs_review"
+   },
+   "da": {
+    "value": "Sænk beskyttelse",
+    "state": "needs_review"
+   },
+   "de": {
+    "value": "Schutz verringern",
+    "state": "needs_review"
+   },
+   "es": {
+    "value": "Reducir protección",
+    "state": "needs_review"
+   },
+   "fr": {
+    "value": "Réduire la protection",
+    "state": "needs_review"
+   },
+   "it": {
+    "value": "Riduci protezione",
+    "state": "needs_review"
+   },
+   "ja": {
+    "value": "保護を弱める",
+    "state": "translated"
+   },
+   "km": {
+    "value": "បន្ថយការការពារ",
+    "state": "needs_review"
+   },
+   "ko": {
+    "value": "보호 낮추기",
+    "state": "needs_review"
+   },
+   "nb": {
+    "value": "Senk beskyttelse",
+    "state": "needs_review"
+   },
+   "pl": {
+    "value": "Obniż ochronę",
+    "state": "needs_review"
+   },
+   "pt-BR": {
+    "value": "Reduzir proteção",
+    "state": "needs_review"
+   },
+   "ru": {
+    "value": "Снизить защиту",
+    "state": "needs_review"
+   },
+   "th": {
+    "value": "ลดการป้องกัน",
+    "state": "needs_review"
+   },
+   "tr": {
+    "value": "Korumayı düşür",
+    "state": "needs_review"
+   },
+   "uk": {
+    "value": "Знизити захист",
+    "state": "needs_review"
+   },
+   "vi": {
+    "value": "Giảm bảo vệ",
+    "state": "needs_review"
+   },
+   "zh-Hans": {
+    "value": "降低保护",
+    "state": "needs_review"
+   },
+   "zh-Hant": {
+    "value": "降低保護",
+    "state": "needs_review"
+   }
+  },
+  "textConfirm.lockedBy": {
+   "en": {
+    "value": "Locked by {name}",
+    "state": "translated"
+   },
+   "ar": {
+    "value": "مقفل بواسطة {name}",
+    "state": "needs_review"
+   },
+   "bs": {
+    "value": "Zaključao {name}",
+    "state": "needs_review"
+   },
+   "da": {
+    "value": "Låst af {name}",
+    "state": "needs_review"
+   },
+   "de": {
+    "value": "Gesperrt von {name}",
+    "state": "needs_review"
+   },
+   "es": {
+    "value": "Bloqueado por {name}",
+    "state": "needs_review"
+   },
+   "fr": {
+    "value": "Verrouillé par {name}",
+    "state": "needs_review"
+   },
+   "it": {
+    "value": "Bloccato da {name}",
+    "state": "needs_review"
+   },
+   "ja": {
+    "value": "{name} によってロックされています",
+    "state": "translated"
+   },
+   "km": {
+    "value": "ចាក់សោដោយ {name}",
+    "state": "needs_review"
+   },
+   "ko": {
+    "value": "{name}에서 잠금",
+    "state": "needs_review"
+   },
+   "nb": {
+    "value": "Låst av {name}",
+    "state": "needs_review"
+   },
+   "pl": {
+    "value": "Zablokowane przez {name}",
+    "state": "needs_review"
+   },
+   "pt-BR": {
+    "value": "Bloqueado por {name}",
+    "state": "needs_review"
+   },
+   "ru": {
+    "value": "Заблокировано: {name}",
+    "state": "needs_review"
+   },
+   "th": {
+    "value": "ล็อกโดย {name}",
+    "state": "needs_review"
+   },
+   "tr": {
+    "value": "{name} tarafından kilitlendi",
+    "state": "needs_review"
+   },
+   "uk": {
+    "value": "Заблоковано: {name}",
+    "state": "needs_review"
+   },
+   "vi": {
+    "value": "Bị khóa bởi {name}",
+    "state": "needs_review"
+   },
+   "zh-Hans": {
+    "value": "已被 {name} 锁定",
+    "state": "needs_review"
+   },
+   "zh-Hant": {
+    "value": "已被 {name} 鎖定",
+    "state": "needs_review"
+   }
+  }
+ }
+}
