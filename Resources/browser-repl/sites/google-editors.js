@@ -82,6 +82,8 @@
         let value = v ? S.decodeEntities(v[1]) : is ? xmlText(is[1]) : "";
         if (type === "s" && v) value = strings[Number(v[1])] ?? "";
         if (type === "b") value = value === "1" ? "TRUE" : "FALSE";
+        // Numbers as Sheets shows them: Google's xlsx writes 1200 as "1200.0".
+        if (!type && /^-?\d+\.0+$/.test(value)) value = value.replace(/\.0+$/, "");
         if (value === "" && !f) continue;
         cells.push(f ? { cell: ref, value, formula: "=" + S.decodeEntities(f[1]) } : { cell: ref, value });
       }
