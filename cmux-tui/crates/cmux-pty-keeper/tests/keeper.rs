@@ -204,6 +204,11 @@ fn keeper_resizes_and_reports_size_to_every_client() {
     let mut watcher = Connection::connect(&endpoint).unwrap();
     let io = conn.take_io().unwrap();
     let mut output = Output::start(io.reader);
+    // Resize only after the child is running: older ConPTY builds
+    // (Windows Server 2022) can lose a resize sent during child startup.
+    let started = if cfg!(windows) { "Lines:24Columns:80" } else { "2480" };
+    (&io.writer).write_all(b"\r").unwrap();
+    assert!(output.wait_for(started, TIMEOUT), "child never started: {:?}", output.seen());
     conn.send_raw(&Frame::new(999, 1, 2, 3)).unwrap();
     conn.resize(Size::new(0, 10)).unwrap();
     let wanted = Size { cols: 100, rows: 40, width_px: 1000, height_px: 800 };
