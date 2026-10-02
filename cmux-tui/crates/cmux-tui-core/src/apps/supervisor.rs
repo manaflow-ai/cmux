@@ -276,7 +276,8 @@ impl Supervisor {
                 outs.push(Out::Broadcast(json!({ "event": "apps-changed", "revision": inner.mirror.revision, "transaction": transaction })));
                 outs.push(Out::Client(client, json!({ "event": "request-settled", "transaction": transaction, "sequence": inner.mirror.revision })));
             }
-            let mut record = entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
+            let mut record =
+                entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
             // Lets a client drop list replies older than this commit.
             record["revision"] = json!(inner.mirror.revision);
             (outs, record)
