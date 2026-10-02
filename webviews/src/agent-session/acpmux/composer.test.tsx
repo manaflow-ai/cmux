@@ -211,7 +211,7 @@ describe("acpmux composer attachments", () => {
     expect(note()).toBe("This agent does not take images");
     await paste([new File([new Uint8Array([0, 1])], "a.bin")]);
     expect(note()).toBe("a.bin is not an image or a text file");
-    await act(async () => { const node = document.querySelector("textarea")!; Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(node, "hi"); node.dispatchEvent(new dom.window.Event("input", { bubbles: true })); });
+    await act(async () => typeInto(document.querySelector("textarea")!, "hi"));
     await submit();
     expect(sent.map((entry) => entry.text)).toEqual(["hi"]);
     expect(document.querySelector(".acpmux-attachments")).toBeNull();
