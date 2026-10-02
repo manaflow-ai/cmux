@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Synchronization
 @testable import CmuxNextApps
 
@@ -87,6 +88,23 @@ nonisolated func eventually(_ timeout: Duration = .seconds(30), _ condition: @Se
         try? await Task.sleep(for: .milliseconds(5))
     }
     return await condition()
+}
+
+/// Waits until `condition` holds over main-actor observable state (`AppHost`,
+/// `AppSceneModel`). It is re-checked only when a property it read changes, so
+/// a loaded runner makes the wait later, never false; the test's time limit
+/// bounds an event that never comes. Returns whether it holds.
+@MainActor func observed(_ condition: @MainActor () -> Bool) async -> Bool {
+    while !Task.isCancelled {
+        let (changed, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let holds = withObservationTracking(condition) {
+            signal.yield()
+            signal.finish()
+        }
+        if holds { return true }
+        for await _ in changed { break }
+    }
+    return condition()
 }
 
 nonisolated enum TestApps {

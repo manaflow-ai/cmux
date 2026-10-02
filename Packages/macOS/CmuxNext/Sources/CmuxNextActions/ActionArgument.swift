@@ -34,6 +34,9 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
     /// A free-text argument with a searchable list of known values (all
     /// Ghostty themes); nil for plain text.
     public var suggestions: ActionSuggestions?
+    /// The target's new name (a rename): a prompt for it starts from the
+    /// target's current name, selected.
+    public var isTargetName = false
 
     public init(name: String, title: String, kind: ActionArgumentKind, isRequired: Bool = true, suggestions: ActionSuggestions? = nil) {
         self.name = name
@@ -50,6 +53,13 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
     public var optional: ActionArgument {
         var copy = self
         copy.isRequired = false
+        return copy
+    }
+
+    /// A copy that names the action's target (`isTargetName`).
+    public var renamingTarget: ActionArgument {
+        var copy = self
+        copy.isTargetName = true
         return copy
     }
 

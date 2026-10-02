@@ -55,6 +55,11 @@ public protocol OnboardingServices: AnyObject {
     /// Opens a URL with the system (System Settings panes).
     func openExternal(_ url: URL)
 
+    // Computer use
+    /// The helper app's grants, or nil when this build has no computer use
+    /// (the step is left out then).
+    var computerUsePermissions: (any ComputerUsePermissionSource)? { get }
+
     // Accounts
     /// Whether the App supplies the accounts step (`makeAccountsStepView`).
     var hasAccountsStep: Bool { get }
@@ -80,6 +85,7 @@ public extension OnboardingServices {
     func revealInFinder(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
     var ghosttyHasOwnTheme: Bool { true }
     var hasAccountsStep: Bool { false }
+    var computerUsePermissions: (any ComputerUsePermissionSource)? { nil }
     func canImportPasswords() async -> Bool { false }
     func makeAccountsStepView() -> NSView? { nil }
     func variantID(for step: OnboardingModel.Step) -> String? { nil }
