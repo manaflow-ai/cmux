@@ -82,6 +82,23 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Vertical inset of tabs inside the strip.
     public var stripVerticalPadding: CGFloat { max(0, (stripHeight - tabHeight) / 2) }
 
+    /// Space above the strip that counts toward the gap above its tabs (the
+    /// pane padding): tabs sit with equal gaps above (from the pane cell's
+    /// top) and below (to the content border), `PaneChromeMetrics`.
+    public var stripTopOutset: CGFloat = 0
+
+    /// The tabs' top in a strip `height` points tall, on `scale`'s pixel grid.
+    public func tabTop(stripHeight height: CGFloat, scale: CGFloat) -> CGFloat {
+        PaneChromeMetrics(stripHeight: height, tabHeight: min(tabHeight, height), panePadding: stripTopOutset).pillTop(scale: scale)
+    }
+
+    /// A tab pill (its rounded background) inside a slot `width` wide: the
+    /// gap to the next pill is all on the trailing side, so the first pill
+    /// starts on the strip's leading edge.
+    public func pillFrame(slotWidth width: CGFloat, height: CGFloat) -> CGRect {
+        CGRect(x: 0, y: 0, width: max(0, width - 2 * tabBackgroundInset), height: height)
+    }
+
     /// Reads the design tokens for the current density.
     public init() {
         maxTabWidth = Metrics.tabMaxWidth
@@ -103,7 +120,9 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleMinVisibleWidth = Metrics.space5
         stripHeight = Metrics.tabStripHeight
         tabHeight = Metrics.tabHeight
-        stripHorizontalPadding = Metrics.tabStripEdgeInset
+        // The strip's edges are the content border's edges (the chrome line).
+        stripHorizontalPadding = PaneChromeMetrics.pillLeading
+        stripTopOutset = Metrics.panePadding
         newTabButtonWidth = Metrics.tabHeight
         trailingButtonSize = Metrics.tabHeight - Metrics.space2
         trailingButtonSpacing = Metrics.space1

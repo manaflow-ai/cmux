@@ -45,9 +45,9 @@ public extension OnboardingServices {
 }
 
 /// System Settings deep links.
-public enum SystemSettingsLink {
+public extension URL {
     /// Privacy & Security > Full Disk Access.
-    public static let fullDiskAccess = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!
+    static let systemSettingsFullDiskAccess = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!
     /// Desktop & Dock (the default web browser menu).
-    public static let defaultBrowser = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension")!
+    static let systemSettingsDefaultBrowser = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension")!
 }

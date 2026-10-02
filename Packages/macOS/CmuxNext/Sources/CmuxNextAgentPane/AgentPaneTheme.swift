@@ -4,10 +4,14 @@ import Foundation
 /// The page's theme (`window.cmuxAcpmuxBridge.applyTheme`, the TypeScript
 /// `AgentSessionTheme`) derived from the Ghostty-based `ThemeTokens`, so the
 /// pane matches the terminal and chrome. No blue accent (REWRITE.md visual
-/// rules): the accent is the foreground and its soft form the selection fill.
+/// rules): the accent is the foreground and its soft form the selection fill;
+/// labels on it take the background, opaque so a translucent window's
+/// backdrop doesn't thin them.
 enum AgentPaneTheme {
     static func values(_ tokens: ThemeTokens) -> [String: any Sendable] {
         let page = tokens.contentBackground
+        var opaquePage = page
+        opaquePage.alpha = 1
         return [
             "isDark": tokens.isDark,
             "pageBackground": css(page),
@@ -21,6 +25,7 @@ enum AgentPaneTheme {
             "softText": css(tokens.textTertiary),
             "accent": css(tokens.textPrimary),
             "accentSoft": css(tokens.selectionFill),
+            "accentText": css(opaquePage),
             "danger": css(tokens.danger),
             "shadow": css(tokens.shadow),
         ]
