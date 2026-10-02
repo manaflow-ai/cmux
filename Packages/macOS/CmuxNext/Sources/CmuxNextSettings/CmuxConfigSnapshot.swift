@@ -209,13 +209,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.recordsTerminalCommands = recordsCommands
         if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
-        let (appTheme, appThemeDiagnostic) = AppThemeSetting.parse(root)
+        let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }
-        let (fontFamily, fontFamilyDiagnostic) = TerminalFontSetting.parseFamily(root)
+        let (fontFamily, fontFamilyDiagnostic) = TerminalFontSetting().parseFamily(root)
         snapshot.terminalFontFamily = fontFamily
         if let fontFamilyDiagnostic { snapshot.diagnostics.append(fontFamilyDiagnostic) }
-        let (fontSize, fontSizeDiagnostic) = TerminalFontSetting.parseSize(root)
+        let (fontSize, fontSizeDiagnostic) = TerminalFontSetting().parseSize(root)
         snapshot.terminalFontSize = fontSize
         if let fontSizeDiagnostic { snapshot.diagnostics.append(fontSizeDiagnostic) }
 
@@ -245,10 +245,11 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
                             }
                             snapshot.metrics[name] = number
                             // The applier clamps; the diagnostic says so, as the Settings window refuses it.
-                            if name == InterfaceSizeSetting.metricName, !InterfaceSizeSetting.range.contains(number) {
+                            let interfaceSize = InterfaceSizeSetting()
+                            if name == interfaceSize.metricName, !interfaceSize.range.contains(number) {
                                 snapshot.diagnostics.append(SettingsDiagnostic(
                                     kind: .invalidValue, path: path,
-                                    message: "expected a size in points from \(Int(InterfaceSizeSetting.range.lowerBound)) to \(Int(InterfaceSizeSetting.range.upperBound)); clamped"
+                                    message: "expected a size in points from \(Int(interfaceSize.range.lowerBound)) to \(Int(interfaceSize.range.upperBound)); clamped"
                                 ))
                             }
                         }

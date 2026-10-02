@@ -31,6 +31,9 @@ final class AgentTabStore {
     private let customization: AgentPaneCustomizationWatcher
     private var tabsByPane: [String: [String]] = [:]
     private var views: [String: AgentPaneView] = [:]
+    /// Chats outside any pane (onboarding's first task), weakly held, so
+    /// they get customization changes too.
+    private let standaloneViews = NSHashTable<AgentPaneView>.weakObjects()
     /// Session each tab last showed, kept across a web content crash or a
     /// view rebuilt after the tab was released.
     private var sessions: [String: String] = [:]
@@ -81,6 +84,7 @@ final class AgentTabStore {
         customization.onChange = { [weak self] value in
             guard let self else { return }
             for view in views.values { view.customization = value }
+            for view in standaloneViews.allObjects { view.customization = value }
         }
         shortcuts = AgentPaneShortcuts.read(registry)
         // Rebinds in Settings or cmux.json reach every open page.
@@ -89,6 +93,7 @@ final class AgentTabStore {
                 guard let self else { return }
                 shortcuts = value
                 for view in views.values { view.shortcuts = value }
+                for view in standaloneViews.allObjects { view.shortcuts = value }
             }
         }
     }
@@ -146,6 +151,21 @@ final class AgentTabStore {
     }
 
     func existingView(_ key: String) -> AgentPaneView? { views[key] }
+
+    /// A new chat outside any pane (onboarding's first task), on the same
+    /// daemon and page as the tabs. The caller owns it and closes it.
+    func standaloneView(seed: AgentPaneSeed) -> AgentPaneView? {
+        let model = AgentPaneModel(host: host, seed: AgentPaneSeedSource(seed))
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
+        view.customization = customization.current
+        view.shortcuts = shortcuts
+        standaloneViews.add(view)
+        customization.start()
+        return view
+    }
+
+    /// True when this build has the agent page (bundled or dev server).
+    var canHostChat: Bool { source != nil }
 
     /// Focus changes and the page's capability mirror update one registry fact.
     func setCheckpointFocus(_ key: String?) {
@@ -219,7 +239,7 @@ final class AgentTabStore {
     }
 
     private func stopCustomizationWhenUnused() {
-        if views.isEmpty { customization.stop() }
+        if views.isEmpty, standaloneViews.allObjects.isEmpty { customization.stop() }
     }
 }
 

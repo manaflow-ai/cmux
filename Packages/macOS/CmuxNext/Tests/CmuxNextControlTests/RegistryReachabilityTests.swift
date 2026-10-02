@@ -97,6 +97,28 @@ import Testing
         }
     }
 
+    @Test func checkpointCaptureReportsItsCapabilityAndStaysGatedUntilAvailable() async throws {
+        let registry = ActionRegistry.standard()
+        registry.context = [.agentPaneFocused]
+        let executor = RecordingExecutor()
+        let router = ControlRouter(identity: testIdentity(), executor: executor)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+
+        let described = try await router.handle(ControlRequest(method: "action.describe", params: ["action": "agentPane.createCheckpoint"])).get()
+        #expect(described["action"]?["requires"] == .array(["agentPaneFocused", "checkpointCaptureAvailable"]))
+        #expect(described["action"]?["available"] == false)
+        let refused = await router.handle(ControlRequest(method: "action.run", params: ["action": "agentPane.createCheckpoint"]))
+        #expect(refused.failure?.code == "unavailable")
+        #expect(refused.failure?.data?["requires"] == .array(["agentPaneFocused", "checkpointCaptureAvailable"]))
+        #expect(executor.requests.withLock { $0.isEmpty })
+
+        registry.context.insert(.checkpointCaptureAvailable)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+        let accepted = try await router.handle(ControlRequest(method: "action.run", params: ["action": "agentPane.createCheckpoint"])).get()
+        #expect(accepted["action"] == "agentPane.createCheckpoint")
+        #expect(executor.requests.withLock { $0.count } == 1)
+    }
+
     @Test func everyContextMenuIDResolves() async throws {
         let registry = ActionRegistry.standard()
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())

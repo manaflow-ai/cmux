@@ -22,12 +22,12 @@ public enum SettingsWindowLayout: String, Sendable, CaseIterable, TunableChoice 
 }
 
 /// Debug Settings declarations of the Settings window.
-public enum SettingsWindowTunables {
-    public static let section = TunableSection(id: "settingsWindow", title: "Settings Window", symbol: "gearshape", order: 46)
+extension SettingsWindowLayout {
+    public static let tunableSection = TunableSection(id: "settingsWindow", title: "Settings Window", symbol: "gearshape", order: 46)
 
-    public static let layout = Tunable<SettingsWindowLayout>.choice(
-        "settings.layout", section, "Layout", help: "Prototype layout of the Settings window. Switches live.",
-        default: .pages, code: "SettingsWindowTunables.layout")
+    public static let tunable = Tunable<SettingsWindowLayout>.choice(
+        "settings.layout", tunableSection, "Layout", help: "Prototype layout of the Settings window. Switches live.",
+        default: .pages, code: "SettingsWindowLayout.tunable")
 
-    public static var all: [TunableDescriptor] { [layout.descriptor] }
+    public static var tunables: [TunableDescriptor] { [tunable.descriptor] }
 }

@@ -46,7 +46,7 @@ enum AppearanceHandlers {
         })
     }
 
-    private static let fontSizePath = InterfaceSizeSetting.configPath
+    private static let fontSizePath = InterfaceSizeSetting().configPath
 
     private static func setDensity(_ density: Density, _ context: AppActionContext) throws {
         try requireUnmanaged(["appearance", "density"], context)
