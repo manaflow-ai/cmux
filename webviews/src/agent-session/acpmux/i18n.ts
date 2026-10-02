@@ -46,7 +46,7 @@ const ja: Record<StringKey, string> = {
   "turn.stopped": "{time} 後に停止しました",
   "approval.title": "エージェントの操作をどのように承認しますか？",
   "effort.title": "推論の強さ",
-  "picker.recent": "最近",
+  "picker.recent": "最近使ったモデル",
   "picker.more": "その他…",
   "picker.moreModels": "その他のモデル",
   "picker.allModels": "すべてのモデル",

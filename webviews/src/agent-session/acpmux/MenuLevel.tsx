@@ -28,6 +28,8 @@ export function MenuLevel({
       <div
         className={`acpmux-mp-sub${node.panel ? " acpmux-mp-panel" : ""}`}
         data-mp-sub={level}
+        // A list of rows is the row's popup menu; a panel (the reasoning slider) is not.
+        role={node.panel ? undefined : "menu"}
         onPointerEnter={tree.cancelHover}
       >
         {node.panel ?? (

@@ -40,7 +40,13 @@ export function ModelPickerDrill(props: ModelMenuProps) {
         return "keep";
       },
     },
-    ...some(build.effortRow(() => trigger.current?.focus())),
+    ...some(
+      build.effortRow(() => {
+        // Escape on the slider steps back out of reasoning to the chip.
+        tree.reset();
+        trigger.current?.focus();
+      }),
+    ),
     ...build.currentFamily(),
     ...build.recentRows(),
   ];
@@ -97,7 +103,7 @@ export function ModelPickerDrill(props: ModelMenuProps) {
   };
   const keyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Escape") event.stopPropagation();
-    const recent = recentKey(event, query);
+    const recent = recentKey(event, query, data.numbered.length);
     if (recent !== undefined) {
       const combo = data.numbered[recent];
       if (combo) {

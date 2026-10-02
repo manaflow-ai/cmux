@@ -217,10 +217,25 @@ for (const layout of ["cascade", "drill"] as Layout[]) {
       expect(menu()).toBeNull();
       await render(snapshot("claude-haiku-4-5", "high"));
       expect(calls).toEqual(["model claude-haiku-4-5", "effort effort medium"]);
-      // A key past the recents does nothing.
+      // A digit past the numbered recents starts a search instead, so "5" finds the 5s.
       await act(async () => chip().click());
-      await key("9");
-      expect(menu()).not.toBeNull();
+      await key("5");
+      expect(calls).toEqual(["model claude-haiku-4-5", "effort effort medium"]);
+      expect(doc.querySelector(".acpmux-mp .acpmux-menu-search")!.textContent).toBe("5");
+      expect(labels().length).toBeGreaterThan(0);
+      for (const label of labels()) expect(label).toContain("5");
+    });
+
+    test("another harness is offered as a new chat there", async () => {
+      await render(snapshot());
+      await open();
+      // The cascade folds harnesses under the current one; the drill lists them in place.
+      if (layout === "cascade") await press(row("Claude Code")!);
+      const codex = row("Codex")!;
+      expect(codex.textContent).toContain("New chat");
+      await press(codex);
+      expect(calls).toEqual(["harness codex"]);
+      expect(menu()).toBeNull();
     });
 
     test("typing filters this harness's models; Return picks the best match, Escape clears then closes", async () => {

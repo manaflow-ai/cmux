@@ -28,7 +28,7 @@ export function MenuRow({
       role={node.checked === undefined ? "menuitem" : "menuitemradio"}
       tabIndex={-1}
       aria-checked={node.checked}
-      aria-haspopup={submenu ? "menu" : undefined}
+      aria-haspopup={node.children?.length ? "menu" : undefined}
       aria-expanded={submenu ? Boolean(open) : undefined}
       className={`acpmux-menu-item acpmux-mp-row${active ? " acpmux-menu-active" : ""}${open ? " acpmux-mp-open" : ""}${node.more ? " acpmux-mp-more" : ""}`}
       onPointerEnter={onHover}

@@ -75,8 +75,9 @@ export function pickerData(props: ModelPickerProps) {
   };
 }
 
-/// Type-to-filter keys shared by both layouts: letters (and, once a query has begun, digits
-/// and spaces) extend the query, Backspace trims it. Returns whether it took the key.
+/// Type-to-filter keys shared by both layouts: letters and digits (a digit no recent took, so "5"
+/// finds GPT-5) and, once a query has begun, spaces extend the query, Backspace trims it. Returns
+/// whether it took the key.
 export function typeKey(event: React.KeyboardEvent, query: string, setQuery: (query: string) => void): boolean {
   if (event.metaKey || event.ctrlKey || event.altKey) return false;
   if (event.key === "Backspace") {
@@ -86,15 +87,17 @@ export function typeKey(event: React.KeyboardEvent, query: string, setQuery: (qu
     return true;
   }
   if (event.key.length !== 1) return false;
-  if (!query && (event.key === " " || /[1-9]/.test(event.key))) return false;
+  if (!query && event.key === " ") return false;
   event.preventDefault();
   setQuery(query + event.key);
   return true;
 }
 
-/// With no query typed, 1 to 9 pick that recent; returns its index.
-export function recentKey(event: React.KeyboardEvent, query: string): number | undefined {
+/// With no query typed, 1 to `count` pick that numbered recent; returns its index. Other digits
+/// are left to type-to-filter.
+export function recentKey(event: React.KeyboardEvent, query: string, count: number): number | undefined {
   if (query || event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return undefined;
+  if (Number(event.key) > count) return undefined;
   event.preventDefault();
   return Number(event.key) - 1;
 }
