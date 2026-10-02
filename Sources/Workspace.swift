@@ -4184,6 +4184,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
+        bonsplitController.splitButtonShortcuts = Self.buildSplitButtonShortcuts()
 
         // Remove the default "Welcome" tab that bonsplit creates
         let welcomeTabIds = bonsplitController.allTabIds
@@ -12032,6 +12033,24 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
         return shortcuts
+    }
+
+    static func buildSplitButtonShortcuts() -> [BonsplitConfiguration.SplitActionButton.Action: KeyboardShortcut] {
+        let mappings: [(BonsplitConfiguration.SplitActionButton.Action, KeyboardShortcutSettings.Action)] = [
+            (.newTerminal, .newSurface),
+            (.newBrowser, .openBrowser),
+            (.splitRight, .splitRight),
+            (.splitDown, .splitDown),
+        ]
+        return Dictionary(
+            uniqueKeysWithValues: mappings.compactMap { action, settingsAction in
+                let stored = KeyboardShortcutSettings.shortcut(for: settingsAction)
+                guard let key = stored.keyEquivalent else {
+                    return nil
+                }
+                return (action, KeyboardShortcut(key, modifiers: stored.eventModifiers))
+            }
+        )
     }
 
     private func copyIdentifiersToPasteboard(surfaceId: UUID) {
