@@ -5272,9 +5272,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "Inicia sesión en cmux",
-    "signInSubtitle": "Una cuenta para la app, Cloud y el panel.",
+    "signInSubtitle": "Una cuenta para la app, cloud y el panel.",
     "signUpTitle": "Crea tu cuenta de cmux",
-    "signUpSubtitle": "Una cuenta para la app, Cloud y el panel.",
+    "signUpSubtitle": "Una cuenta para la app, cloud y el panel.",
     "continueWithProvider": "Continuar con {provider}",
     "signInWithPasskey": "Iniciar sesión con una llave de acceso",
     "orContinueWith": "O continuar con",

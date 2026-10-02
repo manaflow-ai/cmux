@@ -5270,9 +5270,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "Log ind på cmux",
-    "signInSubtitle": "Én konto til appen, Cloud og dashboardet.",
+    "signInSubtitle": "Én konto til appen, cloud og dashboardet.",
     "signUpTitle": "Opret din cmux-konto",
-    "signUpSubtitle": "Én konto til appen, Cloud og dashboardet.",
+    "signUpSubtitle": "Én konto til appen, cloud og dashboardet.",
     "continueWithProvider": "Fortsæt med {provider}",
     "signInWithPasskey": "Log ind med en adgangsnøgle",
     "orContinueWith": "Eller fortsæt med",

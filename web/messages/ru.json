@@ -5273,9 +5273,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "Вход в cmux",
-    "signInSubtitle": "Один аккаунт для приложения, Cloud и панели управления.",
+    "signInSubtitle": "Один аккаунт для приложения, cloud и панели управления.",
     "signUpTitle": "Создайте аккаунт cmux",
-    "signUpSubtitle": "Один аккаунт для приложения, Cloud и панели управления.",
+    "signUpSubtitle": "Один аккаунт для приложения, cloud и панели управления.",
     "continueWithProvider": "Продолжить через {provider}",
     "signInWithPasskey": "Войти с ключом доступа",
     "orContinueWith": "Или продолжить через",

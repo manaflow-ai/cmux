@@ -256,9 +256,24 @@ def ui_owned_runner(label: str | None, *, test_filter: str | None, owned: str | 
     pools = [p for p in (limits.order if limits else pr_runner_pool.owned_pools(pr_xcode_app))
              if pr_runner_pool.persistent(p) and slots.get(p, 0) > 0]
     if not pools:
+        # A Blacksmith console is locked. Keep the tour queued on the
+        # configured GUI label until a mini becomes available.
+        configured = [p for p in (limits.order if limits else pr_runner_pool.owned_pools(pr_xcode_app))
+                      if pr_runner_pool.persistent(p)]
+        fallback = next((pr_runner_pool.gui_label(p) for p in configured
+                         if pr_runner_pool.gui_label(p)), "")
+        if fallback:
+            log(f"{label} cannot run UI tests (a locked screen); waiting on {fallback}")
+            return fallback
         return label
+    # UI tours require the console-capable label. Keep the GUI label even when
+    # its live count is zero so the tour queues for an unlocked mini instead
+    # of falling back to a root or Blacksmith console.
+    gui = pr_runner_pool.gui_label(pools[0])
     root = pr_runner_pool.root_label(pools[0])
-    runner = root if root and slots.get(root, 0) > 0 else pools[0]
+    runner = (gui if gui
+              else root if root and slots.get(root, 0) > 0
+              else pools[0])
     log(f"{label} cannot run UI tests (a locked screen); queued on {runner} instead")
     return runner
 
@@ -554,7 +569,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
 
     # Auto choices use the shared live rule. Explicit labels retain the
     # workflow's direct-request contract and its validation below.
-    if not args.retry_of and (args.requested or "auto").strip() == "auto":
+    # The shared simple picker has no test-filter or console-session
+    # semantics. Let UI E2E runs reach resolve(), which applies the owned GUI
+    # override before choosing a Blacksmith fallback.
+    if (not args.retry_of and (args.requested or "auto").strip() == "auto"
+            and not ui_run(args.test_filter)):
         values = dict(env)
         values.update({"CI_PR_POOL_OWNED": args.owned, "CI_OWNED_POOL_SLOTS": args.owned_slots,
                        "CI_PR_POOL_OVERFLOW": args.overflow, "MACOS_RUNNER_PR": args.variable,

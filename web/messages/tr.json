@@ -5271,9 +5271,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "cmux'a giriş yap",
-    "signInSubtitle": "Uygulama, Cloud ve kontrol paneli için tek hesap.",
+    "signInSubtitle": "Uygulama, cloud ve kontrol paneli için tek hesap.",
     "signUpTitle": "cmux hesabını oluştur",
-    "signUpSubtitle": "Uygulama, Cloud ve kontrol paneli için tek hesap.",
+    "signUpSubtitle": "Uygulama, cloud ve kontrol paneli için tek hesap.",
     "continueWithProvider": "{provider} ile devam et",
     "signInWithPasskey": "Geçiş anahtarıyla giriş yap",
     "orContinueWith": "Veya şununla devam et",
