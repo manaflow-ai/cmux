@@ -74,9 +74,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     func beginRemoteBinding() -> UUID? {
         state.withLock { state in
             guard !state.discarded, state.router == nil else { return nil }
-            if state.remoteBindingPending, let token = state.remoteBindingToken {
-                return token
-            }
+            guard !state.remoteBindingPending else { return nil }
             state.remoteBindingPending = true
             let token = UUID()
             state.remoteBindingToken = token
@@ -237,7 +235,9 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                     }
                     break
                 } catch {
-                    self.remoteInputFailed(epoch: epoch, input: item, requeueInput: false)
+                    // Setup and cancellation failures happen before socket
+                    // admission. Retain the item for the next binding attempt.
+                    self.remoteInputFailed(epoch: epoch, input: item, requeueInput: true)
                     break
                 }
             }

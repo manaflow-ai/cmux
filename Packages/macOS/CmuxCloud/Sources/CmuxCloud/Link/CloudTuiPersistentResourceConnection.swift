@@ -192,10 +192,16 @@ public actor CloudTuiPersistentResourceConnection {
     /// response. The daemon still emits a normal response, which the reader
     /// safely ignores after the request has been handed to the socket.
     public func sendUntracked(_ request: CloudTuiRequest) async throws {
-        try Task.checkCancellation()
-        try await start()
-        try Task.checkCancellation()
-        guard !closed else { throw Self.protocolFailure }
+        do {
+            try Task.checkCancellation()
+            try await start()
+            try Task.checkCancellation()
+        } catch {
+            // No bytes have been handed to the socket when setup or cancellation
+            // fails, so the caller may safely retain this input for rebinding.
+            throw CloudTuiSendError.notSent(error)
+        }
+        guard !closed else { throw CloudTuiSendError.notSent(Self.protocolFailure) }
         let encoded = try request.envelope(id: nextID())
         guard encoded.count <= 256 * 1024 - 1 else { throw CloudMachineLink.LinkError.inputTooLarge }
         do {

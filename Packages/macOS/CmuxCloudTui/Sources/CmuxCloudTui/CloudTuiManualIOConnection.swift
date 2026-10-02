@@ -473,8 +473,10 @@ public final class CloudTuiManualIOConnection: @unchecked Sendable {
         cancelledWriteTokens.removeAll(keepingCapacity: false)
         pendingWriteOffset = 0
         pendingWriteBytes = 0
-        for continuation in writeContinuations {
-            continuation?.resume(throwing: CheckedSendError.ambiguous)
+        for (index, continuation) in writeContinuations.enumerated() {
+            guard let continuation else { continue }
+            let wasPartiallySent = index == pendingWriteHead && pendingWriteOffset > 0
+            continuation.resume(throwing: wasPartiallySent ? CheckedSendError.ambiguous : CheckedSendError.notSent)
         }
         let descriptorToClose = self.descriptor
         let writeSource = self.writeSource
