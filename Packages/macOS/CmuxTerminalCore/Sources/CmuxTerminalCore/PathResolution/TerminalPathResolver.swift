@@ -98,6 +98,8 @@ public struct TerminalPathResolver: Sendable {
     /// addressable while still accepting forms emitted by compilers, test
     /// runners, and coding agents. Local `file://` URLs are accepted; URL
     /// schemes for remote or non-file resources are left to the URL router.
+    /// GitHub line ranges such as `#L42-L48` are not interpreted as source
+    /// locations; this spelling accepts a single positive line number.
     ///
     /// - Parameters:
     ///   - rawText: The raw open-URL text from the runtime.
