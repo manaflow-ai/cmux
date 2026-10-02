@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -41,8 +42,11 @@ final class AgentTabStore {
     /// workspace, its daemon away) close once the live tree drops the pane.
     private var paneStores: [String: DaemonStore] = [:]
     private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// The app shortcuts every agent page shows, kept current on rebinds.
+    private var shortcuts = AgentPaneShortcuts()
+    private var shortcutObservation: Task<Void, Never>?
 
-    init(tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment) {
         if environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
             host = MockAgentPaneHost()
         } else {
@@ -74,6 +78,14 @@ final class AgentTabStore {
         customization.onChange = { [weak self] value in
             guard let self else { return }
             for view in views.values { view.customization = value }
+        }
+        // Rebinds in Settings or cmux.json reach every open page.
+        shortcutObservation = Task { [weak self] in
+            for await value in Observations({ AgentPaneShortcuts.read(registry) }) {
+                guard let self else { return }
+                shortcuts = value
+                for view in views.values { view.shortcuts = value }
+            }
         }
     }
 
@@ -122,6 +134,7 @@ final class AgentTabStore {
         model.onSessionChange = { [weak self] session in self?.sessions[key] = session }
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
+        view.shortcuts = shortcuts
         views[key] = view
         customization.start()
         return view
