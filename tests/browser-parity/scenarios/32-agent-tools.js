@@ -91,10 +91,11 @@ emitCmux("policy-goto", await page.goto(`${PEER}/aria.html`).then(() => "loaded"
 emitCmux("policy-fetch", await fetch(`${PEER}/api/data`).then(() => "fetched", (e) => e.message));
 emitCmux("policy-tabs-open", await tabs.open(`${PEER}/aria.html`).then(() => "opened", (e) => e.message));
 await page.goto(`${PRIMARY}/agent-tools.html?peer=${PEER}`);
-// The link's navigation is sent back to about:blank; the click fails when it
-// sees the navigation, else a notice prints when the navigation arrives.
+// The link's navigation is sent back to about:blank: the click fails when it
+// sees it, else a navigation event or the next read of the tab does.
 await page.click("#peer-link").catch(() => {});
-await page.waitForURL("about:blank");
+await page.waitForURL((u) => !String(u).startsWith(PRIMARY));
+await page.evaluate(() => document.title).catch(() => {});
 emitCmux("policy-after-link", [page.url(), [...new Set(session.blockedNavigations().map((b) => `${b.blocked} ${b.url}`))]]);
 session.allowedDomains(null);
 session.prohibitedDomains(["http://127.0.0.1"]);
