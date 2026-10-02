@@ -103,6 +103,25 @@ const statements: Record<string, (p: Record<string, unknown>, stream: string, se
   ]
 }
 
+/**
+ * Postgres text and jsonb reject U+0000, and one such row would fail the
+ * drain's transaction forever, blocking every later row of the owner. Owners
+ * accept any string, so the projection replaces U+0000 with U+FFFD in every
+ * string of the payload (the DO keeps the exact value).
+ */
+const pgSafe = (value: unknown): unknown => {
+  if (typeof value === "string") return value.includes("\u0000") ? value.replaceAll("\u0000", "\uFFFD") : value
+  if (Array.isArray(value)) return value.map(pgSafe)
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [pgSafe(k) as string, pgSafe(v)]))
+  return value
+}
+
+/** The SQL for one outbox row, or undefined for a kind this drain does not know. */
+export const projectionStatement = (kind: string, payload: unknown, stream: string, seq: number): [string, Array<unknown>] | undefined => {
+  const make = statements[kind]
+  return make ? make(pgSafe(payload) as Record<string, unknown>, stream, seq) : undefined
+}
+
 export const drainOutbox = async (env: Env, stream: string, rows: ReadonlyArray<OutboxRow>): Promise<void> => {
   if (!env.HYPERDRIVE) throw new Error("HYPERDRIVE binding missing")
   // Loaded on first drain only: keeps pg (CommonJS, node:net) off the request path and out of unit tests.
@@ -112,14 +131,13 @@ export const drainOutbox = async (env: Env, stream: string, rows: ReadonlyArray<
   try {
     await client.query("BEGIN")
     for (const row of rows) {
-      const make = statements[row.kind]
+      const statement = projectionStatement(row.kind, row.payload, stream, row.seq)
       // An unknown kind (newer writer than this drain) must not block every later row.
-      if (!make) {
+      if (!statement) {
         console.error(JSON.stringify({ msg: "outbox row skipped: no projection", stream, seq: row.seq, kind: row.kind }))
         continue
       }
-      const [text, values] = make(row.payload as Record<string, unknown>, stream, row.seq)
-      await client.query(text, values)
+      await client.query(statement[0], statement[1])
     }
     await client.query("COMMIT")
   } catch (e) {
