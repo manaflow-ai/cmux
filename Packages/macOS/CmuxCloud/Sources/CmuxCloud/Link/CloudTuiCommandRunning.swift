@@ -28,3 +28,5 @@ extension CloudMachineLink: CloudTuiCommandRunning {
         try await run(arguments: arguments, timeout: deadline)
     }
 }
+
+extension CloudMachineLink: CloudTuiUntrackedCommandSending {}
