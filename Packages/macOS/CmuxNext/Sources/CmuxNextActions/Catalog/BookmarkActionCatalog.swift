@@ -3,8 +3,8 @@
 // Bookmark This Page has no default chord; Cmd-Shift-B (Chrome's bookmarks
 // bar) is free in cmux and toggles the bar.
 
-nonisolated extension ActionCatalog {
-    static func bookmarkActions() -> [ActionDescriptor] {
+nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
+    static func descriptors() -> [ActionDescriptor] {
         [
             ActionDescriptor(
                 id: "bookmark.addPage", title: t("action.bookmark.addPage", "Bookmark This Page"),

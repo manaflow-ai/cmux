@@ -4,7 +4,7 @@
 // `screen.new` and `screen.newWith` have no default shortcut and no menu.
 // Titles live in ScreenActions.xcstrings (21 languages).
 
-nonisolated extension ActionCatalog {
+nonisolated enum ScreenActionCatalog: ActionCatalogGroup {
     static func screen(
         _ id: ActionID, _ title: String, _ symbol: String, cli: String, keywords: [String],
         surfaces: ActionSurfaces = [.palette, .contextMenu], targets: [ActionTargetKind] = [.screen],
@@ -18,7 +18,7 @@ nonisolated extension ActionCatalog {
         )
     }
 
-    static func screenActions() -> [ActionDescriptor] {
+    static func descriptors() -> [ActionDescriptor] {
         screenLifecycleActions() + screenNavigationActions() + screenAppearanceActions() + screenMoveActions()
     }
 

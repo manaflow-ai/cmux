@@ -2,8 +2,8 @@
 // cmux-tui session in the sidebar (plans/cmux-next/data-model.md 1.1).
 // Titles live in RemoteActions.xcstrings.
 
-nonisolated extension ActionCatalog {
-    static func remoteActions() -> [ActionDescriptor] {
+nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
+    static func descriptors() -> [ActionDescriptor] {
         [
             ActionDescriptor(
                 id: "remote.connect",

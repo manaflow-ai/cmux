@@ -3,8 +3,8 @@
 // `AIProvider` raw values (a test in the App checks it). No action takes a
 // secret as an argument: keys and tokens are pasted in the Accounts screen.
 
-nonisolated extension ActionCatalog {
-    static func accountsActions() -> [ActionDescriptor] {
+nonisolated enum AccountActionCatalog: ActionCatalogGroup {
+    static func descriptors() -> [ActionDescriptor] {
         var actions = [
             ActionDescriptor(
                 id: "accounts.show",

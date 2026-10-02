@@ -2,8 +2,8 @@
 // PageInfoActions.xcstrings. Ids match the PageInfo action constants in
 // CmuxNextBrowser; every bubble control runs one of these.
 
-nonisolated extension ActionCatalog {
-    static func pageInfoActions() -> [ActionDescriptor] {
+nonisolated enum PageInfoActionCatalog: ActionCatalogGroup {
+    static func descriptors() -> [ActionDescriptor] {
         [
             page("browser.pageInfo", title: t("action.pageInfo", "View Site Information"), symbol: "slider.horizontal.3",
                  keywords: ["site", "information", "security", "certificate", "permissions", "cookies", "lock"],

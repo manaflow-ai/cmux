@@ -1,8 +1,8 @@
 // Room, workspace and terminal themes (plans/cmux-next/data-model.md 6).
 // Titles live in ThemeActions.xcstrings.
 
-nonisolated extension ActionCatalog {
-    static func themeActions() -> [ActionDescriptor] {
+nonisolated enum ThemeActionCatalog: ActionCatalogGroup {
+    static func descriptors() -> [ActionDescriptor] {
         [
             ActionDescriptor(
                 id: "room.setTheme",

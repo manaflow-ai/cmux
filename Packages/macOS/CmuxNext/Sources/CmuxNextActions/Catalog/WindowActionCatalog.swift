@@ -1,7 +1,7 @@
 // Catalog rows for one domain. Titles live in Localizable.xcstrings (en, ja).
 
-nonisolated extension ActionCatalog {
-    static func windowActions() -> [ActionDescriptor] {
+nonisolated enum WindowActionCatalog: ActionCatalogGroup {
+    static func descriptors() -> [ActionDescriptor] {
         [
             ActionDescriptor(
                 id: "openSettings",

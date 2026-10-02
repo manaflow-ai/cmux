@@ -2,8 +2,8 @@
 // groups and theme; the wire calls them profiles. Titles live in
 // ProfileActions.xcstrings.
 
-nonisolated extension ActionCatalog {
-    static func profileActions() -> [ActionDescriptor] {
+nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
+    static func descriptors() -> [ActionDescriptor] {
         [
             ActionDescriptor(
                 id: "room.new",

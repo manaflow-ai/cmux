@@ -1,7 +1,7 @@
 // Sticky columns and the strip scrollbar (plans/cmux-next/sticky-column.md).
 // Titles live in LayoutActions.xcstrings.
 
-nonisolated extension ActionCatalog {
+nonisolated extension LayoutActionCatalog {
     static func stickyColumnActions() -> [ActionDescriptor] {
         let targets: [ActionTargetKind] = [.column, .pane]
         return [

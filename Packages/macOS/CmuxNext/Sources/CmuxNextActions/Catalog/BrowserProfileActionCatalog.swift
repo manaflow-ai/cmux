@@ -4,8 +4,8 @@
 // palette and the CLI (`cmux browser-profile ...`) and can take a shortcut;
 // none has a default shortcut.
 
-nonisolated extension ActionCatalog {
-    static func browserProfileActions() -> [ActionDescriptor] {
+nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
+    static func descriptors() -> [ActionDescriptor] {
         let keywords = ["browser", "profile", "chrome", "cookies", "account", "person"]
         func descriptor(
             _ id: ActionID, _ title: String, _ symbol: String, _ cli: String, extra: [String] = [],

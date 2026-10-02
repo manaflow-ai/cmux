@@ -2,8 +2,8 @@
 // handlers (cmux-next only; no old-app inventory row). Titles live in
 // LayoutActions.xcstrings (en, ja).
 
-nonisolated extension ActionCatalog {
-    static func layoutActions() -> [ActionDescriptor] {
+nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
+    static func descriptors() -> [ActionDescriptor] {
         tabMoveActions() + paneExtraActions() + columnActions() + stickyColumnActions() + terminalExtraActions()
     }
 
