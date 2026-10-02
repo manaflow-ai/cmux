@@ -6497,6 +6497,258 @@
         "warning",
         "error"
       ]
+    },
+    "GitDiffScope": {
+      "kind": "enum",
+      "values": [
+        "uncommitted",
+        "unstaged",
+        "staged",
+        "committed",
+        "branch"
+      ]
+    },
+    "GitChangeStatus": {
+      "kind": "enum",
+      "values": [
+        "added",
+        "modified",
+        "deleted",
+        "renamed",
+        "untracked"
+      ]
+    },
+    "GitChangedFile": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Relative to the repository root."
+        },
+        "previous_path": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The path before a rename."
+        },
+        "status": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitChangeStatus"
+          }
+        },
+        "additions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "deletions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "binary": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Present and true for a binary file, which has no patch."
+        },
+        "patch": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The file's unified diff from its first @@ line. Only with include_patch, and never for an untracked file."
+        },
+        "patch_truncated": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Present and true when the patch stopped at max_patch_bytes or the reply's patch budget."
+        }
+      },
+      "extra": false
+    },
+    "GitDiffResult": {
+      "kind": "object",
+      "fields": {
+        "scope": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitDiffScope"
+          }
+        },
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The repository's top level; join it to a file's path."
+        },
+        "head": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The HEAD commit, absent before the first commit."
+        },
+        "base": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The compared commit: the merge base for branch, HEAD's first parent for committed."
+        },
+        "files": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitChangedFile"
+            }
+          }
+        },
+        "additions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Across every changed file, including omitted ones."
+        },
+        "deletions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Across every changed file, including omitted ones."
+        },
+        "total_files": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Changed files before max_files."
+        },
+        "files_omitted": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "total_files minus the files returned."
+        },
+        "untracked_skipped": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Untracked files left out to keep the read bounded."
+        }
+      },
+      "extra": false
+    },
+    "GitStatusResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "branch": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Absent when HEAD is detached."
+        },
+        "detached": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "head": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The HEAD commit, absent before the first commit."
+        },
+        "upstream": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "For example origin/main."
+        },
+        "base": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The branch the branch scope compares with: origin's default branch, else main or master."
+        },
+        "ahead": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Commits ahead of upstream; 0 without one."
+        },
+        "behind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Commits behind upstream; 0 without one."
+        }
+      },
+      "extra": false
     }
   },
   "generics": {
@@ -8861,6 +9113,145 @@
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "git.diff": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "scope": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "GitDiffScope"
+            },
+            "description": "uncommitted: the working tree against HEAD, with untracked files. unstaged: the working tree against the index, with untracked files. staged: the index against HEAD. committed: HEAD against its first parent. branch: the working tree against the merge base with the base branch, with untracked files."
+          },
+          "paths": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              },
+              "min_items": 1,
+              "max_items": 256
+            },
+            "description": "Only these files or folders, relative to the root, taken literally."
+          },
+          "include_patch": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Counts and statuses only unless true."
+          },
+          "max_patch_bytes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 4194304
+            },
+            "default": 262144,
+            "description": "Per file; a longer patch is cut at a line and marked patch_truncated."
+          },
+          "max_files": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 5000
+            },
+            "default": 500,
+            "description": "Files returned, in path order; the rest are counted in files_omitted."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitDiffResult"
+      },
+      "errors": [
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "git.status": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitStatusResult"
+      },
+      "errors": [
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
         "validation.invalid"
       ]
     },

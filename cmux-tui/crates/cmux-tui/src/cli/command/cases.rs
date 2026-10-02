@@ -661,6 +661,24 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             vec!["notification", "clear", "--terminal", "term_00000000000000000000000000000041"],
             "notification.clear",
         ),
+        (vec!["git", "status", "--path", "/repo"], "git.status"),
+        (
+            vec![
+                "git",
+                "diff",
+                "--path",
+                "/repo",
+                "--scope",
+                "staged",
+                "--patch",
+                "--max-patch-bytes",
+                "1024",
+                "--max-files",
+                "10",
+                "src",
+            ],
+            "git.diff",
+        ),
     ];
     cases.extend(state_resource_cases(WORKSPACE, SCREEN, PANE, TAB));
     cases

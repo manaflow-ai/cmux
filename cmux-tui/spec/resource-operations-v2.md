@@ -6,7 +6,7 @@ selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/2` transports 183 operations for exactly one local mux
+`cmux.protocol/2` transports 185 operations for exactly one local mux
 session. Cross-machine aggregation and provider lifecycle require a later
 broker protocol.
 
@@ -33,6 +33,7 @@ correlation, and idempotency metadata.
 | `client` | 7 | `client.cell_pixels.set`, `client.detach`, `client.get`, `client.list`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set` |
 | `closed` | 2 | `closed.list`, `closed.reopen` |
 | `frontend_projection` | 2 | `frontend_projection.get`, `frontend_projection.put` |
+| `git` | 2 | `git.diff`, `git.status` |
 | `machine` | 2 | `machine.get`, `machine.list` |
 | `notification` | 4 | `notification.ack`, `notification.clear`, `notification.create`, `notification.list` |
 | `pairing_request` | 2 | `pairing_request.list`, `pairing_request.resolve` |

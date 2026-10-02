@@ -18,6 +18,7 @@ pub(super) const CMUX_SCOPES: &[&str] = &[
     "agent",
     "room",
     "closed",
+    "git",
 ];
 
 /// Which command-line surface this invocation exposes. The binary ships as

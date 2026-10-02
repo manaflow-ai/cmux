@@ -15,6 +15,7 @@ mod lifecycle;
 mod mcp;
 mod raw;
 mod resolve;
+mod scope_help;
 mod screen_help;
 mod shorthand;
 mod surface;
@@ -43,6 +44,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "agent",
     "room",
     "closed",
+    "git",
     "sidebar",
     "pairing",
     "projection",
@@ -645,7 +647,8 @@ fn scope_help_for(
         "notification" => Cow::Borrowed(NOTIFICATION_HELP),
         "agent" => Cow::Borrowed(AGENT_HELP),
         "room" => Cow::Borrowed(ROOM_HELP),
-        "closed" => Cow::Borrowed(CLOSED_HELP),
+        "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
+        "git" => Cow::Borrowed(scope_help::GIT_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
@@ -706,6 +709,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   agent         List and report agent state
   room          Organize workspaces into rooms
   closed        List and reopen closed tabs, screens, workspaces
+  git           Read a repository's status and changed files
   sidebar       Manage sidebar views and local plugins
   pairing       Resolve pairing requests
   projection    Read and update frontend projections
@@ -944,15 +948,6 @@ workspaces pinned to it and the unpinned workspaces of the sessions it
 follows; --sessions is the complete follow set (\"\" follows none). A
 workspace is pinned to at most one room. A room is named by its id or exact
 name.
-";
-
-const CLOSED_HELP: &str = "\
-USAGE
-  cmux closed list
-  cmux closed <closed> reopen
-
-The session keeps recently closed tabs, screens and workspaces. A tab reopens
-in its pane, a screen in its workspace, a workspace as a new workspace.
 ";
 
 const SIDEBAR_HELP: &str = "\
