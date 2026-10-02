@@ -495,3 +495,58 @@ fn conversation_random_op_sequences_keep_the_invariants() {
         }
     }
 }
+
+#[test]
+fn conversation_work_cards_do_not_hide_the_agent_text_streak() {
+    let mut head = new_head();
+    let mut now = 1_790_000_000_000_u64;
+    let text = vec![Part::Text { text: "x".to_string(), runs: None }];
+    let card = vec![Part::Work {
+        session: "child".to_string(),
+        host: None,
+        status: WorkStatus::Running,
+        preview: None,
+    }];
+    for turn in 0..crate::MAX_AGENT_TURNS {
+        for card_index in 0..10 {
+            let key = format!("card-{turn}-{card_index}");
+            head = send_as(&head, MUX, &key, card.clone(), now).head;
+        }
+        now += 10_000;
+        assert_eq!(crate::check_agent_streak(&head, MUX, &text, now), Ok(()));
+        head = send_as(&head, MUX, &format!("text-{turn}"), text.clone(), now).head;
+    }
+    assert_eq!(head.agent_text_streak as usize, crate::MAX_AGENT_TURNS);
+    now += 10_000;
+    assert_eq!(crate::check_agent_streak(&head, MUX, &text, now), Err(Reject::AgentBudget));
+    assert_eq!(crate::check_agent_streak(&head, MUX, &card, now), Ok(()));
+    head = send_as(&head, ALICE, "human", text.clone(), now).head;
+    assert_eq!(head.agent_text_streak, 0);
+    assert_eq!(crate::check_agent_streak(&head, MUX, &text, now + 1), Ok(()));
+    head = send_as(&head, MUX, "reply", text.clone(), now + 1).head;
+    assert_eq!(crate::check_agent_streak(&head, MUX, &text, now + 2), Err(Reject::AgentRate));
+    assert_eq!(crate::check_agent_streak(&head, MUX, &text, now + 2_001), Ok(()));
+}
+
+fn send_as(
+    head: &ConversationHead,
+    actor: &str,
+    key: &str,
+    parts: Vec<Part>,
+    now_ms: u64,
+) -> Commit {
+    let op = Op::MessageSend { client_msg_id: key.to_string(), parts, reply_to: None };
+    let now = format_rfc3339_millis(now_ms);
+    let id = format!("msg_{key}");
+    let request = OpRequest {
+        actor,
+        idempotency_key: key,
+        op: &op,
+        now: &now,
+        new_message_id: &id,
+        target: None,
+        reply_target: None,
+        last_message: None,
+    };
+    apply(head, &request).unwrap()
+}

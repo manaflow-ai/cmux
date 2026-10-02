@@ -78,13 +78,25 @@ fn run_op(head: &ConversationHead, request: &Request) -> Value {
         }
     }
     let mut value = json!({
-        "head": serde_json::to_value(&commit.head).unwrap(),
+        "head": local_head_without_guard(&commit.head),
         "change": serde_json::to_value(&commit.change).unwrap(),
     });
     if let Some(message) = &commit.message {
         value["message"] = serde_json::to_value(message).unwrap();
     }
     json!({ "commit": value })
+}
+
+/// The corpus's local heads predate the head loop guard (home-messaging.md
+/// section 20 item 6): until lane 15 regenerates them, the two guard fields are
+/// left out of the comparison.
+fn local_head_without_guard(head: &ConversationHead) -> Value {
+    let mut value = serde_json::to_value(head).unwrap();
+    if let Some(object) = value.as_object_mut() {
+        object.remove("agent_text_streak");
+        object.remove("last_agent_text_at");
+    }
+    value
 }
 
 fn run_create(create_case: &Create) -> Value {

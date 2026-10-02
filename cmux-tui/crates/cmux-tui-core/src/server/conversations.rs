@@ -93,6 +93,11 @@ fn resolve_actor(mux: &Mux, client: u64, declared: Option<String>) -> anyhow::Re
     Ok(principal)
 }
 
+/// The stable reason of a conversation reject (the `reason` response field).
+pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
+    error.downcast_ref::<ConversationRejected>().map(|rejected| rejected.0.code().to_string())
+}
+
 /// The `error_code` of a conversation reject.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     error.downcast_ref::<ConversationRejected>().map(|_| ConversationRejected::CODE.to_string())
