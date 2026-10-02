@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers"
-import { introspectWorkflowInstance, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { evictDurableObject, introspectWorkflowInstance, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 
@@ -252,21 +252,84 @@ describe("webhook triggers (workerd)", () => {
     })
   })
 
-  it("the watchdog marks a started run dead when its Workflow is gone, freeing the slot", async () => {
+  it("at its deadline a run whose Workflow is gone becomes dead, freeing the slot (no periodic check)", async () => {
     const { token, team } = await signedIn("hook-user-4")
     const create = await op(token, "automation.create", { name: "w", triggers: [{ type: "webhook" }], body: { type: "steps", steps: [{ type: "note", text: "x" }] } })
     const automation = create.json.value.id as string
     const trigger = create.json.value.triggers[0].id as string
     let run = ""
-    await inDO(scheduler(team), async (instance) => {
+    await inDO(scheduler(team), async (instance, state) => {
       // One synchronous turn: a delivered run marked dispatched with no Workflow instance behind it.
       const r = instance.submitSystem("automation.deliver", { automation, trigger, delivery_id: "orphan" }, "deliver-orphan")
       run = r.frames.find((f: any) => f.t === "result").value.id
       instance.submitSystem("run.dispatched", { run }, `dispatch:${run}`)
-      await instance.watchdog(Date.now() + 16 * 60_000)
+      const rec = JSON.parse(state.storage.sql.exec("SELECT json FROM own_state").toArray()[0]!.json as string).runs[run]
+      // Note-only body: deadline = dispatch + one hour of grace; the alarm targets exactly that instant.
+      expect(rec.deadline_at - Date.now()).toBeGreaterThan(59 * 60_000)
+      expect(instance.nextWakeAt(instance.boundEngine.currentState, Date.now())).toBeLessThanOrEqual(rec.deadline_at)
+      await instance.enforceDeadlines(Date.now() + 30 * 60_000)
+      expect(instance.boundEngine.currentState.runs[run].state).toBe("queued")
+      await instance.enforceDeadlines(rec.deadline_at + 1)
     })
     const runs = await read(token, "automation.runs.list", { automation })
     expect(runs.json.value.runs.find((r: any) => r.id === run)).toMatchObject({ state: "dead", error: { code: "run.dead" } })
+  })
+
+  it("a Workflow still running at its deadline is terminated and the run fails", async () => {
+    const { token, team } = await signedIn("hook-user-6")
+    const create = await op(token, "automation.create", {
+      name: "slow",
+      triggers: [{ type: "manual" }],
+      body: { type: "steps", steps: [{ type: "sleep", seconds: 3600 }] },
+      budget: { wall_clock_seconds: 60 }
+    })
+    const automation = create.json.value.id as string
+    const run = (await op(token, "automation.run", { automation })).json.value.id as string
+    const wf = await introspectWorkflowInstance(testEnv.AUTOMATION_RUN, run)
+    try {
+      await runDurableObjectAlarm(scheduler(team))
+      await wf.waitForStepResult({ name: "sleeping-0" })
+      await inDO(scheduler(team), async (instance) => {
+        const rec = instance.boundEngine.currentState.runs[run]
+        expect(rec.deadline_at - Date.now()).toBeLessThanOrEqual(60_000)
+        await instance.enforceDeadlines(rec.deadline_at + 1)
+      })
+      await wf.waitForStatus("terminated")
+    } finally {
+      await wf[Symbol.asyncDispose]()
+    }
+    const runs = await read(token, "automation.runs.list", { automation })
+    expect(runs.json.value.runs[0]).toMatchObject({ id: run, state: "failed", error: { code: "budget.wall_clock" } })
+  })
+
+  it("retry backoff survives a restart of the object", async () => {
+    const { token, team } = await signedIn("hook-user-7")
+    await op(token, "automation.list", {})
+    await op(token, "automation.create", { name: "r", triggers: [{ type: "manual" }], body: { type: "steps", steps: [{ type: "note", text: "x" }] } })
+    let at = 0
+    await inDO(scheduler(team), async (instance) => {
+      instance.failed("dispatch:run_00000000000000000000", Date.now(), "test")
+      at = instance.retryAt("dispatch:run_00000000000000000000")
+      expect(at).toBeGreaterThan(Date.now())
+    })
+    await evictDurableObject(scheduler(team) as never)
+    await inDO(scheduler(team), async (instance) => {
+      expect(instance.retryAt("dispatch:run_00000000000000000000")).toBe(at)
+    })
+  })
+
+  it("webhook dedupe outlives the request ledger's replay window", async () => {
+    const { token, team } = await signedIn("hook-user-8")
+    const create = await op(token, "automation.create", { name: "d", triggers: [{ type: "webhook" }], body: { type: "steps", steps: [{ type: "note", text: "x" }] } })
+    const trigger = create.json.value.triggers[0].id as string
+    await inDO(scheduler(team), async (instance) => {
+      const first = await instance.deliverWebhook(team, trigger, "sha256:abc", { body: 1 })
+      expect(first.status).toBe("accepted")
+      // Forget every ledger key, as the 7-day prune would.
+      instance.boundEngine.pruneLedger(Number.MAX_SAFE_INTEGER, 100000)
+      const again = await instance.deliverWebhook(team, trigger, "sha256:abc", { body: 1 })
+      expect(again).toEqual({ status: "duplicate", run: first.run })
+    })
   })
 
   it("webhook secrets are for human sessions only", async () => {

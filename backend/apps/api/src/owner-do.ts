@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers"
-import { OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
+import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { drainOutbox } from "./projection.ts"
 
@@ -21,6 +21,7 @@ export interface SubmitResult {
 export type ReadResult = { readonly ok: true; readonly value: unknown; readonly revision: string } | ({ readonly ok: false } & Reject)
 
 const MAX_BACKOFF_MS = 5 * 60_000
+
 
 /** A closing socket must not stop delivery to the others (events are committed already). */
 const safeSend = (ws: WebSocket, text: string) => {
@@ -110,6 +111,18 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return null
   }
 
+  /** Subclasses prune their own side tables older than `before` (same replay window). */
+  protected onPrune(_before: number): void {}
+
+  /** The owner's wake and the ledger's next prune (oldest key + retention), whichever is first. */
+  private wakeAt(now: number): number | null {
+    if (!this.engine) return null
+    const wake = this.nextWakeAt(this.engine.currentState, now)
+    const oldest = this.engine.oldestLedgerAt()
+    const prune = oldest === null ? null : oldest + LEDGER_RETENTION_MS
+    return wake === null ? prune : prune === null ? wake : Math.min(wake, prune)
+  }
+
   /** Runs in the alarm after the outbox drain. A throw is logged and the alarm is rescheduled. */
   protected async onWake(_now: number): Promise<void> {}
 
@@ -146,7 +159,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const now = Date.now()
     const backingOff = (this.store.exec<{ attempts: number }>(`SELECT attempts FROM do_entity WHERE id = 1`)[0]?.attempts ?? 0) > 0
     const outboxAt = !backingOff && this.engine.outboxPending(1).length > 0 ? now : null
-    const wake = this.nextWakeAt(this.engine.currentState, now)
+    const wake = this.wakeAt(now)
     const want = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
     if (want === null) return
     void this.ctx.storage.getAlarm().then((t) => (t === null || t > want ? this.ctx.storage.setAlarm(want) : undefined))
@@ -262,6 +275,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         outboxAt = Date.now() + Math.min(MAX_BACKOFF_MS, 1000 * 2 ** attempts)
       }
     }
+    // Bounded prune; if more remain, the oldest is still past the window and the alarm comes back at once.
+    this.engine.pruneLedger(Date.now() - LEDGER_RETENTION_MS)
+    this.onPrune(Date.now() - LEDGER_RETENTION_MS)
     try {
       await this.onWake(Date.now())
     } catch (e) {
@@ -269,7 +285,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     }
     // Ops committed during the wake may have added outbox rows (their afterCommit saw the running alarm).
     if (outboxAt === null && this.engine.outboxPending(1).length > 0) outboxAt = Date.now()
-    const wake = this.nextWakeAt(this.engine.currentState, Date.now())
+    const wake = this.wakeAt(Date.now())
     const at = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
     if (at !== null) await this.ctx.storage.setAlarm(at)
   }

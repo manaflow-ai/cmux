@@ -27,6 +27,22 @@ export interface RunRecord extends Run {
   readonly dispatched: boolean
   /** The body of the automation version that fired; later edits never change a started run. */
   readonly body: Body
+  /**
+   * When the run must have ended (set at dispatch): the wall-clock budget, else
+   * the body's sleeps plus RUN_GRACE_MS. The owner's alarm fires once at this
+   * instant for a run still open; a run that reports its end never wakes it.
+   */
+  readonly deadline_at?: number
+}
+
+/** Slack added to a body's sleeps for its steps and reports. */
+export const RUN_GRACE_MS = 60 * 60_000
+
+/** Longest a run may take (ms): the budget when set, else the body's sleeps plus grace. */
+export const runLimitMs = (body: Body, budget: Automation["budget"] | undefined): number => {
+  if (budget?.wall_clock_seconds !== undefined) return budget.wall_clock_seconds * 1000
+  const sleeps = body.type === "steps" ? body.steps.reduce((n, s) => n + (s.type === "sleep" ? s.seconds * 1000 : 0), 0) : 0
+  return sleeps + RUN_GRACE_MS
 }
 
 export interface SchedulerState {
@@ -83,7 +99,7 @@ export const matchingEventTriggers = (
 const internalByName = new Map(schedulerInternalOps.map((d) => [d.name, d]))
 
 export const publicRun = (r: RunRecord): Run => {
-  const { dispatched: _d, body: _b, ...run } = r
+  const { dispatched: _d, body: _b, deadline_at: _dl, ...run } = r
   return run
 }
 
@@ -388,8 +404,8 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const d = decodeParams<{ run: string }>(internalByName.get(op)!, params)
         if (!d.ok) return d
         const r = state.runs[d.value.run]
-        if (!r || r.dispatched) return { ok: true, state, value: { run: d.value.run }, changed: false }
-        const next = { ...r, dispatched: true }
+        if (!r || r.dispatched || TERMINAL.has(r.state)) return { ok: true, state, value: { run: d.value.run }, changed: false }
+        const next: RunRecord = { ...r, dispatched: true, deadline_at: ctx.now + runLimitMs(r.body, state.automations[r.automation]?.budget) }
         return { ok: true, state: { ...state, runs: { ...state.runs, [r.id]: next } }, value: { run: r.id } }
       }
 
