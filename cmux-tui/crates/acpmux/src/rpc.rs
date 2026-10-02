@@ -200,6 +200,13 @@ pub mod method {
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
+    // Cross-harness handoff: a reviewed first message from one session to a
+    // new session on another harness (see hub/handoff.rs).
+    pub const MUX_HANDOFF_PREPARE: &str = "_acpmux/handoff_prepare";
+    pub const MUX_HANDOFF_GET: &str = "_acpmux/handoff_get";
+    pub const MUX_HANDOFF_DRAFT: &str = "_acpmux/handoff_draft";
+    pub const MUX_HANDOFF_START: &str = "_acpmux/handoff_start";
+    pub const MUX_HANDOFF_DISCARD: &str = "_acpmux/handoff_discard";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
