@@ -25,14 +25,14 @@ extension CMUXCLI {
 
     static var agentInboxHelp: String {
         String(localized: "cli.help.agentInbox", defaultValue: """
-        Usage: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]
+        Usage: cmux agent inbox [--surface <target>] [--state queued|delivered|read|failed] [--limit <n>] [--mark-read] [--json]
 
         List agent messages, newest first. Without --surface, lists messages for
         every surface. --mark-read marks the listed messages read.
         """)
     }
 
-    /// Handles `cmux agent message|inbox`. Returns false for other `agent`
+    /// Handles `cmux agent message|inbox|messages`. Returns false for other `agent`
     /// subcommands, which stay aliases of `cmux vm agent`.
     func runAgentMessageCommandIfMatched(
         commandArgs: [String],
@@ -55,6 +55,13 @@ extension CMUXCLI {
                 return true
             }
             try runAgentInbox(rest, client: client, jsonOutput: jsonOutput)
+            return true
+        case "messages":
+            if Self.agentMessageRequestsHelp(rest) {
+                print(Self.agentMessagesHelp)
+                return true
+            }
+            try runAgentMessagesSetting(rest, client: client, jsonOutput: jsonOutput)
             return true
         default:
             return false

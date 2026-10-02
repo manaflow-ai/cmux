@@ -1033,6 +1033,32 @@ class OrphanExecutionTests(unittest.TestCase):
         self.assertEqual(fake.posts(), [])
 
 
+class PlannedCancellationTests(unittest.TestCase):
+    def candidate(self):
+        run = make_run(status="queued")
+        usage = janitor.macos_usage(mac_jobs(queued=1))
+        return janitor.Candidate(run, "stale-pr", "PR is merged", usage), run
+
+    def test_refused_cancel_is_force_cancelled_without_failing(self):
+        candidate, run = self.candidate()
+        fake = FakeGitHub({run["id"]: dict(run)}, refuse_cancel=[run["id"]])
+
+        results, failures = janitor.cancel_plan(fake, [candidate])
+
+        self.assertIn("force-cancelled", results[run["id"]])
+        self.assertEqual(failures, 0)
+        self.assertEqual(fake.posts(), [[str(run["id"]), "cancel"], [str(run["id"]), "force-cancel"]])
+
+    def test_run_github_will_not_cancel_is_reported_without_failing(self):
+        candidate, run = self.candidate()
+        fake = FakeGitHub({run["id"]: dict(run)}, refuse_cancel=[run["id"]], refuse_force=[run["id"]])
+
+        results, failures = janitor.cancel_plan(fake, [candidate])
+
+        self.assertIn("stuck", results[run["id"]])
+        self.assertEqual(failures, 0)
+
+
 class OrphanSweepTests(unittest.TestCase):
     def sweep(self, *args, **fake_kwargs):
         stuck = make_run(status="queued", age=340, branch="ci/macos26-app-host-repair")

@@ -6634,6 +6634,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return GhosttyApp.terminalPasteboard.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(pasteAsPlainText(_:)):
             return GhosttyApp.terminalPasteboard.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
+        case #selector(pasteAsOneLine(_:)):
+            return multiLineClipboardPlainText != nil
         case #selector(splitHorizontally(_:)), #selector(splitVertically(_:)):
             return canSplitCurrentSurface()
         case #selector(beginPaneSwapSelection(_:)):
@@ -9405,6 +9407,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEquivalent: ""
         )
         pasteItem.target = self
+        if multiLineClipboardPlainText != nil {
+            let pasteAsOneLineItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.pasteAsOneLine", defaultValue: "Paste as One Line"),
+                action: #selector(pasteAsOneLine(_:)),
+                keyEquivalent: ""
+            )
+            pasteAsOneLineItem.target = self
+        }
         addRevealInFinderMenuItem(
             to: menu,
             surface: surface,
@@ -10347,12 +10357,14 @@ final class GhosttySurfaceScrollView: NSView {
     private var lastFlashStyle: FlashStyle = .navigation
     private var workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
     private var workspaceAttentionNSColor = WorkspaceAttentionColor(configuredHex: nil).nsColor
+    private var workspaceAttentionFlashNSColor = WorkspaceAttentionColor(configuredHex: nil).flashNSColor
     private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
     let linkHoverIndicatorView: TerminalLinkHoverIndicatorView
     let passwordInputIndicatorView: TerminalPasswordInputIndicatorView
+    let jumpToBottomIndicatorView = TerminalJumpToBottomIndicatorView(frame: .zero)
     private let imageTransferIndicatorContainerView: NSView
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
@@ -10376,6 +10388,11 @@ final class GhosttySurfaceScrollView: NSView {
     /// this state; only user scroll gestures, explicit restores, and
     /// authoritative Ghostty scrollbar packets do.
     private(set) var scrollbackViewportIntent: TerminalScrollbackViewportIntent = .followingOutput
+
+    /// Applies a viewport intent transition owned by the terminal view.
+    func applyScrollbackViewportIntent(_ intent: TerminalScrollbackViewportIntent) {
+        scrollbackViewportIntent = intent
+    }
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -10674,7 +10691,7 @@ final class GhosttySurfaceScrollView: NSView {
         flashOverlayView.layer?.masksToBounds = false
         flashOverlayView.autoresizingMask = [.width, .height]
         let flashStyle = WorkspaceAttentionCoordinator.flashStyle(for: .navigation)
-        let flashColor = WorkspaceAttentionColor(configuredHex: nil).nsColor
+        let flashColor = WorkspaceAttentionColor(configuredHex: nil).flashNSColor
         flashLayer.fillColor = NSColor.clear.cgColor
         flashLayer.strokeColor = flashColor.cgColor
         flashLayer.lineWidth = NotificationRingMetrics.lineWidth
@@ -10820,6 +10837,7 @@ final class GhosttySurfaceScrollView: NSView {
         passwordInputIndicatorView.frame = bounds
         passwordInputIndicatorView.autoresizingMask = [.width, .height]
         addSubview(passwordInputIndicatorView)
+        installJumpToBottomIndicator()
 
         NotificationCenter.default.addObserver(
             self,
@@ -11147,6 +11165,7 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
         _ = setFrameIfNeeded(passwordInputIndicatorView, to: contentFrame)
+        _ = setFrameIfNeeded(jumpToBottomIndicatorView, to: contentFrame)
         if let cloudTerminalReconnectOverlayView { _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame) }
         synchronizeCloudTerminalReconnectOverlay()
         if let overlay = searchOverlayHostingView {
@@ -11427,6 +11446,7 @@ final class GhosttySurfaceScrollView: NSView {
         if surfaceView.terminalSurface !== terminalSurface {
             setLinkHoverURL(nil)
             setPasswordInputActive(false)
+            jumpToBottomIndicatorView.reset()
         }
         surfaceView.attachSurface(terminalSurface)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
@@ -11567,6 +11587,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func applyWorkspaceAttentionNSColor() {
         workspaceAttentionNSColor = workspaceAttentionColor.nsColor
+        workspaceAttentionFlashNSColor = workspaceAttentionColor.flashNSColor
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -12088,11 +12109,12 @@ final class GhosttySurfaceScrollView: NSView {
         updateFlashAppearance(style: style)
         flashLayer.removeAllAnimations()
         flashLayer.opacity = 0
+        let pattern = FocusFlashPattern.current
         let animation = CAKeyframeAnimation(keyPath: "opacity")
-        animation.values = FocusFlashPattern.values.map { NSNumber(value: $0) }
-        animation.keyTimes = FocusFlashPattern.keyTimes.map { NSNumber(value: $0) }
-        animation.duration = FocusFlashPattern.duration
-        animation.timingFunctions = FocusFlashPattern.curves.map { curve in
+        animation.values = pattern.values.map { NSNumber(value: $0) }
+        animation.keyTimes = pattern.keyTimes.map { NSNumber(value: $0) }
+        animation.duration = pattern.duration
+        animation.timingFunctions = pattern.curves.map { curve in
             switch curve {
             case .easeIn:
                 return CAMediaTimingFunction(name: .easeIn)
@@ -13704,8 +13726,8 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func updateFlashAppearance(style: FlashStyle) {
         let presentation = Self.flashPresentation(for: style)
-        flashLayer.strokeColor = workspaceAttentionNSColor.cgColor
-        flashLayer.shadowColor = workspaceAttentionNSColor.cgColor
+        flashLayer.strokeColor = workspaceAttentionFlashNSColor.cgColor
+        flashLayer.shadowColor = workspaceAttentionFlashNSColor.cgColor
         flashLayer.shadowOpacity = Float(presentation.glowOpacity)
         flashLayer.shadowRadius = presentation.glowRadius
     }
@@ -13725,7 +13747,7 @@ final class GhosttySurfaceScrollView: NSView {
         layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
-    private func synchronizeScrollView(
+    func synchronizeScrollView(
         forceViewportSync: Bool? = nil,
         preservedReviewOriginY: CGFloat? = nil
     ) {
@@ -13864,6 +13886,7 @@ final class GhosttySurfaceScrollView: NSView {
         scrollbackViewportIntent = syncDecision.intent
         let wasVisible = scrollView.hasVerticalScroller
         surfaceView.scrollbar = scrollbar
+        synchronizeJumpToBottomIndicator()
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent(

@@ -149,7 +149,8 @@ extension ControlNotificationContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        effects: ControlNotificationEffectsPatch?
     ) -> ControlNotificationCreateResolution { .tabManagerUnavailable }
 
     func controlNotificationCreateForSurface(
@@ -158,7 +159,8 @@ extension ControlNotificationContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        effects: ControlNotificationEffectsPatch?
     ) -> ControlNotificationTargetedDeliveryResolution { .tabManagerUnavailable }
 
     func controlNotificationCreateForTarget(
@@ -168,7 +170,8 @@ extension ControlNotificationContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        effects: ControlNotificationEffectsPatch?
     ) -> ControlNotificationTargetedDeliveryResolution { .tabManagerUnavailable }
 
     func controlNotificationList() -> [ControlNotificationSnapshot] { [] }

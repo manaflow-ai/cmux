@@ -29,6 +29,7 @@ LARGE = "blacksmith-12vcpu-macos-26"
 
 OLD = "blacksmith-6vcpu-macos-15"
 MINI = "glaeda-std-xcode-26.6"
+GUI_MINI = "glaeda-gui-std-xcode-26.6"
 
 
 def e2e_run(runner, run_id, *, status="in_progress"):
@@ -1803,7 +1804,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         # Blacksmith sessions sit at a locked screen, so UI tests cannot run there.
         full = dict(running=8, queued=40, committed=48, test_filter="cmuxUITests/ExampleUITests", owned_ui="1")
         self.assertIn(self.owned(**{**full, "test_filter": "cmuxTests/ExampleTests"}), self.pool.E2E_POOLS)
-        self.assertEqual(self.owned(**full), MINI)
+        self.assertEqual(self.owned(**full), GUI_MINI)
         self.assertEqual(self.pool.retry_runner(MINI, ui=True), MINI)
         self.assertEqual(self.pool.retry_runner(SMALL, ui=True), SMALL)
         self.assertTrue(self.pool.ui_run("cmuxTests/A, cmuxUITests/B"))
@@ -1813,10 +1814,10 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         move = dict(test_filter="cmuxUITests/A", owned="1", owned_ui="1", order="",
                     owned_slots=json.dumps({MINI: 8}), pr_xcode_app="/Applications/Xcode_26.6.app")
         for label in (SMALL, LARGE):
-            self.assertEqual(self.pool.ui_owned_runner(label, **move), MINI)
+            self.assertEqual(self.pool.ui_owned_runner(label, **move), GUI_MINI)
         root = "glaeda-root-" + MINI.removeprefix("glaeda-")
         self.assertEqual(self.pool.ui_owned_runner(SMALL, **{**move, "owned_slots": json.dumps({MINI: 8, root: 4})}),
-                         root)
+                         GUI_MINI)
         kept = {
             "a cmuxTests run": dict(test_filter="cmuxTests/A"),
             "owned pools off": dict(owned="0"),
@@ -1826,11 +1827,16 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         }
         for why, change in kept.items():
             with self.subTest(why=why):
-                self.assertEqual(self.pool.ui_owned_runner(SMALL, **{**move, **change}), SMALL)
+                expected = (
+                    GUI_MINI if why == "a drained fleet"
+                    else "glaeda-gui-std-xcode-26.5" if why == "another Xcode pin"
+                    else SMALL
+                )
+                self.assertEqual(self.pool.ui_owned_runner(SMALL, **{**move, **change}), expected)
         self.assertEqual(self.pool.ui_owned_runner(MINI, **move), MINI)
         # A snapshot too old to route on still keeps a UI run off Blacksmith.
         stale = self.pool.pr_runner_pool.MAX_SNAPSHOT_MINUTES + 1
-        self.assertEqual(self.owned(age=stale, test_filter="cmuxUITests/A", owned_ui="1"), MINI)
+        self.assertEqual(self.owned(age=stale, test_filter="cmuxUITests/A", owned_ui="1"), GUI_MINI)
 
     def test_a_ui_run_pinned_to_blacksmith_macos_26_moves_to_an_owned_mac(self):
         # Blacksmith macOS 26 sessions cannot capture the screen, so a pinned UI
@@ -1838,8 +1844,8 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         ui = dict(test_filter="cmuxUITests/ExampleUITests", owned_ui="1")
         for requested in (SMALL, LARGE, "blacksmith-6vcpu-macos-latest"):
             with self.subTest(requested=requested):
-                self.assertEqual(self.owned(requested=requested, **ui), MINI)
-                self.assertEqual(self.owned(requested=requested, running=8, queued=40, **ui), MINI)
+                self.assertEqual(self.owned(requested=requested, **ui), GUI_MINI)
+                self.assertEqual(self.owned(requested=requested, running=8, queued=40, **ui), GUI_MINI)
         kept = {
             "a cmuxTests run": dict(test_filter="cmuxTests/ExampleTests", owned_ui="1"),
             "UI runs not allowed on owned Macs": dict(test_filter="cmuxUITests/ExampleUITests", owned_ui=""),
@@ -1848,7 +1854,8 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         }
         for why, kwargs in kept.items():
             with self.subTest(why=why):
-                self.assertEqual(self.owned(requested=SMALL, **kwargs), SMALL)
+                expected = GUI_MINI if why == "a drained fleet" else SMALL
+                self.assertEqual(self.owned(requested=SMALL, **kwargs), expected)
         # macOS 15 captures, so a pin there is honored.
         self.assertEqual(self.owned(requested=OLD, **ui), OLD)
 
