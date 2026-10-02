@@ -12,7 +12,17 @@ final class CloudFileStubProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        let bodyData = request.httpBody ?? Data()
+        var bodyData = request.httpBody ?? Data()
+        if bodyData.isEmpty, let stream = request.httpBodyStream {
+            stream.open()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                guard count > 0 else { break }
+                bodyData.append(buffer, count: count)
+            }
+            stream.close()
+        }
         let body = ((try? JSONSerialization.jsonObject(with: bodyData)) as? [String: Any] ?? [:])
             .compactMapValues { $0 as? String }
         Self.seen.withLock { $0.append(Seen(method: request.httpMethod ?? "", path: request.url?.path ?? "", query: request.url?.query, body: body)) }
