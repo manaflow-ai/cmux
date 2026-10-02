@@ -12,7 +12,7 @@ import Testing
 @Suite struct SettingsSchemaTests {
     static let densities: Set<String> = ["compact", "comfortable"]
     /// The metrics the schema lists (the App passes every `MetricKey`).
-    static let metrics: Set<String> = [InterfaceSizeSetting.metricName]
+    static let metrics: Set<String> = [InterfaceSizeSetting().metricName]
 
     static func diagnostics(for value: JSONValue, at path: [String]) -> [SettingsDiagnostic] {
         var root = JSONValue.object([:])
