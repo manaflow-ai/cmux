@@ -196,7 +196,7 @@ struct DictationLifecycleTests {
     }
 
     /// Updates from a session that already ended never reach the composer.
-    @Test func lateEventsAfterEveryExitChangeNothing() async {
+    @Test func lateEventsAfterCancelChangeNothing() async {
         let rig = Rig()
         rig.session.start()
         await rig.until { rig.session.phase == .listening }

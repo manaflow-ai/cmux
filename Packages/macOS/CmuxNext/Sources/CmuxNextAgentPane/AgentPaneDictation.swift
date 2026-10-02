@@ -99,8 +99,8 @@ final class AgentPaneDictation {
         guard starting, let press, !phase.isStartable else { return }
         endHold()
         held = (press.keyCode, Self.chord(press.modifierFlags), press.timestamp)
-        keyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
-            self?.keyUp(event)
+        keyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyUp, .flagsChanged]) { [weak self] event in
+            if event.type == .flagsChanged { self?.flagsChanged(event) } else { self?.keyUp(event) }
             return event
         }
         resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
@@ -119,13 +119,25 @@ final class AgentPaneDictation {
         flags.intersection([.command, .control, .option])
     }
 
+    /// The key came up with the chord still down: the release.
     func keyUp(_ event: NSEvent) {
         guard let held, event.keyCode == held.keyCode else { return }
+        // A plain key-up while the hold is armed means the chord's own
+        // release went elsewhere (a prompt, another app): a later "v" typed
+        // in the composer, not push-to-talk ending.
+        release(at: event.timestamp, stops: Self.chord(event.modifierFlags) == held.chord)
+    }
+
+    /// A modifier of the chord came up before the key: that is the release.
+    func flagsChanged(_ event: NSEvent) {
+        guard let held, !Self.chord(event.modifierFlags).isSuperset(of: held.chord) else { return }
+        release(at: event.timestamp, stops: true)
+    }
+
+    private func release(at time: TimeInterval, stops: Bool) {
+        guard let held else { return }
         endHold()
-        // The chord was let go first, or this is a later plain key (the
-        // press's release went elsewhere): not a push-to-talk release.
-        guard Self.chord(event.modifierFlags) == held.chord else { return }
-        if event.timestamp - held.pressedAt >= Self.holdThreshold { session?.stop() }
+        if stops, time - held.pressedAt >= Self.holdThreshold { session?.stop() }
     }
 
     private func endHold() {

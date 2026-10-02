@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-private struct GrantingAuthorizer: DictationAuthorizing {
+private nonisolated struct GrantingAuthorizer: DictationAuthorizing {
     func microphoneAuthorization() async -> DictationAuthorizationStatus { .authorized }
     func requestMicrophoneAuthorization() async -> Bool { true }
     func speechRecognitionAuthorization() async -> DictationAuthorizationStatus { .authorized }
@@ -161,8 +161,8 @@ private actor SilentEngine: SpeechTranscribing {
         #expect(microphone.listening === b)
         b.close()
         await until { !a.holdsResources && !b.holdsResources }
-        #expect(await first.finishes >= 1)
-        #expect(await second.finishes >= 1)
+        await until { await first.finishes >= 1 }
+        await until { await second.finishes >= 1 }
     }
 
     /// The shortcut pressed outside an agent chat stops the pane that still
@@ -210,6 +210,38 @@ private actor SilentEngine: SpeechTranscribing {
         await until { dictation.phase == .idle }
         #expect(scripts.last?.contains("\"state\":\"idle\"") == true)
         #expect(scripts.last?.contains("\"text\":\"open the settings\"") == true)
+        await until { !dictation.holdsResources }
+    }
+
+    /// People let go of a chord in any order: a modifier coming up first
+    /// is the release, and the key's own key-up after it changes nothing.
+    @Test func releasingAModifierFirstStopsAndKeepsTheWords() async throws {
+        let engine = SilentEngine()
+        var scripts: [String] = []
+        let dictation = Self.pane(engine) { scripts.append($0) }
+        dictation.toggle(from: try Self.key(.keyDown, at: 100))
+        await until { dictation.phase == .listening }
+        await engine.hear("half a phrase")
+        await until { scripts.last?.contains("half a phrase") == true }
+        // Shift going down mid-hold is not a release.
+        dictation.flagsChanged(try Self.key(.flagsChanged, at: 100.5, modifiers: [.control, .command, .shift]))
+        #expect(dictation.phase == .listening)
+        dictation.flagsChanged(try Self.key(.flagsChanged, at: 101, modifiers: [.command]))
+        dictation.keyUp(try Self.key(.keyUp, at: 101.02, modifiers: []))
+        await until { dictation.phase == .idle && !dictation.holdsResources }
+        #expect(scripts.last?.contains("\"text\":\"half a phrase\"") == true)
+    }
+
+    /// A quick tap that lets go of a modifier first is still a tap.
+    @Test func aQuickTapReleasingAModifierFirstKeepsListening() async throws {
+        let engine = SilentEngine()
+        let dictation = Self.pane(engine)
+        dictation.toggle(from: try Self.key(.keyDown, at: 100))
+        await until { dictation.phase == .listening }
+        dictation.flagsChanged(try Self.key(.flagsChanged, at: 100.1, modifiers: [.control]))
+        dictation.keyUp(try Self.key(.keyUp, at: 100.12, modifiers: []))
+        #expect(dictation.phase == .listening)
+        dictation.close()
         await until { !dictation.holdsResources }
     }
 
