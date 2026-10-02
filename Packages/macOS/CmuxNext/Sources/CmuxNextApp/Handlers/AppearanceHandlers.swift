@@ -55,7 +55,8 @@ enum AppearanceHandlers {
     /// on removes the key instead of writing it.
     private static func togglePaneBorder(_ context: AppActionContext) {
         let design = DesignSettings.shared
-        let next: PaneBorderStyle = Metrics.paneBorder == .subtle ? .none : .subtle
+        // The configured border, not the drawn one (appearance.borders none draws none).
+        let next: PaneBorderStyle = (design.paneChrome.border ?? .subtle) == .subtle ? .none : .subtle
         var chrome = design.paneChrome
         chrome.border = next == .subtle ? nil : next
         design.setPaneChrome(chrome)
