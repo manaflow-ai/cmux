@@ -32,6 +32,9 @@ enum CloudStrings {
     static var killMachineTitle: String { String(localized: "cloud.prompt.killMachine", defaultValue: "Kill this Cloud machine?", table: "Cloud", bundle: .module) }
     static var killMachineBody: String { String(localized: "cloud.prompt.killMachineBody", defaultValue: "The machine and every terminal on it are deleted. This cannot be undone.", table: "Cloud", bundle: .module) }
     static var kill: String { String(localized: "cloud.button.kill", defaultValue: "Kill Machine", table: "Cloud", bundle: .module) }
+    static var deleteSnapshotTitle: String { String(localized: "cloud.prompt.deleteSnapshot", defaultValue: "Delete this Cloud snapshot?", table: "Cloud", bundle: .module) }
+    static var deleteSnapshotBody: String { String(localized: "cloud.prompt.deleteSnapshotBody", defaultValue: "The snapshot is permanently deleted. This cannot be undone.", table: "Cloud", bundle: .module) }
+    static var deleteSnapshot: String { String(localized: "cloud.button.deleteSnapshot", defaultValue: "Delete Snapshot", table: "Cloud", bundle: .module) }
     static var cancel: String { String(localized: "cloud.button.cancel", defaultValue: "Cancel", table: "Cloud", bundle: .module) }
     static var ok: String { String(localized: "cloud.button.ok", defaultValue: "OK", table: "Cloud", bundle: .module) }
     static var rename: String { String(localized: "cloud.button.rename", defaultValue: "Rename", table: "Cloud", bundle: .module) }
