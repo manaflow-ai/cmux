@@ -50,7 +50,7 @@ Global flags: `--api-key`, `--team`, `--proxy`, `--output pretty|json`, `-h`, `-
 
 | Freestyle command | cmux main equivalent | cmux-next equivalent | Gap |
 | --- | --- | --- | --- |
-| vm create/list/get/update/start/pause/resize/delete | `cmux vm new/list/status/rename/start/pause/resize/delete`; provider in `drivers/freestyle.ts` | CloudAPI create/list/get/delete/rename/resize; CloudService/sidebar; catalog create/kill/resize | Add Machines left-sidebar section, update/start/pause/idle policy, delete confirmation, catalog and CLI parity; preserve idempotency |
+| vm create/list/get/update/start/resume/pause/resize/delete | `cmux vm new/list/status/rename/start/pause/resize/delete`; provider in `drivers/freestyle.ts` | CloudAPI create/list/get/delete/rename/resize; CloudService/sidebar; catalog create/kill/resize | Add Machines left-sidebar section, update/start/resume/pause/idle policy, delete confirmation, catalog and CLI parity; preserve idempotency |
 | vm snapshot + snapshot group | `vm snapshot`, `snapshot_list/delete`, restore/fork backend | CloudAPI snapshot/list/restore/fork and catalog snapshot/restore/fork | Add snapshot delete and complete top-level snapshot API/catalog |
 | vm exec/ssh | `vm exec`, `vm ssh`/`ssh-attach`, `FreestyleInteractiveShellScript` | CloudAPI exec; CloudMachineLink daemon terminal | Add backend-wrapped ssh/pty attach as ordinary machine-tagged panes and catalog/CLI/MCP actions |
 | vm scp/fs | `VMTransfer`, `VMSCP`, `file_put/pull` and tree/workspace helpers | none beyond daemon panes | Add backend file read/write/list/mkdir/rm/stat and scp, exposed as ordinary panes and file actions |
@@ -79,7 +79,7 @@ The code-mode execute path must consume Cloud through the same typed catalog and
 
 The relay slice order is:
 
-1. Add the catalog and host-broker envelope for machine reads and lifecycle mutations, including create/list/get/update/start/pause/resize/delete and snapshots. Pause and resume are owned Cloud operations in this relay and use the same idle-policy and permission checks as the app handlers. The backend uses a fake Freestyle driver and recorded fixtures in local mode for tests.
+1. Add the catalog and host-broker envelope for machine reads and lifecycle mutations, including create/list/get/update/start/resume/pause/resize/delete and snapshots. `resume` is the canonical catalog verb for starting a paused machine; `start` remains the Freestyle-compatible alias. Pause and resume are owned Cloud operations in this relay and use the same idle-policy and permission checks as the app handlers. The backend uses a fake Freestyle driver and recorded fixtures in local mode for tests.
 2. Add `vm.exec` and `vm.attach` routing. Exec returns the typed exit/stdout/stderr result; attach opens the normal machine-tagged terminal pane through the existing daemon link. CLI, MCP, palette, and code mode invoke the same router action and argument schema.
 3. Add SCP and filesystem operations through backend routes and typed results. Generate ephemeral transfer keys server-side or through the approved host broker, enforce host-key and expiry checks, and keep all file operations in ordinary machine-tagged panes/file actions.
 4. Add VPC, WireGuard tunnel, and firewall operations from `spec/network-policy.md`, then domains/TLS, identities/tokens, and read-only account/team/billing views. Each group gets catalog entries before UI surfaces.
