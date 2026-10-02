@@ -164,30 +164,19 @@ final class CloudTerminalPaneReservation {
         allowPlacementRepair: Bool = false
     ) throws -> SurfaceRemotePlacement? {
         guard let expected = attachmentPlacement else { return materializedPlacement }
-        guard resourceID == expected.resource, resourceID.machine == machine,
-              remoteTabID == nil || expected.remoteTabID == nil || remoteTabID == expected.remoteTabID else {
-            throw CloudDiagnosticFailure.placement
-        }
-        guard expected.remoteWorkspaceID != nil || expected.remoteTabID != nil else { return materializedPlacement }
-        if let view = try? catalog.remoteView(
+        let catalogPlacement = (try? catalog.remoteView(
             for: resourceID, tabID: expected.remoteTabID, workspaceID: expected.remoteWorkspaceID
-        ) {
-            if let materializedPlacement,
-               materializedPlacement != SurfaceRemotePlacement(workspaceID: view.workspace.id, tabID: view.tabID) {
-                guard allowPlacementRepair,
-                      materializedPlacement.workspaceID == view.workspace.id else {
-                    throw CloudDiagnosticFailure.placement
-                }
-                return materializedPlacement
-            }
-            return materializedPlacement ?? SurfaceRemotePlacement(workspaceID: view.workspace.id, tabID: view.tabID)
-        }
-        guard allowPlacementRepair else { throw CloudDiagnosticFailure.placement }
-        guard let materializedPlacement else { return nil }
-        if let expectedWorkspaceID = expected.remoteWorkspaceID,
-           materializedPlacement.workspaceID != expectedWorkspaceID {
-            throw CloudDiagnosticFailure.placement
-        }
-        return materializedPlacement
+        )).map { SurfaceRemotePlacement(workspaceID: $0.workspace.id, tabID: $0.tabID) }
+        return try CloudTerminalAttachmentPlacementPolicy(
+            expectedResource: expected.resource,
+            expectedWorkspaceID: expected.remoteWorkspaceID,
+            expectedTabID: expected.remoteTabID,
+            allowsRepair: allowPlacementRepair
+        ).validate(
+            resourceID: resourceID,
+            remoteTabID: remoteTabID,
+            catalogPlacement: catalogPlacement,
+            materializedPlacement: materializedPlacement
+        )
     }
 }

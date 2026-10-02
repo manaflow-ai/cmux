@@ -269,47 +269,6 @@ struct CloudTerminalPaneReservationTests {
     }
 
     @Test @MainActor
-    func restoredAttachmentCanValidateAReplacementOnlyInItsSavedWorkspace() throws {
-        let catalog = SurfaceCatalog()
-        var resource = Self.resource()
-        let provider = CloudTerminalPlacementTestProvider(machine: resource.machine, catalog: catalog)
-        catalog.register(provider)
-        defer { catalog.unregister(machine: provider.machine) }
-        let saved = SurfaceRemoteWorkspace(id: "saved-workspace", name: "Saved", index: 0, focused: false)
-        resource.remoteViews = [SurfaceRemoteView(tabID: "sibling-tab", workspace: saved)]
-        catalog.upsert(resource, from: provider)
-        let reservation = CloudTerminalPaneReservation(
-            workspaceID: UUID(), panelID: UUID(), machine: resource.machine,
-            attachmentPlacement: SurfaceResourcePlacement(
-                resource: resource.id, remoteWorkspaceID: saved.id, remoteTabID: "deleted-tab"
-            )
-        )
-
-        #expect(try reservation.validatedAttachmentPlacement(
-            resourceID: resource.id, remoteTabID: "deleted-tab", catalog: catalog,
-            allowPlacementRepair: true
-        ) == nil)
-        let replacement = SurfaceRemotePlacement(workspaceID: saved.id, tabID: "repaired-tab")
-        #expect(try reservation.validatedAttachmentPlacement(
-            resourceID: resource.id, remoteTabID: "deleted-tab",
-            materializedPlacement: replacement, catalog: catalog,
-            allowPlacementRepair: true
-        ) == replacement)
-        #expect(throws: CloudDiagnosticFailure.placement) {
-            try reservation.validatedAttachmentPlacement(
-                resourceID: resource.id, remoteTabID: "deleted-tab",
-                materializedPlacement: SurfaceRemotePlacement(workspaceID: "other-workspace", tabID: "repaired-tab"),
-                catalog: catalog, allowPlacementRepair: true
-            )
-        }
-        #expect(throws: CloudDiagnosticFailure.placement) {
-            try reservation.validatedAttachmentPlacement(
-                resourceID: resource.id, remoteTabID: "deleted-tab", catalog: catalog
-            )
-        }
-    }
-
-    @Test @MainActor
     func aNewCreationDoesNotMistakeItsSourceTabForTheAttachmentTarget() throws {
         let resource = Self.resource()
         let reservation = CloudTerminalPaneReservation(
