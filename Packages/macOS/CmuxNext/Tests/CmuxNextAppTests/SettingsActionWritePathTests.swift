@@ -48,26 +48,14 @@ import Testing
         let settings = SettingsController(registry: registry, design: DesignSettings(), fileURL: url)
         services.settings = settings
         await settings.reload()
-        let context = AppActionContext(services: services)
+        // A design of its own: the handlers apply each value live first,
+        // and other suites read the shared one in parallel.
+        let design = DesignSettings()
+        let context = AppActionContext(services: services, design: design)
         AppearanceHandlers.bind(into: registry, context: context)
         FocusRingHandlers.bind(into: registry, context: context)
         NotificationSettingsHandlers.bind(into: registry, context: context)
         StickyColumnHandlers.bind(into: registry, context: context)
-
-        // The handlers apply the live value to the shared design first; put it back.
-        let design = DesignSettings.shared
-        let saved = (design.density, design.animationSpeed, design.centerFocusedColumn, design.overrides[.chromeFontSize],
-                     design.paneChrome, design.titlebar, design.focusRing, design.stripScrollbar)
-        defer {
-            design.density = saved.0
-            design.animationSpeed = saved.1
-            design.centerFocusedColumn = saved.2
-            design.setOverride(.chromeFontSize, saved.3)
-            design.setPaneChrome(saved.4)
-            design.titlebar = saved.5
-            design.focusRing = saved.6
-            design.stripScrollbar = saved.7
-        }
 
         for (action, key) in Self.table {
             let descriptor = try #require(SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: key)), "\(key) is not a schema key")
@@ -84,5 +72,10 @@ import Testing
                 #expect(descriptor.accepts(value), "\(action.rawValue) wrote \(key) = \(value.compactText)")
             }
         }
+        // The live values landed on the context's design (the last rows set
+        // compact density, the minimal titlebar and the glow ring).
+        #expect(design.density == .compact)
+        #expect(design.titlebar == .minimal)
+        #expect(design.focusRing.style == .glow)
     }
 }

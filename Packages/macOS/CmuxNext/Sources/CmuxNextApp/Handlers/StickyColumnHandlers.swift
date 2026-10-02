@@ -38,8 +38,8 @@ enum StickyColumnHandlers {
             try apply(next, to: target, in: content)
         })
         registry.bind("layout.toggleStripScrollbar", run: { _ in
-            let next = DesignSettings.shared.stripScrollbar.toggled
-            DesignSettings.shared.stripScrollbar = next
+            let next = ctx.design.stripScrollbar.toggled
+            ctx.design.stripScrollbar = next
             ctx.writeSetting("set strip scrollbar", StripScrollbarSetting.configPath, .string(next.rawValue))
         })
     }

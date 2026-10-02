@@ -30,7 +30,7 @@ enum AppearanceHandlers {
         registry.bind("appearance.paneBorderWidth.toggle", run: { _ in try togglePaneBorderWidth(context) })
         registry.bind("appearance.paneBorderColor.reset", run: { _ in
             try requireUnmanaged(["layout", "paneBorderColor"], context)
-            let design = DesignSettings.shared
+            let design = context.design
             var chrome = design.paneChrome
             chrome.borderColor = nil
             design.setPaneChrome(chrome)
@@ -41,7 +41,7 @@ enum AppearanceHandlers {
         }
         registry.bind("appearance.interfaceSize.reset", run: { _ in
             try requireUnmanaged(fontSizePath, context)
-            DesignSettings.shared.setOverride(.chromeFontSize, nil)
+            context.design.setOverride(.chromeFontSize, nil)
             context.writeSetting("reset interface size", fontSizePath, nil, reloadOnFailure: true)
         })
     }
@@ -50,7 +50,7 @@ enum AppearanceHandlers {
 
     private static func setDensity(_ density: Density, _ context: AppActionContext) throws {
         try requireUnmanaged(["appearance", "density"], context)
-        DesignSettings.shared.density = density
+        context.design.density = density
         context.writeSetting("set density", ["appearance", "density"], .string(density.rawValue), reloadOnFailure: true)
     }
 
@@ -58,7 +58,7 @@ enum AppearanceHandlers {
     /// on removes the key instead of writing it.
     private static func togglePaneBorder(_ context: AppActionContext) throws {
         try requireUnmanaged(["layout", "paneBorder"], context)
-        let design = DesignSettings.shared
+        let design = context.design
         // The configured border, not the drawn one (appearance.borders none draws none).
         let next: PaneBorderStyle = (design.paneChrome.border ?? .subtle) == .subtle ? .none : .subtle
         var chrome = design.paneChrome
@@ -71,7 +71,7 @@ enum AppearanceHandlers {
     /// Padding off (0) or back to the density default.
     private static func togglePanePadding(_ context: AppActionContext) throws {
         try requireUnmanaged(["layout", "panePadding"], context)
-        let design = DesignSettings.shared
+        let design = context.design
         var chrome = design.paneChrome
         chrome.padding = Metrics.panePadding > 0 ? 0 : nil
         design.setPaneChrome(chrome)
@@ -84,7 +84,7 @@ enum AppearanceHandlers {
     /// radius explicitly.
     private static func togglePaneCorners(_ context: AppActionContext) throws {
         try requireUnmanaged(["layout", "paneCornerRadius"], context)
-        let design = DesignSettings.shared
+        let design = context.design
         var chrome = design.paneChrome
         if Metrics.paneCornerRadius > 0 {
             chrome.cornerRadius = 0
@@ -101,7 +101,7 @@ enum AppearanceHandlers {
     /// Border width: one device pixel (the default, key removed) or 2 pt.
     private static func togglePaneBorderWidth(_ context: AppActionContext) throws {
         try requireUnmanaged(["layout", "paneBorderWidth"], context)
-        let design = DesignSettings.shared
+        let design = context.design
         var chrome = design.paneChrome
         chrome.borderWidth = Metrics.paneBorderWidth == nil ? 2 : nil
         design.setPaneChrome(chrome)
@@ -112,7 +112,7 @@ enum AppearanceHandlers {
     /// `window.titlebar`: applied at once, then written to cmux.json.
     private static func setTitlebar(_ style: TitlebarStyle, _ context: AppActionContext) throws {
         try requireUnmanaged(WindowTitlebarSetting.configPath, context)
-        DesignSettings.shared.titlebar = style
+        context.design.titlebar = style
         // The default removes the key (and an emptied `window` object).
         let value: JSONValue? = style == WindowTitlebarSetting.fallback ? nil : .string(style.rawValue)
         context.writeSetting("set titlebar", WindowTitlebarSetting.configPath, value, reloadOnFailure: true)
@@ -121,14 +121,14 @@ enum AppearanceHandlers {
     /// `ui.animationSpeed`: applied at once, then written to cmux.json.
     private static func setAnimationSpeed(_ speed: MotionSpeed, _ context: AppActionContext) throws {
         try requireUnmanaged(AnimationSpeedSetting.configPath, context)
-        DesignSettings.shared.animationSpeed = speed
+        context.design.animationSpeed = speed
         context.writeSetting("set animation speed", AnimationSpeedSetting.configPath, .string(speed.rawValue), reloadOnFailure: true)
     }
 
     /// `layout.centerFocusedColumn`: applied at once, then written to cmux.json.
     private static func setCenterFocusedColumn(_ mode: CenterFocusedColumn, _ context: AppActionContext) throws {
         try requireUnmanaged(CenterFocusedColumnSetting.configPath, context)
-        DesignSettings.shared.centerFocusedColumn = mode
+        context.design.centerFocusedColumn = mode
         context.writeSetting("set center focused column", CenterFocusedColumnSetting.configPath, .string(mode.rawValue), reloadOnFailure: true)
     }
 
@@ -139,7 +139,7 @@ enum AppearanceHandlers {
 
     private static func stepInterfaceSize(by delta: Double, _ context: AppActionContext) throws {
         try requireUnmanaged(fontSizePath, context)
-        let design = DesignSettings.shared
+        let design = context.design
         design.setOverride(.chromeFontSize, CGFloat(interfaceSize(design) + delta))
         let size = interfaceSize(design)
         context.writeSetting("set interface size", fontSizePath, .number(size), reloadOnFailure: true)

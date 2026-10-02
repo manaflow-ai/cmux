@@ -25,7 +25,7 @@ enum FocusRingHandlers {
 
     /// Choosing a style also turns the ring on.
     private static func setStyle(_ style: FocusRingStyle, _ context: AppActionContext) {
-        let design = DesignSettings.shared
+        let design = context.design
         var ring = design.focusRing
         let wasEnabled = ring.enabled
         ring.style = style
@@ -37,7 +37,7 @@ enum FocusRingHandlers {
     }
 
     private static func update(_ context: AppActionContext, key: String, _ change: (inout FocusRingSettings) -> JSONValue) {
-        let design = DesignSettings.shared
+        let design = context.design
         var ring = design.focusRing
         let value = change(&ring)
         design.focusRing = ring
