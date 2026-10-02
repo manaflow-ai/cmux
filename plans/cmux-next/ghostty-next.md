@@ -49,7 +49,8 @@ organization does not need a second fork in one network. `main` =
 | build: add the ios xcframework target | `-Dxcframework-target=ios` builds iOS device, iOS simulator and native macOS (for host-side Swift package tests). |
 | ci: ghostty-next GhosttyKit pipeline | Section 10. |
 | build: enable blocks when translating Apple SDK headers | The iOS 26.5 SDK CoreGraphics headers use blocks; translate-c needs `-fblocks` (found by the first iOS build). |
-| (in review) remote IO mode | Port of the desktop fork's manual and manual-mirror IO with the same C ABI (section 3). |
+| ci: zero archive dates and add a link smoke | Reproducible archives; link-and-run smoke for every slice. |
+| (in review, PR 2) remote IO mode | Manual and manual-mirror IO with the desktop fork's C names and values (struct offsets differ: different base), plus `ghostty_surface_text_input`. CI: 88 unit tests green; review asked for fixes (Kitty temp-file media, local clear and reset in mirror mode, exhaustive reply classification, sliced `process_output`, threading contract, byte-level reply corpus test). |
 
 Why upstream main and not `manaflow-ai/ghostty` main:
 
@@ -70,9 +71,20 @@ Why upstream main and not `manaflow-ai/ghostty` main:
 Cost of this choice: iOS is unsupported upstream, so ghostty-next owns iOS
 build breakage after each upstream sync, and the iOS fixes in the desktop
 fork (render serial queue bounds, glyph DPI and pinch zoom, IOSurfaceLayer
-teardown, libxev machport kevent) must be ported or re-solved. A helper's
-inventory of those patches is in the lane's private notes; the port list
-goes into NEXT.md as each lands.
+teardown, libxev machport kevent) must be ported or re-solved. The lane's
+inventory (private notes) classifies the desktop fork's 530 commits: about
+300 are desktop-only, 28 are already upstream, and the iOS stack needs 6 to
+8 patches (about 1.0k to 1.3k lines): the build revert, manual IO,
+manual-mirror reply suppression, committed text input, 72 DPI font sizing on
+iOS (upstream `src/font/face.zig` still assumes 96), the IOSurfaceLayer
+teardown fix (`adee7043fc`, `dd726a9a60`), and snapshot restore. The
+desktop fork's iOS render-queue workarounds (about 60 commits) are not
+needed: they worked around a libxev iOS bug that upstream's libxev pin
+already fixes. Known renderer risk: upstream releases the swap chain on
+occlusion and waits for frame completions without a timeout, which can
+block the renderer thread when the app goes to the background; ghostty-next
+needs a bounded wait there. Upstream also changed the clipboard callback
+interface, so no Swift code from today's app links unchanged.
 
 Risk for the shipping app: the current iOS app links GhosttyKit from
 `manaflow-ai/ghostty`. The next upstream sync of that fork inherits
@@ -116,7 +128,13 @@ Mechanics:
   not affected. This replaces today's "terminal bytes disconnect and
   reattach" overflow policy with an in-band resync.
 - Snapshot = upstream libghostty-vt snapshot (`GHOSTSNP`, version u16,
-  CRC32C per record). The phone restores READY atomically into a fresh
+  CRC32C per record). Format version 1 has two gaps: it carries no Kitty
+  graphics images, and upstream makes no binary-compatibility promise
+  across versions. Until upstream closes them, a snapshot is followed by a
+  Kitty image replay (the session host re-sends the images that are on
+  screen), and host and phone must agree on the exact snapshot version
+  (negotiated in `terminal-snapshot-v1`; a mismatch falls back to byte
+  replay). The phone restores READY atomically into a fresh
   terminal state, then prepends history pages as they arrive. This replaces
   RIS-plus-replay, the `pending` escape tail and the separate Kitty replay
   restore of today's byte attach.
@@ -422,10 +440,18 @@ and the live RTT show in the terminal header, so a slow path is visible.
 
 ## 10. GhosttyKit pipeline
 
-- Status 2026-10-02: the ios target builds on CI (run 37007967844: three
-  slices of about 132 MB each, zip about 96 MB). Push and pull_request
-  triggers did not start runs on the new repository; `workflow_dispatch`
-  works and is the publish path until that is fixed.
+- Status 2026-10-02: first release
+  `xcframework-e699e418bf5e16bac6451dc44bd0c82907af58bc-ios-v1`
+  (zip 96,269,903 bytes, sha256
+  `781ef33200e19d5eb381c85e23c9a92ddd7351f07a3792c043de9bb61eac0d8c`,
+  attestation verified with `gh attestation verify`). `next/smoke.sh
+  --release` downloaded it, checked the sha256, linked all three slices,
+  and ran `ghostty_init` plus a config round trip on macOS and in an iOS 27
+  simulator on the build host. Two builds of one commit were not
+  byte-identical: archive timestamps (fixed with `ZERO_AR_DATE=1`) and the
+  Zig global cache path embedded in C objects from packages (open). Push and
+  pull_request triggers did not start runs on the new repository;
+  `workflow_dispatch` works and is the publish path until that is fixed.
 - Workflow `next-xcframework.yml` in ghostty-next on a Blacksmith macOS 26
   runner (`blacksmith-6vcpu-macos-26`; repository variable
   `GHOSTTY_NEXT_MACOS_RUNNER` overrides). Never on a developer Mac. The
