@@ -81,7 +81,7 @@ Default role set: every machine. Sizes are installed sizes on the guest.
 | Claude Code (native binary) | all | vendor release manifest sha256 + its signature | 234 MB | none until run |
 | Codex (musl release tarball) | all | vendor release, sha256 + Sigstore bundle | 263 MB | none until run |
 | OpenCode (linux-x64 package) | all | npm integrity | 186 MB | none until run |
-| pi (1.0.0 is current; today's pin is 0.85.1) | all | npm (ships a shrinkwrap), integrity + provenance | 437 MB | none until run |
+| pi (1.0.0 is current; today's pin is 0.85.1) | all | npm (ships a shrinkwrap), integrity + provenance; no single-file release, so CI packs one tarball per version into the store | 437 MB | none until run |
 | Node 24 LTS, Bun, Python 3.12 + uv | all | upstream releases, checksums + signatures | 208 + 76 + 104 + 47 MB | none |
 | git, gh, ripgrep, jq, fd, fzf, sqlite3, tmux, build-essential, bubblewrap, fuse3, acl, curl, rsync, vim, nano | all | apt snapshot mirror; gh release tarball | (in L1) | none |
 | Docker engine | all, socket-activated | apt (Ubuntu archive snapshot) | about 400 MiB | 0 until the first `docker` call (today dockerd + containerd: 116 MB PSS, 0.06 CPU-s/min) |
@@ -91,7 +91,7 @@ Default role set: every machine. Sizes are installed sizes on the guest.
 | PostgreSQL 17 | team and servers (binaries in L1; no cluster in the image; section 5) | PGDG apt, key fingerprint checked; versions pinned | 68 MB | 25.6 MB PSS, 0.012 CPU-s/min |
 | JuiceFS | team | upstream release, checksums | 120 MB | mount only on the team VM (UNVERIFIED idle) |
 | desktop (VNC session, Chrome, Ghostty, window manager, cua-driver) | optional role package | as today, plus digests for Chrome and cua-driver | about 1 GB | 92 MB PSS, 0.03 CPU-s/min while running; not started unless asked |
-| chief | not in the base (section 9, decision) | | | |
+| chief | not in the base (section 12, decision) | | | |
 
 Not shipped: mise (no longer needed; the base toolchain plus the store cover it), Nix (section 8), the unrequested base packages above.
 
@@ -103,12 +103,13 @@ Measured variants (all from `freestyle/ubuntu-sm`, 2 vCPU, 4 GiB, 16 GB; 5 clone
 
 | Variant | Bake time | Root fs used | create to first exec p50 / p95 | create to daemon listening p50 / p95 | Idle CPU-s/min | Memory used |
 | --- | --- | --- | --- | --- | --- | --- |
-| today (production md) | about 4 min | 6.8 GB | 288 / 490 ms | 1,981 / 2,069 ms | 3.34 | 677 MiB |
-| lean (all roles' binaries, no desktop, no polling supervisor) | 87 s | 5.85 GB | 150 / 221 ms | 486 / 569 ms | 0.158 | 466 MB |
+| today (production md, 4 vCPU; sm daemon-ready p50 1,336 ms, n = 3) | about 4 min | 6.8 GB | 288 / 490 ms | 1,981 / 2,069 ms | 3.34 | 677 MiB |
+| lean (all roles' binaries, no desktop; no supervisor: the measurement spawned the daemon directly) | 87 s | 5.85 GB | 150 / 221 ms | 486 / 569 ms | 0.158 | 466 MB |
 | team (lean + Postgres running) | +57 s | 6.10 GB | 498 / 1,376 ms | 770 / 2,948 ms | 0.234 | 502 MB |
 | full (lean + desktop running) | +168 s | 6.88 GB | 168 / 240 ms | 514 / 661 ms | 0.728 | 565 MB |
+| **proposed** (lean, base extras stripped, store, Docker socket-activated, event-driven bind agent, page cache dropped) | 66 s | 4.88 GB, 111k inodes | 165 / 256 ms | 584 / 648 ms | 0.144 (5 process creations/min) | 313 MB (78 MB page cache) |
 
-The lean bake did not yet strip the unrequested base packages or socket-activate Docker; both are expected to cut about 0.75 GiB of disk and about 0.06 CPU-s/min (estimate). A team clone's `vms.create` takes 435 to 491 ms instead of 98 to 254 ms when Postgres runs at snapshot time (cause UNVERIFIED); section 4.7 avoids it.
+The proposed row is one integrated prototype of sections 4.5 to 6 (bind agent in Python for the prototype; the real one is Rust inside `cmux`). Against today it cuts disk by 1.9 GB, inodes by 36%, idle CPU by 96% (3.34 to 0.144 CPU-s/min), process creations from 461 to 5 per minute, and idle memory by more than half; the bind agent wakes 21 to 27 ms before `vms.create` returns. Stripping the base's npm globals alone saved 1.72 GB: the unrequested agent package, the npm copy of bun and TypeScript tools (0.71 GB) and the base's floating copies of three coding agents (1.01 GB), which the store replaces. Its daemon listens about 100 ms later than the lean row: spawn to listening is about 430 ms on a clone versus 260 ms with a warm page cache, most likely because the page cache was dropped before the snapshot (no A/B yet; section 4.7). A team clone's `vms.create` takes 435 to 491 ms instead of 98 to 254 ms when Postgres runs at snapshot time (cause UNVERIFIED); section 4.7 avoids it.
 
 Recommendation: one image, `lean` contents, roles at create, desktop off by default.
 
@@ -137,7 +138,8 @@ See section 6.
 
 - Keep the memory-snapshot model: the session host's warm template terminal and parked services ride in the snapshot.
 - Start the session host directly from `cmux host` at bind, not through `systemd-run`: on a resumed clone systemd waits about 1.8 s before it starts the first transient unit (spawn to listen 2,079 ms through `systemd-run` vs 260 ms with a direct spawn).
-- Drop the page cache before the snapshot (`sync; echo 3 > /proc/sys/vm/drop_caches`) and remove `/var/cache/apt/archives` and the npm cache (about 1 GB in the lean bake) so the memory and disk images stay small.
+- Remove `/var/cache/apt/archives` and the npm cache (about 1 GB in the lean bake) and the base's unrequested packages (1.7 GB) so the disk image stays small.
+- Page cache: dropping it before the snapshot cut the idle memory image to 78 MB of cache but likely cost about 170 ms of daemon start on each clone. Proposal: drop the cache, then read back exactly the files the bind path needs (the `cmux` binary, its libraries, the shell and the warm terminal's files) before the snapshot, so the image stays small and the start stays warm. Needs an A/B measurement (UNVERIFIED).
 - Postgres (team role) is stopped at snapshot time and started at bind, so `vms.create` stays fast (section 5); the cold start cost after bind is UNVERIFIED.
 - Systemd timers stay parked in the snapshot and are re-armed off the critical path at bind (as today), but the daily apt, man-db and motd timers are removed, not re-armed: updates come from the store and from rebakes.
 
@@ -219,6 +221,8 @@ Metadata service rules learned the hard way: concurrent readers stall (8 paralle
 2. Drop any inherited remote identity and connection state (as today), write the bound id, start the session host by direct spawn (not `systemd-run`: on a resumed clone systemd waits about 1.8 s before it starts the first transient unit; spawn to listening was 2,079 ms that way versus 260 ms direct).
 3. Off the critical path: regenerate `/etc/machine-id` (and its D-Bus link) and the systemd random seed; generate SSH host keys (ed25519 only; RSA generation costs most of a second of CPU); generate the WireGuard key inside `cmux`; apply the role set and the machine's name from the binding; re-arm systemd timers after 10 min; run one store update check (section 4.5).
 4. Supervise the session host by waiting on its process (pidfd), restart on exit. No tick.
+
+Two traps found by the prototype: the host may set the clock again between reading the timerfd and re-arming it, so the re-arm itself fails with `ECANCELED` (drain and retry with a bound, never crash); and terminal host processes leave the session host's process group, so parking must stop them explicitly unless they are the intended warm template terminal. After `machine-id` changes, journald keeps writing under the old id's directory until it restarts; the bind sequence restarts it off the critical path.
 
 The bake parks exactly as today (`/etc/cmux/bake-instance-id`): the session host stopped, no metadata request in flight, timers stopped, then the snapshot.
 
