@@ -86,8 +86,19 @@ The format studies and the representation comparison live in the private reposit
 Reference C keeps credentials out of the model's context. The model writes a
 placeholder with the secret's name, and the value is substituted when typed,
 if the page's domain matches. In cmux the model is the caller, so the
-value comes from a file (read by the native session) or code it does not
-print.
+value comes from a file or from code it writes.
+
+What `secrets.load(path)` protects: the native session reads the file (it
+must be inside the session directory or the temporary directory, like any
+`fs` path), so the values never enter the runtime, and every value is
+masked wherever the session hands text back. It does not hide the file:
+the agent's own `fs` calls can read the same file, and only the masks stand
+between that read and the output, so a value the agent's code transforms
+(splits, reverses, re-encodes) is not masked. `secrets.set(name, value)`
+puts a value the agent's code already holds in the store; it protects later
+output, not that code. Keep secret files where the agent is not told to
+look, and prefer the credential sheet (`sites.browserAuth`) for passwords a
+person types.
 
 Values are kept by the native session, never in the JavaScript context agent
 code runs in: `secret(name)` is a handle, and the session substitutes the
@@ -99,7 +110,7 @@ a filled field belongs to the page, so page scripts, and code the agent
 runs in the page, can read its value and transform it past the masks
 (reversed, split, re-encoded).
 
-    secrets.load("~/.config/agent/secrets.json")       // { "example.com": { "user": "...", "pw": "..." } }
+    secrets.load("./secrets.json")       // { "example.com": { "user": "...", "pw": "..." } }
     secrets.set("otp", base32Seed, { domains: ["example.com"], totp: true })
     await page.getByLabel("Password").fill(secret("pw"))
 
