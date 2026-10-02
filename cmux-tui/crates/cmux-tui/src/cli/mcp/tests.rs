@@ -82,6 +82,21 @@ impl Backend for Fake {
             _ => Ok(json!({"ran": true})),
         }
     }
+
+    fn browser(
+        &self,
+        request: browser_tools::Request,
+        mutation: bool,
+    ) -> Result<Value, CallFailure> {
+        self.sent.borrow_mut().push(json!({
+            "kind": "browser",
+            "method": request.method,
+            "params": request.params,
+            "timeout_ms": request.timeout.as_millis() as u64,
+            "mutation": mutation,
+        }));
+        Ok(json!({"session": "default", "output": "ok\n", "truncated": false, "error": null}))
+    }
 }
 
 fn fixture_actions() -> Value {
@@ -577,4 +592,41 @@ fn an_owner_that_says_the_run_never_started_decides_the_state() {
         idempotency_key: Some("k".into()),
     };
     assert_eq!(failure_result(expired)["structuredContent"]["state"], "in_progress");
+}
+
+#[test]
+fn browser_repl_tools_come_from_the_browser_host_catalog() {
+    let operations = browser_tools::catalog()["operations"].as_object().expect("operations");
+    let names = browser_tools::tools().iter().map(|tool| tool.name.as_str()).collect::<Vec<_>>();
+    assert_eq!(names.len(), operations.len(), "every browser host op is a tool");
+    for expected in ["browser_repl_open", "browser_repl_eval", "browser_repl_close"] {
+        assert!(names.contains(&expected), "missing {expected}");
+    }
+    for name in &names {
+        assert!(v2_tools::find(name).is_none(), "{name} collides with a daemon tool");
+    }
+    let eval = browser_tools::find("browser_repl_eval").expect("eval").input_schema();
+    assert_eq!(eval["required"], json!(["code"]));
+    assert_eq!(eval["properties"]["timeoutMs"]["maximum"], 300000);
+    assert_eq!(eval["additionalProperties"], false);
+}
+
+#[test]
+fn browser_repl_calls_reach_the_host_bounded_and_marked_mcp() {
+    let mut server = Server::new(Fake::default(), None);
+    let result = call(&mut server, "browser_repl_eval", json!({"code": "print(1)"}));
+    assert_eq!(result["isError"], false, "{result}");
+    let sent = server.backend.last("browser");
+    assert_eq!(sent["method"], "browser.repl.eval");
+    assert_eq!(sent["params"]["timeoutMs"], 60000, "a default bound for one serial server");
+    assert_eq!(sent["timeout_ms"], 90000);
+    assert_eq!(sent["mutation"], true);
+
+    let long = call(&mut server, "browser_repl_eval", json!({"code": "1", "timeoutMs": 300001}));
+    assert_eq!(long["isError"], true);
+    let unknown = call(&mut server, "browser_repl_open", json!({"rawCdp": true}));
+    assert_eq!(unknown["isError"], true, "the raw CDP grant is not a tool argument");
+    let list = call(&mut server, "browser_repl_list", json!({}));
+    assert_eq!(list["isError"], false);
+    assert_eq!(server.backend.last("browser")["mutation"], false);
 }

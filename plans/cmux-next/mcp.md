@@ -46,6 +46,17 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     offers, from `spec/resource-operations-v2.json`; the name is the operation with
     `_` for `.` (`workspace_list`, `tab_create_terminal`, `terminal_input_write`), and
     the input schema is the operation's typed params;
+  - one tool per browser host REPL operation (`browser_repl_open`, `browser_repl_eval`,
+    `browser_repl_close`, `browser_repl_reset`, `browser_repl_list`, `browser_repl_guide`),
+    from `spec/browser-host-operations.json` (owner `browser-host`, browser-host.md; the
+    host owns the file and step e extends it with the discrete `browser.*` ops). Calls go
+    to the host's listener (`CMUX_BROWSER_HOST_SOCKET`, else
+    `$XDG_RUNTIME_DIR/cmux/browser-host.sock`, else `$TMPDIR/cmux-<uid>/browser-host.sock`)
+    with `origin: "mcp"`; the host applies its policy gate, secret vault and masking.
+    `browser_repl_eval` defaults to a 60 s timeout and takes at most 300 s. The raw CDP
+    grant (`rawCdp`) is not a tool argument. When no host listens the call fails with
+    `browser_host.unavailable`; the server does not start the host (the session daemon
+    will supervise it, browser-host.md decision 1);
   - `window_list` (the app's windows, for `win_` targets);
   - one tool per app action that `action.list` offers to the CLI and to MCP
     (`surfaces.cli` and `surfaces.mcp` are `offered`), named `app_` plus its

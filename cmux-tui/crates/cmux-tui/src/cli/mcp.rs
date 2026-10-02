@@ -11,6 +11,7 @@
 //! (plans/cmux-next/mcp.md).
 
 mod action_tools;
+mod browser_tools;
 mod config;
 mod messages;
 mod schema;
@@ -59,7 +60,8 @@ impl Exclusion {
     }
 }
 
-/// Where tool calls go: the session daemon and the app. Tests replace it.
+/// Where tool calls go: the session daemon, the app and the browser host.
+/// Tests replace it.
 pub(super) trait Backend {
     fn resource(
         &self,
@@ -74,6 +76,7 @@ pub(super) trait Backend {
         timeout: Duration,
         idempotency_key: Option<&str>,
     ) -> Result<Value, CallFailure>;
+    fn browser(&self, request: browser_tools::Request, mutation: bool) -> Result<Value, CallFailure>;
 }
 
 /// The CLI's transport, with the CLI's global options.
@@ -112,6 +115,10 @@ impl Backend for LiveBackend {
         idempotency_key: Option<&str>,
     ) -> Result<Value, CallFailure> {
         transport::app_method(&self.global, method, params, timeout, idempotency_key)
+    }
+
+    fn browser(&self, request: browser_tools::Request, mutation: bool) -> Result<Value, CallFailure> {
+        transport::browser_host(request.method, request.params, request.timeout, mutation)
     }
 }
 
@@ -310,12 +317,13 @@ impl<B: Backend> Server<B> {
         })
     }
 
-    /// Every tool: the daemon operations, `window_list`, and the app's CLI
-    /// actions when the app answers.
+    /// Every tool: the daemon operations, the browser host's REPL ops,
+    /// `window_list`, and the app's CLI actions when the app answers.
     pub(super) fn list(&mut self) -> Vec<Value> {
         self.refresh_actions();
         let mut tools =
             v2_tools::tools().iter().map(v2_tools::V2Tool::descriptor_json).collect::<Vec<_>>();
+        tools.extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
         tools.push(action_tools::window_list_tool());
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
         tools
@@ -356,6 +364,15 @@ impl<B: Backend> Server<B> {
         }
         if let Some(tool) = v2_tools::find(name) {
             return Ok(self.call_v2(tool, &arguments));
+        }
+        if let Some(tool) = browser_tools::find(name) {
+            return Ok(match tool.request(&arguments) {
+                Ok(request) => match self.backend.browser(request, tool.mutation) {
+                    Ok(value) => success(value, tool.mutation),
+                    Err(failure) => failure_result(failure),
+                },
+                Err(error) => tool_error(envelope(error, "not_run", None)),
+            });
         }
         if name == action_tools::WINDOW_LIST {
             return Ok(self.call_window_list(&arguments));
