@@ -56,6 +56,12 @@ describe("dictation text", () => {
     expect(prompt.selectionStart).toBe(5);
   });
 
+  test("cancel leaves a caret the user moved away from the words", () => {
+    const { prompt } = run(caretAt("abc def", 4), [update("listening", "hi"), update("idle", "", { cancelled: true })], (index, current) =>
+      index === 1 ? { ...current, selectionStart: 0, selectionEnd: 0 } : current);
+    expect(prompt).toEqual({ value: "abc def", selectionStart: 0, selectionEnd: 0 });
+  });
+
   test("a selection is replaced, and put back on cancel", () => {
     const selected: PromptState = { value: "fix the old bug", selectionStart: 8, selectionEnd: 11 };
     const replaced = run(selected, [update("starting"), update("listening", "new"), update("idle", "new")]);
@@ -154,11 +160,24 @@ describe("dictation text", () => {
     expect(prompt).toEqual({ value: "hello World", selectionStart: 7, selectionEnd: 7 });
   });
 
-  test("a revision that merges or replaces words the user took over still adds the new words", () => {
+  test("a revision of words the user took over never writes a word twice", () => {
     const edit = (value: string) => (index: number, current: PromptState) => (index === 1 ? caretAt(value) : current);
-    expect(run(caretAt(""), [update("listening", "I will"), update("listening", "I'll go")], edit("I Will")).prompt.value).toBe("I Will go");
-    expect(run(caretAt(""), [update("listening", "a b c d"), update("listening", "a b e")], edit("A b c d")).prompt.value).toBe("A b c d e");
-    expect(run(caretAt(""), [update("listening", "a b c"), update("listening", "a b c")], edit("A b c")).prompt.value).toBe("A b c");
+    const revise = (first: string, edited: string, next: string) => run(caretAt(""), [update("listening", first), update("listening", next)], edit(edited)).prompt.value;
+    expect(revise("I like it", "I love it", "I liked it")).toBe("I love it");
+    expect(revise("hello world", "Hello world", "Hello world.")).toBe("Hello world");
+    expect(revise("send the male", "Send the male", "send the mail")).toBe("Send the male");
+    expect(revise("I want ice cream", "We want ice cream", "I want icecream please")).toBe("We want ice cream please");
+    expect(revise("I like hel", "I love hel", "I liked hello")).toBe("I love hel");
+    expect(revise("a b c", "A b c", "a b c")).toBe("A b c");
+    // A longer revision adds the words past the handed ones.
+    expect(revise("I scream for", "We scream for", "ice cream for you")).toBe("We scream for you");
+  });
+
+  test("a hand-over in a script without spaces keeps the characters that follow", () => {
+    const edit = (value: string) => (index: number, current: PromptState) => (index === 1 ? caretAt(value) : current);
+    expect(run(caretAt(""), [update("listening", "今天天气"), update("listening", "今天天气很好"), update("idle", "今天天气很好，我们去公园。")], edit("明天天气")).prompt.value)
+      .toBe("明天天气很好，我们去公园。");
+    expect(run(caretAt(""), [update("listening", "こんにちは"), update("listening", "こんにちは世界")], edit("こんばんは")).prompt.value).toBe("こんばんは世界");
   });
 
   test("a revision of spaced words that adds another script is split by words", () => {

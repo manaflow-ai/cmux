@@ -80,8 +80,11 @@ export function applyDictation(prompt: PromptState, anchor: DictationAnchor | nu
   if (update.cancelled || (!active && !own && anchor.length === 0)) {
     if (anchor.length === 0 && !anchor.replaced) return { value: prompt.value, ...keep, anchor: null, placed: false };
     const value = anchor.written.slice(0, anchor.start) + anchor.replaced + anchor.written.slice(anchor.start + anchor.length);
-    const caret = anchor.start + anchor.replaced.length;
-    return { value, selectionStart: caret, selectionEnd: caret, anchor: null, placed: false };
+    // A selection before or after the words stays put (shifted); one in them goes after what is restored.
+    const end = anchor.start + anchor.length;
+    const restored = (position: number) => (position <= anchor.start ? position
+      : position >= end ? position + anchor.replaced.length - anchor.length : anchor.start + anchor.replaced.length);
+    return { value, selectionStart: restored(prompt.selectionStart), selectionEnd: restored(prompt.selectionEnd), anchor: null, placed: false };
   }
   // After a spaced word: a space before a word, and before another script when the engine put one there.
   const spaced = startsWord(own) || (/^\s/u.test(rest) && unspaced.test(own[0] ?? ""));
@@ -108,27 +111,44 @@ export function applyDictation(prompt: PromptState, anchor: DictationAnchor | nu
 const lastWord = (text: string) => /[\p{L}\p{N}]+$/u.exec(text)?.[0] ?? "";
 const words = (text: string) => text.trim().split(/\s+/u).filter(Boolean);
 
+/// A word as the engine might respell it: case, punctuation and spacing aside.
+const plain = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+
 /// The session text past what the user took over. A word the engine was still spelling when they
 /// took it continues it (`glued`) if they left that word as it was, and is dropped if they changed
-/// it. When the engine revises words they already have, theirs stay and only new words are added.
+/// it. When the engine revises words they already have, theirs stay and only new words are added;
+/// when it is unclear which words are new, nothing is, so nothing is ever written twice.
 function remainder(text: string, anchor: DictationAnchor): { rest: string; glued: boolean } {
   const handed = anchor.handed;
   if (!handed) return { rest: text, glued: false };
   if (text.startsWith(handed)) {
     const rest = text.slice(handed.length);
-    const midWord = wordChar.test(handed.at(-1) ?? "") && wordChar.test(rest[0] ?? "");
+    const last = handed.at(-1) ?? "", next = rest[0] ?? "";
+    // Scripts without spaces have no half-spelled words: what follows is new.
+    const midWord = wordChar.test(last) && wordChar.test(next) && !unspaced.test(last) && !unspaced.test(next);
     if (!midWord) return { rest, glued: false };
     return anchor.continues ? { rest, glued: true } : { rest: rest.replace(/^[\p{L}\p{N}]+/u, ""), glued: false };
   }
   // Scripts without spaces: by character.
   if (unspaced.test(handed) && !/\s/u.test(handed.trim())) return { rest: text.slice(handed.length), glued: false };
   const old = words(handed), next = words(text);
-  let common = 0;
-  while (common < old.length && common < next.length && old[common] === next[common]) common += 1;
-  // A revision that keeps the word count adds its last words; one that only grew adds the new ones.
-  const skip = common === old.length ? common : Math.max(common, Math.min(old.length, next.length - 1));
-  // Whole words: a word boundary goes before them.
-  const added = next.slice(skip).join(" ");
+  const target = plain(old.join(""));
+  // The revision's shortest run of words that spells the handed words ("ice cream" as
+  // "icecream", "world" as "world."): the rest is new.
+  let spelled = "";
+  for (let index = 0; index < next.length && target; index += 1) {
+    spelled += plain(next[index]!);
+    if (spelled === target) return wholeWords(next.slice(index + 1));
+    if (!target.startsWith(spelled)) break;
+  }
+  // A different spelling of the same number of words or fewer adds nothing; a longer one adds
+  // the words past the handed count.
+  return wholeWords(next.length > old.length ? next.slice(old.length) : []);
+}
+
+/// Whole words: a word boundary goes before them.
+function wholeWords(list: string[]): { rest: string; glued: boolean } {
+  const added = list.join(" ");
   return { rest: added && " " + added, glued: false };
 }
 
