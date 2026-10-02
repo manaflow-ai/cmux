@@ -9,6 +9,7 @@ export function CheckpointReview({
   record,
   busy,
   error,
+  pending,
   strings: s,
   variant = "compact",
   onCreate,
@@ -17,11 +18,13 @@ export function CheckpointReview({
   onKeep,
   onRelease,
   onCancel,
+  onRetry,
 }: {
   list?: CheckpointList;
   record?: Checkpoint;
   busy?: string;
   error?: string;
+  pending?: boolean;
   strings: CheckpointStrings;
   variant?: "compact" | "expanded";
   onCreate: (paths: string[]) => void;
@@ -30,6 +33,7 @@ export function CheckpointReview({
   onKeep: (record: Checkpoint) => void;
   onRelease: (record: Checkpoint, pinId: string) => void;
   onCancel: () => void;
+  onRetry?: () => void;
 }) {
   const [selection, setSelection] = useState<{ list: CheckpointList; paths: ReadonlySet<string> }>();
   const [copied, setCopied] = useState(false);
@@ -65,7 +69,7 @@ export function CheckpointReview({
     <section className="acpmux-checkpoint-review" data-variant={variant} aria-label={s.title}>
       <header>
         <strong>{s.title}</strong>
-        <button type="button" onClick={onCancel} disabled={!!busy}>{s.cancel}</button>
+        <button type="button" onClick={onCancel}>{s.cancel}</button>
       </header>
       {record ? (
         <div className="acpmux-checkpoint-receipt">
@@ -93,14 +97,14 @@ export function CheckpointReview({
               setCopied(false);
               void onCopy(record).then(() => setCopied(true)).catch(() => undefined);
             }}>{copied ? s.copied : s.copyReference}</button>
-            <button type="button" disabled={!!busy || pins.length > 0} onClick={() => onKeep(record)}>{s.keep}</button>
-            {userPins.map((pin) => <button type="button" key={pin.pin_id} disabled={!!busy} onClick={() => onRelease(record, pin.pin_id)}>{s.release}</button>)}
+            <button type="button" disabled={!!busy || !!pending || pins.length > 0} onClick={() => onKeep(record)}>{s.keep}</button>
+            {userPins.map((pin) => <button type="button" key={pin.pin_id} disabled={!!busy || !!pending} onClick={() => onRelease(record, pin.pin_id)}>{s.release}</button>)}
           </div>
           {!pins.length && <p className="acpmux-checkpoint-hint">{s.manualRetention}</p>}
         </div>
       ) : (
-        <form onSubmit={(event) => { event.preventDefault(); if (list && !busy) onCreate([...selected]); }}>
-          <fieldset disabled={!!busy || !list}>
+        <form onSubmit={(event) => { event.preventDefault(); if (list && !busy && !pending) onCreate([...selected]); }}>
+          <fieldset disabled={!!busy || !!pending || !list}>
             <legend>{s.untracked}</legend>
             {list && !candidates.some((candidate) => candidate.eligible) && <p>{s.emptyUntracked}</p>}
             <ul className="acpmux-checkpoint-candidates">
@@ -111,12 +115,13 @@ export function CheckpointReview({
             </ul>
           </fieldset>
           <div className="acpmux-checkpoint-actions">
-            <button type="submit" disabled={!!busy || !list}>{s.create}</button>
-            <button type="button" disabled={!!busy} onClick={onRefresh}>{s.refresh}</button>
+            <button type="submit" disabled={!!busy || !!pending || !list}>{s.create}</button>
+            <button type="button" disabled={!!busy || !!pending} onClick={onRefresh}>{s.refresh}</button>
           </div>
         </form>
       )}
-      {busy && <output>{busy === "creating" ? s.creating : s.loading}</output>}
+      {busy && <output>{busy === "creating" ? s.creating : busy === "recovering" ? s.recovering : s.loading}</output>}
+      {pending && !busy && onRetry && <button type="button" onClick={onRetry}>{s.retry}</button>}
       {error && <p role="alert">{error}</p>}
     </section>
   );

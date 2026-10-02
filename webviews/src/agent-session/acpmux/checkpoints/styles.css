@@ -43,3 +43,12 @@
 .acpmux-checkpoint-review[data-variant="expanded"] .acpmux-checkpoint-facts > div:first-child { grid-column: 1 / -1; }
 
 .acpmux-checkpoint-review input { accent-color: currentColor; }
+.acpmux-checkpoint-open {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  padding: 5px 7px;
+  cursor: pointer;
+}
+.acpmux-checkpoint-open:hover { background: color-mix(in srgb, currentColor 8%, transparent); }

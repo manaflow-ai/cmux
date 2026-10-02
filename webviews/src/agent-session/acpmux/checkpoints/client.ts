@@ -49,31 +49,17 @@ export type CheckpointClientOptions = {
 
 type StoredMutation = { idempotency_key: string; attempted: boolean; operation: MutationOperation; body: Record<string, unknown> };
 type MutationOperation = "create" | "pin" | "unpin";
-const fallbackValues = new Map<string, unknown>();
 const defaultPersistence: CheckpointPersistence = {
   async get(key) {
-    try {
-      const value = (globalThis as { localStorage?: Storage }).localStorage?.getItem(key);
-      return value === null || value === undefined ? fallbackValues.get(key) : JSON.parse(value);
-    } catch {
-      return fallbackValues.get(key);
-    }
+    const value = globalThis.localStorage?.getItem(key);
+    return value === null || value === undefined ? undefined : JSON.parse(value);
   },
   async set(key, value) {
-    fallbackValues.set(key, value);
-    try {
-      (globalThis as { localStorage?: Storage }).localStorage?.setItem(key, JSON.stringify(value));
-    } catch {
-      /* private storage or test runtime */
-    }
+    if (!globalThis.localStorage) throw new CheckpointRpcError({code: "native.invalid_request", origin: "native"});
+    globalThis.localStorage.setItem(key, JSON.stringify(value));
   },
   async delete(key) {
-    fallbackValues.delete(key);
-    try {
-      (globalThis as { localStorage?: Storage }).localStorage?.removeItem(key);
-    } catch {
-      /* private storage or test runtime */
-    }
+    globalThis.localStorage?.removeItem(key);
   },
 };
 
@@ -185,8 +171,6 @@ export class CheckpointClient {
     this.changed();
   }
   private requireReady(): CheckpointTarget {
-    if (!this.state.supported)
-      throw new CheckpointRpcError("operation.unsupported", "Checkpoint capture is unavailable.");
     if (!this.online)
       throw new CheckpointRpcError(
         {
@@ -197,6 +181,8 @@ export class CheckpointClient {
         undefined,
         "offline",
       );
+    if (!this.state.supported)
+      throw new CheckpointRpcError("operation.unsupported", "Checkpoint capture is unavailable.");
     const target = this.state.target;
     if (!target) throw new CheckpointRpcError("validation.invalid", "Select an agent working directory first.");
     if (target.hostKind === "cloud")
