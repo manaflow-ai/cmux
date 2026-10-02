@@ -76,7 +76,7 @@ import Testing
         .tab: 76, // + Search Tabs (tab-search.md)
         .terminal: 35, // + Set / Reset Terminal Theme
         .browser: 110, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions
-        .sidebar: 54, // + 24 sidebar section actions (sidebar-sections.md 6)
+        .sidebar: 56, // + 26 sidebar section actions (sidebar-sections.md 6)
         .notifications: 18,
         .agents: 20, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats
         .cloud: 28, // + accounts.show, refresh, reauthenticate, connect, remove

@@ -22,6 +22,9 @@ enum SidebarSectionStrings {
         String(localized: "sidebarSections.labelsOnlyOnALine", defaultValue: "labels can be hidden only in a section shown on one line",
                table: "SidebarSections", bundle: .module)
     }
+    static var notAnApp: String {
+        String(localized: "sidebarSections.notAnApp", defaultValue: "only an app item can be hidden", table: "SidebarSections", bundle: .module)
+    }
     static var untitledSection: String {
         String(localized: "sidebarSections.untitled", defaultValue: "Untitled section", table: "SidebarSections", bundle: .module)
     }

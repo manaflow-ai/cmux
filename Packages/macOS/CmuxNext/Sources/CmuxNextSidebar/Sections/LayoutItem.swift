@@ -9,6 +9,7 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     case notifications
     case history
     case bookmarks
+    case appStore = "app_store"
 }
 
 /// What an item points at: a kind and a string value. Kinds this client
@@ -28,6 +29,8 @@ public nonisolated struct LayoutItemRef: Hashable, Sendable, Codable {
     public static let roomKind = "room"
     public static let savedGroupKind = "saved_group"
     public static let urlKind = "url"
+    /// An installed cmux app (`<publisher>/<name>`); its menu offers Hide.
+    public static let appKind = "app"
 
     public static func builtIn(_ item: SidebarBuiltIn) -> LayoutItemRef { LayoutItemRef(kind: builtInKind, value: item.rawValue) }
     /// A qualified public workspace id (`<session>:ws_…`).
@@ -37,6 +40,7 @@ public nonisolated struct LayoutItemRef: Hashable, Sendable, Codable {
     public static func room(_ id: String) -> LayoutItemRef { LayoutItemRef(kind: roomKind, value: id) }
     public static func savedGroup(_ id: String) -> LayoutItemRef { LayoutItemRef(kind: savedGroupKind, value: id) }
     public static func url(_ url: String) -> LayoutItemRef { LayoutItemRef(kind: urlKind, value: url) }
+    public static func app(_ id: String) -> LayoutItemRef { LayoutItemRef(kind: appKind, value: id) }
 
     /// The built-in this ref names, or nil (another kind, or a built-in
     /// from a newer client).
