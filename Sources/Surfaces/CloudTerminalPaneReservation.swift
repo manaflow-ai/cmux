@@ -432,6 +432,12 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     }
 }
 
+/// Identifies the exact terminal view a reservation's create receipt bound.
+struct CloudTerminalReservationKey: Hashable {
+    let resource: SurfaceResourceID
+    let remoteTabID: String?
+}
+
 /// A native pane that already occupies the user's requested split or tab while
 /// the machine creates the terminal behind it.
 ///
