@@ -65,9 +65,18 @@ enum OnboardingStrings {
     }
     /// `items`: the Keychain item names, each already in quotation marks.
     static func passwordsKeychain(_ items: String) -> String {
-        String(format: String(localized: "onboarding.passwords.keychain",
-                              defaultValue: "Next, macOS asks whether cmux may use %@. That Keychain item is the key the browser locks its saved passwords with. Choose Allow, and cmux unlocks them once, on this Mac.",
+        String(format: String(localized: "onboarding.passwords.keychain2",
+                              defaultValue: "Import asks you to confirm with Touch ID or your password. Then macOS asks whether cmux may use %@, the Keychain item the browser locks its saved passwords with. Choose Allow, and cmux unlocks them once, on this Mac.",
                               bundle: .module), items)
+    }
+    /// macOS shows it as “cmux is trying to …” in the Touch ID sheet.
+    static var passwordsAuthReason: String {
+        String(localized: "onboarding.passwords.authReason", defaultValue: "import saved passwords from your other browsers", bundle: .module)
+    }
+    static var passwordsAuthDenied: String {
+        String(localized: "onboarding.passwords.authDenied",
+               defaultValue: "Nothing was read: the confirmation didn’t finish. Click Import to try again, or import without passwords.",
+               bundle: .module)
     }
     static var passwordsStore: String {
         String(localized: "onboarding.passwords.store",

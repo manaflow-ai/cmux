@@ -58,6 +58,25 @@ public final class MockOnboardingServices: OnboardingServices {
     }
 
     public func canImportPasswords() async -> Bool { passwordStore }
+    /// What the Touch ID sheet answers, and the reasons it was shown with.
+    public var passwordAuthorization = true
+    public private(set) var authorizationReasons: [String] = []
+    /// While true, a Touch ID request waits for ``answerAuthorizations()``
+    /// (the sheet is up).
+    public var holdsAuthorization = false
+    private var pendingAuthorizations: [CheckedContinuation<Void, Never>] = []
+    public func authorizePasswordRead(reason: String) async -> Bool {
+        authorizationReasons.append(reason)
+        if holdsAuthorization { await withCheckedContinuation { pendingAuthorizations.append($0) } }
+        return passwordAuthorization
+    }
+
+    /// Ends every Touch ID sheet that is up, with `passwordAuthorization`.
+    public func answerAuthorizations() {
+        let pending = pendingAuthorizations
+        pendingAuthorizations = []
+        for continuation in pending { continuation.resume() }
+    }
 
     public func openExternal(_ url: URL) { opened.append(url) }
 

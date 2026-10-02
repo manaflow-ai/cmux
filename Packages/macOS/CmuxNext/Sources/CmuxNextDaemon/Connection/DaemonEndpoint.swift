@@ -92,6 +92,10 @@ public struct DaemonCapabilities: Sendable {
     /// Sticky columns: `set-column-sticky` and `columns[].sticky`
     /// (plans/cmux-next/sticky-column.md).
     public let stickyColumns = "sticky-columns-v1"
+    /// Top and bottom docks (`columns[].dock`, plans/cmux-next/layout-model.md).
+    /// No daemon serves it yet; the app refuses to send a top or bottom dock
+    /// until one does.
+    public let edgeDocks = "edge-docks-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
