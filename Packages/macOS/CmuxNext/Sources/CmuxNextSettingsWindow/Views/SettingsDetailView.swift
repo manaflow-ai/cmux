@@ -48,9 +48,17 @@ struct SettingsDetailView: View {
             // No rubber band while the page fits.
             .scrollBounceBehavior(.basedOnSize)
             .scrollEdgeFade()
-            // The user scrolling hands the sidebar back to the scroll-spy.
-            .onScrollPhaseChange { _, phase in
-                if phase == .interacting { spy.heldByJump = false }
+            // The user scrolling (trackpad, wheel, keys or scroller) moves
+            // the page off where the jump left it, which hands the sidebar
+            // back to the scroll-spy.
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.contentOffset.y
+            } action: { _, offset in
+                spy.contentOffset = offset
+                if let settled = spy.heldAt, abs(offset - settled) > SettingsSpyOffsets.releaseDistance {
+                    spy.heldByJump = false
+                    spy.heldAt = nil
+                }
             }
             .onChange(of: model.jump?.serial, initial: true) {
                 guard let jump = model.jump else { return }
@@ -68,8 +76,11 @@ struct SettingsDetailView: View {
         // The jump picked the section; a centered row, or a last section
         // whose header cannot reach the top, must not hand it to the spy.
         spy.heldByJump = true
+        spy.heldAt = nil
         let point: UnitPoint = jump.anchor.isHeader ? .top : .center
         proxy.scrollTo(jump.anchor.id, anchor: point)
+        await Task.yield()
+        if model.jump?.serial == jump.serial { spy.heldAt = spy.contentOffset }
         guard jump.highlights else { return }
         let plan = model.highlightPlan
         guard plan.hold > 0 else { return Self.endHighlight(jump, plan: plan, model: model) }

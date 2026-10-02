@@ -48,6 +48,10 @@ struct SettingsJumpTitle: View {
 final class SettingsSpyOffsets {
     var offsets: [SettingsSection: CGFloat] = [:]
     /// Set by a jump or sidebar click, which picked the section itself;
-    /// cleared when the user scrolls.
+    /// cleared when the user scrolls `releaseDistance` away from `heldAt`.
     var heldByJump = false
+    /// The scroll offset the jump settled at (nil until it has).
+    var heldAt: CGFloat?
+    var contentOffset: CGFloat = 0
+    static let releaseDistance: CGFloat = 4
 }
