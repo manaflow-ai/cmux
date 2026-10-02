@@ -462,6 +462,26 @@
     "source": "%@ [%@] clients=%lld socket=%@",
     "class": "syntax"
   },
+  "cli.localZellij.output.attached": {
+    "source": "OK session=%@ surface=%@ mode=local-zellij",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.idSuffix": {
+    "source": " id=%@",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.record": {
+    "source": "OK session=%@ id=%@ state=%@ socket=%@",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.sessionRow": {
+    "source": "%@ [%@]",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.status": {
+    "source": "%@ [%@] socket=%@",
+    "class": "syntax"
+  },
   "cli.readSelection.output.url": {
     "class": "format",
     "source": "URL: %@"
@@ -4280,6 +4300,14 @@
       "de": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
       "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
       "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
+    }
+  },
+  "cli.vm.tree.vcpu": {
+    "source": "%.0f vCPU",
+    "identityLocales": {
+      "de": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "fr": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "es": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale."
     }
   },
   "terminalSharing.device.mac": {

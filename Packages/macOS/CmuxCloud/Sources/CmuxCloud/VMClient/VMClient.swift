@@ -281,7 +281,8 @@ public struct VMSummary: Sendable {
         addressIPv4: String? = nil,
         addressIPv6: String? = nil,
         cmuxTuiContract: String? = nil,
-        createdBy: VMCreator? = nil
+        createdBy: VMCreator? = nil,
+        agentUpdates: CloudAgentUpdates? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -298,6 +299,7 @@ public struct VMSummary: Sendable {
         self.addressIPv6 = addressIPv6
         self.cmuxTuiContract = cmuxTuiContract
         self.createdBy = createdBy
+        self.agentUpdates = agentUpdates
     }
 
     public func withStatus(_ status: String) -> VMSummary {
@@ -316,7 +318,8 @@ public struct VMSummary: Sendable {
             addressIPv4: addressIPv4,
             addressIPv6: addressIPv6,
             cmuxTuiContract: cmuxTuiContract,
-            createdBy: createdBy
+            createdBy: createdBy,
+            agentUpdates: agentUpdates
         )
     }
 
@@ -350,6 +353,9 @@ public struct VMSummary: Sendable {
     /// (`"snapshot-v2"`: baked daemon, trusted private-network listener).
     /// This is rollout metadata from the control plane, not a live daemon probe.
     public var cmuxTuiContract: String?
+    /// Whether the machine keeps its image's coding agents or updates them on
+    /// attach; nil when the server predates the setting (treat as `.image`).
+    public var agentUpdates: CloudAgentUpdates?
 
     /// The name to show people: the label when set, else the generated slug,
     /// else the machine id.
@@ -379,6 +385,7 @@ public struct VMPlanLimits: Sendable {
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
+        vcpusByMemoryMb: [String: Int]? = nil,
         activeVmCount: Int? = nil,
         imageKinds: [VMImageKindOption] = []
     ) {
@@ -390,6 +397,7 @@ public struct VMPlanLimits: Sendable {
         self.lockedMemoryOptionsMb = lockedMemoryOptionsMb
         self.memoryUpgradePlanId = memoryUpgradePlanId
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
+        self.vcpusByMemoryMb = vcpusByMemoryMb
         self.activeVmCount = activeVmCount
         self.imageKinds = imageKinds
     }
@@ -411,6 +419,9 @@ public struct VMPlanLimits: Sendable {
     /// The plan that sells the locked sizes ("max"); nil when nothing is locked.
     public var memoryUpgradePlanId: String? = nil
     public var memoryUpgradePlansByMb: [String: String]? = nil
+    /// vCPUs per size, keyed by the size in MB as a string; nil when the
+    /// control plane predates the field and the client's ladder table decides.
+    public var vcpusByMemoryMb: [String: Int]? = nil
     var activeVmCount: Int? = nil
     /// The kinds the default provider can serve and the image each resolves to;
     /// informational (`vm.limits` echoes it): one snapshot serves every kind.
@@ -1158,6 +1169,7 @@ public actor VMClient {
                     memoryUpgradePlanId: (rawLimits["memoryUpgradePlanId"] as? String)
                         .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
                     memoryUpgradePlansByMb: rawLimits["memoryUpgradePlansByMb"] as? [String: String],
+                    vcpusByMemoryMb: Self.decodePositiveIntMap(rawLimits["vcpusByMemoryMb"]),
                     activeVmCount: rawLimits["activeVmCount"] as? Int,
                     imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
                 )
@@ -1185,6 +1197,7 @@ public actor VMClient {
                 summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 summary.createdBy = VMCreator(vmResponse: dict)
                 summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
+                summary.agentUpdates = CloudAgentUpdates(wireValue: dict["agentUpdates"])
                 if let address = dict["address"] as? [String: Any] {
                     summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                     summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1549,6 +1562,13 @@ public actor VMClient {
         }
     }
 
+    /// `limits.vcpusByMemoryMb: {"8192": 4}`; entries that are not positive
+    /// integers are skipped, and an absent or non-object value is nil.
+    private static func decodePositiveIntMap(_ raw: Any?) -> [String: Int]? {
+        guard let object = raw as? [String: Any] else { return nil }
+        return object.compactMapValues { decodeIntArray([$0]).first }
+    }
+
     /// JSON numbers arrive as Int64 or Double depending on magnitude; `null`/absent → nil.
     private static func epochMilliseconds(_ raw: Any?) -> Int64? {
         if let value = raw as? Int64 { return value }
@@ -1575,7 +1595,7 @@ public actor VMClient {
         return result
     }
 
-    public func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, idempotencyKey: String) async throws -> VMSummary {
+    public func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, networkPolicy: CloudNetworkPolicy? = nil, agentUpdates: CloudAgentUpdates? = nil, idempotencyKey: String) async throws -> VMSummary {
         return try await withOperation(.create, foreground: true) {
             var body: [String: Any] = [:]
             if let image { body["image"] = image }
@@ -1585,6 +1605,10 @@ public actor VMClient {
             if perMachineHome { body["perMachineHome"] = true }
             if let memoryMb { body["memoryMb"] = memoryMb }
             if let displayName { body["displayName"] = displayName }
+            // Omitted means the server default (full internet).
+            if let networkPolicy { body["networkPolicy"] = networkPolicy.foundationObject }
+            // Omitted means the server default (the image's agent versions).
+            if let agentUpdates { body["agentUpdates"] = agentUpdates.rawValue }
             // The CLI owns key stability across command retries. VMClient only forwards the
             // key so the backend can short-circuit duplicate paid provider creates.
             let headers = ["Idempotency-Key": idempotencyKey]
@@ -1635,6 +1659,7 @@ public actor VMClient {
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             }
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
             machineCache.record(hasAnyMachine: true)
             return summary
         }
@@ -1719,6 +1744,7 @@ public actor VMClient {
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             }
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
             return summary
         }
     }

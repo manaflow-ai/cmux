@@ -105,6 +105,8 @@ struct CloudMachineOrderingTests {
         let target = try fixture.root("b")
         let terminal = try #require(CloudTreeNodeBuilder.flattened([target]).first { $0.isDragSource })
         let contents = CloudTreeNodeBuilder.flattened([target]).map(\.id)
+        // Cloud workspaces start collapsed; open the machine's rows so the terminal has one.
+        outline.expandItem(target, expandChildren: true)
         outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: terminal)), byExtendingSelection: false)
         let drag = try fixture.begin("a")
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,

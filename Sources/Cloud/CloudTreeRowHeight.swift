@@ -23,6 +23,14 @@ struct CloudTreeRowHeight {
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
         case .device:
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
+        case .machineDetailTabs:
+            // Extra room above the tabs separates them from the Displays row.
+            // A 20pt tab, plus the gap above it.
+            return GlobalFontMagnification.scaledSize(
+                CloudTreeMachineDetailTabButtonMetrics.height + CloudTreeMachineDetailTabsView.topGap + 2
+            )
+        case .machineEndSpacer:
+            return GlobalFontMagnification.scaledSize(6)
         case .placeholder(_, let placeholder) where placeholder.portStatus != nil:
             guard let presentation = placeholder.portStatus else { return GlobalFontMagnification.scaledSize(style.rowHeight) }
             let level = outlineView.level(forItem: node)

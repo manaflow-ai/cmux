@@ -74,6 +74,7 @@ const VM_ENV_KEYS = [
 const originalEnv = Object.fromEntries(
   VM_ENV_KEYS.map((key) => [key, process.env[key]]),
 ) as Record<(typeof VM_ENV_KEYS)[number], string | undefined>;
+const originalFetch = globalThis.fetch;
 
 // Capture the real implementations BY VALUE before mocking. bun's
 // mock.module can mutate an already-loaded module namespace in place, so a
@@ -247,11 +248,15 @@ const { VmPublicationProviderError } = await import(
 beforeAll(() => {
   useWorkflowStubs = true;
   useStubDb = true;
+  // POST /api/vm now awaits the provider connection probe. Keep this route
+  // suite deterministic and local while still exercising that await.
+  globalThis.fetch = (async () => new Response(null, { status: 204 })) as typeof globalThis.fetch;
 });
 
 afterAll(() => {
   useWorkflowStubs = false;
   useStubDb = false;
+  globalThis.fetch = originalFetch;
 });
 
 beforeEach(() => {
@@ -2136,7 +2141,8 @@ describe("VM REST auth", () => {
       context,
     );
     expect(response.status).toBe(200);
-    expect(openVmCmuxRemote).toHaveBeenCalledWith({
+    const { deferAfterResponse, ...attachInput } = (openVmCmuxRemote.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(attachInput).toEqual({
       userId: "user-1",
       billingTeamId: "team-1",
       teamIds: ["team-1"],
@@ -2147,6 +2153,8 @@ describe("VM REST auth", () => {
       maxActiveVms: 5,
       modelPlane: expect.objectContaining({}),
     });
+    // An opted-in machine's agent-update exec runs after the response.
+    expect(typeof deferAfterResponse).toBe("function");
     expect(openAttachEndpoint).not.toHaveBeenCalled();
     const payload = await response.json();
     expect(payload.transport).toBe("cmux-remote");

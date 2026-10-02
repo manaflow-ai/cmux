@@ -70,7 +70,7 @@ struct CloudSidebarInteractionTests {
                 cell.setHovered(hovered)
             }
             if let capture = command.capture { try fixture.attachScreenshot(named: capture) }
-            let order = CloudSidebarOrganizationTree(nodes: fixture.coordinator.nodes).parent(of: folder.id)?.children.map(\.id) ?? []
+            let order = CloudSidebarOrganizationTree(nodes: fixture.coordinator.nodes).parent(of: folder.id)?.children.filter(\.canOrganize).map(\.id) ?? []
             print("CLOUD_SIDEBAR_FIXTURE_STATE \(order)")
         }
         #expect(!fixture.coordinator.isDragging)
