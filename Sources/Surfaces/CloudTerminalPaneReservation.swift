@@ -44,7 +44,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
 
     /// Callable from Ghostty's I/O thread, like the router it fronts.
     func send(_ input: TerminalManualInput) {
-        let router = state.withLock { state -> CloudTuiManualIOInputRouter? in
+        let router = state.withLock { state -> (@Sendable (TerminalManualInput) -> Void)? in
             if let router = state.router { return router }
             guard !state.discarded,
                   Self.inputByteCount(input) <= 256 * 1024,
