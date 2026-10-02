@@ -7,12 +7,9 @@ public nonisolated enum CloseFocusPolicy: String, Hashable, Sendable, Codable, C
     /// The most recently focused surviving pane, else `previousNeighbor`.
     case mostRecent
 
-    /// Parses the cmux.json value; "previous" and "recent" are accepted too.
+    /// Parses the cmux.json value (case-insensitive raw value).
     public init?(configValue: String) {
-        switch configValue.lowercased() {
-        case "previousneighbor", "previous", "neighbor": self = .previousNeighbor
-        case "mostrecent", "recent", "history": self = .mostRecent
-        default: return nil
-        }
+        guard let match = Self.allCases.first(where: { $0.rawValue.lowercased() == configValue.lowercased() }) else { return nil }
+        self = match
     }
 }

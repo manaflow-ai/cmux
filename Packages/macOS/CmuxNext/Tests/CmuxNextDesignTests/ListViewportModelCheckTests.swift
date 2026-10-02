@@ -82,7 +82,7 @@ import Testing
         let wasVisible = before.focused.flatMap { f in old.item(f).map { old.isFullyVisible($0, at: before.offset, padding: padding) } } ?? false
         // V2: revealed when it must be.
         if let f = after.focused, let item = new.item(f), focusChanged || wasVisible,
-           !new.isFullyVisible(item, at: offset, padding: focusChanged ? padding : 0) {
+           !new.isFullyVisible(item, at: offset, padding: 0) {
             bad.append("V2 focus \(f) not visible at \(offset)")
         }
         // V3: no jump for a visible focused row that stays focused.
@@ -94,7 +94,8 @@ import Testing
         // V4: minimal reveal (never further than aligning the nearer edge).
         if let f = after.focused, let item = new.item(f), focusChanged {
             let anchored = new.anchored(from: old, offset: before.offset, focused: before.focused)
-            let minimal = new.reveal(item, from: anchored, padding: padding)
+            // Wholly in view: nothing moves; else the nearer edge with padding.
+            let minimal = new.isFullyVisible(item, at: anchored, padding: 0) ? anchored : new.reveal(item, from: anchored, padding: padding)
             if abs(offset - minimal) > 0.001 { bad.append("V4 not minimal: \(offset) vs \(minimal)") }
         }
         // V5: a change entirely before the viewport keeps what the user sees.
@@ -182,6 +183,7 @@ import Testing
             case "noClamp":
                 return real - 1
             case "alwaysRevealTop":
+                // Also breaks the edge rule: a row in view is re-aligned.
                 guard let f = newFocus, let item = new.item(f) else { return real }
                 return new.clamp(item.start - Self.padding)
             case "revealTwice":

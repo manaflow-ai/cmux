@@ -107,10 +107,11 @@ public nonisolated struct ListViewport<ID: Hashable & Sendable>: Hashable, Senda
         guard let newFocus, let target = item(newFocus) else { return next }
         let wasVisible = old.item(newFocus).map { old.isFullyVisible($0, at: offset, padding: padding) } ?? false
         guard newFocus != focused || wasVisible else { return next }
-        // A kept focus moves only when the item itself left the view, not
-        // when its padding did (padding appears when rows are added past
-        // the content's end): no 4-point nudge on an unrelated change.
-        if newFocus == focused, isFullyVisible(target, at: next, padding: 0) { return next }
+        // Only an item that is not wholly in view scrolls; padding applies
+        // to that scroll. A click on a row near the edge, or padding that
+        // appears when rows are added past the end, moves nothing (the
+        // second click of a double-click stays on the same row).
+        if isFullyVisible(target, at: next, padding: 0) { return next }
         return reveal(target, from: next, padding: padding)
     }
 }

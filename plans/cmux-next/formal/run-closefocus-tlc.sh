@@ -2,7 +2,7 @@
 # Model-check closefocus.tla (plans/cmux-next/close-focus.md) with a pinned,
 # sha256-checked tla2tools.jar (the same pin as run-tlc.sh).
 #   default: strip, strip-recent and list configs must pass;
-#   --mutants: each broken variant (history, noanchor, center, noreveal) must
+#   --mutants: each broken variant (history, noanchor, center, noreveal, nudge) must
 #   fail on the config that exposes it.
 # Needs Java 11+. TLC_WORKERS overrides 2.
 set -euo pipefail
@@ -35,7 +35,7 @@ tlc() { # $1 = cfg file; prints TLC's tail; returns its exit code
 
 status=0
 if [ "${1:-}" = "--mutants" ]; then
-  for pair in history:strip noanchor:list noanchor:strip center:strip noreveal:strip; do
+  for pair in history:strip noanchor:list noanchor:strip center:strip noreveal:strip nudge:list nudge:strip; do
     mutant="${pair%%:*}"; cfg="${pair##*:}"
     tmp="$HERE/.closefocus-$mutant-$cfg.cfg"
     sed "s/MUTANT = \"none\"/MUTANT = \"$mutant\"/" "$HERE/closefocus-$cfg.cfg" > "$tmp"

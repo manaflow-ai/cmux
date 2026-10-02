@@ -167,9 +167,20 @@ Animate ==
     /\ closed' = None
     /\ UNCHANGED <<cols, focus, hist, target, budget>>
 
+\* The client settles the same geometry again (any later model sync that
+\* changes nothing: a redraw, an unrelated store event). V6/S6: no scroll.
+Resync ==
+    /\ off = target
+    /\ target' = IF MUTANT = "nudge" THEN Clamp(target + 1, cols)
+                 ELSE Reveal(cols, focus, Anchor(cols, cols, target, focus))
+    /\ off' = target'
+    /\ closed' = None
+    /\ UNCHANGED <<cols, focus, hist, budget>>
+
 Next ==
     \/ \E p \in Items : Close(p) \/ Focus(p) \/ Create(p)
     \/ Animate
+    \/ Resync
 
 Spec == Init /\ [][Next]_vars /\ WF_vars(Animate)
 
@@ -232,8 +243,9 @@ SuccessorRule ==
              ELSE IF c > 1 THEN focus' \in Range(cols[c - 1])
              ELSE focus' \in Range(cols[c + 1])]_vars
 
-\* V6/S6: once settled, nothing but a user step scrolls.
-NoSecondScroll == [][(off = target /\ budget' = budget) => target' = target]_vars
+\* V6/S6: once settled, nothing but a user step scrolls (Resync is the
+\* step that re-settles unchanged geometry; the "nudge" mutant breaks it).
+NoSecondScroll == [][(off = target /\ budget' = budget /\ cols' = cols /\ focus' = focus) => target' = target]_vars
 
 \* Liveness: after the last user step, the view settles with the focus visible.
 Settles == <>[](off = target /\ (focus # None => Visible(cols, focus, off)))

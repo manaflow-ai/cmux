@@ -31,9 +31,14 @@ extension SidebarListView {
             apply(layout, animated: animated)
             return
         }
-        if displayed.rows.isEmpty {
-            // First rows: show the active workspace, no animation.
+        if displayed.rows.isEmpty || clip.bounds.height <= 0 {
+            // First rows: show the active workspace, no animation. Without a
+            // viewport yet (init), the next reload reveals it.
             apply(layout, animated: false)
+            guard clip.bounds.height > 0 else {
+                revealedActive = nil
+                return
+            }
             if let active, let row = after.item(active) {
                 scrollClip(to: after.reveal(row, from: clip.bounds.minY, padding: Self.revealPadding), animated: false)
             }
@@ -48,7 +53,12 @@ extension SidebarListView {
                 let height = max(frame.height, after.content)
                 if frame.height < height { setFrameSize(NSSize(width: frame.width, height: height)) }
                 for view in rowViews.values { view.frame.origin.y += delta }
+                decorations.shift(by: delta)
+                // Rows are realized by `apply` from the new layout, not from
+                // the old one while the offset moves.
+                isShiftingViewport = true
                 scrollClip(to: anchored, animated: false)
+                isShiftingViewport = false
             }
         }
         apply(layout, animated: animated)

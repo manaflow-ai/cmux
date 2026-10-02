@@ -39,6 +39,8 @@ final class SidebarListView: NSView {
     var external: ExternalDrag?
     /// The active row the last reload laid out (close-focus.md: reveal on change).
     var revealedActive: SidebarRowKey?
+    /// The anchor step moves the offset; rows wait for the new layout.
+    var isShiftingViewport = false
     /// Offered a row drag whose pointer left the sidebar sideways (another
     /// window, outside every window); true takes it over.
     var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
@@ -317,6 +319,7 @@ final class SidebarListView: NSView {
 
     /// Adds views for rows scrolled into range and drops far-away ones.
     func realizeVisibleRows() {
+        guard !isShiftingViewport else { return }
         let realize = realizationRect()
         for row in displayed.rows where rowViews[row.key] == nil {
             let target = frame(for: row)

@@ -124,7 +124,8 @@ extension ColumnScrollState {
                 spring.target = new.columns[at].frame.minX + point.relativeOffset
                 restored = true
                 restore = nil
-            } else if removed.contains(point.column) || (focusedColumn != point.opened && focusedColumn != point.column) {
+            } else if removed.contains(point.column) || removed.contains(point.opened)
+                        || (focusedColumn != point.opened && focusedColumn != point.column) {
                 restore = nil
             }
         }

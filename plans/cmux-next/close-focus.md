@@ -99,9 +99,22 @@ successor), the strip's model sync to `ColumnScrollState`, and the sidebar's
 - Behavior tests: `CloseFocusReducerTests` (B1, B2, sticky, screens, reject),
   `SidebarCloseScrollTests` (S1-S3, no jump), `FocusReducerTests`.
 
-## Last results
+## Last results (2026-10-01, Debug build, shared Mac under load)
 
-Filled in at landing (see the commit message of the fix).
+| Check | Bound | States / sequences | Transitions | Time |
+| --- | --- | --- | --- | --- |
+| `FocusAfterClose.pane` previousNeighbor | up to 4 columns x 3 panes, 6 panes, depth 6 | 39,626 states | 608,785 (369,664 closes) | 8 s |
+| same, `CMUX_MODELCHECK_PANES=7` | 7 panes | 341,004 states | 4,024,915 | 63 s |
+| `FocusAfterClose.pane` mostRecent | as above | 39,626 states | 608,785 | 8 s |
+| `FocusAfterClose.tab` | 5 tabs, every hidden subset, depth 5 | 10,449 close sequences | | <1 s |
+| `FocusAfterClose.workspace` | 5 workspaces, depth 5 | 600 close sequences | | <1 s |
+| `ListViewport` | 5 rows, 3 viewports, depth 3 | 1,025,508 states | 3,365,334 | 150 s |
+| `ColumnScrollState` (strip) | 4 columns, 3 widths, 2 viewports, depth 6 | 12,100 states | 73,766 | 5 s |
+| TLA+ strip / strip-recent / list | see formal/README.md | 23,057 / 23,229 / 93,149 distinct | | 20 s |
+
+Mutants caught: 6 pane, 2 tab, 6 list, 4 strip, 7 TLA+ runs. The strip check found a real
+bug: niri's restore point fired on an unfocused close of the just-opened column (fixed;
+`ColumnScrollRestoreTests`).
 
 ## Decisions for the user
 
@@ -115,4 +128,10 @@ Filled in at landing (see the commit message of the fix).
 4. The sidebar reveals the active row only when it changed or was visible; it does not
    pull a manually scrolled list back on unrelated closes.
 5. niri's restore point stays: closing a column that was just opened right of the focused
-   one returns the strip to the offset it had before the open.
+   one returns the strip to the offset it had before the open, only when that column was
+   focused when it closed.
+6. Inside a column (and on a split screen) "previous pane" is the previous pane in layout
+   order, not the split sibling that takes the space: in `H(A, V(B, C))` closing B
+   focuses A, not C. Alternative: the sibling subtree's nearest pane (tmux-like).
+7. A sidebar row that is wholly in view never scrolls, even when it is closer to the edge
+   than the 8 point reveal padding (no movement under a click or double-click).
