@@ -1,4 +1,4 @@
-import CmuxCore
+public import CmuxCore
 import CmuxRemoteDaemon
 import Darwin
 public import Foundation
