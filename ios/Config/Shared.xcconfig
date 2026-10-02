@@ -108,3 +108,8 @@ CODE_SIGN_ENTITLEMENTS = $(CMUX_APP_CODE_SIGN_ENTITLEMENTS)
 // ==========================================
 // Every bundle registers only its full-bundle-derived scheme.
 CMUX_IOS_URL_SCHEME = cmux-ios-$(PRODUCT_BUNDLE_IDENTIFIER)
+
+// Info.plist preprocessing so Debug can add dev-only keys (see Info.plist).
+// -traditional keeps "//" in plist strings from being eaten as comments.
+INFOPLIST_PREPROCESS = YES
+INFOPLIST_OTHER_PREPROCESSOR_FLAGS = -traditional

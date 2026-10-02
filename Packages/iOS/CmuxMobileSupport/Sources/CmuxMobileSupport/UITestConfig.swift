@@ -235,6 +235,21 @@ public struct UITestConfig {
     ///
     /// Supported DEBUG-only values are `1`, `diff`, `empty`, and `states`.
     /// Unknown or absent values return `nil` so normal root routing continues.
+    /// DEBUG-only: open the Messages-style conversation lab connected to a
+    /// `services/conversation-sim` WebSocket URL instead of the normal shell.
+    public static var conversationLabURL: String? {
+        conversationLabURL(from: ProcessInfo.processInfo.environment)
+    }
+
+    public static func conversationLabURL(from env: [String: String]) -> String? {
+        #if DEBUG
+        guard let raw = env["CMUX_UITEST_CONVERSATION_LAB"], !raw.isEmpty else { return nil }
+        return raw
+        #else
+        return nil
+        #endif
+    }
+
     public static var changesPreviewMode: String? {
         changesPreviewMode(
             from: ProcessInfo.processInfo.environment,

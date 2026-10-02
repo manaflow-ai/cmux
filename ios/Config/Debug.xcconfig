@@ -5,3 +5,6 @@
 #include "Shared.xcconfig"
 
 SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) CMUX_DEV_AUTH
+
+// Debug-only Info.plist keys (cleartext dev-lab sockets; see Info.plist ATS).
+INFOPLIST_PREPROCESSOR_DEFINITIONS = $(inherited) CMUX_DEBUG_BUILD=1
