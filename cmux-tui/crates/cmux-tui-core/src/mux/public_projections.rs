@@ -37,12 +37,10 @@ pub(super) fn restore_public_projections(
                 .or_else(|| state.terminal_catalog.get(terminal_id).map(|surface| surface.id))
         });
         let level = notification_level(&notification.level)?;
-        if notification.unread {
-            let terminal_id = notification
-                .terminal_id
-                .clone()
-                .context("terminal notification omitted its terminal identity")?;
-            if surface.is_some() {
+        // Durable notifications outlive their terminal. The registry removes
+        // tombstoned terminal references; keep their history without a badge.
+        if notification.unread && surface.is_some() {
+            if let Some(terminal_id) = notification.terminal_id.clone() {
                 terminal_notifications.insert(
                     terminal_id,
                     SurfaceNotification { notification: numeric_id, level, unread: true },
