@@ -5790,7 +5790,9 @@ struct ContentView: View {
             fingerprintHasher.combine(target.machine.rawValue)
             fingerprintHasher.combine(target.workspace.id)
             fingerprintHasher.combine(target.workspace.name)
-            target.group.remoteWorkspaceID.map(fingerprintHasher.combine)
+            if let remoteWorkspaceID = target.group.remoteWorkspaceID {
+                fingerprintHasher.combine(remoteWorkspaceID)
+            }
         }
         commandPaletteCloudWorkspaceTargetsFingerprint = fingerprintHasher.finalize()
         commandPaletteCloudWorkspaceTargetsCache = targets
