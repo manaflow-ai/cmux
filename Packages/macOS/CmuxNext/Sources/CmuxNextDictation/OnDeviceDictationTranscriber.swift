@@ -40,7 +40,7 @@ public actor OnDeviceDictationTranscriber: SpeechTranscribing {
             #if DEBUG
             // The fallback engine listens to the live microphone: a recorded
             // clip fails here instead of quietly dictating from the mic.
-            if recordedInput != nil { throw DictationFailure.onDeviceRecognitionUnavailable }
+            if recordedInput != nil { throw DictationFailure.onDeviceRecognitionUnavailable(localeIdentifier: locale.identifier) }
             #endif
             guard !isFinishing else { throw CancellationError() }
             try await authorizeSpeechRecognition()
