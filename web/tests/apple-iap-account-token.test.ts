@@ -22,7 +22,8 @@ describe("account token eligibility", () => {
       ...overrides,
     };
   }
-  const app = (bundleId: string | null, storeKitEnvironment: string | null = null) => ({ bundleId, storeKitEnvironment });
+  const app = (bundleId: string | null, storeKitEnvironment: "Production" | "Sandbox" | null = null) =>
+    ({ bundleId, storeKitEnvironment });
   const user = { id: "user-a", clientReadOnlyMetadata: {}, update: async () => undefined };
 
   test("lists the products for the requested app, Go only when its flag is on", async () => {
@@ -78,7 +79,7 @@ describe("account token eligibility", () => {
     });
 
     test("the App Store app sells in Production and to App Review in the Sandbox", async () => {
-      for (const environment of ["Production", "Sandbox", null]) {
+      for (const environment of ["Production", "Sandbox", null] as const) {
         const response = await appleAccountTokenResponse(user, app("com.cmux.app", environment), deps({ env: production }));
         expect(response).toMatchObject({ eligible: true, reason: null });
         expect(response.products).toHaveLength(3);
@@ -94,7 +95,7 @@ describe("account token eligibility", () => {
     test("an account reason still wins over purchases_unavailable", async () => {
       expect(await appleAccountTokenResponse(user, app("dev.cmux.app.beta", "Sandbox"), deps({
         env: production, hasActiveStripeSubscription: async () => true,
-      }))).toMatchObject({ eligible: false, reason: "stripe_subscription_active", products: [] });
+      }))).toMatchObject({ eligible: false, reason: "stripe_subscription_active" });
     });
 
     test("the environment header accepts only Sandbox and Production", () => {

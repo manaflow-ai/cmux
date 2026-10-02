@@ -9,6 +9,9 @@ public enum BillingIneligibilityReason: Sendable, Equatable, Codable {
     case stripeSubscriptionActive
     /// A team pays for the account; its admin manages billing.
     case teamBilling
+    /// This build's purchases would grant no plan (a TestFlight build against
+    /// the production server), so nothing is on sale.
+    case purchasesUnavailable
     /// A code this build does not know.
     case other(String)
 
@@ -18,6 +21,7 @@ public enum BillingIneligibilityReason: Sendable, Equatable, Codable {
         switch code {
         case "stripe_subscription_active": self = .stripeSubscriptionActive
         case "team_billing": self = .teamBilling
+        case "purchases_unavailable": self = .purchasesUnavailable
         default: self = .other(code)
         }
     }
@@ -27,6 +31,7 @@ public enum BillingIneligibilityReason: Sendable, Equatable, Codable {
         switch self {
         case .stripeSubscriptionActive: "stripe_subscription_active"
         case .teamBilling: "team_billing"
+        case .purchasesUnavailable: "purchases_unavailable"
         case .other(let code): code
         }
     }

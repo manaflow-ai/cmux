@@ -4,7 +4,9 @@ import Foundation
 ///
 /// Sends the same headers as the other native `/api` clients
 /// (`Authorization: Bearer`, `X-Stack-Refresh-Token`) plus `x-cmux-bundle-id`,
-/// which selects the bundle's product ids on the server.
+/// which selects the bundle's product ids on the server, and, when known,
+/// `x-cmux-storekit-environment` (`Sandbox` or `Production`), which lets the
+/// server withhold products whose purchases would grant no plan.
 ///
 /// ```swift
 /// let api = HTTPBillingAPI(
@@ -16,10 +18,13 @@ import Foundation
 public struct HTTPBillingAPI: BillingAPI {
     /// Reads the current session's tokens; returns nil when signed out.
     public typealias CredentialsProvider = @Sendable () async throws -> BillingAPICredentials?
+    /// Reads the app's StoreKit environment (`Sandbox` or `Production`); nil when unknown.
+    public typealias EnvironmentProvider = @Sendable () async -> String?
 
     private let baseURL: String
     private let bundleID: String
     private let credentials: CredentialsProvider
+    private let storeKitEnvironment: EnvironmentProvider
     private let session: URLSession
     private let timeout: TimeInterval
 
@@ -28,18 +33,22 @@ public struct HTTPBillingAPI: BillingAPI {
     ///   - baseURL: The web API origin, with or without a trailing slash.
     ///   - bundleID: The app's bundle id, sent as `x-cmux-bundle-id`.
     ///   - credentials: Reads the Stack session; nil means signed out.
+    ///   - storeKitEnvironment: Reads the app's StoreKit environment, sent as
+    ///     `x-cmux-storekit-environment`; nil omits the header.
     ///   - session: The URL session. Tests pass one with a stub protocol.
     ///   - timeout: Per-request deadline in seconds.
     public init(
         baseURL: String,
         bundleID: String,
         credentials: @escaping CredentialsProvider,
+        storeKitEnvironment: @escaping EnvironmentProvider = { nil },
         session: URLSession,
         timeout: TimeInterval = 30
     ) {
         self.baseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
         self.bundleID = bundleID
         self.credentials = credentials
+        self.storeKitEnvironment = storeKitEnvironment
         self.session = session
         self.timeout = timeout
     }
@@ -78,6 +87,9 @@ public struct HTTPBillingAPI: BillingAPI {
         request.setValue("Bearer \(pair.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(pair.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
         request.setValue(bundleID, forHTTPHeaderField: "x-cmux-bundle-id")
+        if let environment = await storeKitEnvironment() {
+            request.setValue(environment, forHTTPHeaderField: "x-cmux-storekit-environment")
+        }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body

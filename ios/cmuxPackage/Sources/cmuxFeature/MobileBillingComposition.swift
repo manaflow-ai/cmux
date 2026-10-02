@@ -50,6 +50,7 @@ public struct MobileBillingComposition {
                     return nil
                 }
             },
+            storeKitEnvironment: { await LiveStoreKitClient.appStoreEnvironment() },
             session: URLSession(configuration: .default)
         )
         return BillingModel(api: api, store: LiveStoreKitClient(), analytics: analytics)

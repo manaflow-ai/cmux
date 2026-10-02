@@ -106,6 +106,19 @@ public actor LiveStoreKitClient: StoreKitClient {
         }
     }
 
+    /// The App Store environment this build buys in: `Production` for App
+    /// Store builds, `Sandbox` for TestFlight and App Review, nil for Xcode
+    /// testing or when StoreKit cannot tell. Read from the signed
+    /// `AppTransaction`, which StoreKit caches after the first read.
+    public static func appStoreEnvironment() async -> String? {
+        guard case .verified(let appTransaction) = try? await AppTransaction.shared else { return nil }
+        switch appTransaction.environment {
+        case .production: return "Production"
+        case .sandbox: return "Sandbox"
+        default: return nil
+        }
+    }
+
     /// Records a verified transaction for a later finish and converts it.
     private func hold(_ verification: VerificationResult<Transaction>) -> StoreTransactionVerification {
         switch verification {

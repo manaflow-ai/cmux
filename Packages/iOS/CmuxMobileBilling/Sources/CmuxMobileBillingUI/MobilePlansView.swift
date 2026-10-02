@@ -9,8 +9,8 @@ import StoreKit
 /// with Terms and Privacy links (App Review Guideline 3.1.2).
 ///
 /// When the server reports the account is not eligible (it pays on the web or
-/// through a team), the screen explains where billing lives and shows no
-/// purchase button and no link to web billing.
+/// through a team, or this build's purchases would grant no plan), the screen
+/// explains why and shows no purchase button and no link to web billing.
 ///
 /// HIG: In-app purchase, and Lists and tables (inset-grouped sections).
 ///
@@ -244,6 +244,11 @@ public struct MobilePlansView: View {
             L10n.string(
                 "mobile.billing.ineligible.team",
                 defaultValue: "Your team admin manages billing for this account."
+            )
+        case .purchasesUnavailable:
+            L10n.string(
+                "mobile.billing.ineligible.unavailable",
+                defaultValue: "Plans can't be bought in this version of the app."
             )
         case .other, .none:
             L10n.string(
