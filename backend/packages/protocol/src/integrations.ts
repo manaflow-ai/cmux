@@ -31,9 +31,93 @@ export const Connection = Schema.Struct({
   status: ConnectionStatus,
   status_detail: Schema.optionalKey(Schema.String),
   sharing: Schema.Literals(["private", "team"]),
+  /**
+   * Provider resources this connection may act on. GitHub: the repositories the
+   * linking user could access in the installation (`null` = the whole
+   * installation, when the team policy says so).
+   */
+  resources: Schema.optionalKey(Schema.Struct({ repos: Schema.NullOr(Schema.Array(Schema.String)) })),
   created_at: Schema.Int,
   updated_at: Schema.Int
 }).annotate({ identifier: "Connection" })
+
+/** `owner/repo`, or `owner/*` for every repository of an account. */
+export const RepoPattern = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_.-]{1,100}\/([A-Za-z0-9_.-]{1,100}|\*)$/)).annotate({ identifier: "RepoPattern" })
+
+/**
+ * The team's integration policy (enterprise-ready from day one). A team admin
+ * sets it, or a managed source (SSO-provisioned team policy, MDM profile)
+ * applies it and locks it. The enterprise lead wires the managed sources
+ * through the internal op `integration.policy.apply_managed`.
+ */
+export const TeamIntegrationPolicy = Schema.Struct({
+  /** Providers members may connect; null = every provider this deployment supports. */
+  allowed_providers: Schema.NullOr(Schema.Array(IntegrationProvider)),
+  github: Schema.Struct({
+    /** linking_user_repos (default): ops and events only for repositories the linking user can access. installation: the whole installation. */
+    scope: Schema.Literals(["linking_user_repos", "installation"]),
+    /** Only an organization admin (or the account owner, for a user installation) may link. */
+    require_org_admin: Schema.Boolean,
+    /** When set, ops and events are further limited to these repositories. */
+    repo_allowlist: Schema.NullOr(Schema.Array(RepoPattern).check(Schema.isMaxLength(500)))
+  }),
+  source: Schema.Literals(["default", "admin", "sso", "mdm"]),
+  /** Managed (sso, mdm) policies are locked: team admins cannot change them. */
+  locked: Schema.Boolean,
+  updated_at: Schema.NullOr(Schema.Int),
+  updated_by: Schema.NullOr(Schema.String)
+}).annotate({ identifier: "TeamIntegrationPolicy" })
+export type TeamIntegrationPolicy = typeof TeamIntegrationPolicy.Type
+
+export const DEFAULT_INTEGRATION_POLICY: TeamIntegrationPolicy = {
+  allowed_providers: null,
+  github: { scope: "linking_user_repos", require_org_admin: false, repo_allowlist: null },
+  source: "default",
+  locked: false,
+  updated_at: null,
+  updated_by: null
+}
+
+const PolicyFields = Schema.Struct({
+  allowed_providers: Schema.optionalKey(Schema.NullOr(Schema.Array(IntegrationProvider))),
+  github: Schema.optionalKey(
+    Schema.Struct({
+      scope: Schema.optionalKey(Schema.Literals(["linking_user_repos", "installation"])),
+      require_org_admin: Schema.optionalKey(Schema.Boolean),
+      repo_allowlist: Schema.optionalKey(Schema.NullOr(Schema.Array(RepoPattern).check(Schema.isMaxLength(500))))
+    })
+  )
+})
+
+export const IntegrationPolicyGet = def({
+  name: "integration.policy.get",
+  owner: "cloud:ConnectionDO",
+  class: "read",
+  risk: "read",
+  target: "connection",
+  principals: ["session", "install"],
+  params: Schema.Struct({}),
+  result: TeamIntegrationPolicy,
+  errors: ["auth.unauthenticated", "auth.forbidden"],
+  docs: "Read the team's integration policy (allowed providers, GitHub repository scope).",
+  cli: { path: "integration policy", visible: true },
+  mcp: { expose: "opt_in", group: "integration" }
+})
+
+export const IntegrationPolicySet = def({
+  name: "integration.policy.set",
+  owner: "cloud:ConnectionDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "connection",
+  principals: ["session"],
+  params: PolicyFields,
+  result: TeamIntegrationPolicy,
+  errors: [...mutationErrors, "policy.locked"],
+  docs: "Change the team's integration policy (team admins; refused while an SSO or MDM policy locks it).",
+  cli: { path: "integration policy set", visible: true },
+  mcp: { expose: "never", group: "integration" }
+})
 export type Connection = typeof Connection.Type
 
 const Scopes = Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80))).check(Schema.isMaxLength(30))
@@ -51,7 +135,7 @@ export const IntegrationConnect = def({
     sharing: Schema.optionalKey(Schema.Literals(["private", "team"]))
   }),
   result: Schema.Struct({ connection: Connection, authorize_url: Schema.String }),
-  errors: [...mutationErrors, "integration.not_configured", "integration.limit"],
+  errors: [...mutationErrors, "integration.not_configured", "integration.limit", "policy.denied"],
   docs: "Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it.",
   cli: { path: "integration connect", visible: true },
   mcp: { expose: "never", group: "integration" }
@@ -117,7 +201,7 @@ const providerOp = <P extends Schema.Top>(name: string, risk: CloudOpDef["risk"]
     principals: ["session", "install"],
     params,
     result: Schema.Unknown,
-    errors: [...mutationErrors, "selector.not_found", "integration.unavailable", "provider.error", "mutation.indeterminate"],
+    errors: [...mutationErrors, "selector.not_found", "integration.unavailable", "provider.error", "mutation.indeterminate", "policy.denied"],
     docs,
     cli: { path: name.replace(/\./g, " "), visible: true },
     mcp: { expose: "default", group: name.split(".")[0]! }
@@ -146,7 +230,17 @@ export const SlackPostAsBot = providerOp(
   "Post a message to a Slack channel as the cmux bot."
 )
 
-export const integrationOps = [IntegrationConnect, IntegrationComplete, IntegrationRevoke, IntegrationList, GitHubIssueComment, LinearIssueCreate, SlackPostAsBot] as const
+export const integrationOps = [
+  IntegrationConnect,
+  IntegrationComplete,
+  IntegrationRevoke,
+  IntegrationList,
+  IntegrationPolicyGet,
+  IntegrationPolicySet,
+  GitHubIssueComment,
+  LinearIssueCreate,
+  SlackPostAsBot
+] as const
 export const providerOpNames: ReadonlySet<string> = new Set([GitHubIssueComment.name, LinearIssueCreate.name, SlackPostAsBot.name])
 
 const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>
@@ -168,7 +262,15 @@ const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>
 export const ConnectionActivateParams = Schema.Struct({
   connection: ConnectionId,
   account: Schema.Struct({ key: Schema.String, name: DisplayName, url: Schema.optionalKey(Schema.String) }),
-  scopes_granted: Schema.Array(Schema.String)
+  scopes_granted: Schema.Array(Schema.String),
+  resources: Schema.optionalKey(Schema.Struct({ repos: Schema.NullOr(Schema.Array(Schema.String)) }))
+})
+
+export const PolicyApplyManagedParams = Schema.Struct({
+  source: Schema.Literals(["sso", "mdm"]),
+  policy: PolicyFields,
+  /** Who or what applied it (for example an IdP connection id or an MDM profile id). */
+  applied_by: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))
 })
 export const ConnectionStatusParams = Schema.Struct({
   connection: ConnectionId,
@@ -179,5 +281,6 @@ export const ConnectionStatusParams = Schema.Struct({
 /** Ops only the ConnectionDO submits for itself (after an external effect). Not exported to the catalog. */
 export const connectionInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("connection.activate", ConnectionActivateParams, "Internal: the provider approved; the credential is stored."),
-  internal("connection.status", ConnectionStatusParams, "Internal: a refresh, call or provider event changed the connection's health.")
+  internal("connection.status", ConnectionStatusParams, "Internal: a refresh, call or provider event changed the connection's health."),
+  internal("integration.policy.apply_managed", PolicyApplyManagedParams, "Internal: an SSO-provisioned or MDM-managed policy replaces and locks the team policy.")
 ]

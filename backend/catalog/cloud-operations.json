@@ -433,6 +433,27 @@
             ]
           }
         },
+        "resources": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "repos": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "array",
+                    "items": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "created_at": {
           "required": true,
           "type": {
@@ -805,6 +826,11 @@
       },
       "description": "ES256 (P-256) public key of an install."
     },
+    "RepoPattern": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+    },
     "Run": {
       "kind": "object",
       "fields": {
@@ -1097,6 +1123,101 @@
       "name": "string",
       "pattern": "^team_[a-z0-9]{20}$",
       "description": "A team; a personal account is a team of one."
+    },
+    "TeamIntegrationPolicy": {
+      "kind": "object",
+      "fields": {
+        "allowed_providers": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "IntegrationProvider"
+              }
+            }
+          }
+        },
+        "github": {
+          "required": true,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "scope": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "linking_user_repos",
+                    "installation"
+                  ]
+                }
+              },
+              "require_org_admin": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              },
+              "repo_allowlist": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "array",
+                    "items": {
+                      "kind": "ref",
+                      "name": "RepoPattern"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "source": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "default",
+              "admin",
+              "sso",
+              "mdm"
+            ]
+          }
+        },
+        "locked": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "updated_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "updated_by": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      }
     },
     "TeamMember": {
       "kind": "object",
@@ -6379,6 +6500,7 @@
         "idempotency.conflict",
         "integration.unavailable",
         "mutation.indeterminate",
+        "policy.denied",
         "provider.error",
         "revision.conflict",
         "selector.not_found",
@@ -8172,6 +8294,28 @@
                   "team"
                 ]
               },
+              "resources": {
+                "type": "object",
+                "properties": {
+                  "repos": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "repos"
+                ],
+                "additionalProperties": true
+              },
               "created_at": {
                 "type": "integer"
               },
@@ -8278,6 +8422,7 @@
         "idempotency.conflict",
         "integration.limit",
         "integration.not_configured",
+        "policy.denied",
         "revision.conflict",
         "validation.invalid"
       ],
@@ -8457,6 +8602,28 @@
                   "private",
                   "team"
                 ]
+              },
+              "resources": {
+                "type": "object",
+                "properties": {
+                  "repos": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "repos"
+                ],
+                "additionalProperties": true
               },
               "created_at": {
                 "type": "integer"
@@ -8715,6 +8882,28 @@
                   "team"
                 ]
               },
+              "resources": {
+                "type": "object",
+                "properties": {
+                  "repos": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "repos"
+                ],
+                "additionalProperties": true
+              },
               "created_at": {
                 "type": "integer"
               },
@@ -8734,6 +8923,458 @@
               "sharing",
               "created_at",
               "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "integration.policy.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "TeamIntegrationPolicy"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "integration policy",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "integration"
+      },
+      "docs": "Read the team's integration policy (allowed providers, GitHub repository scope).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/TeamIntegrationPolicy",
+        "$defs": {
+          "IntegrationProvider": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linear",
+              "slack"
+            ]
+          },
+          "RepoPattern": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+          },
+          "TeamIntegrationPolicy": {
+            "type": "object",
+            "properties": {
+              "allowed_providers": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/IntegrationProvider"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "github": {
+                "type": "object",
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": [
+                      "linking_user_repos",
+                      "installation"
+                    ]
+                  },
+                  "require_org_admin": {
+                    "type": "boolean"
+                  },
+                  "repo_allowlist": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/RepoPattern"
+                        },
+                        "maxItems": 500
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "scope",
+                  "require_org_admin",
+                  "repo_allowlist"
+                ],
+                "additionalProperties": true
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "admin",
+                  "sso",
+                  "mdm"
+                ]
+              },
+              "locked": {
+                "type": "boolean"
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "updated_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "allowed_providers",
+              "github",
+              "source",
+              "locked",
+              "updated_at",
+              "updated_by"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "integration.policy.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "allowed_providers": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "array",
+                "items": {
+                  "kind": "ref",
+                  "name": "IntegrationProvider"
+                }
+              }
+            }
+          },
+          "github": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "scope": {
+                  "required": false,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "linking_user_repos",
+                      "installation"
+                    ]
+                  }
+                },
+                "require_org_admin": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
+                },
+                "repo_allowlist": {
+                  "required": false,
+                  "type": {
+                    "kind": "nullable",
+                    "inner": {
+                      "kind": "array",
+                      "items": {
+                        "kind": "ref",
+                        "name": "RepoPattern"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TeamIntegrationPolicy"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "policy.locked",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "integration policy set",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "integration"
+      },
+      "docs": "Change the team's integration policy (team admins; refused while an SSO or MDM policy locks it).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "allowed_providers": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/IntegrationProvider"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "github": {
+            "type": "object",
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "linking_user_repos",
+                  "installation"
+                ]
+              },
+              "require_org_admin": {
+                "type": "boolean"
+              },
+              "repo_allowlist": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/RepoPattern"
+                    },
+                    "maxItems": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "IntegrationProvider": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linear",
+              "slack"
+            ]
+          },
+          "RepoPattern": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/TeamIntegrationPolicy",
+        "$defs": {
+          "IntegrationProvider": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linear",
+              "slack"
+            ]
+          },
+          "RepoPattern": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+          },
+          "TeamIntegrationPolicy": {
+            "type": "object",
+            "properties": {
+              "allowed_providers": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/IntegrationProvider"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "github": {
+                "type": "object",
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": [
+                      "linking_user_repos",
+                      "installation"
+                    ]
+                  },
+                  "require_org_admin": {
+                    "type": "boolean"
+                  },
+                  "repo_allowlist": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/RepoPattern"
+                        },
+                        "maxItems": 500
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "scope",
+                  "require_org_admin",
+                  "repo_allowlist"
+                ],
+                "additionalProperties": true
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "admin",
+                  "sso",
+                  "mdm"
+                ]
+              },
+              "locked": {
+                "type": "boolean"
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "updated_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "allowed_providers",
+              "github",
+              "source",
+              "locked",
+              "updated_at",
+              "updated_by"
             ],
             "additionalProperties": true
           }
@@ -8931,6 +9572,28 @@
                   "team"
                 ]
               },
+              "resources": {
+                "type": "object",
+                "properties": {
+                  "repos": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "repos"
+                ],
+                "additionalProperties": true
+              },
               "created_at": {
                 "type": "integer"
               },
@@ -9026,6 +9689,7 @@
         "idempotency.conflict",
         "integration.unavailable",
         "mutation.indeterminate",
+        "policy.denied",
         "provider.error",
         "revision.conflict",
         "selector.not_found",
@@ -9156,6 +9820,7 @@
         "idempotency.conflict",
         "integration.unavailable",
         "mutation.indeterminate",
+        "policy.denied",
         "provider.error",
         "revision.conflict",
         "selector.not_found",

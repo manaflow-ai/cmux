@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { canonicalJson, LEDGER_RETENTION_MS, type OwnerFrame, type Principal, type RejectFrame } from "@cmux/ownership"
 import { cloudOpByName, type Connection, type IntegrationProvider } from "@cmux/protocol"
-import { connectionsDomain, mayUse, type ConnectionsState } from "./domains/connections.ts"
+import { connectionsDomain, githubRepoAllowed, mayUse, policyOf, type ConnectionsState } from "./domains/connections.ts"
 import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
 import { aadFor, open, seal, type SealedSecret } from "./integrations/crypto.ts"
@@ -67,6 +67,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
     if (!principal.team || (state.owner !== null && state.owner !== principal.team)) return { ok: false, code: "auth.forbidden", message: "not this team's connections" }
+    if (op === "integration.policy.get") return { ok: true, value: policyOf(state), revision: "" }
     if (op !== "integration.list") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     const connections = Object.values(state.connections)
       .filter((c) => mayUse(c, principal))
@@ -184,7 +185,10 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (c.status === "revoked") throw new ProviderError("integration.state_invalid", "this connection was revoked")
     const impl = providers[c.provider]
     if (!impl.configured(this.env) || !this.env.INTEGRATIONS_KEK) throw new ProviderError("integration.unavailable", `${c.provider} is not configured`)
+    const policy = policyOf(this.boundEngine!.currentState)
+    if (policy.allowed_providers !== null && !policy.allowed_providers.includes(c.provider)) throw new ProviderError("integration.state_invalid", `the team policy does not allow ${c.provider}`)
     const approved = await impl.complete(this.env, this.http, {
+      policy: { githubScope: policy.github.scope, requireOrgAdmin: policy.github.require_org_admin },
       ...(typeof params.code === "string" ? { code: params.code } : {}),
       ...(typeof params.installation_id === "string" ? { installation_id: params.installation_id } : {}),
       redirectUri: frame.redirect_uri
@@ -196,7 +200,12 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     // disconnect landed in between), undo both so no credential or route outlives it.
     await this.index(approved.account.key).add(c.owner, c.id)
     await this.sealCredential(c, approved.credential)
-    const res = this.submitSystem("connection.activate", { connection: c.id, account: approved.account, scopes_granted: [...approved.scopes_granted] }, `activate:${c.id}:${sha256(canonicalJson([approved.account.key, approved.scopes_granted])).slice(0, 43)}`)
+    const res = this.submitSystem("connection.activate", {
+        connection: c.id,
+        account: approved.account,
+        scopes_granted: [...approved.scopes_granted],
+        ...(approved.resources ? { resources: { repos: approved.resources.repos === null ? null : [...approved.resources.repos] } } : {})
+      }, `activate:${c.id}:${sha256(canonicalJson([approved.account.key, approved.scopes_granted, approved.resources ?? null])).slice(0, 43)}`)
     const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
     if (rej) {
       this.ctx.storage.sql.exec(`DELETE FROM credentials WHERE connection = ?`, c.id)
@@ -234,6 +243,9 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const c = this.boundEngine!.currentState.connections[String(params.connection)]
     if (!provider || !c || !mayUse(c, principal) || c.provider !== provider) throw new ProviderError("provider.error", "connection not found for this provider")
     if (c.status !== "active") throw new ProviderError("integration.unavailable", `connection is ${c.status}`)
+    if (provider === "github" && typeof params.repo === "string" && !githubRepoAllowed(c, policyOf(this.boundEngine!.currentState), params.repo)) {
+      throw new ProviderError("policy.denied", `this connection may not act on ${params.repo} (team policy or the linking user's access)`)
+    }
     const impl = providers[provider]
     if (!impl.configured(this.env)) throw new ProviderError("integration.unavailable", `${provider} is not configured`)
     try {
@@ -258,6 +270,9 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (!bound || bound.entity !== entity) return { status: "dropped", runs: 0 }
     const c = this.bind(entity).currentState.connections[connection]
     if (!c || c.status !== "active" || c.account?.key !== event.account) return { status: "dropped", runs: 0 }
+    // GitHub events from repositories outside the connection's scope never start automations.
+    const repo = (event.payload as { repository?: { full_name?: unknown } } | null)?.repository?.full_name
+    if (event.provider === "github" && typeof repo === "string" && !githubRepoAllowed(c, policyOf(this.boundEngine!.currentState), repo)) return { status: "dropped", runs: 0 }
     if (event.provider === "github" && event.event === "installation.deleted") {
       this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: "the GitHub App was uninstalled" }, `status:${c.id}:uninstalled:${event.delivery_id}`)
     }
