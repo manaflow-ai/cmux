@@ -5799,7 +5799,7 @@ struct ContentView: View {
             }
 
         var seen = Set<String>()
-        let targets = orderedNodes.compactMap { node in
+        let targets: [CommandPaletteCloudWorkspaceTarget] = orderedNodes.compactMap { node in
             guard case .workspace(let machine, let workspace, _, _, _) = node.kind,
                   let group = node.dragGroup,
                   seen.insert("\(machine.rawValue):\(workspace.id)").inserted else { return nil }
@@ -5945,6 +5945,7 @@ struct ContentView: View {
                 baseKeywords: [
                     "cloud", "workspace", "remote", "vm", "open", "go", "switch", title, machineName
                 ],
+                metadata: CommandPaletteSwitcherSearchMetadata(),
                 detail: .workspace
             ).keywords
             entries.append(
