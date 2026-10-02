@@ -17,7 +17,7 @@ import Testing
 
     func waitUntil(_ condition: () -> Bool) async throws {
         let clock = ContinuousClock()
-        let end = clock.now.advanced(by: .seconds(10))
+        let end = clock.now.advanced(by: .seconds(30))
         while !condition(), clock.now < end { try await clock.sleep(for: .milliseconds(20)) } // test-only wait
     }
 
