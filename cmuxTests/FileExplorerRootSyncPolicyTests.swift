@@ -148,6 +148,24 @@ struct PlainSSHFileExplorerRootTests {
         #expect(path == "/Users/test/project")
     }
 
+    @Test("Remote shell titles provide safe absolute or home-relative cwds")
+    func remoteShellTitleProvidesRemoteCwd() {
+        #expect(
+            TerminalSSHSessionDetector.remoteWorkingDirectory(fromTitle: "deploy@build-host:~/project")
+                == "~/project"
+        )
+        #expect(
+            TerminalSSHSessionDetector.remoteWorkingDirectory(fromTitle: "deploy@build-host:22:/srv/project")
+                == "/srv/project"
+        )
+        #expect(
+            TerminalSSHSessionDetector.remoteWorkingDirectory(fromTitle: "build-host:~/project") == nil
+        )
+        #expect(
+            TerminalSSHSessionDetector.remoteWorkingDirectory(fromTitle: "deploy@build-host:project") == nil
+        )
+    }
+
     @Test("SSH detection snapshots are scoped to the active terminal")
     func detectionSnapshotsFollowTerminalSelection() async throws {
         let first = Self.session(destination: "first@example.com")
