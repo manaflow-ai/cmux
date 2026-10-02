@@ -341,8 +341,8 @@ jobs:
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests
 
       # The WebKit driver tests drive real WKWebViews against wall-clock load
-      # deadlines through main-actor navigation callbacks. They run last, in a
-      # process of their own: the package's other main-actor tests do not delay
+      # deadlines through main-actor navigation callbacks. They run after the
+      # control tests, in a process of their own: the package's other main-actor tests do not delay
       # those callbacks, and a WebKit failure does not skip the control tests.
       - name: Run WebKit driver package tests
         timeout-minutes: 10
