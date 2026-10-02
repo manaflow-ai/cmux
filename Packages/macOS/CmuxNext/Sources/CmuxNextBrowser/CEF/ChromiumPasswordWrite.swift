@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Rows for the shim's `cmux_shim_password_entry` array, written at the C
 /// offsets the header documents (72 bytes each). The non-secret fields are
