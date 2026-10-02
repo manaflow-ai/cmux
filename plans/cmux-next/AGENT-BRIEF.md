@@ -59,3 +59,10 @@ The nightly builds the app in Release (-O, whole-module) with Xcode 26.6 (Swift 
 ## Build load (added 2026-09-30, load 400+)
 
 Pass `-j 4` to every `swift build` and `swift test`. Run focused test filters while you iterate and the full package tests once, right before you land. Never run two builds at the same time yourself.
+
+## CLI freeze and cross-agent coordination (added 2026-10-01)
+
+- Swift CLI freeze: do not change `CLI/`, the app compat layer (`CmuxNextControl/Compat`), `cmuxCLITests` or `Resources/bin` agent wrappers. Session feat-cmux-next-99 is moving the whole `cmux` CLI to the Rust cmux-tui binary (https://github.com/manaflow-ai/cmux/pull/16174, branch feat-cmux-next-acpmux) and deletes those paths. If your feature needs a CLI verb, add the app action (with `cli: true`) or daemon command, and send the CLI request to that session: `SendMessage` to `uds:/tmp/cc-socks/18283.sock` with the verb, flags, output and exit codes. The freeze ends when #16174 merges; then all CLI work is Rust.
+- Ids in the Rust CLI are daemon public ids (`ws_…`, `tab_…`, `term_…`, unique prefix; qualified `<session>:ws_…`), not numeric `workspace:1` refs.
+- Daemon state ops: #16174 adds v2 state operations in `cmux-tui-core` behind a `state` module with no PTY/session code. The ownership rewrite (plans/cmux-next/ownership.md, in design) splits cmux-tui into a session host (PTYs, transcripts, geometry, input, presence) and a workspace store (layout document, pins, tab groups, rooms, browser tab records), plus client view state. New shared or personal state goes into the workspace-store side, never into PTY/session code.
+- Before you change a shared surface (daemon protocol, layout ops, store/projection code, CLI grammar), read plans/cmux-next/COORDINATION.md and add one line there when you land.
