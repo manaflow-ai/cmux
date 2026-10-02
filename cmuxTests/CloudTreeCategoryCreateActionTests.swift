@@ -73,6 +73,22 @@ struct CloudTreeCategoryCreateActionTests {
         workspaceCell.setHovered(true)
         #expect(workspaceCell.isPersistentActionHoverVisible)
 
+        let connectingPlaceholder = CloudTreeNode(
+            id: "connecting-placeholder",
+            kind: .placeholder(
+                machine: .cloud("offline"),
+                CloudTreePlaceholder(text: "Connecting", style: .connecting)
+            )
+        )
+        let placeholderCell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        placeholderCell.configure(
+            node: connectingPlaceholder,
+            machineActions: fixture.machineActions,
+            nodeActions: fixture.nodeActions
+        )
+        placeholderCell.setHovered(true)
+        #expect(!placeholderCell.isPersistentActionHoverVisible)
+
         #expect(CloudTreeCellView.isPersistentActionRow(.placeholder(
             machine: .cloud("empty"),
             CloudTreePlaceholder(text: "New Machine", style: .createMachine)
@@ -232,6 +248,8 @@ struct CloudTreeCategoryCreateActionTests {
         let machineID = "footer-machine"
         let machine: MachineSnapshot
         let events: Events
+        let machineActions: MachineRowActions
+        let nodeActions: CloudTreeNodeActions
         let coordinator: CloudTreeOutlineView.Coordinator
         let container: CloudTreeContainerView
 
@@ -264,11 +282,14 @@ struct CloudTreeCategoryCreateActionTests {
                 newMachine: { eventBox.cloudVMActionCalled = true },
                 newWorkspaceOnResolvedMachine: { eventBox.resolvedWorkspaceActionCalled = true }
             )
+            self.nodeActions = actions
+            let machineActions = MachineRowActions(
+                openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
+                confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
+            )
+            self.machineActions = machineActions
             coordinator = CloudTreeOutlineView.Coordinator(
-                machineActions: MachineRowActions(
-                    openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-                    confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
-                ),
+                machineActions: machineActions,
                 nodeActions: actions,
                 expansionStore: CloudTreeExpansionStore(defaults: defaults),
                 tabDragTransferRegistry: { nil }
