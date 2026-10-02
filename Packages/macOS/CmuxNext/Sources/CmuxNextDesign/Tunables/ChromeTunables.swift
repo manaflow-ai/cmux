@@ -41,7 +41,7 @@ public nonisolated enum ChromeTunables {
         "glass.opaqueOverlayLift", .glass, "Opaque overlay lift", help: "Reduce Transparency overlays: how far the fill moves from the background toward the text color.",
         default: 0.14, range: 0...0.6, step: 0.01, unit: .fraction, code: "ChromeTunables.opaqueOverlayLift")
     public static let glassOverlayTintStrength = Tunable<Double>.number(
-        "glass.overlayTintStrength", .glass, "Overlay tint strength", help: "Multiplier on the theme glass tint's alpha for overlay surfaces (drop overlay).",
+        "glass.overlayTintStrength", .glass, "Overlay tint strength", help: "Multiplier on the theme glass tint's alpha for overlay surfaces (palette, hover cards, browser bars, drop overlay).",
         default: 1, range: 0...3, step: 0.05, unit: .multiplier, code: "ChromeTunables.glassOverlayTintStrength")
 
     // MARK: Scroll fade
@@ -61,6 +61,7 @@ public nonisolated enum ChromeTunables {
 /// modules declare their own lists; the App joins them (`TunableCatalog`).
 public nonisolated enum DesignTunables {
     public static var all: [TunableDescriptor] {
-        MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed
+        MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed + [Borders.tunable.descriptor] + FocusIndicatorTunables.all
+            + StatusIndicatorTunables.all
     }
 }

@@ -96,15 +96,15 @@ class Client : public CefClient,
   }
 
   // Tab past the last element or Shift-Tab past the first: the host moves
-  // focus to its omnibar (Chrome moves it to the toolbar).
+  // focus to its omnibar.
   void OnTakeFocus(CefRefPtr<CefBrowser> browser, bool next) override {
     Emit(CMUX_SHIM_TAKE_FOCUS, browser->GetIdentifier(), 0, next ? 1 : 0);
   }
 
-  // MARK: Chrome commands
+  // MARK: Chromium commands
 
-  // Chrome commands that open a window of Chromium's own never run: the
-  // host sees them as CHROME_COMMAND. Every other command runs as in Chrome.
+  // Chromium commands that open a window of Chromium's own never run: the
+  // host sees them as CHROME_COMMAND. Every other command runs normally.
   bool OnChromeCommand(CefRefPtr<CefBrowser> browser, int command_id, cef_window_open_disposition_t) override {
     if (!IsWindowCommand(command_id)) {
       return false;
@@ -270,7 +270,7 @@ class Client : public CefClient,
     // Chromium window and the host moves the tab into a pane. window.opener
     // stays either way. AFTER_CREATED carries the disposition and features.
     window_info = CefWindowInfo();
-    // A page opened by a page is past a new tab's first paint: Chrome's
+    // A page opened by a page is past a new tab's first paint: Chromium's
     // white default (PageBackground; cmux also sets it on adoption).
     settings.background_color = 0xFFFFFFFF;
     RememberPopup(browser->GetIdentifier(), disposition, features);
@@ -280,7 +280,7 @@ class Client : public CefClient,
 
   void OnBeforeDevToolsPopup(CefRefPtr<CefBrowser> browser, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
                              CefBrowserSettings&, CefRefPtr<CefDictionaryValue>&, bool* use_default_window) override {
-    // Every DevTools of this page (ShowDevTools, Chrome's DevTools
+    // Every DevTools of this page (ShowDevTools, Chromium's DevTools
     // commands, the context menu's Inspect) gets its own client, so it is
     // never adopted as a tab and never reports this page's URL or title.
     PrepareDevToolsPopup(browser->GetIdentifier(), window_info, client, use_default_window);

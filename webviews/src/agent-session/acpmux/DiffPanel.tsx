@@ -1,34 +1,20 @@
-// The changes one turn made, after the Codex Changes pane in manaflow-ai/codex-atlas-clone
+// The changes one turn made, ported from the changes pane in the agent-pane reference prototype
 // (src/changes/parts/Header.tsx, DiffList.tsx and ChangesTree.tsx): a pill with the totals,
 // a round toolbar, stacked per-file diffs on @pierre/diffs with a custom file header, and a
 // filterable @pierre/trees file tree.
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { getFiletypeFromFileName, getSingularPatch, setLanguageOverride } from "@pierre/diffs";
-import { FileDiff, useStableCallback } from "@pierre/diffs/react";
-import { FileTree, useFileTree } from "@pierre/trees/react";
-import type { FileTreeRowDecorationRenderer } from "@pierre/trees";
-import { editPatch, type DiffEdit, type TurnFile } from "./diff";
-import { isHighlighted } from "./shikiLanguages";
-import {
-  AGENT_DIFF_THEME,
-  AGENT_DIFF_THEME_LIGHT,
-  diffUnsafeCSS,
-  registerAgentDiffTheme,
-  treeUnsafeCSS,
-} from "./diffTheme";
-import {
-  ChevronDown,
-  ChevronLeft,
-  CollapseAll,
-  Eye,
-  FileTypeIcon,
-  Panels,
-  Search,
-  SplitView,
-  Wrap,
-} from "./changeIcons";
-
-export type DiffLayout = "unified" | "split";
+import { useStableCallback } from "@pierre/diffs/react";
+import type { TurnFile } from "./diff";
+import { registerAgentDiffTheme } from "./diffTheme";
+import { ChevronLeft, CollapseAll, Panels, SplitView, Wrap } from "./changeIcons";
+import { ChangedFilesTree } from "./changes/ChangedFilesTree";
+import { Counts } from "./changes/Counts";
+import { EditBlock, type DiffLayout } from "./changes/EditBlock";
+import type { FileActions } from "./changes/FileHeader";
+import { LoadState } from "./changes/LoadState";
+import { changeSetFiles, type ChangeScope, type ChangesSource } from "./changes/model";
+import { ScopeMenu } from "./changes/ScopeMenu";
+import { useScopeChanges } from "./changes/useScopeChanges";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
 const WRAP_KEY = "cmux.acpmux.diffWrap";
@@ -50,235 +36,39 @@ function store(key: string, value: string) {
   }
 }
 
-export function Counts({ additions, deletions }: { additions: number; deletions: number }) {
-  return (
-    <span className="acpmux-diff-counts">
-      <span className="acpmux-diff-add">+{additions}</span>
-      <span className="acpmux-diff-del">-{deletions}</span>
-    </span>
-  );
-}
-
-type FileView = { collapsed: boolean; viewed: boolean };
-type FileActions = { toggleCollapsed: (path: string) => void; toggleViewed: (path: string) => void };
-
-function FileHeader({
-  file,
-  edit,
-  index,
-  view,
-  on,
-}: {
-  file: TurnFile;
-  edit: DiffEdit;
-  index: number;
-  view: FileView;
-  on: FileActions;
-}) {
-  const slash = file.displayPath.lastIndexOf("/");
-  const additions = edit.hunks.reduce((sum, hunk) => sum + hunk.lines.filter((line) => line.type === "add").length, 0);
-  const deletions = edit.hunks.reduce((sum, hunk) => sum + hunk.lines.filter((line) => line.type === "del").length, 0);
-  return (
-    <div className="acpmux-file-header" data-viewed={view.viewed ? "" : undefined}>
-      <FileTypeIcon path={file.displayPath} />
-      <button
-        type="button"
-        className="acpmux-fh-name"
-        title={file.path}
-        aria-expanded={!view.collapsed}
-        onClick={() => on.toggleCollapsed(file.path)}
-      >
-        {slash >= 0 && <span className="acpmux-fh-dir">{file.displayPath.slice(0, slash + 1)}</span>}
-        <span>{file.displayPath.slice(slash + 1)}</span>
-        <ChevronDown className="acpmux-fh-chevron" width={14} height={14} />
-      </button>
-      {file.created && index === 0 && <span className="acpmux-fh-badge">New</span>}
-      {file.edits.length > 1 && <span className="acpmux-fh-badge">{`Edit ${index + 1} of ${file.edits.length}`}</span>}
-      <span className="acpmux-fh-spacer" />
-      <Counts additions={additions} deletions={deletions} />
-      <button
-        type="button"
-        className="acpmux-fh-btn"
-        aria-label={view.viewed ? `Mark ${file.displayPath} as not viewed` : `Mark ${file.displayPath} as viewed`}
-        aria-pressed={view.viewed}
-        onClick={() => on.toggleViewed(file.path)}
-      >
-        <Eye />
-      </button>
-    </div>
-  );
-}
-
-/// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.
-const paneThemeType = () =>
-  document.documentElement.dataset.theme === "light" ? ("light" as const) : ("dark" as const);
-
-function EditBlock({
-  file,
-  edit,
-  index,
-  layout,
-  wrap,
-  view,
-  on,
-  onPainted,
-}: {
-  file: TurnFile;
-  edit: DiffEdit;
-  index: number;
-  layout: DiffLayout;
-  wrap: boolean;
-  view: FileView;
-  on: FileActions;
-  onPainted: () => void;
-}) {
-  // A language the bundle can't highlight shows as plain text; Pierre throws for it otherwise.
-  // Each transcript update rebuilds the turn's files; the patch text is compared so an
-  // unchanged edit keeps its parsed diff and does not paint again.
-  const patch = useMemo(() => editPatch(file, edit), [file, edit]);
-  const highlighted = isHighlighted(getFiletypeFromFileName(file.displayPath));
-  const fileDiff = useMemo(() => {
-    const parsed = getSingularPatch(patch);
-    return highlighted ? parsed : setLanguageOverride(parsed, "text");
-  }, [patch, highlighted]);
-  const afterRender = useStableCallback(onPainted);
-  const options = useMemo(
-    () => ({
-      theme: { dark: AGENT_DIFF_THEME, light: AGENT_DIFF_THEME_LIGHT },
-      themeType: paneThemeType(),
-      diffStyle: layout,
-      diffIndicators: "bars" as const,
-      hunkSeparators: "line-info" as const,
-      lineDiffType: "none" as const,
-      overflow: wrap ? ("wrap" as const) : ("scroll" as const),
-      // A fragment edit has no known place in its file, so its numbers would be made up.
-      disableLineNumbers: !edit.numbered,
-      // The bundled page allows no WebAssembly.
-      preferredHighlighter: "shiki-js" as const,
-      disableFileHeader: true,
-      unsafeCSS: diffUnsafeCSS,
-      onPostRender: afterRender,
-    }),
-    [layout, wrap, edit.numbered, afterRender],
-  );
-  // The header sits outside Pierre's diff, so collapsing or marking a file keeps the same
-  // header node and the button the reader pressed keeps focus.
-  const header = <FileHeader file={file} edit={edit} index={index} view={view} on={on} />;
-  const showDiff = !view.collapsed && edit.hunks.length > 0;
-  return (
-    <div className="acpmux-diff-file" data-path={file.path} data-collapsed={view.collapsed ? "" : undefined}>
-      {header}
-      {!view.collapsed && edit.hunks.length === 0 && <div className="acpmux-diff-empty-edit">No line changes</div>}
-      {showDiff && <FileDiff className="acpmux-diff-pierre" fileDiff={fileDiff} options={options} />}
-    </div>
-  );
-}
-
-function ChangedFilesTree({
-  files,
-  selected,
-  onSelect,
-}: {
-  files: TurnFile[];
-  selected?: string;
-  onSelect: (path: string) => void;
-}) {
-  const byDisplay = useMemo(() => new Map(files.map((file) => [file.displayPath, file])), [files]);
-  // The tree keeps the renderer it was built with; it reads the current files through a ref.
-  const filesRef = useRef(byDisplay);
-  filesRef.current = byDisplay;
-  const renderRowDecoration: FileTreeRowDecorationRenderer = ({ item }) => {
-    const file = filesRef.current.get(item.path);
-    if (!file || item.kind !== "file") return null;
-    // This Pierre draws a decoration's text only, so the counts take the tree's muted color.
-    const text = [file.additions > 0 && `+${file.additions}`, file.deletions > 0 && `-${file.deletions}`]
-      .filter(Boolean)
-      .join(" ");
-    return text ? { text } : null;
-  };
-  // Pierre reports selection from clicks and keys; only file rows map to a diff.
-  const onSelectionChange = useStableCallback((paths: readonly string[]) => {
-    const file = filesRef.current.get(paths[paths.length - 1] ?? "");
-    if (file && file.path !== selected) onSelect(file.path);
-  });
-  // Pierre reports no change when the selected row is picked again, but that file may have
-  // been collapsed or scrolled away since, so a plain click, Enter or Space reveals it. A
-  // modified click changes the selection only.
-  const onRowPick = (event: React.MouseEvent | React.KeyboardEvent) => {
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    if ("key" in event && event.key !== "Enter" && event.key !== " ") return;
-    const row = event.nativeEvent
-      .composedPath()
-      .find((node): node is HTMLElement => node instanceof HTMLElement && node.dataset.itemPath !== undefined);
-    const file = row && filesRef.current.get(row.dataset.itemPath!);
-    if (file && file.path === selected) onSelect(file.path);
-  };
-  const [filter, setFilter] = useState("");
-  const displayPaths = useMemo(() => {
-    const query = filter.trim().toLowerCase();
-    return files.map((file) => file.displayPath).filter((path) => !query || path.toLowerCase().includes(query));
-  }, [files, filter]);
-  const selectedDisplay = files.find((file) => file.path === selected)?.displayPath;
-  // useFileTree builds its model once; later changes go through the model.
-  const { model } = useFileTree({
-    paths: displayPaths,
-    flattenEmptyDirectories: true,
-    initialExpansion: "open",
-    initialSelectedPaths: selectedDisplay ? [selectedDisplay] : [],
-    onSelectionChange,
-    icons: { set: "complete", colored: true },
-    itemHeight: 28,
-    renderRowDecoration,
-    unsafeCSS: treeUnsafeCSS,
-  });
-  // A transcript update rebuilds the files; the tree resets only when the paths differ.
-  const shown = useRef(displayPaths);
-  useEffect(() => {
-    if (shown.current.length === displayPaths.length && shown.current.every((path, i) => path === displayPaths[i]))
-      return;
-    shown.current = displayPaths;
-    model.resetPaths(displayPaths);
-  }, [model, displayPaths]);
-  return (
-    <>
-      <label className="acpmux-diff-filter">
-        <Search width={14} height={14} />
-        <input
-          type="search"
-          aria-label="Filter files"
-          placeholder="Filter files…"
-          // Uncontrolled and read on each native input event (typing, paste, the clear button),
-          // so filtering does not depend on React's change-event emulation.
-          defaultValue=""
-          onInput={(event) => setFilter(event.currentTarget.value)}
-        />
-      </label>
-      {displayPaths.length === 0 && <div className="acpmux-diff-tree-empty">No matching files</div>}
-      <FileTree model={model} className="acpmux-diff-tree-host" onClick={onRowPick} onKeyDown={onRowPick} />
-    </>
-  );
-}
-
 type Tool = "collapse" | "wrap" | "split" | "tree";
 
-/// The changes one turn's tool calls made, file by file. Read-only; Back or Escape returns
-/// to the transcript.
+/// The changes one turn's tool calls made, file by file, or a git scope of the session's
+/// repository from `source`. Read-only; Back or Escape returns to the transcript.
 export function DiffPanel({
-  files,
+  files: turnFiles,
   initialPath,
   onClose,
+  source,
 }: {
   files: TurnFile[];
   initialPath?: string;
   onClose: () => void;
+  source?: ChangesSource;
 }) {
   registerAgentDiffTheme();
+  const [scope, setScope] = useState<ChangeScope>("lastTurn");
+  const { load, retry } = useScopeChanges(source, scope);
+  const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
+  const files = scope === "lastTurn" ? turnFiles : scopeFiles;
+  /// A git scope's body before its files: loading, failed or empty.
+  const scopeState =
+    scope === "lastTurn" || (load.state === "loaded" && files.length > 0)
+      ? undefined
+      : load.state === "loaded"
+        ? "empty"
+        : load.state;
   const [layout, setLayout] = useState<DiffLayout>(() => (stored(LAYOUT_KEY) === "split" ? "split" : "unified"));
   const [wrap, setWrap] = useState(() => stored(WRAP_KEY) === "on");
   const [showTree, setShowTree] = useState(() => stored(TREE_KEY) !== "off");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const [viewed, setViewed] = useState<ReadonlySet<string>>(() => new Set());
-  const [selected, setSelected] = useState(initialPath ?? files[0]?.path);
+  const [selected, setSelected] = useState<string | undefined>(initialPath ?? files[0]?.path);
   const body = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
   const totals = useMemo(
@@ -356,7 +146,7 @@ export function DiffPanel({
           return next;
         });
       },
-      // Marking a file viewed folds it away, as in Codex; unmarking opens it again.
+      // Marking a file viewed folds it away; unmarking opens it again.
       toggleViewed: (path) => {
         revealing.current = undefined;
         const marking = !viewed.has(path);
@@ -405,10 +195,20 @@ export function DiffPanel({
         <button ref={back} type="button" className="acpmux-diff-back" aria-label="Back to transcript" onClick={onClose}>
           <ChevronLeft />
         </button>
-        <div className="acpmux-diff-scope">
-          <strong>{files.length === 1 ? "1 file changed" : `${files.length} files changed`}</strong>
-          <Counts additions={totals.additions} deletions={totals.deletions} />
-        </div>
+        <ScopeMenu
+          scope={scope}
+          onScope={(next) => {
+            if (next === scope) return;
+            // Another scope is other contents: its files start open, unviewed and unpicked.
+            stopRevealing();
+            setScope(next);
+            setCollapsed(new Set());
+            setViewed(new Set());
+            setSelected(undefined);
+          }}
+        >
+          {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
+        </ScopeMenu>
         <div className="acpmux-diff-tools" role="toolbar" aria-label="Changes view">
           {tools.map((tool) => (
             <button
@@ -428,7 +228,16 @@ export function DiffPanel({
       </header>
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">
-          {files.length === 0 ? (
+          {scopeState ? (
+            <LoadState
+              state={scopeState}
+              onRetry={() => {
+                // Retry leaves as the load starts, so focus moves to the scope pill.
+                panel.current?.querySelector<HTMLElement>(".acpmux-diff-scope")?.focus();
+                retry();
+              }}
+            />
+          ) : files.length === 0 ? (
             <div className="acpmux-muted">No file changes in this turn.</div>
           ) : (
             files.flatMap((file) =>

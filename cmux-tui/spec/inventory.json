@@ -155,6 +155,7 @@
       "close-terminal",
       "close-workspace",
       "copy",
+      "create-bookmark",
       "create-browser-profile",
       "create-personal-group",
       "create-profile",
@@ -164,6 +165,7 @@
       "create-terminal",
       "create-workspace",
       "create-workspace-group",
+      "delete-bookmark",
       "delete-browser-profile",
       "delete-personal-group",
       "delete-profile",
@@ -179,9 +181,11 @@
       "get-size-state",
       "identify",
       "ids",
+      "import-bookmarks",
       "import-session-organization",
       "journal-frontend-event",
       "list-agents",
+      "list-bookmarks",
       "list-clients",
       "list-notifications",
       "list-personal",
@@ -193,6 +197,7 @@
       "list-workspaces",
       "machine-listening-tcp",
       "machine-usage",
+      "move-bookmark",
       "move-browser-profile",
       "move-personal-group",
       "move-profile",
@@ -282,6 +287,7 @@
       "unpin-workspace",
       "unsave-screen-group",
       "unsave-tab-group",
+      "update-bookmark",
       "update-browser-profile",
       "update-frontend-browser-tab",
       "update-personal-group",
@@ -329,7 +335,15 @@
       "unregister-browser-provider",
       "shutdown-daemon",
       "pairing-response",
-      "url-open"
+      "url-open",
+      "conversation-list",
+      "conversation-create",
+      "conversation-snapshot",
+      "conversation-history",
+      "conversation-op",
+      "conversation-typing",
+      "conversation-bind",
+      "conversation-agent-token"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -346,6 +360,12 @@
     },
     {
       "name": "bell",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "bookmarks-changed",
       "streams": [
         "subscribe"
       ]
@@ -389,6 +409,18 @@
     },
     {
       "name": "config-reload-requested",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-typing",
       "streams": [
         "subscribe"
       ]

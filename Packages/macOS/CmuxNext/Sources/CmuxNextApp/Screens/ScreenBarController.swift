@@ -7,7 +7,7 @@ import CmuxNextTabs
 import Observation
 
 /// The bottom screen tab bar of one workspace: a `TabStripView` whose tabs
-/// are the workspace's screens (Chrome sizing, hover card, drag reorder,
+/// are the workspace's screens (tab sizing, hover card, drag reorder,
 /// groups). It mirrors the daemon through `ScreenBarMapping` and turns
 /// strip intents into `ScreenCommands` / `ScreenGroupCommands`.
 @MainActor
@@ -145,7 +145,7 @@ final class ScreenBarController {
             view.restoreDetachedGroup(start.groupID)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
-        case .moveToNewSplit, .moveToNewColumn, .trailingButton:
+        case .moveToNewSplit, .moveToNewColumn, .trailingButton, .focusLocation:
             break
         }
     }

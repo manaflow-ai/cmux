@@ -249,6 +249,24 @@ describe("direct client session state", () => {
     expect(await catalog).toEqual([{ id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: undefined }] }]);
   });
 
+  test("only the first new chat starts in the inherited cwd", async () => {
+    let created = 0;
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new") return { sessionId: `n${(created += 1)}` };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      return {};
+    };
+    const client = await AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, cwd: "/work/app" },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    await client.create("claude");
+    await client.create("codex");
+    const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(news.map((request) => request.params.cwd)).toEqual(["/work/app", undefined]);
+  });
+
   test("a turn that ends in the background is unread until its session is selected, and survives a reread", async () => {
     const client = await connect();
     const unread = () =>
@@ -753,6 +771,43 @@ describe("direct client session state", () => {
     await settle();
     expect(texts()).toEqual(["a five", "a six", "a seven", "did not send"]);
     expect(latest().rows.find((row) => row.text === "did not send")?.failed).toBe(true);
+  });
+
+  /// ACP wraps a tool call's output as `{ type: "content", content: { type: "text" } }`.
+  test("a tool call's wrapped text content becomes its output", async () => {
+    const update: EventRecord = {
+      sessionId: "a",
+      seq: 2,
+      at: 2000,
+      dir: "in",
+      kind: "tool_call",
+      msg: {
+        method: "session/update",
+        params: {
+          sessionId: "a",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "t1",
+            kind: "execute",
+            title: "Run bun test",
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: "2 pass\n0 fail" } }],
+          },
+        },
+      },
+    };
+    ScriptedSocket.respond = ({ method }) =>
+      method === "_acpmux/attach"
+        ? { session: { sessionId: "a", status: "idle" }, events: [userEvent("a", 1, "test it"), update] }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
+    await connect();
+    await settle();
+    const call = latest()
+      .rows.flatMap((row) => row.items ?? [])
+      .find((item) => item.tool?.id === "t1");
+    expect(call?.tool?.output).toBe("2 pass\n0 fail");
   });
 
   test("a turn summary counts the turn's tool calls and its time", async () => {

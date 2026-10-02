@@ -8,6 +8,8 @@ public enum ContextMenuEntry: Sendable, Hashable {
     /// enumeration argument (Set Room Theme > Nord, Vesper, ...). Hovering
     /// an item previews it (`ActionRegistry.choicePreview`).
     case choices(ActionID)
+    /// A titled submenu of less used rows ("Move ▸").
+    case folder(MenuFolder, [ContextMenuEntry])
 }
 
 /// Right-click menus generated from the actions' placements
@@ -28,7 +30,7 @@ public struct ContextMenuCatalog: Sendable {
                 rows[placement.context, default: []].append(Row(id: descriptor.id, placement: placement, index: index))
             }
         }
-        menus = rows.mapValues { Self.entries($0.filter { $0.placement.parent == nil }, all: $0) }
+        menus = rows.mapValues { Self.topLevel($0) }
     }
 
     public func entries(for context: ActionMenuContext) -> [ContextMenuEntry] {
@@ -43,8 +45,34 @@ public struct ContextMenuCatalog: Sendable {
             case .separator: []
             case .submenu(let id, let children): [id] + referencedIDs(children)
             case .choices(let id): [id]
+            case .folder(_, let children): referencedIDs(children)
             }
         }
+    }
+
+    /// The menu for `context` without `hidden` rows, inside folders too
+    /// (call-site filters: a page tab hides terminal themes). A folder left
+    /// empty disappears; the registry collapses separator runs.
+    public func entries(for context: ActionMenuContext, removing hidden: Set<ActionID>) -> [ContextMenuEntry] {
+        Self.removing(hidden, from: entries(for: context))
+    }
+
+    static func removing(_ hidden: Set<ActionID>, from entries: [ContextMenuEntry]) -> [ContextMenuEntry] {
+        var result: [ContextMenuEntry] = []
+        for entry in entries {
+            switch entry {
+            case .action(let id), .choices(let id):
+                if !hidden.contains(id) { result.append(entry) }
+            case .separator:
+                result.append(entry)
+            case .submenu(let id, let children):
+                if !hidden.contains(id) { result.append(.submenu(id, removing(hidden, from: children))) }
+            case .folder(let folder, let children):
+                let kept = removing(hidden, from: children)
+                if kept.contains(where: { if case .separator = $0 { false } else { true } }) { result.append(.folder(folder, kept)) }
+            }
+        }
+        return result
     }
 
     /// The cmux items after an engine's own page menu (Chromium lists Back,
@@ -60,6 +88,40 @@ public struct ContextMenuCatalog: Sendable {
         let id: ActionID
         let placement: ContextMenuPlacement
         let index: Int
+    }
+
+    /// A top-level menu: unfoldered rows plus one row per folder at the
+    /// folder's position. A folder with one row shows it inline.
+    private static func topLevel(_ rows: [Row]) -> [ContextMenuEntry] {
+        let roots = rows.filter { $0.placement.parent == nil }
+        // Folders follow their group's rows, in the group's last section.
+        var items: [(group: MenuGroup, folder: Int, rank: Int, index: Int, band: Int, entries: [ContextMenuEntry])] = []
+        var lastBand: [MenuGroup: Int] = [:]
+        func addRow(_ row: Row) {
+            let band = row.placement.rank / 100
+            lastBand[row.placement.group] = max(lastBand[row.placement.group] ?? band, band)
+            items.append((row.placement.group, 0, row.placement.rank, row.index, band, entries([row], all: rows)))
+        }
+        for row in roots where row.placement.folder == nil { addRow(row) }
+        var folders: [(MenuFolder, [Row])] = []
+        for folder in MenuFolder.allCases {
+            let members = roots.filter { $0.placement.folder == folder }
+            if members.count == 1, let only = members.first { addRow(only) } else if !members.isEmpty { folders.append((folder, members)) }
+        }
+        for (folder, members) in folders {
+            let index = MenuFolder.allCases.firstIndex(of: folder) ?? 0
+            items.append((folder.group, 1, index, index, lastBand[folder.group] ?? 0, [.folder(folder, entries(members, all: rows))]))
+        }
+        items.sort { ($0.group, $0.folder, $0.rank, $0.index) < ($1.group, $1.folder, $1.rank, $1.index) }
+        var result: [ContextMenuEntry] = []
+        var lastSection: (MenuGroup, Int)?
+        for item in items {
+            let section = (item.group, item.band)
+            if let lastSection, lastSection != section { result.append(.separator) }
+            lastSection = section
+            result += item.entries
+        }
+        return result
     }
 
     /// Orders `rows` by group, rank and catalog order, with a separator

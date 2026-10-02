@@ -88,7 +88,7 @@ extension AppActions {
               let target = store.workspaces.firstIndex(where: { $0 === visible[position + offset] }), target != index else { return }
         let daemon = services.activeDaemon
         Task {
-            await daemon.perform("move-workspace", patch: .moveWorkspace(key: key, index: target)) { connection, _ in
+            await daemon.intend("move-workspace", .moveWorkspace(key: key, index: target)) { connection in
                 _ = try await connection.moveWorkspace(key, to: target)
             }
         }

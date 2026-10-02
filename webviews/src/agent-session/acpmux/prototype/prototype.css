@@ -10,6 +10,16 @@ body {
   background: var(--proto-wallpaper, #11111b) center / cover;
 }
 .proto-window {
+  /* Catppuccin Mocha accents for room and browser profile colors. */
+  --proto-mauve: #cba6f7;
+  --proto-peach: #fab387;
+  --proto-green: #a6e3a1;
+  --proto-sky: #89dceb;
+  --proto-overlay: #9399b2;
+  /* A web page is opaque, unlike the terminal beside it. */
+  --proto-page: #1e1e2e;
+  /* The terminal's font; classic cmux draws the chrome in it too. */
+  --proto-terminal-font: var(--font-mono, ui-monospace, monospace);
   position: relative;
   display: grid;
   grid-template-columns: 52px 252px 1fr;
@@ -76,8 +86,10 @@ body {
 }
 
 .proto-stack {
-  overflow: auto;
-  padding: 44px 8px 24px 4px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 44px 8px 0 4px;
   border-right: 0.5px solid var(--agent-border);
 }
 .proto-stack ul {
@@ -85,9 +97,24 @@ body {
   padding: 0;
   list-style: none;
 }
+.proto-stack-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  animation: proto-room-in 0.18s ease-out;
+}
+@keyframes proto-room-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+}
 .proto-stack-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   height: 30px;
-  padding-left: 9px;
+  padding: 0 9px;
   line-height: 30px;
   color: var(--agent-muted);
   font-weight: 500;
@@ -121,10 +148,10 @@ body {
 }
 .proto-workspace.is-active,
 .proto-workspace-tab.is-active {
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  background: color-mix(in srgb, var(--room-accent, var(--agent-text)) 13%, transparent);
 }
 .proto-workspace.is-flash {
-  background: color-mix(in srgb, var(--agent-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--room-accent, var(--agent-accent)) 26%, transparent);
   transition: none;
 }
 .proto-workspace-title,
@@ -298,23 +325,291 @@ body {
   margin: 0;
   padding: 14px 18px;
   box-sizing: border-box;
-  font: 12.5px/1.5 var(--font-mono, ui-monospace, monospace);
+  font: 12.5px/1.5 var(--proto-terminal-font);
 }
 .proto-browser {
-  display: grid;
-  place-content: center;
+  display: flex;
+  flex-direction: column;
   height: 100%;
-  gap: 4px;
-  text-align: center;
+}
+.proto-omnibar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 30px;
+  margin: 8px 12px 0;
+  padding: 0 10px 0 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
   color: var(--agent-muted);
 }
-.proto-browser div {
+.proto-page {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  width: min(640px, 100% - 64px);
+  margin: 40px auto 0;
+}
+.proto-browser .proto-page {
+  flex: 1;
+  width: auto;
+  margin: 8px 0 0;
+  padding: 40px max(32px, calc(50% - 320px)) 0;
+  border-top: 0.5px solid var(--agent-border);
+  background: var(--proto-page);
+}
+.proto-page small {
+  color: var(--agent-muted);
+}
+.proto-page h1 {
+  margin: 0 0 10px;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.proto-page span {
+  height: 9px;
+  min-height: 9px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+}
+.proto-page span.is-break {
+  height: 6px;
+  min-height: 6px;
+  background: none;
+}
+.proto-terminal-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--proto-sky) !important;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Browser profile: a colored dot and its name. */
+.proto-profile {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--agent-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.proto-profile i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* Rooms: plain dots at the bottom center of the sidebar, the current one stronger (data-model.md 7). */
+.proto-rooms {
+  display: flex;
+  flex: none;
+  justify-content: center;
+  height: 40px;
+  border-top: 0.5px solid var(--agent-border);
+}
+.proto-room-dot {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.proto-room-dot i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--dot) 45%, transparent);
+  transition: transform 0.15s;
+}
+.proto-room-dot:hover i {
+  background: color-mix(in srgb, var(--dot) 75%, transparent);
+}
+.proto-room-dot[aria-selected="true"] i {
+  background: var(--dot);
+  transform: scale(1.45);
+}
+.proto-room-add {
+  color: var(--agent-muted) !important;
+}
+.proto-room-add svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Mini window: a separate small window over the main one. */
+.proto-mini {
+  position: absolute;
+  z-index: 6;
+  top: 92px;
+  right: 72px;
+  display: flex;
+  flex-direction: column;
+  width: 620px;
+  height: 500px;
+  border: 0.5px solid var(--agent-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--agent-surface, var(--agent-page-bg)) 94%, transparent);
+  -webkit-backdrop-filter: blur(40px) saturate(1.2);
+  backdrop-filter: blur(40px) saturate(1.2);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 50%);
+  overflow: hidden;
+  animation: proto-mini-in 0.2s ease-out;
+}
+@keyframes proto-mini-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+.proto-mini header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 40px;
+  padding: 0 14px;
+  border-bottom: 0.5px solid var(--agent-border);
+}
+.proto-mini-lights {
+  position: static;
+}
+.proto-mini-lights button {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--agent-text) 22%, transparent);
+}
+.proto-mini-url {
+  flex: 1;
+  overflow: hidden;
+  color: var(--agent-muted);
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.proto-mini .proto-page {
+  flex: 1;
+  margin-top: 28px;
+}
+.proto-mini footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 46px;
+  padding: 0 10px 0 16px;
+  border-top: 0.5px solid var(--agent-border);
+}
+.proto-mini-source {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--agent-muted);
+}
+.proto-mini-source > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.proto-mini-source b {
   color: var(--agent-text);
-  font-size: 15px;
+  font-weight: 400;
+}
+.proto-mini-promote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 30px;
+  padding: 0 8px 0 11px;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.proto-mini-promote:hover {
+  background: color-mix(in srgb, var(--agent-text) 13%, transparent);
+}
+.proto-mini-promote kbd {
+  padding: 0 5px;
+  border: 0.5px solid var(--agent-border);
+  border-radius: 4px;
+  color: var(--agent-muted);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proto-stack-list,
+  .proto-mini {
+    animation: none;
+  }
+  .proto-room-dot i {
+    transition: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .proto-rail,
+  .proto-stack,
+  .proto-history,
+  .proto-mini {
+    background: var(--agent-page-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 /* The history layer is the session list alone: the pane's own rail and New chat stay in the pane. */
 .proto-history .acpmux-rail,
 .proto-history .acpmux-sidebar-action,
 .proto-history .acpmux-account {
   display: none;
+}
+
+/* Classic cmux (?style=terminal): the chrome takes the terminal's font and agent sessions are one
+   kind among others, drawn as quietly as terminals and browsers. Translucency is the backdrop
+   slider's alone, so the glass stays. */
+.proto-window[data-style="terminal"] {
+  --proto-chrome-font: var(--proto-terminal-font);
+  font: 12.5px/1.35 var(--proto-chrome-font);
+  letter-spacing: 0;
+}
+.proto-window[data-style="terminal"] .acpmux-shell,
+.proto-window[data-style="terminal"] .proto-history {
+  font-family: var(--proto-chrome-font);
+}
+.proto-window[data-style="terminal"] .proto-workspace.is-agent > svg {
+  color: var(--agent-muted);
+}
+.proto-window[data-style="terminal"] .proto-stack-label {
+  font-weight: 400;
+  text-transform: lowercase;
+}
+.proto-terminal .t-dim {
+  color: var(--agent-muted);
+}
+.proto-terminal .t-accent {
+  color: var(--agent-accent);
+}
+.proto-terminal .t-ok {
+  color: var(--agent-primary, var(--agent-accent));
+}
+.proto-terminal .t-warn {
+  color: var(--agent-warning, var(--agent-accent));
+}
+.proto-terminal .t-prompt {
+  color: var(--agent-primary, var(--agent-accent));
+}
+.proto-terminal .t-cursor {
+  background: var(--agent-text);
 }

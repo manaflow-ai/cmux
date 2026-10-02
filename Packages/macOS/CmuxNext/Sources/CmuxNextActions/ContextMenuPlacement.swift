@@ -54,13 +54,17 @@ public nonisolated struct ContextMenuPlacement: Sendable, Hashable {
     public var style: MenuPlacementStyle
     /// The submenu anchor this row belongs to, if any.
     public var parent: ActionID?
+    /// The titled submenu the row lives in (``MenuFolder``); nil keeps it
+    /// at the top level.
+    public var folder: MenuFolder?
 
     public init(_ context: ActionMenuContext, _ group: MenuGroup, _ rank: Int = 0,
-                style: MenuPlacementStyle = .item, parent: ActionID? = nil) {
+                style: MenuPlacementStyle = .item, parent: ActionID? = nil, folder: MenuFolder? = nil) {
         self.context = context
         self.group = group
         self.rank = rank
         self.style = style
         self.parent = parent
+        self.folder = folder
     }
 }

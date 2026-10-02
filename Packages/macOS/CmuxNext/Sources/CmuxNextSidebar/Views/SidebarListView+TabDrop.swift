@@ -37,7 +37,7 @@ extension SidebarListView {
             self.external = external
             setHovered(nil)
         }
-        updateAutoscroll(windowPoint: windowPoint)
+        autoscroll.update(windowPoint: windowPoint)
 
         if let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) {
             let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
@@ -56,7 +56,7 @@ extension SidebarListView {
         guard let external else { return }
         external.springTask?.cancel()
         self.external = nil
-        stopAutoscroll()
+        autoscroll.stop()
         reload(animated: true)
     }
 
@@ -79,7 +79,7 @@ extension SidebarListView {
         }
     }
 
-    /// Arc-style spring loading: hovering a row for `springLoadDelay` selects
+    /// Spring loading: hovering a row for `springLoadDelay` selects
     /// it so the user can keep dragging into that workspace's panes.
     func updateSpringLoad(_ external: ExternalDrag) {
         let target: WorkspaceID? = if case let .intoWorkspace(id)? = external.proposal { id } else { nil }

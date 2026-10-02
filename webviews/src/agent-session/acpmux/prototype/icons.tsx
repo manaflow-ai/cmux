@@ -1,4 +1,4 @@
-// Prototype glyphs in the atlas stroke style: 16px box, 1.25 stroke, currentColor.
+// Prototype glyphs in the reference stroke style: 16px box, 1.25 stroke, currentColor.
 import type { ReactNode } from "react";
 
 function Glyph({ children, size = 16 }: { children: ReactNode; size?: number }) {
@@ -67,5 +67,13 @@ export const PlusIcon = () => (
 export const CloseIcon = () => (
   <Glyph>
     <path d="m4.5 4.5 7 7M11.5 4.5l-7 7" />
+  </Glyph>
+);
+
+/** Promote the mini window into a workspace tab: a box with an arrow into it. */
+export const PromoteIcon = () => (
+  <Glyph size={14}>
+    <path d="M9.5 2.75h3.75v3.75M13.25 2.75 8 8" />
+    <path d="M12.75 9.5v2.25a1.5 1.5 0 0 1-1.5 1.5h-7a1.5 1.5 0 0 1-1.5-1.5v-7a1.5 1.5 0 0 1 1.5-1.5H6.5" />
   </Glyph>
 );

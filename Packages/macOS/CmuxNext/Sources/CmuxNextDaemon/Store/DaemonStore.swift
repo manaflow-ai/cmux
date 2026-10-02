@@ -67,12 +67,12 @@ public final class DaemonStore {
     }
     /// Called on the main actor, synchronously, once the loaded workspace
     /// list (membership or sidebar order) changed: right after the event
-    /// batch, snapshot, or optimistic patch that changed it, before any
+    /// batch, snapshot, or intent that changed it, before any
     /// observer or frame runs. The App keeps window membership in step here,
     /// so a window never shows after its last workspace is gone.
     @ObservationIgnored public var onWorkspaceListChanged: (() -> Void)?
-    /// A browser profile's bookmarks changed (`bookmarks-changed`), on the main actor.
-    @ObservationIgnored public var onBookmarksChanged: ((String) -> Void)?
+    /// Bookmark and conversation events (not in the tree snapshot), on the main actor.
+    @ObservationIgnored public let sideEvents = DaemonSideEvents()
     /// The list last reported to `onWorkspaceListChanged`.
     @ObservationIgnored var notifiedWorkspaceList: [String]?
     /// Nesting of batch applies; the hook runs when the outermost ends.
@@ -88,15 +88,16 @@ public final class DaemonStore {
     @ObservationIgnored var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
     @ObservationIgnored var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
     @ObservationIgnored var agentsBySurface: [SurfaceID: AgentStatus] = [:]
-    /// Legacy optimistic patches in application order, dropped on echo or
-    /// rejection (DaemonStore+Optimistic.swift; migrating to `intentLog`).
-    @ObservationIgnored var pendingPatches: [PendingPatch] = []
+    @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
     /// (DaemonStore+Intents.swift).
     @ObservationIgnored var intentLog = IntentLog()
     /// True while daemon state applies to the confirmed records (the
     /// intent overlay is undone).
     @ObservationIgnored var overlayLifted = false
+    /// The overlay moved a workspace or changed its group since the last
+    /// sidebar flattening.
+    @ObservationIgnored var sidebarNeedsRecompute = false
     /// Called once per intent when it leaves the log, on the main actor,
     /// after the visible state is complete again.
     @ObservationIgnored public var onIntentSettled: ((ClientTransactionID, IntentSettlement) -> Void)?
@@ -114,6 +115,8 @@ public final class DaemonStore {
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
     @ObservationIgnored var isResyncing = false
+    /// `refresh()` callers waiting for a snapshot requested after their call.
+    @ObservationIgnored var refreshWaiters: [CheckedContinuation<Void, Never>] = []
     /// Spacing and budget of failed-snapshot retries; reset by the next applied one.
     @ObservationIgnored var resyncPacer = RetryPacer(.resync)
     /// The pending retry of a failed snapshot (cancelled when the driver ends).
@@ -138,6 +141,11 @@ public final class DaemonStore {
     public func screen(_ handle: ScreenID) -> ScreenModel? { screensByHandle[handle] }
     public func pane(_ handle: PaneID) -> PaneModel? { panesByHandle[handle] }
     public func tab(surface: SurfaceID) -> TabModel? { tabsBySurface[surface] }
+    /// The shell's reported folder (OSC 7); a remote terminal's is never a local cwd.
+    public func noteTerminalDirectory(_ directory: String?, surface: SurfaceID) {
+        guard let tab = tabsBySurface[surface], tab.kind != .remoteTerminal else { return }
+        tab.setObservedCwd(directories.note(directory, surface: surface))
+    }
     public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
     /// The tab with durable id `id` (`TabModel.id`).
     public func tab(id: String) -> TabModel? { tabsBySurface.values.first { $0.id == id } }
@@ -158,7 +166,7 @@ public final class DaemonStore {
     // MARK: Snapshot
 
     /// Replaces the confirmed tree, reusing records by durable identity,
-    /// then shows the pending intents and legacy patches on it again.
+    /// then shows the pending intents on it again.
     public func apply(snapshot tree: DaemonTree) {
         withOverlayLifted(snapshot: true) {
             applyTree(tree)
@@ -172,7 +180,6 @@ public final class DaemonStore {
                 restoredTabIDs = currentTabIDs
             }
             structureChanged()
-            reapplyPendingPatches()
         }
         workspaceListMayHaveChanged()
         runAppliedWaiters(nil, snapshot: true)
@@ -201,6 +208,7 @@ public final class DaemonStore {
     }
 
     private func applyTree(_ tree: DaemonTree) {
+        directories.follow(tree.generation)
         if let value = tree.generation, generation != value { generation = value }
         if let value = tree.registryID, registryID != value { registryID = value }
         if workspaceRevision != tree.workspaceRevision { workspaceRevision = tree.workspaceRevision }
@@ -256,6 +264,7 @@ public final class DaemonStore {
                     for tab in pane.tabs {
                         tabs[tab.surface] = tab
                         if tab.agent == nil, let agent = agentsBySurface[tab.surface] { tab.setAgent(agent) }
+                        tab.setObservedCwd(directories[tab.surface])
                     }
                 }
             }

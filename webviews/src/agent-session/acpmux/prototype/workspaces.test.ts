@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { mockSessions } from "../mockFixture";
-import { findOpen, openFromHistory, openSessionIds, seedStack, workspaceLead } from "./workspaces";
+import {
+  findOpen,
+  newTerminalWorkspace,
+  openFromHistory,
+  openSessionIds,
+  seedStack,
+  terminalFirst,
+  workspaceLead,
+} from "./workspaces";
 
 describe("workspace stack prototype", () => {
   test("every seeded agent tab is a fixture session", () => {
@@ -31,5 +39,14 @@ describe("workspace stack prototype", () => {
     expect(workspaceLead(dev).title).toBe("cmux · bun run dev");
     const uploader = seedStack.workspaces[0]!;
     expect(workspaceLead(uploader).kind).toBe("agent");
+  });
+
+  test("classic cmux opens on a terminal, and a new workspace is a terminal", () => {
+    const first = terminalFirst(seedStack);
+    const active = first.workspaces.find((workspace) => workspace.id === first.activeId)!;
+    expect(active.tabs.find((tab) => tab.id === active.activeTabId)!.kind).toBe("terminal");
+    const added = newTerminalWorkspace(first);
+    expect(added.workspaces[0]!.tabs.map((tab) => tab.kind)).toEqual(["terminal"]);
+    expect(added.activeId).toBe(added.workspaces[0]!.id);
   });
 });

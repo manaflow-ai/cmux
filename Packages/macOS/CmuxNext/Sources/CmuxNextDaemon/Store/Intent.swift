@@ -4,12 +4,30 @@ import Foundation
 /// settled yet. The store shows it on top of the confirmed mirror
 /// (plans/cmux-next/OWNERSHIP-PRINCIPLES.md, "Clients are projections").
 /// Applying an intent must be idempotent and conservation-safe: it never
-/// adds or removes a tab, and it is a no-op when its tab or target is not
-/// in the mirror.
+/// adds or removes a tab or a workspace, and it is a no-op when its tab,
+/// workspace or group is not in the mirror.
 public enum Intent: Sendable, Hashable {
     /// `move-tab`: `surface` into `pane` at final display `index`
     /// (`TabDragOutcome.strip`, a palette or keyboard move).
     case moveTab(surface: SurfaceID, toPane: PaneID, index: Int)
+    /// `rename-tab`; nil or empty clears the custom name (shown as nil).
+    case renameTab(surface: SurfaceID, name: String?)
+    /// `set-tab-pinned`.
+    case setTabPinned(surface: SurfaceID, pinned: Bool)
+    /// `rename-workspace`.
+    case renameWorkspace(key: WorkspaceKey, name: String)
+    /// `move-workspace`: to final daemon-order `index` (clamped).
+    case moveWorkspace(key: WorkspaceKey, index: Int)
+    /// `move-workspace-to-group` without an index: into `group` (nil
+    /// ungroups), keeping its place in the daemon order.
+    case setWorkspaceGroup(key: WorkspaceKey, group: WorkspaceGroupID?)
+    /// `move-workspace-to-group` with an index: into `group` (nil
+    /// ungroups) at final `index` among that section's other members.
+    case placeWorkspace(key: WorkspaceKey, group: WorkspaceGroupID?, index: Int)
+    /// `update-workspace-group` with `collapsed`.
+    case setWorkspaceGroupCollapsed(WorkspaceGroupID, collapsed: Bool)
+    /// `update-tab-group` with `collapsed`.
+    case setTabGroupCollapsed(TabGroupID, collapsed: Bool)
 }
 
 /// How an intent left the log. Each intent leaves exactly once.

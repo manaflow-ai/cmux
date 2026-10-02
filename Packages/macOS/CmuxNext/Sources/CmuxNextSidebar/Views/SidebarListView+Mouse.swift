@@ -18,7 +18,7 @@ extension SidebarListView {
 
     override func mouseDown(with event: NSEvent) {
         hoverCards.dismiss(.click)
-        if rename != nil { endRename(commit: true) }
+        if inlineRename.isActive { inlineRename.end(commit: true) }
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         guard let row = displayed.row(at: point.y) else {
@@ -36,7 +36,7 @@ extension SidebarListView {
         case let .workspace(id):
             if event.clickCount == 2, flags.isEmpty {
                 self.press = nil
-                beginRename(row.key)
+                inlineRename.begin(row.key)
                 return
             }
             if flags.contains(.command) {
@@ -58,7 +58,7 @@ extension SidebarListView {
                 // never collapses and re-expands under the pointer.
                 if pendingGroupToggle?.group == group { cancelPendingGroupToggle() }
                 self.press = nil
-                beginRename(row.key)
+                inlineRename.begin(row.key)
                 return
             }
         case .section, .emptySection:
@@ -167,10 +167,10 @@ extension SidebarListView {
             } else {
                 return super.keyDown(with: event)
             }
+            // The reload reveals the new active row (close-focus.md).
             reload(animated: true)
-            revealActive()
         case .carriageReturn?, .enter?:
-            if let active = model.activeWorkspaceID { beginRename(.workspace(active)) }
+            if let active = model.activeWorkspaceID { inlineRename.begin(.workspace(active)) }
         case .delete?, .deleteForward?:
             if flags == .command, !model.selection.isEmpty { model.send(.close(model.orderedSelection)) }
         default:

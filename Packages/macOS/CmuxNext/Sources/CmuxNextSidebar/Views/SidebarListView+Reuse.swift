@@ -1,39 +1,18 @@
 import AppKit
 
-// Row view reuse: views exist only for rows near the viewport, and leaving
-// rows return to a small per-class pool instead of being deallocated.
+// Row view reuse through `rowPool`: views exist only for rows near the
+// viewport, and leaving rows return to the pool.
 
 extension SidebarListView {
-    /// Upper bound per row class; enough for a tall window plus overscan.
-    static let reusePoolLimit = 48
-
     func dequeue(_ key: SidebarRowKey) -> SidebarRowView {
-        let type = rowClass(for: key)
-        let view: SidebarRowView
-        if let recycled = reusePool[ObjectIdentifier(type)]?.popLast() {
-            view = recycled
-            view.prepareForReuse(key: key)
-        } else {
-            view = type.init(key: key)
-        }
+        let view = rowPool.take(for: key)
         wire(view, key: key)
         return view
     }
 
     func recycle(_ view: SidebarRowView) {
         view.removeFromSuperview()
-        let id = ObjectIdentifier(type(of: view))
-        guard reusePool[id, default: []].count < Self.reusePoolLimit else { return }
-        reusePool[id, default: []].append(view)
-    }
-
-    private func rowClass(for key: SidebarRowKey) -> SidebarRowView.Type {
-        switch key {
-        case .workspace: WorkspaceRowView.self
-        case .group: GroupHeaderRowView.self
-        case .section: SectionHeaderRowView.self
-        case .emptySection: EmptySectionRowView.self
-        }
+        rowPool.put(view)
     }
 
     /// Per-key callbacks, set on every dequeue so recycled views never keep

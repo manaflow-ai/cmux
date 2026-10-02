@@ -1,0 +1,41 @@
+{
+  "manifestVersion": 2,
+  "id": "cmux/diffs",
+  "name": "Diffs",
+  "version": "1.0.0",
+  "description": "d",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "runtime": {
+    "web": {
+      "root": "web/"
+    }
+  },
+  "catalog": "catalog.json",
+  "implements": {
+    "cmux.diff.renderer/1": {
+      "web": "web/index.html",
+      "title": "Diffs"
+    },
+    "cmux.pane/1": {
+      "web": "web/index.html",
+      "title": "Diffs"
+    }
+  },
+  "consumes": [
+    "cmux.editor/1",
+    "cmux.diff.source/1"
+  ],
+  "scopes": {
+    "git:read": "Read diffs of your repositories."
+  },
+  "handles": {
+    "diff": "Show the changes you open."
+  },
+  "files": [
+    "web/",
+    "catalog.json"
+  ]
+}

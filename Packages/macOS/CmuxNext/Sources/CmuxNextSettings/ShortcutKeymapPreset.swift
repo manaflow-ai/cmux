@@ -11,7 +11,8 @@ public nonisolated enum ShortcutKeymapPreset: String, CaseIterable, Sendable {
     /// iTerm2: Cmd-1…9 selects tabs, Cmd-Opt-1…9 workspaces, Cmd-Shift-C
     /// copy mode, Cmd-Ctrl-arrows resize panes.
     case iTerm2 = "iterm2"
-    /// Terminal.app: Cmd-Opt-W closes other tabs, Cmd-Shift-I renames a tab.
+    /// Terminal.app: Cmd-Opt-W closes other tabs, Cmd-Shift-I renames a tab
+    /// (New Agent Chat moves to Ctrl-Cmd-Shift-I).
     case terminal
     /// tmux's `ctrl+b` prefix, tmux windows as workspaces and panes as panes.
     case tmux
@@ -36,6 +37,8 @@ public nonisolated enum ShortcutKeymapPreset: String, CaseIterable, Sendable {
             return [
                 "closeOtherTabsInPane": "cmd+opt+w",
                 "renameTab": "cmd+shift+i",
+                // Rename takes New Agent Chat's Cmd-Shift-I, so the chat moves over.
+                "palette.newAgentChat": "ctrl+cmd+shift+i",
             ]
         case .tmux:
             return [

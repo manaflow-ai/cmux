@@ -2,46 +2,10 @@ import CmuxNextDaemon
 import Foundation
 
 // Commands that change what the store shows: typed intents (the store's
-// intent log), the legacy optimistic patches still migrating to it
-// (ownership.md step 4), and the read-your-writes wait after a command.
+// intent log, the only optimistic mechanism; ownership.md step 4), plain
+// requests that change nothing locally before the daemon reports them, and
+// the read-your-writes wait after a command.
 extension DaemonService {
-    /// Runs an intent with an optimistic store patch settled by the daemon's
-    /// transaction echo (or reverted on failure).
-    func perform(_ label: String, patch: OptimisticPatch, expectEcho: Bool = false,
-                 _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) async -> Bool {
-        guard let connection else { return false }
-        do {
-            try await store.perform(patch, expectEcho: expectEcho) { transaction in
-                try await body(connection, transaction)
-            }
-            return true
-        } catch {
-            logger.error("\(label, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
-            return false
-        }
-    }
-
-    /// Like `perform`, with a caller-chosen transaction (a drag commit keeps
-    /// one id from drop to settle). Returns the body's value, or nil when the
-    /// command threw (the patch is then reverted).
-    func commit<T: Sendable>(_ label: String, patch: OptimisticPatch, transaction: ClientTransactionID, expectEcho: Bool,
-                             _ body: @Sendable (DaemonConnection) async throws -> T) async -> T? {
-        guard let connection else {
-            logger.error("\(label, privacy: .public): not connected")
-            return nil
-        }
-        store.applyOptimistic(patch, transaction: transaction)
-        do {
-            let value = try await body(connection)
-            if !expectEcho { store.settleOptimistic(transaction) }
-            return value
-        } catch {
-            store.rejectOptimistic(transaction)
-            logger.error("\(label, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
-            return nil
-        }
-    }
-
     /// Sends a typed intent (OWNERSHIP-PRINCIPLES.md, "Clients are
     /// projections"): the store shows it at once on top of the confirmed
     /// mirror, and it leaves the log on its transaction's echo, once the
@@ -56,15 +20,43 @@ extension DaemonService {
         store.intend(intent, transaction: transaction)
         do {
             let value = try await body(connection)
-            // Every event the daemon emitted before the reply; nil when the
-            // connection is gone, and then no event will come for it.
-            store.noteSettled(transaction, at: await connection.eventSequence() ?? 0)
+            // Every event the daemon emitted before the reply. Nil when the
+            // connection is gone: no event will come on it, and the next
+            // connection's first snapshot holds the result.
+            if let sequence = await connection.eventSequence() {
+                store.noteSettled(transaction, at: sequence)
+            } else {
+                store.noteSettledAtNextSnapshot(transaction)
+            }
             return value
         } catch {
             store.rejectIntent(transaction)
             logger.error("\(label, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
             return nil
         }
+    }
+
+    /// `intend` with a fresh transaction, for commands that do not carry
+    /// one. Returns whether the command succeeded.
+    func intend(_ label: String, _ intent: Intent, _ body: @Sendable (DaemonConnection) async throws -> Void) async -> Bool {
+        await intend(label, intent, transaction: .generate(), body) != nil
+    }
+
+    /// `request` for commands that carry a transaction (their events echo
+    /// it): `transaction` defaults to a fresh one. Returns the body's
+    /// value, or nil when it failed (logged).
+    func request<T: Sendable>(_ label: String, transaction: ClientTransactionID = .generate(),
+                              _ body: @Sendable (DaemonConnection, ClientTransactionID) async throws -> T) async -> T? {
+        await request(label) { connection in try await body(connection, transaction) }
+    }
+
+    /// A tab group command with a fresh transaction (its events echo it):
+    /// an intent when it has one, else a plain request.
+    func runGroupCommand(_ label: String, intent: Intent?,
+                         _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) async -> Bool {
+        let transaction = ClientTransactionID.generate()
+        guard let intent else { return await request(label, transaction: transaction, body) != nil }
+        return await intend(label, intent, transaction: transaction) { connection in try await body(connection, transaction) } != nil
     }
 
     /// Runs a command that changes nothing locally before the daemon

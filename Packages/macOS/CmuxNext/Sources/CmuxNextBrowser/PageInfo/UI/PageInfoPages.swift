@@ -142,10 +142,12 @@ import CmuxNextDesign
         return header
     }
 
+    /// A one-point rule in `Palette.separator` (clear under
+    /// appearance.borders none); `NSBox.separator` ignores theme and switch.
     func separator() -> NSView {
-        let line = NSBox()
-        line.boxType = .separator
+        let line = HairlineView()
         line.translatesAutoresizingMaskIntoConstraints = false
+        line.heightAnchor.constraint(equalToConstant: 1).isActive = true
         return line
     }
 

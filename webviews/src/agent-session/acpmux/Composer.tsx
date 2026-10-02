@@ -3,6 +3,8 @@ import type { AcpmuxSnapshot } from "./model";
 import { ComposerContext } from "./ComposerContext";
 import { ArrowUpIcon, AtIcon, PaperclipIcon, Picker, PlusIcon, SlashIcon, StopIcon } from "./ComposerPickers";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
+import { seededText } from "./composerDraft";
+import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -19,6 +21,8 @@ export const COMPOSER_LABELS = {
   commands: "Commands",
   noCommands: "No commands",
   noMatchingCommands: "No matching commands",
+  queue: "Queued prompts",
+  queued: "Queued",
 };
 
 type Props = {
@@ -26,6 +30,9 @@ type Props = {
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   onSend(text: string): void;
   onStop(): void;
+  /// Text the prompt starts with, such as what a chat opened from another tab inherited.
+  /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
+  draft?: string;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
@@ -34,19 +41,19 @@ type Props = {
   onAttach?(): void;
 };
 
-/// The prompt box with the agent's `/` command menu, drawn as Codex's composer:
+/// The prompt box with the agent's `/` command menu:
 /// the prompt over a bar with + at the left, the mode and model chips, and a
 /// round Send button at the right, which turns into Stop while a turn runs and
 /// the prompt is empty. Enter sends and
 /// Shift+Enter breaks the line. The menu opens while the prompt is a single
 /// leading `/word`, filters as it grows, and picking a command writes `/name `
 /// so its arguments can follow.
-export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, accessory, onAttach }: Props) {
+export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leading, accessory, onAttach }: Props) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
-  const textarea = useRef<HTMLTextAreaElement>(null);
+  const field = useRef<MarkdownFieldHandle>(null);
   const pendingCaret = useRef<number | undefined>(undefined);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
@@ -68,6 +75,13 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     sendButton.current?.focus();
     if (snapshot.isWorking) refocusSend.current = false;
   });
+  useEffect(() => {
+    // The prompt's DOM value is the typed text; a draft never replaces it.
+    if (!draft || field.current?.value()) return;
+    setText((current) => seededText(current, draft));
+    setCaret(draft.length);
+    pendingCaret.current = draft.length;
+  }, [draft]);
   const commands = snapshot.commands;
   const query = slashQuery(text, caret);
   const open = query !== undefined && dismissed !== text;
@@ -77,8 +91,8 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
   useLayoutEffect(() => {
-    if (pendingCaret.current === undefined || !textarea.current) return;
-    textarea.current.setSelectionRange(pendingCaret.current, pendingCaret.current);
+    if (pendingCaret.current === undefined || !field.current) return;
+    field.current.setCaret(pendingCaret.current);
     pendingCaret.current = undefined;
   });
 
@@ -91,14 +105,14 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     const next = applyCommand(text, caret, command);
     pendingCaret.current = next.caret;
     edit(next.text, next.caret);
-    textarea.current?.focus();
+    field.current?.focus();
   };
   /// The draft without what + wrote over it, while the text is still exactly that.
   const unwrapped = () => {
     const plus = plusDraft.current;
     return plus && plus.written === text ? plus.original : text;
   };
-  const submit = (event: React.SyntheticEvent) => {
+  const submit = (event: { preventDefault(): void }) => {
     event.preventDefault();
     const prompt = unwrapped().trim();
     plusDraft.current = undefined;
@@ -111,13 +125,13 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
   const mention = () => {
     if (composing.current) return;
-    const at = textarea.current?.selectionStart ?? text.length;
+    const at = caret;
     const before = text.slice(0, at);
     const insert = before && !/\s$/.test(before) ? " @" : "@";
     plusDraft.current = undefined;
     pendingCaret.current = at + insert.length;
     edit(before + insert + text.slice(at), at + insert.length);
-    textarea.current?.focus();
+    field.current?.focus();
   };
   // + then Commands opens the agent's commands: the menu reads the
   // text before the caret, so "/" ahead of the draft opens it and a pick keeps
@@ -131,14 +145,14 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     plusDraft.current = { written: next, original: text };
     pendingCaret.current = 1;
     edit(next, 1);
-    textarea.current?.focus();
+    field.current?.focus();
   };
   const stopTurn = () => {
     if (Date.now() - sentAt.current > STOP_GUARD_MS) onStop();
   };
-  const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const keyDown = (event: KeyboardEvent) => {
     // Every key belongs to the input method while it composes, not only Enter.
-    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    if (event.isComposing || event.keyCode === 229) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     // Enter sends unless it picks a command: with the menu closed, with nothing
     // to pick (an unknown command or a pasted path), or on a command already
@@ -172,7 +186,6 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
       pick(matches[selected].command);
     }
   };
-  const track = (event: React.SyntheticEvent<HTMLTextAreaElement>) => setCaret(event.currentTarget.selectionStart);
 
   const stop = snapshot.isWorking && !text.trim();
   // Focus leaving the composer closes the menu and takes back what + wrote.
@@ -185,40 +198,50 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   };
   return (
     <form className="acpmux-composer" onSubmit={submit} onBlur={blur}>
-      {open && (
-        <SlashMenu
-          matches={matches}
-          active={selected}
-          empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands}
-          onHover={setActive}
-          onPick={pick}
-        />
+      {snapshot.queue.length > 0 && (
+        <ol className="acpmux-composer-queue" aria-label={COMPOSER_LABELS.queue}>
+          {snapshot.queue.map((entry) => (
+            <li className="acpmux-queued" key={entry.id} title={entry.prompt}>
+              <span className="acpmux-queued-label" aria-hidden="true">
+                {COMPOSER_LABELS.queued}
+              </span>
+              <span className="acpmux-queued-text">{entry.prompt}</span>
+            </li>
+          ))}
+        </ol>
       )}
       <ComposerContext summary={snapshot.summary} />
       <div className="acpmux-composer-box">
-        {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
-        <textarea
-          ref={textarea}
-          className="acpmux-composer-field"
-          aria-label={COMPOSER_LABELS.prompt}
-          name="prompt"
-          rows={1}
-          placeholder={COMPOSER_LABELS.placeholder}
+        {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
+        {open && (
+          <SlashMenu
+            matches={matches}
+            active={selected}
+            empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands}
+            onHover={setActive}
+            onPick={pick}
+          />
+        )}
+        {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
+        <MarkdownField
+          ref={field}
+          className="acpmux-composer-prompt"
           value={text}
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="combobox"
-          aria-expanded={open}
-          aria-controls={open ? "acpmux-slash-menu" : undefined}
-          aria-autocomplete="list"
-          aria-activedescendant={open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined}
-          onChange={(event) => edit(event.target.value, event.target.selectionStart)}
-          onSelect={track}
-          onKeyDown={keyDown}
-          onCompositionStart={() => {
-            composing.current = true;
+          placeholder={COMPOSER_LABELS.placeholder}
+          attributes={{
+            role: "combobox",
+            "aria-label": COMPOSER_LABELS.prompt,
+            "aria-multiline": "true",
+            "aria-expanded": String(open),
+            "aria-controls": open ? "acpmux-slash-menu" : undefined,
+            "aria-autocomplete": "list",
+            "aria-activedescendant": open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined,
           }}
-          onCompositionEnd={() => {
-            composing.current = false;
+          onChange={(markdown, at) => edit(markdown, at)}
+          onCaret={setCaret}
+          onKeyDown={keyDown}
+          onCompositionChange={(value) => {
+            composing.current = value;
           }}
         />
         <div className="acpmux-composer-bar">

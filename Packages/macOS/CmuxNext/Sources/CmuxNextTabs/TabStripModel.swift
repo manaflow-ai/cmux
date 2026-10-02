@@ -4,7 +4,7 @@ public import Observation
 
 /// Visual mode of a strip.
 public enum TabStripStyle: Hashable, Sendable {
-    /// Chrome sizing: tabs shrink evenly between a max and min width, then scroll.
+    /// Tab sizing: tabs shrink evenly between a max and min width, then scroll.
     case chrome
     /// Bonsplit-like: every tab has the same fixed width, overflow scrolls.
     case compact
@@ -75,7 +75,7 @@ public final class TabStripModel {
         tabs.filter(\.isPinned) + tabs.filter { !$0.isPinned }
     }
 
-    /// Chrome's rule: closing the selected tab selects its right neighbor,
+    /// Closing the selected tab selects its right neighbor,
     /// or the left one when it was last. Returns the current selection when
     /// the closed tab was not selected.
     public static func selectionAfterClosing(_ closed: TabID, in ordered: [TabID], selected: TabID?) -> TabID? {

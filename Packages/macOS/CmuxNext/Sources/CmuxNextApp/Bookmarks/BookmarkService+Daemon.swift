@@ -55,40 +55,48 @@ extension BookmarkService {
 
     /// Writes one operation to the daemon. The local tree already shows it;
     /// the daemon's `bookmarks-changed` replaces it with the stored truth,
-    /// and a refused write refetches.
+    /// and a refused write refetches. One mutation key per logical write
+    /// (the daemon's exactly-once ledger replays a retried key).
     func send(_ operation: BookmarkOperation, profile: String) {
         let home = services.machines.local
+        let mutationID = UUID().uuidString.lowercased()
         // task-owner: one bookmark command; a failure refetches the profile
         Task { [weak self] in
             let ok = await home.run("bookmark") { connection in
-                try await Self.perform(operation, profile: profile, on: connection)
+                try await Self.perform(operation, profile: profile, mutationID: mutationID, on: connection)
             }
             if !ok { self?.daemonChanged(profile) }
         }
     }
 
-    nonisolated static func perform(_ operation: BookmarkOperation, profile: String, on connection: DaemonConnection) async throws {
+    /// Sends `operation` with the exactly-once key `mutationID` (a create
+    /// that also sets last use sends a second write keyed `<id>.used`).
+    nonisolated static func perform(_ operation: BookmarkOperation, profile: String, mutationID: String,
+                                    on connection: DaemonConnection) async throws {
+        let key = MutationIdentity(origin: DaemonConnection.origin, mutationID: mutationID)
         switch operation {
         case .create(let node, let index):
             try await connection.createBookmark(CreateBookmarkRequest(
                 bookmark: node.id, browserProfileID: profile, parent: node.parent, index: index, kind: node.kind.rawValue,
                 title: node.title, url: node.url?.absoluteString, faviconKey: node.faviconKey, sourceKey: node.sourceKey,
-                createdMs: BookmarkTime.ms(node.created)))
+                createdMs: BookmarkTime.ms(node.created), mutation: key))
             if let lastUsed = node.lastUsed {
-                try await connection.updateBookmark(UpdateBookmarkRequest(bookmark: node.id, lastUsedMs: .set(BookmarkTime.ms(lastUsed))))
+                try await connection.updateBookmark(UpdateBookmarkRequest(
+                    bookmark: node.id, lastUsedMs: .set(BookmarkTime.ms(lastUsed)),
+                    mutation: MutationIdentity(origin: DaemonConnection.origin, mutationID: mutationID + ".used")))
             }
         case .update(let id, let title, let url, let favicon, let lastUsed):
             try await connection.updateBookmark(UpdateBookmarkRequest(
                 bookmark: id, title: title, url: url?.absoluteString, faviconKey: fieldUpdate(favicon) { $0 },
-                lastUsedMs: fieldUpdate(lastUsed) { BookmarkTime.ms($0) }))
+                lastUsedMs: fieldUpdate(lastUsed) { BookmarkTime.ms($0) }, mutation: key))
         case .move(let id, let parent, let index):
-            try await connection.moveBookmark(id, parent: parent, index: index)
+            try await connection.moveBookmark(id, parent: parent, index: index, mutation: key)
         case .delete(let id):
-            try await connection.deleteBookmark(id)
+            try await connection.deleteBookmark(id, mutation: key)
         case .importDrafts(let parent, let index, let sourceKey, let replace, let drafts):
             try await connection.importBookmarks(ImportBookmarksRequest(
                 browserProfileID: profile, parent: parent, index: index, sourceKey: sourceKey, replace: replace ? true : nil,
-                nodes: drafts.map(importNode)))
+                nodes: drafts.map(importNode), mutation: key))
         }
     }
 
@@ -125,7 +133,9 @@ extension BookmarkService {
                 for node in nodes {
                     let index = indexes[node.parent, default: 0]
                     indexes[node.parent] = index + 1
-                    try await Self.perform(.create(node, index: index), profile: profile, on: connection)
+                    // A stable key per node: a copy interrupted at relaunch replays, never duplicates.
+                    try await Self.perform(.create(node, index: index), profile: profile, mutationID: "migrate-file-" + node.id,
+                                           on: connection)
                 }
             }
             try await file.remove()

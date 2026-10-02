@@ -1,7 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextTabs
 
-// Chrome-style tab group intents -> daemon tab group commands. The strip
+// Tab group intents -> daemon tab group commands. The strip
 // applies nothing itself; the store echo updates it. Any rejection
 // (including a daemon without tab-groups-v1) re-pushes the daemon's
 // authoritative membership into the strip.
@@ -16,7 +16,7 @@ extension PaneController {
                let outside = stripModel.orderedTabs.first(where: { $0.groupID != id }) {
                 select(outside.id)
             }
-            groupCommand("update-tab-group", patch: .setTabGroupCollapsed(group, collapsed: collapsed)) { connection, transaction in
+            groupCommand("update-tab-group", intent: .setTabGroupCollapsed(group, collapsed: collapsed)) { connection, transaction in
                 _ = try await connection.updateTabGroup(group, collapsed: collapsed, transaction: transaction)
             }
         case .moveGroup(let id, let to):
@@ -89,10 +89,12 @@ extension PaneController {
         }
     }
 
-    private func groupCommand(_ label: String, patch: OptimisticPatch = .custom { _ in },
+    /// Sends a group command with a fresh transaction, shown at once
+    /// through the store's intent log when it has an `intent`.
+    private func groupCommand(_ label: String, intent: Intent? = nil,
                               _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
         Task {
-            let ok = await daemon.perform(label, patch: patch, body)
+            let ok = await daemon.runGroupCommand(label, intent: intent, body)
             if !ok { resyncStrip() }
         }
     }

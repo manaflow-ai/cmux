@@ -9,7 +9,7 @@ public nonisolated enum TabDragOutcome: Hashable, Sendable {
     case strip(stripID: UUID, index: Int, groupID: String?)
     /// New pane on `edge` of the layout pane `paneID`.
     case newSplit(paneID: String, edge: TabDropEdge)
-    /// New niri column on `screenID` after `afterColumnID`.
+    /// New strip column on `screenID` after `afterColumnID`.
     case newColumn(screenID: String, afterColumnID: String)
     /// New workspace at root `index`, inside `groupID` when non-nil.
     case newWorkspace(groupID: String?, index: Int?)
@@ -20,7 +20,7 @@ public nonisolated enum TabDragOutcome: Hashable, Sendable {
     case tearOff(screenPoint: CGPoint)
     /// Released outside every window while dragging everything the source
     /// workspace holds, the only workspace of its window: the source window
-    /// moves under the pointer instead (Chrome's single-tab window drag).
+    /// moves under the pointer instead, as when dragging a window's only tab.
     /// No daemon command.
     case moveWindow(screenPoint: CGPoint)
     /// Released outside every window while dragging everything the source

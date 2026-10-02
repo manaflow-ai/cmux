@@ -57,7 +57,7 @@ public typealias PaletteArgumentPreview = @MainActor (ActionID, String, String?,
 // MARK: - Providers over the sources
 
 /// Shortens a home-relative path to `~/…`.
-func abbreviatePath(_ path: String) -> String {
+nonisolated func abbreviatePath(_ path: String) -> String {
     let home = NSHomeDirectory()
     if path == home { return "~" }
     if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }

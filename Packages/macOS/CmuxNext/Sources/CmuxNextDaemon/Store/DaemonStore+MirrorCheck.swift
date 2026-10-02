@@ -4,11 +4,11 @@ import Foundation
 /// "a client keeps a confirmed mirror written only by owner events, plus one
 /// ordered log of pending typed intents").
 ///
-/// The allowed writers record the layout's fingerprint (a hash of the
-/// workspace order, screens, panes and the tabs in each) when they finish: daemon event and
-/// snapshot apply with the intent overlay (`withOverlayLifted`), a new
-/// intent, and the legacy optimistic patches that have not moved to the
-/// intent log yet (DaemonStore+Optimistic.swift). The next allowed writer
+/// The allowed writers record the mirror's fingerprint (a hash of the
+/// workspace order, names and groups, screens, panes, the tabs in each with
+/// their names and pins, and group collapse state) when they finish: daemon
+/// event and snapshot apply with the intent overlay (`withOverlayLifted`)
+/// and a new intent. The next allowed writer
 /// compares before it writes; a difference means something else wrote the
 /// records. It also checks that the overlay never changes the set of tabs
 /// (invariant 1). Violations are logged as faults and kept in
@@ -65,20 +65,38 @@ extension DaemonStore {
         onMirrorViolation?(detail)
     }
 
-    /// A hash of the workspace order, screens, panes and each pane's tabs in
-    /// order (no allocation; it runs twice per event batch in debug builds).
+    /// A hash of every field an intent writes: the workspace order, names
+    /// and groups, screens, panes, each pane's tabs in order with their names
+    /// and pins, and workspace and tab group collapse state (no allocation;
+    /// it runs twice per event batch in debug builds).
     private func layoutFingerprint() -> Int {
         var hasher = Hasher()
+        for group in groups {
+            hasher.combine(3 as UInt8)
+            hasher.combine(group.id)
+            hasher.combine(group.collapsed)
+        }
         for workspace in workspaces {
             hasher.combine(0 as UInt8)
             hasher.combine(workspace.id)
+            hasher.combine(workspace.name)
+            hasher.combine(workspace.group)
             for screen in workspace.screens {
                 hasher.combine(1 as UInt8)
                 hasher.combine(screen.id)
                 for pane in screen.panes {
                     hasher.combine(2 as UInt8)
                     hasher.combine(pane.id)
-                    for tab in pane.tabs { hasher.combine(tab.id) }
+                    for tab in pane.tabs {
+                        hasher.combine(tab.id)
+                        hasher.combine(tab.name)
+                        hasher.combine(tab.pinned)
+                    }
+                    for group in pane.tabGroups {
+                        hasher.combine(4 as UInt8)
+                        hasher.combine(group.id)
+                        hasher.combine(group.collapsed)
+                    }
                 }
             }
         }

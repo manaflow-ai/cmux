@@ -103,13 +103,22 @@ nonisolated extension ActionSurfaceCatalog {
         "closePane", "renamePane", "column.moveLeft", "column.moveRight", "column.center", "column.widthOneThird",
         "column.widthHalf", "column.widthTwoThirds", "column.widthFull", "column.makeSticky", "column.makeStickyLeft",
         "column.unstick", "column.toggleStickyOverlay", "layout.toggleStripScrollbar", "terminal.clear",
-        "terminal.sendText", "history.show", "history.resumeAgentSession", "history.reopen", "history.clear",
+        "terminal.sendText", "history.show", "agentActivity.open", "history.resumeAgentSession", "history.reopen", "history.clear",
         "layout.undo", "bookmark.addPage", "bookmark.addAllTabs", "bookmark.add", "bookmark.newFolder",
         "bookmark.open", "bookmark.openInNewTab", "bookmark.openInBackgroundTab", "bookmark.openAll", "bookmark.edit",
         "bookmark.move", "bookmark.remove", "bookmark.import", "bookmark.export",
     ]
 
     /// Why the CLI has no verb for an action (`cmux action run <id>` still runs it).
+    /// Why the palette does not list an action (beyond palette-internal
+    /// navigation, which the descriptor derives from `requires`).
+    static let paletteExemption: [ActionID: SurfaceExemption] = byReason(paletteExemptionsByReason)
+    static let paletteExemptionsByReason: [SurfaceExemption: [ActionID]] = [
+        .duplicateOfDefault: [
+            "openBrowser.chromium",
+        ],
+    ]
+
     static let cliExemption: [ActionID: SurfaceExemption] = byReason(cliExemptionsByReason)
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .unimplemented: [
@@ -149,7 +158,7 @@ nonisolated extension ActionSurfaceCatalog {
             "history.search", "bookmark.toggleBar", "bookmark.manager",
         ],
         .liveInput: [
-            "palette.toggleDictation",
+            "palette.toggleDictation", "agentPane.searchChats",
             "taskManager.killProcess", "toggleChecklistItemComplete", "groupSelectedWorkspaces", "canvasAlignLeft",
             "canvasAlignRight", "canvasAlignTop", "canvasAlignBottom", "canvasEqualizeWidths", "canvasEqualizeHeights",
             "canvasDistributeHorizontally", "canvasDistributeVertically", "simulatorHome", "simulatorRotateLeft",
@@ -210,121 +219,6 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.copyWorkspaceLink", "workspace.copyPath", "palette.copyIdentifiers", "palette.copyPaneID",
             "palette.copyPaneLink", "palette.copySurfaceID", "palette.copySurfaceLink", "cloudCopyLink",
             "cloudCopyPort", "cloudCopyMachineID",
-        ],
-        .paletteInternal: [
-            "commandPaletteNext", "commandPalettePrevious",
-        ],
-        .devOnly: [
-            "openDebugSettings", "palette.onboardingGallery",
-        ],
-    ]
-
-    /// Why no right-click menu offers an action.
-    static let contextMenuExemption: [ActionID: SurfaceExemption] = byReason(contextMenuExemptionsByReason)
-    static let contextMenuExemptionsByReason: [SurfaceExemption: [ActionID]] = [
-        .unimplemented: [
-            "palette.openDirectoryDiffViewer",
-            "openDiffViewer",
-            "palette.browserToggleOmnibar",
-            "toggleReactGrab",
-            "palette.openCloudPane",
-            "palette.openVaultPane",
-            "palette.openFindPane",
-            "palette.openFilesPane",
-        ],
-        .noObject: [
-            "openSettings", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
-            "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
-            "palette.openTaskManager", "palette.sleepyMode", "keepMacAwake", "about", "manageLayouts",
-            "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser",
-            "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
-            "switchRightSidebarToFind", "switchRightSidebarToSessions", "switchRightSidebarToFeed",
-            "switchRightSidebarToDock", "switchRightSidebarToMachines", "palette.toggleMatchTerminalBackground",
-            "palette.enableMinimalMode", "palette.disableMinimalMode", "showNotifications", "markAllNotificationsRead",
-            "clearAllNotifications", "notifications.toggleBanners", "notifications.dismissal.keystroke",
-            "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
-            "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.openTerminalChatView",
-            "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.computerUse.setup",
-            "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "computerUseStop",
-            "newCloudMachine", "cloudDiagnostics", "openTeamPicker", "palette.auth.signIn", "palette.auth.signOut",
-            "palette.mobileConnect", "accounts.show", "accounts.refresh", "accounts.reauthenticate",
-            "accounts.connect", "accounts.remove", "reloadConfiguration", "palette.openCmuxSettingsFile",
-            "palette.openGhosttySettings", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",
-            "palette.toggleSetting", "palette.shortcutKeymap", "palette.searchShortcuts", "palette.installCLI",
-            "palette.uninstallCLI", "palette.restartSocketListener", "palette.checkForUpdates",
-            "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "palette.pro.upgrade",
-            "palette.welcomeChecklist", "sendFeedback", "help.featureFlags", "help.documentation",
-            "appearance.density.compact", "appearance.density.comfortable", "appearance.animationSpeed.fast",
-            "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "browser.defaultEngine.chromium",
-            "browser.defaultEngine.webkit", "appearance.paneBorder.toggle", "appearance.panePadding.toggle",
-            "appearance.paneCorners.toggle", "layout.centerFocusedColumn.never", "layout.centerFocusedColumn.always",
-            "layout.centerFocusedColumn.onOverflow", "focusRing.toggle", "focusRing.style.ring",
-            "focusRing.style.glow", "focusRing.singlePane.toggle", "appearance.paneBorderWidth.toggle",
-            "appearance.paneBorderColor.reset", "appearance.titlebar.minimal", "appearance.titlebar.standard",
-            "browser.hibernation.off", "browser.hibernation.moderate", "browser.hibernation.aggressive",
-            "layout.toggleStripScrollbar", "recentlyFocused", "recentlyClosed", "history.commands", "history.show",
-            "browserShowHistory", "history.search", "history.resumeAgentSession", "history.reopen", "history.clear",
-            "layout.undo", "bookmark.add", "bookmark.import", "bookmark.export",
-        ],
-        .noTargetSurface: [
-            "browserProfile.openLink",
-            "openLinkInDefaultBrowser",
-            "openLinkInNewTab",
-            "tabGroup.deleteSaved",
-            "tabGroup.reopenSaved",
-            "taskManager.killProcess", "toggleChecklistItemComplete", "canvasOverview", "canvasTidy",
-            "canvasAlignLeft", "canvasAlignRight", "canvasAlignTop", "canvasAlignBottom", "canvasEqualizeWidths",
-            "canvasEqualizeHeights", "canvasDistributeHorizontally", "canvasDistributeVertically", "simulatorHome",
-            "simulatorRotateLeft", "simulatorRotateRight", "simulatorToggleAppearance",
-            "simulatorToggleSoftwareKeyboard", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
-            "resumeCommandSet", "resumeCommandEdit", "resumeCommandClear", "saveFilePreview",
-            "toggleFileEditorWordWrap", "filePreviewOpenWith", "filePreviewOpenExternally",
-            "filePreviewRevealInFinder", "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown",
-            "diffViewerHalfPageUp", "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom",
-            "diffViewerGoToTop", "diffViewerSearch", "diffViewerNextFile", "diffViewerPreviousFile",
-            "palette.vscodeServeWebStop", "palette.vscodeServeWebRestart", "fileExplorerOpenSelection",
-            "fileExplorerOpenSelectionFinderAlias", "fileExplorerOpenInCmux", "fileExplorerReveal",
-            "fileExplorerCopyPath", "fileExplorerCopyRelativePath", "fileExplorerOpenWith", "vaultOpenSession",
-            "vaultResumeInNewWorkspace", "vaultCopyResumeCommand", "vaultOpenPullRequest", "checklistEditItem",
-            "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem", "checklistOpenAsPane",
-            "checklistAttachImages",
-        ],
-        .focusMove: [
-            "showHideAllWindows", "goToWorkspace", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
-            "nextSidebarTabInGroup", "prevSidebarTabInGroup", "selectWorkspaceByNumber", "workspace.selectFirst",
-            "workspace.selectLast", "workspace.selectLastUsed", "room.next", "room.previous", "room.selectByNumber",
-            "room.switch", "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
-            "canvasRevealFocusedPane", "nextSurface", "prevSurface", "selectSurfaceByNumber", "palette.goToTab",
-            "screen.next", "screen.previous", "screen.select", "screen.selectLast", "focusTextBoxInput",
-            "focusBrowserAddressBar", "focusRightSidebar", "vaultFocusSession", "jumpToUnread",
-            "markOldestUnreadAndJumpNext", "computerUseFocus", "computerUseFocusCallingTerminal", "column.focusLeft",
-            "column.focusRight", "focusHistoryBack", "focusHistoryForward", "focusHistoryLast",
-        ],
-        .stepAdjust: [
-            "resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown", "increaseWorkspaceTerminalFontSize",
-            "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "canvasZoomIn", "canvasZoomOut",
-            "canvasZoomReset", "browserZoomIn", "browserZoomOut", "browserZoomReset", "markdownZoomIn",
-            "markdownZoomOut", "markdownZoomReset", "appearance.interfaceSize.increase",
-            "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset", "column.cycleWidth",
-            "column.cycleWidthBack", "terminal.increaseFontSize", "terminal.decreaseFontSize",
-            "terminal.resetFontSize", "terminal.scrollPageUp", "terminal.scrollPageDown", "terminal.scrollToTop",
-            "terminal.scrollToBottom",
-        ],
-        .familyMember: [
-            "cycleWorkspaceStatus", "workspaceGroup.collapse", "workspaceGroup.expand", "openBrowser",
-            "tabGroup.collapse", "tabGroup.expand", "screenGroup.collapse", "screenGroup.expand",
-            "browser.extension.run", "browser.extension.options", "browser.extension.pin", "browser.extension.unpin",
-            "browser.extension.enable", "browser.extension.disable", "browser.extension.reload",
-            "browser.extension.remove", "browser.extension.command", "palette.attemptUpdate",
-        ],
-        .liveInput: [
-            "palette.toggleDictation",
-            "toggleTerminalCopyMode", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction",
-            "attachTextBoxFile", "sendCtrlFToTerminal", "pasteLastScreenshot", "find", "findInDirectory", "findNext",
-            "findPrevious", "hideFind", "toggleUnread",
-        ],
-        .dragGesture: [
-            "room.move", "browser.extension.move", "bookmark.move",
         ],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",

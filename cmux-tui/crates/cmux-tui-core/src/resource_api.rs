@@ -1281,23 +1281,17 @@ mod tests {
             viewport: RegistryViewport {
                 base_width: Some(0.4),
                 columns: vec![
-                    RegistryViewportColumn {
-                        id: column_a.clone(),
-                        width: 0.4,
-                        layout: nested,
-                        auto_layout: None,
-                        sticky: None,
-                    },
-                    RegistryViewportColumn {
-                        id: column_b.clone(),
-                        width: 0.6,
-                        layout: RegistryLayoutNode::Stack {
+                    RegistryViewportColumn::new(column_a.clone(), 0.4, nested, None, None),
+                    RegistryViewportColumn::new(
+                        column_b.clone(),
+                        0.6,
+                        RegistryLayoutNode::Stack {
                             panes: vec![pane_c.clone()],
                             expanded: pane_c.clone(),
                         },
-                        auto_layout: None,
-                        sticky: None,
-                    },
+                        None,
+                        None,
+                    ),
                 ],
             },
         };

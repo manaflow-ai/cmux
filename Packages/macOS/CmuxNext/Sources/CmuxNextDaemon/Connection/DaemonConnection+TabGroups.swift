@@ -1,6 +1,6 @@
 import Foundation
 
-/// Chrome-style tab groups (`tab-groups-v1`) and saved groups
+/// Tab groups (`tab-groups-v1`) and saved groups
 /// (`saved-tab-groups-v1`). Every call throws
 /// `DaemonError.missingCapabilities` on daemons without the command.
 extension DaemonConnection {

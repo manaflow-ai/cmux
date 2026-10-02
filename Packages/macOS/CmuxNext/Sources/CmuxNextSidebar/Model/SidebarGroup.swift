@@ -8,7 +8,7 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public var color: GroupColor
     public var isCollapsed: Bool
     /// Pinned (saved) group: it survives closing its workspaces, like a
-    /// Chrome saved tab group, and clicking it while empty reopens it.
+    /// saved tab group, and clicking it while empty reopens it.
     public var isPinned: Bool
     public var workspaces: [SidebarWorkspace]
 
@@ -40,12 +40,8 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     }
 
     /// Strongest activity among children, shown on a collapsed group header.
-    public var aggregateActivity: AgentActivity {
-        let all = workspaces.map(\.activity)
-        if all.contains(.error) { return .error }
-        if all.contains(.needsInput) { return .needsInput }
-        if all.contains(.running) { return .running }
-        return .idle
+    public var aggregateActivity: StatusIndicatorState {
+        StatusStack.resolve(workspaces.map { StatusReport(id: $0.id.rawValue, source: .explicit, state: $0.activity, style: $0.activityStyle) }).state
     }
 }
 

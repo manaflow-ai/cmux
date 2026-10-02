@@ -27,6 +27,8 @@ export type MockSession = {
   reply?: string;
   /// What a session needing input waits on: the tool call its permission card names.
   permission?: { title: string; kind: string };
+  /// The call a running session is in the middle of, after its last text.
+  working?: { title: string; kind: string; command?: string };
 };
 
 type Update = Record<string, unknown>;
@@ -114,6 +116,7 @@ export const mockSessions: MockSession[] = [
     branch: "fix-sidebar-flicker",
     reply:
       "The sidebar reads the theme before the window applies it, so the first frame uses the old background. I'm moving the read after `applyTheme` and checking every theme.",
+    working: { title: "Run bun test Sources/Sidebar", kind: "execute", command: "bun test Sources/Sidebar" },
   },
   {
     sessionId: "mock-tab-strip",
@@ -185,8 +188,8 @@ export const mockSessions: MockSession[] = [
     reply: "Drafted CHANGELOG.md for 0.64: the agent pane, cloud machines in the sidebar, and 23 fixes.",
   },
   {
-    sessionId: "mock-codex-composer",
-    title: "Port the Codex composer",
+    sessionId: "mock-agent-composer",
+    title: "Port the composer",
     harness: "claude",
     model: "claude-opus-5-5",
     status: "idle",
@@ -194,7 +197,7 @@ export const mockSessions: MockSession[] = [
     ago: 320,
     host: LOCAL_HOST,
     hostKind: "local",
-    pullRequest: { number: 16601, title: "cmux-next agent pane: Codex composer and picker menus", state: "merged" },
+    pullRequest: { number: 16601, title: "cmux-next agent pane: composer and picker menus", state: "merged" },
     reply: "Merged. The composer, model menu and permission menu now follow the pane theme.",
   },
   {
@@ -207,7 +210,7 @@ export const mockSessions: MockSession[] = [
     ago: 1440,
     host: LOCAL_HOST,
     hostKind: "local",
-    reply: "Nested lists now sit 4 px under their item, matching Codex.",
+    reply: "Nested lists now sit 4 px under their item.",
   },
   {
     sessionId: "mock-restore-launch",
@@ -245,6 +248,7 @@ export const mockSessions: MockSession[] = [
     hostKind: "local",
     branch: "stream-tool-output",
     reply: "Splitting tool output into 8 KiB chunks so long shell runs stream instead of arriving at the end.",
+    working: { title: "Edit src/tools/stream.rs", kind: "edit" },
   },
   {
     sessionId: "mock-resume",
@@ -276,11 +280,11 @@ export const mockSessions: MockSession[] = [
   },
   {
     sessionId: "mock-home-screen",
-    title: "Match the Codex home screen",
+    title: "Polish the home screen",
     harness: "codex",
     model: "gpt-6-astra",
     status: "waiting",
-    pendingPermissions: 2,
+    pendingPermissions: 1,
     cwd: "~/code/atlas-web",
     ago: 15,
     host: LOCAL_HOST,
@@ -288,7 +292,7 @@ export const mockSessions: MockSession[] = [
     branch: "home-screen",
     worktree: "~/code/atlas-web-worktrees/home-screen",
     permission: { title: "Install @pierre/trees", kind: "execute" },
-    reply: "I need to install `@pierre/trees` and write to package.json. Approve both?",
+    reply: "I need to install `@pierre/trees`, which also updates package.json. Approve?",
   },
   {
     sessionId: "mock-light-theme",
@@ -453,6 +457,14 @@ test("retries a 503 and then succeeds", async () => {
 });
 `;
 
+/// The worked turn's files before and after it, which the mock's git scopes diff too.
+export const workedSources = {
+  root: CMUX,
+  upload: { path: "Sources/Fleet/upload.ts", before: uploadBefore, after: uploadAfter },
+  retry: { path: "Sources/Fleet/retry.ts", after: retrySource },
+  test: { path: "Sources/Fleet/upload.test.ts", before: testBefore, after: testAfter },
+};
+
 const MIN = 60_000;
 /// The worked turn starts 3.5 minutes before the fixture loads and ends about 2 minutes before.
 const START = 3 * MIN + 30_000;
@@ -519,14 +531,13 @@ export const workedTurn: SeedStep[] = [
   },
   {
     ago: START - 80_000,
-    update: tool(
-      "w-test",
-      "execute",
-      "Run bun test Sources/Fleet",
-      output(
+    update: tool("w-test", "execute", "Run bun test Sources/Fleet", {
+      rawInput: { command: "bun test Sources/Fleet", cwd: CMUX },
+      rawOutput: { exit_code: 0 },
+      ...output(
         "bun test v1.4.0\n\nSources/Fleet/upload.test.ts:\n✓ uploads the artifact [3.12ms]\n✓ retries a 503 and then succeeds [1504.40ms]\n\n 2 pass\n 0 fail\nRan 2 tests across 1 file. [1.53s]",
       ),
-    ),
+    }),
   },
   {
     ago: START - 84_000,
@@ -534,7 +545,7 @@ export const workedTurn: SeedStep[] = [
       "Uploads now retry server errors with backoff.\n\n- `withRetry` in `retry.ts` tries up to 5 times, waiting 0.5 s, 1 s, 2 s and 4 s.\n- `uploadArtifact` retries only 5xx responses; a 4xx still fails at once.\n- The new test fails the first two uploads with 503 and checks the third succeeds.\n\n```ts\nawait withRetry(async () => {\n  const response = await fetch(url, { method: 'PUT', body });\n  if (response.status >= 500) throw new RetryableError(response.status);\n});\n```\n\nBoth tests pass. The worst case adds 7.5 s before a publish gives up.",
     ),
   },
-  // How full the context window is after the turn, as Codex and Claude report it.
+  // How full the context window is after the turn, as the agent reports it.
   { ago: START - 85_000, update: { sessionUpdate: "usage_update", used: 33_551, size: 200_000 } },
   { ago: START - 86_000, mux: "turn_result", msg: { status: "completed" } },
 ];
@@ -580,6 +591,19 @@ export function sessionHistory(session: MockSession): SeedStep[] {
         },
       },
     );
-  } else if (session.status !== "running") steps.push({ ago: at, mux: "turn_result", msg: { status: "completed" } });
+  } else if (session.status === "running" && session.working)
+    // A running agent is usually in the middle of a call, which its pane shows under "Working for".
+    steps.push({
+      ago: at + 10_000,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: `${session.sessionId}-working`,
+        kind: session.working.kind,
+        title: session.working.title,
+        status: "in_progress",
+        ...(session.working.command ? { rawInput: { command: session.working.command } } : {}),
+      },
+    });
+  else if (session.status !== "running") steps.push({ ago: at, mux: "turn_result", msg: { status: "completed" } });
   return steps;
 }

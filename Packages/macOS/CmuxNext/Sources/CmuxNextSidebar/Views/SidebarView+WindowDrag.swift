@@ -61,7 +61,7 @@ extension SidebarListView {
 
     /// Ends a handed-off drag without an intent or a landing flight.
     func abandonDrag(_ drag: Drag) {
-        stopAutoscroll()
+        autoscroll.stop()
         self.drag = nil
         press?.cancelled = true
         drag.lift.removeFromSuperview()

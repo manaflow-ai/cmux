@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// Chrome's "On-device site data" dialog: every site that stored cookies or
+/// The "On-device site data" dialog: every site that stored cookies or
 /// other data while the page was open, each with a delete button.
 final class SiteDataWindow: PageInfoWindow {
     private let send: (PageInfoCommand) -> Void

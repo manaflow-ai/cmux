@@ -4,7 +4,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
 
-/// Chrome-style tab group actions (architecture.md section 7): create,
+/// Tab group actions (architecture.md section 7): create,
 /// membership, rename, nine colors, collapse, ungroup, close, reorder, move
 /// to split/column/workspace/window, new tab in group, and saved groups.
 /// All need the daemon's `tab-groups-v1`; without it every action is
@@ -50,15 +50,16 @@ enum TabGroupHandlers {
         GroupOwnership.pane(holdingTabGroup: group, machines: ctx.services.machines)?.pane
     }
 
-    /// Runs a group command with a transaction and an optimistic patch;
-    /// a rejection re-pushes daemon truth into the pane's strip.
-    static func run(_ label: String, pane: PaneModel?, patch: OptimisticPatch = .custom { _ in }, _ ctx: AppActionContext,
+    /// Runs a group command with a transaction, shown at once through the
+    /// store's intent log when it has an `intent`; a rejection re-pushes
+    /// daemon truth into the pane's strip.
+    static func run(_ label: String, pane: PaneModel?, intent: Intent? = nil, _ ctx: AppActionContext,
                     _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
         // The pane's own machine, not the active window's daemon.
         let daemon = pane.map { ctx.services.daemon(for: $0) } ?? ctx.services.activeDaemon
         guard daemon.connection ?? ctx.refuse(MiscHandlerStrings.daemonOffline) != nil else { return }
         Task {
-            let ok = await daemon.perform(label, patch: patch, expectEcho: false, body)
+            let ok = await daemon.runGroupCommand(label, intent: intent, body)
             if !ok, let pane { ctx.services.paneController(for: pane)?.resyncStrip() }
         }
     }
@@ -145,14 +146,14 @@ enum TabGroupHandlers {
         run("update-tab-group", pane: pane, ctx) { c, t in _ = try await c.updateTabGroup(group, color: .set(color.rawValue), transaction: t) }
     }
 
-    /// Collapses (moving selection out of the group, like Chrome) or expands.
+    /// Collapses (moving selection out of the group) or expands.
     private static func setCollapsed(_ value: Bool?, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let (group, pane) = group(invocation, ctx) else { return }
         let current = pane.tabGroups.first { $0.id == group }?.collapsed ?? false
         let collapsed = value ?? !current
         guard collapsed != current else { return }
         if collapsed, let controller = ctx.services.paneController(for: pane) {
-            // Chrome's rule (`TabGroupOrdering`), shared with screen groups.
+            // The collapse rule (`TabGroupOrdering`), shared with screen groups.
             let strip = controller.stripModel
             let stripGroup = CmuxNextTabs.TabGroupID(group.rawValue)
             let collapsedGroups = Set(strip.groups.filter(\.isCollapsed).map(\.id))
@@ -161,7 +162,7 @@ enum TabGroupHandlers {
                 controller.select(next)
             }
         }
-        run("update-tab-group", pane: pane, patch: .setTabGroupCollapsed(group, collapsed: collapsed), ctx) { c, t in
+        run("update-tab-group", pane: pane, intent: .setTabGroupCollapsed(group, collapsed: collapsed), ctx) { c, t in
             _ = try await c.updateTabGroup(group, collapsed: collapsed, transaction: t)
         }
     }
