@@ -33,7 +33,8 @@ never sticky; column order is unchanged, so older clients render the column in p
 - S2. A screen whose columns would all be sticky shows them all in the strip.
 - S3. A sticky column's width is a fraction of the whole viewport (niri's `(view - gap) * p -
   gap`), at least its panes' minimum, at most 3/4 of the viewport (2/5 each with both edges). It
-  sits one gap from its edge. A right-edge column's resize handle is on its leading edge.
+  sits one gap from its edge. Its resize handle is on its own inner edge, so the gap beside it
+  keeps the neighboring strip column's handle.
 - S4. Docked: the strip's viewport shrinks to end at the column; strip widths are fractions of
   the strip. Overlay: the strip keeps the full width and its fractions; its content gets an inset
   of the column's width plus a gap at that end, so at rest nothing hides under the column and
@@ -48,16 +49,18 @@ never sticky; column order is unchanged, so older clients render the column in p
 - D1. Sticky panes sit above the strip and take drops (center and edges, Liquid Glass highlight
   as everywhere). An edge drop on a sticky pane that has no room joins the pane instead of
   opening a column.
-- D2. What a sticky column covers (its glass rim, a docked column's edge band) takes no drop, so
-  nothing lands in a strip pane hidden under it.
+- D2. What a sticky column covers (from the window edge to its inner edge, or to its glass rim's
+  outer edge in overlay mode) takes no drop and no click, so nothing lands in a strip pane hidden
+  under it.
 - D3. Dragging the last pane out of a sticky column removes the column (decision: auto-remove,
   because daemon columns cannot be empty and an empty sticky column would be a dead area to
   close by hand). Drag autoscroll bands sit at the inner edges of the strip's uncovered range.
 
 ## View (V1 to V4)
 
-- V1. Docked: strip panes sliding under the column are clipped (layer mask); strip dividers under
-  it are hidden.
+- V1. Strip panes sliding under a sticky column are clipped (layer mask) at a docked column's
+  inner edge or an overlay's rim outer edge; strip dividers under it are hidden; hit testing in
+  the cover never reaches a strip pane.
 - V2. Overlay: a Liquid Glass rim (`OverlaySurfaceView`, opaque under Reduce Transparency) of half
   a gap around the column with a soft shadow, and an opaque Ghostty-background fill behind the
   panes, so glass never sits behind terminal text.
@@ -88,7 +91,8 @@ optional `edge` left|right, `mode` docked|overlay), Make Column Sticky on Left
 (`column make-sticky-left`), Unstick Column (`column unstick`), Toggle Sticky Overlay
 (`column toggle-sticky-overlay`: the targeted column if sticky, else the screen's sticky column,
 else the column as a right overlay), Toggle Column Scroll Bar (`settings toggle-column-scrollbar`).
-Column and pane context menus. `debug.sticky` reports sticky frames, strip range, scrollbar and
+Column and pane context menus. Directional focus treats the left sticky column as before the
+strip and the right one as after its end. `debug.sticky` reports sticky frames, strip range, scrollbar and
 pane stacking, and with `pane` + `sticky` (+ `edge`, `mode`) changes a column through the same
 path. No default shortcut.
 
