@@ -1552,6 +1552,148 @@ describe("acpmux turn diff", () => {
       delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
     }
   });
+
+  test("the options menu refreshes a scope, toggles the view in words, and copies a git apply command", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window & {
+      cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    };
+    const document = dom.window.document;
+    const copied: string[] = [];
+    const clipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, "clipboard");
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void copied.push(text) },
+    });
+    const asked: unknown[] = [];
+    host.cmuxAcpmuxActions = {
+      "git.diff": async (params) => {
+        asked.push(params);
+        return {
+          scope: "uncommitted",
+          root: "/repo",
+          files: [
+            {
+              path: "src/main.ts",
+              status: "modified",
+              additions: 1,
+              deletions: 1,
+              patch: "@@ -1,2 +1,2 @@\n-a\n+A\n b\n",
+            },
+          ],
+          total_files: 1,
+          files_omitted: 0,
+        };
+      },
+    };
+    const diffRow: AcpmuxRow = {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      toolCount: 1,
+      items: [
+        {
+          kind: "tool",
+          text: "Edit main.ts",
+          tool: {
+            id: "t1",
+            title: "Edit main.ts",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/src/main.ts", oldText: "a\nb\nc\n", newText: "a\nB\nc\n" }],
+          },
+        },
+      ],
+    };
+    const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const click = async (node: Element) => {
+      await act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+      await settle();
+    };
+    const key = (node: Element, name: string) =>
+      act(async () => {
+        node.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+      });
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow],
+          sessions: [],
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        }),
+      );
+      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
+      const options = panel.querySelector<HTMLElement>('[data-tool="options"]')!;
+      expect(options?.getAttribute("aria-label")).toBe("Changes options");
+      const rows = () => [
+        ...panel.querySelectorAll<HTMLButtonElement>('[aria-label="Changes options"][role="menu"] [role="menuitem"]'),
+      ];
+      const row = (label: string) => rows().find((item) => item.textContent === label)!;
+      const tool = (id: string) => panel.querySelector<HTMLElement>(`[data-tool="${id}"]`)!;
+      // Last turn comes from the transcript: nothing to refresh and no git patches to copy.
+      await click(options);
+      expect(options.getAttribute("aria-expanded")).toBe("true");
+      expect(rows().map((item) => [item.textContent, item.disabled])).toEqual([
+        ["Refresh", true],
+        ["Word wrap", false],
+        ["Switch to split diff", false],
+        ["Collapse all diffs", false],
+        ["Copy git apply command", true],
+      ]);
+      expect(document.activeElement).toBe(row("Word wrap"));
+      // A row runs the same toggle as its toolbar button, and the menu then names the way back.
+      await click(row("Word wrap"));
+      expect(rows()).toEqual([]);
+      expect(tool("wrap").getAttribute("aria-pressed")).toBe("true");
+      await click(options);
+      expect(row("Disable word wrap")).toBeDefined();
+      await click(row("Collapse all diffs"));
+      expect(tool("collapse").getAttribute("aria-pressed")).toBe("true");
+      await click(options);
+      expect(row("Expand all diffs")).toBeDefined();
+      // Escape closes the menu, not the changes view, and focus returns to the button.
+      await key(document.activeElement!, "Escape");
+      expect(rows()).toEqual([]);
+      expect(document.activeElement).toBe(options);
+      expect(document.querySelector("section.acpmux-diff-panel")).not.toBeNull();
+      // A git scope refreshes from the host and copies its patches as one git apply command.
+      const pill = panel.querySelector<HTMLElement>(".acpmux-diff-scope")!;
+      await click(pill);
+      await click(
+        [...panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+          (item) => item.textContent === "Uncommitted",
+        )!,
+      );
+      expect(asked.length).toBe(1);
+      await click(options);
+      await click(row("Refresh"));
+      expect(asked.length).toBe(2);
+      await click(options);
+      await click(row("Copy git apply command"));
+      expect(copied).toEqual([
+        "git apply <<'CMUX_PATCH'\ndiff --git a/src/main.ts b/src/main.ts\n--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,2 +1,2 @@\n-a\n+A\n b\nCMUX_PATCH\n",
+      ]);
+      expect(document.activeElement).toBe(options);
+    } finally {
+      await act(async () => root.unmount());
+      delete host.cmuxAcpmuxActions;
+      for (const name of ["cmux.acpmux.diffWrap", "cmux.acpmux.diffLayout", "cmux.acpmux.diffTree"])
+        dom.window.localStorage.removeItem(name);
+      if (clipboard) Object.defineProperty(globalThis.navigator, "clipboard", clipboard);
+      else delete (globalThis.navigator as unknown as Record<string, unknown>).clipboard;
+    }
+  });
 });
 
 describe("acpmux composer", () => {
