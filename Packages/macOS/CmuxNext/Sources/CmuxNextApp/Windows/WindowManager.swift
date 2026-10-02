@@ -39,6 +39,8 @@ final class WindowManager {
     /// reconcile places each in that window (opening it when it is not
     /// registered yet) and selects it.
     var pendingClaims: [String: String] = [:]
+    /// Pending claims not to show on arrival; windows to open behind (automation, Option).
+    var quietClaims: Set<String> = [], behindWindows: Set<String> = []
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
     /// Sidebar slots for new workspaces, applied once the daemon reports
@@ -286,7 +288,8 @@ final class WindowManager {
     private func present(_ controller: WindowController) {
         // Tests: never on the user's display. Otherwise one rule: under
         // no-activate behind the others (in front on a test screen), never key.
-        if ordersWindowsIn, let window = controller.window { WindowActivation.show(window, .present) }
+        let behind = behindWindows.remove(controller.state.id) != nil
+        if ordersWindowsIn, let window = controller.window { WindowActivation.show(window, behind ? .presentBehind : .present) }
         onPresent?(controller)
     }
 
