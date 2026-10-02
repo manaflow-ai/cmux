@@ -36,7 +36,7 @@ extension AppDelegate {
             return resource.kind
         }
         if let deferred = panel as? DeferredBrowserPanel {
-            return deferred.sessionPanelSnapshot.browser?.cloudResource?.kind ?? .browser
+            return deferred.sessionPanelSnapshot.browser?.cloudResource?.kind
         }
         if let browser = panel as? BrowserPanel, let resource = browser.cloudAccess.resourceID {
             return resource.kind
