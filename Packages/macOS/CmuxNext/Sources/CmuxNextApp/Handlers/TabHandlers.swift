@@ -78,10 +78,6 @@ enum TabHandlers {
             // 9 always selects the last tab.
             pane.select(number >= 9 ? ids[ids.count - 1] : ids[min(number - 1, ids.count - 1)])
         })
-        registry.bind("palette.goToTab", invoke: { invocation in
-            guard let ref = invocation["tab"]?.targetValue ?? invocation.target ?? ctx.refuse(RefusalStrings.tabArgumentRequired) else { return }
-            reveal(tabID: ref.id, ctx: ctx)
-        })
     }
 
     /// Shows the tab's workspace in the active window, then selects and focuses it.

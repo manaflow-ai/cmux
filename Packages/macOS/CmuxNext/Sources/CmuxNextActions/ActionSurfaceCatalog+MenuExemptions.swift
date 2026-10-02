@@ -81,7 +81,7 @@ nonisolated extension ActionSurfaceCatalog {
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "selectWorkspaceByNumber", "workspace.selectFirst",
             "workspace.selectLast", "workspace.selectLastUsed", "space.next", "space.previous", "space.selectByNumber",
             "space.switch", "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
-            "canvasRevealFocusedPane", "nextSurface", "prevSurface", "selectSurfaceByNumber", "palette.goToTab",
+            "canvasRevealFocusedPane", "nextSurface", "prevSurface", "selectSurfaceByNumber",
             "screen.next", "screen.previous", "screen.select", "screen.selectLast", "focusTextBoxInput",
             "focusBrowserAddressBar", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread",
             "markOldestUnreadAndJumpNext", "computerUseFocus", "computerUseFocusCallingTerminal", "column.focusLeft",
