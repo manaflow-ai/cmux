@@ -250,8 +250,10 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             finishSelection(selectionID, request: nil)
             return nil
         }
-        let plan = data?.plan
-        let limits = data?.limits
+        // The shared fleet page is the readiness boundary. The cache may still
+        // be warming, but it must not decide whether the sheet is complete.
+        let limits = page.limits
+        let plan = MachineSnapshotBuilder.planSnapshot(activeCount: page.vms.count, limits: limits)
         guard !Self.shouldPresentUpgrade(for: plan) else {
             finishSelection(selectionID, request: nil)
             ProUpgradePresenter.present(source: .newMachineAtLimit)
