@@ -286,23 +286,21 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func compileRuleList(_ rules: Any?) async throws -> WKContentRuleList? {
         guard let rules = rules as? [Any], !rules.isEmpty else { return nil }
-        guard let data = try? JSONSerialization.data(withJSONObject: rules),
-              let encoded = String(data: data, encoding: .utf8) else {
-            throw Self.error("invalid", "contentRules: expected a JSON array of content-blocker rules")
-        }
+        return try await contentRuleLists().update(rules: rules)
+    }
+
+    /// The session's compiled domain-policy rule list in WebKit's store.
+    @MainActor private var ruleLists: BrowserReplContentRuleLists?
+
+    @MainActor
+    private func contentRuleLists() throws -> BrowserReplContentRuleLists {
+        if let ruleLists { return ruleLists }
         guard let store = WKContentRuleListStore.default() else {
             throw Self.error("unsupported", "WebKit content rule lists are unavailable")
         }
-        let identifier = "cmux.browser-repl.\(sessionID.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : "_" }.joined())"
-        return try await withCheckedThrowingContinuation { continuation in
-            store.compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: encoded) { list, error in
-                if let list {
-                    continuation.resume(returning: list)
-                } else {
-                    continuation.resume(throwing: Self.error("invalid", "contentRules: \(error?.localizedDescription ?? "could not compile")"))
-                }
-            }
-        }
+        let lists = BrowserReplContentRuleLists(sessionID: sessionID, store: store)
+        ruleLists = lists
+        return lists
     }
 
     /// A non-persistent data store whose connections go through `proxy`, or
