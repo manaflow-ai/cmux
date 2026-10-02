@@ -1,4 +1,5 @@
 public import Foundation
+import os
 
 /// Produces the handshake for a pane. The App picks the live acpmux host or
 /// the mock; the pane never knows which.
@@ -35,6 +36,7 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
 /// share one lookup, so they never race to spawn two daemons. A reconnect
 /// only looks; it never starts a daemon.
 public actor AcpmuxHost: AgentPaneHostProviding {
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
     private let resolveEnvironment: @Sendable () -> AcpmuxEnvironment?
     /// Kept only once found, so acpmux installed after the first chat is picked up.
     private var environment: AcpmuxEnvironment?
@@ -65,7 +67,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         // reporting it stopped.
         if !startsDaemon, let task = inFlight[true] { return try await task.value }
         if environment == nil { environment = resolveEnvironment() }
-        guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
+        guard let environment else {
+            logger.error("acpmux environment unresolved startsDaemon=\(startsDaemon, privacy: .public)")
+            throw AgentPaneHostError.acpmuxNotFound
+        }
+        logger.info("acpmux environment resolved executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
         // task-owner: stored in inFlight and cleared when it settles; callers await its value
         let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon) }
         inFlight[startsDaemon] = task
@@ -77,19 +83,24 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         do {
             return try await AcpmuxStatusClient.endpoint(socketPath: environment.socketPath)
         } catch AcpmuxStatusClient.Failure.unreachable {
+            logger.info("acpmux status unreachable socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
             // Nothing listens on the socket: start a daemon below, unless
             // the user stopped it.
             guard startsDaemon else { throw AgentPaneHostError.daemonStopped }
         } catch AcpmuxStatusClient.Failure.noWebSocket {
+            logger.error("acpmux status returned no websocket socket=\(environment.socketPath, privacy: .public)")
             throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)
         } catch is AgentPaneDeadlineExceeded {
+            logger.error("acpmux status timed out socket=\(environment.socketPath, privacy: .public)")
             throw AgentPaneHostError.timedOut
         } catch {
+            logger.error("acpmux status failed error=\(String(describing: error), privacy: .public)")
             throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)
         }
         do {
             return try await AcpmuxDaemonLauncher.launch(environment)
         } catch AcpmuxDaemonLauncher.Failure.exited {
+            logger.error("acpmux launcher exited before ready log=\(environment.logPath, privacy: .public)")
             // Another client may have started the daemon first; the loser
             // exits because the socket is taken. Ask the winner.
             do {
@@ -98,8 +109,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)
             }
         } catch is AgentPaneDeadlineExceeded {
+            logger.error("acpmux launcher timed out log=\(environment.logPath, privacy: .public)")
             throw AgentPaneHostError.timedOut
         } catch {
+            logger.error("acpmux launcher failed error=\(String(describing: error), privacy: .public) log=\(environment.logPath, privacy: .public)")
             throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)
         }
     }

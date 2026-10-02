@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 
 /// Starts a detached acpmux daemon and returns its WebSocket endpoint from
 /// the `--ready-fd` line, so a fresh daemon needs no status round trip.
@@ -10,6 +11,7 @@ import Foundation
 /// durable state). Its fd 3 is our pipe; stdout and stderr go to
 /// `<home>/daemon.log`.
 nonisolated enum AcpmuxDaemonLauncher {
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
     nonisolated enum Failure: Error, Equatable {
         case spawnFailed(String)
         /// The daemon exited before it was ready; its log says why.
@@ -26,9 +28,11 @@ nonisolated enum AcpmuxDaemonLauncher {
     }
 
     @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20)) async throws -> AcpmuxWebEndpoint {
+        logger.info("acpmux launch requested executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) args=\(environment.daemonArguments.joined(separator: " "), privacy: .public)")
         try FileManager.default.createDirectory(at: environment.home, withIntermediateDirectories: true)
         var variables = ProcessInfo.processInfo.environment.merging(environment.childEnvironment) { $1 }
         variables["ACPMUX_LAUNCH_LOG"] = environment.logPath
+        logger.info("acpmux launch environment home=\(variables["ACPMUX_HOME", default: ""], privacy: .public) socket=\(variables["ACPMUX_SOCKET", default: ""], privacy: .public) pathPresent=\(variables["PATH"] != nil, privacy: .public)")
         var outputPipe: [Int32] = [-1, -1]
         guard Darwin.pipe(&outputPipe) == 0 else {
             throw Failure.spawnFailed(String(cString: strerror(errno)))
@@ -65,7 +69,11 @@ nonisolated enum AcpmuxDaemonLauncher {
         }
 
         var processIdentifier: pid_t = 0
-        let spawnStatus = try Self.withCStringArray(arguments(for: environment)) { argv in
+        // posix_spawn follows exec(2)'s argv contract. Foundation.Process accepts
+        // arguments without argv[0], but the shell requires its executable name
+        // in argv[0] before `-c` and the script.
+        let spawnArguments = ["/bin/sh"] + arguments(for: environment)
+        let spawnStatus = try Self.withCStringArray(spawnArguments) { argv in
             try Self.withCStringArray(variables.map { "\($0.key)=\($0.value)" }) { envp in
                 "/bin/sh".withCString { executable in
                     posix_spawn(&processIdentifier, executable, &actions, &attributes, argv, envp)
@@ -73,8 +81,10 @@ nonisolated enum AcpmuxDaemonLauncher {
             }
         }
         guard spawnStatus == 0 else {
+            logger.error("acpmux spawn failed status=\(spawnStatus, privacy: .public) errno=\(String(cString: strerror(spawnStatus)), privacy: .public) executable=/bin/sh")
             throw Failure.spawnFailed(String(cString: strerror(spawnStatus)))
         }
+        logger.info("acpmux spawn succeeded executable=/bin/sh")
         // Only the spawned shell and daemon may hold the write end. The CLOEXEC
         // default above closes every inherited descriptor; the shell creates
         // descriptor 3 explicitly for the ready line.
