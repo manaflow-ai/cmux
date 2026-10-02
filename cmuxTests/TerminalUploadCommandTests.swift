@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import CmuxSettings
 import Foundation
 import Testing
@@ -290,7 +291,6 @@ import Testing
         #expect(env["CMUX_UPLOAD_SSH_OPTIONS"] == nil)
     }
 }
-
 @Suite struct TerminalCustomUploadRunnerTests {
     private func endpoint() -> TerminalCustomUploadRunner.Endpoint {
         TerminalCustomUploadRunner.Endpoint(

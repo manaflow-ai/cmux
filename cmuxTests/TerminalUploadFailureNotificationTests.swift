@@ -1,6 +1,7 @@
-import Testing
 import AppKit
+import CmuxRemoteSession
 import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
