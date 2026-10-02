@@ -526,7 +526,7 @@ struct CloudTreeNodeActions {
                         let existing = try await client.listPublications().first {
                             $0.vmID == resource.machine.rawValue && $0.port == port
                         }
-                        let publication: VMPublication
+                        var publication: VMPublication
                         if let existing {
                             publication = existing
                         } else {
@@ -538,8 +538,11 @@ struct CloudTreeNodeActions {
                                 teamID: nil
                             )
                         }
+                        if publication.state != "active" {
+                            publication = try await client.verifyPublication(id: publication.id)
+                        }
                         guard publication.state == "active" else {
-                            throw CloudTreeSharePortError.provisioning
+                            throw CloudTreeSharePortError.provisioning(state: publication.state)
                         }
                         Self.copyToPasteboard(publication.url)
                     } catch is CancellationError {
@@ -642,12 +645,12 @@ struct CloudTreeNodeActions {
 }
 
 private enum CloudTreeSharePortError: LocalizedError {
-    case provisioning
+    case provisioning(state: String)
 
     var errorDescription: String? {
         switch self {
-        case .provisioning:
-            return String(localized: "cloudTree.operation.sharePort.provisioning", defaultValue: "The share URL is still being provisioned. Try again in a moment.")
+        case .provisioning(let state):
+            return String(format: String(localized: "cloudTree.operation.sharePort.provisioning", defaultValue: "The share URL is still being provisioned (state: %@). Try again in a moment."), state)
         }
     }
 }
