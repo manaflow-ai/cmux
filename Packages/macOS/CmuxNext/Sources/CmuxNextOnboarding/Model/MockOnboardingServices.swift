@@ -26,6 +26,8 @@ public final class MockOnboardingServices: OnboardingServices {
     /// A fresh temporary folder, so the mock never writes to ~/cmux.
     public var firstTaskFolder = FirstTaskFolder(url: FileManager.default.temporaryDirectory
         .appending(path: "cmux-first-task-\(UUID().uuidString)", directoryHint: .isDirectory))
+    /// The computer use step's grants; nil leaves the step out.
+    public var computerUseSource: MockComputerUsePermissionSource?
     /// Picked screen variants, by step.
     public var variantIDs: [OnboardingModel.Step: String] = [:]
     /// The role step's answer: what `savedProfile` returns and `saveProfile` replaces.
@@ -110,6 +112,7 @@ public final class MockOnboardingServices: OnboardingServices {
     public func revealInFinder(_ url: URL) { revealed.append(url) }
 
     public var hasAccountsStep: Bool { accountsView != nil }
+    public var computerUsePermissions: (any ComputerUsePermissionSource)? { computerUseSource }
     public func makeAccountsStepView() -> NSView? { accountsView }
 
     public func variantID(for step: OnboardingModel.Step) -> String? { variantIDs[step] }
@@ -135,6 +138,7 @@ public final class MockOnboardingServices: OnboardingServices {
             AgentProject(folder: URL(fileURLWithPath: "/Users/demo/Desktop/scratch"), sessions: 4, lastActive: now - 9 * day, apps: [.pi]),
             AgentProject(folder: URL(fileURLWithPath: "/Users/demo/code/dotfiles"), sessions: 2, lastActive: now - 40 * day, apps: [.claudeCode]),
         ]
+        services.computerUseSource = MockComputerUsePermissionSource(current: ComputerUsePermissions(accessibility: true, screenRecording: false))
         services.passwordStore = true
         func profile(_ browser: ImportBrowser, _ directory: String, _ name: String) -> BrowserSourceProfile {
             let passwords: DataAvailability = browser.family == .chromium ? .available : .absent

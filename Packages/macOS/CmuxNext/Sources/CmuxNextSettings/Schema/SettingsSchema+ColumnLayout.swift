@@ -40,9 +40,9 @@ extension SettingsSchema {
                 title: SettingsText.text("settings.layout.stickyColumnMode", "Sticky Column Mode"),
                 kind: .choice([
                     SettingChoice(StickyDefaultMode.docked.rawValue, SettingsText.text("settings.choice.docked", "Docked")),
-                    SettingChoice(StickyDefaultMode.overlay.rawValue, SettingsText.text("settings.choice.overlay", "Overlay")),
+                    SettingChoice(StickyDefaultMode.overlay.rawValue, SettingsText.text("settings.choice.overlay", "Floating")),
                 ]),
-                default: .string(ColumnLayoutSettings.stickyModeFallback.rawValue), keywords: ["sticky", "overlay", "dock"]
+                default: .string(ColumnLayoutSettings.stickyModeFallback.rawValue), keywords: ["sticky", "floating", "overlay", "dock"]
             ),
             SettingDescriptor(
                 ColumnLayoutSettings.frameOrientationPath, section: .general, group: columns,

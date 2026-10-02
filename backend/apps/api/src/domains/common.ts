@@ -71,6 +71,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
     } as CloudOpDef
   ],
   [
+    "sso.signed_in",
+    {
+      name: "sso.signed_in",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "team",
+      principals: ["system"],
+      params: Schema.Struct({ connection: Schema.String, subject: Schema.String, stack_user: Schema.String, linked: Schema.Boolean }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: a person signed in through an SSO connection (audit; subject is a hash of connection and IdP subject).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
     "domain.rechecked",
     {
       name: "domain.rechecked",

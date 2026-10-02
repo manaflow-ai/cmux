@@ -165,6 +165,18 @@ final class AppOnboardingServices: OnboardingServices {
         NSWorkspace.shared.open(url)
     }
 
+    /// The cmux-cua daemon's grants; nil (no step) without its socket. A
+    /// DEBUG launch with `CMUX_NEXT_ONBOARDING_COMPUTER_USE=mock` gets
+    /// grants `debug.onboarding grant` flips instead.
+    private(set) lazy var computerUsePermissions: (any ComputerUsePermissionSource)? = {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
+            return MockComputerUsePermissionSource(helperAppURL: AppComputerUsePermissionSource.installedHelper)
+        }
+        #endif
+        return AppComputerUsePermissionSource.local()
+    }()
+
     var hasAccountsStep: Bool { true }
 
     func makeAccountsStepView() -> NSView? {

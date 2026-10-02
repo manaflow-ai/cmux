@@ -98,6 +98,8 @@ done
 if ! python3 scripts/lint_swift_namespaces.py \
   --baseline scripts/lint-namespace-types-baseline.txt \
   --general-baseline "$BASELINE_FILE" \
+  --ratchet scripts/lint-namespace-types-ratchet.txt \
+  ${NAMESPACE_RATCHET_UPDATE:+--update-ratchet} \
   --enum-roots "${SCOPES[@]}" \
   --type-roots "${NS_TYPE_ROOTS[@]}"; then
   fail=1

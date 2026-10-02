@@ -12,6 +12,7 @@ extension OnboardingModel.Step {
         case .defaultBrowser: DefaultBrowserVariants.all
         case .importData: ImportVariants.all
         case .theme: ThemeVariants.all
+        case .computerUse: ComputerUseVariants.all
         case .accounts: AccountsVariants.all
         }
     }

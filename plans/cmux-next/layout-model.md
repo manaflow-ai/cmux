@@ -203,7 +203,7 @@ an emptied column or dock, unpinning on E2) is decided by the store in the same 
 | Split Right / Down (Cmd-D, Cmd-Shift-D) | unchanged | splits inside the dock |
 | New Column (Ctrl-Cmd-D) | after the focused column | from a left/right dock: a strip column at that end of the strip; from top/bottom: refused with a HUD |
 | New Row (Ctrl-Cmd-Shift-D) | below the focused row | left/right dock: a row in the dock; top/bottom: refused (E3) |
-| Make Column Sticky Left/Right, Unstick, Toggle Sticky Overlay | exist (no shortcut) | unchanged |
+| Make Column Sticky Left/Right, Unstick, Toggle Floating Sticky Column | exist (no shortcut) | unchanged |
 | Toggle Frame Orientation | new (palette, CLI `screen toggle-frame-orientation`, screen menu; no shortcut) | `SetOrientation` |
 | Make Row Sticky Top / Bottom | new (no shortcut) | from a strip row: `PinRow` |
 | Move Tab to Top/Bottom/Left/Right Dock | new (palette, CLI, tab menu) | `Destination::Dock` or the dock's pane |

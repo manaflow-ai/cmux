@@ -15,7 +15,9 @@ import CmuxNextSettings
 /// `toggle_project` (`path`), `add_project` (`path`),
 /// `theme` (`name`, empty for the Ghostty theme), `detect`,
 /// `toggle_profile` (`id`), `toggle_kind` (`kind`), `import`,
-/// `cancel_import`, `claim` (`claim`), `gallery` (opens the review tool),
+/// `cancel_import`, `claim` (`claim`), `allow` (`pane`: accessibility or
+/// screenRecording), `dismiss_helper`, `grant` (`pane`, `on`; the mock
+/// computer use source only), `gallery` (opens the review tool),
 /// `gallery_key` (`key`: left, right, up, down, 1-9, p, space, t, return,
 /// copy, escape), `gallery_state`.
 @MainActor
@@ -59,6 +61,17 @@ enum DebugOnboarding {
             }
         case "skip_passwords": model.importer.skipPasswords()
         case "consent_back": model.importer.backFromConsent()
+        case "allow": if let pane = params["pane"]?.stringValue.flatMap(ComputerUsePermissionPane.init(rawValue:)) { model.computerUse.allow(pane) }
+        case "dismiss_helper": model.computerUse.dismissHelper()
+        case "grant":
+            if let pane = params["pane"]?.stringValue.flatMap(ComputerUsePermissionPane.init(rawValue:)),
+               let mock = model.services.computerUsePermissions as? MockComputerUsePermissionSource {
+                let on = params["on"]?.boolValue ?? true
+                switch pane {
+                case .accessibility: mock.current.accessibility = on
+                case .screenRecording: mock.current.screenRecording = on
+                }
+            }
         case "claim": if let claim = params["claim"]?.stringValue.flatMap(DefaultHandlerClaim.init(rawValue:)) { model.defaults.request(claim) }
         default: break
         }
@@ -114,6 +127,10 @@ enum DebugOnboarding {
             result["targets"] = .object(Dictionary(uniqueKeysWithValues: summary.batches.map { ($0.source.sourceKey, JSONValue.string($0.source.targetProfileID)) }))
             result["failures"] = .object(summary.failures.mapValues(JSONValue.string))
         }
+        let computerUse = model.computerUse
+        result["computer_use"] = .object(["accessibility": .bool(computerUse.permissions.accessibility),
+                                          "screen_recording": .bool(computerUse.permissions.screenRecording),
+                                          "helping": computerUse.helping.map { .string($0.rawValue) } ?? .null])
         result["claimed"] = .array(model.defaults.claimed.map(\.rawValue).sorted().map(JSONValue.string))
         return .object(result)
     }
