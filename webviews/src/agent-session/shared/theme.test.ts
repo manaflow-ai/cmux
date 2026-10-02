@@ -71,17 +71,23 @@ describe("agent theme", () => {
     expect(shared).toMatch(/--agent-primary-text:\s*var\(--agent-accent-text/);
   });
 
-  // The composer and the docked session list sit on the page, which already
-  // paints the theme's background; a second fill stacks with it and hides a
-  // translucent window's backdrop.
-  for (const selector of [".acpmux-composer", ".acpmux-sidebar"]) {
-    test(`${selector} paints no background of its own`, () => {
-      const escaped = selector.replace(/[.]/g, "\\.");
-      const rule = css("../acpmux/styles.css").match(new RegExp(`${escaped}\\{[^}]*\\}`))?.[0] ?? "";
-      expect(rule).not.toBe("");
-      expect(rule).not.toMatch(/background:(?!transparent|none)/);
-    });
-  }
+  // The composer sits on the page, which already paints the theme's
+  // background; a second fill stacks with it and hides a translucent
+  // window's backdrop.
+  test(".acpmux-composer paints no background of its own", () => {
+    const rule = css("../acpmux/styles.css").match(/\.acpmux-composer\{[^}]*\}/)?.[0] ?? "";
+    expect(rule).not.toBe("");
+    expect(rule).not.toMatch(/background:(?!transparent|none)/);
+  });
+
+  // The docked session list is the sidebar step, a tint over the page: over a
+  // translucent window's clear page it stays a tint, never an opaque layer.
+  test("the docked session list is only a tint over the page", () => {
+    const rule = css("../acpmux/styles.css").match(/\.acpmux-sidebar\{[^}]*\}/)?.[0] ?? "";
+    const background = rule.match(/[;{]background:([^;}]*)/)?.[1] ?? "";
+    expect(background).toMatch(/var\(--agent-page-bg\)$/);
+    expect(background).not.toMatch(/--acpmux-base|--agent-surface/);
+  });
 
   // A translucent window's page is clear; the composer box and its edge
   // must be a tint over the page, not mixed toward the opaque base, or the
