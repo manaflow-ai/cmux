@@ -1,7 +1,8 @@
 public import Foundation
 
 /// Bookmarks in the home session (`bookmarks-v1`). Each wrapper throws
-/// `missingCapabilities` on a daemon without it.
+/// `missingCapabilities` on a daemon without it. Every write takes a
+/// `MutationIdentity`: one per logical write, reused on its retries.
 extension DaemonConnection {
     public var supportsBookmarks: Bool { identity?.supports(DaemonCapabilities.shared.bookmarks) == true }
 
@@ -27,15 +28,15 @@ extension DaemonConnection {
     }
 
     @discardableResult
-    public func moveBookmark(_ id: String, parent: String, index: Int) async throws -> BookmarkResult {
+    public func moveBookmark(_ id: String, parent: String, index: Int, mutation: MutationIdentity) async throws -> BookmarkResult {
         try requireBookmarks()
-        return try await request(MoveBookmarkRequest(bookmark: id, parent: parent, index: index))
+        return try await request(MoveBookmarkRequest(bookmark: id, parent: parent, index: index, mutation: mutation))
     }
 
     @discardableResult
-    public func deleteBookmark(_ id: String) async throws -> BookmarkDeletion {
+    public func deleteBookmark(_ id: String, mutation: MutationIdentity) async throws -> BookmarkDeletion {
         try requireBookmarks()
-        return try await request(DeleteBookmarkRequest(bookmark: id))
+        return try await request(DeleteBookmarkRequest(bookmark: id, mutation: mutation))
     }
 
     @discardableResult
