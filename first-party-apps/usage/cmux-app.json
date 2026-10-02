@@ -4,35 +4,42 @@
   "id": "cmux/usage",
   "name": { "en": "Usage", "ja": "使用量" },
   "version": "0.1.0",
-  "description": { "en": "Agent plan usage and limits: 5-hour and weekly windows, API budgets and CodeRouter pools, with reset times, pace and warnings.", "ja": "エージェントのプラン使用量と上限: 5時間枠と週間枠、API 予算、CodeRouter プール。リセット時刻、ペース、警告付き。" },
+  "description": {
+    "en": "Usage of every AI plan account your routers know: session and weekly headroom, resets, and a pace verdict per provider, in the menu bar, a pane and the sidebar.",
+    "ja": "ルーターが管理するすべての AI プランアカウントの使用量: セッションと週間の残り、リセット時刻、プロバイダーごとのペース判定を、メニューバー、ペイン、サイドバーに表示します。"
+  },
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "MIT",
   "icon": "assets/icon.svg",
   "categories": ["agents", "monitoring"],
-  "keywords": ["usage", "limits", "quota", "rate limit", "plan"],
+  "keywords": ["usage", "limits", "quota", "pace", "accounts", "router"],
   "engines": { "cmux": "^1.0" },
   "main": "dist/main.js",
   "scopes": {
-    "usage:read": "Read plan usage numbers from the cmux usage service. The app never sees your sign-in tokens.",
-    "usage:write": "Ask the usage service to refresh now when you click Refresh.",
-    "notification:write": "Warn you once per window when a limit reaches 80 or 95 percent."
+    "account:read": "Read account usage from the cmux usage server, which runs your router's status command. The app never sees a credential.",
+    "account:write": "Ask the usage server to read the router now when you choose Refresh.",
+    "notification:write": "Tell you once when a provider has no usable account left."
   },
-  "optionalScopes": {
-    "coderouter:read": "Show per-account usage of your CodeRouter pools.",
-    "mcp:expose": "Let agents read usage through the status tool.",
-    "actions:run": "Reveal the usage section when you choose Show Usage."
-  },
+  "optionalScopes": { "mcp:expose": "Let agents read usage and pace through the status tool.", "actions:run": "Open the usage pane when you choose Show Usage." },
   "contributes": {
-    "statusItems": [
-      { "id": "menu", "title": { "en": "Usage", "ja": "使用量" }, "symbol": "gauge.with.needle", "placement": "statusStrip", "render": "renderStatus" }
-    ],
-    "sidebarSections": [
-      { "id": "usage", "title": { "en": "Usage", "ja": "使用量" }, "symbol": "gauge.with.needle", "defaultRegion": "bottom", "render": "renderSection", "maxRows": 12 }
-    ],
+    "statusItems": [{ "id": "menu", "title": { "en": "Usage", "ja": "使用量" }, "symbol": "gauge.with.needle", "placement": "statusStrip", "render": "renderStatus" }],
+    "sidebarSections": [{ "id": "usage", "title": { "en": "Usage", "ja": "使用量" }, "symbol": "gauge.with.needle", "defaultRegion": "bottom", "render": "renderSection", "maxRows": 12 }],
     "commands": [
-      { "id": "show", "title": { "en": "Show Usage", "ja": "使用量を表示" }, "run": "show", "keywords": ["usage", "limits", "quota"], "contexts": ["palette", "statusItem:menu"] },
-      { "id": "refresh", "title": { "en": "Refresh Usage Now", "ja": "使用量を今すぐ更新" }, "run": "refresh", "keywords": ["usage", "limits"], "contexts": ["palette", "statusItem:menu", "sidebarSection:usage"] },
+      {
+        "id": "show",
+        "title": { "en": "Show Usage", "ja": "使用量を表示" },
+        "run": "show",
+        "keywords": ["usage", "limits", "quota"],
+        "contexts": ["palette", "statusItem:menu", "sidebarSection:usage"]
+      },
+      {
+        "id": "refresh",
+        "title": { "en": "Refresh Usage Now", "ja": "使用量を今すぐ更新" },
+        "run": "refresh",
+        "keywords": ["usage", "limits"],
+        "contexts": ["palette", "statusItem:menu", "sidebarSection:usage"]
+      },
       {
         "id": "status",
         "title": { "en": "Usage Status", "ja": "使用量の状態" },
@@ -41,8 +48,9 @@
         "arguments": {
           "type": "object",
           "properties": {
-            "provider": { "type": "string", "description": "Only this provider (claude-code, codex, anthropic-api, openai-api, coderouter)." },
-            "refresh": { "type": "boolean", "description": "Ask the usage service to refresh first (rate-limited by the service)." }
+            "provider": { "type": "string", "description": "Only this provider id as the router names it (claude, codex, ...)." },
+            "accounts": { "type": "boolean", "description": "Include one row per account with the router's labels (default false: provider summaries and pace only)." },
+            "refresh": { "type": "boolean", "description": "Ask the usage server to read the router first (rate-limited by the server)." }
           }
         }
       },
@@ -52,24 +60,13 @@
     "settings": {
       "type": "object",
       "properties": {
-        "variant": {
-          "type": "string",
-          "title": "Design variant",
-          "enum": ["menuPercent", "menuMeters", "sidebarOnly"],
-          "default": "menuPercent",
-          "x-cmux-devOnly": true
-        },
-        "notifications": { "type": "boolean", "title": "Warn when a limit is nearly used", "default": true },
-        "warnAt": {
-          "type": "array",
-          "title": "Warn at percent",
-          "items": { "type": "integer", "minimum": 1, "maximum": 100 },
-          "default": [80, 95]
-        },
+        "variant": { "type": "string", "title": "Design variant", "enum": ["rows", "meters", "quiet"], "default": "rows", "x-cmux-devOnly": true },
+        "notifications": { "type": "boolean", "title": "Tell me when a provider has no usable account", "default": true },
         "staleMinutes": { "type": "integer", "title": "Mark data stale after minutes", "minimum": 1, "default": 30 }
       }
-    }
+    },
+    "paneKinds": [{ "id": "usagePane", "title": { "en": "Usage", "ja": "使用量" }, "symbol": "gauge.with.needle", "render": "renderPane" }]
   },
-  "activation": ["onStatusItem:menu", "onSidebarSection:usage", "onCommand:show", "onCommand:refresh", "onCommand:status", "onCommand:cycleVariant"],
+  "activation": ["onStatusItem:menu", "onSidebarSection:usage", "onPane:usagePane", "onCommand:show", "onCommand:refresh", "onCommand:status", "onCommand:cycleVariant"],
   "files": ["dist/", "assets/"]
 }

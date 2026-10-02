@@ -78,6 +78,8 @@ final class AppServices {
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
+    /// Home: local conversations with the mux (plans/cmux-next/home.md).
+    private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
     /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md).

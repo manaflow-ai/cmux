@@ -7515,12 +7515,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "sidebar remove-from-sidebar",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarItem"
+      ],
+      "id" : "sidebar.item.removeEverywhere",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "sidebar remove-item",
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarItem"
       ],
       "id" : "sidebar.item.remove",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar hide-app",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarItem"
+      ],
+      "id" : "sidebar.item.hideApp",
       "mcp" : "offered",
       "palette" : "offered"
     },
@@ -7765,6 +7787,28 @@
       ],
       "id" : "appStore.showInstalled",
       "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "apps hide",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "app.hide",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "apps unhide",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "app.unhide",
+      "mcp" : "offered",
       "palette" : "offered"
     }
   ],

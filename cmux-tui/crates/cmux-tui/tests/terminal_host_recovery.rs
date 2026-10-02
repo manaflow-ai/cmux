@@ -5625,3 +5625,6 @@ fn receipted_input_is_acknowledged_behind_an_output_backlog() {
 
 #[path = "terminal_host_recovery/close_path.rs"]
 mod close_path;
+
+#[path = "terminal_host_recovery/idle_template.rs"]
+mod idle_template;

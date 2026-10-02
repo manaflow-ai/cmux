@@ -33,6 +33,9 @@ public nonisolated enum SidebarLayoutReducer {
             case let .itemRemove(id):
                 guard let (s, i) = locate(id, in: sections) else { throw SidebarLayoutReject.unknownItem }
                 sections[s].items.remove(at: i)
+            case let .itemRemoveRef(ref):
+                guard sections.contains(where: { $0.items.contains { $0.ref == ref } }) else { throw SidebarLayoutReject.unknownItem }
+                for s in sections.indices { sections[s].items.removeAll { $0.ref == ref } }
             case let .itemUpdate(id, showsLabel):
                 guard let (s, i) = locate(id, in: sections) else { throw SidebarLayoutReject.unknownItem }
                 sections[s].items[i].showsLabel = showsLabel
@@ -52,7 +55,11 @@ public nonisolated enum SidebarLayoutReducer {
 
     private static func add(_ section: LayoutSection, at index: Int, to sections: inout [LayoutSection]) throws {
         guard sections.count < maxSections else { throw SidebarLayoutReject.tooMany }
-        guard !sections.contains(where: { $0.id == section.id }) else { throw SidebarLayoutReject.duplicateID }
+        // L2: ids are unique across sections and items.
+        let sectionIDs = Set(sections.map(\.id.rawValue))
+        guard !sectionIDs.contains(section.id.rawValue), locate(LayoutItemID(section.id.rawValue), in: sections) == nil,
+              !section.items.contains(where: { $0.id.rawValue == section.id.rawValue || sectionIDs.contains($0.id.rawValue) })
+        else { throw SidebarLayoutReject.duplicateID }
         switch section.content {
         case .workspaces:
             // L1: exactly one, and it holds no items.
@@ -124,7 +131,8 @@ public nonisolated enum SidebarLayoutReducer {
     private static func addItem(_ item: LayoutItem, to id: LayoutSectionID, at index: Int, in sections: inout [LayoutSection]) throws {
         guard let s = sections.firstIndex(where: { $0.id == id }) else { throw SidebarLayoutReject.unknownSection }
         guard sections[s].content == .items else { throw SidebarLayoutReject.workspacesRequired }
-        guard locate(item.id, in: sections) == nil else { throw SidebarLayoutReject.duplicateID }
+        guard locate(item.id, in: sections) == nil, !sections.contains(where: { $0.id.rawValue == item.id.rawValue })
+        else { throw SidebarLayoutReject.duplicateID }
         // L3: pinning a reference twice into one section is a no-op.
         if sections[s].items.contains(where: { $0.ref == item.ref }) { return }
         guard sections.reduce(0, { $0 + $1.items.count }) < maxItems else { throw SidebarLayoutReject.tooMany }
@@ -154,7 +162,8 @@ public nonisolated enum SidebarLayoutReducer {
 
     private static func validate(title: String?) throws {
         guard let title else { return }
-        guard !title.isEmpty, title.count <= maxTitleLength else { throw SidebarLayoutReject.invalidTitle }
+        // Unicode scalars, like the store's reducer (Rust `chars().count()`).
+        guard !title.isEmpty, title.unicodeScalars.count <= maxTitleLength else { throw SidebarLayoutReject.invalidTitle }
     }
 
     private static func validate(maxRows: Int?) throws {

@@ -70,6 +70,64 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
   ],
+  ...(["domain.mark_verified", "domain.mark_released", "domain.mark_lost"] as const).map(
+    (name) =>
+      [
+        name,
+        {
+          name,
+          owner: "cloud:TeamDO",
+          class: "mutation",
+          risk: "mutate-shared",
+          target: "team",
+          principals: ["system"],
+          params:
+            name === "domain.mark_verified"
+              ? Schema.Struct({ domain: Schema.String, record_value: Schema.String, verified_at: Schema.Number, by: Schema.optionalKey(Schema.String) })
+              : Schema.Struct({ domain: Schema.String, by: Schema.optionalKey(Schema.String) }),
+          result: Schema.Unknown,
+          errors: [],
+          docs:
+            name === "domain.mark_verified"
+              ? "Internal: DomainDO made this team the domain's owner."
+              : name === "domain.mark_lost"
+                ? "Internal: DomainDO refused a re-check; another team owns the domain."
+                : "Internal: DomainDO dropped this team's claim.",
+          cli: { path: "", visible: false },
+          mcp: { expose: "never", group: "internal" }
+        } as CloudOpDef
+      ] as const
+  ),
+  ...(["team.policy.integration_lock", "team.integration.release_done"] as const).map(
+    (name) =>
+      [
+        name,
+        {
+          name,
+          owner: "cloud:TeamDO",
+          class: "mutation",
+          risk: "mutate-shared",
+          target: "team_policy",
+          principals: ["system"],
+          params:
+            name === "team.policy.integration_lock"
+              ? Schema.Struct({
+                  managed_by: Schema.NullOr(Schema.Literals(["sso", "mdm"])),
+                  version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+                  epoch: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64)))
+                })
+              : Schema.Struct({ request: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)) }),
+          result: Schema.Unknown,
+          errors: [],
+          docs:
+            name === "team.policy.integration_lock"
+              ? "Internal: ConnectionDO's SSO/MDM lock changed (notice with ConnectionDO's lock version)."
+              : "Internal: ConnectionDO released the lock for this release request.",
+          cli: { path: "", visible: false },
+          mcp: { expose: "never", group: "internal" }
+        } as CloudOpDef
+      ] as const
+  ),
   ...(["team.policy.integration_seed", "team.policy.integration_synced"] as const).map(
     (name) =>
       [
@@ -87,7 +145,9 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
               : Schema.Struct({
                   version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
                   slice_hash: Schema.String,
-                  managed_by: Schema.optionalKey(Schema.NullOr(Schema.Literals(["sso", "mdm"])))
+                  managed_by: Schema.optionalKey(Schema.NullOr(Schema.Literals(["sso", "mdm"]))),
+                  lock_version: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
+                  lock_epoch: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64)))
                 }),
           result: Schema.Unknown,
           errors: [],

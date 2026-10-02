@@ -1,61 +1,65 @@
-// The JSON the `status` command returns (CLI `cmux apps run cmux/usage#status`,
-// MCP tool). Pure: stable snake_case keys for agents, no credentials, no emails
-// (the service never sends them unless the user opted in).
+// The JSON the `status` command returns (`cmux apps run cmux/usage#status`,
+// MCP tool). Pure, stable snake_case keys. Provider summaries and pace by
+// default; account rows (with the router's labels) only when asked for.
 
 import { isStale } from "./format.ts"
-import { percentOf, severityOf, tightest, type UsageAccount } from "./model.ts"
-import { paceOf } from "./pace.ts"
+import type { Usage } from "./model.ts"
+import { sessionPace, weeklyPace, type ProviderPace } from "./pace.ts"
 
 export interface StatusArgs {
   provider?: string
+  accounts?: boolean
   refresh?: boolean
 }
 
-const round1 = (n: number) => Math.round(n * 10) / 10
+const r2 = (n: number | null) => (n === null ? null : Math.round(n * 100) / 100)
+const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString())
 
-export function statusJSON(accounts: readonly UsageAccount[], options: { now: number; staleMs: number; thresholds: readonly number[]; state: string; problem: { code: string; message: string } | null; provider?: string }) {
-  const { now } = options
-  const list = options.provider ? accounts.filter((a) => a.provider === options.provider) : accounts
-  const top = tightest(list)
+export function statusJSON(
+  usage: Usage | null,
+  paces: readonly ProviderPace[],
+  options: { now: number; staleMs: number; state: string; problem: { code: string; message: string } | null; provider?: string; accounts?: boolean }
+) {
+  const at = usage?.fetchedAt ?? options.now
+  const list = (usage?.providers ?? []).filter((p) => !options.provider || p.id === options.provider)
   return {
-    generated_at_ms: now,
     state: options.state,
     problem: options.problem,
-    tightest: top
-      ? { account: top.account.id, provider: top.account.provider, window: top.window.id, used_percent: round1(top.percent), resets_at_ms: top.window.resetsAt }
-      : null,
-    accounts: list.map((a) => ({
-      id: a.id,
-      provider: a.provider,
-      provider_title: a.providerTitle,
-      kind: a.kind,
-      upstream: a.upstream,
-      label: a.label,
-      plan: a.plan,
-      source: a.source,
-      fetched_at_ms: a.fetchedAt,
-      stale: isStale(a, now, options.staleMs),
-      error: a.error,
-      windows: a.windows.map((w) => {
-        const percent = percentOf(w)
-        const pace = paceOf(w, now)
-        return {
-          id: w.id,
-          kind: w.kind,
-          scope: w.scope,
-          used_percent: percent === null ? null : round1(percent),
-          used: w.used,
-          limit: w.limit,
-          unit: w.unit,
-          window_seconds: w.windowSeconds,
-          resets_at_ms: w.resetsAt,
-          resets_in_seconds: w.resetsAt === null ? null : Math.max(0, Math.round((w.resetsAt - now) / 1000)),
-          severity: severityOf(percent, options.thresholds),
-          pace: pace
-            ? { expected_percent: round1(pace.expectedPercent), delta_percent: round1(pace.deltaPercent), runs_out_at_ms: pace.runsOutAt === null ? null : Math.round(pace.runsOutAt), lasts_to_reset: pace.lastsToReset }
-            : null
-        }
-      })
-    }))
+    fetched_at: iso(usage?.fetchedAt ?? null),
+    stale: usage ? isStale(usage, options.now, options.staleMs) : false,
+    providers: list.map((p) => {
+      const pace = paces.find((x) => x.provider === p.id) ?? null
+      return {
+        id: p.id,
+        summary: { usable: p.summary.usable, total: p.summary.total, weekly_left_sum_pct: p.summary.weeklyLeftSumPct },
+        pace: pace && {
+          verdict: pace.verdict,
+          ratio: r2(pace.ratio),
+          actual_pct_per_hour: r2(pace.actualPerHour),
+          ideal_pct_per_hour: r2(pace.idealPerHour),
+          left_sum_pct: pace.leftSumPct,
+          counted: pace.counted,
+          usable: pace.usable,
+          baseline_at: iso(pace.baselineAt)
+        },
+        ...(options.accounts
+          ? {
+              accounts: p.accounts.map((a) => ({
+                id: a.id,
+                label: a.label,
+                plan: a.plan,
+                state: a.state,
+                session_left_pct: a.session?.leftPct ?? null,
+                session_reset_at: iso(a.session?.resetAt ?? null),
+                weekly_left_pct: a.weekly?.leftPct ?? null,
+                weekly_reset_at: iso(a.weekly?.resetAt ?? null),
+                extra_usage_usd: a.extraUsd,
+                weekly_pace: r2(weeklyPace(a, at)?.ratio ?? null),
+                session_pace: r2(sessionPace(a, at)?.ratio ?? null)
+              }))
+            }
+          : {})
+      }
+    })
   }
 }

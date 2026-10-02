@@ -103,7 +103,8 @@ final class QuitCoordinator {
                 await services.remoteTerminals.saveSnapshots()
                 await services.windows.prepareForTermination()
             },
-            endLocalSessions: { await services.daemon.endSessionsAndStop($0) }
+            endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
+            stopBrowserEngines: { await services.cache.cef.shutdown() }
         ))
         sender.reply(toApplicationShouldTerminate: true)
     }

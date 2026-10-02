@@ -52,6 +52,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugFocus.report(services: services))
             },
+            // Home per window and the local conversation projection (home.md).
+            .mainActor("debug.home") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugHome.report(services: services))
+            },
             // Room, workspace and terminal theme scopes.
             .mainActor("debug.themes") { [weak services] _ in
                 guard let services else { return .value(.null) }

@@ -102,7 +102,10 @@ public struct DaemonCapabilities: Sendable {
     public let browserProfiles = "browser-profiles-v1"
     /// Bookmarks per browser profile in personal state (plans/cmux-next/bookmarks.md).
     public let bookmarks = "bookmarks-v1"
-    public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks] }
+    /// Local conversations owned by the daemon (Home, plans/cmux-next/home.md):
+    /// the `conversation-*` commands and `conversation-changed`/`conversation-typing` events.
+    public let localConversations = "local-conversations-v1"
+    public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks, localConversations] }
     /// Written to the local daemon's personal rows instead of each machine's
     /// daemon once the local daemon serves `profiles-v1`.
     public var personalOnHome: [String] { [workspaceGroups, savedTabGroups] }
@@ -131,7 +134,7 @@ public struct DaemonCapabilities: Sendable {
     public let stateResources = "state-resources-v1"
     public var awaitingPin: [String] {
         [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns,
-         endTerminalsKeepLayout, stateResources]
+         endTerminalsKeepLayout, stateResources, localConversations]
     }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.

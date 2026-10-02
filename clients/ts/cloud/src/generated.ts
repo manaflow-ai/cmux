@@ -106,6 +106,9 @@ export type DeviceStatus = {
   readonly reported_at: number
 }
 
+/** A lowercase DNS name such as acme.com. */
+export type EmailDomain = string
+
 export type EnrollmentToken = {
   readonly id: EnrollmentTokenId
   readonly label: string
@@ -375,6 +378,16 @@ export type TargetPolicy = {
   readonly fallback: "cloud_vm" | "wait" | "fail"
 }
 
+export type TeamDomain = {
+  readonly domain: EmailDomain
+  readonly state: "pending" | "verified" | "lost"
+  readonly record_name: string
+  readonly record_value: string
+  readonly requested_at: number
+  readonly expires_at: number
+  readonly verified_at: number | null
+}
+
 /** A team; a personal account is a team of one. */
 export type TeamId = string
 
@@ -573,6 +586,7 @@ export type UserProfile = {
   readonly id: UserId
   readonly stack_user_id: string
   readonly email: string | null
+  readonly email_verified?: boolean
   readonly display_name: string
   readonly personal_team: TeamId
 }
@@ -675,6 +689,38 @@ export interface CloudOps {
       readonly secret: string
       readonly scheme: string
     }
+  }
+  /** Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused. */
+  readonly "domain.claim": {
+    readonly params: {
+      readonly domain: EmailDomain
+    }
+    readonly result: TeamDomain
+  }
+  /** The team's claimed and verified email domains (owners and admins). */
+  readonly "domain.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly domains: ReadonlyArray<TeamDomain>
+      readonly revision: string
+    }
+  }
+  /** Give up a claimed or verified domain (owners and admins). Another team may then verify it. */
+  readonly "domain.release": {
+    readonly params: {
+      readonly domain: EmailDomain
+    }
+    readonly result: {
+      readonly domain: EmailDomain
+    }
+  }
+  /** Check the TXT record through two DNS-over-HTTPS resolvers and, when both see it, make the team the domain's owner (owners and admins). */
+  readonly "domain.verify": {
+    readonly params: {
+      readonly domain: EmailDomain
+    }
+    readonly result: TeamDomain
   }
   /** Handoff: a daemon's local feed owner moves one of its items (same id) to the cloud owner after a reconnect. */
   readonly "feed.adopt": {
@@ -1127,6 +1173,15 @@ export interface CloudOps {
     }
     readonly result: EnrollmentToken
   }
+  /** Release the SSO or MDM lock on the team's integration policy (owners and admins; audited). The team policy then applies again. */
+  readonly "team.integration.release_lock": {
+    readonly params: {
+      readonly reason?: string
+    }
+    readonly result: {
+      readonly released: "sso" | "mdm"
+    }
+  }
   /** Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
   readonly "team.policy.get": {
     readonly params: {
@@ -1189,6 +1244,10 @@ export const cloudOpMeta = {
   "automation.settings.set": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.update": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.webhook.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
+  "domain.claim": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "domain.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "domain.release": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "domain.verify": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "feed.adopt": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.answer": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.archive": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
@@ -1228,6 +1287,7 @@ export const cloudOpMeta = {
   "team.enrollment_token.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.enrollment_token.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.enrollment_token.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.integration.release_lock": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.policy.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },

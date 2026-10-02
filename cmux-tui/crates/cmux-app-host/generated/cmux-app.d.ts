@@ -36,7 +36,11 @@ declare namespace Cmux {
   type CronSpec = { expr: string; tz: string }
   type Cursor = { generation: string; revision: string }
   type DeviceId = string
+  type DeviceStatus = { install: Cmux.InstallId; user: string; policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; reported_at: number }
   type EmptyResult = Record<string, never>
+  type EnrollmentToken = { id: Cmux.EnrollmentTokenId; label: string; allowed_domains: Array<string> | null; expires_at: number | null; created_by: string; created_at: number; revoked_at: number | null; uses: number }
+  type EnrollmentTokenHash = string
+  type EnrollmentTokenId = string
   type FeedAction = { id: string; label: string; style?: "default" | "primary" | "destructive"; answer?: string }
   type FeedAttachment = { id: string; name: string; mime: string; size: number; sha256: string; ref: string }
   type FeedCancelReason = "poster" | "declined" | "answered_elsewhere" | "superseded" | "poster_gone"
@@ -103,6 +107,7 @@ declare namespace Cmux {
   type LayoutViewport = { kind: "viewport"; base_width: number; columns: Array<Cmux.LayoutColumn> }
   type LocalMutationResult = { plugin?: Cmux.SidebarPluginSnapshot; plugins?: Array<Cmux.SidebarPluginSnapshot> }
   type MachineSnapshot = { id: string /* machine_… */; name: string; origin: "local"; status: "running" | "connecting" | "sleeping" | "stopped" | "unavailable"; connectable: boolean; deleted: boolean; recoverable: boolean; extra?: Record<string, Cmux.JsonValue> }
+  type ManagedDevice = { install: Cmux.InstallId; user: string; via: "token" | "accept"; token: Cmux.EnrollmentTokenId | null; at: number }
   type NotificationAckResult = { client_id: string; acknowledged: Array<string /* notification_… */>; unknown: Array<string /* notification_… */> }
   type NotificationClearResult = { cleared: Array<string /* notification_… */> }
   type NotificationLevel = "info" | "warning" | "error"
@@ -115,6 +120,9 @@ declare namespace Cmux {
   type PingResult = { alive: boolean; cursor: Cmux.Cursor }
   type PixelSize = { width_px: number; height_px: number }
   type Platform = "macos" | "ios" | "linux" | "windows" | "web"
+  type PolicyChange = { key: Cmux.PolicyKey; value: { value: string; mode: Cmux.PolicyMode } | null }
+  type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
+  type PolicyMode = "enforced" | "default"
   type ProcessInfoResult = { pid: number; executable?: string; argv: Array<string>; cwd?: string; foreground_cwd: string | null; foreground_executable: string | null; children: Array<number> }
   type PublicJwk = { kty: "EC"; crv: "P-256"; x: string; y: string }
   type ReloadConfigResult = { reloaded: boolean; warnings: Array<string> }
@@ -162,8 +170,11 @@ declare namespace Cmux {
   type TabSnapshot = { id: string /* tab_… */; pane_id: string /* pane_… */; name: string | null; index: number; focused: boolean; content_kind: "terminal" | "browser"; content_id: unknown; extra?: Record<string, Cmux.JsonValue> }
   type TargetPolicy = unknown
   type TeamId = string
-  type TeamIntegrationPolicy = { allowed_providers: Array<Cmux.IntegrationProvider> | null; github: { scope: "linking_user_repos" | "installation"; require_org_admin: boolean; repo_allowlist: Array<Cmux.RepoPattern> | null }; source: "default" | "admin" | "sso" | "mdm"; locked: boolean; updated_at: number | null; updated_by: string | null }
+  type TeamIntegrationPolicy = { allowed_providers: Array<Cmux.IntegrationProvider> | null; github: { scope: "linking_user_repos" | "installation"; require_org_admin: boolean; repo_allowlist: Array<Cmux.RepoPattern> | null }; source: "default" | "admin" | "sso" | "mdm" | "team_policy"; locked: boolean; updated_at: number | null; updated_by: string | null }
   type TeamMember = { user: Cmux.UserId; role: "owner" | "admin" | "member"; display_name: string }
+  type TeamPolicy = { version: number; values: Cmux.TeamPolicyValues; updated_at: number | null; updated_by: string | null }
+  type TeamPolicyValues = { "github.repoScope"?: { value: "linking_user_repos" | "installation"; mode: Cmux.PolicyMode }; "github.requireOrgAdmin"?: { value: boolean; mode: Cmux.PolicyMode }; "github.repoAllowList"?: { value: unknown; mode: Cmux.PolicyMode }; "integrations.allowedProviders"?: { value: unknown; mode: Cmux.PolicyMode }; "mcp.server"?: { value: "user_choice" | "disabled"; mode: Cmux.PolicyMode }; "mcp.remoteTransport"?: { value: boolean; mode: Cmux.PolicyMode }; "apps.install"?: { value: "any" | "allow_list" | "disabled"; mode: Cmux.PolicyMode }; "apps.allowedTiers"?: { value: Array<"first-party" | "verified" | "community" | "unverified">; mode: Cmux.PolicyMode }; "apps.allowList"?: { value: Array<string>; mode: Cmux.PolicyMode }; "apps.forcedInstalls"?: { value: Array<string>; mode: Cmux.PolicyMode }; "computerUse.allowed"?: { value: boolean; mode: Cmux.PolicyMode }; "browserAutomation.rawCdp"?: { value: boolean; mode: Cmux.PolicyMode }; "cloud.sandboxes"?: { value: boolean; mode: Cmux.PolicyMode }; "telemetry.level"?: { value: "full" | "crash_only" | "off"; mode: Cmux.PolicyMode }; "updates.channel"?: { value: "stable" | "nightly"; mode: Cmux.PolicyMode }; "updates.minimumVersion"?: { value: string; mode: Cmux.PolicyMode }; "retention.cuaEventsDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.cuaFramesDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.transcriptDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.auditDays"?: { value: number; mode: Cmux.PolicyMode }; "sso.enforce"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.enforceForOwners"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.allowGuests"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.sessionMaxAgeHours"?: { value: number; mode: Cmux.PolicyMode }; "sso.idleTimeoutHours"?: { value: number; mode: Cmux.PolicyMode }; "agents.allowedClasses"?: { value: Array<"mux" | "agent" | "run">; mode: Cmux.PolicyMode }; "device.settings"?: { value: Record<string, never>; mode: Cmux.PolicyMode } }
+  type TeamPolicyVersion = { version: number; values: Cmux.TeamPolicyValues; changed: Array<Cmux.PolicyKey>; actor: string | null; at: number; reason: string | null; rollback_of: number | null }
   type TerminalAttachItem = unknown
   type TerminalAttachPatch = { kind: "patch"; terminal_id: string /* terminal_… */; render: Cmux.RenderPatch }
   type TerminalAttachScroll = { kind: "scroll"; terminal_id: string /* terminal_… */; scroll: Cmux.RenderScroll }
@@ -483,8 +494,36 @@ interface CmuxGlobal {
     rename: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; name: string | null; expected_revision?: string; source?: "user" | "auto"; expected_generation?: string; expected_name_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
   }
   team: {
+    device: {
+      /** `team.device.compliance` (read, scope `team:read`): Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
+      compliance: CmuxOp<Record<string, never>, { team: Cmux.TeamId; policy_version: number; devices: Array<{ device: Cmux.ManagedDevice; status: Cmux.DeviceStatus | null; compliant: boolean; reasons: Array<string> }>; revision: string }>
+      /** `team.device.enroll` (mutation, scope `team:write`): Make this team the calling install's managing team: with an MDM enrollment token's hash, or without one as the user's explicit acceptance. */
+      enroll: CmuxOp<{ token_hash?: Cmux.EnrollmentTokenHash; expected_revision?: string }, Cmux.MutationResult<Cmux.ManagedDevice>>
+      /** `team.device.policy` (read, scope `team:read`): The device-scoped policy for the calling install: values only when this team manages it (decision E3). */
+      policy: CmuxOp<Record<string, never>, { team: Cmux.TeamId; managed: boolean; team_name: string; version: number; defaults: Record<string, never>; enforced: Record<string, never>; features: Record<string, never>; revision: string }>
+      /** `team.device.release` (mutation, scope `team:write`): Stop managing an install: team admins for any install; the install's user only for an install they accepted (not one enrolled by an MDM token). Agents never. */
+      release: CmuxOp<{ install: Cmux.InstallId; expected_revision?: string }, Cmux.MutationResult<{ install: Cmux.InstallId }>>
+      /** `team.device.report_status` (mutation, scope `team:write`): Report what this install applied (policy version, MDM key names, conflicts). Send when it changes; the latest report replaces the previous one. */
+      report_status: CmuxOp<{ policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; expected_revision?: string }, Cmux.MutationResult<Cmux.DeviceStatus>>
+    }
     /** `team.directory` (read, scope `team:read`): Read a team's directory: members and enrolled hosts (U2). */
     directory: CmuxOp<{ team?: Cmux.TeamId }, { team: Cmux.TeamId; members: Array<Cmux.TeamMember>; hosts: Array<Cmux.Host>; revision: string }>
+    enrollment_token: {
+      /** `team.enrollment_token.create` (mutation, scope `team:write`): Create a device enrollment token (owners and admins). The caller generates the token, sends only its SHA-256, and shows the token once. */
+      create: CmuxOp<{ label: string; token_hash: Cmux.EnrollmentTokenHash; allowed_domains?: Array<string>; expires_at?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.EnrollmentToken>>
+      /** `team.enrollment_token.list` (read, scope `team:read`): List enrollment tokens and managed devices (owners and admins). */
+      list: CmuxOp<Record<string, never>, { team: Cmux.TeamId; tokens: Array<Cmux.EnrollmentToken>; devices: Array<Cmux.ManagedDevice>; revision: string }>
+    }
+    policy: {
+      /** `team.policy.get` (read, scope `team:read`): Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
+      get: CmuxOp<{ version?: number }, { team: Cmux.TeamId; policy: Cmux.TeamPolicy; integration_managed_by: "sso" | "mdm" | null; revision: string }>
+      /** `team.policy.history` (read, scope `team:read`): List the last 20 team policy versions, newest first, with actor, reason and changed keys (owners and admins). */
+      history: CmuxOp<{ limit?: number }, { team: Cmux.TeamId; versions: Array<Cmux.TeamPolicyVersion>; revision: string }>
+      /** `team.policy.rollback` (mutation, scope `team:write`): Apply a retained past version's values as a new version (owners and admins). */
+      rollback: CmuxOp<{ version: number; expected_version: number; reason?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TeamPolicy>>
+      /** `team.policy.update` (mutation, scope `team:write`): Set or clear team policy keys as one new version (owners and admins). expected_version is the compare-and-swap; a stale version fails with revision.conflict. */
+      update: CmuxOp<{ changes: Array<Cmux.PolicyChange>; expected_version: number; reason?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TeamPolicy>>
+    }
   }
   terminal: {
     /** `terminal.attach` (stream_open, scope `terminal:execute`) */

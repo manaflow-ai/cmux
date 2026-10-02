@@ -1,4 +1,4 @@
-import { idFactory, type Principal, type ReduceContext } from "@cmux/ownership"
+import { idFactory, type Principal, type ReduceContext, MemoryRows } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import { checkCron, nextFire } from "../src/cron.ts"
 import { dispatchable, dueFires, matchingEventTriggers, MAX_FINISHED_RUNS, schedulerDomain, type SchedulerState } from "../src/domains/scheduler.ts"
@@ -10,7 +10,7 @@ const other: Principal = { identity: "session:user_bbbbbbbbbbbbbbbbbbbb", kind: 
 let txn = 0
 const ctx = (principal: Principal, now: number): ReduceContext => {
   const tx = `tx${txn++}`
-  return { principal, now, tx, newId: idFactory(tx) }
+  return { principal, now, tx, newId: idFactory(tx), rows: new MemoryRows() }
 }
 
 /** Applies one op like the engine: authorize, then reduce. Throws on reject. */
