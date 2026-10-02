@@ -53,15 +53,17 @@ extension TerminalController {
         _ windows: inout [[String: Any]],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
-        includeProcesses: Bool
+        includeProcesses: Bool,
+        appPID: Int = Int(Darwin.getpid())
     ) -> Set<Int> {
         var allPIDs: Set<Int> = []
+        // Launch evidence must be derived from the cmux app itself, independently of
+        // the per-window roots. A non-key or workspace-filtered window can legitimately
+        // have no app_process_pids while its shell was still launched by cmux.
+        let cmuxOwnedPIDs = processSnapshot.expandedPIDs(rootPIDs: [appPID])
         for index in windows.indices {
             var workspaces = windows[index]["workspaces"] as? [[String: Any]] ?? []
             let appProcessPIDs = Set(v2TopIntArray(windows[index]["app_process_pids"]))
-            // Launch evidence for TTY ownership: a process the app forked onto a surface
-            // TTY is the surface's, an arbitrary off-TTY parent proves nothing. (#11004)
-            let cmuxOwnedPIDs = processSnapshot.expandedPIDs(rootPIDs: appProcessPIDs)
             var windowPIDs = appProcessPIDs
             var windowTopLevelPIDs: Set<Int> = []
             var windowForegroundProcessGroupIDs: Set<Int> = []
