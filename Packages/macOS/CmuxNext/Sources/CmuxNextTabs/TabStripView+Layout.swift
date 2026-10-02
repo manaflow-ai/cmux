@@ -147,8 +147,8 @@ extension TabStripView {
     /// Fades the strip's ends only while tabs are hidden beyond them: none
     /// on the leading edge at offset 0, none on the trailing edge at the
     /// end, none when every tab fits (rubber band past an end included). An
-    /// edge's band fades in or out with the Motion `hover` token (a snap
-    /// under Reduce Motion); the mask comes off once no edge is faded, so a
+    /// edge's band fades in or out with the Motion `hover` token (a short
+    /// crossfade under Reduce Motion, per the Motion policy); the mask comes off once no edge is faded, so a
     /// strip that fits renders with no offscreen pass.
     func updateFadeMask() {
         let width = viewportWidth
@@ -166,7 +166,7 @@ extension TabStripView {
         let clear = NSColor.clear.cgColor
         let colors = [edges.leading ? clear : opaque, opaque, opaque, edges.trailing ? clear : opaque]
         if isFaded, tabsClip.layer?.mask !== fadeMask { tabsClip.layer?.mask = fadeMask }
-        let animates = window != nil && !Motion.reduceMotion && (wasFaded || isFaded)
+        let animates = window != nil && (wasFaded || isFaded)
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
             MainActor.assumeIsolated {
