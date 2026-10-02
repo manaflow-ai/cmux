@@ -13755,6 +13755,137 @@
           }
         }
       }
+    },
+    "handlers.refusal.debugSettingsUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Debug Settings exist only in DEV and NIGHTLY builds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "デバッグ設定は DEV と NIGHTLY ビルドにのみあります"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعدادات التصحيح متاحة فقط في إصدارات DEV وNIGHTLY"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavke za otklanjanje grešaka postoje samo u DEV i NIGHTLY verzijama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fejlfindingsindstillinger findes kun i DEV- og NIGHTLY-builds"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Debug-Einstellungen gibt es nur in DEV- und NIGHTLY-Builds"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los ajustes de depuración solo existen en compilaciones DEV y NIGHTLY"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les réglages de débogage n’existent que dans les versions DEV et NIGHTLY"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le impostazioni di debug esistono solo nelle build DEV e NIGHTLY"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកំណត់បំបាត់កំហុសមានតែក្នុងកំណែ DEV និង NIGHTLY ប៉ុណ្ណោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "디버그 설정은 DEV 및 NIGHTLY 빌드에만 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Feilsøkingsinnstillinger finnes bare i DEV- og NIGHTLY-builder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustawienia debugowania są tylko w kompilacjach DEV i NIGHTLY"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os ajustes de depuração existem só em builds DEV e NIGHTLY"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройки отладки есть только в сборках DEV и NIGHTLY"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตั้งค่าดีบักมีเฉพาะในบิลด์ DEV และ NIGHTLY"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hata ayıklama ayarları yalnızca DEV ve NIGHTLY derlemelerinde var"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштування налагодження є лише у збірках DEV і NIGHTLY"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cài đặt gỡ lỗi chỉ có trong bản DEV và NIGHTLY"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "调试设置仅存在于 DEV 和 NIGHTLY 构建中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "除錯設定僅存在於 DEV 與 NIGHTLY 建置中"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

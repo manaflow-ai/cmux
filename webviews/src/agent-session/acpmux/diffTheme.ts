@@ -54,7 +54,10 @@ const theme = {
   bg: "#00000000",
   tokenColors: [
     { settings: { foreground: codex.fg } },
-    { scope: ["markup.heading", "entity.name.section.markdown", "punctuation.definition.heading.markdown"], settings: { foreground: codex.heading, fontStyle: "bold" } },
+    {
+      scope: ["markup.heading", "entity.name.section.markdown", "punctuation.definition.heading.markdown"],
+      settings: { foreground: codex.heading, fontStyle: "bold" },
+    },
     { scope: ["markup.inline.raw", "markup.inline.raw.string.markdown"], settings: { foreground: codex.inlineCode } },
     { scope: ["markup.underline.link", "string.other.link.title.markdown"], settings: { foreground: codex.link } },
     { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: codex.comment } },
@@ -73,7 +76,23 @@ const light = {
   type: "light",
   colors: { "editor.background": "#00000000", "editor.foreground": "#24292f" },
   fg: "#24292f",
-  tokenColors: theme.tokenColors.map((rule) => ({ ...rule, settings: { ...rule.settings, foreground: ({ [codex.fg]: "#24292f", [codex.heading]: "#3f7d0f", [codex.inlineCode]: "#b35900", [codex.link]: "#6f42c1", [codex.comment]: "#6e7781", [codex.string]: "#0a6b52" } as Record<string, string>)[rule.settings.foreground] ?? rule.settings.foreground } })),
+  tokenColors: theme.tokenColors.map((rule) => ({
+    ...rule,
+    settings: {
+      ...rule.settings,
+      foreground:
+        (
+          {
+            [codex.fg]: "#24292f",
+            [codex.heading]: "#3f7d0f",
+            [codex.inlineCode]: "#b35900",
+            [codex.link]: "#6f42c1",
+            [codex.comment]: "#6e7781",
+            [codex.string]: "#0a6b52",
+          } as Record<string, string>
+        )[rule.settings.foreground] ?? rule.settings.foreground,
+    },
+  })),
 };
 
 let registered = false;

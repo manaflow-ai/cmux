@@ -16,11 +16,11 @@ public nonisolated enum DragPayload: Hashable, Sendable {
 public nonisolated enum DropResolver {
     /// Fraction of a collapsed group header, from each edge, that means
     /// "before/after the group" rather than "into the group".
-    public static let groupEdgeFraction: CGFloat = 0.25
+    public static var groupEdgeFraction: CGFloat { SidebarTunables.groupEdgeFraction.value }
     /// Lower fraction of the last row in a group that means "after the group".
-    public static let groupExitFraction: CGFloat = 0.25
+    public static var groupExitFraction: CGFloat { SidebarTunables.groupExitFraction.value }
     /// Upper fraction of a section header that means "end of the previous section".
-    public static let sectionTopFraction: CGFloat = 0.35
+    public static var sectionTopFraction: CGFloat { SidebarTunables.sectionTopFraction.value }
 
     /// Converts a pointer y in the displayed (gapped) layout to base
     /// coordinates. Returns nil while the pointer is inside the gap, meaning

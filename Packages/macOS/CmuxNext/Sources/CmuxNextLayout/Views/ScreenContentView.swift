@@ -304,8 +304,9 @@ final class ScreenContentView: NSView {
         return geometry.panes.first { geometry.scrolls(pane: $0.key) && $0.value.contains(content) }?.key
     }
 
-    /// Drop target and its highlight rect in local coordinates.
-    func dropTarget(at localPoint: NSPoint) -> (target: DropTarget, highlight: CGRect)? {
+    /// Drop target, its highlight rect and the region it belongs to (the
+    /// whole pane content rect, or the column gap), in local coordinates.
+    func dropTarget(at localPoint: NSPoint) -> (target: DropTarget, highlight: CGRect, region: CGRect)? {
         guard let hit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
                                                 style: context.style) else { return nil }
         let target = roomAdjusted(hit)
@@ -313,7 +314,9 @@ final class ScreenContentView: NSView {
                                                               style: context.style) else { return nil }
         // A strip target's highlight never draws over a sticky column.
         if case let .pane(pane, _) = target, !geometry.scrolls(pane: pane) {} else { rect = rect.intersection(uncoveredRect) }
-        return rect.isNull ? nil : (target, rect)
+        guard !rect.isNull else { return nil }
+        let region = DropZoneGeometry.regionRectInView(for: target, offset: scroll.value, geometry: geometry, style: context.style) ?? rect
+        return (target, rect, region)
     }
 
     /// Where splitting `pane` along `axis` goes on this screen right now.

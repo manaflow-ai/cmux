@@ -9,20 +9,22 @@ const workspace: WorkspaceView = {
   name: "alpha",
   active: true,
   subtitle: "shell",
-  screens: [{
-    id: 2n,
-    workspaceId: 1n,
-    label: "shell title",
-    statusLabel: "named",
-    active: true,
-    pane: null,
-    tab: null,
-    panes: [],
-    layout: { type: "leaf", pane: 3n },
-    activePane: 3n,
-    zoomedPane: null,
-    unread: false,
-  }],
+  screens: [
+    {
+      id: 2n,
+      workspaceId: 1n,
+      label: "shell title",
+      statusLabel: "named",
+      active: true,
+      pane: null,
+      tab: null,
+      panes: [],
+      layout: { type: "leaf", pane: 3n },
+      activePane: 3n,
+      zoomedPane: null,
+      unread: false,
+    },
+  ],
 };
 
 describe("TUI chrome components", () => {

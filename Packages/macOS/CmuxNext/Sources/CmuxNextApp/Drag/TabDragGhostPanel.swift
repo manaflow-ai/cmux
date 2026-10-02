@@ -24,15 +24,21 @@ final class TabDragGhostPanel {
     /// Where the pointer holds the tab (y up, in a `tabSize` tab); the
     /// ghost scales about that point.
     private let grabOffset: CGPoint
-    static let pad: CGFloat = 32
-    static let inset: CGFloat = 6
+    /// Shadow room and thumbnail inset, read once per drag (the panel's
+    /// size depends on them).
+    private let pad: CGFloat
+    private let inset: CGFloat
 
     init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat) {
         self.tabSize = tabSize
         self.grabOffset = grabOffset
-        cardSize = TabDragGeometry.cardSize(tabSize: tabSize, aspect: aspect, inset: Self.inset)
-        panelSize = CGSize(width: max(cardSize.width, tabSize.width * 1.6, 320) + Self.pad * 2,
-                           height: max(cardSize.height, tabSize.height * 1.6) + Self.pad * 2)
+        let pad = DragTunables.ghostPanelPad.value
+        let inset = DragTunables.ghostCardInset.value
+        self.pad = pad
+        self.inset = inset
+        cardSize = TabDragGeometry.cardSize(tabSize: tabSize, aspect: aspect, inset: inset)
+        panelSize = CGSize(width: max(cardSize.width, tabSize.width * 1.6, 320) + pad * 2,
+                           height: max(cardSize.height, tabSize.height * 1.6) + pad * 2)
         panel = NSPanel(contentRect: NSRect(origin: .zero, size: panelSize), styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
         // A drag can cross windows of different rooms; the ghost keeps the
@@ -61,7 +67,7 @@ final class TabDragGhostPanel {
         root.layer?.addSublayer(overlay)
         thumbLayer.contentsGravity = .resizeAspectFill
         thumbLayer.masksToBounds = true
-        thumbLayer.cornerRadius = Metrics.panelCornerRadius - Self.inset
+        thumbLayer.cornerRadius = Metrics.panelCornerRadius - inset
         thumbLayer.cornerCurve = .continuous
         thumbLayer.opacity = 0
         thumbLayer.contentsScale = scale
@@ -101,7 +107,7 @@ final class TabDragGhostPanel {
 
     /// The ghost's screen geometry for `motion`.
     func layout(_ motion: TabDragGhostMotion) -> TabDragGhostLayout {
-        TabDragGhostLayout(motion: motion, cardSize: cardSize, inset: Self.inset, grabOffset: grabOffset, tabSize: tabSize)
+        TabDragGhostLayout(motion: motion, cardSize: cardSize, inset: inset, grabOffset: grabOffset, tabSize: tabSize)
     }
 
     /// Lays the panel and its layers out for one motion frame
@@ -112,7 +118,7 @@ final class TabDragGhostPanel {
         let layout = layout(motion)
         let tab = layout.tab
         let c = layout.cardness
-        let origin = CGPoint(x: (tab.minX - Self.pad).rounded(), y: (tab.maxY + Self.pad - panelSize.height).rounded())
+        let origin = CGPoint(x: (tab.minX - pad).rounded(), y: (tab.maxY + pad - panelSize.height).rounded())
         panel.setFrameOrigin(origin)
         panel.alphaValue = motion.presentedOpacity
 
@@ -122,9 +128,9 @@ final class TabDragGhostPanel {
         let current = layout.card.offsetBy(dx: -origin.x, dy: -origin.y)
         glass.frame = current
         glass.alphaValue = c
-        let thumbHeight = max(0, current.height - tab.height - Self.inset * 3)
-        thumbLayer.frame = CGRect(x: current.minX + Self.inset, y: current.minY + Self.inset,
-                                  width: max(0, current.width - Self.inset * 2), height: thumbHeight)
+        let thumbHeight = max(0, current.height - tab.height - inset * 3)
+        thumbLayer.frame = CGRect(x: current.minX + inset, y: current.minY + inset,
+                                  width: max(0, current.width - inset * 2), height: thumbHeight)
         thumbLayer.opacity = Float(c)
         tabLayer.frame = tabLocal
         tabLayer.shadowOpacity = Float(0.28 * (1 - c))

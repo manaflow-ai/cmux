@@ -48,7 +48,10 @@ export function sessionTitle(session: { title?: string; name?: string; harness?:
   const name = session.name ?? "";
   const harness = session.harness ?? "";
   const bare = name.split("/").pop() ?? name;
-  const generated = !name || (harness !== "" && (bare === harness || (bare.startsWith(`${harness}-`) && /^\d+$/.test(bare.slice(harness.length + 1)))));
+  const generated =
+    !name ||
+    (harness !== "" &&
+      (bare === harness || (bare.startsWith(`${harness}-`) && /^\d+$/.test(bare.slice(harness.length + 1)))));
   const title = session.title?.trim();
   if (generated) return title || name || session.sessionId.slice(0, 8);
   return name;
@@ -89,9 +92,15 @@ export function sessionMark(session: AcpmuxSessionEntry, selected: boolean): Ses
 }
 
 /** The rows a group shows: all of a short group, else its first GROUP_ROWS unless expanded or holding the selection. */
-export function visibleSessions(group: SessionGroup, expanded: boolean, selectedId?: string): { rows: AcpmuxSessionEntry[]; hidden: number } {
-  const open = expanded || group.sessions.length <= GROUP_ROWS + 1 || group.sessions.slice(GROUP_ROWS).some((session) => session.sessionId === selectedId);
+export function visibleSessions(
+  group: SessionGroup,
+  expanded: boolean,
+  selectedId?: string,
+): { rows: AcpmuxSessionEntry[]; hidden: number } {
+  const open =
+    expanded ||
+    group.sessions.length <= GROUP_ROWS + 1 ||
+    group.sessions.slice(GROUP_ROWS).some((session) => session.sessionId === selectedId);
   if (open) return { rows: group.sessions, hidden: 0 };
   return { rows: group.sessions.slice(0, GROUP_ROWS), hidden: group.sessions.length - GROUP_ROWS };
 }
-

@@ -1,9 +1,7 @@
 import { makeClientId } from "../agent-session/shared/ids";
 import type { DiffCommentRecord, DiffCommentSaveInput } from "./types";
 
-type NativeReply<T> =
-  | { ok: true; value: T }
-  | { ok: false; error?: { code?: string; userMessage?: string } };
+type NativeReply<T> = { ok: true; value: T } | { ok: false; error?: { code?: string; userMessage?: string } };
 
 type DiffCommentsMessageHandler = {
   postMessage(message: unknown): Promise<NativeReply<unknown>>;
@@ -42,10 +40,7 @@ export async function callDiffComments<T>(method: string, params: Record<string,
     params,
   })) as NativeReply<T>;
   if (!reply.ok) {
-    throw new DiffCommentsBridgeError(
-      reply.error?.userMessage || "Diff comments request failed.",
-      reply.error?.code,
-    );
+    throw new DiffCommentsBridgeError(reply.error?.userMessage || "Diff comments request failed.", reply.error?.code);
   }
   return reply.value;
 }
@@ -55,10 +50,7 @@ export async function listComments(repoRoot: string): Promise<DiffCommentRecord[
   return Array.isArray(value?.comments) ? value.comments : [];
 }
 
-export async function saveComment(
-  repoRoot: string,
-  comment: DiffCommentSaveInput,
-): Promise<DiffCommentRecord> {
+export async function saveComment(repoRoot: string, comment: DiffCommentSaveInput): Promise<DiffCommentRecord> {
   const value = await callDiffComments<{ comment?: DiffCommentRecord }>("comments.save", { repoRoot, comment });
   if (value?.comment == null) {
     throw new DiffCommentsBridgeError("Diff comments save returned no comment.");
