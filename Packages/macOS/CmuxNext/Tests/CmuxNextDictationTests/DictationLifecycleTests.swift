@@ -86,7 +86,7 @@ private final class Rig {
 }
 
 @MainActor
-@Suite
+@Suite(.serialized)
 struct DictationLifecycleTests {
     @Test func startStopReleasesTheMicrophone() async {
         let rig = Rig()

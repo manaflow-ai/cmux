@@ -75,7 +75,7 @@ private final class Harness {
 }
 
 @MainActor
-@Suite
+@Suite(.serialized)
 struct DictationSessionTests {
     @Test func startsIdleAndListensAfterStart() async {
         let harness = Harness()

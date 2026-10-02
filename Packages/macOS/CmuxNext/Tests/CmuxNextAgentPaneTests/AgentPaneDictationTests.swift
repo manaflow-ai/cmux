@@ -33,7 +33,7 @@ private actor SilentEngine: SpeechTranscribing {
 }
 
 @MainActor
-@Suite struct AgentPaneDictationTests {
+@Suite(.serialized) struct AgentPaneDictationTests {
     private static func decode(_ method: String, _ params: [String: Any]? = nil) -> AgentPaneRequest {
         var body: [String: Any] = ["id": "1", "method": method]
         if let params { body["params"] = params }
@@ -318,15 +318,15 @@ private actor SilentEngine: SpeechTranscribing {
     }
 
     /// Waits until `condition` holds. It gives up only after five seconds
-    /// and 500 checks, so a main actor stalled by other tests in the full
+    /// and 200 checks, so a main actor stalled by other tests in the full
     /// suite still gets turns to run the session.
     private func until(_ condition: @MainActor () async -> Bool) async {
         let deadline = ContinuousClock.now + .seconds(5)
         var checks = 0
-        while ContinuousClock.now < deadline || checks < 500 {
+        while ContinuousClock.now < deadline || checks < 200 {
             if await condition() { return }
             checks += 1
-            try? await Task.sleep(for: .milliseconds(1))
+            try? await Task.sleep(for: .milliseconds(5))
         }
         Issue.record("condition never held")
     }
