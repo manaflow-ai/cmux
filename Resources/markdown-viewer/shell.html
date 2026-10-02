@@ -249,6 +249,9 @@ html { scroll-behavior: smooth; }
 {{viewerNavigationJS}}
 </script>
 <script>
+{{markdownSanitizerJS}}
+</script>
+<script>
 (function() {
   var contentEl = document.getElementById('content');
   var lightSheet = document.getElementById('hljs-light');
@@ -268,8 +271,8 @@ html { scroll-behavior: smooth; }
   window.onunhandledrejection = function(ev) {
     showBootError((ev.reason && ev.reason.stack) || ev.reason || 'unhandled rejection');
   };
-  if (!window.marked || !window.hljs) {
-    showBootError('marked/highlight libraries did not load');
+  if (!window.marked || !window.hljs || !window.CmuxMarkdownSanitizer) {
+    showBootError('marked/highlight/sanitizer libraries did not load');
   }
   var cmuxStrings = {{localizedStringsJSON}};
   function cmuxString(key, fallback, replacements) {
@@ -690,17 +693,41 @@ html { scroll-behavior: smooth; }
     return true;
   }
 
-  function loadApprovedRemoteImage(href) {
-    remoteImageAllowedURLs[href] = true;
+  function remoteImagesForHref(href) {
+    var matches = [];
     contentEl.querySelectorAll('img[data-cmux-remote-src]').forEach(function(img) {
       var raw = unescapeDataAttribute(img.getAttribute('data-cmux-remote-src'));
       var info = remoteImageInfo(raw);
       if (info && remoteImageCanOfferLoad(info) && info.href === href) {
-        loadRemoteImage(img);
+        matches.push(img);
       }
     });
+    return matches;
+  }
+
+  // The host keeps the authoritative per-view approval record: its
+  // cmux-remote-image handler fetches only URLs the reader approved here.
+  function loadApprovedRemoteImage(href) {
+    var images = remoteImagesForHref(href);
+    images.forEach(function(img) { setRemoteImageLoadingState(img, true); });
+    try {
+      window.webkit.messageHandlers.cmuxLib.postMessage({ action: 'approveRemoteImage', url: href });
+    } catch (e) {
+      images.forEach(function(img) { setRemoteImageLoadingState(img, false); });
+      return false;
+    }
     return true;
   }
+
+  window.__cmuxRemoteImageApproved = function(href) {
+    remoteImageAllowedURLs[href] = true;
+    remoteImagesForHref(href).forEach(loadRemoteImage);
+  };
+
+  window.__cmuxRemoteImageRejected = function(href) {
+    delete remoteImageAllowedURLs[href];
+    remoteImagesForHref(href).forEach(function(img) { setRemoteImageLoadingState(img, false); });
+  };
 
   function appendRemoteImageText(placeholder, key, fallback, replacements) {
     var detail = document.createElement('span');
@@ -735,7 +762,9 @@ html { scroll-behavior: smooth; }
   }
 
   function openRemoteImageURL(href) {
-    window.open(href, '_blank', 'noopener');
+    try {
+      window.webkit.messageHandlers.cmuxLib.postMessage({ action: 'openRemoteImage', url: href });
+    } catch (e) { /* no bridge */ }
   }
 
   function temporarilySetButtonLabel(button, label, restoreLabel) {
@@ -885,104 +914,65 @@ html { scroll-behavior: smooth; }
     }
   }
 
-  function sanitizeRenderedHTML(html) {
-    var template = document.createElement('template');
-    template.innerHTML = String(html || '');
-
-    var blockedTags = {
-      script: true,
-      iframe: true,
-      object: true,
-      embed: true,
-      link: true,
-      style: true,
-      meta: true,
-      base: true,
-      audio: true,
-      form: true,
-      button: true,
-      picture: true,
-      source: true,
-      textarea: true,
-      track: true,
-      video: true,
-      select: true,
-      option: true,
-      svg: true,
-      math: true
-    };
-
-    var walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT);
-    var elements = [];
-    while (walker.nextNode()) {
-      elements.push(walker.currentNode);
+  // Every rendered fragment goes through the shared allowlist sanitizer
+  // (markdown-sanitizer.js). It parses in an inert document and returns DOM
+  // nodes, which are inserted directly so nothing is re-parsed live.
+  var markdownSanitizerProfile = CmuxMarkdownSanitizer.markdownProfile({
+    extraAttributes: { div: ['data-vega-mode'] },
+    url: function(ctx) {
+      var value = String(ctx.value == null ? '' : ctx.value);
+      if (ctx.tag === 'img' && ctx.name === 'src') {
+        // Remote images become consent placeholders in the element hook.
+        if (remoteImageInfo(value)) { return null; }
+        return isSafeURLAttribute('src', value) ? value : null;
+      }
+      if (ctx.tag === 'a' && ctx.name === 'href') {
+        return isSafeURLAttribute('href', value) ? value : null;
+      }
+      return null;
+    },
+    element: function(source, clean) {
+      var tag = clean.localName;
+      if (tag === 'img') {
+        var remoteInfo = remoteImageInfo(source.getAttribute('src'));
+        if (remoteInfo) {
+          clean.setAttribute('data-cmux-remote-src', escapeDataAttribute(remoteInfo.href));
+          clean.setAttribute('data-cmux-remote-host', escapeDataAttribute(remoteInfo.host));
+          if (!remoteInfo.https) {
+            clean.setAttribute('data-cmux-remote-blocked-reason', 'https-only');
+          }
+        }
+      }
+      if (tag === 'div' && clean.hasAttribute('data-vega-mode')) {
+        var mode = clean.getAttribute('data-vega-mode');
+        if (mode !== 'vega' && mode !== 'vega-lite') {
+          clean.removeAttribute('data-vega-mode');
+        }
+      }
+      return true;
     }
+  });
+  var diagramSanitizerProfile = CmuxMarkdownSanitizer.diagramProfile();
 
-    elements.forEach(function(el) {
-      var tag = String(el.tagName || '').toLowerCase();
-      if (blockedTags[tag]) {
-        el.remove();
-        return;
-      }
-
-      if (tag === 'input') {
-        var inputType = String(el.getAttribute('type') || '').toLowerCase();
-        if (inputType !== 'checkbox') {
-          el.remove();
-          return;
-        }
-        Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
-          var name = String(attr.name || '').toLowerCase();
-          if (name !== 'type' && name !== 'checked' && name !== 'disabled') {
-            el.removeAttribute(attr.name);
-          }
-        });
-        el.setAttribute('disabled', '');
-        return;
-      }
-
-      Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
-        var name = String(attr.name || '').toLowerCase();
-        if (name.indexOf('data-cmux-') === 0) {
-          el.removeAttribute(attr.name);
-          return;
-        }
-        if (
-          name.indexOf('on') === 0 ||
-          name === 'style' ||
-          name === 'background' ||
-          name === 'srcset' ||
-          name === 'srcdoc' ||
-          name === 'autofocus' ||
-          name === 'formaction' ||
-          name === 'xlink:href'
-        ) {
-          el.removeAttribute(attr.name);
-          return;
-        }
-        if (tag === 'img' && name === 'src') {
-          var remoteInfo = remoteImageInfo(attr.value);
-          if (remoteInfo) {
-            el.setAttribute('data-cmux-remote-src', escapeDataAttribute(remoteInfo.href));
-            el.setAttribute('data-cmux-remote-host', escapeDataAttribute(remoteInfo.host));
-            if (!remoteInfo.https) {
-              el.setAttribute('data-cmux-remote-blocked-reason', 'https-only');
-            }
-            el.removeAttribute(attr.name);
-            return;
-          }
-        }
-        if ((name === 'href' || name === 'src') && !isSafeURLAttribute(name, attr.value)) {
-          el.removeAttribute(attr.name);
-        }
-      });
-
-      if (tag === 'a') {
-        el.setAttribute('rel', 'noopener noreferrer');
-      }
+  function sanitizeMarkdownFragment(html) {
+    return CmuxMarkdownSanitizer.sanitizeToFragment(html, {
+      document: document,
+      profile: markdownSanitizerProfile
     });
+  }
 
-    return template.innerHTML;
+  function sanitizeDiagramFragment(svg) {
+    return CmuxMarkdownSanitizer.sanitizeToFragment(svg, {
+      document: document,
+      profile: diagramSanitizerProfile
+    });
+  }
+
+  function renderErrorBox(el, label, message) {
+    var box = document.createElement('div');
+    box.className = 'cmux-render-error';
+    box.textContent = label + ': ' + String(message);
+    el.replaceChildren(box);
   }
 
   // Configure marked: GitHub-flavored, with custom renderers for
@@ -1166,7 +1156,7 @@ html { scroll-behavior: smooth; }
     var sel = libName === 'mermaid' ? '.cmux-mermaid' : '.cmux-vega';
     contentEl.querySelectorAll(sel + ':not([data-rendered])').forEach(function(el) {
       el.setAttribute('data-rendered', '1');
-      el.innerHTML = '<div class="cmux-render-error">' + libName + ': ' + escapeHtml(msg) + '</div>';
+      renderErrorBox(el, libName, msg);
     });
   }
 
@@ -1556,16 +1546,15 @@ html { scroll-behavior: smooth; }
       var id = 'cmux-mermaid-' + Date.now() + '-' + i + '-' + Math.floor(Math.random() * 1e6);
       try {
         mermaid.render(id, src).then(function(res) {
-          el.innerHTML = res.svg;
+          // Generated SVG is untrusted output of untrusted input. Interactive
+          // bindings are intentionally not attached.
+          el.replaceChildren(sanitizeDiagramFragment(res.svg));
           applyMermaidZoom(el);
-          if (res.bindFunctions) { try { res.bindFunctions(el); } catch (e) {} }
         }).catch(function(err) {
-          el.innerHTML = '<div class="cmux-render-error">Mermaid: '
-            + escapeHtml(String((err && err.message) || err)) + '</div>';
+          renderErrorBox(el, 'Mermaid', (err && err.message) || err);
         });
       } catch (err) {
-        el.innerHTML = '<div class="cmux-render-error">Mermaid: '
-          + escapeHtml(String((err && err.message) || err)) + '</div>';
+        renderErrorBox(el, 'Mermaid', (err && err.message) || err);
       }
     });
   }
@@ -1660,16 +1649,22 @@ html { scroll-behavior: smooth; }
         if (externalRef) {
           throw new Error('external resource references are not allowed at ' + externalRef);
         }
-        el.innerHTML = '';
         var opts = { mode: mode, actions: false, renderer: 'svg' };
         if (isDark) { opts.theme = 'dark'; }
-        vegaEmbed(el, spec, opts).catch(function(err) {
-          el.innerHTML = '<div class="cmux-render-error">Vega: '
-            + escapeHtml(String((err && err.message) || err)) + '</div>';
+        // Render off-document, export static SVG, and insert only the
+        // sanitized result.
+        var host = document.createElement('div');
+        vegaEmbed(host, spec, opts).then(function(result) {
+          return result.view.toSVG().then(function(svg) {
+            el.replaceChildren(sanitizeDiagramFragment(svg));
+          }).finally(function() {
+            try { result.finalize(); } catch (e) { /* ignore */ }
+          });
+        }).catch(function(err) {
+          renderErrorBox(el, 'Vega', (err && err.message) || err);
         });
       } catch (e) {
-        el.innerHTML = '<div class="cmux-render-error">Vega spec: '
-          + escapeHtml(String((e && e.message) || e)) + '</div>';
+        renderErrorBox(el, 'Vega spec', (e && e.message) || e);
       }
     });
   }
@@ -1842,12 +1837,16 @@ html { scroll-behavior: smooth; }
     try {
       headingSlugCounts = Object.create(null);
       var documentParts = extractFrontmatter(md || '');
-      var html = renderFrontmatter(documentParts.frontmatter)
-        + sanitizeRenderedHTML(marked.parse(documentParts.body || ''));
+      // Frontmatter and body share one sanitizer pass.
+      var fragment = sanitizeMarkdownFragment(
+        renderFrontmatter(documentParts.frontmatter) + marked.parse(documentParts.body || '')
+      );
+      // Serialized only to detect an unchanged document; never re-parsed.
+      var html = CmuxMarkdownSanitizer.serializeFragment(fragment, document);
       var didReplaceContent = contentEl.innerHTML !== html;
       var scrollState = didReplaceContent ? captureMarkdownScrollState() : null;
       if (didReplaceContent) {
-        contentEl.innerHTML = html;
+        contentEl.replaceChildren(fragment);
       }
       rewriteLocalImageSources();
       rewriteRemoteImageSources();
@@ -1856,10 +1855,17 @@ html { scroll-behavior: smooth; }
         restoreMarkdownScrollState(scrollState);
       }
     } catch (e) {
-      contentEl.innerHTML =
-        '<div style="color:#f85149;font-family:ui-monospace,monospace;white-space:pre-wrap;padding:8px 12px;border:1px solid #f85149;border-radius:6px;margin-bottom:12px">'
-        + 'markdown render error: ' + escapeHtml(String((e && e.message) || e))
-        + '</div><pre><code>' + escapeHtml(md || '') + '</code></pre>';
+      var errorBox = document.createElement('div');
+      errorBox.setAttribute(
+        'style',
+        'color:#f85149;font-family:ui-monospace,monospace;white-space:pre-wrap;padding:8px 12px;border:1px solid #f85149;border-radius:6px;margin-bottom:12px'
+      );
+      errorBox.textContent = 'markdown render error: ' + String((e && e.message) || e);
+      var sourcePre = document.createElement('pre');
+      var sourceCode = document.createElement('code');
+      sourceCode.textContent = md || '';
+      sourcePre.appendChild(sourceCode);
+      contentEl.replaceChildren(errorBox, sourcePre);
     }
   };
 

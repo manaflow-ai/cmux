@@ -22,7 +22,7 @@ declare global {
       removeElements?: string[];
       extraAttributes?: Record<string, string[]>;
       url?: (context: CmuxMarkdownSanitizerURLContext) => string | null;
-      element?: (source: Element, clean: Element) => boolean | void;
+      element?: (source: Element, clean: Element) => boolean;
     }): CmuxMarkdownSanitizerProfile;
     diagramProfile(): CmuxMarkdownSanitizerProfile;
     sanitizeToFragment(

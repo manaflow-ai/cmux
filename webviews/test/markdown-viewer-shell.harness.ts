@@ -59,10 +59,14 @@ export function loadShell(): { dom: JSDOM; posted: PostedMessage[]; render(markd
       },
     },
   };
-  for (const script of Array.from(dom.window.document.querySelectorAll("script"))) {
-    // eslint-disable-next-line no-new-func
-    new Function("win", `with (win) {\n${script.textContent ?? ""}\n}`)(win);
-  }
+  // Classic scripts share one global scope, and a top-level `var` (as in
+  // highlight.js) becomes a window property. Run them as one body and mirror
+  // `hljs` onto the window after each script.
+  const body = Array.from(dom.window.document.querySelectorAll("script"))
+    .map((script) => `${script.textContent ?? ""}\n;if (typeof hljs !== "undefined") { win.hljs = hljs; }\n`)
+    .join("\n");
+  // eslint-disable-next-line no-new-func
+  new Function("win", `with (win) {\n${body}\n}`)(win);
   const window = win as unknown as { __cmuxRenderMarkdown(md: string): void };
   return {
     dom,
