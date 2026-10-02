@@ -2172,7 +2172,8 @@
           "indentGuides": "Позначає кожен рівень відступу тонкою вертикальною лінією у вбудованому редакторі файлів.",
           "currentLineHighlight": "Підсвічує рядок, у якому стоїть курсор, коли нічого не виділено.",
           "tabWidth": "Скільки стовпців займає одна позиція табуляції. Напрямні відступів використовують той самий інтервал."
-        }
+        },
+        "actions": "Повторно використовувані дії для палітри команд, сполучень клавіш, кнопок панелі вкладок і меню кнопки плюса. Підтримуються builtin, command, agent, workspaceCommand, workspace, setting, settingPreset і text. Текстові дії вставляють текст в активний термінал, зберігаючи переноси рядків; submit: true натискає Enter. Дії з налаштуваннями потребують глобальної конфігурації."
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

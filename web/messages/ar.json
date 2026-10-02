@@ -2192,7 +2192,8 @@
           "indentGuides": "تمييز كل مستوى إزاحة بخط عمودي رفيع في محرر الملفات المدمج.",
           "currentLineHighlight": "تلوين السطر الذي يوجد فيه المؤشر عندما لا يكون هناك أي تحديد.",
           "tabWidth": "عدد الأعمدة التي يمتد عليها موضع جدولة واحد. تستخدم أدلة الإزاحة التباعد نفسه."
-        }
+        },
+        "actions": "إجراءات قابلة لإعادة الاستخدام للوحة الأوامر والاختصارات وأزرار شريط علامات التبويب وقائمة زر الإضافة. تدعم builtin وcommand وagent وworkspaceCommand وworkspace وsetting وsettingPreset وtext. تلصق الإجراءات النصية في الطرفية التي عليها التركيز مع الحفاظ على فواصل الأسطر؛ يضغط submit: true على Enter. تتطلب إجراءات الإعدادات تهيئة عامة."
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

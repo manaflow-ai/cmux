@@ -2192,7 +2192,8 @@
           "indentGuides": "Marker hvert innrykksnivå med en tynn loddrett linje i den innebygde filredigereren.",
           "currentLineHighlight": "Farg raden der markøren står når ingenting er markert.",
           "tabWidth": "Hvor mange kolonner ett tabulatorstopp dekker. Innrykkslinjene bruker samme avstand."
-        }
+        },
+        "actions": "Gjenbrukbare handlinger for kommandopaletten, snarveier, knapper på fanelinjen og menyen til plussknappen. Støtter builtin, command, agent, workspaceCommand, workspace, setting, settingPreset og text. Teksthandlinger limer inn i terminalen med fokus og bevarer linjeskift; submit: true trykker Enter. Innstillingshandlinger krever global konfigurasjon."
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

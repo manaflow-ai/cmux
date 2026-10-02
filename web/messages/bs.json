@@ -2192,7 +2192,8 @@
           "indentGuides": "Označite svaki nivo uvlačenja tankom vertikalnom linijom u ugrađenom uređivaču datoteka.",
           "currentLineHighlight": "Obojite red u kojem se nalazi kursor dok ništa nije označeno.",
           "tabWidth": "Koliko kolona obuhvata jedan tabulatorski korak. Vodilice uvlačenja koriste isti razmak."
-        }
+        },
+        "actions": "Višekratne radnje za paletu komandi, prečice, dugmad na traci kartica i meni dugmeta plus. Podržava builtin, command, agent, workspaceCommand, workspace, setting, settingPreset i text. Tekstualne radnje lijepe tekst u fokusirani terminal i čuvaju prijelome redova; submit: true pritiska Enter. Radnje postavki zahtijevaju globalnu konfiguraciju."
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

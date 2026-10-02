@@ -2192,7 +2192,8 @@
           "indentGuides": "在內建檔案編輯器中，以一條細直線標示每一層縮排。",
           "currentLineHighlight": "在沒有選取任何內容時，為游標所在的那一列上色。",
           "tabWidth": "一個定位點所佔的欄數。縮排參考線使用相同的間距。"
-        }
+        },
+        "actions": "供命令面板、快捷鍵、分頁列按鈕和加號按鈕選單使用的可重複使用操作。支援 builtin、command、agent、workspaceCommand、workspace、setting、settingPreset 和 text。text 操作會向目前聚焦的終端機貼上文字並保留換行；submit: true 會按下 Enter。設定操作需要全域設定。"
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

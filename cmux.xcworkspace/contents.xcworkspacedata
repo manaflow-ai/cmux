@@ -304,6 +304,9 @@
          location = "group:CmuxTestSupport">
       </FileRef>
       <FileRef
+         location = "group:CmuxTextActions">
+      </FileRef>
+      <FileRef
          location = "group:CmuxUpdater">
       </FileRef>
       <FileRef

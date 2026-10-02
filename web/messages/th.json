@@ -2193,7 +2193,8 @@
           "indentGuides": "แสดงเส้นแนวตั้งบาง ๆ ที่แต่ละระดับการเยื้องในตัวแก้ไขไฟล์ในตัว",
           "currentLineHighlight": "แต้มสีบรรทัดที่เคอร์เซอร์อยู่ขณะที่ไม่ได้เลือกข้อความใด",
           "tabWidth": "จำนวนคอลัมน์ที่ tab stop หนึ่งตำแหน่งครอบคลุม เส้นนำการเยื้องใช้ระยะเดียวกัน"
-        }
+        },
+        "actions": "การดำเนินการที่ใช้ซ้ำได้สำหรับแผงคำสั่ง ปุ่มลัด ปุ่มบนแถบแท็บ และเมนูปุ่มบวก รองรับ builtin, command, agent, workspaceCommand, workspace, setting, settingPreset และ text การดำเนินการแบบข้อความจะวางลงในเทอร์มินัลที่มีโฟกัสและคงการขึ้นบรรทัดใหม่ไว้ โดย submit: true จะกด Enter การดำเนินการเกี่ยวกับการตั้งค่าต้องใช้การกำหนดค่าส่วนกลาง"
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

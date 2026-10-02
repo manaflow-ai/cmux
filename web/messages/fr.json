@@ -2192,7 +2192,8 @@
           "indentGuides": "Marque chaque niveau d’indentation d’une fine ligne verticale dans l’éditeur de fichiers intégré.",
           "currentLineHighlight": "Colore la ligne qui contient le curseur de texte tant que rien n’est sélectionné.",
           "tabWidth": "Nombre de colonnes couvertes par une tabulation. Les guides d’indentation utilisent le même espacement."
-        }
+        },
+        "actions": "Actions réutilisables pour la palette de commandes, les raccourcis, les boutons de la barre d’onglets et le menu du bouton plus. Prend en charge builtin, command, agent, workspaceCommand, workspace, setting, settingPreset et text. Les actions de texte collent dans le terminal actif en conservant les sauts de ligne ; submit: true appuie sur Enter. Les actions de réglage nécessitent une configuration globale."
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

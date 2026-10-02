@@ -2192,7 +2192,8 @@
           "indentGuides": "សម្គាល់កម្រិតចូលបន្ទាត់នីមួយៗដោយខ្សែបញ្ឈរស្ដើងមួយ នៅក្នុងកម្មវិធីកែសម្រួលឯកសារដែលភ្ជាប់មកជាមួយ។",
           "currentLineHighlight": "ដាក់ពណ៌លើជួរដែលមានទស្សន៍ទ្រនិច ពេលមិនមានអ្វីត្រូវបានជ្រើសរើស។",
           "tabWidth": "ចំនួនជួរឈរដែល tab stop មួយគ្របដណ្ដប់។ indent guide ប្រើគម្លាតដូចគ្នា។"
-        }
+        },
+        "actions": "សកម្មភាពដែលអាចប្រើឡើងវិញសម្រាប់ក្ដារពាក្យបញ្ជា ផ្លូវកាត់ ប៊ូតុងរបារផ្ទាំង និងម៉ឺនុយប៊ូតុងបូក។ គាំទ្រ builtin, command, agent, workspaceCommand, workspace, setting, settingPreset និង text។ សកម្មភាពអត្ថបទបិទភ្ជាប់ទៅក្នុងស្ថានីយដែលមានការផ្តោត ហើយរក្សាការចុះបន្ទាត់ថ្មី។ submit: true ចុច Enter។ សកម្មភាពការកំណត់ត្រូវការការកំណត់រចនាសម្ព័ន្ធសកល។"
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

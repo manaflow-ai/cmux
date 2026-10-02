@@ -3429,7 +3429,8 @@
           "agentIdleReminder": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert.",
           "soundOverrides": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
           "soundOverride": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
-        }
+        },
+        "actions": "Reusable actions for the Command Palette, shortcuts, tab-bar buttons, and plus-button menu. Supports builtin, command, agent, workspaceCommand, workspace, setting, settingPreset, and text. Text actions paste into the focused terminal and preserve newlines; submit: true presses Enter. Setting actions require global configuration."
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

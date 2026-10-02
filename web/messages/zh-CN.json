@@ -2192,7 +2192,8 @@
           "indentGuides": "在内置文件编辑器中，用一条细竖线标出每一级缩进。",
           "currentLineHighlight": "在没有选中内容时，为光标所在的行着色。",
           "tabWidth": "一个制表位占用的列数。缩进参考线使用相同的间距。"
-        }
+        },
+        "actions": "供命令面板、快捷键、标签栏按钮和加号按钮菜单使用的可复用操作。支持 builtin、command、agent、workspaceCommand、workspace、setting、settingPreset 和 text。text 操作会向当前聚焦的终端粘贴文本并保留换行；submit: true 会按下 Enter。设置操作需要全局配置。"
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

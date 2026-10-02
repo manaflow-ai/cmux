@@ -2193,7 +2193,8 @@
           "indentGuides": "Oznacza każdy poziom wcięcia cienką pionową linią we wbudowanym edytorze plików.",
           "currentLineHighlight": "Podświetla kolorem wiersz z kursorem tekstowym, gdy nic nie jest zaznaczone.",
           "tabWidth": "Liczba kolumn, jaką obejmuje jeden tabulator. Linie wcięć używają tego samego odstępu."
-        }
+        },
+        "actions": "Akcje wielokrotnego użytku dla palety poleceń, skrótów, przycisków paska kart i menu przycisku plus. Obsługuje builtin, command, agent, workspaceCommand, workspace, setting, settingPreset i text. Akcje tekstowe wklejają do aktywnego terminala i zachowują podziały wierszy; submit: true naciska Enter. Akcje ustawień wymagają konfiguracji globalnej."
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

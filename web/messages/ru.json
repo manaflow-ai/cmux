@@ -2192,7 +2192,8 @@
           "indentGuides": "Отмечать каждый уровень отступа тонкой вертикальной линией во встроенном редакторе файлов.",
           "currentLineHighlight": "Подсвечивать строку с курсором, когда ничего не выделено.",
           "tabWidth": "Сколько столбцов занимает одна позиция табуляции. Направляющие отступов используют тот же шаг."
-        }
+        },
+        "actions": "Повторно используемые действия для палитры команд, сочетаний клавиш, кнопок панели вкладок и меню кнопки плюса. Поддерживаются builtin, command, agent, workspaceCommand, workspace, setting, settingPreset и text. Текстовые действия вставляют текст в активный терминал, сохраняя переносы строк; submit: true нажимает Enter. Действия с настройками требуют глобальной конфигурации."
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

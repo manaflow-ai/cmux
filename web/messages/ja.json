@@ -3352,7 +3352,8 @@
           "agentIdleReminder": "エージェントがあなたの入力を待って待機状態になったとき（ターン終了の約60秒後）に通知します。前のターンのバックグラウンド作業がまだ実行中の間は抑制されるため、ビルドやウォッチャーの実行中に誤った待機通知が出ることはありません。",
           "soundOverrides": "エージェントとアラート種別ごとの通知サウンド上書きです。空のセルは notifications.sound を使用します。",
           "soundOverride": "通知サウンドの上書きです。default は notifications.sound を使用し、none は再生を無効にします。それ以外の値では組み込みまたはカスタムサウンドを選択します。"
-        }
+        },
+        "actions": "コマンドパレット、ショートカット、タブバーのボタン、プラスボタンのメニューで使う再利用可能なアクションです。builtin、command、agent、workspaceCommand、workspace、setting、settingPreset、text に対応しています。text アクションはフォーカス中のターミナルに改行を保持して貼り付け、submit: true を指定すると Enter を押します。設定アクションにはグローバル設定が必要です。"
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",
       "exampleMarkdownFontSizeZoom": "Cmd-+ / Cmd-- / Cmd-0 でその場で拡大・縮小できます。",

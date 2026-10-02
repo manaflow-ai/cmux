@@ -18014,7 +18014,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 onExecuted?()
                 return true
             }
-        case .command, .agent, .workspaceCommand, .workspace, .setting:
+        case .command, .text, .agent, .workspaceCommand, .workspace, .setting:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
                 return false
             }

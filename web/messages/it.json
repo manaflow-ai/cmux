@@ -2192,7 +2192,8 @@
           "indentGuides": "Segna ogni livello di rientro con una sottile linea verticale nell’editor di file integrato.",
           "currentLineHighlight": "Colora la riga che contiene il cursore di testo quando non è selezionato nulla.",
           "tabWidth": "Quante colonne occupa una tabulazione. Le guide di rientro usano la stessa spaziatura."
-        }
+        },
+        "actions": "Azioni riutilizzabili per la tavolozza dei comandi, le scorciatoie, i pulsanti della barra delle schede e il menu del pulsante più. Supporta builtin, command, agent, workspaceCommand, workspace, setting, settingPreset e text. Le azioni di testo incollano nel terminale attivo mantenendo le interruzioni di riga; submit: true preme Enter. Le azioni delle impostazioni richiedono una configurazione globale."
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

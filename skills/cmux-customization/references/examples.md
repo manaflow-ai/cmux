@@ -164,6 +164,32 @@ Agent buttons alongside the default terminal and browser buttons.
 }
 ```
 
+### Prompt Snippets
+
+Text actions paste reusable prompts into the focused terminal, preserving newlines and indentation. Add `"submit": true` to send Enter afterwards. The receiving shell or agent controls how pasted newlines behave. Snippets defined in a project-local config go through the same trust prompt as a project `type: "command"`, whether or not they submit; snippets in the global config never prompt.
+
+```json
+{
+  "actions": {
+    "review-prompt": {
+      "type": "text",
+      "title": "Review Prompt",
+      "keywords": ["review", "snippet"],
+      "shortcut": "cmd+shift+r",
+      "text": "Review the staged diff for:\n  - regressions\n  - missing tests\n  - naming that hides intent"
+    },
+    "run-tests": {
+      "type": "text",
+      "title": "Run Tests",
+      "text": "npm test -- --watch=false",
+      "submit": true
+    }
+  }
+}
+```
+
+Both entries appear in Cmd+Shift+P, can be bound to a shortcut, and can be referenced from `ui.surfaceTabBar.buttons` like any other action.
+
 ## CI Watch
 
 Long-running monitors belong in Dock controls, not workspace panes.

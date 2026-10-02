@@ -2192,7 +2192,8 @@
           "indentGuides": "Marca cada nivel de sangría con una línea vertical fina en el editor de archivos integrado.",
           "currentLineHighlight": "Resalta con color la fila que contiene el cursor de texto mientras no haya nada seleccionado.",
           "tabWidth": "Cuántas columnas abarca una tabulación. Las guías de sangría usan el mismo espaciado."
-        }
+        },
+        "actions": "Acciones reutilizables para la paleta de comandos, los atajos, los botones de la barra de pestañas y el menú del botón más. Admite builtin, command, agent, workspaceCommand, workspace, setting, settingPreset y text. Las acciones de texto pegan en el terminal enfocado y conservan los saltos de línea; submit: true pulsa Enter. Las acciones de ajustes requieren configuración global."
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

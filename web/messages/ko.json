@@ -2192,7 +2192,8 @@
           "indentGuides": "내장 파일 편집기에서 들여쓰기 수준마다 얇은 세로선을 표시합니다.",
           "currentLineHighlight": "아무것도 선택하지 않았을 때 캐럿이 있는 줄에 색을 입힙니다.",
           "tabWidth": "탭 정지 하나가 차지하는 열 수입니다. 들여쓰기 가이드도 같은 간격을 사용합니다."
-        }
+        },
+        "actions": "명령 팔레트, 단축키, 탭 표시줄 버튼, 더하기 버튼 메뉴에서 사용하는 재사용 가능한 동작입니다. builtin, command, agent, workspaceCommand, workspace, setting, settingPreset, text를 지원합니다. text 동작은 줄바꿈을 유지하여 포커스된 터미널에 붙여넣으며, submit: true는 Enter를 누릅니다. 설정 동작에는 전역 구성이 필요합니다."
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
