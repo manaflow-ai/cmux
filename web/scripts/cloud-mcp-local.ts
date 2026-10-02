@@ -7,7 +7,17 @@
 //   npx @modelcontextprotocol/inspector --cli http://127.0.0.1:8765/mcp --transport http --method tools/list
 
 import { spawnSync } from "node:child_process";
-import { CloudMcpToolError, handleCloudMcpMessage, type CloudMcpGateway } from "../services/mcp/cloudMcp";
+import { CloudMcpToolError, handleCloudMcpBody, type CloudMcpGateway } from "../services/mcp/cloudMcp";
+
+// The web package's tsconfig does not load Bun's ambient types; this script is
+// Bun-only, so type the one global it needs here.
+declare const Bun: {
+  serve(options: {
+    hostname: string;
+    port: number;
+    fetch(request: Request): Response | Promise<Response>;
+  }): unknown;
+};
 
 const port = Number(process.env.CMUX_MCP_DEMO_PORT ?? 8765);
 const cmuxTui = process.env.CMUX_TUI_BIN ?? "cmux-tui";
@@ -38,7 +48,7 @@ Bun.serve({
     } catch {
       return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, { status: 400 });
     }
-    const reply = await handleCloudMcpMessage(gateway, message);
+    const reply = await handleCloudMcpBody(gateway, message, (error) => console.error(error));
     return reply ? Response.json(reply) : new Response(null, { status: 202 });
   },
 });

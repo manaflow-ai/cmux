@@ -8,6 +8,7 @@ import {
   CLOUD_MCP_TOOLS,
   callCloudMcpTool,
   cmuxTuiArgs,
+  handleCloudMcpBody,
   handleCloudMcpMessage,
   type CloudMcpExecResult,
   type CloudMcpGateway,
@@ -73,6 +74,27 @@ describe("cloud MCP protocol", () => {
       .toMatchObject({ error: { code: -32601 } });
   });
 
+  test("a batch gets one reply per request, and a defect is a -32603 for that id", async () => {
+    const gateway: CloudMcpGateway = {
+      listMachines: async () => {
+        throw new Error("database down");
+      },
+      runCmuxTui: async () => ok([]),
+    };
+    const defects: unknown[] = [];
+    const reply = await handleCloudMcpBody(gateway, [
+      { jsonrpc: "2.0", id: 1, method: "ping" },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: "b", method: "tools/call", params: { name: "list_machines", arguments: {} } },
+    ], (error) => defects.push(error));
+    expect(reply).toEqual([
+      { jsonrpc: "2.0", id: 1, result: {} },
+      { jsonrpc: "2.0", id: "b", error: { code: -32603, message: "Internal error" } },
+    ]);
+    expect(defects).toHaveLength(1);
+    expect(await handleCloudMcpBody(gateway, { jsonrpc: "2.0", method: "notifications/initialized" }, () => {})).toBeNull();
+  });
+
   test("every tool states all three ChatGPT hints explicitly", () => {
     for (const tool of CLOUD_MCP_TOOLS) {
       for (const hint of ["readOnlyHint", "destructiveHint", "openWorldHint"] as const) {
@@ -82,7 +104,10 @@ describe("cloud MCP protocol", () => {
     const byName = Object.fromEntries(CLOUD_MCP_TOOLS.map((tool) => [tool.name, tool.annotations]));
     expect(byName.send_input.destructiveHint).toBe(true);
     expect(byName.run_agent.readOnlyHint).toBe(false);
-    expect(byName.read_terminal.readOnlyHint).toBe(true);
+    expect(byName.list_machines.readOnlyHint).toBe(true);
+    // Terminal reads go through execVm, which resumes a paused (billed) machine.
+    expect(byName.read_terminal.readOnlyHint).toBe(false);
+    expect(byName.list_terminals.readOnlyHint).toBe(false);
   });
 });
 
@@ -116,16 +141,57 @@ describe("cloud MCP tool arguments", () => {
     expect(shellWords(calls[0].args)).toEqual(["--session", "cloud", "--json", "workspace", "create", "--name", "claude (via MCP)", "--empty"]);
     expect(shellWords(calls[1].args)).toEqual([
       "--session", "cloud", "--json", "workspace", WORKSPACE, "run", "--on-exit", "keep", "--",
-      "bash", "-lc", 'cd "$HOME" && exec "$@"', "bash", "claude", "-p", prompt,
+      "bash", "-lc", 'cd "$HOME" && exec "$@"', "bash", "claude", "-p", "--", prompt,
     ]);
   });
 
-  test("send_input writes the text and presses Enter only when asked", async () => {
+  test("a prompt that looks like a flag stays a prompt", async () => {
+    const { gateway, calls } = fakeGateway([
+      ok({ value: { workspace_id: WORKSPACE } }),
+      ok({ value: { terminal_id: TERMINAL } }),
+    ]);
+    await callCloudMcpTool(gateway, "run_agent", { machine_id: "vm-a", agent: "codex", prompt: "--dangerously-bypass-approvals-and-sandbox" });
+    expect(shellWords(calls[1].args).slice(-4)).toEqual(["codex", "exec", "--", "--dangerously-bypass-approvals-and-sandbox"]);
+    const pi = fakeGateway();
+    const refused = await callCloudMcpTool(pi.gateway, "run_agent", { machine_id: "vm-a", agent: "pi", prompt: "--help" });
+    expect(refused.structuredContent).toMatchObject({ error: "invalid_arguments" });
+    expect(pi.calls).toHaveLength(0);
+  });
+
+  test("a failed agent start closes the workspace it created", async () => {
+    const { gateway, calls } = fakeGateway([
+      ok({ value: { workspace_id: WORKSPACE } }),
+      { exitCode: 3, stdout: "", stderr: "timed out" },
+      ok({ value: {} }),
+    ]);
+    const result = await callCloudMcpTool(gateway, "run_agent", { machine_id: "vm-a", agent: "claude", prompt: "hi" });
+    expect(result.isError).toBe(true);
+    expect(shellWords(calls[2].args).slice(3)).toEqual(["workspace", WORKSPACE, "close"]);
+  });
+
+  test("a prompt that would exceed the exec command cap once quoted is refused", async () => {
+    const { gateway, calls } = fakeGateway();
+    const result = await callCloudMcpTool(gateway, "run_agent", { machine_id: "vm-a", agent: "claude", prompt: "'".repeat(16 * 1024) });
+    expect(result.structuredContent).toMatchObject({ error: "invalid_arguments" });
+    expect(calls).toHaveLength(0);
+  });
+
+  test("send_input is one write, with Enter as a carriage return only when asked", async () => {
     const { gateway, calls } = fakeGateway([ok({ value: {} }), ok({ value: {} })]);
     const result = await callCloudMcpTool(gateway, "send_input", { machine_id: "vm-a", terminal_id: TERMINAL, text: "ls -la", submit: true });
     expect(result.structuredContent).toMatchObject({ submitted: true, sent_bytes: 6 });
-    expect(shellWords(calls[0].args).slice(3)).toEqual(["terminal", TERMINAL, "write", "--text", "ls -la"]);
-    expect(shellWords(calls[1].args).slice(3)).toEqual(["terminal", TERMINAL, "keys", "enter"]);
+    await callCloudMcpTool(gateway, "send_input", { machine_id: "vm-a", terminal_id: TERMINAL, text: "draft" });
+    expect(calls.map((call) => shellWords(call.args).slice(3))).toEqual([
+      ["terminal", TERMINAL, "write", "--text", "ls -la\r"],
+      ["terminal", TERMINAL, "write", "--text", "draft"],
+    ]);
+  });
+
+  test("read_terminal returns the text once, as content", async () => {
+    const { gateway } = fakeGateway([ok({ text: "hello", rows: 24 })]);
+    const result = await callCloudMcpTool(gateway, "read_terminal", { machine_id: "vm-a", terminal_id: TERMINAL });
+    expect(result.content).toEqual([{ type: "text", text: "hello" }]);
+    expect(result.structuredContent).toEqual({ machine_id: "vm-a", terminal_id: TERMINAL, source: "screen" });
   });
 
   test("a failed guest command is a tool error, not a thrown request", async () => {
@@ -184,14 +250,15 @@ describe("cloud MCP scoping", () => {
       if (!response) throw failure.value;
       return { ok: false, response };
     };
-    const gatewayFor = (caller: Partial<CloudMcpCaller> & { userId: string }) => cloudMcpGatewayFor({
-      teamIds: [],
-      billingTeamId: null,
-      listBillingTeamId: null,
-      maxActiveVms: null,
-      planId: null,
-      ...caller,
-    }, run);
+    const gatewayFor = (caller: { userId: string; teamIds?: string[]; billingTeamId?: string; listBillingTeamId?: string }) => {
+      const full: CloudMcpCaller = {
+        userId: caller.userId,
+        teamIds: caller.teamIds ?? [],
+        listScope: async () => caller.listBillingTeamId ?? null,
+        accessScope: async () => ({ billingTeamId: caller.billingTeamId ?? null, maxActiveVms: null, planId: null }),
+      };
+      return cloudMcpGatewayFor(full, run);
+    };
     return { execs, listed, gatewayFor };
   }
 
@@ -237,6 +304,19 @@ describe("cloud MCP scoping", () => {
     const personal = await callCloudMcpTool(member, "list_terminals", { machine_id: "vm-personal" });
     expect(personal.structuredContent).toMatchObject({ error: "vm_not_found" });
     expect(execs.map((exec) => exec.providerVmId)).toEqual(["vm-team"]);
+  });
+
+  test("initialize and tools/list never resolve a billing scope", async () => {
+    let resolved = 0;
+    const gateway = cloudMcpGatewayFor({
+      userId: OWNER,
+      teamIds: [],
+      listScope: async () => { resolved += 1; throw new Error("no team chosen"); },
+      accessScope: async () => { resolved += 1; throw new Error("no team chosen"); },
+    }, async () => { throw new Error("no program should run"); });
+    expect(await handleCloudMcpMessage(gateway, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} })).toMatchObject({ result: {} });
+    expect(await handleCloudMcpMessage(gateway, { jsonrpc: "2.0", id: 2, method: "tools/list" })).toMatchObject({ result: {} });
+    expect(resolved).toBe(0);
   });
 
   test("list_machines returns only the caller's scope", async () => {

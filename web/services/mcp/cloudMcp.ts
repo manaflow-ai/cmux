@@ -20,6 +20,9 @@ export type CloudMcpAgent = (typeof CLOUD_MCP_AGENTS)[number];
 const MAX_TEXT_BYTES = 16 * 1024;
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const CMUX_TUI_TIMEOUT_MS = 30_000;
+// POST /api/vm/:id/exec caps a guest command at 64 KiB; quoting can triple a
+// prompt, and the layout selector adds about 1 KiB around the arguments.
+const MAX_GUEST_ARGS_BYTES = 60 * 1024;
 const MACHINE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const TERMINAL_ID_PATTERN = /^term_[A-Za-z0-9]{1,64}$/;
 const WORKSPACE_ID_PATTERN = /^ws_[A-Za-z0-9]{1,64}$/;
@@ -89,14 +92,15 @@ export const CLOUD_MCP_TOOLS: readonly ToolDefinition[] = [
   },
   {
     name: "list_terminals",
-    description: "List the terminals running on one of the caller's machines.",
+    description: "List the terminals running on one of the caller's machines. Resumes the machine if it is paused.",
     inputSchema: {
       type: "object",
       properties: { machine_id: machineIdSchema },
       required: ["machine_id"],
       additionalProperties: false,
     },
-    annotations: { title: "List terminals", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    // Not read-only: like every machine call, it resumes a paused machine (billed time).
+    annotations: { title: "List terminals", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "run_agent",
@@ -118,7 +122,8 @@ export const CLOUD_MCP_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_terminal",
     description:
-      "Read a terminal on one of the caller's machines. `screen` (default) is the visible screen; `output` is the recent output stream, which keeps lines that scrolled off.",
+      "Read a terminal on one of the caller's machines. `screen` (default) is the visible screen; `output` is the recent output stream, which keeps lines that scrolled off. " +
+      "Resumes the machine if it is paused.",
     inputSchema: {
       type: "object",
       properties: {
@@ -129,7 +134,7 @@ export const CLOUD_MCP_TOOLS: readonly ToolDefinition[] = [
       required: ["machine_id", "terminal_id"],
       additionalProperties: false,
     },
-    annotations: { title: "Read terminal", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    annotations: { title: "Read terminal", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "send_input",
@@ -215,18 +220,35 @@ export function cmuxTuiArgs(words: readonly string[]): string {
   return ["--session", CMUX_TUI_SESSION, "--json", ...words].map(shellQuote).join(" ");
 }
 
-/** The one-shot argv `cmux vm agent` uses for a bare prompt (CLI/CMUXCLI+VMTransfer.swift vmAgentArgv). */
+/**
+ * The one-shot argv `cmux vm agent` uses for a bare prompt (CLI/CMUXCLI+VMTransfer.swift
+ * vmAgentArgv), with `--` so a prompt like `--dangerously-…` stays a prompt. `pi` has no
+ * documented end-of-options marker, so a leading `-` is refused for it instead.
+ */
 export function agentArgv(agent: CloudMcpAgent, prompt: string): string[] {
   switch (agent) {
-    case "claude": return ["claude", "-p", prompt];
-    case "codex": return ["codex", "exec", prompt];
-    case "opencode": return ["opencode", "run", prompt];
-    case "pi": return ["pi", "-p", prompt];
+    case "claude": return ["claude", "-p", "--", prompt];
+    case "codex": return ["codex", "exec", "--", prompt];
+    case "opencode": return ["opencode", "run", "--", prompt];
+    case "pi":
+      if (prompt.startsWith("-")) {
+        throw new CloudMcpToolError("invalid_arguments", "A pi prompt cannot start with `-`.");
+      }
+      return ["pi", "-p", prompt];
   }
 }
 
+function guestArgsFor(words: readonly string[]): string {
+  const args = cmuxTuiArgs(words);
+  if (Buffer.byteLength(args, "utf8") > MAX_GUEST_ARGS_BYTES) {
+    throw new CloudMcpToolError("invalid_arguments", "The request is too large once quoted for the machine. Shorten the prompt or text.");
+  }
+  return args;
+}
+
 async function runCmuxTuiJson(gateway: CloudMcpGateway, machineId: string, words: readonly string[]): Promise<unknown> {
-  const result = await gateway.runCmuxTui(machineId, cmuxTuiArgs(words), CMUX_TUI_TIMEOUT_MS);
+  const args = guestArgsFor(words);
+  const result = await gateway.runCmuxTui(machineId, args, CMUX_TUI_TIMEOUT_MS);
   if (result.exitCode !== 0) {
     throw new CloudMcpToolError(
       "machine_command_failed",
@@ -277,22 +299,32 @@ async function runAgent(gateway: CloudMcpGateway, args: JsonObject): Promise<Too
     throw new CloudMcpToolError("invalid_arguments", `\`agent\` must be one of ${CLOUD_MCP_AGENTS.join(", ")}.`);
   }
   const prompt = requireBoundedText(args, "prompt");
+  const argv = agentArgv(agent as CloudMcpAgent, prompt);
+  // A login shell so the persistent-home tool paths resolve, as `cmux vm agent` does;
+  // the agent argv reaches it as positional parameters, never as shell text.
+  const runWords = (workspaceId: string) => [
+    "workspace", workspaceId, "run", "--on-exit", "keep", "--",
+    "bash", "-lc", 'cd "$HOME" && exec "$@"', "bash",
+    ...argv,
+  ];
+  guestArgsFor(runWords(`ws_${"0".repeat(64)}`)); // refuse an oversized prompt before creating anything
   const name = `${agent} (via MCP)`;
   const created = mutationValue(await runCmuxTuiJson(gateway, machineId, ["workspace", "create", "--name", name, "--empty"]));
   const workspaceId = stringField(created, "workspace_id", WORKSPACE_ID_PATTERN);
   if (!workspaceId) {
     throw new CloudMcpToolError("machine_command_failed", "cmux on the machine did not return a workspace id.");
   }
-  // A login shell so the persistent-home tool paths resolve, as `cmux vm agent` does;
-  // the agent argv reaches it as positional parameters, never as shell text.
-  const run = mutationValue(await runCmuxTuiJson(gateway, machineId, [
-    "workspace", workspaceId, "run", "--on-exit", "keep", "--",
-    "bash", "-lc", 'cd "$HOME" && exec "$@"', "bash",
-    ...agentArgv(agent as CloudMcpAgent, prompt),
-  ]));
-  const terminalId = stringField(run, "terminal_id", TERMINAL_ID_PATTERN);
-  if (!terminalId) {
-    throw new CloudMcpToolError("machine_command_failed", "cmux on the machine did not return a terminal id.");
+  let terminalId: string | null = null;
+  try {
+    const run = mutationValue(await runCmuxTuiJson(gateway, machineId, runWords(workspaceId)));
+    terminalId = stringField(run, "terminal_id", TERMINAL_ID_PATTERN);
+    if (!terminalId) {
+      throw new CloudMcpToolError("machine_command_failed", "cmux on the machine did not return a terminal id.");
+    }
+  } catch (error) {
+    // Don't leave an empty workspace behind for a retry to pile onto.
+    await runCmuxTuiJson(gateway, machineId, ["workspace", workspaceId, "close"]).catch(() => undefined);
+    throw error;
   }
   return toolSuccess({ machine_id: machineId, agent, workspace_id: workspaceId, terminal_id: terminalId });
 }
@@ -308,19 +340,13 @@ async function readTerminal(gateway: CloudMcpGateway, args: JsonObject): Promise
   if (source === "screen") {
     const screen = await runCmuxTuiJson(gateway, machineId, ["terminal", terminalId, "screen", "read"]) as JsonObject | null;
     const text = typeof screen?.text === "string" ? screen.text : "";
-    return toolSuccess({ machine_id: machineId, terminal_id: terminalId, source, text }, text);
+    return toolSuccess({ machine_id: machineId, terminal_id: terminalId, source }, text);
   }
   const output = await runCmuxTuiJson(gateway, machineId, [
     "terminal", terminalId, "output", "read", "--max-bytes", String(MAX_OUTPUT_BYTES),
   ]) as JsonObject | null;
   const text = typeof output?.text === "string" ? output.text : "";
-  return toolSuccess({
-    machine_id: machineId,
-    terminal_id: terminalId,
-    source,
-    text,
-    complete: output?.complete === true,
-  }, text);
+  return toolSuccess({ machine_id: machineId, terminal_id: terminalId, source, complete: output?.complete === true }, text);
 }
 
 async function sendInput(gateway: CloudMcpGateway, args: JsonObject): Promise<ToolResult> {
@@ -332,8 +358,8 @@ async function sendInput(gateway: CloudMcpGateway, args: JsonObject): Promise<To
   if (typeof submit !== "boolean") {
     throw new CloudMcpToolError("invalid_arguments", "`submit` must be a boolean.");
   }
-  await runCmuxTuiJson(gateway, machineId, ["terminal", terminalId, "write", "--text", text]);
-  if (submit) await runCmuxTuiJson(gateway, machineId, ["terminal", terminalId, "keys", "enter"]);
+  // One write, with the Enter as a carriage return, so a failure never leaves the text typed but unsubmitted.
+  await runCmuxTuiJson(gateway, machineId, ["terminal", terminalId, "write", "--text", submit ? `${text}\r` : text]);
   return toolSuccess({ machine_id: machineId, terminal_id: terminalId, sent_bytes: Buffer.byteLength(text, "utf8"), submitted: submit });
 }
 
@@ -374,7 +400,7 @@ function rpcError(id: JsonRpcId, code: number, message: string): JsonRpcResponse
  */
 export async function handleCloudMcpMessage(gateway: CloudMcpGateway, message: unknown): Promise<JsonRpcResponse | null> {
   if (!message || typeof message !== "object" || Array.isArray(message)) {
-    return rpcError(null, -32600, "Expected one JSON-RPC request object.");
+    return rpcError(null, -32600, "Expected a JSON-RPC request object.");
   }
   const request = message as JsonObject;
   const id = request.id;
@@ -416,4 +442,33 @@ export async function handleCloudMcpMessage(gateway: CloudMcpGateway, message: u
     default:
       return rpcError(id, -32601, `Method not found: ${request.method}`);
   }
+}
+
+/**
+ * Handles one POST body: a single message or, for clients on 2025-03-26, a batch.
+ * An unexpected failure in one request becomes that request's -32603 reply, so a
+ * client always gets JSON-RPC back; `onDefect` gets the cause for logging.
+ */
+export async function handleCloudMcpBody(
+  gateway: CloudMcpGateway,
+  body: unknown,
+  onDefect: (error: unknown) => void,
+): Promise<JsonRpcResponse | JsonRpcResponse[] | null> {
+  const one = async (message: unknown): Promise<JsonRpcResponse | null> => {
+    try {
+      return await handleCloudMcpMessage(gateway, message);
+    } catch (error) {
+      onDefect(error);
+      const id = (message as { id?: unknown } | null)?.id;
+      return rpcError(typeof id === "string" || typeof id === "number" ? id : null, -32603, "Internal error");
+    }
+  };
+  if (!Array.isArray(body)) return one(body);
+  if (body.length === 0) return rpcError(null, -32600, "Empty batch.");
+  const replies: JsonRpcResponse[] = [];
+  for (const message of body) {
+    const reply = await one(message);
+    if (reply) replies.push(reply);
+  }
+  return replies.length > 0 ? replies : null;
 }
