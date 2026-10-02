@@ -57,7 +57,10 @@ export function sessionTitle(session: { title?: string; name?: string; harness?:
   const name = session.name ?? "";
   const harness = session.harness ?? "";
   const bare = name.split("/").pop() ?? name;
-  const generated = !name || (harness !== "" && (bare === harness || (bare.startsWith(`${harness}-`) && /^\d+$/.test(bare.slice(harness.length + 1)))));
+  const generated =
+    !name ||
+    (harness !== "" &&
+      (bare === harness || (bare.startsWith(`${harness}-`) && /^\d+$/.test(bare.slice(harness.length + 1)))));
   const title = session.title?.trim();
   if (generated) return title || name || session.sessionId.slice(0, 8);
   return name;
@@ -95,8 +98,14 @@ export function groupByProject(sessions: AcpmuxSessionEntry[]): SessionGroup[] {
 }
 
 /** The list's two sections: pinned sessions, newest first, then every other session grouped by project. */
-export function sidebarSections(sessions: AcpmuxSessionEntry[]): { pinned: AcpmuxSessionEntry[]; groups: SessionGroup[] } {
-  return { pinned: byRecency(sessions.filter((session) => session.pinned)), groups: groupByProject(sessions.filter((session) => !session.pinned)) };
+export function sidebarSections(sessions: AcpmuxSessionEntry[]): {
+  pinned: AcpmuxSessionEntry[];
+  groups: SessionGroup[];
+} {
+  return {
+    pinned: byRecency(sessions.filter((session) => session.pinned)),
+    groups: groupByProject(sessions.filter((session) => !session.pinned)),
+  };
 }
 
 /** The row's mark: a pending permission or a wait for one needs the user; then work in progress, a lost agent, and work that ended unseen. */
@@ -109,9 +118,15 @@ export function sessionMark(session: AcpmuxSessionEntry, selected: boolean): Ses
 }
 
 /** The rows a group shows: all of a short group, else its first GROUP_ROWS unless expanded or holding the selection. */
-export function visibleSessions(group: SessionGroup, expanded: boolean, selectedId?: string): { rows: AcpmuxSessionEntry[]; hidden: number } {
-  const open = expanded || group.sessions.length <= GROUP_ROWS + 1 || group.sessions.slice(GROUP_ROWS).some((session) => session.sessionId === selectedId);
+export function visibleSessions(
+  group: SessionGroup,
+  expanded: boolean,
+  selectedId?: string,
+): { rows: AcpmuxSessionEntry[]; hidden: number } {
+  const open =
+    expanded ||
+    group.sessions.length <= GROUP_ROWS + 1 ||
+    group.sessions.slice(GROUP_ROWS).some((session) => session.sessionId === selectedId);
   if (open) return { rows: group.sessions, hidden: 0 };
   return { rows: group.sessions.slice(0, GROUP_ROWS), hidden: group.sessions.length - GROUP_ROWS };
 }
-

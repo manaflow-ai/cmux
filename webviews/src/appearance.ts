@@ -61,9 +61,17 @@ export function resolveDiffViewerAppearance(appearance?: DiffViewerAppearance): 
   const lightTheme = { ...defaultLightTheme, ...appearance?.themes?.light };
   const darkTheme = { ...defaultDarkTheme, ...appearance?.themes?.dark };
   lightTheme.foreground = readableColor(lightTheme.foreground, lightTheme.background, defaultLightTheme.foreground);
-  lightTheme.selectionForeground = readableColor(lightTheme.selectionForeground, lightTheme.selectionBackground, defaultLightTheme.selectionForeground);
+  lightTheme.selectionForeground = readableColor(
+    lightTheme.selectionForeground,
+    lightTheme.selectionBackground,
+    defaultLightTheme.selectionForeground,
+  );
   darkTheme.foreground = readableColor(darkTheme.foreground, darkTheme.background, defaultDarkTheme.foreground);
-  darkTheme.selectionForeground = readableColor(darkTheme.selectionForeground, darkTheme.selectionBackground, defaultDarkTheme.selectionForeground);
+  darkTheme.selectionForeground = readableColor(
+    darkTheme.selectionForeground,
+    darkTheme.selectionBackground,
+    defaultDarkTheme.selectionForeground,
+  );
   return {
     backgroundOpacity: normalizedOpacity(appearance?.backgroundOpacity),
     fontFamily: appearance?.fontFamily ?? "Menlo",
@@ -132,7 +140,9 @@ export function readableColor(value: unknown, background: unknown, fallback: str
 
 function semanticPaletteColor(theme: DiffViewerTheme, paletteKeys: string[], fallback: string): string {
   const palette = theme.palette ?? {};
-  const candidate = paletteKeys.map((key) => palette[key]).find((value) => typeof value === "string" && value.trim() !== "");
+  const candidate = paletteKeys
+    .map((key) => palette[key])
+    .find((value) => typeof value === "string" && value.trim() !== "");
   if (meetsContrast(candidate, theme.background, 4.5)) {
     return colorString(candidate, fallback);
   }
@@ -204,9 +214,11 @@ function contrastRatio(foreground: RGBColor, background: RGBColor): number {
 }
 
 function relativeLuminance(color: RGBColor): number {
-  return 0.2126 * luminanceChannel(color.red) +
+  return (
+    0.2126 * luminanceChannel(color.red) +
     0.7152 * luminanceChannel(color.green) +
-    0.0722 * luminanceChannel(color.blue);
+    0.0722 * luminanceChannel(color.blue)
+  );
 }
 
 function luminanceChannel(value: number): number {

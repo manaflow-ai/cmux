@@ -14,9 +14,7 @@ export type FooterCollapseItemState = {
 
 export type FooterCollapseState = Record<string, FooterCollapseItemState>;
 
-export function initialFooterCollapseState(
-  items: ReadonlyArray<Pick<FooterCollapseItem, "id">>,
-): FooterCollapseState {
+export function initialFooterCollapseState(items: ReadonlyArray<Pick<FooterCollapseItem, "id">>): FooterCollapseState {
   const state: FooterCollapseState = {};
   for (const item of items) {
     state[item.id] = { hideControl: false, hideLabel: false };
@@ -36,7 +34,8 @@ export function computeFooterCollapse(input: {
     return nextState;
   }
 
-  const totalExpandedWidth = enabledItems.reduce((total, item) => total + item.expandedWidth, 0) +
+  const totalExpandedWidth =
+    enabledItems.reduce((total, item) => total + item.expandedWidth, 0) +
     input.gap * Math.max(0, enabledItems.length - 1);
   if (totalExpandedWidth <= 0) {
     return nextState;

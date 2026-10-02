@@ -176,6 +176,7 @@ REACT_EXACT = {
 }
 REACT_PREFIXES = (
     "Resources/markdown-viewer/",
+    "config/vite-plus/",
     "webviews/",
 )
 

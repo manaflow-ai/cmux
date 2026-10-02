@@ -90,9 +90,7 @@ test("anchorComment marks missing or ambiguous lines outdated", () => {
     ...fileDiff,
     additionLines: ["dup", "dup", "x", "y", "z"],
   };
-  expect(
-    anchorComment(ambiguous, comment({ endLine: 12, lineText: "dup" })),
-  ).toEqual({ state: "outdated" });
+  expect(anchorComment(ambiguous, comment({ endLine: 12, lineText: "dup" }))).toEqual({ state: "outdated" });
 });
 
 test("excerptFor renders line-numbered content and skips uncovered lines", () => {
@@ -123,11 +121,12 @@ test("commentSubmissionText marks deletion-side comments as old version", () => 
 });
 
 test("annotationsForItem anchors comments and appends the draft", () => {
-  const annotations = annotationsForItem(
-    item(),
-    [comment(), comment({ id: "c-2", lineText: "gone forever" })],
-    { itemId: "src/example.ts", side: "additions", startLine: 30, endLine: 30 },
-  );
+  const annotations = annotationsForItem(item(), [comment(), comment({ id: "c-2", lineText: "gone forever" })], {
+    itemId: "src/example.ts",
+    side: "additions",
+    startLine: 30,
+    endLine: 30,
+  });
   expect(annotations).toHaveLength(2);
   expect(annotations[0]).toMatchObject({ side: "additions", lineNumber: 11 });
   expect(annotations[1]).toMatchObject({ lineNumber: 30, metadata: { kind: "draft" } });
@@ -156,10 +155,7 @@ test("withCommentAnnotations leaves unrelated streamed items untouched", () => {
 });
 
 test("sidebarCommentEntries includes outdated comments with a fallback item", () => {
-  const entries = sidebarCommentEntries(
-    [item()],
-    [comment(), comment({ id: "c-2", lineText: "gone forever" })],
-  );
+  const entries = sidebarCommentEntries([item()], [comment(), comment({ id: "c-2", lineText: "gone forever" })]);
   expect(entries).toHaveLength(2);
   expect(entries[0]).toMatchObject({ itemId: "src/example.ts", anchor: { state: "anchored" }, pending: false });
   expect(entries[1]).toMatchObject({ itemId: "src/example.ts", anchor: { state: "outdated" }, pending: false });
@@ -199,9 +195,7 @@ test("diffExcerptFor renders paired -/+ rows with trimmed context", async () => 
     ],
   };
   // Comment on the added lines 11-12: the paired deletion shows too.
-  expect(diffExcerptFor(withContent, "additions", 11, 12)).toBe(
-    "-let b = 2;\n+const b = 2;\n+const c = 3;",
-  );
+  expect(diffExcerptFor(withContent, "additions", 11, 12)).toBe("-let b = 2;\n+const b = 2;\n+const c = 3;");
   // Comment including the leading context line 10.
   expect(diffExcerptFor(withContent, "additions", 10, 12)).toBe(
     " const a = 1;\n-let b = 2;\n+const b = 2;\n+const c = 3;",

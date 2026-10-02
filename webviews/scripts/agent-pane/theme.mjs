@@ -4,13 +4,21 @@
 // Sources/CmuxNextAgentPane/AgentPaneTheme.swift: the harness must color the
 // pane as the app does.
 
-const rgb = (hex, alpha = 1) => ({ r: ((hex >> 16) & 255) / 255, g: ((hex >> 8) & 255) / 255, b: (hex & 255) / 255, a: alpha });
+const rgb = (hex, alpha = 1) => ({
+  r: ((hex >> 16) & 255) / 255,
+  g: ((hex >> 8) & 255) / 255,
+  b: (hex & 255) / 255,
+  a: alpha,
+});
 
 /// `ThemeInput.ghosttyDefault`: the theme when the Ghostty config sets none.
 export const ghosttyDefault = {
   background: rgb(0x282c34),
   foreground: rgb(0xffffff),
-  palette: [0x1d1f21, 0xcc6666, 0xb5bd68, 0xf0c674, 0x81a2be, 0xb294bb, 0x8abeb7, 0xc5c8c6, 0x666666, 0xd54e53, 0xb9ca4a, 0xe7c547, 0x7aa6da, 0xc397d8, 0x70c0b1, 0xeaeaea].map((hex) => rgb(hex)),
+  palette: [
+    0x1d1f21, 0xcc6666, 0xb5bd68, 0xf0c674, 0x81a2be, 0xb294bb, 0x8abeb7, 0xc5c8c6, 0x666666, 0xd54e53, 0xb9ca4a,
+    0xe7c547, 0x7aa6da, 0xc397d8, 0x70c0b1, 0xeaeaea,
+  ].map((hex) => rgb(hex)),
   backgroundOpacity: 1,
 };
 
@@ -18,8 +26,12 @@ const luminance = ({ r, g, b }) => {
   const linear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
   return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
 };
-const contrast = (x, y) => (Math.max(luminance(x), luminance(y)) + 0.05) / (Math.min(luminance(x), luminance(y)) + 0.05);
-const mixed = (c, o, f) => { const t = Math.min(1, Math.max(0, f)); return { r: c.r + (o.r - c.r) * t, g: c.g + (o.g - c.g) * t, b: c.b + (o.b - c.b) * t, a: c.a }; };
+const contrast = (x, y) =>
+  (Math.max(luminance(x), luminance(y)) + 0.05) / (Math.min(luminance(x), luminance(y)) + 0.05);
+const mixed = (c, o, f) => {
+  const t = Math.min(1, Math.max(0, f));
+  return { r: c.r + (o.r - c.r) * t, g: c.g + (o.g - c.g) * t, b: c.b + (o.b - c.b) * t, a: c.a };
+};
 const withAlpha = (c, a) => ({ ...c, a });
 const composited = (c, base) => withAlpha(mixed(base, withAlpha(c, 1), c.a), 1);
 const white = rgb(0xffffff);
@@ -70,7 +82,8 @@ export function themeTokens(input) {
   };
 }
 
-const css = (c) => `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${Math.round(c.a * 1000) / 1000})`;
+const css = (c) =>
+  `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${Math.round(c.a * 1000) / 1000})`;
 
 /// `AgentPaneTheme.values(tokens)`: the object `cmuxAcpmuxBridge.applyTheme` receives.
 export function agentPaneTheme(input) {

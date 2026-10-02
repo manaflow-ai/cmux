@@ -26,20 +26,10 @@ export function sanitizeViewerPrefs(raw: unknown): ViewerPrefs {
   if (source.layout === "split" || source.layout === "unified") {
     prefs.layout = source.layout;
   }
-  if (
-    source.diffIndicators === "bars" ||
-    source.diffIndicators === "classic" ||
-    source.diffIndicators === "none"
-  ) {
+  if (source.diffIndicators === "bars" || source.diffIndicators === "classic" || source.diffIndicators === "none") {
     prefs.diffIndicators = source.diffIndicators;
   }
-  for (const key of [
-    "wordWrap",
-    "wordDiffs",
-    "lineNumbers",
-    "showBackgrounds",
-    "expandUnchanged",
-  ] as const) {
+  for (const key of ["wordWrap", "wordDiffs", "lineNumbers", "showBackgrounds", "expandUnchanged"] as const) {
     if (typeof source[key] === "boolean") {
       prefs[key] = source[key];
     }
