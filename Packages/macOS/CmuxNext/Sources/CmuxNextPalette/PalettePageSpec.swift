@@ -65,6 +65,10 @@ public struct PaletteTextInputSpec {
     public var placeholder: String
     public var symbol: String
     public var initialText: String
+    /// Return on the untouched `initialText` closes without running: the
+    /// initial text is a snapshot (a rename's current name), so committing
+    /// it could revert a rename made meanwhile.
+    public var skipsUnchangedText: Bool
     /// Row title for the current text, such as "Rename to “api”".
     public var submitTitle: @MainActor (String) -> String
     public var isValid: @MainActor (String) -> Bool
@@ -79,6 +83,7 @@ public struct PaletteTextInputSpec {
         placeholder: String,
         symbol: String = "pencil",
         initialText: String = "",
+        skipsUnchangedText: Bool = false,
         submitTitle: @escaping @MainActor (String) -> String,
         isValid: @escaping @MainActor (String) -> Bool = { !$0.trimmingCharacters(in: .whitespaces).isEmpty },
         next: (@MainActor (String) -> PaletteEffect)? = nil,
@@ -89,6 +94,7 @@ public struct PaletteTextInputSpec {
         self.placeholder = placeholder
         self.symbol = symbol
         self.initialText = initialText
+        self.skipsUnchangedText = skipsUnchangedText
         self.submitTitle = submitTitle
         self.isValid = isValid
         self.submit = submit

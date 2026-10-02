@@ -116,22 +116,24 @@ trusted run (a same-repository pull request, or a push, schedule or
 workflow_dispatch, whose code is this repository's own branch; see
 TRUSTED_SIDE_EVENTS), their small macOS jobs take vars.CI_LIGHT_LANE_RUNNER
 (the light minis' side label) or vars.CI_SIDE_LANE_RUNNER (the std minis'),
-both glaeda-side-* labels that only the minis' non-root runners carry. Attempt
-2 and later take the job's Blacksmith default. So the first job on an owned label marks the run as on a persistent
+both glaeda-side-* labels that only the minis' non-root runners carry. Most
+side lanes take the job's Blacksmith default on attempt 2 and later. cmux-next
+keeps trusted attempts 1 and 2 on the owned side label and only overflows a
+later bot attempt after its ten-minute queue budget. So the first job on an owned label marks the run as on a persistent
 pool (a job behind a Linux gate appears once the gate ends), and the watch
 stops once every owned job has been accepted, which a side lane's few short
 jobs reach in minutes. A refused side-lane job gets the run's failed jobs
 re-run; a stuck one gets the run cancelled and its failed and cancelled jobs
-re-run, keeping the jobs that had already finished. That re-run (attempt 2)
-takes the lane's Blacksmith default, so the watch ends there. A
+re-run, keeping the jobs that had already finished. That re-run takes the
+lane's configured retry route, so the watch ends there or continues on
+cmux-next's owned label. A
 stuck run that finished some other way (a newer push cancelled it) is not
 re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. A side-lane run that is not
 a pull request has no head to move, like a dispatch. cmux-next.yml exists only
-on the feat-cmux-next branch; its macos-placement job puts each Mac job of
-attempt 1 on the side label only while an owned side runner is idle
-(side_lane_placement.py), the rest on the job's fallback, and uploads the
-owned-pool-watch marker unless every job took the fallback, so the sweeper
-adopts it like a picker's run and watches the jobs on owned labels.
+on the feat-cmux-next branch; its macos-placement job records idle side
+capacity but keeps each trusted Mac job on the side label while the fleet
+drains (side_lane_placement.py), and uploads the owned-pool-watch marker so
+the sweeper adopts it like a picker's run and watches the jobs on owned labels.
 
 Nightly builds (NIGHTLY_WORKFLOW_PATH) are watched like a side lane: there is
 no picker, and attempt 1 of a push or schedule run on main puts
@@ -254,6 +256,9 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
 })
+# cmux-next is the side lane whose placement and retry route are minis-first;
+# other side workflows keep their existing fallback policy.
+CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
 # Events whose code is this repository's own: a push or schedule runs a branch
 # of it, and a workflow_dispatch needs write access. A side-lane run of one of
 # these is owned-eligible like a same-repository pull request. merge_group,
@@ -265,6 +270,9 @@ E2E_PICKER_JOB = "runner"
 # ci.yml's job that runs the pool picker; its jobs-API name (no `name:` override).
 PICKER_JOB = "changes"
 DEFAULT_BUDGET_SECONDS = 90
+# Side lanes deliberately queue on the owned label while minis drain. Their
+# overflow is a measured queue decision, not the 90-second CI rescue budget.
+SIDE_DEFAULT_BUDGET_SECONDS = 600
 MIN_BUDGET_SECONDS = 30
 MAX_BUDGET_SECONDS = 600
 # A job's budget ends this long before the watch does (job_budget()): two
@@ -330,9 +338,16 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
     """A re-run of a CI run whose owned jobs go back to the minis, so it is watched like attempt 1: attempt 2,
     or a later one of a pull request someone other than github-actions[bot] started."""
     attempt = int(run.get("run_attempt") or 0)
-    return attempt > 1 and run.get("path") == CI_WORKFLOW_PATH and (attempt <= LAST_OWNED_ATTEMPT or (
-        run.get("event") == "pull_request"
-        and str((run.get("triggering_actor") or {}).get("login") or "") != RESCUE_ACTOR))
+    if attempt <= 1:
+        return False
+    actor = str((run.get("triggering_actor") or {}).get("login") or "")
+    if run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
+        # Manual side-lane reruns stay minis-first at any attempt. The bot's
+        # second attempt is still watched so a second long queue can overflow
+        # on attempt three; bot attempt three is the overflow route.
+        return actor != RESCUE_ACTOR or attempt <= LAST_OWNED_ATTEMPT
+    return run.get("path") == CI_WORKFLOW_PATH and (attempt <= LAST_OWNED_ATTEMPT or (
+        run.get("event") == "pull_request" and actor != RESCUE_ACTOR))
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 XCODE_SELECTION_STEPS = frozenset({"Select Xcode", "Select helper Xcode"})
@@ -359,6 +374,13 @@ def budget(value: str | None) -> int | None:
     except ValueError:
         return None
     return seconds if MIN_BUDGET_SECONDS <= seconds <= MAX_BUDGET_SECONDS else None
+
+
+def side_budget(value: str | None) -> int | None:
+    """The side-lane queue budget, defaulting to ten minutes."""
+    if not (value or "").strip():
+        return SIDE_DEFAULT_BUDGET_SECONDS
+    return budget(value)
 
 
 def queue_seconds(rounds: str | None) -> int:
@@ -947,6 +969,10 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
 def next_attempt(target: Target) -> str:
     """Where a re-run of failed jobs goes next."""
     following = target.attempt + 1
+    if target.path == CMUX_NEXT_WORKFLOW_PATH:
+        if following <= LAST_OWNED_ATTEMPT:
+            return f"attempt {following} stays on the side lane's owned label"
+        return f"attempt {following} takes the side lane's Blacksmith overflow after the long mini queue"
     if target.side:
         return f"attempt {following} takes the side lane's Blacksmith default"
     if following <= LAST_OWNED_ATTEMPT and not target.e2e:
@@ -1091,13 +1117,17 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if seconds is None:
         return finish(f"CI_OWNED_POOL_RESCUE_SECONDS must be {MIN_BUDGET_SECONDS} to {MAX_BUDGET_SECONDS}; "
                       "nothing to watch")
+    side_seconds = side_budget(env.get("SIDE_RESCUE_SECONDS"))
+    if side_seconds is None:
+        return finish(f"SIDE_RESCUE_SECONDS must be {MIN_BUDGET_SECONDS} to {MAX_BUDGET_SECONDS}; "
+                      "nothing to watch")
     repository = env.get("GITHUB_REPOSITORY") or ""
     client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository,
                            read_token=env.get("READ_TOKEN") or "")
     if (env.get("SWEEP") or "").strip() == "1":
         # One job for every marked run (sweep()); its per-run lines go to the log only.
         outcomes = sweep(client, repository, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
-                         now=clock, log=lambda text: print(text, flush=True))
+                         now=clock, log=lambda text: print(text, flush=True), side_seconds=side_seconds)
         return finish("swept: " + (", ".join(f"{count} {outcome}" for outcome, count in sorted(outcomes.items()))
                                    or "no run needed a watch"))
     run_id = (env.get("WATCH_RUN_ID") or "").strip()
@@ -1122,7 +1152,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         target = dataclasses.replace(target, late=True)
     try:
         return finish(follow(client, target, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
-                             now=clock, sleep=sleep, log=log))
+                             now=clock, sleep=sleep, log=log, side_seconds=side_seconds))
     except (*READ_ERRORS, Aborted) as error:
         # A failed watch leaves the run exactly as GitHub scheduled it.
         finish(f"gave up: {error}")
@@ -1132,7 +1162,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
 def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | None,
            now: Callable[[], dt.datetime], sleep: Callable[[float], None], log: Callable[[str], None],
            rescue_sleep: Callable[[float], None] | None = None, latest: dt.datetime | None = None,
-           light_retry: bool = False) -> str:
+           light_retry: bool = False, side_seconds: int | None = None) -> str:
     """Watch one run and rescue it when it needs it. Returns the outcome; raises READ_ERRORS or Aborted.
 
     The sweeper stops a watch by making `sleep` raise; a rescue paces itself
@@ -1142,6 +1172,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     """
     rescue_sleep = rescue_sleep or sleep
     clock = now
+    effective_seconds = side_seconds if target.path == CMUX_NEXT_WORKFLOW_PATH and side_seconds is not None else seconds
 
     def capped(deadline: dt.datetime) -> dt.datetime:
         return min(deadline, latest) if latest is not None else deadline
@@ -1160,17 +1191,17 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         # The trusted minis seed DerivedData on every push to main, as this run
         # starts: let the app build wait one round behind a seed.
         queue_extra = QUEUE_ROUND_SECONDS
-    log(f"watching run {target.run_id} of {subject} (budget {seconds + queue_extra}s"
-        + (f": {seconds}s past the {queue_extra}s an owned job may expect to wait)" if queue_extra else ")"))
+    log(f"watching run {target.run_id} of {subject} (budget {effective_seconds + queue_extra}s"
+        + (f": {effective_seconds}s past the {queue_extra}s an owned job may expect to wait)" if queue_extra else ")"))
     # A rescue may run past the watch deadline, within the job's own timeout,
     # so a cancel is never started without the time to settle and re-run.
     started = clock()
     deadline = started + dt.timedelta(seconds=target.watch_limit)
     rescue_deadline = capped(deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS))
     # Every attempt gets the queue allowance: a re-run's owned jobs queue on the owned labels like attempt 1's.
-    first_budget = seconds + queue_extra
+    first_budget = effective_seconds + queue_extra
     outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
-                            log=log, deadline=deadline, floor_seconds=seconds)
+                            log=log, deadline=deadline, floor_seconds=effective_seconds)
     if outcome not in ("rescue", "refused"):
         return f"stopped: {reason}"
     log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
@@ -1192,7 +1223,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         deadline = min(clock() + dt.timedelta(seconds=target.watch_limit), started + dt.timedelta(
             seconds=JOB_TIMEOUT_SECONDS - RESCUE_GRACE_SECONDS - JOB_TIMEOUT_MARGIN_SECONDS))
         rescue_deadline = capped(deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS))
-        outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log,
+        outcome, reason = watch(client, target, budget_seconds=effective_seconds, now=clock, sleep=sleep, log=log,
                                 deadline=deadline)
         if outcome not in ("rescue", "refused"):
             return f"stopped watching attempt {target.attempt}: {reason}"
@@ -1272,7 +1303,8 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
 def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | None,
           now: Callable[[], dt.datetime], log: Callable[[str], None],
           sweep_seconds: int = SWEEP_SECONDS, tick_seconds: float = SWEEP_TICK_SECONDS,
-          wait: Callable[[float], None] = time.sleep, light_retry: bool = False) -> dict[str, int]:
+          wait: Callable[[float], None] = time.sleep, light_retry: bool = False,
+          side_seconds: int | None = None) -> dict[str, int]:
     """Watch every marked run until `sweep_seconds` pass. Returns outcome counts."""
     stopping = threading.Event()
     lock = threading.Lock()
@@ -1294,7 +1326,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         try:
             outcome = follow(client, target, seconds=seconds, queue_rounds=queue_rounds,
                              now=now, sleep=watch_sleep, log=say, rescue_sleep=wait, latest=latest,
-                             light_retry=light_retry)
+                             light_retry=light_retry, side_seconds=side_seconds)
         except Stopping:
             outcome = "handed over"
         except (*READ_ERRORS, Aborted) as error:

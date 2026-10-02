@@ -1,0 +1,155 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "cmux/skills",
+  "name": {
+    "en": "Skills and MCP",
+    "ja": "スキルとMCP"
+  },
+  "version": "0.1.0",
+  "description": {
+    "en": "Install, turn on and off, and remove the skills and MCP servers of Claude Code, Codex, OpenCode and other agents, for one project or everywhere. Every change shows the exact edit to the agent's own config before it is written.",
+    "ja": "Claude Code、Codex、OpenCodeなどのエージェントのスキルとMCPサーバーを、プロジェクト単位または全体でインストール、オン・オフ、削除します。変更は書き込む前に、エージェント自身の設定ファイルへの正確な編集として表示されます。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "agents",
+    "developer-tools"
+  ],
+  "keywords": [
+    "skills",
+    "mcp",
+    "agents",
+    "config",
+    "install"
+  ],
+  "engines": {
+    "cmux": "^1.0"
+  },
+  "main": "dist/main.js",
+  "scopes": {
+    "skill:read": "List the skills each agent loads, their source, what they ask for and their sandbox.",
+    "mcp_server:read": "List the MCP servers each agent starts. Secret values are never shown, only their names.",
+    "workspace:read": "Find the folder of the current workspace for project skills and servers."
+  },
+  "optionalScopes": {
+    "skill:write": "Install, turn on and off, and remove skills when you tap Apply on the change you reviewed.",
+    "mcp_server:write": "Add, turn on and off, and remove MCP servers when you tap Apply on the change you reviewed."
+  },
+  "contributes": {
+    "sidebarSections": [
+      {
+        "id": "skills",
+        "title": {
+          "en": "Skills",
+          "ja": "スキル"
+        },
+        "symbol": "book.closed",
+        "defaultRegion": "bottom",
+        "render": "renderSection"
+      }
+    ],
+    "paneKinds": [
+      {
+        "id": "skillsHub",
+        "title": {
+          "en": "Skills and MCP",
+          "ja": "スキルとMCP"
+        },
+        "symbol": "book.closed",
+        "render": "renderPane"
+      }
+    ],
+    "commands": [
+      {
+        "id": "openSkills",
+        "title": {
+          "en": "Open Skills and MCP",
+          "ja": "スキルとMCPを開く"
+        },
+        "symbol": "book.closed",
+        "run": "openSkills",
+        "keywords": [
+          "skills",
+          "mcp",
+          "servers"
+        ],
+        "contexts": [
+          "palette",
+          "sidebarSection:skills"
+        ]
+      },
+      {
+        "id": "reload",
+        "title": {
+          "en": "Reload Skills and MCP Servers",
+          "ja": "スキルとMCPサーバーを再読み込み"
+        },
+        "symbol": "arrow.clockwise",
+        "run": "reload",
+        "keywords": [
+          "refresh"
+        ],
+        "contexts": [
+          "palette",
+          "sidebarSection:skills"
+        ]
+      },
+      {
+        "id": "cycleVariant",
+        "title": {
+          "en": "Next Skills Variant",
+          "ja": "スキルの次のバリアント"
+        },
+        "run": "cycleVariant",
+        "contexts": [
+          "palette"
+        ],
+        "x-cmux-devOnly": true
+      }
+    ],
+    "settings": {
+      "type": "object",
+      "properties": {
+        "variant": {
+          "type": "string",
+          "enum": [
+            "unified",
+            "byAgent",
+            "byScope"
+          ],
+          "default": "unified",
+          "title": "Design variant",
+          "description": "unified: one list with details and an inline diff. byAgent: per agent, the diff opens in Diffs. byScope: everywhere vs this project, changed lines only.",
+          "x-cmux-devOnly": true
+        },
+        "reviewIn": {
+          "type": "string",
+          "enum": [
+            "inline",
+            "diffs"
+          ],
+          "default": "inline",
+          "title": "Where to review changes before they are written"
+        }
+      }
+    }
+  },
+  "activation": [
+    "onSidebarSection:skills",
+    "onPane:skillsHub",
+    "onCommand:openSkills",
+    "onCommand:reload"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "strings/"
+  ]
+}

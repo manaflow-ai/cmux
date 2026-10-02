@@ -44,11 +44,17 @@ extension ScreenContentView {
                                         axis: divider.axis, minimumA: divider.minimumA, minimumB: divider.minimumB)
             case let .columnEdge(id):
                 guard let frame = geometry.columns[id] else { return }
-                let minimum = layout.columns.first { $0.id == id }.map { SplitGeometry.minimumSize(of: $0.root, style: context.style).width } ?? 0
+                let size = layout.columns.first { $0.id == id }.map { SplitGeometry.minimumSize(of: $0.root, style: context.style) } ?? .zero
                 let edge = geometry.columnEdges.first { $0.column == id }?.stickyEdge
-                let grab = edge == .right ? point.x - frame.minX : point.x - frame.maxX
+                let grab: CGFloat = switch edge {
+                case .right?: point.x - frame.minX
+                case .top?: point.y - frame.maxY
+                case .bottom?: point.y - frame.minY
+                case .left?, nil: point.x - frame.maxX
+                }
+                let band = edge?.isBand == true
                 activeDrag = ActiveDrag(kind: kind, transaction: .make(), grabOffset: grab, container: frame,
-                                        axis: .horizontal, minimumA: minimum, stickyEdge: edge)
+                                        axis: band ? .vertical : .horizontal, minimumA: band ? size.height : size.width, stickyEdge: edge)
             }
             model.setGestureActive(true)
             context.requestFrames()
@@ -73,15 +79,22 @@ extension ScreenContentView {
                                             style: style, minimumA: drag.minimumA, minimumB: drag.minimumB)
             context.model.setSplitRatio(id, ratio: ratio, transaction: drag.transaction, phase: phase)
         case let .columnEdge(id):
-            // Strip widths are shares of the strip's viewport; a sticky
-            // column's width is a share of the whole view.
-            let width: CGFloat
+            // Strip widths are shares of the strip's viewport; a side dock's
+            // width is a share of the whole view's width, a top or bottom
+            // dock's height a share of its height (same formula).
+            let extent: CGFloat
             switch drag.stickyEdge {
-            case .right?: width = max(drag.container.maxX - (point.x - drag.grabOffset), drag.minimumA)
-            case .left?, .top?, .bottom?, nil: width = max(point.x - drag.grabOffset - drag.container.minX, drag.minimumA)
+            case .right?: extent = max(drag.container.maxX - (point.x - drag.grabOffset), drag.minimumA)
+            case .top?: extent = max(point.y - drag.grabOffset - drag.container.minY, drag.minimumA)
+            case .bottom?: extent = max(drag.container.maxY - (point.y - drag.grabOffset), drag.minimumA)
+            case .left?, nil: extent = max(point.x - drag.grabOffset - drag.container.minX, drag.minimumA)
             }
-            let viewport = drag.stickyEdge == nil ? geometry.stripWidth : bounds.width
-            let fraction = ColumnStripGeometry.fraction(forPixelWidth: width, viewportWidth: viewport, gap: style.stripGap)
+            let viewport = switch drag.stickyEdge {
+            case nil: geometry.stripWidth
+            case .top?, .bottom?: bounds.height
+            case .left?, .right?: bounds.width
+            }
+            let fraction = ColumnStripGeometry.fraction(forPixelWidth: extent, viewportWidth: viewport, gap: style.stripGap)
             context.model.setColumnWidth(id, width: fraction, transaction: drag.transaction, phase: phase)
         }
     }

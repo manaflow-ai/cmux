@@ -20,6 +20,9 @@ public nonisolated enum ActionCatalog {
         "tab.previous": "prevSurface",
         "view.toggleSidebar": "toggleSidebar",
         "palette.show": "commandPalette",
+        // Go to Tab… became Search Tabs (one tab list); with a tab target it
+        // still focuses that tab.
+        "palette.goToTab": "tab.search",
         // Browser profile placeholders from before browser profiles existed.
         "browserNewProfile": "browserProfile.new",
         "browserRenameProfile": "browserProfile.rename",

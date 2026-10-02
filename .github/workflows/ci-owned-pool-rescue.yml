@@ -131,6 +131,9 @@ jobs:
           QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           GH_TOKEN: ${{ github.token }}
           RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}
+          # Side lanes queue on their owned label for ten minutes before a
+          # rescue attempt is allowed to overflow to Blacksmith.
+          SIDE_RESCUE_SECONDS: "600"
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           WATCH_RUN_ID: ${{ inputs.run_id }}
           SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}
