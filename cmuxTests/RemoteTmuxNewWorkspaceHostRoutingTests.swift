@@ -52,6 +52,115 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         return path
     }
 
+    /// A stub that creates `sessionName` successfully and then answers
+    /// `kill-session` with `killExit`, recording every invocation to `argvLog`.
+    private func makeCreateThenKillStub(sessionName: String, killExit: Int, argvLog: String) throws -> String {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-create-kill-stub-\(UUID().uuidString).sh").path
+        try """
+        #!/bin/sh
+        echo "$@" >> "\(argvLog)"
+        case "$*" in *kill-session*) exit \(killExit) ;; esac
+        echo \(sessionName)
+
+        """.write(toFile: path, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+        return path
+    }
+
+    private struct AttachRefused: LocalizedError {
+        var errorDescription: String? { "control stream refused" }
+    }
+
+    /// Runs a routed New Workspace whose create succeeds and whose attach throws,
+    /// and returns what was reported plus the stub's recorded invocations.
+    private func runCreateThenFailedAttach(
+        sessionName: String,
+        killExit: Int
+    ) async throws -> (failures: [RemoteTmuxController.NewSessionFailure], argv: String, tabs: Int) {
+        _ = NSApplication.shared
+        let appDelegate = try #require(AppDelegate.shared)
+        let argvLog = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-create-kill-argv-\(UUID().uuidString).log").path
+        let stub = try makeCreateThenKillStub(sessionName: sessionName, killExit: killExit, argvLog: argvLog)
+        let restoreSSH = pinStubSSH(stub)
+        defer {
+            restoreSSH()
+            try? FileManager.default.removeItem(atPath: stub)
+            try? FileManager.default.removeItem(atPath: argvLog)
+        }
+        let controller = RemoteTmuxController()
+        let manager = TabManager()
+        _ = try mirrorSelectedSession(controller: controller, host: hostA, sessionName: "dev", into: manager)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            controller.detach(host: hostA, sessionName: "dev")
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+        var failures: [RemoteTmuxController.NewSessionFailure] = []
+        controller.reportNewSessionFailure = { _, failure, _ in failures.append(failure) }
+        controller.mirrorNewSession = { _, _, _, _ in throw AttachRefused() }
+        let tabsBefore = manager.tabs.count
+
+        #expect(controller.handleNewWorkspaceRequested(in: manager))
+        await controller.newSessionRoutingTask?.value
+
+        let argv = (try? String(contentsOfFile: argvLog, encoding: .utf8)) ?? ""
+        return (failures, argv, manager.tabs.count - tabsBefore)
+    }
+
+    /// The session exists on the host once `new-session` succeeds. When the
+    /// attach then fails, that is not a creation failure, and the session cmux
+    /// just made is removed instead of being left with nothing showing it.
+    @Test func aFailedAttachRemovesTheSessionItCreatedAndReportsAnAttachFailure() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let run = try await runCreateThenFailedAttach(sessionName: "orphan", killExit: 0)
+            #expect(run.failures == [
+                .attach(sessionName: "orphan", removed: true, detail: "control stream refused"),
+            ])
+            #expect(run.argv.contains("'new-session' '-d' '-P' '-F' '#{session_name}'"))
+            #expect(run.argv.contains("'kill-session' '-t' '=orphan'"))
+            #expect(run.tabs == 0)
+        }
+    }
+
+    /// When the cleanup itself fails, the report says the session is still there
+    /// and names it, so the user can find it.
+    @Test func aFailedAttachWhoseCleanupFailsReportsTheSessionAsLeftBehind() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let run = try await runCreateThenFailedAttach(sessionName: "stuck", killExit: 1)
+            #expect(run.failures == [
+                .attach(sessionName: "stuck", removed: false, detail: "control stream refused"),
+            ])
+            #expect(run.argv.contains("'kill-session' '-t' '=stuck'"))
+            #expect(run.tabs == 0)
+        }
+    }
+
+    /// The three outcomes read differently: only a creation failure says nothing
+    /// was created, and only a left-behind session is named.
+    @Test func theAlertSaysWhichStepFailed() {
+        let create = RemoteTmuxController.newSessionFailureAlertText(
+            host: hostA, failure: .create(detail: "banner\nduplicate session: dev\n")
+        )
+        let removed = RemoteTmuxController.newSessionFailureAlertText(
+            host: hostA, failure: .attach(sessionName: "orphan", removed: true, detail: "control stream refused")
+        )
+        let left = RemoteTmuxController.newSessionFailureAlertText(
+            host: hostA, failure: .attach(sessionName: "stuck", removed: false, detail: "")
+        )
+        #expect(create.title != removed.title)
+        #expect(removed.title == left.title)
+        #expect(create.title.contains(hostA.destination))
+        #expect(removed.title.contains(hostA.destination))
+        #expect(create.message.hasSuffix("\n\nduplicate session: dev"))
+        #expect(!create.message.contains("banner"))
+        #expect(removed.message.hasSuffix("\n\ncontrol stream refused"))
+        #expect(!removed.message.contains("orphan"))
+        #expect(left.message.contains("stuck"))
+        #expect(removed.message != left.message)
+    }
+
     private func mirrorSelectedSession(
         controller: RemoteTmuxController,
         host: RemoteTmuxHost,
@@ -292,10 +401,10 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             defer { restoreSSH() }
             let manager = TabManager()
             let localWorkspace = try #require(manager.selectedWorkspace)
-            var reportedFailures: [(host: RemoteTmuxHost, detail: String)] = []
+            var reportedFailures: [(host: RemoteTmuxHost, failure: RemoteTmuxController.NewSessionFailure)] = []
             let previousReport = controller.reportNewSessionFailure
-            controller.reportNewSessionFailure = { host, detail, _ in
-                reportedFailures.append((host: host, detail: detail))
+            controller.reportNewSessionFailure = { host, failure, _ in
+                reportedFailures.append((host: host, failure: failure))
             }
             let mirrorWorkspace = try mirrorSelectedSession(
                 controller: controller, host: hostA, sessionName: "dev", into: manager
@@ -323,6 +432,10 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             #expect(manager.tabs.map(\.id) == tabsBefore)
             #expect(reportedFailures.count == 1)
             #expect(reportedFailures.first?.host == hostA)
+            // Nothing was created, so this is the creation failure, not an attach one.
+            if case .create = reportedFailures.first?.failure {} else {
+                Issue.record("expected a creation failure, got \(String(describing: reportedFailures.first?.failure))")
+            }
 
             // Active workspace is local: the same action creates a local workspace.
             manager.selectWorkspace(localWorkspace)
