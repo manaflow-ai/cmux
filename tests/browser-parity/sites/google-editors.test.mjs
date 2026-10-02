@@ -38,6 +38,7 @@ test("googleSheets.append, write and clear on a private sheet run at once and ve
   const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL test")');
   assert.match(f.url, /^https:\/\/docs\.google\.com\/spreadsheets\/d\/[\w-]+\/edit$/);
   assert.equal(f.title, "cmux REPL test");
+  assert.equal(files.get(f.id).title, "cmux REPL test", "the rename reached the file");
   assert.deepEqual(await s.value(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [["a", "b"], ["1", "=SUM(A2:A2)"]])`), { status: "written", range: "A1:B2", verified: true });
   assert.deepEqual(await s.value(`sites.googleSheets.append(${JSON.stringify(f.url)}, [["2", "x"]])`), { status: "written", range: "A3:B3", verified: true });
   assert.deepEqual((await s.value(`sites.googleSheets.read(${JSON.stringify(f.url)})`)).rows, [["a", "b"], ["1", "1"], ["2", "x"]]);

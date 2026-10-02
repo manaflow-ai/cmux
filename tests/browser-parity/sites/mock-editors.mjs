@@ -173,7 +173,7 @@ function replaceIn(file, find, repl) {
 
 const shell = (file, body) => `<!doctype html><html><head><meta charset="utf-8"><title>${esc(file.title)} - Google ${file.kind === "spreadsheets" ? "Sheets" : file.kind === "document" ? "Docs" : "Slides"}</title></head><body>
 <div id="docs-titlebar"><input class="docs-title-input" value="${esc(file.title)}" aria-label="Rename">
-<div id="share-slot"></div>
+<div id="share-slot"></div><div role="button" aria-label="Share screen">Present</div>
 <div id="docs-file-menu" role="menuitem">File</div></div>
 ${body}
 <script>
@@ -181,7 +181,14 @@ ${body}
 // As live: an unlabeled wrapper carries the id; the inner button the label.
 setTimeout(() => { document.getElementById("share-slot").innerHTML = '<div id="docs-titlebar-share-client-button"><div role="button" aria-label="Share. ${file.shared ? "Anyone with the link can view" : "Private to only me"}. "> <span>Share</span></div></div>'; }, 600);
 const post = (path, data) => fetch(location.pathname.replace(/\\/edit$/, "") + "/__mock/" + path, { method: "POST", body: JSON.stringify(data) });
-document.querySelector(".docs-title-input").addEventListener("keydown", (e) => { if (e.key === "Enter") post("title", { title: e.target.value }); });
+// As live in Docs: a rename typed while the editor is still loading is lost.
+const loadedAt = Date.now();
+document.querySelector(".docs-title-input").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  if (Date.now() - loadedAt < 1200) { e.target.value = document.title.replace(/ - Google \\w+$/, ""); return; }
+  post("title", { title: e.target.value });
+  document.title = e.target.value + " - Google Docs";
+});
 document.getElementById("docs-file-menu").addEventListener("click", () => {
   document.body.insertAdjacentHTML("beforeend", '<div role="menu"><div role="menuitem" id="trash-item">Move to trash</div></div>');
   document.getElementById("trash-item").addEventListener("click", async () => { await post("trash", {}); document.body.insertAdjacentHTML("beforeend", '<div role="dialog">File moved to trash</div>'); });
