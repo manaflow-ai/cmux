@@ -22,6 +22,7 @@ members = [
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
+    "crates/cmux-browser-host",
     "crates/cmux-tui-core",
     "crates/cmux-layout-reducer",
     "crates/cmux-pty",
@@ -44,6 +45,7 @@ default-members = [
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
+    "crates/cmux-browser-host",
     "crates/cmux-tui-core",
     "crates/cmux-layout-reducer",
     "crates/cmux-pty",
@@ -69,6 +71,8 @@ publish = false
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unused_qualifications = "warn"
+# `cargo kani` sets cfg(kani) for the proof harnesses in cmux-layout-reducer.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
 
 [workspace.lints.clippy]
 uninlined_format_args = "warn"

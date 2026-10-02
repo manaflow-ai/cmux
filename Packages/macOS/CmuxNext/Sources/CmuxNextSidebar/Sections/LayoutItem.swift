@@ -46,9 +46,25 @@ public nonisolated struct LayoutItemRef: Hashable, Sendable, Codable {
 public nonisolated struct LayoutItem: Hashable, Sendable, Codable, Identifiable {
     public var id: LayoutItemID
     public var ref: LayoutItemRef
+    /// False: the item shows its icon only on a line (inline arrangement),
+    /// like the account avatar beside Settings.
+    public var showsLabel: Bool
 
-    public init(id: LayoutItemID, ref: LayoutItemRef) {
+    public init(id: LayoutItemID, ref: LayoutItemRef, showsLabel: Bool = true) {
         self.id = id
         self.ref = ref
+        self.showsLabel = showsLabel
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, ref
+        case showsLabel = "shows_label"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(LayoutItemID.self, forKey: .id)
+        ref = try c.decode(LayoutItemRef.self, forKey: .ref)
+        showsLabel = try c.decodeIfPresent(Bool.self, forKey: .showsLabel) ?? true
     }
 }

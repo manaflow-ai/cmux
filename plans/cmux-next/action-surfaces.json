@@ -5580,6 +5580,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "liveInput",
+      "cli_name" : "action agent-pane-search-chats",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.searchChats",
+      "mcp" : "liveInput",
+      "palette" : "offered"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "agent open-terminal-as-chat",
       "context_menu" : "noObject",
@@ -7504,6 +7515,17 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "sidebar toggle-item-label",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarItem"
+      ],
+      "id" : "sidebar.item.toggleLabel",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "sidebar add-section",
       "context_menu" : "offered",
       "context_menus" : [
@@ -7577,6 +7599,72 @@
         "sidebarSection"
       ],
       "id" : "sidebar.section.useListLook",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar section-layout-list",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.layoutList",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar section-layout-inline",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.layoutInline",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar section-layout-grid",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.layoutGrid",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar set-section-alignment",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.setAlignment",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar set-section-gap",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.setGap",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar set-section-columns",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.setColumns",
       "mcp" : "offered",
       "palette" : "offered"
     },

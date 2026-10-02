@@ -551,6 +551,41 @@
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
     },
+    "sidebar.bottomBandMaxShare" : {
+      "default" : 0.25,
+      "description" : "The share of the sidebar the bottom sections fill before they scroll.",
+      "maximum" : 0.90000000000000002,
+      "minimum" : 0.10000000000000001,
+      "title" : "Bottom Sections Height",
+      "type" : "number"
+    },
+    "sidebar.sectionLook" : {
+      "default" : "quiet",
+      "description" : "How the sections above and below the workspace list draw.",
+      "enum" : [
+        "quiet",
+        "card",
+        "tray",
+        "lines",
+        "linesIcons"
+      ],
+      "title" : "Section Look",
+      "type" : "string"
+    },
+    "sidebar.stickyBandsScroll" : {
+      "default" : true,
+      "description" : "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
+      "title" : "Scroll Tall Sections",
+      "type" : "boolean"
+    },
+    "sidebar.topBandMaxShare" : {
+      "default" : 0.33333333333333331,
+      "description" : "The share of the sidebar the top sections fill before they scroll.",
+      "maximum" : 0.90000000000000002,
+      "minimum" : 0.10000000000000001,
+      "title" : "Top Sections Height",
+      "type" : "number"
+    },
     "ui.animationSpeed" : {
       "default" : "fast",
       "description" : "ui.animationSpeed",

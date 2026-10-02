@@ -1,3 +1,6 @@
 export * from "./schemas.ts"
 export * from "./ops.ts"
 export * from "./api.ts"
+export * from "./automations.ts"
+export * from "./automation-ops.ts"
+export * from "./integrations.ts"

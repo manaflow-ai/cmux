@@ -10,8 +10,8 @@
 //! ordinary screen (no niri columns) is one column with `columns_active`
 //! false.
 //!
-//! Invariants, checked by [`apply`] on every result and by the property
-//! tests:
+//! Invariants, checked by [`apply`] on every result, by the property tests
+//! and by an exhaustive check of every small layout (`exhaustive_tests.rs`):
 //!
 //! - **I1, tab conservation.** A move, split drop, column drop, reorder or
 //!   tear-off never changes the set of tabs or the content behind a tab.
@@ -838,3 +838,9 @@ fn single_pane_screen(screen: ScreenId, pane: PaneId) -> Screen {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod exhaustive_tests;
+
+#[cfg(kani)]
+mod proofs;

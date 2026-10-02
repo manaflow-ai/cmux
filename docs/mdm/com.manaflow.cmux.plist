@@ -514,6 +514,70 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>quiet</string>
+			<key>pfm_description</key>
+			<string>How the sections above and below the workspace list draw.</string>
+			<key>pfm_name</key>
+			<string>sidebar.sectionLook</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>quiet</string>
+				<string>card</string>
+				<string>tray</string>
+				<string>lines</string>
+				<string>linesIcons</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Section Look</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.33333333333333331</real>
+			<key>pfm_description</key>
+			<string>The share of the sidebar the top sections fill before they scroll.</string>
+			<key>pfm_name</key>
+			<string>sidebar.topBandMaxShare</string>
+			<key>pfm_range_max</key>
+			<real>0.90000000000000002</real>
+			<key>pfm_range_min</key>
+			<real>0.10000000000000001</real>
+			<key>pfm_title</key>
+			<string>Top Sections Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.25</real>
+			<key>pfm_description</key>
+			<string>The share of the sidebar the bottom sections fill before they scroll.</string>
+			<key>pfm_name</key>
+			<string>sidebar.bottomBandMaxShare</string>
+			<key>pfm_range_max</key>
+			<real>0.90000000000000002</real>
+			<key>pfm_range_min</key>
+			<real>0.10000000000000001</real>
+			<key>pfm_title</key>
+			<string>Bottom Sections Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Off: the top and bottom sections never scroll and the workspace list gets smaller.</string>
+			<key>pfm_name</key>
+			<string>sidebar.stickyBandsScroll</string>
+			<key>pfm_title</key>
+			<string>Scroll Tall Sections</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>chromium</string>
 			<key>pfm_description</key>
 			<string>New browser tabs open in this engine.</string>

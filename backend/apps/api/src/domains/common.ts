@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudOpByName, type CloudOpDef } from "@cmux/protocol"
+import { cloudOpByName, connectionInternalOps, schedulerInternalOps, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
@@ -39,6 +39,8 @@ export const admit = (
   if (!def.principals.includes(kind === "agent" ? "install" : kind)) {
     return { code: "auth.forbidden", message: `${opName} is not allowed for ${kind} principals` }
   }
+  // A system principal exists only inside its own DO and calls only internal ops (checked above).
+  if (kind === "system") return undefined
   if (kind !== "session") {
     const grant = grantFor(principal)
     if (!grant) return { code: "auth.forbidden", message: "grant not found" }
@@ -67,5 +69,18 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       cli: { path: "", visible: false },
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
-  ]
+  ],
+  ...schedulerInternalOps.map((d) => [d.name, d] as const),
+  ...connectionInternalOps.map((d) => [d.name, d] as const)
 ])
+
+/**
+ * Team-admin ops (policy, team settings) accept any member only because every
+ * team is personal today: the member is the owner. A shared team has no roles
+ * here yet, so it is refused until roles land (tested; do not relax this
+ * without a role check).
+ */
+export const requirePersonalTeamAdmin = (p: Principal, personalTeamId: (user: string) => string): Reject | undefined =>
+  p.user && p.team && p.team === personalTeamId(p.user)
+    ? undefined
+    : { code: "team.roles_required", message: "team admin ops need team roles, which shared teams do not have yet" }

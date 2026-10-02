@@ -40,8 +40,10 @@ public nonisolated struct SidebarRegionRow: Hashable, Sendable {
     public enum Kind: Hashable, Sendable {
         case header(LayoutSectionID)
         case item(LayoutItemID, section: LayoutSectionID)
-        /// An icon-only item: a tray tile or a lines-icons button.
+        /// An icon-only item: a grid tile or an inline icon button.
         case tile(LayoutItemID, section: LayoutSectionID)
+        /// An inline item with icon and label.
+        case chip(LayoutItemID, section: LayoutSectionID)
     }
 
     public var kind: Kind
@@ -70,7 +72,8 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
     public func row(at point: CGPoint) -> SidebarRegionRow? { rows.first { $0.frame.contains(point) } }
 
     public static func make(sections: [LayoutSection], width: CGFloat, look: SectionsLookVariant,
-                            collapsed: Set<LayoutSectionID>, metrics m: SidebarRegionMetrics) -> SidebarRegionLayout {
+                            collapsed: Set<LayoutSectionID>, metrics m: SidebarRegionMetrics,
+                            labelWidths: [LayoutItemID: CGFloat] = [:]) -> SidebarRegionLayout {
         let shown = sections.filter { $0.content == .items && (!$0.items.isEmpty || header($0, look) != nil) }
         guard !shown.isEmpty else { return .empty }
         var result = SidebarRegionLayout.empty
@@ -97,12 +100,13 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
                 sectionCapped += m.headerHeight
             }
             if !(title != nil && collapsed.contains(section.id)) {
-                if let tiling = look.tiling(section) {
-                    let grid = tiles(section, x: x + m.inset, y: y, width: max(0, innerWidth - m.inset * 2), tiling: tiling, metrics: m)
-                    result.rows += grid.rows
-                    y += grid.height
-                    let lines = min(grid.lines, section.maxRows ?? grid.lines)
-                    sectionCapped += CGFloat(lines) * grid.lineHeight + CGFloat(max(0, lines - 1)) * m.tileGap
+                if let mode = SectionFlow.mode(section, look: look) {
+                    let flow = SectionFlow.place(section, mode: mode, x: x + m.inset, y: y, width: max(0, innerWidth - m.inset * 2),
+                                                 labelWidths: labelWidths, metrics: m)
+                    result.rows += flow.rows
+                    y += flow.height
+                    let lines = min(flow.lines, section.maxRows ?? flow.lines)
+                    sectionCapped += CGFloat(lines) * flow.lineHeight + CGFloat(max(0, lines - 1)) * flow.gap
                 } else {
                     for item in section.items {
                         result.rows.append(SidebarRegionRow(kind: .item(item.id, section: section.id),
@@ -129,26 +133,6 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
     /// The header a section draws in `look`, or nil.
     static func header(_ section: LayoutSection, _ look: SectionsLookVariant) -> String? {
         look.showsHeaders ? section.headerTitle : nil
-    }
-
-    private static func tiles(_ section: LayoutSection, x: CGFloat, y: CGFloat, width: CGFloat, tiling: SectionsLookVariant.Tiling,
-                              metrics m: SidebarRegionMetrics) -> (rows: [SidebarRegionRow], height: CGFloat, lines: Int, lineHeight: CGFloat) {
-        let count = section.items.count
-        guard count > 0 else { return ([], 0, 0, 0) }
-        let minWidth = tiling == .grid ? m.tileMinWidth : m.iconButtonWidth
-        let lineHeight = tiling == .grid ? m.tileHeight : m.rowHeight
-        // Fixed columns, so one tile keeps its size and sits leading.
-        let columns = max(1, Int((width + m.tileGap) / (minWidth + m.tileGap)))
-        let tileWidth = tiling == .grid ? (width - CGFloat(columns - 1) * m.tileGap) / CGFloat(columns) : m.iconButtonWidth
-        var rows: [SidebarRegionRow] = []
-        for (i, item) in section.items.enumerated() {
-            let column = i % columns, line = i / columns
-            let frame = CGRect(x: x + CGFloat(column) * (tileWidth + m.tileGap), y: y + CGFloat(line) * (lineHeight + m.tileGap),
-                               width: tileWidth, height: lineHeight)
-            rows.append(SidebarRegionRow(kind: .tile(item.id, section: section.id), frame: frame))
-        }
-        let lines = (count + columns - 1) / columns
-        return (rows, CGFloat(lines) * lineHeight + CGFloat(lines - 1) * m.tileGap, lines, lineHeight)
     }
 
     /// The height a sticky region takes: its content, capped by the
