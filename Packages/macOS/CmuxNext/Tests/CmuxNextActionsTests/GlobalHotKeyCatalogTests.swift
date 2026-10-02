@@ -10,12 +10,18 @@ import Testing
         #expect(registry.globalHotKeys() == ["showHideAllWindows": Shortcut(".", modifiers: [.control, .option, .command])])
     }
 
-    @Test func onlyBoundActionsWithOneShortcutAreGlobal() {
+    @Test func unboundRemovedOrChordedActionsAreNotGlobal() {
         let registry = ActionRegistry.standard()
         #expect(registry.globalHotKeys().isEmpty)
 
         registry.bind("showHideAllWindows") {}
         registry.setShortcutOverride(nil, for: "showHideAllWindows")
         #expect(registry.globalHotKeys().isEmpty)
+
+        registry.setChordOverride(ShortcutChord(Shortcut("b", modifiers: [.control]), Shortcut("h", modifiers: [])), for: "showHideAllWindows")
+        #expect(registry.globalHotKeys().isEmpty)
+
+        registry.removeShortcutOverride(for: "showHideAllWindows")
+        #expect(registry.globalHotKeys().count == 1)
     }
 }

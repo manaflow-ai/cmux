@@ -20,7 +20,10 @@ final class CarbonHotKeyRegistrar: GlobalHotKeyRegistrar {
         unregister(number: number)
         var ref: EventHotKeyRef?
         let id = EventHotKeyID(signature: Self.signature, id: number)
-        let status = RegisterEventHotKey(hotKey.keyCode, hotKey.modifiers, id, GetApplicationEventTarget(), 0, &ref)
+        // Exclusive, so a key another process holds is refused instead of
+        // silently shared (two cmux builds would both answer one press).
+        let options = OptionBits(kEventHotKeyExclusive)
+        let status = RegisterEventHotKey(hotKey.keyCode, hotKey.modifiers, id, GetApplicationEventTarget(), options, &ref)
         guard status == noErr, let ref else { return false }
         refs[number] = ref
         return true

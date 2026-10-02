@@ -42,6 +42,9 @@ struct KeyCodeLayout: Sendable {
         return codes
     }()
 
+    /// The numeric keypad's key codes (kVK_ANSI_Keypad*).
+    static let keypad: ClosedRange<Int> = kVK_ANSI_KeypadDecimal...kVK_ANSI_Keypad9
+
     /// US ANSI, the fallback when the current layout cannot be read.
     static let ansi: KeyCodeLayout = {
         let printable: [String: Int] = [
@@ -63,8 +66,9 @@ struct KeyCodeLayout: Sendable {
     }()
 
     /// The layout selected now: each printable character maps to the first
-    /// key that types it unshifted (the main rows come before the keypad).
-    /// Characters the layout lacks fall back to ANSI.
+    /// key that types it unshifted. Keypad keys are skipped, since most
+    /// laptops lack them; a character the main rows type only shifted (`.`
+    /// on AZERTY) keeps its ANSI position.
     static func current() -> KeyCodeLayout {
         var layout = ansi
         guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
@@ -73,7 +77,7 @@ struct KeyCodeLayout: Sendable {
         var typed: [String: UInt32] = [:]
         data.withUnsafeBytes { raw in
             guard let keyboard = raw.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return }
-            for code in UInt16(0)..<128 {
+            for code in UInt16(0)..<128 where !Self.keypad.contains(Int(code)) {
                 var deadKeyState: UInt32 = 0
                 var length = 0
                 let capacity = 4

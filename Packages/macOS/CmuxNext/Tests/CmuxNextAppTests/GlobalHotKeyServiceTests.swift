@@ -88,6 +88,24 @@ struct GlobalHotKeyServiceTests {
         #expect(Array(registrar.held.values) == [hotKey])
     }
 
+    @Test func twoGlobalActionsOnOneKeyRegisterOnlyTheFirst() {
+        func global(_ id: ActionID) -> ActionDescriptor {
+            var descriptor = ActionDescriptor(id: id, title: id.rawValue, defaultShortcut: Shortcut("k", modifiers: [.control, .option]), category: .window)
+            descriptor.isGlobalHotKey = true
+            return descriptor
+        }
+        let registry = ActionRegistry(catalog: [global("first"), global("second")])
+        registry.bind("first") {}
+        registry.bind("second") {}
+        let registrar = FakeRegistrar()
+        let service = GlobalHotKeyService(registry: registry, registrar: registrar, layout: { KeyCodeLayout.ansi })
+        service.start()
+        defer { service.stop() }
+
+        #expect(Array(registrar.held.values) == [CarbonHotKey(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(controlKey | optionKey))])
+        #expect(service.conflicts == ["second"])
+    }
+
     @Test func anUnboundActionRegistersNothing() {
         let (_, registrar, service, _) = makeService(bound: false)
         service.start()
@@ -111,5 +129,7 @@ struct GlobalHotKeyServiceTests {
         #expect(layout.keyCode(for: f5) == UInt32(kVK_F5))
         #expect(layout.keyCode(for: "Q") == UInt32(kVK_ANSI_Q))
         #expect(layout.keyCode(for: "é") == nil)
+        #expect(KeyCodeLayout.keypad.contains(kVK_ANSI_KeypadDecimal))
+        #expect(!KeyCodeLayout.keypad.contains(kVK_ANSI_Period))
     }
 }

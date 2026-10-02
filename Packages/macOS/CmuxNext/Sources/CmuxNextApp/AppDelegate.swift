@@ -142,7 +142,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.tabBarButtons.start(settings: settings)
-        services.globalHotKeys.start()
+        // Agent-launched builds never take system-wide keys from the person's app.
+        if !environment.noActivate { services.globalHotKeys.start() }
         services.cache.browserTabs.preference.follow(settings)
         services.notifications.follow(settings)
         services.startHibernation(settings: settings)

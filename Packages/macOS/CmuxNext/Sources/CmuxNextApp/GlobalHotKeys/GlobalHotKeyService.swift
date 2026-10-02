@@ -1,5 +1,4 @@
 import AppKit
-import Carbon.HIToolbox
 import CmuxNextActions
 import Observation
 import os
@@ -11,8 +10,9 @@ import os
 /// same path as the palette, the menu and the CLI.
 @Observable
 final class GlobalHotKeyService {
-    /// Actions whose shortcut the system refused, usually because another
-    /// app holds the same key. Retried on the next change.
+    /// Actions whose key is not registered: another app holds it, or a
+    /// global action listed earlier takes the same key. Retried on the next
+    /// change.
     private(set) var conflicts: Set<ActionID> = []
     @ObservationIgnored private let registry: ActionRegistry
     @ObservationIgnored private let registrar: any GlobalHotKeyRegistrar
@@ -20,6 +20,7 @@ final class GlobalHotKeyService {
     @ObservationIgnored private var registered: [ActionID: Registration] = [:]
     @ObservationIgnored private var nextNumber: UInt32 = 1
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
+    @ObservationIgnored private var layoutObserver: KeyboardLayoutObserver?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hotkeys")
 
     struct Registration: Equatable {
@@ -48,17 +49,13 @@ final class GlobalHotKeyService {
                 self?.apply()
             }
         })
-        let layoutChanged = Notification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String)
-        tasks.append(Task { [weak self] in
-            for await _ in DistributedNotificationCenter.default().notifications(named: layoutChanged) {
-                self?.apply()
-            }
-        })
+        layoutObserver = KeyboardLayoutObserver { [weak self] in self?.apply() }
     }
 
     func stop() {
         tasks.forEach { $0.cancel() }
         tasks.removeAll()
+        layoutObserver = nil
         for registration in registered.values { registrar.unregister(number: registration.number) }
         registered.removeAll()
     }
@@ -81,7 +78,18 @@ final class GlobalHotKeyService {
             registered[id] = nil
         }
         var refused: Set<ActionID> = []
-        for (id, hotKey) in wanted where registered[id] == nil {
+        // Two shortcuts can land on one physical key (a character the layout
+        // lacks falls back to its ANSI key). Catalog order decides.
+        var taken = Set(registered.values.map(\.hotKey))
+        let order = Dictionary(registry.descriptors.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for id in wanted.keys.sorted(by: { order[$0, default: .max] < order[$1, default: .max] }) where registered[id] == nil {
+            guard let hotKey = wanted[id] else { continue }
+            guard taken.insert(hotKey).inserted else {
+                refused.insert(id)
+                let name = id.rawValue
+                logger.notice("global hot key \(name, privacy: .public) refused: another global action uses the same key")
+                continue
+            }
             let number = nextNumber
             nextNumber += 1
             if registrar.register(hotKey, number: number) {
