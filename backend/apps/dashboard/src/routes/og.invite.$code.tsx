@@ -55,7 +55,7 @@ export const Route = createFileRoute("/og/invite/$code")({
         // `?v=` picks a design for side-by-side review; `?s=square` renders 1200x1200.
         const asked = url.searchParams.get("v") as CardVariant | null
         const variant: CardVariant = asked && CARD_VARIANTS.includes(asked) ? asked : DEFAULT_CARD_VARIANT
-        const png = await renderInviteCard(card, url.origin, variant, url.searchParams.get("s") === "square")
+        const png = await renderInviteCard(card, variant, url.searchParams.get("s") === "square")
         return new Response(png as Uint8Array<ArrayBuffer>, {
           status: 200,
           headers: {
