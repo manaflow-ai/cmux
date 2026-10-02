@@ -1,0 +1,36 @@
+{
+  "grant": [
+    "usage:read",
+    "usage:write",
+    "notification:write",
+    "coderouter:read",
+    "mcp:expose",
+    "actions:run"
+  ],
+  "scopes": {
+    "usage.get": {
+      "scope": "usage:read",
+      "class": "read"
+    },
+    "usage.refresh": {
+      "scope": "usage:write",
+      "class": "mutation"
+    },
+    "coderouter.usage.get": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "app.settings.set": {
+      "scope": "settings:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "usage.get": {
+      "$error": {
+        "code": "operation.unsupported",
+        "message": "usage.get is not supported by this host yet"
+      }
+    }
+  }
+}
