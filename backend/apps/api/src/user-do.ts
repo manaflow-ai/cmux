@@ -1,6 +1,6 @@
 import type { Domain, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
 import { inbox as homeInbox } from "@cmux/home-core"
-import { challengeMessagePrefix } from "@cmux/protocol"
+import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import { verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { installActive, userDomain, type UserState } from "./domains/user.ts"
 import type { Env } from "./env.ts"
@@ -134,6 +134,21 @@ export class UserDO extends OwnerDO<UserState> {
   private existing() {
     const row = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
     return row ? this.bind(row.entity) : undefined
+  }
+
+  /** For FeedDO: the user's push targets whose install is still active (feed.md 7.3). */
+  async pushTargets(entity: string): Promise<ReadonlyArray<PushTarget>> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return []
+    const state = engine.currentState
+    return Object.values(state.push_targets ?? {}).filter((t) => state.installs[t.install]?.revoked_at === null)
+  }
+
+  /** For FeedDO: APNs rejected this token (unregistered or bad); the owner drops it in its own op. */
+  async dropPushTarget(entity: string, token: string, reason: string): Promise<void> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return
+    this.submitSystem("push.target.drop", { token, reason }, `drop:${token}:${engine.currentSeq}`)
   }
 
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */

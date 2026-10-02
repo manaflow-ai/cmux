@@ -541,6 +541,19 @@ export type PublicJwk = {
   readonly y: string
 }
 
+/** One device's APNs registration. */
+export type PushTarget = {
+  readonly token: PushToken
+  readonly topic: string
+  readonly environment: "development" | "production"
+  readonly install: string
+  readonly device_name: string
+  readonly registered_at: number
+}
+
+/** An APNs device token (hex). */
+export type PushToken = string
+
 export type RepoPattern = string
 
 export type Run = {
@@ -1736,6 +1749,26 @@ export interface CloudOps {
     }
     readonly result: HomeConversationCommit
   }
+  /** Register the calling iPhone or iPad install's APNs token (replaces the install's earlier token). */
+  readonly "push.target.register": {
+    readonly params: {
+      readonly token: PushToken
+      readonly topic: string
+      readonly environment: "development" | "production"
+      readonly device_name?: string
+    }
+    readonly result: PushTarget
+  }
+  /** Remove an APNs token (sign-out on the device, or the user removes a device). */
+  readonly "push.target.remove": {
+    readonly params: {
+      readonly token: PushToken
+    }
+    readonly result: {
+      readonly token: PushToken
+      readonly removed: boolean
+    }
+  }
   /** Add a tapback or emoji reaction to a message part (one per author, part and kind). */
   readonly "reaction.add": {
     readonly params: {
@@ -2120,6 +2153,8 @@ export const cloudOpMeta = {
   "network.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "participants.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "participants.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "destructive" },
+  "push.target.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "push.target.remove": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "reaction.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "reaction.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "read_cursor.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },

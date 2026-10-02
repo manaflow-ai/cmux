@@ -3098,6 +3098,65 @@
       },
       "description": "ES256 (P-256) public key of an install."
     },
+    "PushTarget": {
+      "kind": "object",
+      "fields": {
+        "token": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "PushToken"
+          }
+        },
+        "topic": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^[A-Za-z0-9.-]{3,200}$"
+          }
+        },
+        "environment": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "development",
+              "production"
+            ]
+          }
+        },
+        "install": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "device_name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 80
+          }
+        },
+        "registered_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      },
+      "description": "One device's APNs registration."
+    },
+    "PushToken": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[a-f0-9]{32,200}$",
+      "description": "An APNs device token (hex)."
+    },
     "RepoPattern": {
       "kind": "primitive",
       "name": "string",
@@ -29245,6 +29304,315 @@
             ],
             "additionalProperties": true,
             "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
+          }
+        }
+      }
+    },
+    "push.target.register": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "push_target",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "token": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "PushToken"
+            }
+          },
+          "topic": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9.-]{3,200}$"
+            }
+          },
+          "environment": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "development",
+                "production"
+              ]
+            }
+          },
+          "device_name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 80
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PushTarget"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Register the calling iPhone or iPad install's APNs token (replaces the install's earlier token).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "$ref": "#/$defs/PushToken"
+          },
+          "topic": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9.-]{3,200}$"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "development",
+              "production"
+            ]
+          },
+          "device_name": {
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "token",
+          "topic",
+          "environment"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "PushToken": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32,200}$",
+            "description": "An APNs device token (hex)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/PushTarget",
+        "$defs": {
+          "PushToken": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32,200}$",
+            "description": "An APNs device token (hex)."
+          },
+          "PushTarget": {
+            "type": "object",
+            "properties": {
+              "token": {
+                "$ref": "#/$defs/PushToken"
+              },
+              "topic": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9.-]{3,200}$"
+              },
+              "environment": {
+                "type": "string",
+                "enum": [
+                  "development",
+                  "production"
+                ]
+              },
+              "install": {
+                "type": "string"
+              },
+              "device_name": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "registered_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "token",
+              "topic",
+              "environment",
+              "install",
+              "device_name",
+              "registered_at"
+            ],
+            "additionalProperties": true,
+            "description": "One device's APNs registration."
+          }
+        }
+      }
+    },
+    "push.target.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "push_target",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "token": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "PushToken"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "token": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PushToken"
+                }
+              },
+              "removed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Remove an APNs token (sign-out on the device, or the user removes a device).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "$ref": "#/$defs/PushToken"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "PushToken": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32,200}$",
+            "description": "An APNs device token (hex)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "$ref": "#/$defs/PushToken"
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "token",
+          "removed"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "PushToken": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32,200}$",
+            "description": "An APNs device token (hex)."
           }
         }
       }

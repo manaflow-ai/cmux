@@ -83,6 +83,10 @@ export interface Env {
   readonly HOME_INVITES_SEND?: string
   /** Origin of invite links (the dashboard): https://console-staging.cmux.dev or https://console.cmux.dev. */
   readonly HOME_INVITE_ORIGIN?: string
+  /** Secrets for owner-decided iPhone pushes (feed.md 7.3); without them pushes are only logged. */
+  readonly APNS_KEY_P8?: string
+  readonly APNS_KEY_ID?: string
+  readonly APNS_TEAM_ID?: string
   /** PlanetScale `cmux-next` through Hyperdrive (projection writes only). */
   readonly HYPERDRIVE?: Hyperdrive
 }

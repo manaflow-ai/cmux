@@ -6,6 +6,7 @@ import { feedCounts, feedDomain, nextFeedWake, visibleTo, type FeedState } from 
 import { isUserClient, prunableAt, pushEligible, RETENTION_MS } from "./domains/feed-state.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
+import { apnsConfig, sendApns } from "./push/apns.ts"
 
 interface Presence {
   readonly active: boolean
@@ -100,11 +101,26 @@ export class FeedDO extends OwnerDO<FeedState> {
   }
 
   /**
-   * Push delivery is an external effect after commit (feed.md 7.3). The APNs
-   * sender belongs to the iOS lane; until it exists the decision is logged.
+   * Push delivery is an external effect after commit (feed.md 7.3): the
+   * owner already recorded the decision (`feed.push_due`); this sends to the
+   * user's devices (UserDO push targets) through APNs and drops tokens APNs
+   * rejects. Without APNs secrets the decision is only logged.
    */
-  protected sendPush(items: ReadonlyArray<FeedItem>): void {
-    for (const i of items) console.log(JSON.stringify({ msg: "feed.push.send", item: i.id, kind: i.kind, priority: i.priority }))
+  protected async sendPush(items: ReadonlyArray<FeedItem>): Promise<void> {
+    const user = this.boundEngine?.currentState.user
+    const config = apnsConfig(this.env)
+    if (items.length === 0 || !user) return
+    if (!config) {
+      for (const i of items) console.log(JSON.stringify({ msg: "feed.push.skipped", reason: "apns not configured", item: i.id }))
+      return
+    }
+    const users = this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
+    const targets = await users.pushTargets(user)
+    for (const item of items) {
+      const results = await sendApns(config, targets, item, Date.now())
+      for (const r of results) if (r.outcome === "drop_target") await users.dropPushTarget(user, r.token, r.reason ?? String(r.status))
+      console.log(JSON.stringify({ msg: "feed.push.sent", item: item.id, results: results.map((r) => ({ outcome: r.outcome, status: r.status, reason: r.reason })) }))
+    }
   }
 
   protected override async onWake(now: number): Promise<void> {
@@ -122,7 +138,7 @@ export class FeedDO extends OwnerDO<FeedState> {
       const r = this.submitSystem("feed.push_due", { at: now, send, skip }, `push:${now}`)
       const result = r.frames.find((f) => f.t === "result")
       const sent = result && result.t === "result" ? ((result.value as { sent?: Array<string> }).sent ?? []) : []
-      this.sendPush(sent.map((id) => engine.currentState.items[id]!).filter(Boolean))
+      await this.sendPush(sent.map((id) => engine.currentState.items[id]!).filter(Boolean))
     }
     if (due((i) => (prunableAt(i) ?? Infinity) <= now)) this.submitSystem("feed.prune", { before: now - RETENTION_MS }, `prune:${now}`)
   }

@@ -2,11 +2,12 @@ import { createHash } from "node:crypto"
 import type { Domain, Principal } from "@cmux/ownership"
 import { InstallRegister, InstallRename, InstallRevoke, type Grant, type Install, type UserProfile as UserProfileSchema } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
+import { reducePushTarget, type PushTargetsState } from "./user-push.ts"
 
 type UserProfile = typeof UserProfileSchema.Type
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 
-export interface UserState {
+export interface UserState extends PushTargetsState {
   readonly user: UserProfile | null
   readonly installs: Readonly<Record<string, typeof Install.Type>>
   readonly grants: Readonly<Record<string, typeof Grant.Type>>
@@ -39,7 +40,7 @@ export const userDomain: Domain<UserState> = {
   initial: () => ({ user: null, installs: {}, grants: {} }),
 
   authorize: (state, op, _params, principal) => {
-    // A system principal exists only inside a DO (TeamDO's revoke of a bound install); internal ops only.
+    // A system principal exists only inside a DO (TeamDO's revoke of a bound install); internal ops only. Also push.target.drop.
     if (principal.kind === "system") return admit("cloud:UserDO", op, principal, () => undefined, Date.now())
     if (state.user && principal.user !== state.user.id) return { code: "auth.forbidden", message: "not this user" }
     if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
@@ -170,6 +171,10 @@ export const userDomain: Domain<UserState> = {
           outbox: [{ kind: "install.upsert", entity: cur.id, payload: { ...next, public_jwk: undefined, user: state.user?.id } }]
         }
       }
+      case "push.target.register":
+      case "push.target.remove":
+      case "push.target.drop":
+        return reducePushTarget(state, op, params, ctx)
       default:
         return reject("validation.invalid", `unknown op ${op}`)
     }
