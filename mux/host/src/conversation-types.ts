@@ -31,6 +31,17 @@ export type Part =
   | { type: "text"; text: string; runs?: TextRun[] }
   | { type: "work"; session: string; host?: string; status: WorkStatus; preview?: string };
 
+export type ReactionKind =
+  | { tapback: "love" | "like" | "dislike" | "laugh" | "emphasize" | "question" }
+  | { emoji: string };
+
+export interface Reaction {
+  author: ParticipantId;
+  part_index: number;
+  kind: ReactionKind;
+  at: string;
+}
+
 export interface Message {
   id: string;
   conversation: string;
@@ -42,7 +53,7 @@ export interface Message {
   created_at: string;
   edited_at?: string;
   retracted_at?: string;
-  reactions: unknown[];
+  reactions: Reaction[];
 }
 
 export interface Summary {
@@ -62,6 +73,7 @@ export type Op =
   | { kind: "message.send"; client_msg_id: string; parts: Part[]; reply_to?: PartRef }
   | { kind: "message.edit"; message_id: string; parts: Part[] }
   | { kind: "message.retract"; message_id: string }
+  | { kind: "reaction.add" | "reaction.remove"; message_id: string; part_index: number; reaction: ReactionKind }
   | { kind: "read_cursor.set"; seq: number }
   | { kind: "participants.add"; participant: Participant }
   | { kind: "title.set"; title: string };

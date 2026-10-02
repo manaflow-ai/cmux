@@ -47,6 +47,10 @@ export class TurnFolder {
       // A steered prompt joins the running turn; any other starts the next one.
       if (event.msg.steer !== true || !this.current) this.lastPromptId = promptId;
       if (promptId) out.push({ type: "accepted", promptId, seq: event.seq });
+    } else if (event.dir === "mux" && event.kind === "queued") {
+      // Queued behind the running turn: acpmux holds it, so it is accepted.
+      const promptId = typeof event.msg.promptId === "string" ? event.msg.promptId : undefined;
+      if (promptId) out.push({ type: "accepted", promptId, seq: event.seq });
     } else if (event.dir === "mux" && event.kind === "turn_started") {
       this.current = { turnSeq: event.seq, promptId: this.lastPromptId, text: "" };
       this.lastPromptId = undefined;
