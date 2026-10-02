@@ -119,7 +119,6 @@ struct CloudTreeRowContentView: View {
                 icon: "network",
                 tint: CloudTreeIconPalette.browser,
                 title: presentation.title,
-                titleIsLink: false,
                 detail: presentation.detail
             )
             .help(presentation.toolTip ?? presentation.title)
