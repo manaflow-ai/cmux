@@ -26,7 +26,7 @@ else
     print -r -- 'function=0'
 fi
 print -r -- "command=$(command -v claude)"
-shim="$TMPDIR/cmux-cli-shims/$CMUX_SURFACE_ID/claude"
+shim="$HOME/.cmuxterm/cmux-cli-shims/$CMUX_SURFACE_ID/claude"
 if [[ -e "$shim" ]]; then
     print -r -- 'shim=1'
 else
@@ -41,7 +41,7 @@ else
     printf '%s\n' 'function=0'
 fi
 printf 'command=%s\n' "$(command -v claude)"
-shim="$TMPDIR/cmux-cli-shims/$CMUX_SURFACE_ID/claude"
+shim="$HOME/.cmuxterm/cmux-cli-shims/$CMUX_SURFACE_ID/claude"
 if [[ -e "$shim" ]]; then
     printf '%s\n' 'shim=1'
 else
@@ -60,6 +60,7 @@ def _clean_environment(root: Path, user_bin: Path, shell: str) -> dict[str, str]
     env.update(
         {
             "PATH": f"{user_bin}:/usr/bin:/bin",
+            "HOME": str(root / "home"),
             "TMPDIR": str(root),
             "CMUX_SURFACE_ID": f"issue-13343-{shell}",
             "CMUX_SHELL_INTEGRATION_DIR": str(REPO_ROOT / "Resources/shell-integration"),
@@ -78,6 +79,7 @@ def _run_posix_shell(
 
     with tempfile.TemporaryDirectory(prefix=f"cmux-13343-{shell}-") as td:
         root = Path(td)
+        (root / "home" / ".cmuxterm").mkdir(parents=True)
         user_bin = root / "user-bin"
         user_bin.mkdir()
         user_claude = user_bin / "claude"
@@ -130,6 +132,7 @@ def _run_nushell(
 
     with tempfile.TemporaryDirectory(prefix="cmux-13343-nu-") as td:
         root = Path(td)
+        (root / "home" / ".cmuxterm").mkdir(parents=True)
         user_bin = root / "user-bin"
         user_bin.mkdir()
         user_claude = user_bin / "claude"

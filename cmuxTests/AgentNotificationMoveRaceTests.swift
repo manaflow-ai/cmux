@@ -10,7 +10,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Agent notification regressions", .serialized)
+@Suite("Agent notification regressions", .serialized, .exclusiveAppContext)
 @MainActor
 struct AgentNotificationRegressionTests {
     struct Fixture {
@@ -27,12 +27,20 @@ struct AgentNotificationRegressionTests {
         policyHookCommand: String? = nil,
         policyHookTimeoutSeconds: TimeInterval? = nil
     ) throws -> Fixture {
+        // Clear mutations can outlive the fixture that queued them. Discard
+        // the shared bus before installing a new store/workspace pair so a
+        // stale clear cannot erase the next test's first notification.
+        TerminalMutationBus.shared.discardAllMutationsForTesting()
         let store = TerminalNotificationStore.shared
-        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
         let manager = TabManager()
+        let originalControllerTabManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let agentPermissionKey = NotificationsCatalogSection().agentPermissionPrompt.userDefaultsKey
+        let originalAgentPermission = UserDefaults.standard.object(forKey: agentPermissionKey)
 
         let configRoot = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-notification-move-race-\(UUID().uuidString)",
@@ -52,20 +60,26 @@ struct AgentNotificationRegressionTests {
         )
         configStore.loadAll()
 
+        let source = manager.addWorkspace(select: true)
+        let destination = manager.addWorkspace(select: false)
+        let panelId = try #require(source.focusedPanelId)
+
+        // Resolve the only throwing fixture lookup before mutating shared
+        // application state, so a failed setup cannot leak those mutations.
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
         store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        AppDelegate.shared = appDelegate
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
+        TerminalController.shared.setActiveTabManager(manager)
         AppFocusState.overrideIsFocused = false
+        NotificationsCatalogSection().agentPermissionPrompt.set(true, in: .standard)
 
         let windowId = appDelegate.registerMainWindowContextForTesting(
             tabManager: manager,
             cmuxConfigStore: configStore
         )
-        let source = manager.addWorkspace(select: true)
-        let destination = manager.addWorkspace(select: false)
-        let panelId = try #require(source.focusedPanelId)
 
         return Fixture(
             store: store,
@@ -75,6 +89,7 @@ struct AgentNotificationRegressionTests {
             destination: destination,
             panelId: panelId,
             restore: {
+                TerminalMutationBus.shared.discardAllMutationsForTesting()
                 for workspace in [source, destination] where manager.tabs.contains(where: { $0.id == workspace.id }) {
                     manager.closeWorkspace(workspace)
                 }
@@ -84,7 +99,14 @@ struct AgentNotificationRegressionTests {
                 store.resetSuppressedNotificationFeedbackHandlerForTesting()
                 appDelegate.tabManager = originalTabManager
                 appDelegate.notificationStore = originalNotificationStore
+                TerminalController.shared.setActiveTabManager(originalControllerTabManager)
+                AppDelegate.shared = previousAppDelegate
                 AppFocusState.overrideIsFocused = originalAppFocusOverride
+                if let originalAgentPermission {
+                    UserDefaults.standard.set(originalAgentPermission, forKey: agentPermissionKey)
+                } else {
+                    UserDefaults.standard.removeObject(forKey: agentPermissionKey)
+                }
                 try? FileManager.default.removeItem(at: configRoot)
             }
         )
@@ -110,6 +132,19 @@ struct AgentNotificationRegressionTests {
         }
         if store.notifications.isEmpty {
             Issue.record("Timed out waiting for policy-delayed notification")
+        }
+    }
+
+    /// Waits until a matching notification is recorded. Assertions after
+    /// this call still decide the outcome; the deadline only bounds the
+    /// failure path.
+    func waitForNotifications(
+        in store: TerminalNotificationStore,
+        matching predicate: (TerminalNotification) -> Bool
+    ) async {
+        let deadline = ContinuousClock.now + .seconds(15)
+        while !store.notifications.contains(where: predicate), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
         }
     }
 
@@ -579,7 +614,10 @@ struct AgentNotificationRegressionTests {
         fixture.store.clearNotifications(forTabId: fixture.destination.id)
 
         #expect(await waitForFile(at: completionURL))
-        for _ in 0..<100 { await Task.yield() }
+        // The hook touches the marker before it exits and its output is
+        // applied, so wait for the delivery itself rather than a fixed
+        // number of yields.
+        await waitForNotifications(in: fixture.store) { $0.title == "Relay" }
         let recorded = fixture.store.notifications.filter { $0.title == "Relay" }
         #expect(recorded.map(\.tabId) == [fixture.source.id])
         #expect(!recorded.contains { $0.tabId == fixture.destination.id })
@@ -623,6 +661,10 @@ struct AgentNotificationRegressionTests {
         fixture.store.clearNotifications(forTabId: fixture.source.id, surfaceId: fixture.panelId)
 
         #expect(await waitForFile(at: completionURL))
+        await waitForNotifications(in: fixture.store) { $0.title == "Relay live" }
+        // Both hooks touch the same marker, so the stale "Relay" delivery may
+        // still be applying; give it the settling window the negative
+        // assertion below relied on before.
         for _ in 0..<100 { await Task.yield() }
         let recorded = fixture.store.notifications.filter { $0.title.hasPrefix("Relay") }
         #expect(recorded.map(\.tabId) == [fixture.destination.id])

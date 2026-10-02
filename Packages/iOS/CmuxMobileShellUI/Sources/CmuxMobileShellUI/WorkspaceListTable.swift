@@ -1,16 +1,21 @@
 #if os(iOS)
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import SwiftUI
 import UIKit
 
 /// UIKit-owned workspace list with exact, non-estimated row heights.
+///
+/// Each SwiftUI update hands the coordinator a complete snapshot; see
+/// ``WorkspaceListTableCoordinator`` for how it reaches the table.
 @MainActor
 struct WorkspaceListTable: UIViewControllerRepresentable {
     #if DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
     @Environment(\.releaseGateSnapshotter) var releaseGateSnapshotter
     #endif
+    @Environment(\.scrollInteractionReporter) var scrollInteractionReporter
     let items: [WorkspaceListTableItem]
     let workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
     let groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
@@ -26,6 +31,9 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     var workspaceOwnerID: String? = nil
     var workspaceOwnerInstanceTag: String? = nil
     var showsWorkspaceEmptyState = true
+    /// Which copy the aggregated empty state gives (Mac pairing, or the
+    /// user's SSH computers when no Mac gives the pairing copy context).
+    var emptyStateGuidance: WorkspaceListEmptyGuidance = .macPairing
     /// Whether the connected Mac advertises `workspace.changes.v1`.
     let workspaceChangesCapable: Bool
     /// Changes chips keyed by the workspace's RPC identifier
@@ -52,6 +60,9 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
 
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
+    /// What closing a workspace asks first; `nil` result closes at once.
+    /// Defaults to the Mac question.
+    var closeConfirmation: (MobileWorkspacePreview.ID) -> MobileWorkspaceCloseConfirmation? = { _ in .macWorkspace }
     let setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     let setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     let renameRequest: ((MobileWorkspacePreview.ID) -> Void)?
@@ -76,12 +87,12 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     var beginRefresh: (() -> UUID?)? = nil
     var cancelRefreshAttempt: ((UUID?) -> Void)? = nil
     var cancelRefreshAttemptOnDisappear: ((UUID?) -> Void)? = nil
-    var emptyStateLayoutChanged: (() -> Void)? = nil
     var shouldCancelRefreshOnDisappear: (() -> Bool)? = nil
     var isRetryOwnerCurrentOnDisappear: (() -> Bool)? = nil
 
     func makeCoordinator() -> WorkspaceListTableCoordinator {
         let coordinator = WorkspaceListTableCoordinator(configuration: self)
+        coordinator.scrollInteractionReporter = scrollInteractionReporter
         #if DEBUG
         coordinator.releaseGateUIProbe = releaseGateUIProbe
         coordinator.releaseGateSnapshotter = releaseGateSnapshotter
@@ -95,12 +106,8 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
         tableView.separatorStyle = .none
         tableView.backgroundColor = .clear
         tableView.keyboardDismissMode = .interactive
-        tableView.estimatedRowHeight = 0
-        tableView.estimatedSectionHeaderHeight = 0
-        tableView.estimatedSectionFooterHeight = 0
         tableView.sectionHeaderHeight = 0
         tableView.sectionFooterHeight = 0
-        tableView.rowHeight = UITableView.automaticDimension
         tableView.accessibilityIdentifier = "MobileWorkspaceList"
         context.coordinator.attach(
             to: tableView,
@@ -117,6 +124,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
         context.coordinator.releaseGateUIProbe = releaseGateUIProbe
         context.coordinator.releaseGateSnapshotter = releaseGateSnapshotter
         #endif
+        context.coordinator.scrollInteractionReporter = scrollInteractionReporter
         context.coordinator.update(
             configuration: self,
             in: uiViewController.tableView

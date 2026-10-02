@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxAuthRuntime
 import AppKit
 import CmuxSurfaceCatalogModel
@@ -25,7 +26,8 @@ struct CloudOperationRecorderTests {
             baseURL: try #require(URL(string: "https://receipt-\(status).test")),
             client: CloudTelemetryClient.current(info: [:], flavor: .dev),
             session: session,
-            queueURL: queueURL
+            queueURL: queueURL,
+            batchDelay: .milliseconds(50)
         )
         let identity = try #require(fixture.auth.authenticatedSessionIdentity)
         let recorder = CloudOperationRecorder(uploader: uploader, identity: { identity })

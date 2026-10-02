@@ -128,6 +128,25 @@ public struct MobilePhonePushKeyExchangeResponse: Codable, Equatable, Sendable {
         clientNamespace == "mac:" + macBuildID.lowercased()
     }
 
+    /// The fields of this reply that contradict the host status the phone read
+    /// on the same authenticated connection; empty when the reply is usable.
+    ///
+    /// `mac_device_id` is deliberately not compared. The status carries the
+    /// team-directory computer identity that names the saved computer, while
+    /// this reply carries the physical device identity that push tuples use;
+    /// they differ by design, so comparing them rejected every exchange.
+    public func mismatchedFields(
+        accountID: String,
+        macInstanceTag: String,
+        macClientNamespace: String
+    ) -> [String] {
+        [
+            self.accountID == accountID ? nil : "account",
+            self.macInstanceTag == macInstanceTag ? nil : "mac_instance_tag",
+            matchesMacClientNamespace(macClientNamespace) ? nil : "mac_namespace",
+        ].compactMap { $0 }
+    }
+
     public func validate() throws {
         guard version == MobilePhonePushKeyExchangeRequest.currentVersion,
               hpkeEnvelopeVersion == MobilePhonePushKeyExchangeRequest.hpkeEnvelopeVersion,

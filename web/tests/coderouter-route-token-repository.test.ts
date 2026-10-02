@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "b
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import { coderouterRouteTokens } from "../db/schema";
+import { vmToken } from "./vm-authorization-fixture";
 
 const dbClientModule = await import("../db/client");
 const realCloudDb = dbClientModule.cloudDb;
@@ -12,6 +13,7 @@ type Statement = {
   readonly table: unknown;
   readonly values: Record<string, unknown>;
   readonly where: SQL | null;
+  readonly joins: readonly SQL[];
 };
 let statements: Statement[] = [];
 let returnedRows: Record<string, unknown>[] = [];
@@ -24,24 +26,32 @@ function whereResult(rows: Record<string, unknown>[]) {
 
 const stubDb = {
   select: (fields: Record<string, unknown>) => ({
-    from: (table: unknown) => ({
-      where: (where: SQL) => ({
-        limit: async () => {
-          statements.push({ kind: "select", table, values: fields, where });
-          return returnedRows;
+    from: (table: unknown) => {
+      const joins: SQL[] = [];
+      const builder = {
+        innerJoin: (_joinedTable: unknown, on: SQL) => {
+          joins.push(on);
+          return builder;
         },
-      }),
-    }),
+        where: (where: SQL) => ({
+          limit: async () => {
+            statements.push({ kind: "select", table, values: fields, where, joins });
+            return returnedRows;
+          },
+        }),
+      };
+      return builder;
+    },
   }),
   insert: (table: unknown) => ({
     values: async (values: Record<string, unknown>) => {
-      statements.push({ kind: "insert", table, values, where: null });
+      statements.push({ kind: "insert", table, values, where: null, joins: [] });
     },
   }),
   update: (table: unknown) => ({
     set: (values: Record<string, unknown>) => ({
       where: (where: SQL) => {
-        statements.push({ kind: "update", table, values, where });
+        statements.push({ kind: "update", table, values, where, joins: [] });
         return whereResult(returnedRows);
       },
     }),
@@ -57,6 +67,7 @@ const {
   authenticateRouteToken,
   bindRouteTokenToVm,
   issueRouteToken,
+  revokeRouteTokensForTeamMember,
   revokeRouteTokensForVm,
   routeTokenHash,
   routeTokenLastUsedWritesSettled,
@@ -104,6 +115,29 @@ describe("coderouter route token VM binding", () => {
     await expect(authenticateRouteToken(TOKEN)).resolves.toEqual({ teamId: "team-1", stackUserId: "user-1", vmId: null });
     returnedRows = [];
     await expect(authenticateRouteToken(TOKEN)).resolves.toBeNull();
+  });
+
+  test("signed VM authorization joins cloud_vms on the uuid claim, never the text binding column", async () => {
+    const vmId = "00000000-0000-4000-8000-000000000001";
+    const token = await vmToken(vmId, "team-1", "user-1");
+    returnedRows = [{ poolId: "pool-1" }];
+    await expect(authenticateRouteToken(token)).resolves.toEqual({
+      teamId: "team-1",
+      stackUserId: "user-1",
+      vmId,
+      poolId: "pool-1",
+    });
+    const join = statements[0]?.joins[0];
+    expect(join).toBeDefined();
+    const joinSql = rendered(join ?? null);
+    expect(joinSql.sql).toBe('"cloud_vms"."id" = $1');
+    expect(joinSql.params).toEqual([vmId]);
+  });
+
+  test("a signed VM claim that is not a uuid fails closed before querying", async () => {
+    const token = await vmToken("vm-1", "team-1", "user-1");
+    await expect(authenticateRouteToken(token)).resolves.toBeNull();
+    expect(statements).toHaveLength(0);
   });
 
   test("authentication is a read-only lookup and defers a rate-limited last-used write", async () => {
@@ -165,6 +199,23 @@ describe("coderouter route token VM binding", () => {
     await expect(bindRouteTokenToVm("team-1", "not-a-token", "vm-1")).resolves.toBe(false);
     await expect(bindRouteTokenToVm("team-1", "crt_short", "vm-1")).resolves.toBe(false);
     expect(statements).toHaveLength(0);
+  });
+
+  // A member removed from a team (Stack team_membership.deleted) loses that
+  // team's CLI sessions at once, not when their 30-day lifetime ends.
+  test("revokeRouteTokensForTeamMember revokes that member's live sessions in that team", async () => {
+    const now = new Date("2026-09-30T10:00:00.000Z");
+    await revokeRouteTokensForTeamMember({ teamId: "team-1", userId: "user-1" }, now);
+    const [statement] = statements;
+    expect(statement?.kind).toBe("update");
+    expect(statement?.values).toEqual({ revokedAt: now });
+    const { sql, params } = rendered(statement?.where ?? null);
+    expect(sql).toContain('"coderouter_route_tokens"."team_id" = $1');
+    expect(sql).toContain('"coderouter_route_tokens"."stack_user_id" = $2');
+    // VM-bound tokens belong to the VM's lifecycle, which revokes them itself.
+    expect(sql).toContain('"coderouter_route_tokens"."vm_id" is null');
+    expect(sql).toContain('"coderouter_route_tokens"."revoked_at" is null');
+    expect(params).toEqual(["team-1", "user-1"]);
   });
 
   test("revokeRouteTokensForVm revokes only that VM's live tokens", async () => {

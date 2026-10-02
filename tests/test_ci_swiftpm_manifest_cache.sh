@@ -21,13 +21,13 @@ STUB
 chmod +x "$TMP_DIR/bin/xcodebuild" "$TMP_DIR/bin/print-env"
 
 run_env() {
-  env HOME="$TMP_DIR/home" PATH="$TMP_DIR/bin:$PATH" DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  env HOME="$TMP_DIR/home-$2" USER="$2" LOGNAME="$2" PATH="$TMP_DIR/bin:$PATH" DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
     GITHUB_RUN_ID="$1" GITHUB_OUTPUT="/tmp/step-$1" CMUX_CI_SWIFTPM_KEEP_ENV="NOT=A-NAME" "$SCRIPT" run print-env
 }
-first="$(run_env 1)"
-second="$(run_env 2)"
-if [ "$first" != "$second" ] || grep -q '^GITHUB_' <<<"$first"; then
-  echo "FAIL: run must drop per-run variables so the manifest cache key is stable"
+first="$(run_env 1 runner)"
+second="$(run_env 2 cmux)"
+if [ "$first" != "$second" ] || grep -qE '^(GITHUB_|HOME=|USER=|LOGNAME=)' <<<"$first"; then
+  echo "FAIL: run must drop per-run and per-account variables so the manifest cache key is stable"
   exit 1
 fi
 if ! grep -Fxq 'PATH=/usr/bin:/bin:/usr/sbin:/sbin' <<<"$first" \
@@ -65,6 +65,7 @@ echo "PASS: the key follows the manifests and the prefix follows the toolchain"
 
 if command -v sqlite3 >/dev/null; then
   cache="$TMP_DIR/home/Library/Caches/org.swift.swiftpm/manifests"
+  export CMUX_CI_SWIFTPM_MANIFEST_CACHE_DIR="$cache"
   mkdir -p "$cache"
   sqlite3 "$cache/manifest.db" 'PRAGMA journal_mode=WAL; CREATE TABLE MANIFEST_CACHE (key TEXT PRIMARY KEY, value BLOB); INSERT INTO MANIFEST_CACHE VALUES ("a", "x");' >/dev/null
   HOME="$TMP_DIR/home" "$SCRIPT" stage "$TMP_DIR/staged" >/dev/null
@@ -77,6 +78,22 @@ if command -v sqlite3 >/dev/null; then
   fi
   HOME="$TMP_DIR/home" "$SCRIPT" install "$TMP_DIR/missing" >/dev/null
   echo "PASS: stage and install round-trip the manifest cache; a missing restore is not an error"
+
+  # An owned Mac's own entries (another canonical root's) survive an install;
+  # the seed's win on the same key. Past the size cap the seed replaces them.
+  sqlite3 "$cache/manifest.db" 'INSERT INTO MANIFEST_CACHE VALUES ("root2", "y"); UPDATE MANIFEST_CACHE SET value = "old" WHERE key = "a";' >/dev/null
+  HOME="$TMP_DIR/home" "$SCRIPT" install "$TMP_DIR/staged" >/dev/null
+  if [ "$(sqlite3 "$cache/manifest.db" 'select count(*) from MANIFEST_CACHE')" != 2 ] \
+    || [ "$(sqlite3 "$cache/manifest.db" 'select value from MANIFEST_CACHE where key = "a"')" != x ]; then
+    echo "FAIL: install must merge the seed into this Mac's manifest cache"
+    exit 1
+  fi
+  CMUX_CI_SWIFTPM_MANIFEST_MERGE_MAX_BYTES=1 HOME="$TMP_DIR/home" "$SCRIPT" install "$TMP_DIR/staged" >/dev/null
+  if [ "$(sqlite3 "$cache/manifest.db" 'select count(*) from MANIFEST_CACHE')" != 1 ]; then
+    echo "FAIL: install must replace a manifest cache past the merge size cap"
+    exit 1
+  fi
+  echo "PASS: install merges the seed into this Mac's manifest cache, up to a size cap"
 else
   echo "SKIP: sqlite3 not installed; stage/install not exercised"
 fi

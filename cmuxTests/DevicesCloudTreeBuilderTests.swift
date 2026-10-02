@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -329,6 +330,51 @@ struct DevicesCloudTreeBuilderTests {
         #expect(emptyState == state)
     }
 
+    @Test("Both actions stay below listed Macs in either incoming state", arguments: [false, true])
+    func populatedDevicesRetainControls(incomingEnabled: Bool) throws {
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(studio, name: "Studio", online: true, linkState: .connected)],
+            resources: [], projections: []
+        )
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false,
+            source: .cloudWithDevicesSection,
+            devicesSection: .init(discoveryEnabled: true, incomingAccessEnabled: incomingEnabled)
+        )
+        let section = try #require(nodes.first { $0.id == CloudTreeNodeBuilder.devicesSectionNodeID })
+        #expect(section.children.contains { if case .device = $0.kind { true } else { false } })
+        let controls = section.children.first { if case .devicesEmpty = $0.kind { true } else { false } }
+        guard case .devicesEmpty(let state) = try #require(controls).kind else { return }
+        #expect(state.count == 1)
+        #expect(state.incomingAccessEnabled == incomingEnabled)
+        #expect(state.inlineRowCount == 2)
+        #expect(section.children.last?.id == controls?.id)
+    }
+
+    @MainActor
+    @Test("Device controls span the row", arguments: [220.0, 380.0])
+    func deviceControlsFillRow(width: Double) throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.window.setContentSize(NSSize(width: width, height: 620))
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: .empty, localWorkspaces: [], includeLocalMachine: false,
+            source: .cloudWithDevicesSection,
+            devicesSection: .init(discoveryEnabled: false, incomingAccessEnabled: false)
+        )
+        fixture.coordinator.apply(nodes: nodes)
+        let outline = try #require(fixture.coordinator.outlineView)
+        outline.expandItem(nil, expandChildren: true)
+        fixture.container.layoutSubtreeIfNeeded()
+        let section = try #require(nodes.first { $0.id == CloudTreeNodeBuilder.devicesSectionNodeID })
+        let controls = try #require(section.children.first)
+        let row = outline.row(forItem: controls)
+        let cellFrame = outline.frameOfCell(atColumn: 0, row: row)
+        #expect(cellFrame.width > 0)
+        #expect(cellFrame.minX == outline.rect(ofRow: row).minX)
+        #expect(cellFrame.maxX == outline.rect(ofRow: row).maxX)
+    }
+
     @Test("An empty My Devices section remains visible beneath the Cloud Machines section")
     func emptyDevicesSectionRemainsVisible() throws {
         let nodes = CloudTreeNodeBuilder.nodes(
@@ -462,7 +508,7 @@ struct DevicesCloudTreeBuilderTests {
         #expect(row(online: true, link: .connecting, error: "Relay unavailable").statusLabel(now: now).contains("Relay unavailable"))
         #expect(row(online: true, link: .unavailable, trust: .otherAccount).statusLabel(now: now) == String(localized: "cloudTree.device.status.otherAccount", defaultValue: "Another account"))
         #expect(row(online: false, link: .offline).statusLabel(now: now) == String(localized: "cloudTree.device.status.offline", defaultValue: "Offline"))
-        #expect(row(online: false, link: .offline, seen: now.addingTimeInterval(-300)).statusLabel(now: now) == String(format: String(localized: "cloudTree.device.status.offlineSince", defaultValue: "Offline \u{00B7} seen %@"), String(format: String(localized: "cloudTree.device.age.minutes", defaultValue: "%dm ago"), 5)))
+        #expect(row(online: false, link: .offline, seen: now.addingTimeInterval(-300)).statusLabel(now: now) == String(format: String(localized: "cloudTree.device.status.offlineSince", defaultValue: "Offline · seen %@"), String(format: String(localized: "cloudTree.device.age.minutes", defaultValue: "%dm ago"), 5)))
         #expect(row(online: false, link: .connected).statusLabel(now: now) == String(localized: "cloudTree.device.status.online", defaultValue: "Online"))
         let unknown = CloudTreeDeviceRow(
             instance: studio, name: "Studio",
@@ -542,7 +588,7 @@ struct DevicesCloudTreeBuilderTests {
         #expect(row(online: true, link: .connected).inlineStatus(now: now) == nil, "the undimmed row already says online")
         #expect(row(online: false, link: .connected).inlineStatus(now: now) == nil, "a live link is online whatever presence says")
         #expect(row(online: false, link: .offline).inlineStatus(now: now) == String(localized: "cloudTree.device.status.offline", defaultValue: "Offline"))
-        #expect(row(online: true, link: .connecting).inlineStatus(now: now) == String(localized: "cloudTree.device.status.connecting", defaultValue: "Connecting\u{2026}"))
+        #expect(row(online: true, link: .connecting).inlineStatus(now: now) == String(localized: "cloudTree.device.status.connecting", defaultValue: "Connecting…"))
         #expect(row(online: true, link: .error, error: "Handshake failed").inlineStatus(now: now) == "Handshake failed")
         #expect(row(online: true, link: .connected, trust: .otherAccount).inlineStatus(now: now) == String(localized: "cloudTree.device.status.otherAccount", defaultValue: "Another account"))
     }

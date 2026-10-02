@@ -3,6 +3,7 @@ import type { CommentAnnotationMetadata } from "./comments/types";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { FileTreeRefreshSource } from "./file-tree-refresh";
 import { annotateDiffMetadata } from "./diff-metadata";
+import { patchFingerprint } from "./viewed-files";
 
 export type GitStatusPatchEntry = {
   path: string;
@@ -249,6 +250,7 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
     const cacheKey = `cmux-diff-file-${model.fileIndex}`;
     const fileDiff = options.processFile(fileText, { cacheKey, isGitDiff: true });
     annotateDiffMetadata(fileDiff, fileText);
+    annotatePatchIdentity(fileDiff, fileText);
     await enqueueFileDiff(fileDiff, currentPatchPrefix);
   }
 
@@ -705,6 +707,19 @@ function commitMetadataLabel(metadata: string | undefined, index: number, label:
     return new TextDecoder().decode(new TextEncoder().encode(match[1].slice(0, 5)));
   }
   return `${label("commit")} ${index + 1}`;
+}
+
+/**
+ * Records the per-file patch fingerprint (viewed-state identity) and the
+ * patch text size (large-diff deferral) on the parsed diff. Only the streaming
+ * path has per-file raw text; text-blob parses fall back to hunk hashing.
+ */
+function annotatePatchIdentity(fileDiff: any, fileText: string): void {
+  if (fileDiff == null || typeof fileDiff !== "object") {
+    return;
+  }
+  fileDiff.cmuxPatchFingerprint = patchFingerprint(fileText);
+  fileDiff.cmuxPatchByteLength = fileText.length;
 }
 
 export function fileName(fileDiff: any, fallback = "Untitled"): string {

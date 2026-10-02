@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -15,7 +16,7 @@ extension SurfaceCatalog {
         let machineSnapshot = snapshot
         let machineInfo = machineSnapshot.machines.first { $0.id == machine }
         var workspace = machineInfo?.remoteWorkspaces?.first { $0.id == workspaceID }
-        let resources = machineSnapshot.resources(on: machine)
+        let resources = machineSnapshot.cloudWorkspaceResources(on: machine)
 
         struct Candidate {
             let placement: SurfaceResourcePlacement

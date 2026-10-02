@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -99,10 +100,12 @@ extension CloudWorkspaceRenameService {
                     workspace.cloudVMBinding = nil
                     continue
                 case .rebind(let targetMachine, let targetWorkspaceID):
+                    let targetVMID = targetMachine.tuiMachineID ?? binding.vmID
                     workspace.cloudVMBinding = WorkspaceCloudVMBinding(
-                        vmID: targetMachine.tuiMachineID ?? binding.vmID,
+                        vmID: targetVMID,
                         isBase: binding.isBase,
-                        remoteWorkspaceID: targetWorkspaceID
+                        remoteWorkspaceID: targetWorkspaceID,
+                        teamID: WorkspaceCloudVMBinding.owningTeamID(forVMID: targetVMID, previous: binding)
                     )
                 }
                 reconcileRemoteWorkspaceName(workspace: workspace, machine: machine, state: state,

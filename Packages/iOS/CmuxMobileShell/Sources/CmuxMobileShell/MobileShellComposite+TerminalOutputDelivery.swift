@@ -423,7 +423,7 @@ extension MobileShellComposite {
                 replaceable: false,
                 viewportPolicy: .natural,
                 endSequence: endSequence,
-                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery()
+                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery(surfaceID: surfaceID)
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -474,7 +474,7 @@ extension MobileShellComposite {
         deliverTerminalOutput(
             TerminalOutputDelivery(
                 theme: frame,
-                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery()
+                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery(surfaceID: surfaceID)
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -488,13 +488,13 @@ extension MobileShellComposite {
                 replaceable: true,
                 replacementScope: .viewportPolicy,
                 viewportPolicy: policy,
-                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery()
+                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery(surfaceID: surfaceID)
             ),
             surfaceID: surfaceID
         )
     }
 
-    private func deliverTerminalOutput(
+    func deliverTerminalOutput(
         _ delivery: TerminalOutputDelivery,
         surfaceID: String,
         bypassReplayBarrier: Bool = false
@@ -582,6 +582,7 @@ extension MobileShellComposite {
             }
             continuation.yield(
                 MobileTerminalOutputChunk(
+                    surfaceID: surfaceID,
                     data: immediateBytes,
                     streamToken: streamToken,
                     viewportPolicy: immediate.viewportPolicy,
@@ -738,6 +739,7 @@ extension MobileShellComposite {
             )
         }
         continuation.yield(MobileTerminalOutputChunk(
+            surfaceID: surfaceID,
             data: nextBytes,
             streamToken: streamToken,
             viewportPolicy: next.viewportPolicy,

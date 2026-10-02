@@ -225,6 +225,33 @@ pub(crate) struct MenuMessages {
     pub include_client_size: &'static str,
     pub restore_all_client_sizing: &'static str,
     pub disconnect_client: &'static str,
+    pub terminal_size: &'static str,
+    pub terminal_size_changed: &'static str,
+    pub size_mode_fit_everyone: &'static str,
+    pub size_mode_follow_latest: &'static str,
+    pub size_mode_largest: &'static str,
+    pub size_mode_priority: &'static str,
+    pub size_mode_fixed: &'static str,
+    pub size_counts: &'static str,
+    pub size_disconnect: &'static str,
+    pub size_sets_size: &'static str,
+    pub size_not_counted: &'static str,
+    pub size_owner_fits_everyone: &'static str,
+    pub size_owner_largest: &'static str,
+    pub size_owner_fixed: &'static str,
+    pub size_owner_held: &'static str,
+    pub size_owner_shared: &'static str,
+    /// `{name}` and `{device}`, e.g. `Lawrence's Mac`.
+    pub size_possessive_device: &'static str,
+    pub size_one_col_hidden: &'static str,
+    /// `{count}` columns of the grid this client cannot show.
+    pub size_cols_hidden: &'static str,
+    pub device_mac: &'static str,
+    pub device_iphone: &'static str,
+    pub device_ipad: &'static str,
+    pub device_tui: &'static str,
+    pub device_browser: &'static str,
+    pub device_unknown: &'static str,
     pub copied: &'static str,
     pub copied_url: &'static str,
     pub rename: &'static str,
@@ -1173,6 +1200,13 @@ pub(crate) struct TerminalInputMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct AgentWrapperMessages {
+    pub hooks_unavailable: &'static str,
+    pub agent_not_found: &'static str,
+    pub agent_start_failed: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
     pub startup: StartupMessages,
@@ -1195,6 +1229,7 @@ pub(crate) struct Catalog {
     pub config: ConfigMessages,
     pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
+    pub agent_wrapper: AgentWrapperMessages,
 }
 
 impl Catalog {
@@ -1206,6 +1241,11 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    agent_wrapper: AgentWrapperMessages {
+        hooks_unavailable: "cmux: starting the agent without cmux status updates",
+        agent_not_found: "cmux: the agent executable was not found",
+        agent_start_failed: "cmux: the agent could not be started",
+    },
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
         invalid_session_name: "The session name must be one path component without separators or control characters",
@@ -1414,6 +1454,31 @@ edits shell files. Authenticate with the configured host before retrying.
         include_client_size: "Include client size",
         restore_all_client_sizing: "Restore all client sizing",
         disconnect_client: "Disconnect client",
+        terminal_size: "Terminal size",
+        terminal_size_changed: "The terminal size changed; open the menu again",
+        size_mode_fit_everyone: "Fit everyone",
+        size_mode_follow_latest: "Follow latest",
+        size_mode_largest: "Largest window",
+        size_mode_priority: "Priority",
+        size_mode_fixed: "Fixed",
+        size_counts: "Counts toward size",
+        size_disconnect: "Disconnect",
+        size_sets_size: "sets size",
+        size_not_counted: "not counted",
+        size_owner_fits_everyone: "Fits everyone",
+        size_owner_largest: "Largest window",
+        size_owner_fixed: "Fixed",
+        size_owner_held: "Held size",
+        size_owner_shared: "Shared size",
+        size_possessive_device: "{name}'s {device}",
+        size_one_col_hidden: "1 col hidden",
+        size_cols_hidden: "{count} cols hidden",
+        device_mac: "Mac",
+        device_iphone: "iPhone",
+        device_ipad: "iPad",
+        device_tui: "Terminal client",
+        device_browser: "Browser",
+        device_unknown: "Device",
         copied: "Copied",
         copied_url: "Copied URL",
         rename: "Rename",
@@ -1532,6 +1597,8 @@ TRANSPORT:
   --wireguard-hub PATH  dial ws routes through a running `cmux wg hub` socket
     instead; exclusive with --wireguard-config
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
+  --agent-hooks PROVIDER[,PROVIDER...] installs those coding-agent hooks for
+    the remote user on each attach (for example claude,codex)
   --remote-state-dir PATH for a non-default daemon state directory
   --upgrade explicitly replaces an SSH-managed remote sidecar after installing
     the pinned binary; terminal panes survive, while remote RPC state resets
@@ -1551,6 +1618,8 @@ set, installed into the user account when missing or incompatible.
 OPTIONS:
   --session NAME  --lanes single|auto|isolated  --headless [--json]
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
+  --agent-hooks PROVIDER[,PROVIDER...] installs those coding-agent hooks for
+    the remote user on each attach (for example claude,codex)
   --remote-state-dir PATH for a non-default daemon state directory
   --upgrade explicitly replaces an SSH-managed remote sidecar; terminal panes
     survive, remote clients and forwards disconnect, RPC processes stop, and
@@ -1897,6 +1966,11 @@ socket.
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    agent_wrapper: AgentWrapperMessages {
+        hooks_unavailable: "cmux: cmux のステータス更新なしでエージェントを起動します",
+        agent_not_found: "cmux: エージェントの実行ファイルが見つかりません",
+        agent_start_failed: "cmux: エージェントを起動できませんでした",
+    },
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
         invalid_session_name: "セッション名には、区切り文字や制御文字を含まない 1 つのパス要素を指定してください",
@@ -2105,6 +2179,31 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         include_client_size: "クライアントサイズを含める",
         restore_all_client_sizing: "すべてのクライアントサイズ設定を復元",
         disconnect_client: "クライアントを切断",
+        terminal_size: "ターミナルサイズ",
+        terminal_size_changed: "ターミナルサイズが変更されました。メニューを開き直してください",
+        size_mode_fit_everyone: "全員に合わせる",
+        size_mode_follow_latest: "最新の入力に合わせる",
+        size_mode_largest: "最大のウインドウ",
+        size_mode_priority: "優先順位",
+        size_mode_fixed: "固定",
+        size_counts: "サイズに反映",
+        size_disconnect: "切断",
+        size_sets_size: "サイズを設定",
+        size_not_counted: "カウント対象外",
+        size_owner_fits_everyone: "全員に合わせる",
+        size_owner_largest: "最大のウィンドウ",
+        size_owner_fixed: "固定",
+        size_owner_held: "保持されたサイズ",
+        size_owner_shared: "共有サイズ",
+        size_possessive_device: "{name}の{device}",
+        size_one_col_hidden: "1列非表示",
+        size_cols_hidden: "{count}列非表示",
+        device_mac: "Mac",
+        device_iphone: "iPhone",
+        device_ipad: "iPad",
+        device_tui: "ターミナルクライアント",
+        device_browser: "ブラウザ",
+        device_unknown: "デバイス",
         copied: "コピーしました",
         copied_url: "URL をコピーしました",
         rename: "名前を変更",
@@ -2222,6 +2321,8 @@ ID とセッション:
   --wireguard-hub パス  実行中の `cmux wg hub` ソケット経由で ws ルートに接続します。
     --wireguard-config とは併用できません
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
+  --agent-hooks プロバイダー[,プロバイダー...] 接続のたびにリモートユーザーへ
+    コーディングエージェントのフックを導入 (例: claude,codex)
   --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
   --upgrade は固定済みバイナリのインストール後に SSH 管理のサイドカーを置換します。
     ターミナルペインは維持され、リモート RPC 状態はリセットされます。
@@ -2241,6 +2342,8 @@ ID とセッション:
 オプション:
   --session 名前  --lanes single|auto|isolated  --headless [--json]
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
+  --agent-hooks プロバイダー[,プロバイダー...] 接続のたびにリモートユーザーへ
+    コーディングエージェントのフックを導入 (例: claude,codex)
   --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
   --upgrade は SSH 管理のサイドカーを明示的に置換します。ターミナルペインは維持され、
     リモートクライアントと転送は切断され、RPC プロセスなどの状態はリセットされます。

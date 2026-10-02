@@ -23,6 +23,7 @@ extension V2ControlService {
                     try await open(run: run)
                 } catch {
                     guard permitsHTTPRecovery(error) else { throw error }
+                    journal("socket-open-failed", ["failure": mapFailure(error).diagnosticCode, "recovery": "http"])
                     let old = socket
                     socket = nil
                     socketID = nil
@@ -32,6 +33,7 @@ extension V2ControlService {
                     await old?.close()
                     try assertCurrent(run)
                     try await openHTTP(run: run)
+                    journal("http-mode-entered", [:])
                     // Retry the preferred push channel while HTTP serves requests.
                     try await dependencies.sleep(60)
                     continue
@@ -55,6 +57,7 @@ extension V2ControlService {
                 await old?.close()
                 guard runID == run else { return }
                 if terminal(mapped) {
+                    journal("run-stopped-terminal", ["failure": mapped.diagnosticCode])
                     status = .stopped
                     runID = nil
                     runTask = nil
@@ -65,6 +68,11 @@ extension V2ControlService {
                 status = .backingOff
                 publish()
                 let seconds = retryDelay(mapped, attempt: attempt)
+                journal("run-backing-off", [
+                    "failure": mapped.diagnosticCode,
+                    "attempt": String(attempt),
+                    "delay_s": String(Int(seconds)),
+                ])
                 attempt += 1
                 do { try await dependencies.sleep(seconds) }
                 catch { return }
@@ -112,6 +120,7 @@ extension V2ControlService {
         }
         try assertCurrent(run)
         cache.authorityRevoked = false
+        cache.authorityRevocationRecoverable = nil
         if cache.device?.descriptor.metadata != descriptor.metadata {
             do { try await updateMetadata(descriptor.metadata) }
             catch { record(mapFailure(error), schema: "device.metadata.v1") }
@@ -119,6 +128,7 @@ extension V2ControlService {
         try await persist(run: run)
         status = .ready
         failure = nil
+        journal("session-ready", ["http_mode": String(httpMode)])
         publish()
         requestDirectoryRefresh(run: run)
         scheduleMaintenance(run: run)
@@ -148,6 +158,9 @@ extension V2ControlService {
     }
 
     private func enroll(challenge: V2Challenge, run: UUID) async throws {
+        // The server has authorized this signed enrollment. Only this exchange
+        // may finish while the old cache is revoked, and a new revocation wins.
+        let recoveryGeneration = authorityRevocationGeneration
         let signature = try await dependencies.sign(codec.enrollment(device: descriptor, challenge: challenge))
         try assertCurrent(run)
         let request = V2RegisterRequest(
@@ -155,7 +168,7 @@ extension V2ControlService {
             requestID: UUID().uuidString.lowercased(), schemaID: .deviceRegisterV1,
             signature: codec.base64URL(signature)
         )
-        let response = try await perform(request, requestID: request.requestID, schemaID: request.schemaID.rawValue, response: V2RegisteredResponse.self, run: run)
+        let response = try await perform(request, requestID: request.requestID, schemaID: request.schemaID.rawValue, response: V2RegisteredResponse.self, run: run, recoveryGeneration: recoveryGeneration)
         try assertCurrent(run)
         try acceptDevice(response.device)
     }
@@ -195,8 +208,8 @@ extension V2ControlService {
                     let change = try JSONDecoder().decode(V2RevokedResponse.self, from: data)
                     guard change.teamID == descriptor.identity.teamID else { throw V2ControlFailure.scopeMismatch }
                     applyRevocation(change)
-                    publish()
                     try await persist(run: run)
+                    publish()
                     if cache.authorityRevoked {
                         throw V2ControlFailure.server(V2ErrorResponse(code: .deviceRevoked, requestID: "revocation", retryable: false, retryAfterMS: nil, schemaID: .errorV1))
                     }
@@ -227,6 +240,9 @@ extension V2ControlService {
 
     func socketFailed(_ error: any Error, run: UUID, connection: UUID) async {
         guard runID == run, socketID == connection else { return }
+        // Journaled from the service, not the snapshot consumer, so a stalled
+        // consumer cannot hide the socket's death from retained logs.
+        journal("socket-failed", ["failure": mapFailure(error).diagnosticCode])
         failure = mapFailure(error)
         if case .socketClosed(1008, let reason) = failure,
            ["device_revoked", "team_access_revoked"].contains(reason ?? "") {
@@ -243,21 +259,26 @@ extension V2ControlService {
     }
 
     private func applyRevocation(_ revoked: V2RevokedResponse) {
-        if revoked.deviceRecordID == cache.device?.deviceRecordID { revokeAuthority(); return }
+        if revoked.deviceRecordID == cache.device?.deviceRecordID {
+            revokeAuthority(recoverable: revoked.recoverable == true)
+            return
+        }
         if let directory = cache.directory {
             cache.directory = V2Directory(
                 devices: directory.devices.filter { $0.deviceRecordID != revoked.deviceRecordID },
                 inboundPeers: directory.inboundPeers?.filter { $0.device.deviceRecordID != revoked.deviceRecordID },
                 issuedAt: directory.issuedAt, nextCursor: directory.nextCursor,
                 permissionExpiresAt: directory.permissionExpiresAt, relayURLs: directory.relayURLs,
-                revision: max(directory.revision, revoked.revision), teamID: directory.teamID
+                revision: max(directory.revision, revoked.revision), rules: directory.rules, teamID: directory.teamID
             )
         }
         wantedDirectoryRevision = max(wantedDirectoryRevision, revoked.revision)
     }
 
-    func revokeAuthority() {
+    func revokeAuthority(recoverable: Bool? = nil) {
+        authorityRevocationGeneration &+= 1
         cache.authorityRevoked = true
+        cache.authorityRevocationRecoverable = recoverable
         cache.ticket = nil
         cache.relayCredentials = []
         cache.directory = nil

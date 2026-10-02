@@ -163,8 +163,32 @@ def parse_xcresult_tests(data: Any) -> dict[str, str]:
 
 
 def load_json(path: Path) -> Any:
-    """Read one UTF-8 JSON document."""
-    return json.loads(path.read_text(encoding="utf-8"))
+    """Read one UTF-8 JSON document, naming the file whenever it cannot be read.
+
+    An aborted app-host batch leaves a partial typed result behind, and a bare
+    decoder message ("Expecting value: line 1 column 1 (char 0)") is the last
+    line the step prints before its exit code. Name the file for every way the
+    read can fail: empty, not JSON, and not UTF-8. A write cut inside a
+    multi-byte character fails as the third rather than the second.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{path}: not valid UTF-8 ({error})") from error
+    if not text.strip():
+        raise ValueError(f"{path}: empty file, expected a JSON document")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{path}: not valid JSON ({error})") from error
+
+
+def read_text_file(path: Path) -> str:
+    """Read one UTF-8 text file, naming it when the bytes are not UTF-8."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{path}: not valid UTF-8 ({error})") from error
 
 
 def load_inventory(path: Path) -> set[str]:
@@ -178,7 +202,7 @@ def load_inventory(path: Path) -> set[str]:
 def load_selectors(path: Path) -> list[str]:
     """Load normalized non-empty selectors from a line-oriented file."""
     selectors = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in read_text_file(path).splitlines():
         line = line.strip()
         if line:
             selectors.append(selector_value(line))
@@ -322,9 +346,24 @@ def check_run(
     known: dict[str, dict[str, Any]],
     log_text: str,
     xcode_status: int,
+    changed_suites: bool = False,
 ) -> tuple[bool, list[str]]:
-    """Return the fail-closed verdict and diagnostics for one app-host run."""
+    """Return the fail-closed verdict and diagnostics for one app-host run.
+
+    ``changed_suites`` marks a PR run of the suites the PR edited. There a
+    catalog entry that passes must leave the catalog in the same PR: while it
+    stays listed, the run is green whether or not the fix works, which is how
+    a fix PR can merge with its target test still failing.
+    """
     messages: list[str] = []
+
+    # Graded green must mean something was graded: an empty inventory or an
+    # empty selector list leaves the missing-execution gate nothing to check,
+    # so the run would pass on the aggregate count alone.
+    if not inventory:
+        return False, ["inventory lists no built tests"]
+    if not selectors:
+        return False, ["no selectors: nothing was selected to run"]
 
     expected_tests, missing_inventory = selected_inventory(inventory, selectors)
     if missing_inventory:
@@ -396,9 +435,21 @@ def check_run(
         return False, messages
 
     known_failures = sorted(failures & set(known))
+    for identifier in known_failures:
+        messages.append(f"RATCHET_KNOWN_FAILURE {identifier}")
+    now_passing = sorted(
+        identifier for identifier in known if results.get(identifier) == "Passed"
+    )
+    for identifier in now_passing:
+        messages.append(f"RATCHET_KNOWN_NOW_PASSING {identifier}")
+    if changed_suites and now_passing:
+        messages.append(
+            "this PR's selected suites pass tolerated known-main failures; remove them "
+            "from scripts/ci/app-host-known-failures.json so the run has to prove the fix"
+        )
+        return False, messages
+
     if known_failures:
-        for identifier in known_failures:
-            messages.append(f"RATCHET_KNOWN_FAILURE {identifier}")
         messages.append(
             f"known-main failures tolerated: {len(known_failures)}; "
             f"typed test cases: {len(results)}"
@@ -409,8 +460,22 @@ def check_run(
 
 
 def write_inventory(input_path: Path, output_path: Path) -> None:
-    """Write a deterministic normalized test-inventory receipt."""
-    tests = sorted(parse_enumeration(load_json(input_path)))
+    """Write a deterministic normalized test-inventory receipt.
+
+    xcodebuild -enumerate-tests exits 0 even when the test runner never
+    connected; it then writes only the plan node plus an "errors" list. An
+    inventory built from that is empty, and every later step would run against
+    a host that cannot run tests, so refuse it here.
+    """
+    data = load_json(input_path)
+    errors = data.get("errors") if isinstance(data, dict) else None
+    if errors:
+        raise ValueError(
+            "test enumeration failed on this runner: " + "; ".join(str(error) for error in errors)
+        )
+    tests = sorted(parse_enumeration(data))
+    if not tests:
+        raise ValueError(f"test enumeration found no tests in {input_path}")
     suites = sorted({identifier.split("/", 1)[0] for identifier in tests if "/" in identifier})
     payload = {
         "version": 1,
@@ -443,6 +508,7 @@ def command_check_run(args: argparse.Namespace) -> int:
         known=known,
         log_text=log_text,
         xcode_status=args.xcode_status,
+        changed_suites=args.changed_suites,
     )
     for message in messages:
         print(message, file=sys.stdout if passed else sys.stderr)
@@ -505,6 +571,11 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--log", type=Path, required=True)
     check.add_argument("--xcode-status", type=int, required=True)
     check.add_argument("--tests-json", nargs="+", required=True)
+    check.add_argument(
+        "--changed-suites",
+        action="store_true",
+        help="fail when a known-failure catalog entry passes (PR changed-suites runs)",
+    )
 
     catalog_diff = subparsers.add_parser("catalog-diff")
     catalog_diff.add_argument("--base", type=Path, required=True)

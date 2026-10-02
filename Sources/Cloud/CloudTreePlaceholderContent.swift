@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxFoundation
 import SwiftUI
 
@@ -18,6 +19,13 @@ struct CloudTreePlaceholderContent: View {
                         systemName: "exclamationmark.triangle",
                         pointSize: max(style.iconSize, 9),
                         weight: .regular,
+                        tint: Color(nsColor: .secondaryLabelColor)
+                    )
+                case .createMachine:
+                    CmuxSystemSymbolImage(
+                        systemName: "plus",
+                        pointSize: max(style.iconSize, 9),
+                        weight: .medium,
                         tint: Color(nsColor: .secondaryLabelColor)
                     )
                 case .dimmed:

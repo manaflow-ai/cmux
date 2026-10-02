@@ -41,11 +41,18 @@ require_job_contains \
   'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-26'\'' || vars.MACOS_RUNNER_26 || '\''blacksmith-6vcpu-macos-26'\'' }}' \
   "release must sign+notarize on the macOS 26 runner variable after importing the Developer ID intermediate chain"
 
-require_job_contains \
-  "$CI_FILE" \
-  "release-build" \
-  'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-26'\'' || (github.event_name == '\''pull_request'\'' && github.event.pull_request.head.repo.full_name != github.repository && '\''blacksmith-6vcpu-macos-26'\'' || vars.MACOS_RUNNER_26 || '\''blacksmith-6vcpu-macos-26'\'') }}' \
-  "CI release-build must use GitHub-hosted macOS on forks and the macOS 26 runner variable upstream"
+release_section="$(job_section "$CI_FILE" "release-build")"
+for needle in \
+  "github.event.pull_request.head.repo.full_name != github.repository" \
+  "!contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)" \
+  "contains(inputs.pr_owned_jobs, ' release-build ')" \
+  "vars.MACOS_RUNNER_26" \
+  "blacksmith-6vcpu-macos-26"; do
+  if [[ "$release_section" != *"$needle"* ]]; then
+    echo "FAIL: CI release-build must use the trusted fork gate, owned side lane, and macOS 26 fallback" >&2
+    exit 1
+  fi
+done
 
 for workflow in "$CI_FILE" "$RELEASE_FILE"; do
   if ! grep -Fq "CMUX_SKIP_ZIG_BUILD=1 xcodebuild" "$workflow"; then
@@ -70,13 +77,26 @@ if ! grep -Fq "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef35013
 fi
 
 swift_package_section="$(job_section "$CI_FILE" "swift-package-tests")"
-# Every event, pull requests included: this job builds the Release Ghostty CLI
-# helper against an SDK 15 Xcode, which only the macos-15 image carries, so it
-# must not follow MACOS_RUNNER_PR onto whatever pool that lane points at.
-if [[ "$swift_package_section" != *'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-15'\'' || (github.event_name == '\''pull_request'\'' && github.event.pull_request.head.repo.full_name != github.repository && '\''blacksmith-6vcpu-macos-15'\'' || vars.CI_PAID_MACOS_OVERFLOW == '\''1'\'' && vars.MACOS_RUNNER_DUAL_XCODE || '\''blacksmith-6vcpu-macos-15'\'') }}'* ]]; then
-  echo "FAIL: CI swift-package-tests must use the dual-Xcode runner lane on every event" >&2
-  exit 1
-fi
+# Every event, pull requests included, falls back to the dual-Xcode lane: this
+# job builds the Release Ghostty CLI helper against an SDK 15 Xcode, which only
+# the macos-15 image carries, so it must not follow MACOS_RUNNER_PR onto
+# whatever pool that lane points at. The one exception is a same-repository
+# pull request (or main's full-suite dispatch) whose picker placed
+# ' swift-package ' on an owned Mac, which the
+# picker does only for a run that builds no helper (package_lane_owned()),
+# and the opt-in build-fleet gateway (hq#794), also only without the helper.
+for needle in \
+  "github.event.pull_request.head.repo.full_name != github.repository" \
+  "!contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)" \
+  "blacksmith-6vcpu-macos-15" \
+  "vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY" \
+  "contains(inputs.pr_owned_jobs, ' swift-package ')" \
+  "vars.MACOS_RUNNER_DUAL_XCODE"; do
+  if [[ "$swift_package_section" != *"$needle"* ]]; then
+    echo "FAIL: CI swift-package-tests must use the dual-Xcode runner lane on every event" >&2
+    exit 1
+  fi
+done
 
 # Comments are stripped first: the job carries a comment naming MACOS_RUNNER_PR
 # to explain why it does not use it, and that prose is not a routing decision.
@@ -87,7 +107,7 @@ if [[ "$swift_package_directives" == *MACOS_RUNNER_PR* ]]; then
   exit 1
 fi
 
-if [[ "$swift_package_section" != *"timeout-minutes: 40"* ]]; then
+if [[ "$swift_package_section" != *"timeout-minutes: 60"* ]]; then
   echo "FAIL: CI swift-package-tests must have enough timeout budget for helper build plus package tests" >&2
   exit 1
 fi

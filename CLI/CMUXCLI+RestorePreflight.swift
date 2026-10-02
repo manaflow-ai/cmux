@@ -161,7 +161,9 @@ extension CMUXCLI {
 
         guard try waitForRestorePreflightExit(
             exitQueue,
-            timeout: 10
+            timeout: AgentRestorePreflightInvocation.timeoutSeconds(
+                environment: ProcessInfo.processInfo.environment
+            )
         ) else {
             terminateRestorePreflight(processID, exitQueue: exitQueue)
             throw loggedRestoreError(

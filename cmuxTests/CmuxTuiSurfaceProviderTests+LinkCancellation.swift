@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCloudTui
 import Darwin
 import Foundation
@@ -10,6 +11,42 @@ import Testing
 #endif
 
 extension CmuxTuiSurfaceProviderTests {
+    @Test func sshLinkPassesTheSelectedSessionToItsClient() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-link-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let client = root.appendingPathComponent("client")
+        let argumentsFile = root.appendingPathComponent("arguments")
+        try """
+        #!/bin/sh
+        printf '%s\\n' "$@" > '\(argumentsFile.path)'
+        exit 2
+        """.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
+        let link = CloudMachineLink(
+            machineID: "ssh-test", clientURL: client, paths: CloudTuiClientPaths(home: root)
+        )
+        do {
+            _ = try await link.connect(
+                route: "ssh://user@fixture", session: "owned-session",
+                sshArguments: ["-p", "2222", "-i", "/keys/with spaces", "-o", "ProxyJump=fixture-jump"]
+            )
+            Issue.record("the fixture exits before connecting")
+        } catch CloudMachineLink.LinkError.exited(let status, _) {
+            #expect(status == 2)
+        }
+        let arguments = try String(contentsOf: argumentsFile, encoding: .utf8)
+            .split(separator: "\n").map(String.init)
+        let sessionIndex = try #require(arguments.firstIndex(of: "--session"))
+        #expect(arguments[sessionIndex + 1] == "owned-session")
+        #expect(Array(arguments.prefix(3)) == ["remote", "connect", "ssh://user@fixture"])
+        #expect(Array(arguments.suffix(12)) == [
+            "--ssh-arg", "-p", "--ssh-arg", "2222", "--ssh-arg", "-i",
+            "--ssh-arg", "/keys/with spaces", "--ssh-arg", "-o", "--ssh-arg", "ProxyJump=fixture-jump"
+        ])
+    }
+
     @Test(.timeLimit(.minutes(1))) func cancellingLinkConnectStopsItsChildBeforeReturning() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cloud-connect-cancel-\(UUID().uuidString.lowercased())", isDirectory: true)

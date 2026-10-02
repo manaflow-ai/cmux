@@ -38,6 +38,10 @@ static bool cmux_test_font_binding_succeeds = true;
 static void* cmux_test_font_callback_surface = NULL;
 static ghostty_font_size_action_cb cmux_test_font_callback = NULL;
 static void* cmux_test_font_callback_userdata = NULL;
+static bool cmux_test_surface_key_called = false;
+static int cmux_test_surface_key_mods_value = 0;
+static uint32_t cmux_test_surface_key_unshifted_codepoint_value = 0;
+static char cmux_test_surface_key_text_value[32];
 static pthread_mutex_t cmux_test_surface_free_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t cmux_test_surface_free_condition = PTHREAD_COND_INITIALIZER;
 static bool cmux_test_surface_free_should_block = false;
@@ -102,6 +106,33 @@ void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_foreground_pid = 0;
     cmux_test_tty_name = NULL;
     cmux_test_tty_name_call_count = 0;
+    cmux_test_surface_key_called = false;
+    cmux_test_surface_key_mods_value = 0;
+    cmux_test_surface_key_unshifted_codepoint_value = 0;
+    cmux_test_surface_key_text_value[0] = '\0';
+}
+
+void cmux_test_ghostty_surface_key_reset(void) {
+    cmux_test_surface_key_called = false;
+    cmux_test_surface_key_mods_value = 0;
+    cmux_test_surface_key_unshifted_codepoint_value = 0;
+    cmux_test_surface_key_text_value[0] = '\0';
+}
+
+bool cmux_test_ghostty_surface_key_was_called(void) {
+    return cmux_test_surface_key_called;
+}
+
+int cmux_test_ghostty_surface_key_mods(void) {
+    return cmux_test_surface_key_mods_value;
+}
+
+uint32_t cmux_test_ghostty_surface_key_unshifted_codepoint(void) {
+    return cmux_test_surface_key_unshifted_codepoint_value;
+}
+
+const char* cmux_test_ghostty_surface_key_text(void) {
+    return cmux_test_surface_key_text_value;
 }
 
 void cmux_test_ghostty_surface_free_blocking_begin(void *surface) {
@@ -280,6 +311,14 @@ bool ghostty_surface_read_selection_clipboard_text(
         *selection = (ghostty_text_s){0};
     }
     return false;
+}
+
+// GhosttyRuntimeCInterop.initialize() in CmuxTerminalCore references
+// ghostty_init directly, so this test runner needs a definition to link.
+int ghostty_init(uintptr_t argc, char **argv) {
+    (void)argc;
+    (void)argv;
+    return 0;
 }
 
 void *ghostty_config_new(void) {
@@ -502,8 +541,30 @@ uint64_t ghostty_surface_foreground_pid(void *surface) {
     (void)surface;
     return cmux_test_foreground_pid;
 }
+bool ghostty_surface_grid_metrics(void *surface, void *metrics) {
+    (void)surface;
+    (void)metrics;
+    return false;
+}
 void ghostty_surface_has_selection(void) {}
-void ghostty_surface_key(void) {}
+bool ghostty_surface_key(void *surface, cmux_test_ghostty_input_key_s key_event) {
+    (void)surface;
+    // Keep the capture focused on the press. Synthetic named keys may also
+    // send a release, which should not erase the fields under test.
+    if (key_event.action != 1) {
+        return true;
+    }
+    cmux_test_surface_key_called = true;
+    cmux_test_surface_key_mods_value = key_event.mods;
+    cmux_test_surface_key_unshifted_codepoint_value = key_event.unshifted_codepoint;
+    if (key_event.text != NULL) {
+        strncpy(cmux_test_surface_key_text_value, key_event.text, sizeof(cmux_test_surface_key_text_value) - 1);
+        cmux_test_surface_key_text_value[sizeof(cmux_test_surface_key_text_value) - 1] = '\0';
+    } else {
+        cmux_test_surface_key_text_value[0] = '\0';
+    }
+    return true;
+}
 void ghostty_surface_mouse_button(void) {}
 void ghostty_surface_mouse_pos(void) {}
 void ghostty_surface_mouse_scroll(void) {}

@@ -5,23 +5,28 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DEST=${1:?pass an isolated scratch directory}
 mkdir -p "$DEST/Sources/CloudCommandFixture" "$DEST/Tests/CloudCommandFixtureTests"
-cat > "$DEST/Package.swift" <<'SWIFT'
+# CmuxTerminalSizing has no dependencies, so the fixture links the real package
+# instead of stubbing the shared sizing value types.
+SIZING_PACKAGE="$ROOT/Packages/Shared/CmuxTerminalSizing"
+cat > "$DEST/Package.swift" <<SWIFT
 // swift-tools-version: 6.0
 import PackageDescription
+let sizing = Target.Dependency.product(name: "CmuxTerminalSizing", package: "CmuxTerminalSizing")
 let package = Package(
     name: "CloudCommandFixture",
     platforms: [.macOS(.v14)],
+    dependencies: [.package(path: "$SIZING_PACKAGE")],
     targets: [
-        .target(name: "CloudCommandFixture"),
-        .testTarget(name: "CloudCommandFixtureTests", dependencies: ["CloudCommandFixture"])
+        .target(name: "CloudCommandFixture", dependencies: [sizing]),
+        .testTarget(name: "CloudCommandFixtureTests", dependencies: ["CloudCommandFixture", sizing])
     ],
     swiftLanguageModes: [.v5]
 )
 SWIFT
-# CloudTuiTerminalProjectionTarget lives in the CmuxSurfaceCatalogModel package, not in Sources/Cloud.
+# CloudTuiTerminalProjectionTarget lives in the CmuxSurfaceCatalogModel package, not in CmuxCloud.
 cp "$ROOT/Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/CloudTuiTerminalProjectionTarget.swift" \
     "$DEST/Sources/CloudCommandFixture/"
-cp "$ROOT/Sources/Cloud/CloudTuiPersistentResourceConnection.swift" "$DEST/Sources/CloudCommandFixture/"
+cp "$ROOT/Packages/macOS/CmuxCloud/Sources/CmuxCloud/Link/CloudTuiPersistentResourceConnection.swift" "$DEST/Sources/CloudCommandFixture/"
 # The rest of the transport lives in the CmuxCloudTui package.
 for name in CloudTuiPersistentRequestBuilder \
     CloudTuiManualIOConnection CloudTuiManualIODescriptorLease CloudTuiManualIOCommand \
@@ -38,6 +43,6 @@ rm -f "$DEST/Sources/CloudCommandFixture/"*.bak
 for name in CloudCommandDeadlineClock CloudCommandDeadlineTests CloudTuiManualIOConnectionTests; do
     cp "$ROOT/cmuxTests/$name.swift" "$DEST/Tests/CloudCommandFixtureTests/"
 done
-sed -i.bak '/^import CmuxCloudTui$/d' "$DEST/Tests/CloudCommandFixtureTests/"*.swift
+sed -i.bak -e '/^import CmuxCloudTui$/d' -e '/^import CmuxCloud$/d' "$DEST/Tests/CloudCommandFixtureTests/"*.swift
 rm -f "$DEST/Tests/CloudCommandFixtureTests/"*.bak
 swift test --package-path "$DEST" -Xswiftc -warnings-as-errors

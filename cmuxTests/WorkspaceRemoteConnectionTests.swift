@@ -4,6 +4,7 @@ import XCTest
 import os
 import CmuxControlSocket
 import CmuxCore
+import CmuxFoundation
 import CmuxRemoteDaemon
 import CmuxRemoteSession
 import CmuxSidebar
@@ -122,12 +123,14 @@ private final class NativeSSHCleanupRecorder {
 
 final class WorkspaceRemoteConnectionTests: XCTestCase {
     /// A control path in the resolved form the broker will claim lifecycle ownership of:
-    /// the cmux prefix followed by 40 hex digits, which is what `ssh -G` expands `%C` into
+    /// cmux's socket directory followed by 40 hex digits, which is what `ssh -G` expands `%C` into
     /// before a configuration reaches the app. `NativeSSHControlMasterKey` refuses to own a
     /// path still containing `%`, so a fixture carrying a raw `%C` template never gets a
     /// lease and can never produce a cleanup request.
+    private static let controlSocketDirectory =
+        SSHConnectionSharingOptions().controlSocketDirectoryPath ?? "/unavailable-cmux-ssh"
     private static let resolvedControlPath =
-        "/tmp/cmux-ssh-\(getuid())-0123456789abcdef0123456789abcdef01234567"
+        controlSocketDirectory + "/0123456789abcdef0123456789abcdef01234567"
 
     private struct ProcessRunResult {
         let status: Int32, stdout: String, stderr: String
@@ -186,6 +189,27 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     private func runRelayZshHistfile(
         configureUserHome: (URL) throws -> URL
     ) throws -> String {
+        var effectiveUserZdotdir: URL?
+        let output = try runRelayZsh(
+            configureUserHome: { home in
+                let zdotdir = try configureUserHome(home)
+                effectiveUserZdotdir = zdotdir
+                return zdotdir
+            },
+            command: "print -r -- \"$HISTFILE\""
+        )
+        let histfile = output.last
+        XCTAssertEqual(histfile, effectiveUserZdotdir?.appendingPathComponent(".zsh_history").path)
+        return histfile ?? ""
+    }
+
+    /// Runs a login interactive zsh through the generated relay startup files
+    /// and returns its non-empty stdout lines.
+    private func runRelayZsh(
+        configureUserHome: (URL) throws -> URL,
+        command: String,
+        zshFlags: String = "-ilc"
+    ) throws -> [String] {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-zsh-\(UUID().uuidString)")
         let relayDir = home.appendingPathComponent(".cmux/relay/64011.shell")
@@ -193,12 +217,15 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         try fileManager.createDirectory(at: relayDir, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: home) }
 
-        let effectiveUserZdotdir = try configureUserHome(home)
+        _ = try configureUserHome(home)
         let bootstrap = RemoteRelayZshBootstrap(shellStateDir: relayDir.path)
 
         try writeShellFile(at: relayDir.appendingPathComponent(".zshenv"), lines: bootstrap.zshEnvLines)
         try writeShellFile(at: relayDir.appendingPathComponent(".zprofile"), lines: bootstrap.zshProfileLines)
-        try writeShellFile(at: relayDir.appendingPathComponent(".zshrc"), lines: bootstrap.zshRCLines(commonShellLines: []))
+        try writeShellFile(
+            at: relayDir.appendingPathComponent(".zshrc"),
+            lines: bootstrap.zshRCLines(commonShellLines: ["print -r -- relay-zshrc-tail"])
+        )
         try writeShellFile(at: relayDir.appendingPathComponent(".zlogin"), lines: bootstrap.zshLoginLines)
 
         let result = runProcess(
@@ -211,8 +238,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "CMUX_REAL_ZDOTDIR=\(home.path)",
                 "ZDOTDIR=\(relayDir.path)",
                 "/bin/zsh",
-                "-ilc",
-                "print -r -- \"$HISTFILE\"",
+                zshFlags,
+                command,
             ],
             timeout: 5
         )
@@ -220,12 +247,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
 
-        let histfile = result.stdout
+        return result.stdout
             .split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .last(where: { !$0.isEmpty })
-        XCTAssertEqual(histfile, effectiveUserZdotdir.appendingPathComponent(".zsh_history").path)
-        return histfile ?? ""
+            .filter { !$0.isEmpty }
     }
 
     private func runGeneratedBashBootstrapMarkers(startupFiles: [String: String]) throws -> [String] {
@@ -500,6 +525,105 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(histfile.contains("/dotfiles/.zsh_history"))
     }
 
+    func testRelayZshBootstrapShowsUserZdotdirToUserStartupFilesAndSession() throws {
+        var homePath = ""
+        let output = try runRelayZsh(
+            configureUserHome: { home in
+                homePath = home.path
+                for file in [".zshenv", ".zprofile", ".zshrc", ".zlogin"] {
+                    try "print -r -- \"\(file)=${ZDOTDIR:-$HOME}\"\n".write(
+                        to: home.appendingPathComponent(file),
+                        atomically: true,
+                        encoding: .utf8
+                    )
+                }
+                return home
+            },
+            command: "print -r -- \"session=${ZDOTDIR:-$HOME}\""
+        )
+
+        XCTAssertEqual(output, [
+            ".zshenv=\(homePath)",
+            ".zprofile=\(homePath)",
+            ".zshrc=\(homePath)",
+            "relay-zshrc-tail",
+            ".zlogin=\(homePath)",
+            "session=\(homePath)",
+        ])
+    }
+
+    func testRelayZshBootstrapLetsUserZshenvDefaultZdotdir() throws {
+        var xdgPath = ""
+        let output = try runRelayZsh(
+            configureUserHome: { home in
+                let xdg = home.appendingPathComponent(".config/zsh")
+                xdgPath = xdg.path
+                try FileManager.default.createDirectory(at: xdg, withIntermediateDirectories: true)
+                try ": ${ZDOTDIR:=$HOME/.config/zsh}\n".write(
+                    to: home.appendingPathComponent(".zshenv"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                try "print -r -- xdg-zshrc\n".write(
+                    to: xdg.appendingPathComponent(".zshrc"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                return xdg
+            },
+            command: "print -r -- \"session=$ZDOTDIR\""
+        )
+
+        XCTAssertEqual(output, ["xdg-zshrc", "relay-zshrc-tail", "session=\(xdgPath)"])
+    }
+
+    func testRelayZshBootstrapKeepsZdotdirSetInUserZprofile() throws {
+        var xdgPath = ""
+        let output = try runRelayZsh(
+            configureUserHome: { home in
+                let xdg = home.appendingPathComponent(".config/zsh")
+                xdgPath = xdg.path
+                try FileManager.default.createDirectory(at: xdg, withIntermediateDirectories: true)
+                try "export ZDOTDIR=\"$HOME/.config/zsh\"\n".write(
+                    to: home.appendingPathComponent(".zprofile"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                try "print -r -- home-zshrc\n".write(
+                    to: home.appendingPathComponent(".zshrc"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                try "print -r -- xdg-zshrc\n".write(
+                    to: xdg.appendingPathComponent(".zshrc"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                return xdg
+            },
+            command: "print -r -- \"session=$ZDOTDIR\""
+        )
+
+        XCTAssertEqual(output, ["xdg-zshrc", "relay-zshrc-tail", "session=\(xdgPath)"])
+    }
+
+    func testRelayZshBootstrapRestoresZdotdirForShellExecedByRemoteCommand() throws {
+        let output = try runRelayZsh(
+            configureUserHome: { home in
+                try "print -r -- home-zshrc\n".write(
+                    to: home.appendingPathComponent(".zshrc"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                return home
+            },
+            command: "exec /bin/zsh -ic 'print -r -- \"session=${ZDOTDIR-unset}\"'",
+            zshFlags: "-c"
+        )
+
+        XCTAssertEqual(output, ["home-zshrc", "relay-zshrc-tail", "session=unset"])
+    }
+
     func testRemoteUTF8LocaleSetupLinesSeedUTF8LocaleWhenMissing() {
         let script = (RemoteShellEnvironment.utf8LocaleSetupLines() + [
             #"printf '%s' "${LANG}|${LC_CTYPE}|${LC_ALL}""#,
@@ -567,16 +691,20 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let arguments = configuration.daemonSocketForwardArguments(
-            localPort: 64123,
+            localSocketPath: "/private/tmp/cmuxd.AbC123/d.sock",
             remoteSocketPath: "/run/cmuxd-remote.sock"
         )
 
-        XCTAssertEqual(Array(arguments.prefix(4)), ["-N", "-T", "-S", "none"])
+        XCTAssertEqual(Array(arguments.prefix(8)), [
+            "-N", "-T", "-S", "none",
+            "-o", "StreamLocalBindMask=0177",
+            "-o", "StreamLocalBindUnlink=yes",
+        ])
         XCTAssertTrue(arguments.contains("-p"))
         XCTAssertTrue(arguments.contains("2222"))
         XCTAssertTrue(arguments.contains("-i"))
         XCTAssertTrue(arguments.contains("/Users/test/.ssh/id_ed25519"))
-        XCTAssertTrue(arguments.contains("127.0.0.1:64123:/run/cmuxd-remote.sock"))
+        XCTAssertTrue(arguments.contains("/private/tmp/cmuxd.AbC123/d.sock:/run/cmuxd-remote.sock"))
         XCTAssertEqual(arguments.last, "cmux-macmini")
     }
 
@@ -1076,9 +1204,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-a"
         )
-        let resolvedControlPath =
-            "/tmp/cmux-ssh-\(getuid())-" +
-            "0123456789abcdef0123456789abcdef01234567"
+        let resolvedControlPath = Self.resolvedControlPath
         XCTAssertTrue(workspace.notifyRemoteForegroundAuthenticationReady(
             token: "token-a",
             resolvedControlPath: resolvedControlPath
@@ -1247,7 +1373,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-o", "StrictHostKeyChecking=accept-new",
                 "-O", "exit",
-                "cmux-macmini",
+                "--", "cmux-macmini",
             ]
         )
     }
@@ -1292,7 +1418,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-i", "/Users/test/.ssh/id_ed25519",
                 "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-O", "exit",
-                "cmux-macmini",
+                "--", "cmux-macmini",
             ]
         )
     }
@@ -1391,7 +1517,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-o", "ControlMaster=no",
                 "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-O", "exit",
-                "cmux-macmini",
+                "--", "cmux-macmini",
             ]
         )
     }
@@ -1477,7 +1603,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-o", "StrictHostKeyChecking=accept-new",
                 "-O", "exit",
-                "cmux-macmini",
+                "--", "cmux-macmini",
             ]
         )
     }
@@ -1499,7 +1625,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "ControlPath=\(Self.controlSocketDirectory)/%C",
                 "StrictHostKeyChecking=accept-new",
             ],
             localProxyPort: nil,
@@ -1901,7 +2027,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         wait(for: [cleanupRequested], timeout: 1.0)
 
         XCTAssertEqual(cleanup.arguments.count, 1)
-        XCTAssertEqual(cleanup.arguments.first?.suffix(2), ["exit", "cmux-macmini"])
+        XCTAssertEqual(cleanup.arguments.first?.suffix(3), ["exit", "--", "cmux-macmini"])
     }
 
     @MainActor
@@ -1996,7 +2122,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         let remotePath = RemoteSessionCoordinator.remoteDropPath(for: fileURL, uuid: uuid)
 
-        XCTAssertEqual(remotePath, "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.png")
+        XCTAssertEqual(
+            remotePath,
+            "~/.cache/cmux/paste/00000000-0000-0000-0000-000000000000/" +
+                "cmux-paste-12345678-1234-1234-1234-1234567890ab.png"
+        )
     }
 
     @MainActor
@@ -2584,12 +2714,16 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 .last
         )
         let uploadedRemotePath = try XCTUnwrap(firstSCPDestination.split(separator: ":", maxSplits: 1).last)
+        let uploadedFileName = try XCTUnwrap(uploadedRemotePath.split(separator: "/").last)
+        // The first ssh call prepares the private paste directory; cleanup runs
+        // after the failed copy and addresses the file through "$HOME/...".
         let cleanupInvocation = try XCTUnwrap(
-            invocations.first(where: { $0.executable == "/usr/bin/ssh" })
+            invocations.last(where: { $0.executable == "/usr/bin/ssh" })
         )
         let cleanupCommand = cleanupInvocation.arguments.joined(separator: " ")
 
-        XCTAssertTrue(cleanupCommand.contains(String(uploadedRemotePath)))
+        XCTAssertTrue(cleanupCommand.contains("rm -f --"), cleanupCommand)
+        XCTAssertTrue(cleanupCommand.contains(String(uploadedFileName)), cleanupCommand)
     }
 
     func testDetectsForegroundSSHSessionForTTY() {
@@ -6268,6 +6402,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 "--identity", "/Users/test/.ssh/id_ed25519",
                 "--ssh-option", "StrictHostKeyChecking=accept-new",
                 "--window", windowID,
+                "--focus",
                 "cmux-macmini",
             ],
             workspaceRef: workspaceRef
@@ -6286,7 +6421,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(openParams["identity_file"] as? String, "/Users/test/.ssh/id_ed25519")
         XCTAssertEqual(openParams["title"] as? String, "SSH Workspace")
         XCTAssertEqual(openParams["window_id"] as? String, windowID)
-        // `cmux ssh` should land the user in the new SSH workspace immediately.
+        // `--focus` lands the user in the new SSH workspace immediately (the default
+        // for an interactive run; this mock runs as a script).
         XCTAssertEqual(openParams["focus"] as? Bool, true)
         XCTAssertEqual(openParams["terminal_profile"] as? String, "shell")
         XCTAssertNil(openParams["initial_command"])

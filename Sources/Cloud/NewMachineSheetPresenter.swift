@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import SwiftUI
 
@@ -20,6 +21,12 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     private var planRefreshID: UUID?
 
     private override init() { super.init() }
+
+    /// The shared paywall decision used by both sheet entrypoints.
+    static func shouldPresentUpgrade(for plan: MachinePlanSnapshot?) -> Bool {
+        guard let plan else { return false }
+        return plan.isAtLimit && !plan.isPaidPlan
+    }
 
     var isPresenting: Bool { sheetWindow != nil }
 
@@ -153,7 +160,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         // `.shared` is main-actor-isolated, so it cannot be a default argument
         // (default values evaluate in a nonisolated context); resolve it here.
         let coordinator = coordinator ?? .shared
-        if let plan, plan.isAtLimit, !plan.isPaidPlan {
+        if Self.shouldPresentUpgrade(for: plan) {
             ProUpgradePresenter.present(source: .newMachineAtLimit)
             return
         }
@@ -206,7 +213,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             return nil
         }
         let plan = MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits)
-        guard !(plan?.isAtLimit == true && plan?.isPaidPlan == false) else {
+        guard !Self.shouldPresentUpgrade(for: plan) else {
             finishSelection(selectionID, request: nil)
             ProUpgradePresenter.present(source: .newMachineAtLimit)
             return nil

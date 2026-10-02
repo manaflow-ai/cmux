@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 
 /// Supplies a machine's shared cmux-tui carrier independently of its hosting provider.
@@ -7,6 +8,7 @@ protocol RemoteTuiLinkManaging: Sendable {
     func link(machineID: String) async -> CloudMachineLink?
     func status(machineID: String) async -> CloudMachineLinkManager.LinkStatus?
     func privateAddresses(for machineID: String) async -> [String]
+    func setPrivateAddresses(_ addresses: [String], for machineID: String) async
     func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint
 }
 

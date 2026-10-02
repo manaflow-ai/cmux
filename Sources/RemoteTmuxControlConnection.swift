@@ -200,6 +200,13 @@ final class RemoteTmuxControlConnection {
     var windowSizeDebounceTasks: [Int: Task<Void, Never>] = [:]
     /// Whether the server accepts per-window `refresh-client -C` sizing.
     var supportsPerWindowSize = true
+    // Desired colors survive reconnect; sent colors belong to one control stream.
+    var paneColors: [Int: RemoteTmuxPaneColors] = [:]
+    var sentPaneColors: [Int: RemoteTmuxPaneColors] = [:]
+    var supportsPaneColorReports = true
+    var canSendPaneColorReports: Bool {
+        connectionState == .connected && attachBlockDrained && supportsPaneColorReports
+    }
     /// Instant of the most recent sizing write on this connection — kept for
     /// diagnostics (how stale is the last size request).
     var lastSizingSendAt: ContinuousClock.Instant?
@@ -550,6 +557,8 @@ final class RemoteTmuxControlConnection {
         // `%exit` or a session found gone on reconnect) notifies exit observers — so
         // detach / quit / window-close (preserve) and transport drops do not.
         connectionState = .ended
+        paneColors.removeAll()
+        sentPaneColors.removeAll()
         cancelScheduledWork()
         teardownProcessHandles()
     }
@@ -750,6 +759,8 @@ final class RemoteTmuxControlConnection {
     func beginReconnecting() {
         guard connectionState == .connected || connectionState == .connecting else { return }
         record("reconnecting")
+        sentPaneColors.removeAll()
+        supportsPaneColorReports = true
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingCommandTransactions()

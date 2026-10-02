@@ -669,6 +669,9 @@ USAGE
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> viewport scroll --delta-rows <n>
   cmux terminal <selector> move|project|attach|close [OPTIONS]
+
+screen wait prints its result either way and exits 1 when the timeout
+passes without a match.
 ";
 
 const BROWSER_HELP: &str = "\

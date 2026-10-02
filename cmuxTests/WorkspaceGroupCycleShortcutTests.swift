@@ -11,7 +11,7 @@ import Testing
 
 #if DEBUG
 @MainActor
-@Suite("Workspace group cycle shortcuts", .serialized)
+@Suite("Workspace group cycle shortcuts", .serialized, .exclusiveAppContext)
 struct WorkspaceGroupCycleShortcutTests {
     @Test func actionsAreVisibleAndUnboundByDefault() throws {
         let actions: [KeyboardShortcutSettings.Action] = [
@@ -65,10 +65,9 @@ struct WorkspaceGroupCycleShortcutTests {
         let ungroupedWorkspace = try #require(manager.selectedWorkspace)
         let firstMember = try #require(manager.addWorkspaceIfActive(select: false, placementOverride: .end))
         let secondMember = try #require(manager.addWorkspaceIfActive(select: false, placementOverride: .end))
-        let groupId = try #require(manager.createWorkspaceGroup(
-            name: "Grouped",
-            childWorkspaceIds: [firstMember.id, secondMember.id]
-        ))
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Grouped"))
+        manager.addWorkspaceToGroup(workspaceId: firstMember.id, groupId: groupId)
+        manager.addWorkspaceToGroup(workspaceId: secondMember.id, groupId: groupId)
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
         let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
 

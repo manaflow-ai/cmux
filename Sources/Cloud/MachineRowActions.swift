@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Foundation
 import CmuxSettings
@@ -158,7 +159,7 @@ struct MachineRowActions {
         successTitle: String? = nil,
         presentOutputOnSuccess: Bool = false,
         onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)? = nil,
-        onSuccess: (@MainActor () -> Void)? = nil,
+        onExit: (@MainActor () -> Void)? = nil,
         onDidMutate: @escaping @MainActor () -> Void
     ) -> Bool {
         let socketPath = TerminalController.shared.activeSocketPath(
@@ -171,13 +172,19 @@ struct MachineRowActions {
             successTitle: successTitle,
             presentOutputOnSuccess: presentOutputOnSuccess,
             onCancellationReady: onCancellationReady,
-            onCompletion: { completion in
-                if completion.terminationStatus == 0 {
-                    onSuccess?()
-                }
+            onCompletion: { _ in
+                onExit?()
                 onDidMutate()
             }
         )
+    }
+
+    /// The rename sheet should identify a machine by the label the user sees;
+    /// the stable VM id is only the mutation target and a fallback for machines
+    /// that have not received a label yet.
+    static func renamePromptDisplayName(id: String, currentLabel: String?) -> String {
+        let label = currentLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return label?.isEmpty == false ? label! : id
     }
 
     @MainActor
@@ -190,7 +197,10 @@ struct MachineRowActions {
         let alert = NSAlert()
         alert.alertStyle = .informational
         let format = String(localized: "machines.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}")
-        alert.messageText = String(format: format, id)
+        alert.messageText = String(
+            format: format,
+            renamePromptDisplayName(id: id, currentLabel: currentLabel)
+        )
         alert.informativeText = String(
             localized: "machines.rename.message",
             defaultValue: "The label is display-only. The machine keeps its name as its address."
@@ -244,16 +254,14 @@ struct MachineRowActions {
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         alert.buttons.first?.hasDestructiveAction = true
         let respond: (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .alertFirstButtonReturn else { return }
+            // A second confirm while the first delete runs is a no-op, never a second `vm rm`.
+            guard response == .alertFirstButtonReturn, MachineDeleteCoordinator.shared.canBegin(id) else { return }
             onWillMutate(operationLabel(verb: ["rm"], id: id))
-            if !launch(
-                arguments: ["vm", "rm", id],
-                onSuccess: {
-                    // The machine is gone; its workspaces would only sit there "Connected".
-                    AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: id)
-                },
-                onDidMutate: onDidMutate
-            ) {
+            let deletions = MachineDeleteCoordinator.shared
+            // Hide the machine only once the CLI started: a signed-out launch opens sign-in instead.
+            if launch(arguments: ["vm", "rm", id], onExit: { deletions.launchEnded(id) }, onDidMutate: onDidMutate) {
+                deletions.begin(id)
+            } else {
                 onDidMutate()
             }
         }

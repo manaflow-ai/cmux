@@ -44,7 +44,7 @@ struct SocketTerminalBindingRegressionTests {
                 initialCommand: "/bin/cat"
             )
             defer {
-                replacement.teardownSurface()
+                replacement.teardownHostedSurfaceForTesting()
                 GhosttyApp.terminalSurfaceRegistry.unregister(replacement)
             }
 
@@ -142,7 +142,7 @@ struct SocketTerminalBindingRegressionTests {
                 initialCommand: "/bin/cat"
             )
             defer {
-                replacement.teardownSurface()
+                replacement.teardownHostedSurfaceForTesting()
                 GhosttyApp.terminalSurfaceRegistry.unregister(replacement)
             }
 
@@ -197,7 +197,7 @@ struct SocketTerminalBindingRegressionTests {
                 initialCommand: "/bin/cat"
             )
             defer {
-                replacement.teardownSurface()
+                replacement.teardownHostedSurfaceForTesting()
                 GhosttyApp.terminalSurfaceRegistry.unregister(replacement)
             }
 
@@ -263,7 +263,7 @@ struct SocketTerminalBindingRegressionTests {
                 initialCommand: "/bin/cat"
             )
             defer {
-                replacement.teardownSurface()
+                replacement.teardownHostedSurfaceForTesting()
                 GhosttyApp.terminalSurfaceRegistry.unregister(replacement)
             }
 

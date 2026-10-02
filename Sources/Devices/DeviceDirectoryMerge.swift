@@ -14,6 +14,9 @@ struct DeviceDirectoryMerge {
         var registry: [DeviceRegistryDirectoryClient.Device] = []
         /// Account-wide bindings from the same authenticated broker used by iOS.
         var authenticatedMacs: [DeviceDiscoveredMac] = []
+        /// Automatic discovery admits only hosts that currently advertise Mac
+        /// incoming access. Other sources enrich those rows, never add peers.
+        var requiresAuthenticatedDiscovery = false
         var presence: [SurfaceDeviceInstanceID: DevicePresenceInstance] = [:]
         /// Whether the presence stream has delivered its snapshot, so a device
         /// absent from `presence` is known offline rather than unknown.
@@ -23,7 +26,7 @@ struct DeviceDirectoryMerge {
         /// Whether the sync collection has delivered a complete snapshot; until
         /// then a missing owner is "unknown", never "someone else".
         var ownersKnown = false
-        /// Macs the person paired (Settings › Computers): listed and dialable
+        /// Macs the person paired (Settings › Devices): listed and dialable
         /// even when the registry and presence are unavailable (local-first).
         var paired: [DevicePairedDevice] = []
         /// Records from the previous merge, kept so an instance presence forgets
@@ -84,12 +87,10 @@ struct DeviceDirectoryMerge {
             candidate.directoryEndpoint != nil && existing.directoryEndpoint == nil
         }
 
-        var ids = Set(registryInstances.keys)
-        ids.formUnion(accountMacs.keys)
-        ids.formUnion(presenceMacs.keys)
-        ids.formUnion(pairedByID.keys)
-        ids.formUnion(previousByID.keys)
-        ids = ids.filter { $0.isVisible(from: input.selfInstance) }
+        let ids = SurfaceDeviceDirectoryAdmission(requiresAuthenticatedDiscovery: input.requiresAuthenticatedDiscovery)
+            .admittedInstances(authenticated: Set(accountMacs.keys),
+                legacySources: [Set(registryInstances.keys), Set(presenceMacs.keys), Set(pairedByID.keys), Set(previousByID.keys)],
+                local: input.selfInstance)
 
         let personalScope = input.resolvedTeamID == nil || input.resolvedTeamID == input.currentUserID
 
@@ -173,7 +174,9 @@ struct DeviceDirectoryMerge {
                 routes: routes,
                 ownerUserID: ownerUserID,
                 accountTrust: trust,
-                directoryEndpoint: accountMac?.endpointID ?? previous?.directoryEndpoint
+                directoryEndpoint: accountMac?.endpointID ?? previous?.directoryEndpoint,
+                controlPlaneSupport: accountMac.map { $0.controlPlaneSupportsMacPeers ? .supported : .outdated }
+                    ?? previous?.controlPlaneSupport ?? .notApplicable
             )
         }
         return records.sorted { lhs, rhs in
