@@ -94,7 +94,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   }
 
   private broadcast(frame: OwnerFrame) {
-    const text = JSON.stringify(frame)
+    const extras = frame.t === "event" ? this.eventExtras(frame) : undefined
+    const text = JSON.stringify(extras ? { ...frame, ...extras } : frame)
     const state = this.engine?.currentState
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null
@@ -130,6 +131,15 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   /** What a subscriber may see of the state in snapshots (default: all of it). */
   protected subscriberView(state: S, _principal: Principal): unknown {
     return state
+  }
+
+  /**
+   * Extra fields on a live event frame, computed after the commit (for example
+   * FeedDO's changed items, so clients mirror owner-written records instead of
+   * replaying the reducer). Resumed events from the log do not carry them.
+   */
+  protected eventExtras(_event: EventFrame): Record<string, unknown> | undefined {
+    return undefined
   }
 
   /** Whether a subscriber receives a committed event (default: yes). */

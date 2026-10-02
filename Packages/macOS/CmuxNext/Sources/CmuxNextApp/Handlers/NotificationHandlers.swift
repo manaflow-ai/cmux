@@ -15,6 +15,8 @@ enum NotificationHandlers {
         let daemon = context.daemon
         let panel = NotificationsPanelController(context: context)
         registry.bind("showNotifications", run: { _ in panel.toggle() })
+        let feedPanel = FeedPanelController(context: context)
+        registry.bind("feed.show", run: { _ in feedPanel.toggle() })
         registry.bind("clearAllNotifications", requires: ack, daemon: daemon, run: { _ in
             _ = try context.requireConnection()
             context.daemon.send("notification.clear") { connection in
