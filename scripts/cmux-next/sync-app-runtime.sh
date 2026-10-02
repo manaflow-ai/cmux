@@ -5,9 +5,10 @@
 #   cmux-tui/crates/cmux-app-host/js/ABI.md                   -> runtime/ (when present)
 #   cmux-tui/crates/cmux-app-host/schema/cmux-app.schema.json + fixtures/ -> schema/
 #   cmux-tui/crates/cmux-app-host/generated/scopes.json      -> scopes.json
-#   samples/apps/<name>/{cmux-app.json,dist/,assets/}        -> samples/<name>/ (built samples only;
-#     a sample with a NOT_BUNDLED file stays out, e.g. one that needs a manifest
-#     feature the Swift validator does not decode yet)
+# samples/ under that directory is a frozen copy of the manifest v1 samples the
+# JavaScriptCore prototype reads (its manifest model is v1); the samples moved
+# to manifest v2, so they are no longer synced. The Swift lane deletes the copy
+# with the prototype (app platform step 3).
 # The app platform lead owns the sources (plans/cmux-next/app-platform.md);
 # never edit the copies. `--check` exits 1 when a copy differs from its source.
 # CMUX_APP_HOST_DIR and CMUX_APP_SAMPLES_DIR override the source directories.
@@ -40,30 +41,26 @@ for kind in valid invalid; do
   fi
 done
 copy "$host/generated/scopes.json" scopes.json
-mkdir -p "$stage/samples"
-if [[ -d "$samples" ]]; then
-  for app in "$samples"/*/; do
-    name="$(basename "$app")"
-    [[ -f "$app/cmux-app.json" ]] || continue
-    [[ -f "$app/NOT_BUNDLED" ]] && continue
-    copy "$app/cmux-app.json" "samples/$name/cmux-app.json"
-    [[ -d "$app/dist" ]] && copy "$app/dist" "samples/$name/dist"
-    [[ -d "$app/assets" ]] && copy "$app/assets" "samples/$name/assets"
-  done
-fi
 # Empty directories do not survive git; keep a marker in each.
 find "$stage" -type d -empty -exec touch {}/.keep \;
 
+# Only the synced paths are compared and replaced; the frozen samples stay.
+synced=(runtime schema scopes.json)
 if [[ "$mode" == "check" ]]; then
-  if ! diff -r "$stage" "$dest" >/dev/null 2>&1; then
-    diff -rq "$stage" "$dest" >&2 || true
+  stale=0
+  for path in "${synced[@]}"; do
+    diff -r "$stage/$path" "$dest/$path" >/dev/null 2>&1 || { diff -rq "$stage/$path" "$dest/$path" >&2 || true; stale=1; }
+  done
+  if (( stale )); then
     echo "sync-app-runtime: CmuxNextApps resources are stale; run scripts/cmux-next/sync-app-runtime.sh" >&2
     exit 1
   fi
   echo "sync-app-runtime: up to date"
   exit 0
 fi
-rm -rf "$dest"
-mkdir -p "$(dirname "$dest")"
-cp -R "$stage" "$dest"
+mkdir -p "$dest"
+for path in "${synced[@]}"; do
+  rm -rf "${dest:?}/$path"
+  cp -R "$stage/$path" "$dest/$path"
+done
 echo "sync-app-runtime: wrote $dest"

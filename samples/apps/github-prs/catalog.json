@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "owner": "app:cmux/github-prs",
+  "operations": {
+    "github-prs.refresh": {
+      "class": "mutation",
+      "export": "refresh",
+      "title": { "en": "Refresh Pull Requests", "ja": "プルリクエストを更新" },
+      "keywords": ["github", "pr"],
+      "surfaces": { "palette": true, "cli": true, "mcp": false, "contexts": ["sidebarSection"] }
+    }
+  }
+}

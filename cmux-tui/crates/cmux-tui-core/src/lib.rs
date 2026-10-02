@@ -9,6 +9,7 @@
 //! themselves, which is what makes the backend attachable.
 
 mod agent_hooks;
+mod apps;
 pub mod backoff;
 mod browser;
 mod browser_provider;

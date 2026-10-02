@@ -87,6 +87,8 @@ use crate::{
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
+#[cfg(unix)]
+mod apps;
 #[path = "server/image_paste.rs"]
 mod image_paste;
 #[path = "server/loopback_forward.rs"]
@@ -424,6 +426,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     }
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.push(crate::image_paste::CAPABILITY);
+    capabilities.extend(crate::apps::advertised());
     capabilities
 }
 
@@ -5251,6 +5254,7 @@ pub(crate) struct ClientRegistry {
     url_opens: url_open::URLRequests,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     loopback: loopback_forward::LoopbackForwarder,
+    apps: crate::apps::AppsSlot,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -5264,6 +5268,7 @@ impl ClientRegistry {
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
+            apps: crate::apps::AppsSlot::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -6311,6 +6316,7 @@ impl ClientRegistry {
     fn remove(&self, client: u64) -> Option<ClientRecord> {
         self.url_opens.disconnect(client);
         self.loopback.disconnect(client);
+        self.apps.disconnect(client);
         let mut state = self.state.lock().unwrap();
         let record = state.clients.remove(&client)?;
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
@@ -10899,6 +10905,10 @@ fn handle_connection_message(
         return handle_resource_connection_message(mux, client, message, writer);
     }
     if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
+    if let Some(keep_open) = apps::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     let request = match serde_json::from_str::<Request>(message) {
