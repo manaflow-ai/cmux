@@ -6,14 +6,11 @@ import Testing
 @Suite struct CLIActionTests {
     @Test func everyCLIActionHasItsOwnCLIName() {
         let cli = ActionCatalog.all.filter(\.cli)
-        #expect(cli.count == ActionCatalog.cliActionIDs.count, "an id in cliActionIDs is not in the catalog")
+        #expect(cli.count == ActionSurfaceCatalog.cliNamed.count, "an id in cliNamed is not in the catalog")
         for descriptor in cli {
             #expect(descriptor.cliName != ActionDescriptor.defaultCLIName(for: descriptor.id), "\(descriptor.id) has no cliName")
             #expect(!descriptor.isDebugOnly, "\(descriptor.id) is debug-only")
         }
-        let ids = Set(ActionCatalog.all.map(\.id))
-        let unknown = ActionCatalog.cliActionIDs.subtracting(ids)
-        #expect(unknown.isEmpty, "unknown: \(unknown.map(\.rawValue).sorted())")
     }
 
     @Test func guiOnlyActionsStayOffTheCLI() {

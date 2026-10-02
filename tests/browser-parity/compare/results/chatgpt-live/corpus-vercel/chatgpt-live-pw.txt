@@ -1,0 +1,329 @@
+- link "Skip to content":
+  - /url: https://vercel.com/#geist-skip-nav
+- banner:
+  - link "Vercel":
+    - /url: https://vercel.com/home
+  - navigation "Main navigation":
+    - button "Products":
+      - text: Products
+    - button "Resources":
+      - text: Resources
+    - link "Enterprise":
+      - /url: https://vercel.com/enterprise
+      - generic: Enterprise
+    - link "Pricing":
+      - /url: https://vercel.com/pricing
+      - generic: Pricing
+  - link "Get a Demo":
+    - /url: https://vercel.com/contact/sales
+    - generic: Get a Demo
+  - link "Log In":
+    - /url: https://vercel.com/login
+    - generic: Log In
+  - link "Sign Up":
+    - /url: https://vercel.com/signup
+    - generic: Sign Up
+- main:
+  - paragraph: Ship 26 is coming to SF
+  - link "Get your ticket":
+    - /url: https://vercel.com/ship?utm_campaign=ship-sf2026&utm_source=site&utm_medium=homepage
+    - generic: Get your ticket
+  - generic: Drop to deploy
+  - generic: Loading
+  - heading "Agentic Infrastructure" [level=1]
+  - paragraph:
+    - generic: For coding agents
+    - generic: For coding agents to ship apps and agents automated by agents.
+  - link "Deploy now":
+    - /url: https://vercel.com/new
+    - generic: Deploy now
+  - link "Talk to sales":
+    - /url: https://vercel.com/contact/sales
+    - generic: Talk to sales
+  - img "Meta"
+  - img "Charles Schwab"
+  - img "DoorDash"
+  - img "OpenAI"
+  - img "SpaceXAI"
+  - img "The Weather Company"
+  - img "Polymarket"
+  - heading "Build agents on infrastructure that thinks like them" [level=2]
+  - img "Build agents on infrastructure that thinks like them"
+  - paragraph: Notion powers millions of agent conversations daily on Vercel.
+  - list:
+    - listitem: Features
+    - listitem: Durable Orchestration
+    - listitem: Sandboxed Environments
+    - listitem: AI Model Gateway
+    - listitem: Fluid Compute
+  - heading "Ship apps that scale from zero to millions instantly" [level=2]
+  - img "Ship apps that scale from zero to millions instantly"
+  - paragraph: Zapier serves over 100 million monthly website visits on Vercel.
+  - list:
+    - listitem: Features
+    - listitem: Global Delivery
+    - listitem: Deployment Environments
+    - listitem: Serverless Functions
+    - listitem: Web Application Firewall
+  - heading "Host platforms that serve every customer" [level=2]
+  - img "Host platforms that serve every customer"
+  - paragraph: Mintlify powers documentation for over 20,000 companies on Vercel.
+  - list:
+    - listitem: Features
+    - listitem: Tenant Isolation
+    - listitem: Domain Management
+    - listitem: Custom SSL Certificates
+    - listitem: Preview URLs
+  - heading "Recently shipped" [level=2]
+  - link "Eve A framework for building durable agents.":
+    - /url: https://vercel.com/eve
+    - img "Eve"
+    - paragraph: A framework for building durable agents.
+  - link "Passport Secure every internal agent, app, and deployment with your identity provider.":
+    - /url: https://vercel.com/passport
+    - paragraph: Vercel
+    - list:
+      - paragraph: Passport
+      - paragraph: Pasaporte
+      - paragraph: Passaporto
+      - paragraph: パスポート
+    - paragraph: Iss 2026
+    - paragraph: Passport
+    - paragraph: Secure every internal agent, app, and deployment with your identity provider.
+  - link "Containers Run production workloads in isolated containers on Vercel.":
+    - /url: https://vercel.com/blog/dockerfile-on-vercel
+    - paragraph: ▲ vercel deploy
+    - paragraph: Vercel CLI
+    - list:
+      - listitem: ✓ Building image from Dockerfile.vercel
+      - listitem: ✓ Stored image in your project's registry
+      - listitem: ✓ Deployed to Fluid compute
+    - paragraph: "Production: https://my-server.vercel.app"
+    - paragraph: Containers
+    - paragraph: Run production workloads in isolated containers on Vercel.
+  - heading "Built by you, or your agents" [level=2]
+  - link "Deploy now":
+    - /url: https://vercel.com/new
+    - generic: Deploy now
+  - button "Onboard your agent":
+    - generic: Onboard your agent
+- contentinfo:
+  - navigation "Vercel Directory":
+    - heading "Agent Stack" [level=2]
+    - list:
+      - link "AI SDK":
+        - /url: https://vercel.com/ai-sdk
+      - link "AI Gateway":
+        - /url: https://vercel.com/ai-gateway
+      - link "Sandbox":
+        - /url: https://vercel.com/sandbox
+      - link "Workflows":
+        - /url: https://vercel.com/workflows
+      - link "Connect New":
+        - /url: https://vercel.com/connect
+        - text: Connect
+        - generic: New
+      - link "Passport New":
+        - /url: https://vercel.com/passport
+        - text: Passport
+        - generic: New
+      - link "eve New":
+        - /url: https://vercel.com/eve
+        - text: eve
+        - generic: New
+    - heading "Core Platform" [level=2]
+    - list:
+      - link "CI/CD":
+        - /url: https://vercel.com/products/previews
+      - link "Content Delivery":
+        - /url: https://vercel.com/cdn
+      - link "Fluid Compute":
+        - /url: https://vercel.com/fluid
+      - link "Observability":
+        - /url: https://vercel.com/products/observability
+    - heading "Security" [level=2]
+    - list:
+      - link "Platform Security":
+        - /url: https://vercel.com/security
+      - link "WAF":
+        - /url: https://vercel.com/security/web-application-firewall
+      - link "Bot Management":
+        - /url: https://vercel.com/security/bot-management
+      - link "BotID":
+        - /url: https://vercel.com/botid
+    - heading "Tools" [level=2]
+    - list:
+      - link "Vercel Drop New":
+        - /url: https://vercel.com/drop
+        - text: Vercel Drop
+        - generic: New
+      - link "Vercel Agent":
+        - /url: https://vercel.com/agent
+      - link "Vercel Plugin New":
+        - /url: https://vercel.com/plugin
+        - text: Vercel Plugin
+        - generic: New
+      - link "Agent Skills":
+        - /url: https://skills.sh/
+      - link "Domains":
+        - /url: https://vercel.com/domains
+      - link "v0":
+        - /url: https://v0.app/
+    - heading "Frameworks" [level=2]
+    - list:
+      - link "eve New":
+        - /url: https://eve.dev/
+        - text: eve
+        - generic: New
+      - link "Next.js":
+        - /url: https://vercel.com/frameworks/nextjs
+      - link "Nuxt":
+        - /url: https://vercel.com/docs/frameworks/full-stack/nuxt
+      - link "SvelteKit":
+        - /url: https://vercel.com/docs/frameworks/full-stack/sveltekit
+      - link "Nitro":
+        - /url: https://vercel.com/docs/frameworks/backend/nitro
+      - link "Turborepo":
+        - /url: https://vercel.com/solutions/turborepo
+      - link "Tanstack Start":
+        - /url: https://vercel.com/docs/frameworks/full-stack/tanstack-start
+      - link "FastAPI":
+        - /url: https://vercel.com/docs/frameworks/backend/fastapi
+      - link "All frameworks":
+        - /url: https://vercel.com/docs/frameworks
+    - heading "SDKs" [level=2]
+    - list:
+      - link "Vercel SDK":
+        - /url: https://vercel.com/docs/rest-api/sdk
+      - link "Workflow SDK New":
+        - /url: https://vercel.com/workflows
+        - text: Workflow SDK
+        - generic: New
+      - link "Flags SDK":
+        - /url: https://vercel.com/docs/flags/flags-sdk-reference
+      - link "Chat SDK New":
+        - /url: https://vercel.com/chat
+        - text: Chat SDK
+        - generic: New
+      - link "Queues SDK New":
+        - /url: https://vercel.com/docs/queues/sdk
+        - text: Queues SDK
+        - generic: New
+      - link "Streamdown":
+        - /url: https://streamdown.ai/
+    - heading "Build" [level=2]
+    - list:
+      - link "AI Apps":
+        - /url: https://vercel.com/solutions/ai-apps
+      - link "Web Apps":
+        - /url: https://vercel.com/for/web-apps
+      - link "Marketing Sites":
+        - /url: https://vercel.com/solutions/marketing-sites
+      - link "Platforms":
+        - /url: https://vercel.com/solutions/multi-tenant-saas
+      - link "Commerce":
+        - /url: https://vercel.com/solutions/composable-commerce
+      - link "Platform Engineers":
+        - /url: https://vercel.com/solutions/platform-engineering
+      - link "Design Engineers":
+        - /url: https://vercel.com/solutions/design-engineering
+    - heading "Learn" [level=2]
+    - list:
+      - link "Docs":
+        - /url: https://vercel.com/docs
+      - link "Blog":
+        - /url: https://vercel.com/blog
+      - link "Changelog":
+        - /url: https://vercel.com/changelog
+      - link "Knowledge Base":
+        - /url: https://vercel.com/kb
+      - link "Academy":
+        - /url: https://vercel.com/academy
+      - link "Articles":
+        - /url: https://vercel.com/i
+      - link "Community":
+        - /url: https://community.vercel.com/
+      - link "Is Agentic":
+        - /url: https://is-agentic.com/
+    - heading "Explore" [level=2]
+    - list:
+      - link "Customers":
+        - /url: https://vercel.com/customers
+      - link "Marketplace":
+        - /url: https://vercel.com/marketplace
+      - link "Templates":
+        - /url: https://vercel.com/templates
+      - link "Partner Finder":
+        - /url: https://vercel.com/partners/solution-partners
+      - link "Vercel + AWS":
+        - /url: https://vercel.com/partners/aws
+    - heading "Company" [level=2]
+    - list:
+      - link "About":
+        - /url: https://vercel.com/about
+      - link "Careers":
+        - /url: https://vercel.com/careers
+      - link "Press":
+        - /url: https://vercel.com/press
+      - link "Events":
+        - /url: https://vercel.com/events
+      - link "Startups":
+        - /url: https://vercel.com/startups
+      - link "Shipped on Vercel":
+        - /url: https://vercel.com/shipped
+      - link "Open Source Program":
+        - /url: https://vercel.com/open-source-program
+      - link "Enterprise":
+        - /url: https://vercel.com/enterprise
+      - link "Pricing":
+        - /url: https://vercel.com/pricing
+      - link "Help":
+        - /url: https://vercel.com/help
+    - heading "Legal & Trust" [level=2]
+    - list:
+      - link "Privacy Policy":
+        - /url: https://vercel.com/legal/privacy-policy
+      - link "Terms of Service":
+        - /url: https://vercel.com/legal/terms
+      - link "Cookie Policy":
+        - /url: https://vercel.com/legal/cookie-policy
+      - link "DPA":
+        - /url: https://vercel.com/legal/dpa
+      - link "Acceptable Use Policy":
+        - /url: https://vercel.com/legal/acceptable-use-policy
+      - link "Legal (all documents)":
+        - /url: https://vercel.com/legal
+      - link "Trust Center":
+        - /url: https://security.vercel.com/
+      - link "Status":
+        - /url: https://www.vercel-status.com/
+      - button "Cookie Preferences"
+    - heading "Social" [level=2]
+    - list:
+      - link "GitHub":
+        - /url: https://github.com/vercel
+      - link "X":
+        - /url: https://x.com/vercel
+      - link "LinkedIn":
+        - /url: https://linkedin.com/company/vercel
+      - link "YouTube":
+        - /url: https://youtube.com/@VercelHQ
+      - link "Instagram":
+        - /url: https://www.instagram.com/vercel/
+    - list:
+      - link "Vercel":
+        - /url: https://vercel.com/home
+        - img "Vercel"
+  - link "All systems normal.":
+    - /url: https://www.vercel-status.com/
+    - paragraph: All systems normal.
+  - group "Select a display theme:":
+    - generic: "Select a display theme:"
+    - radio "system"
+    - generic: system
+    - radio "light"
+    - generic: light
+    - radio "dark"
+    - generic: dark
+  - button "View as AI agent":
+- complementary

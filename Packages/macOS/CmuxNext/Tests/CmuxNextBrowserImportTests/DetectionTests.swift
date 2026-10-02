@@ -21,6 +21,21 @@ import Testing
         #expect(personal.importableKinds == [.bookmarks, .history])
     }
 
+    @Test func readsTheProfilePictureLocalStateNames() throws {
+        let home = try FixtureHome()
+        let root = home.directory(.edge)
+        try home.write(#"{"profile": {"info_cache": {"Default": {"name": "Work", "gaia_picture_file_name": "Edge Profile Picture.png"}, "Profile 1": {"name": "Home", "gaia_picture_file_name": "../escape.png"}, "Profile 2": {"name": "Side", "gaia_picture_file_name": "Missing.png"}}}}"#,
+                       to: root.appending(path: "Local State"))
+        for dir in ["Default", "Profile 1", "Profile 2"] {
+            try home.write("{}", to: root.appending(path: "\(dir)/Preferences"))
+            try home.write("{}", to: root.appending(path: "\(dir)/Bookmarks"))
+        }
+        try home.write("png", to: root.appending(path: "Default/Edge Profile Picture.png"))
+        let source = try #require(BrowserSourceDetector(environment: home.environment).detect(.edge))
+        #expect(source.profiles.map(\.avatar?.lastPathComponent) == ["Edge Profile Picture.png", nil, nil],
+                "a picture outside the profile folder or one that is gone is not used")
+    }
+
     @Test func findsProfilesWithoutLocalState() throws {
         let home = try FixtureHome()
         let root = home.directory(.brave)

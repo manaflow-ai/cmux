@@ -9,7 +9,7 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + appearance + browser + notifications
+        general + columnLayout + appearance + browser + notifications
     }
 
     /// The descriptors of one section, in order.
@@ -82,8 +82,8 @@ public nonisolated enum SettingsSchema {
             ),
             SettingDescriptor(
                 DefaultColumnWidthSetting.configPath, section: .general, group: columns,
-                title: SettingsText.text("settings.layout.defaultColumnWidth", "New Column Width"),
-                help: SettingsText.text("settings.layout.defaultColumnWidth.help", "A share of the window width."),
+                title: SettingsText.text("settings.layout.fixedColumnWidth", "Fixed Column Width"),
+                help: SettingsText.text("settings.layout.fixedColumnWidth.help", "A share of the window width, for Fixed Width new columns."),
                 kind: .number(SettingNumber(DefaultColumnWidthSetting.range, step: 0.05, unit: .fraction)),
                 default: .number(DefaultColumnWidthSetting.fallback), keywords: ["niri", "width"]
             ),
@@ -128,6 +128,16 @@ public nonisolated enum SettingsSchema {
                     SettingChoice("comfortable", SettingsText.text("settings.choice.comfortable", "Comfortable")),
                 ]),
                 default: "compact", keywords: ["size", "spacing"]
+            ),
+            SettingDescriptor(
+                BordersSetting.configPath, section: .appearance, group: look,
+                title: SettingsText.text("settings.appearance.borders", "Borders"),
+                help: SettingsText.text("settings.appearance.borders.help", "None removes every border, hairline and separator in the app."),
+                kind: .choice([
+                    SettingChoice(BorderMode.default.rawValue, SettingsText.text("settings.choice.default", "Default")),
+                    SettingChoice(BorderMode.none.rawValue, SettingsText.text("settings.choice.none", "None")),
+                ]),
+                default: .string(BordersSetting.fallback.rawValue), keywords: ["border", "hairline", "separator", "outline", "line"]
             ),
             SettingDescriptor(
                 AnimationSpeedSetting.configPath, section: .appearance, group: look,

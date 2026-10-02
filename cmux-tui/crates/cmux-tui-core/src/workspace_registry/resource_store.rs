@@ -1835,21 +1835,8 @@ fn validate_registry_browser(browser: &RegistryBrowser) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct RegistryViewport {
-    pub base_width: Option<f32>,
-    pub columns: Vec<RegistryViewportColumn>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RegistryViewportColumn {
-    pub id: SplitPublicId,
-    pub width: f32,
-    pub layout: RegistryLayoutNode,
-    pub auto_layout: Option<Vec<PanePublicId>>,
-}
+mod viewport;
+pub use viewport::{RegistryViewport, RegistryViewportColumn};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]

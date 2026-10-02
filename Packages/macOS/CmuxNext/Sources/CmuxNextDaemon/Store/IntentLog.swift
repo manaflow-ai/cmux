@@ -5,6 +5,13 @@ import Foundation
 /// put back after.
 enum IntentUndo: Equatable {
     case moveTab(surface: SurfaceID, fromPane: PaneID, fromIndex: Int, toPane: PaneID)
+    case tabName(surface: SurfaceID, name: String?)
+    case tabPinned(surface: SurfaceID, pinned: Bool)
+    case workspaceName(key: WorkspaceKey, name: String)
+    /// The workspace's daemon-order index and group before the apply.
+    case workspacePlace(key: WorkspaceKey, index: Int, group: WorkspaceGroupID?)
+    case workspaceGroupCollapsed(WorkspaceGroupID, collapsed: Bool)
+    case tabGroupCollapsed(TabGroupID, collapsed: Bool)
 }
 
 struct PendingIntent {
@@ -56,6 +63,12 @@ struct IntentLog {
     mutating func settle(_ transaction: ClientTransactionID, at sequence: UInt64) {
         guard let index = entries.firstIndex(where: { $0.transaction == transaction }) else { return }
         entries[index].settleSequence = min(entries[index].settleSequence ?? sequence, sequence)
+    }
+
+    /// The reply came but no sequence bounds it: settle at the next snapshot.
+    mutating func settleAtSnapshot(_ transaction: ClientTransactionID) {
+        guard let index = entries.firstIndex(where: { $0.transaction == transaction }) else { return }
+        entries[index].settlesAtSnapshot = true
     }
 
     /// Removes and returns the intent for `transaction`, recording it as settled.

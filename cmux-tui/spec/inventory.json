@@ -309,6 +309,7 @@
       "send-key",
       "set-client-info",
       "set-client-sizing",
+      "set-column-sticky",
       "set-default-colors",
       "set-personal-terminal",
       "set-personal-workspace",

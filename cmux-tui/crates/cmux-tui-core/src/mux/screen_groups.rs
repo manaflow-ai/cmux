@@ -117,7 +117,7 @@ pub(crate) fn workspace_screen_groups(
     runs
 }
 
-fn locate_screen(state: &State, screen: ScreenId) -> Option<(usize, usize)> {
+pub(super) fn locate_screen(state: &State, screen: ScreenId) -> Option<(usize, usize)> {
     state.workspaces.iter().enumerate().find_map(|(wi, workspace)| {
         workspace.screens.iter().position(|candidate| candidate.id == screen).map(|si| (wi, si))
     })
@@ -277,40 +277,6 @@ impl Mux {
         )?
         .0
         .context("screen change committed no result")
-    }
-
-    /// Emit `screen-changed` (full screen and its index) for each screen.
-    pub(crate) fn emit_screen_changed(&self, screens: &[ScreenId]) {
-        let decorations = self.tree_decorations();
-        let deltas = {
-            let state = self.state.lock().unwrap();
-            screens
-                .iter()
-                .filter_map(|screen| {
-                    let (wi, si) = locate_screen(&state, *screen)?;
-                    let entity = crate::server::tree_entity_json(
-                        &state,
-                        &decorations,
-                        TreeDeltaKind::ScreenChanged,
-                        *screen,
-                    )?;
-                    Some(TreeDelta {
-                        kind: TreeDeltaKind::ScreenChanged,
-                        workspace: state.workspaces[wi].id,
-                        screen: Some(*screen),
-                        pane: None,
-                        surface: None,
-                        index: Some(si),
-                        entity,
-                        workspace_revision: None,
-                        transaction: None,
-                    })
-                })
-                .collect::<Vec<_>>()
-        };
-        for delta in deltas {
-            self.emit(MuxEvent::TreeDelta(delta));
-        }
     }
 
     /// The group's record, workspace, and members (for command results).

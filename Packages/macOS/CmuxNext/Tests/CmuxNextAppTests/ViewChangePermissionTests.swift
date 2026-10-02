@@ -90,7 +90,7 @@ import Testing
             origin: origin, focus: focus))
         #expect(run.outcome == .ran, "\(id): \(run.outcome)")
         for task in run.work { #expect(await task.value == nil, "\(id)") }
-        await harness.services.daemon.reconcile()
+        await harness.services.daemon.store.refresh()
         for _ in 0..<50 { await Task.yield() }
     }
 
@@ -214,7 +214,7 @@ import Testing
             guard let harness, let pane = harness.pane else { return }
             let other = pane.stripModel.orderedTabs.map(\.id).first { $0 != pane.stripModel.selectedID }
             services.registry.track(Task {
-                await services.daemon.reconcile()
+                await services.daemon.store.refresh()
                 if let other { pane.select(other) }
                 return nil
             })

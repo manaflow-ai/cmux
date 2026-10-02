@@ -16,12 +16,12 @@ import Testing
         var ends: [Bool] = []
         sidebar.onRenameEnded = { ends.append($0) }
         sidebar.beginRename(workspace: id("a"))
-        #expect(sidebar.list.rename != nil)
-        sidebar.list.endRename(commit: true)
+        #expect(sidebar.list.inlineRename.session != nil)
+        sidebar.list.inlineRename.end(commit: true)
         sidebar.beginRename(workspace: id("a"))
-        sidebar.list.rename?.cancelled = true
-        sidebar.list.endRename(commit: false, byKeyboard: true)
+        sidebar.list.inlineRename.session?.cancelled = true
+        sidebar.list.inlineRename.end(commit: false, byKeyboard: true)
         #expect(ends == [false, true])
-        #expect(sidebar.list.rename == nil)
+        #expect(sidebar.list.inlineRename.session == nil)
     }
 }
