@@ -107,8 +107,13 @@ jobs:
     # now (scripts/ci/side_lane_placement.py); the rest take their fallback.
     # Every step fails open: a skipped or failed placement leaves
     # fallback_jobs empty, so the jobs keep the side label as before and the
-    # marker is still uploaded.
-    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}
+    # marker is still uploaded. It runs only where attempt 1's Mac jobs may
+    # take the side label (CMUX_NEXT_SIDE_ROUTE's owned branch): a fork, another
+    # owner, owned pools off or a re-run starts no Linux runner for it, and the
+    # Mac jobs (needs plus !cancelled()) take their route without it. A re-run
+    # needs no marker of its own: its Mac jobs take the fallback, and the
+    # rescue's watch of a side lane ends at attempt 2.
+    if: ${{ (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 }}
     name: cmux-next macOS placement
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3

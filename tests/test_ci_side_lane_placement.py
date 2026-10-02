@@ -176,6 +176,36 @@ class CmuxNextWiring(unittest.TestCase):
                         self.assertEqual(evaluate(runs_on, self.context(attempt, fallback_jobs)), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True)), FALLBACK)
 
+    def test_placement_starts_only_where_attempt_1_may_take_the_side_label(self):
+        # A fork, another owner, owned pools off or a re-run starts no Linux runner before the Mac jobs.
+        jobs = self.workflow()["jobs"]
+        gate = jobs[self.PLACEMENT]["if"]
+        self.assertTrue(evaluate(gate, self.context()))
+        push = self.context()
+        push["github"].update(event_name="push", ref="refs/heads/feat-cmux-next")
+        self.assertTrue(evaluate(gate, push))
+        other_owner = self.context()
+        other_owner["github"]["repository_owner"] = "someone"
+        owned_off = self.context()
+        owned_off["vars"]["CI_PR_POOL_OWNED"] = "0"
+        dispatch_elsewhere = self.context()
+        dispatch_elsewhere["github"].update(event_name="workflow_dispatch", ref="refs/heads/main")
+        for why, context in {"fork": self.context(fork=True), "attempt 2": self.context("2"),
+                             "attempt 3": self.context("3"), "another owner": other_owner,
+                             "owned pools off": owned_off, "dispatch off feat-cmux-next": dispatch_elsewhere}.items():
+            self.assertFalse(evaluate(gate, context), why)
+        # Wherever a Mac job may take an owned label the placement runs, so its marker can upload:
+        # every context above that skips it routes every Mac job to the fallback.
+        for name in JOBS:
+            runs_on = jobs[name]["runs-on"]
+            for why, context in {"fork": self.context(fork=True), "attempt 2": self.context("2"),
+                                 "another owner": other_owner, "owned pools off": owned_off}.items():
+                context["needs"] = {}  # the skipped placement has no outputs
+                self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"), (name, why))
+            # A skipped placement leaves the Mac jobs running (!cancelled()) and its empty output keeps the label.
+            self.assertTrue(evaluate(jobs[name]["if"].replace("!cancelled() && ", ""), self.context()))
+            self.assertEqual(evaluate(runs_on, dict(self.context(), needs={})), SIDE)
+
     def test_the_watch_marker_follows_the_placement(self):
         steps = self.workflow()["jobs"][self.PLACEMENT]["steps"]
         names = [step.get("name") for step in steps]
