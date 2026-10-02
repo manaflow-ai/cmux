@@ -542,6 +542,11 @@
         "team": "팀 만들기",
         "banner": "지금 {plan}을(를) 사용 중입니다.",
         "bannerLink": "요금제 및 결제"
+      },
+      "appStore": {
+        "title": "App Store를 통해 결제됨",
+        "body": "이 플랜은 cmux iPhone 앱에서 구입했으며 Apple이 청구합니다. App Store 구독에서 변경하거나 취소하세요.",
+        "manage": "App Store에서 관리"
       }
     },
     "mobileDevices": {
@@ -5181,7 +5186,8 @@
   "pricing": {
     "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
     "signedOutNotice": "로그인되어 있지 않습니다. 로그인하여 현재 요금제를 확인하거나 기존 구매를 복원하세요.",
-    "signedOutSignIn": "로그인"
+    "signedOutSignIn": "로그인",
+    "manageInAppStore": "App Store에서 관리"
   },
   "platforms": {
     "macos": "macOS",

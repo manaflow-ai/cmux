@@ -3,7 +3,7 @@ import { renderToReadableStream } from "react-dom/server";
 import { renderSettled } from "./helpers/render-settled";
 import { readInitialMain } from "./helpers/render-stream";
 
-import { stripeSubscriptions } from "../db/schema";
+import { appleSubscriptions, stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
 import jaMessages from "../messages/ja.json";
 import { fallbackContentLocales } from "../i18n/locale-availability";
@@ -20,6 +20,19 @@ const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let stackConfigured = false;
 let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
+let appleRows: Array<Record<string, unknown>> = [];
+function rowsFor(table: unknown): Array<Record<string, unknown>> {
+  if (table === stripeSubscriptions) return stripeSubscriptionRows;
+  if (table === appleSubscriptions) return appleRows;
+  return [];
+}
+function appleMaxRow() {
+  return {
+    originalTransactionId: "otx-apple", planId: "max", status: "active", environment: "Production",
+    bundleId: "com.cmux.app", expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), gracePeriodExpiresAt: null,
+    autoRenewEnabled: true,
+  };
+}
 const proUser = {
   id: "user-pro",
   isAnonymous: false,
@@ -90,8 +103,8 @@ mock.module("../db/client", () => ({
   cloudDb: () => withAccountMutationLeaseSupport({
     select: () => ({
       from: (table: unknown) => ({
-        where: () => Object.assign(Promise.resolve(table === stripeSubscriptions ? stripeSubscriptionRows : []), {
-          limit: async () => (table === stripeSubscriptions ? stripeSubscriptionRows : []),
+        where: () => Object.assign(Promise.resolve(rowsFor(table)), {
+          limit: async () => rowsFor(table),
         }),
       }),
     }),
@@ -360,6 +373,20 @@ describe("localized pricing page", () => {
     // link (the server routes an active Pro subscription to the portal).
     expect(html).toContain("/api/billing/portal?flow=switch_plan&amp;plan=max");
     expect(html).toMatch(/plan=max[^"]*"[^>]*><span>Get Max/);
+  });
+
+  test("an App Store subscriber who also pays Stripe keeps Stripe's Manage billing", async () => {
+    stackConfigured = true;
+    stripeSubscriptionRows = [{ id: "sub_123", plan: "pro" }];
+    appleRows = [appleMaxRow()];
+
+    const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
+    const html = (await renderSettled(element));
+    appleRows = [];
+
+    expect(html).toContain("Manage in the App Store");
+    expect(html).toContain('href="/api/billing/portal"');
+    expect(html).toContain("Manage billing");
   });
 
   test("renders monthly offers for an old annual link", async () => {

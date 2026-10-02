@@ -542,6 +542,11 @@
         "team": "Kreirajte tim",
         "banner": "Sada koristite {plan}.",
         "bannerLink": "Plan i naplata"
+      },
+      "appStore": {
+        "title": "Naplaćuje se putem App Storea",
+        "body": "Vaš plan je kupljen u cmux aplikaciji za iPhone i naplaćuje ga Apple. Promijenite ga ili otkažite u svojim App Store pretplatama.",
+        "manage": "Upravljajte u App Storeu"
       }
     },
     "mobileDevices": {
@@ -5184,7 +5189,8 @@
   "pricing": {
     "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije.",
     "signedOutNotice": "Niste prijavljeni. Prijavite se da vidite trenutni plan ili vratite postojeću kupovinu.",
-    "signedOutSignIn": "Prijavite se"
+    "signedOutSignIn": "Prijavite se",
+    "manageInAppStore": "Upravljajte u App Storeu"
   },
   "platforms": {
     "macos": "macOS",

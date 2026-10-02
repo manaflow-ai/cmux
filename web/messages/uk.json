@@ -542,6 +542,11 @@
         "team": "Створити команду",
         "banner": "Тепер у вас {plan}.",
         "bannerLink": "Тариф і оплата"
+      },
+      "appStore": {
+        "title": "Оплата через App Store",
+        "body": "Ваш план придбано в застосунку cmux для iPhone, рахунки виставляє Apple. Змінити або скасувати його можна в підписках App Store.",
+        "manage": "Керувати в App Store"
       }
     },
     "mobileDevices": {
@@ -5254,7 +5259,8 @@
   "pricing": {
     "billingUnavailable": "Оплата зараз недоступна. Спробуйте ще раз пізніше.",
     "signedOutNotice": "Ви не ввійшли в систему. Увійдіть, щоб переглянути поточний план або відновити наявну покупку.",
-    "signedOutSignIn": "Увійти"
+    "signedOutSignIn": "Увійти",
+    "manageInAppStore": "Керувати в App Store"
   },
   "platforms": {
     "macos": "macOS",
