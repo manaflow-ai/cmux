@@ -317,10 +317,24 @@ export class CheckpointClient {
   ): Promise<MutationEnvelope<Checkpoint> | undefined> {
     try {
       const lookup = operation === "create" ? { idempotency_key: key } : { checkpoint_id: String(body.checkpoint_id) };
-      const found = checkpointRecord(await this.call(CHECKPOINT_OPS.get, { ...targetParams(target), ...lookup }));
-      if (operation === "create") return { result: found, revision: found.revision, replayed: true };
+      checkpointRecord(await this.call(CHECKPOINT_OPS.get, { ...targetParams(target), ...lookup }));
     } catch (error) {
       if (!isNotFound(error)) throw requestError(error);
+      return undefined;
+    }
+    if (operation === "create") {
+      // The checkpoint record revision is separate from the session mutation
+      // ledger revision carried by the mutation envelope. Replay the exact
+      // original write to recover that envelope instead of synthesizing one
+      // from the record returned by the read-first reconciliation.
+      const replay = mutationEnvelope<Checkpoint>(
+        await this.call(CHECKPOINT_OPS.create, {
+          ...targetParams(target),
+          ...body,
+          idempotency_key: key,
+        }),
+      );
+      return { ...replay, result: checkpointRecord(replay.result) };
     }
     return undefined;
   }

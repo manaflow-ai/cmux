@@ -85,7 +85,7 @@ test("a late capture key read cannot send after selecting another session", asyn
   expect(calls).toHaveLength(0);
 });
 
-test("reconciled receipt notifies subscribers without creating again", async () => {
+test("reconciled receipt replays the create and preserves the ledger revision", async () => {
   const persistence = new MemoryPersistence();
   let calls = 0;
   let lost = true;
@@ -98,7 +98,8 @@ test("reconciled receipt notifies subscribers without creating again", async () 
           throw { code: "native.timed_out", origin: "native" };
         }
       }
-      return checkpoint;
+      if (method.endsWith(".get")) return { ...checkpoint, revision: "7" };
+      return { result: { ...checkpoint, revision: "8" }, revision: "12", replayed: true };
     },
     { persistence, capabilities: async () => ({ checkpoints: true }) },
   );
@@ -110,8 +111,9 @@ test("reconciled receipt notifies subscribers without creating again", async () 
     observed = client.getSnapshot().record?.checkpoint_id;
   });
   await client.create();
-  expect(calls).toBe(1);
+  expect(calls).toBe(2);
   expect(observed).toBe(checkpoint.checkpoint_id);
+  expect(client.getSnapshot().record?.revision).toBe("8");
 });
 
 test("unresolved capture prevents a changed selection from creating another checkpoint", async () => {

@@ -127,10 +127,13 @@ test("reopening after a timeout recovers the accepted checkpoint before offering
   const persistence = new MemoryPersistence();
   const calls: string[] = [];
   const options = { persistence, capabilities: async () => ({ checkpoints: true }), key: () => "stable-key" };
+  let createAttempts = 0;
   const request: Request = async (method) => {
     calls.push(method);
     if (method.endsWith(".list")) return list;
-    if (method.endsWith(".get")) return checkpoint;
+    if (method.endsWith(".get")) return { ...checkpoint, revision: "7" };
+    if (method.endsWith(".create") && ++createAttempts === 2)
+      return { result: { ...checkpoint, revision: "8" }, revision: "12", replayed: true };
     throw { code: "native.timed_out", origin: "native", userMessage: "Reply lost" };
   };
   try {
@@ -144,7 +147,12 @@ test("reopening after a timeout recovers the accepted checkpoint before offering
     try {
       await act(async () => reloaded.render(createElement(Pane, { request, options })));
       await act(async () => button(container, strings.createCheckpoint).click());
-      expect(calls).toEqual(["git.checkpoint.list", "git.checkpoint.create", "git.checkpoint.get"]);
+      expect(calls).toEqual([
+        "git.checkpoint.list",
+        "git.checkpoint.create",
+        "git.checkpoint.get",
+        "git.checkpoint.create",
+      ]);
       expect(container.textContent).toContain(checkpoint.ref);
     } finally {
       await act(async () => reloaded.unmount());
