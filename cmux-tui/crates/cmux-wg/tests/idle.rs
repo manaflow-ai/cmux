@@ -84,7 +84,7 @@ async fn a_persistent_keepalive_keeps_a_slow_tick() {
 #[tokio::test]
 async fn a_lost_handshake_is_retried() {
     let sim = SimNet::new();
-    let cut = LinkProfile { latency: Duration::ZERO, cut: true };
+    let cut = LinkProfile { latency: Duration::ZERO, cut: true, ..LinkProfile::default() };
     sim.set_link(addr(CLIENT), addr(SERVER), cut);
     let (client, server, _configs) = pair(&sim, None);
     sim.wait_dropped(1).await;

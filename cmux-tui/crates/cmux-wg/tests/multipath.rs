@@ -161,11 +161,11 @@ const B_DIRECT: &str = "192.168.7.2:51820";
 /// Both sides up on the relay only, one stream open, nothing sent yet.
 async fn world() -> World {
     let sim = SimNet::new();
-    sim.set_link(addr(A_RELAY), addr(B_RELAY), LinkProfile { latency: RELAY_LATENCY, cut: false });
+    sim.set_link(addr(A_RELAY), addr(B_RELAY), LinkProfile { latency: RELAY_LATENCY, cut: false, ..LinkProfile::default() });
     sim.set_link(
         addr(A_DIRECT),
         addr(B_DIRECT),
-        LinkProfile { latency: DIRECT_LATENCY, cut: false },
+        LinkProfile { latency: DIRECT_LATENCY, cut: false, ..LinkProfile::default() },
     );
     let ConfigPair { client, server, server_v6, .. } = config_pair(addr(B_RELAY));
     let client =
@@ -228,7 +228,7 @@ impl World {
         self.sim.set_link(
             a_direct,
             addr(B_DIRECT),
-            LinkProfile { latency: DIRECT_LATENCY, cut: true },
+            LinkProfile { latency: DIRECT_LATENCY, cut: true, ..LinkProfile::default() },
         );
         for side in [&self.client, &self.server] {
             lose(&side.control, side.direct);
@@ -249,9 +249,9 @@ impl World {
     /// authenticated datagram on each.
     async fn rebind_client(&mut self) {
         let (a_relay, a_direct) = (addr(A2_RELAY), addr(A2_DIRECT));
-        let relay = LinkProfile { latency: RELAY_LATENCY, cut: false };
+        let relay = LinkProfile { latency: RELAY_LATENCY, cut: false, ..LinkProfile::default() };
         self.sim.set_link(a_relay, addr(B_RELAY), relay);
-        let direct = LinkProfile { latency: DIRECT_LATENCY, cut: false };
+        let direct = LinkProfile { latency: DIRECT_LATENCY, cut: false, ..LinkProfile::default() };
         self.sim.set_link(a_direct, addr(B_DIRECT), direct);
         let (underlay, control, relay, direct) =
             two_paths(&self.sim, (a_relay, addr(B_RELAY)), (a_direct, addr(B_DIRECT)));

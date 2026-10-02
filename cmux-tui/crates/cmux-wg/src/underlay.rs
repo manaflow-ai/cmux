@@ -77,6 +77,9 @@ pub trait DatagramSocket: Send + 'static {
         buffer: &mut [u8],
     ) -> Poll<io::Result<(usize, SocketAddr)>>;
 
+    /// Ready when a send would not answer `WouldBlock`.
+    fn poll_send_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
+
     fn try_send_to(&mut self, datagram: &[u8], target: SocketAddr) -> io::Result<usize>;
 
     fn local_addr(&self) -> io::Result<SocketAddr>;
@@ -94,6 +97,10 @@ impl DatagramSocket for UdpSocket {
             Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
             Poll::Pending => Poll::Pending,
         }
+    }
+
+    fn poll_send_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        UdpSocket::poll_send_ready(self, cx)
     }
 
     fn try_send_to(&mut self, datagram: &[u8], target: SocketAddr) -> io::Result<usize> {
