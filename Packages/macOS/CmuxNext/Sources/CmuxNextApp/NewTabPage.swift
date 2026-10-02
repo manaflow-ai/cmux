@@ -113,7 +113,7 @@ extension PaneController {
             hotkeys: hotkeys, cwd: cwd,
             location: selectedTab.flatMap { $0.kind == .browser ? $0.url : $0.cwd.map(NewTabPage.abbreviated) },
             omnibar: NewTabPage.omnibar(services, excluding: selectedID),
-            defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabKindSetting.fallback).rawValue
+            defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue
         )
         let handler = NewTabPageHandler(
             open: { [weak self] key, kind, text, folder in
@@ -181,7 +181,7 @@ extension PaneController {
     /// value from the page is ignored.
     private func setNewTabDefaultKind(_ value: String) {
         guard let kind = NewTabDefaultKind(rawValue: value), let settings = services.settings,
-              let descriptor = SettingsSchema.descriptor(for: NewTabKindSetting.configPath) else { return }
+              let descriptor = SettingsSchema.descriptor(for: NewTabDefaultKind.configPath) else { return }
         Task {
             do { try await settings.setSetting(descriptor, to: .string(kind.rawValue)) } catch {
                 Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")

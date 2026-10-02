@@ -30,7 +30,7 @@ import Testing
     }
 
     @Test func theSchemaOffersEveryChoice() throws {
-        let descriptor = try #require(SettingsSchema.descriptor(for: NewTabKindSetting.configPath))
+        let descriptor = try #require(SettingsSchema.descriptor(for: NewTabDefaultKind.configPath))
         guard case .choice(let choices) = descriptor.kind else {
             Issue.record("tabs.newTabKind is not a choice")
             return

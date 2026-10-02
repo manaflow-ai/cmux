@@ -113,7 +113,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `tabs.newTabKind`; "same-kind" when unset or invalid.
-    public var newTabKind: NewTabDefaultKind = NewTabKindSetting.fallback
+    public var newTabKind: NewTabDefaultKind = NewTabDefaultKind.fallback
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
@@ -207,7 +207,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
-        let (newTabKind, newTabKindDiagnostic) = NewTabKindSetting.parse(root)
+        let (newTabKind, newTabKindDiagnostic) = NewTabDefaultKind.parse(root)
         snapshot.newTabKind = newTabKind
         if let newTabKindDiagnostic { snapshot.diagnostics.append(newTabKindDiagnostic) }
         let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)

@@ -49,7 +49,7 @@ enum TabLifecycle {
         let folder = controller?.selectedTab?.cwd ?? tab?.cwd
         var kind = sameKind
         if user {
-            let setting = ctx.services.settings?.snapshot.newTabKind ?? NewTabKindSetting.fallback
+            let setting = ctx.services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback
             kind = NewTabKind.resolve(setting, sameKind: sameKind, recent: ctx.services.newTabKinds.recent(in: folder))
         }
         // Agent tabs and the page live in a shown pane; elsewhere, a terminal.

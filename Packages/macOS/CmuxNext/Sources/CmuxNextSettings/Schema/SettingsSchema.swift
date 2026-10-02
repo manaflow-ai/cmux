@@ -86,7 +86,7 @@ public nonisolated enum SettingsSchema {
                 default: .string(WindowRailSetting.fallback.rawValue), keywords: ["rail", "toolbar", "buttons", "inbox", "accounts"]
             ),
             SettingDescriptor(
-                NewTabKindSetting.configPath, section: .general, group: tabs,
+                NewTabDefaultKind.configPath, section: .general, group: tabs,
                 title: SettingsText.text("settings.tabs.newTabKind", "New Tab Opens"),
                 help: SettingsText.text("settings.tabs.newTabKind.help",
                                         "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder."),
@@ -98,7 +98,7 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(NewTabDefaultKind.page.rawValue, SettingsText.text("settings.choice.newTabPage", "New Tab Page")),
                     SettingChoice(NewTabDefaultKind.auto.rawValue, SettingsText.text("settings.choice.newTabAuto", "Auto")),
                 ]),
-                default: .string(NewTabKindSetting.fallback.rawValue),
+                default: .string(NewTabDefaultKind.fallback.rawValue),
                 keywords: ["new tab", "cmd-t", "terminal", "browser", "agent", "kind", "default"]
             ),
             SettingDescriptor(
