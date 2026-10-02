@@ -100,6 +100,42 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
+    func testCloudImageCommandTemplateFailsClosedBeforeClearingDraft() {
+        let action = TextBoxSubmitAction(
+            id: "router",
+            title: "Router",
+            kind: .commandTemplate,
+            commandTemplate: "router --prompt {{prompt}}",
+            systemImage: "wand.and.stars",
+            backgroundColorHex: "#123456"
+        )
+        let imageURL = URL(fileURLWithPath: "/tmp/cloud-prompt.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+
+        XCTAssertTrue(TextBoxInputContainer.shouldRejectCloudImageCommandTemplate(
+            action: action,
+            shouldForceTextEntrySubmit: false,
+            imageTransferTarget: .cloud,
+            parts: [.text("inspect"), .attachment(attachment)]
+        ))
+        XCTAssertFalse(TextBoxInputContainer.shouldRejectCloudImageCommandTemplate(
+            action: action,
+            shouldForceTextEntrySubmit: true,
+            imageTransferTarget: .cloud,
+            parts: [.attachment(attachment)]
+        ))
+        XCTAssertFalse(TextBoxInputContainer.shouldRejectCloudImageCommandTemplate(
+            action: action,
+            shouldForceTextEntrySubmit: false,
+            imageTransferTarget: .local,
+            parts: [.attachment(attachment)]
+        ))
+    }
+
+    @Test
     func testTextBoxSubmitActionRejectsPromptPlaceholderInsideShellQuotes() {
         let singleQuoted = TextBoxSubmitAction(
             id: "single-quoted-router",

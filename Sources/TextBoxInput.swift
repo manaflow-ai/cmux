@@ -1179,6 +1179,7 @@ enum TextBoxSubmit {
         case keyText(String)
         case pasteText(String)
         case pasteFilePath(String)
+        case pasteCloudImages([URL])
         case namedKeyRepeat(String, Int)
         case namedKey(String)
         case captureClipboardReadBaseline
@@ -1212,7 +1213,8 @@ enum TextBoxSubmit {
 
     static func dispatchEvents(
         for parts: [TextBoxSubmissionPart],
-        terminalAgentContext: String
+        terminalAgentContext: String,
+        imageTransferTarget: TerminalImageTransferTarget = .local
     ) -> [DispatchEvent] {
         guard let inputParts = submittedParts(parts) else {
             return [.namedKey(TextBoxTerminalKey.returnKey.rawValue)]
@@ -1233,6 +1235,9 @@ enum TextBoxSubmit {
         }
 
         let submitKey = TextBoxAgentDetection.composedPromptSubmitKey(containsNewline: containsNewline, context: terminalAgentContext)
+        if imageTransferTarget == .cloud, containsImageAttachment(inputParts) {
+            return cloudImageDispatchEvents(from: inputParts, submitKey: submitKey)
+        }
         if isClaude, containsImageAttachment(inputParts) {
             return claudeSequentialImageDispatchEvents(from: inputParts, submitKey: submitKey)
         }
@@ -1305,6 +1310,51 @@ enum TextBoxSubmit {
             }
             return false
         }
+    }
+
+    /// Sends text and Cloud image uploads in prompt order. Images stay in the
+    /// composer until submit, then use the authenticated Cloud paste channel.
+    private static func cloudImageDispatchEvents(
+        from parts: [TextBoxSubmissionPart],
+        submitKey: String
+    ) -> [DispatchEvent] {
+        var events: [DispatchEvent] = []
+        var attachmentNeedsBoundarySpace = false
+
+        func appendText(_ text: String) {
+            guard !text.isEmpty else { return }
+            var textToPaste = text
+            if attachmentNeedsBoundarySpace,
+               text.first?.isWhitespace != true {
+                textToPaste = " " + textToPaste
+            }
+            events.append(.pasteText(textToPaste))
+            attachmentNeedsBoundarySpace = false
+        }
+
+        for part in parts {
+            switch part {
+            case .text(let text):
+                appendText(text)
+            case .attachment(let attachment):
+                if attachment.isImage, let localURL = attachment.localURL {
+                    if attachmentNeedsBoundarySpace {
+                        events.append(.pasteText(" "))
+                    }
+                    events.append(.pasteCloudImages([localURL.standardizedFileURL]))
+                    attachmentNeedsBoundarySpace = true
+                } else {
+                    appendText(attachment.submissionText)
+                    attachmentNeedsBoundarySpace = attachment.submissionText.last?.isWhitespace != true
+                }
+            }
+        }
+
+        if attachmentNeedsBoundarySpace {
+            events.append(.pasteText(" "))
+        }
+        events.append(.namedKey(submitKey))
+        return events
     }
 
     private static func claudeSequentialImageDispatchEvents(
@@ -1502,6 +1552,7 @@ private final class TextBoxSubmitEventRunner {
     private var observers: [NSObjectProtocol] = []
     private var waitTimeoutTimer: DispatchSourceTimer?
     private var pasteFilePathTask: Task<Void, Never>?
+    private var cloudImagePasteTask: Task<Void, Never>?
     private var pasteFilePathMutationLease: TerminalPasteboardMutationLease?
     private var releaseTickNotifications: (() -> Void)?
     private var releaseRenderedFrameNotifications: (() -> Void)?
@@ -1631,6 +1682,25 @@ private final class TextBoxSubmitEventRunner {
                     fail(.terminalWriteRejected)
                     return
                 }
+            case .pasteCloudImages(let urls):
+                guard let terminalSurface = surface.textBoxSubmitTerminalSurface else {
+                    fail(.terminalWriteRejected)
+                    return
+                }
+                cloudImagePasteTask = Task { @MainActor [weak self] in
+                    guard let self else {
+                        return
+                    }
+                    do {
+                        try await terminalSurface.pasteCloudImages(urls)
+                        self.cloudImagePasteTask = nil
+                        self.processNext()
+                    } catch {
+                        self.cloudImagePasteTask = nil
+                        self.fail(.terminalWriteRejected)
+                    }
+                }
+                return
             case .namedKeyRepeat(let key, let count):
                 guard count > 0 else { continue }
                 for _ in 0..<count {
@@ -1669,6 +1739,8 @@ private final class TextBoxSubmitEventRunner {
     private func fail(_ failure: TextBoxSubmit.CompletionContext.Failure) {
         removeObservers()
         cancelPendingPasteboardMutation()
+        cloudImagePasteTask?.cancel()
+        cloudImagePasteTask = nil
         restorePasteboardIfNeeded()
         let completion = onComplete
         onComplete = nil
@@ -1688,6 +1760,8 @@ private final class TextBoxSubmitEventRunner {
 
     private func finish() {
         cancelPendingPasteboardMutation()
+        cloudImagePasteTask?.cancel()
+        cloudImagePasteTask = nil
         restorePasteboardIfNeeded()
         let completion = onComplete
         onComplete = nil
@@ -2185,6 +2259,8 @@ private final class TextBoxSubmitEventRunner {
             return "pasteText(\(debugText(text)))"
         case .pasteFilePath(let path):
             return "pasteFilePath(length:\(path.utf8.count))"
+        case .pasteCloudImages(let urls):
+            return "pasteCloudImages(count:\(urls.count))"
         case .namedKeyRepeat(let key, let count):
             return "namedKeyRepeat(\(key),\(count))"
         case .namedKey(let key):
@@ -2559,6 +2635,7 @@ struct TextBoxInputContainer: View {
             return
         }
         let launchAction = effectiveSubmitAction
+        let imageTransferTarget = surface.resolvedImageTransferTarget()
         if Self.shouldFailClosedForCommandTemplate(
             action: launchAction,
             shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
@@ -2580,6 +2657,19 @@ struct TextBoxInputContainer: View {
                     NSSound.beep()
                 }
             }
+            return
+        }
+        if Self.shouldRejectCloudImageCommandTemplate(
+            action: launchAction,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
+            imageTransferTarget: imageTransferTarget,
+            parts: submittedParts
+        ) {
+            // Command templates interpolate local submission paths. Keep a
+            // Cloud image draft intact rather than leaking a Mac path into a
+            // remote command; text-entry submission handles the upload once an
+            // agent is active.
+            NSSound.beep()
             return
         }
         // Claim the workspace's pending diff comments: this submission carries
