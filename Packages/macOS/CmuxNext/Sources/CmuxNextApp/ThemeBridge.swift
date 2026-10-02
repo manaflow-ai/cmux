@@ -30,8 +30,7 @@ enum ThemeBridge {
     /// reads.
     static func input(_ colors: GhosttyThemeColors, background: WindowBackgroundOverride = WindowBackgroundOverride()) -> ThemeInput {
         func rgb(_ c: GhosttyThemeColors.RGB) -> ThemeRGB { ThemeRGB(r: c.r, g: c.g, b: c.b) }
-        // Red stub: Ghostty's values as they are.
-        let resolved = (backgroundOpacity: colors.backgroundOpacity, backgroundBlur: colors.backgroundBlur)
+        let resolved = background.resolved(backgroundOpacity: colors.backgroundOpacity, backgroundBlur: colors.backgroundBlur)
         return ThemeInput(
             background: rgb(colors.background),
             foreground: rgb(colors.foreground),

@@ -14,8 +14,6 @@ public nonisolated enum WindowBackgroundSetting {
     /// A missing key keeps Ghostty's value with no diagnostic; a bad value
     /// keeps it too, plus a diagnostic at the key.
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> WindowBackgroundOverride {
-        // Red stub: not read yet.
-        if root.value(at: opacityPath) != nil || root.value(at: materialPath) != nil { return WindowBackgroundOverride() }
         var opacity: Double?
         if let value = root.value(at: opacityPath) {
             if let number = value.doubleValue, opacityRange.contains(number) {

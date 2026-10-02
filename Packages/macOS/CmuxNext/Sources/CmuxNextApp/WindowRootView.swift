@@ -13,11 +13,15 @@ import Observation
 /// adds a compact titlebar across the content column with the workspace
 /// name. Every surface is the terminal background
 /// (`Palette.windowBackground`), so sidebar, titlebar, tab strip and
-/// terminal read as one sheet with no panel edges or seams.
+/// terminal read as one sheet with no panel edges or seams. In a
+/// translucent window that sheet is one material with one theme tint
+/// (`backdropView`, the bottom subview) and everything above it is clear.
 final class WindowRootView: NSView {
     let titlebar = TitlebarView()
     /// The window's one material and tint (`WindowBackdrop`).
     let backdropView = WindowMaterialView(frame: .zero)
+    /// Whether Reduce Transparency is on (tests pin it; the host setting
+    /// differs between machines).
     private let reduceTransparency: @MainActor () -> Bool
     private let contentHost = NSView()
     private let sidebar: SidebarContainerView
@@ -28,6 +32,9 @@ final class WindowRootView: NSView {
     /// `TitlebarDragPolicy` (`ShellWindow.sendEvent`).
     let titlebarBandBlocker = TitlebarDragBlocker(frame: .zero)
 
+    /// - Parameter sidebar: The window's sidebar.
+    /// - Parameter reduceTransparency: The user's Reduce Transparency
+    ///   setting, read on every theme and display-options change.
     init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }) {
         self.sidebar = sidebar
@@ -70,6 +77,12 @@ final class WindowRootView: NSView {
                 self?.applyTokens()
             }
         }
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displayOptionsChanged),
+                                                          name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        themeDidChange()
+    }
+
+    @objc private func displayOptionsChanged() {
         themeDidChange()
     }
 
@@ -164,35 +177,44 @@ final class WindowRootView: NSView {
         themeDidChange()
     }
 
-    /// Surface color plus window opacity: a translucent Ghostty background
-    /// (`background-opacity`) makes the whole window translucent, like
-    /// Ghostty.app, with its `background-blur` radius behind it
-    /// (`WindowBackdrop`).
+    /// Surface color plus window opacity: a translucent background
+    /// (`background-opacity`, `background-blur`, or cmux.json's
+    /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`)
+    /// makes the whole window one material with the theme tint over it
+    /// (`WindowBackdrop`). Re-run on theme and Reduce Transparency changes.
     func themeDidChange() {
         paintBackground()
         if let window { applyBackdrop(to: window) }
     }
 
+    /// The backdrop this view's theme and the Reduce Transparency setting
+    /// describe.
     var backdrop: WindowBackdrop {
         WindowBackdrop(themeTokens, reduceTransparency: reduceTransparency())
     }
 
+    /// An opaque window paints the solid background on this layer. Over a
+    /// material the layer stays clear and the backdrop view's tint is the
+    /// one sheet. No CGS blur is applied: the material view blurs itself.
     private func paintBackground() {
-        layer?.backgroundColor = performWithTheme { Palette.windowBackground }.cgColor
+        let backdrop = self.backdrop
+        performWithTheme {
+            let background = Palette.windowBackground
+            layer?.backgroundColor = backdrop.isOpaque ? background.withAlphaComponent(1).cgColor : nil
+            backdropView.apply(backdrop, tint: background)
+        }
     }
 
-    /// Sets `window`'s opacity, background and blur for this view's theme.
+    /// Sets `window`'s opacity and background for this view's theme.
     /// Values that already match are not written again, so a repeat call
     /// (an appearance change while the window installs this view) never
     /// touches the theme frame.
     func applyBackdrop(to window: NSWindow) {
-        let tokens = themeTokens
-        let backdrop = WindowBackdrop(tokens)
+        let backdrop = self.backdrop
         let color = backdrop.isOpaque
-            ? performWithTheme { Palette.windowBackground }
+            ? performWithTheme { Palette.windowBackground.withAlphaComponent(1) }
             : NSColor.white.withAlphaComponent(backdrop.windowBackgroundAlpha)
         if window.isOpaque != backdrop.isOpaque { window.isOpaque = backdrop.isOpaque }
         if window.backgroundColor != color { window.backgroundColor = color }
-        if !backdrop.isOpaque && tokens.backgroundBlur >= 0 { GhosttyRuntime.shared.applyBackgroundBlur(to: window) }
     }
 }

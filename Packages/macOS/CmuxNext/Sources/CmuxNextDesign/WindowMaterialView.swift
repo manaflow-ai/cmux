@@ -52,8 +52,6 @@ public final class WindowMaterialView: NSView {
     /// - Parameter tint: The theme background; its alpha is replaced by
     ///   the backdrop's tint opacity.
     public func apply(_ backdrop: WindowBackdrop, tint: NSColor) {
-        // Red stub: hosts nothing yet.
-        if backdrop.isOpaque || !backdrop.isOpaque { return }
         if backdrop.material != material {
             material = backdrop.material
             materialView?.removeFromSuperview()

@@ -39,8 +39,6 @@ public nonisolated struct WindowBackgroundOverride: Hashable, Sendable {
     /// - Returns: The resolved pair, in the same encodings. With no override
     ///   it is the input.
     public func resolved(backgroundOpacity: Double, backgroundBlur: Int) -> (backgroundOpacity: Double, backgroundBlur: Int) {
-        // Red stub: no override yet.
-        if opacity != nil || material != nil { return (backgroundOpacity, backgroundBlur) }
         let blur: Int
         switch material {
         case nil: blur = backgroundBlur

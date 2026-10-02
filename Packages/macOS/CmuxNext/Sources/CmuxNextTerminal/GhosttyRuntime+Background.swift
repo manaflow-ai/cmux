@@ -19,8 +19,6 @@ extension GhosttyRuntime {
     /// - Returns: Lines for `ghostty_config_load_string`.
     public nonisolated static func backgroundOverrideLines(_ background: WindowBackgroundOverride,
                                                            configuredOpacity: Double, configuredBlur: Int) -> [String] {
-        // Red stub: no lines yet.
-        if configuredOpacity >= 0 { return [] }
         let resolved = background.resolved(backgroundOpacity: configuredOpacity, backgroundBlur: configuredBlur)
         var lines: [String] = []
         if resolved.backgroundOpacity != configuredOpacity {

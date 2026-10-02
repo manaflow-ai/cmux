@@ -42,10 +42,19 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     public init(backgroundOpacity: Double, backgroundBlur: Int, reduceTransparency: Bool = false) {
         let opacity = min(max(backgroundOpacity, 0), 1)
         let material: WindowMaterial
-        // Red stub: the pre-material rule.
-        material = opacity >= 1 && backgroundBlur >= 0 ? .opaque : .frosted
+        if reduceTransparency {
+            material = .opaque
+        } else if backgroundBlur == -2 {
+            material = .glass(.clear)
+        } else if backgroundBlur < 0 {
+            material = .glass(.regular)
+        } else if opacity < 1 {
+            material = .frosted
+        } else {
+            material = .opaque
+        }
         self.material = material
-        tintOpacity = opacity
+        tintOpacity = material == .opaque ? 1 : opacity
     }
 
     /// The window the tokens' resolved opacity and blur describe: the one
