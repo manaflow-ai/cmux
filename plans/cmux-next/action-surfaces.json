@@ -2562,6 +2562,17 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "tab search",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "tab.search",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "tab move-to-new-workspace",
       "context_menu" : "offered",
       "context_menus" : [
