@@ -101,10 +101,7 @@ pub(super) fn session_cwd(
         std::env::current_dir().unwrap_or_default().join(cwd)
     };
     if !cwd.is_dir() {
-        return Err(RpcError::invalid_params(format!(
-            "cwd {} is not a directory",
-            cwd.display()
-        )));
+        return Err(RpcError::invalid_params(format!("cwd {} is not a directory", cwd.display())));
     }
     Ok(cwd)
 }
