@@ -9,6 +9,8 @@ import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT, policyAt } from 
 import { domainExternal, RESOLVERS, txtAnswers, type DomainReply, type Http } from "./team-domain-external.ts"
 import { nextRecheckAt, RECHECK_MS, txtContains } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
+import { ssoCallback, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
+import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
@@ -246,6 +248,37 @@ export class TeamDO extends OwnerDO<TeamState> {
   async ssoDiscover(entity: string, domain: string): Promise<{ sso: boolean }> {
     const engine = this.boundEngine ?? this.bind(entity)
     return { sso: Boolean(connectionForDomain(engine.currentState, domain)) }
+  }
+
+  /** Stack server access for SSO sign-in; tests replace it. */
+  stack: StackServer | undefined = undefined
+
+  private loginDeps(entity: string): LoginDeps {
+    const engine = this.bind(entity)
+    return {
+      state: engine.currentState,
+      team: entity,
+      sql: this.ctx.storage.sql,
+      http: this.http,
+      kek: this.env.INTEGRATIONS_KEK,
+      stack: this.stack ?? stackServer(this.env),
+      now: Date.now(),
+      submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+    }
+  }
+
+  /** RPCs from the unauthenticated SSO routes (sso-routes.ts). */
+  async ssoStart(entity: string, email: string, callbackBase: string, returnTo: string, clientChallenge: string) {
+    return ssoStart(this.loginDeps(entity), email, callbackBase, returnTo, clientChallenge)
+  }
+
+  async ssoCallback(entity: string, state: string, code: string, pathConnection: string, iss: string | null) {
+    return ssoCallback(this.loginDeps(entity), state, code, pathConnection, iss)
+  }
+
+  async ssoRedeem(entity: string, code: string, clientVerifier: string) {
+    this.bind(entity)
+    return ssoRedeem(this.ctx.storage.sql, this.env.INTEGRATIONS_KEK, entity, code, clientVerifier, Date.now())
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {
