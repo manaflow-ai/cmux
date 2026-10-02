@@ -406,9 +406,9 @@ final class TerminalTabOverviewViewController: UIViewController {
         moreButton.frame = CGRect(x: bounds.width - 64, y: 0, width: 48, height: 48)
 
         // Safari raises the onboarding card when three or more tabs are shown
-        // so it leaves the first row readable. With one or two tabs it drops
-        // into the open space above the centered cards.
-        let hintTop = visibleItems.count > 2 ? view.safeAreaInsets.top : view.safeAreaInsets.top + 39
+        // so it leaves the first row readable. With one or two tabs it moves
+        // below the top controls and leaves the centered cards below it.
+        let hintTop = visibleItems.count > 2 ? view.safeAreaInsets.top : view.safeAreaInsets.top + 63
         // Safari's teaching card is just over 135 points tall on the iPhone
         // reference device. The card keeps a small breathing space before the
         // first row instead of touching the tab previews.
@@ -506,7 +506,12 @@ final class TerminalTabOverviewViewController: UIViewController {
             // With the teaching card visible, Safari places the first row
             // directly below it. Once the card is dismissed the grid rises
             // into the space below the top controls.
-            let desired = hintIsVisible ? safeTop + 153 : safeTop + 60
+            let desired: CGFloat
+            if hintIsVisible {
+                desired = visible.count > 2 ? safeTop + 153 : safeTop + 212
+            } else {
+                desired = safeTop + 60
+            }
             let maxTop = bottom - CGFloat(rows) * height - CGFloat(max(0, rows - 1)) * 16 - 10
             top = min(desired, maxTop)
         } else {
