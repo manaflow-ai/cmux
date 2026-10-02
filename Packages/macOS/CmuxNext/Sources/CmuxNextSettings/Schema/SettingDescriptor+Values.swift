@@ -42,9 +42,9 @@ extension SettingDescriptor {
             return members["start"]?.stringValue.flatMap(QuietHours.minutes) != nil
                 && members["end"]?.stringValue.flatMap(QuietHours.minutes) != nil
         case .theme:
-            return value.stringValue.map(AppThemeSetting.isValid) ?? false
+            return value.stringValue.map(AppThemeSetting().isValid) ?? false
         case .fontFamily:
-            return value.stringValue.map(TerminalFontSetting.isValidFamily) ?? false
+            return value.stringValue.map(TerminalFontSetting().isValidFamily) ?? false
         }
     }
 

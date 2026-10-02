@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { devboxIdleWakeupCheckCommand } from "../scripts/devbox-image-common";
+import { runChild } from "./helpers/run-child";
 
 // The idle-wakeup smoke check runs against a fake /proc: one terminal host
 // (main thread plus a worker), the daemon, and a decoy shell whose command
@@ -37,43 +37,43 @@ function fakeProc(withHost = true): string {
 }
 
 /** Runs the check; the pause step moves the host main thread's counter by `hostDelta`. */
-function run(proc: string, hostDelta: number) {
+async function run(proc: string, hostDelta: number) {
   const status = path.join(proc, "100", "task", "100", "status");
   const pause = `printf 'Name:\\texe\\nvoluntary_ctxt_switches:\\t%s\\n' ${15_541 + hostDelta} > '${status}' 2>/dev/null || true`;
-  const result = spawnSync("bash", ["-c", devboxIdleWakeupCheckCommand({ procRoot: proc, windowSeconds: 60, pause })], { encoding: "utf8" });
+  const result = await runChild("bash", ["-c", devboxIdleWakeupCheckCommand({ procRoot: proc, windowSeconds: 60, pause })]);
   return { code: result.status, out: `${result.stdout}${result.stderr}` };
 }
 
 describe("devbox idle-wakeup check", () => {
-  test("fails on the old 20 ms accept loop (about 3,000 switches a minute)", () => {
-    const r = run(fakeProc(), 2_980);
+  test("fails on the old 20 ms accept loop (about 3,000 switches a minute)", async () => {
+    const r = await run(fakeProc(), 2_980);
     expect(r.code).toBe(1);
     expect(r.out).toContain("idle-wakeups: host 100 thread 100 (exe main): 2980 voluntary switches in 60s");
     expect(r.out).toContain("FAIL 1 terminal host main thread(s) over 30 switches");
   });
 
-  test("passes when the host blocks on events", () => {
-    const r = run(fakeProc(), 2);
+  test("passes when the host blocks on events", async () => {
+    const r = await run(fakeProc(), 2);
     expect(r.code).toBe(0);
     expect(r.out).toContain("PASS 1 terminal host main thread(s) at or under 30 switches in 60s");
     expect(r.out).toContain("daemon 200 thread 200 (cmux-tui main)");
   });
 
-  test("ignores a shell whose command line only mentions the markers", () => {
-    const r = run(fakeProc(), 2);
+  test("ignores a shell whose command line only mentions the markers", async () => {
+    const r = await run(fakeProc(), 2);
     expect(r.out).not.toContain(" 300 ");
   });
 
-  test("a host whose status disappears in the window is not counted as idle", () => {
+  test("a host whose status disappears in the window is not counted as idle", async () => {
     const proc = fakeProc();
     const status = path.join(proc, "100", "task", "100", "status");
-    const result = spawnSync("bash", ["-c", devboxIdleWakeupCheckCommand({ procRoot: proc, pause: `rm -f '${status}'` })], { encoding: "utf8" });
+    const result = await runChild("bash", ["-c", devboxIdleWakeupCheckCommand({ procRoot: proc, pause: `rm -f '${status}'` })]);
     expect(result.status).toBe(1);
     expect(`${result.stdout}${result.stderr}`).toContain("FAIL no terminal host main thread measured");
   });
 
-  test("fails when there is no terminal host to measure", () => {
-    const r = run(fakeProc(false), 0);
+  test("fails when there is no terminal host to measure", async () => {
+    const r = await run(fakeProc(false), 0);
     expect(r.code).toBe(1);
     expect(r.out).toContain("FAIL no terminal host to measure");
   });

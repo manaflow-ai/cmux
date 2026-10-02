@@ -51,7 +51,7 @@ public final class SettingsWindowController: NSWindowController, NSWindowDelegat
         if let anchor {
             model.open(anchor)
         } else if let section {
-            model.select(section, layout: SettingsWindowTunables.layout.value)
+            model.select(section, layout: SettingsWindowLayout.tunable.value)
         }
         guard let window else { return }
         SettingsTheme.shared.scope.adopt(window)
