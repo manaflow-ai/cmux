@@ -1,0 +1,95 @@
+{
+  "$comment": "SKETCH of this app on platform v2 (plan app-platform section 12, proposal plans/cmux-next/finder.md). Not loaded by today's runtime; cmux-app.json is the live manifest.",
+  "manifestVersion": 2,
+  "id": "cmux/finder",
+  "version": "0.1.0",
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "engines": { "cmux": "^2.0" },
+  "name": { "en": "Finder", "ja": "ファインダー" },
+  "strings": "strings/",
+  "main": "dist/main.js",
+  "scopes": {
+    "fs:read": "List and preview files in the folders and hosts you give this app.",
+    "host:read": "Show the hosts you connected this app to."
+  },
+  "optionalScopes": {
+    "fs:write": "Create, rename, copy, move and trash files when you ask.",
+    "host:control": "Open the cmux connect sheet when you click Connect.",
+    "terminal:input": "Insert a file's path into the focused terminal.",
+    "agent:write": "Attach files to an agent.",
+    "storage:local": "Remember your recent places on this Mac."
+  },
+  "handles": {
+    "root": { "max": 64, "rights": ["read", "read_write"], "reason": "Folders you add in the file panel or the connect sheet." },
+    "conn": { "max": 32, "kinds": ["local", "server", "cloud_vm", "team_vm", "ssh"], "reason": "Hosts you connect in the connect sheet." }
+  },
+  "implements": {
+    "cmux.section/1": {
+      "id": "files",
+      "export": "renderFiles",
+      "title": { "en": "Files", "ja": "ファイル" },
+      "symbol": "folder",
+      "defaultRegion": "middle"
+    },
+    "cmux.pane/1": { "id": "finder", "export": "renderFinder", "renderer": "scene", "inputs": ["location"] },
+    "cmux.opener/1": { "export": "openLocation", "kinds": ["folder"], "reason": "Open With > Finder on a folder in another app or a terminal path" },
+    "cmux.search.provider/1": { "export": "searchNames", "reason": "file names under the roots you gave it (owner-side fs.search, not a crawl)" }
+  },
+  "consumes": ["cmux.fs.provider/1", "cmux.viewer/1", "cmux.credential.provider/1"],
+  "drag": { "provides": ["file"] },
+  "drop": { "accepts": ["file"] },
+  "catalog": {
+    "owner": "app:cmux/finder",
+    "ops": [
+      {
+        "name": "finder.open",
+        "export": "openFinder",
+        "risk": "read",
+        "params": { "location": "{conn: conn_…, root: root_…, path: string}?" },
+        "surfaces": { "palette": { "title": "Open Finder" }, "cli": "cmux apps run cmux/finder open", "mcp": false, "contexts": ["section:files"] },
+        "gesture": "required"
+      },
+      {
+        "name": "finder.add_folder",
+        "export": "addFolder",
+        "risk": "mutate-own",
+        "surfaces": { "palette": { "title": "Add Folder to Finder…" }, "contexts": ["section:files"] },
+        "gesture": "required"
+      },
+      {
+        "name": "finder.connect_host",
+        "export": "connectHost",
+        "risk": "mutate-own",
+        "surfaces": { "palette": { "title": "Connect to Host…" }, "contexts": ["section:files"] },
+        "gesture": "required"
+      },
+      {
+        "name": "finder.cycle_variant",
+        "export": "cycleVariant",
+        "risk": "mutate-own",
+        "surfaces": { "palette": { "title": "Next Finder Variant" } },
+        "channels": ["dev", "nightly"]
+      }
+    ],
+    "events": []
+  },
+  "variants": {
+    "setting": "variant",
+    "values": ["listPreview", "columns", "dualPane"],
+    "default": "listPreview",
+    "channels": ["dev", "nightly"]
+  },
+  "settings": {
+    "showPreview": { "type": "boolean", "default": true }
+  },
+  "v2Gaps": [
+    "No cmux.pane/1 place interface named in V2 (sections and status items are places; panes need the same).",
+    "No ScrollView, visible-range events, keyboard selection or Table in the v2 scene vocabulary list beyond the names in V7.",
+    "No scene props for drag sources and drop targets (12.4 names the payload, not the scene contract).",
+    "Image cannot render an img_… handle from fs.thumbnail.",
+    "No ent_… handle for one dropped file; the 12.4 payload passes the dragger's handle.",
+    "No fs.search op named in cmux.fs.provider/1 (needed for the search provider without a crawl)."
+  ]
+}
