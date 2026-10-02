@@ -366,6 +366,7 @@ jobs:
         run: |
           python3 tests/test_localization_catalog.py
           python3 tests/test_localize_changes.py
+          python3 tests/test_localization_defaults.py
 
       - name: Test the PR media uploader
         if: ${{ matrix.group == 'preflight' }}
@@ -583,6 +584,10 @@ jobs:
       - name: Validate simple live macOS pool choice
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_simple_pool_picker.py
+
+      - name: Validate agent pane frame pacing summary
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_frame_pacing_summary.py
 
       - name: Validate manual dispatch routing guard
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
