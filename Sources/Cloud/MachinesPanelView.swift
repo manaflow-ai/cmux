@@ -194,7 +194,6 @@ struct MachinesPanelView: View {
 
     private var cloudStatus: some View {
         MachinesCloudStatus(
-            activeOperation: viewModel.activeOperation,
             listStatus: toolbarListStatus,
             listError: viewModel.lastErrorDescription,
             treeError: visibleTreeErrorDescription,
@@ -228,6 +227,10 @@ struct MachinesPanelView: View {
             accountFlow: accountFlow,
             presentation: teamPickerPresentation,
             chromeBackgroundColor: chromeBackgroundColor,
+            isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
+            onRefresh: refreshMachines,
+            onNewMachine: requestNewMachine,
+            agentMenu: { cloudAgentMenu },
             status: { cloudStatus }
         )
     }
@@ -354,7 +357,6 @@ struct MachinesPanelView: View {
     /// Binds the shared Cloud and Devices tree above the outline's snapshot boundary.
     private var machinesList: some View {
         var machineActions = MachineRowActions.bound(
-            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in
                 viewModel?.endOperation()
                 viewModel?.refresh(tree: true)
@@ -375,7 +377,6 @@ struct MachinesPanelView: View {
             selectLocalWorkspace: { workspaceID in
                 tabManager?.selectedTabId = workspaceID
             },
-            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
             refresh: { refreshMachines() },
