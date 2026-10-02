@@ -5844,3 +5844,81 @@ fn receipted_input_is_acknowledged_behind_an_output_backlog() {
     assert_eq!(write["ok"], true, "receipted write behind an output backlog failed: {write}");
     assert!(elapsed < Duration::from_secs(2), "write waited {elapsed:?} for its receipt");
 }
+
+/// `create-terminal {detached:true}` spawns the host before it commits the
+/// terminal's resource row. A daemon that dies between the two leaves a live,
+/// kept host whose registry row names the "detached" sentinel and no public
+/// resource row. The next daemon must adopt it as a kept terminal with no tab
+/// and give it a public id, not retry a placement in a workspace that cannot
+/// exist forever.
+#[test]
+fn detached_terminal_without_a_resource_row_is_adopted_kept_and_tabless() {
+    const DETACHED: &str = "4d6f8a0b2c3e4f5a8b7c9d0e1f2a3b4c";
+    let mut harness = RecoveryHarness::start("detached-adopt");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "create-terminal",
+            "detached": true,
+            "keep": true,
+            "terminal_id": DETACHED,
+            "origin": "recovery-test",
+            "mutation_id": "detached-adopt-1",
+        }),
+    );
+    assert_eq!(created["key"], "detached", "{created}");
+    wait_for_host_records(&harness.host_root(), 1);
+    harness.sigkill();
+
+    // The durable state of the crash window: drop the resource row the
+    // projection commit added after the host spawned.
+    let registry = walk_files(&harness.state)
+        .into_iter()
+        .find(|path| path.file_name().is_some_and(|name| name == "workspace-registry.sqlite3"))
+        .expect("workspace registry");
+    {
+        let connection = rusqlite::Connection::open(&registry).unwrap();
+        let public_id: String = connection
+            .query_row(
+                "SELECT public_id FROM resource_terminals WHERE terminal_id = ?1",
+                [DETACHED],
+                |row| row.get(0),
+            )
+            .unwrap();
+        connection
+            .execute("DELETE FROM resource_terminals WHERE terminal_id = ?1", [DETACHED])
+            .unwrap();
+        connection
+            .execute("DELETE FROM resource_identities WHERE public_id = ?1", [&public_id])
+            .unwrap();
+    }
+
+    harness.restart();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let resolved = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id": 2, "cmd": "resolve-terminal", "terminal_id": DETACHED}),
+        );
+        if resolved["lifecycle"] == "running" {
+            break resolved;
+        }
+        assert!(Instant::now() < deadline, "detached host was never adopted: {resolved}");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(resolved["surface"].is_null(), "an adopted detached terminal has no tab: {resolved}");
+    let tree = request(&harness.socket, serde_json::json!({"id": 3, "cmd": "list-workspaces"}));
+    assert!(
+        tree["workspaces"].as_array().unwrap().is_empty(),
+        "adoption created no workspace for a detached terminal: {tree}"
+    );
+    let kept = request(
+        &harness.socket,
+        serde_json::json!({"id": 4, "cmd": "set-terminal-keep", "terminal_id": DETACHED, "keep": true}),
+    );
+    assert!(
+        kept["terminal_resource_id"].as_str().is_some_and(|id| id.starts_with("term_")),
+        "the adopted terminal has a public id again: {kept}"
+    );
+}
