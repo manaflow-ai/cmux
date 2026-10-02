@@ -181,7 +181,7 @@ impl Inner {
                     let moved = self.move_handles(&agent, &page, &handles, deadline);
                     match moved {
                         Ok(objects) => {
-                            arguments.extend(objects.into_iter().map(|id| json!({"objectId": id})))
+                            arguments.extend(objects.into_iter().map(|id| json!({"objectId": id})));
                         }
                         Err(error) => {
                             self.release_handles(&agent.session);

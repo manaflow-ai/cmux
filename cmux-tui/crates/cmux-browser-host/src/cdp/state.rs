@@ -402,10 +402,10 @@ impl State {
             "Runtime.executionContextsCleared" => {
                 tab.contexts.retain(|_, (session, _)| session.as_str() != session_id);
             }
-            "Page.downloadWillBegin" => {
-                if params.get("frameId").and_then(Value::as_str) == tab.main_frame.as_deref() {
-                    tab.download_seq += 1;
-                }
+            "Page.downloadWillBegin"
+                if params.get("frameId").and_then(Value::as_str) == tab.main_frame.as_deref() =>
+            {
+                tab.download_seq += 1;
             }
             "Runtime.consoleAPICalled" => {
                 let text = params

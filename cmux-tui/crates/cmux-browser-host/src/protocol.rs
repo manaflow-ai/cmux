@@ -133,7 +133,7 @@ pub const NO_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 pub fn timeout_of(params: &Value) -> Duration {
     match params.get("timeoutMs").and_then(Value::as_f64).filter(|ms| ms.is_finite() && *ms >= 0.0)
     {
-        Some(ms) if ms == 0.0 => NO_TIMEOUT,
+        Some(0.0) => NO_TIMEOUT,
         Some(ms) => Duration::from_millis(ms as u64).min(NO_TIMEOUT),
         None => DEFAULT_TIMEOUT,
     }

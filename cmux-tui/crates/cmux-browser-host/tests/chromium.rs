@@ -30,37 +30,42 @@ fn serve() -> u16 {
     let port = listener.local_addr().unwrap().port();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut line = String::new();
-            if reader.read_line(&mut line).is_err() {
-                continue;
-            }
-            let path = line.split_whitespace().nth(1).unwrap_or("/").to_owned();
-            loop {
-                let mut header = String::new();
-                if reader.read_line(&mut header).map(|n| n == 0).unwrap_or(true) || header == "\r\n"
-                {
-                    break;
+            // One thread per connection: Chromium opens speculative sockets
+            // that never send a request, which would stall a serial server.
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() {
+                    return;
                 }
-            }
-            let body = match path.as_str() {
-                "/" => format!(
-                    "<!doctype html><title>Host test</title>\
-                     <button id=b style=\"width:120px;height:40px\" onclick=\"window.clicked = event.isTrusted\">Go</button>\
-                     <input id=i><iframe id=f src=\"/child\" style=\"width:300px;height:100px\"></iframe>\
-                     <iframe id=x src=\"http://localhost:{port}/cross\" style=\"width:300px;height:100px\"></iframe>"
-                ),
-                "/child" => "<!doctype html><p id=p>child frame</p>".to_owned(),
-                "/cross" => "<!doctype html><p id=c>cross-origin frame</p>".to_owned(),
-                "/second" => "<!doctype html><title>Second</title><p>second</p>".to_owned(),
-                _ => "<!doctype html><title>404</title>".to_owned(),
-            };
-            let mut stream = stream;
-            let _ = write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
+                let path = line.split_whitespace().nth(1).unwrap_or("/").to_owned();
+                loop {
+                    let mut header = String::new();
+                    if reader.read_line(&mut header).map(|n| n == 0).unwrap_or(true)
+                        || header == "\r\n"
+                    {
+                        break;
+                    }
+                }
+                let body = match path.as_str() {
+                    "/" => format!(
+                        "<!doctype html><title>Host test</title>\
+                         <button id=b style=\"width:120px;height:40px\" onclick=\"window.clicked = event.isTrusted\">Go</button>\
+                         <input id=i><iframe id=f src=\"/child\" style=\"width:300px;height:100px\"></iframe>\
+                         <iframe id=x src=\"http://localhost:{port}/cross\" style=\"width:300px;height:100px\"></iframe>"
+                    ),
+                    "/child" => "<!doctype html><p id=p>child frame</p>".to_owned(),
+                    "/cross" => "<!doctype html><p id=c>cross-origin frame</p>".to_owned(),
+                    "/second" => "<!doctype html><title>Second</title><p>second</p>".to_owned(),
+                    _ => "<!doctype html><title>404</title>".to_owned(),
+                };
+                let mut stream = stream;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            });
         }
     });
     port
