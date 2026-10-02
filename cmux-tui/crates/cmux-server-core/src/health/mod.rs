@@ -12,7 +12,7 @@ mod fixes;
 mod reduce;
 
 pub use facts::{
-    BackupFacts, DiskFacts, Facts, HealthSettings, LockFacts, PowerFacts, PowerSource, QuotaUsage,
+    BackupFacts, InhibitFacts, DiskFacts, Facts, HealthSettings, LockFacts, PowerFacts, PowerSource, QuotaUsage,
 };
 pub use fixes::{FIXES, Fix, FixError, FixValues, fixes_for, render_argv};
 pub use reduce::reduce;
@@ -32,13 +32,14 @@ pub enum CheckId {
     RestartFileVaultWait,
     RestartNotLoggedIn,
     LingerOff,
+    InhibitLimited,
     EncryptionOff,
     PostgresQuota,
     BackupStale,
 }
 
 impl CheckId {
-    pub const ALL: [CheckId; 12] = [
+    pub const ALL: [CheckId; 13] = [
         CheckId::PowerOnBattery,
         CheckId::NetworkOffline,
         CheckId::DiskLow,
@@ -48,6 +49,7 @@ impl CheckId {
         CheckId::RestartFileVaultWait,
         CheckId::RestartNotLoggedIn,
         CheckId::LingerOff,
+        CheckId::InhibitLimited,
         CheckId::EncryptionOff,
         CheckId::PostgresQuota,
         CheckId::BackupStale,
@@ -66,6 +68,7 @@ impl CheckId {
             CheckId::RestartFileVaultWait => "restart.fileVaultWait",
             CheckId::RestartNotLoggedIn => "restart.notLoggedIn",
             CheckId::LingerOff => "linger.off",
+            CheckId::InhibitLimited => "inhibit.limited",
             CheckId::EncryptionOff => "encryption.off",
             CheckId::PostgresQuota => "postgres.quota",
             CheckId::BackupStale => "backup.stale",

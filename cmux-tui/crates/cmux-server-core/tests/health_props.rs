@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use cmux_server_core::health::{
-    AlertKey, AlertSet, BackupFacts, DiskFacts, Facts, LockFacts, Post, PowerFacts, PowerSource,
+    AlertKey, AlertSet, BackupFacts, DiskFacts, Facts, InhibitFacts, LockFacts, Post, PowerFacts, PowerSource,
     QuotaUsage, Severity, reduce,
 };
 use cmux_server_core::{InstallMode, Platform};
@@ -92,10 +92,13 @@ prop_compose! {
         lock in lock(),
         flags in prop::array::uniform6(prop::option::of(any::<bool>())),
         headless in any::<bool>(),
+        inhibit in prop::option::of((any::<bool>(), any::<bool>(), any::<bool>())),
+        platform in prop::sample::select(vec![Platform::Linux, Platform::MacOs, Platform::Windows]),
+        mode in prop::sample::select(vec![InstallMode::User, InstallMode::System]),
         quota in quota(),
         backup in backup(),
     ) -> Facts {
-        let mut f = Facts::healthy("host_p", Platform::MacOs, InstallMode::User);
+        let mut f = Facts::healthy("host_p", platform, mode);
         f.power = power;
         f.link_up = link_up;
         f.has_route = has_route;
@@ -103,6 +106,7 @@ prop_compose! {
         f.lock = lock;
         [f.sleep_on_ac_enabled, f.autorestart, f.filevault_on, f.autologin, f.linger, f.encryption_on] = flags;
         f.headless_agent_not_logged_in = headless;
+        f.inhibitors = inhibit.map(|(idle, sleep, lid)| InhibitFacts { idle, sleep, handle_lid_switch: lid });
         f.quota = quota;
         f.backup = backup;
         f

@@ -2,7 +2,7 @@
 
 use cmux_server_core::health::{
     AlertKey, AlertSet, BackupFacts, CheckId, DiskFacts, FIXES, Facts, FixError, FixValues,
-    LockFacts, Post, PowerFacts, PowerSource, QuotaUsage, Severity, fixes_for, reduce, render_argv,
+    InhibitFacts, LockFacts, Post, PowerFacts, PowerSource, QuotaUsage, Severity, fixes_for, reduce, render_argv,
 };
 use cmux_server_core::{InstallMode, Platform};
 
@@ -185,6 +185,25 @@ fn flag_checks_raise_with_table_severity() {
     assert_eq!(notify(&p[0]), ("server:h:linger.off", Severity::Critical));
     let Post::Notify { fixes, .. } = &p[0] else { unreachable!() };
     assert_eq!(fixes[0].id, "loginctl.enableLinger");
+}
+
+#[test]
+fn inhibit_limited_when_user_mode_holds_only_idle() {
+    let mut f = Facts::healthy("h", Platform::Linux, InstallMode::User);
+    let only_idle = InhibitFacts { idle: true, sleep: false, handle_lid_switch: false };
+    f.inhibitors = Some(only_idle);
+    let (s, p) = reduce(&AlertSet::default(), &f, 0);
+    assert_eq!(notify(&p[0]), ("server:h:inhibit.limited", Severity::Info));
+    let Post::Notify { fixes, .. } = &p[0] else { unreachable!() };
+    assert_eq!(fixes.len(), 1);
+    assert_eq!((fixes[0].id, fixes[0].needs_admin), ("polkit.inhibitRule", true));
+    // After the polkit rule, all three kinds are held: resolved.
+    f.inhibitors = Some(InhibitFacts { idle: true, sleep: true, handle_lid_switch: true });
+    assert_eq!(resolved(&reduce(&s, &f, 1).1[0]), "server:h:inhibit.limited");
+    // System mode installs the rule itself; it never raises the check.
+    let mut sys = Facts::healthy("h", Platform::Linux, InstallMode::System);
+    sys.inhibitors = Some(only_idle);
+    assert!(reduce(&AlertSet::default(), &sys, 0).1.is_empty());
 }
 
 #[test]

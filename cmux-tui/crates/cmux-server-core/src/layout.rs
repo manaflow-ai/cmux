@@ -111,6 +111,11 @@ impl Layout {
         }
     }
 
+    /// The admin secret in user mode and on Windows (server.md 8.3).
+    pub fn postgres_admin_pgpass(&self) -> HostPath {
+        self.state.join("postgres/admin.pgpass")
+    }
+
     pub fn backups(&self) -> HostPath {
         self.state.join("backups")
     }

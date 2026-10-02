@@ -47,6 +47,16 @@ pub struct QuotaUsage {
     pub quota_bytes: u64,
 }
 
+/// Linux logind inhibitors the server holds, one file descriptor per kind
+/// (server.md 9.1). Without the polkit rule, logind grants a lingering
+/// user without a session only `idle`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InhibitFacts {
+    pub idle: bool,
+    pub sleep: bool,
+    pub handle_lid_switch: bool,
+}
+
 /// Backup facts as timestamps, so the reducer can compute the deadline at
 /// which a backup becomes stale without a new probe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,6 +134,8 @@ pub struct Facts {
     pub headless_agent_not_logged_in: bool,
     /// Linux user mode: `loginctl` linger for the user.
     pub linger: Option<bool>,
+    /// Linux: the inhibitors held.
+    pub inhibitors: Option<InhibitFacts>,
     pub encryption_on: Option<bool>,
     pub quota: Vec<QuotaUsage>,
     pub backup: Option<BackupFacts>,
@@ -148,6 +160,7 @@ impl Facts {
             autologin: None,
             headless_agent_not_logged_in: false,
             linger: None,
+            inhibitors: None,
             encryption_on: None,
             quota: Vec::new(),
             backup: None,

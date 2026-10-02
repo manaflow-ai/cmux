@@ -2,6 +2,7 @@
 
 use super::facts::{BackupFacts, DiskFacts, GIB, HealthSettings, PowerSource};
 use super::{AlertKey, AlertSet, CheckId, Facts, Severity};
+use crate::platform::InstallMode;
 
 /// A condition that holds now. `delay_ms > 0` means the alert is raised only
 /// after the condition held that long.
@@ -61,6 +62,12 @@ pub(super) fn conditions(
         ),
         (facts.headless_agent_not_logged_in, CheckId::RestartNotLoggedIn, Severity::Warning),
         (facts.linger == Some(false), CheckId::LingerOff, Severity::Critical),
+        (
+            facts.mode == InstallMode::User
+                && facts.inhibitors.is_some_and(|i| i.idle && !i.sleep && !i.handle_lid_switch),
+            CheckId::InhibitLimited,
+            Severity::Info,
+        ),
         (facts.encryption_on == Some(false), CheckId::EncryptionOff, Severity::Info),
     ];
     for (holds, check, severity) in flags {

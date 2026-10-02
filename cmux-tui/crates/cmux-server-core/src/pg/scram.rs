@@ -61,6 +61,12 @@ pub fn scram_verifier(password: &str, salt: &[u8; 16], iterations: u32) -> Optio
     ))
 }
 
+/// The line for `<state>/postgres/admin.pgpass` (user mode and Windows):
+/// any host, port and database (including `replication`), the admin role.
+pub fn admin_pgpass_line(password: &str) -> String {
+    format!("*:*:*:{}:{}\n", super::ADMIN_ROLE, password.replace('\\', "\\\\").replace(':', "\\:"))
+}
+
 /// The line for `<state>/apps/<app>/pgpass`: any host and port, the app's
 /// database and role. Fields escape `\` and `:` as libpq requires.
 pub fn pgpass_line(app: &AppDb, password: &str) -> String {

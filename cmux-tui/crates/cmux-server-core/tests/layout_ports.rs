@@ -40,6 +40,10 @@ fn linux_user_layout_matches_table() {
     assert_eq!(l.postgres_data().as_str(), "/home/ana/.local/state/cmux/server/postgres/17/data");
     assert_eq!(l.postgres_socket_dir().as_str(), "/home/ana/.local/state/cmux/server/postgres/run");
     assert_eq!(l.wal_archive().as_str(), "/home/ana/.local/state/cmux/server/backups/wal");
+    assert_eq!(
+        l.postgres_admin_pgpass().as_str(),
+        "/home/ana/.local/state/cmux/server/postgres/admin.pgpass"
+    );
     let app = AppId::parse("notes").unwrap();
     assert_eq!(l.app_pgpass(&app).as_str(), "/home/ana/.local/state/cmux/server/apps/notes/pgpass");
     let sha = "0f".repeat(32);

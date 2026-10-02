@@ -14,7 +14,9 @@ mod sql;
 
 pub use conf::{CONF_FILE, CONF_INCLUDE_LINE};
 pub use ident::{APP_ID_MAX, AppId, AppIdError, quote_ident, quote_literal, valid_os_user};
-pub use scram::{SCRAM_ITERATIONS, password_from_random, pgpass_line, scram_verifier};
+pub use scram::{
+    SCRAM_ITERATIONS, admin_pgpass_line, password_from_random, pgpass_line, scram_verifier,
+};
 pub use sql::{AppLimits, Statement};
 
 use crate::platform::{HostPath, InstallMode, Platform};
@@ -74,8 +76,11 @@ pub struct ClusterSpec {
     /// OS user the cluster runs as: `cmux` in system mode, the installing
     /// user in user mode. Mapped to [`ADMIN_ROLE`] by peer auth.
     pub service_user: String,
-    /// Windows only: the file with the random admin secret (DPAPI-protected
-    /// by the caller), passed to `initdb --pwfile`.
+    /// The `initdb --pwfile` input with the random admin secret. Required
+    /// wherever the admin does not use peer auth: user mode on every
+    /// platform and Windows in both modes (server.md 8.1, 8.3). The caller
+    /// keeps the secret in `<state>/postgres/admin.pgpass` (0600; DPAPI on
+    /// Windows), see [`admin_pgpass_line`].
     pub admin_pwfile: Option<HostPath>,
 }
 
@@ -87,7 +92,8 @@ pub enum PgError {
     /// `<socket_dir>/.s.PGSQL.<port>` exceeds [`MAX_SOCKET_PATH`] bytes.
     SocketPathTooLong(usize),
     BadServiceUser,
-    /// Windows needs `admin_pwfile`; other platforms must not set it.
+    /// `admin_pwfile` is required exactly when the admin does not use peer
+    /// auth (user mode, or Windows).
     PwfileMismatch,
     /// Port 0 or 5432.
     BadPort(u16),
@@ -111,9 +117,16 @@ impl PgPlan {
         &self.spec
     }
 
-    /// Peer auth exists on Linux and macOS only; Windows uses SCRAM over
-    /// loopback TCP for everything (server.md 8.1, 8.2).
+    /// Peer auth for the admin and the apps: system mode on Linux and macOS
+    /// only. User mode uses SCRAM, because every app runs as the installing
+    /// user and peer auth would make each of them superuser (server.md 8.3,
+    /// measured on the Freestyle prototype). Windows has no peer auth.
     pub fn uses_peer(&self) -> bool {
+        self.spec.mode == InstallMode::System && self.spec.platform != Platform::Windows
+    }
+
+    /// The cluster listens on a Unix socket (everywhere but Windows).
+    pub fn uses_socket(&self) -> bool {
         self.spec.platform != Platform::Windows
     }
 

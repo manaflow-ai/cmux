@@ -31,7 +31,8 @@ pub(super) fn validate(spec: &ClusterSpec) -> Result<(), PgError> {
     {
         return Err(PgError::UnsafePath("admin_pwfile"));
     }
-    if (spec.platform == Platform::Windows) != spec.admin_pwfile.is_some() {
+    let peer = spec.mode == InstallMode::System && spec.platform != Platform::Windows;
+    if peer == spec.admin_pwfile.is_some() {
         return Err(PgError::PwfileMismatch);
     }
     if spec.port == 0 || spec.port == POSTGRES_DEFAULT {
@@ -96,8 +97,9 @@ impl PgPlan {
                 argv.push("--auth-host=reject".to_owned());
             }
             Some(pwfile) => {
+                let host = if self.uses_socket() { "reject" } else { "scram-sha-256" };
                 argv.push("--auth-local=scram-sha-256".to_owned());
-                argv.push("--auth-host=scram-sha-256".to_owned());
+                argv.push(format!("--auth-host={host}"));
                 argv.push(format!("--pwfile={pwfile}"));
             }
         }
@@ -135,27 +137,32 @@ impl PgPlan {
         out
     }
 
-    /// Full `pg_hba.conf` (server.md 8.3). First rule: the admin role for the
-    /// service user only. Last rules: reject everything else.
+    /// Full `pg_hba.conf` (server.md 8.3). First rules: the admin role
+    /// (also for replication, which `pg_basebackup` uses): peer for the
+    /// service user in system mode, SCRAM with the admin secret otherwise.
+    /// Last rules: reject everything else.
     pub fn pg_hba_conf(&self, apps: &[AppDb]) -> String {
         let mut out = String::from(HEADER);
         out.push_str("# TYPE DATABASE USER ADDRESS METHOD\n");
-        if self.uses_peer() {
-            out.push_str(&format!("local all {ADMIN_ROLE} peer map={ADMIN_MAP}\n"));
+        let local_method: fn(&str) -> String = if self.uses_peer() {
+            |map: &str| format!("peer map={map}")
         } else {
-            out.push_str(&format!("host all {ADMIN_ROLE} 127.0.0.1/32 scram-sha-256\n"));
+            |_: &str| "scram-sha-256".to_owned()
+        };
+        for db in ["all", "replication"] {
+            if self.uses_socket() {
+                out.push_str(&format!("local {db} {ADMIN_ROLE} {}\n", local_method(ADMIN_MAP)));
+            } else {
+                out.push_str(&format!("host {db} {ADMIN_ROLE} 127.0.0.1/32 scram-sha-256\n"));
+            }
         }
         for app in apps {
             let db = hba_database(app);
             let role = app.id.role();
-            if self.uses_peer() {
-                let method = match self.spec.mode {
-                    InstallMode::System => format!("peer map={APPS_MAP}"),
-                    InstallMode::User => "scram-sha-256".to_owned(),
-                };
-                out.push_str(&format!("local {db} {role} {method}\n"));
+            if self.uses_socket() {
+                out.push_str(&format!("local {db} {role} {}\n", local_method(APPS_MAP)));
             }
-            if app.tcp || !self.uses_peer() {
+            if app.tcp || !self.uses_socket() {
                 out.push_str(&format!("host {db} {role} 127.0.0.1/32 scram-sha-256\n"));
             }
         }
@@ -164,8 +171,8 @@ impl PgPlan {
         out
     }
 
-    /// Full `pg_ident.conf`: the service user maps to the admin role; in
-    /// system mode each app's OS user maps to its role.
+    /// Full `pg_ident.conf`. System mode: the service user maps to the admin
+    /// role and each app's OS user to its role. Otherwise no maps.
     pub fn pg_ident_conf(&self, apps: &[AppDb]) -> String {
         let mut out = String::from(HEADER);
         out.push_str("# MAPNAME SYSTEM-USERNAME PG-USERNAME\n");
@@ -173,10 +180,8 @@ impl PgPlan {
             return out;
         }
         out.push_str(&format!("{ADMIN_MAP} {} {ADMIN_ROLE}\n", self.spec.service_user));
-        if self.spec.mode == InstallMode::System {
-            for app in apps {
-                out.push_str(&format!("{APPS_MAP} {} {}\n", app.id.os_user(), app.id.role()));
-            }
+        for app in apps {
+            out.push_str(&format!("{APPS_MAP} {} {}\n", app.id.os_user(), app.id.role()));
         }
         out
     }

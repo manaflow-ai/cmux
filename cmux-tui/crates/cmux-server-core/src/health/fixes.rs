@@ -173,6 +173,14 @@ pub static FIXES: &[Fix] = &[
         "server.health.fix.enableLinger",
         &["/usr/bin/loginctl", "enable-linger", "{user}"],
     ),
+    internal(
+        "polkit.inhibitRule",
+        C::InhibitLimited,
+        Linux,
+        "server.health.fix.polkitInhibitRule",
+        "install-polkit-inhibit-rule",
+        true,
+    ),
     // Windows
     argv(
         "powercfg.noStandbyOnAc",
