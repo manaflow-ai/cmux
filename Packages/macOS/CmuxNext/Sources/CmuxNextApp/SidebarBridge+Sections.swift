@@ -21,6 +21,9 @@ extension SidebarBridge {
         .history: "history.show",
         .bookmarks: "bookmark.manager",
         .appStore: "appStore.show",
+        .newTerminal: "newSurface",
+        .newBrowser: "openBrowser",
+        .newAgentChat: "palette.newAgentChat",
         .customize: "appearance.customize",
     ]
 

@@ -695,7 +695,7 @@
     },
     "window.rail" : {
       "default" : "off",
-      "description" : "A column of buttons for new tabs, agent chats, notifications, history and accounts.",
+      "description" : "Shows the sidebar's pinned sections as a column of icons beside it.",
       "enum" : [
         "off",
         "leading",

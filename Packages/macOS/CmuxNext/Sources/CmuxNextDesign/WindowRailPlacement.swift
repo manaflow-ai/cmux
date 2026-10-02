@@ -1,6 +1,5 @@
-/// `window.rail` in cmux.json: where the window's icon rail (new terminal,
-/// browser and agent chat, notifications, history, accounts) sits. A
-/// prototype for comparing the two placements.
+/// `window.rail` in cmux.json: whether the sidebar's sticky sections show
+/// as an icon rail, and where it sits. Off by default.
 public nonisolated enum WindowRailPlacement: String, Sendable, CaseIterable, Codable {
     /// No rail (the default): the window is laid out as without one.
     case off

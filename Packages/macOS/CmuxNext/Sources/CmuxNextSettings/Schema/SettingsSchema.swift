@@ -75,7 +75,7 @@ public nonisolated enum SettingsSchema {
                 WindowRailSetting.configPath, section: .general, group: window,
                 title: SettingsText.text("settings.window.rail", "Action Rail"),
                 help: SettingsText.text("settings.window.rail.help",
-                                        "A column of buttons for new tabs, agent chats, notifications, history and accounts."),
+                                        "Shows the sidebar's pinned sections as a column of icons beside it."),
                 kind: .choice([
                     SettingChoice(WindowRailPlacement.off.rawValue, SettingsText.text("settings.choice.off", "Off")),
                     SettingChoice(WindowRailPlacement.leading.rawValue, SettingsText.text("settings.choice.railLeading", "Window Edge")),
