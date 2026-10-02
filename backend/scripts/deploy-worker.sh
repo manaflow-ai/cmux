@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Deploys the API Worker to one environment: development | staging | preview-<n>.
-# Production is refused here until the coordinator approves it.
+# Deploys the API Worker to one environment: development | staging | production | preview-<n>.
+# Production also needs CMUX_NEXT_DEPLOY_PRODUCTION=1 (CI sets it in the gated production job)
+# and refuses to deploy while any migration in db/migrations is not applied to production.
 # Local runs use the cf CLI's OAuth token; CI passes CLOUDFLARE_API_TOKEN.
 set -euo pipefail
 target="${1:?usage: deploy-worker.sh development|staging|preview-<pr>}"
@@ -12,7 +13,9 @@ if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
   export CLOUDFLARE_API_TOKEN
 fi
 case "$target" in
-  production) echo "production deploys need the coordinator's approval; refusing" >&2; exit 2 ;;
+  production)
+    [ "${CMUX_NEXT_DEPLOY_PRODUCTION:-}" = 1 ] || { echo "set CMUX_NEXT_DEPLOY_PRODUCTION=1 to deploy production" >&2; exit 2; }
+    env_name=production; extra=() ;;
   development|staging) env_name="$target"; extra=() ;;
   # Previews bind the development Hyperdrive and Stack dev project (spec: previews reuse
   # development); DO state is isolated by the Worker name.
@@ -34,5 +37,9 @@ print(json.dumps({"JWT_PRIVATE_JWK": vals["JWT_PRIVATE_JWK"]}))
 PY
 else
   echo "no JWT_PRIVATE_JWK for $env_name" >&2; exit 1
+fi
+# Merging deploys: code ships only onto a schema that already has every migration.
+if [ "$env_name" = staging ] || [ "$env_name" = production ]; then
+  (cd ../../db && bun migrate.ts --env "$env_name" --verify)
 fi
 ./node_modules/.bin/wrangler deploy --env "$env_name" "${extra[@]}" --secrets-file "$secrets"

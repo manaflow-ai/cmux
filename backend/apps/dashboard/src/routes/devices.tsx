@@ -1,8 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { useLoad, useWire } from "../lib/hooks"
-import { mutate, publicConfig, read, type OpResponse } from "../lib/server"
-import { newKey, useTokens, useWithToken } from "../lib/session"
+import { mutate, read, type OpResponse } from "../lib/server"
+import { newKey, setSignedIn, useSignedIn } from "../lib/session"
 
 export const Route = createFileRoute("/devices")({ component: Devices })
 
@@ -33,25 +33,24 @@ function Echo({ r }: { r: OpResponse | null }) {
 }
 
 function Devices() {
-  const tokens = useTokens()
-  const withToken = useWithToken()
+  const signedIn = useSignedIn()
   const [last, setLast] = useState<OpResponse | null>(null)
   const [ensured, setEnsured] = useState<OpResponse | null>(null)
 
-  const list = useLoad<Listing>(tokens ? "devices" : null, async () => {
+  const list = useLoad<Listing>(signedIn ? "devices" : null, async () => {
     // The user record and personal team exist before anything else (user.ensure is idempotent).
-    const e = await withToken((t) => mutate({ data: { token: t, op: "user.ensure", params: {}, idempotency_key: newKey() } }))
+    const e = await mutate({ data: { op: "user.ensure", params: {}, idempotency_key: newKey() } })
+    if (e.status === 401) setSignedIn(false)
     if (e.status !== 200) throw new Error(`user.ensure failed: ${e.status} ${JSON.stringify(e.body)}`)
     setEnsured(e.body)
-    const r = await withToken((t) => read({ data: { token: t, op: "install.list", params: {} } }))
+    const r = await read({ data: { op: "install.list", params: {} } })
     if (r.status !== 200) throw new Error(`install.list failed: ${r.status}`)
     return r.body.value as unknown as Listing
   })
-  const cfg = useLoad(tokens ? "cfg" : null, () => publicConfig())
   const userId = list.data?.user?.id ?? null
-  const wire = useWire(cfg.data?.apiUrl, tokens?.access_token ?? null, userId ? `user:${userId}` : null)
+  const wire = useWire(userId ? `user:${userId}` : null)
 
-  if (!tokens)
+  if (signedIn === false)
     return (
       <p>
         <Link to="/">Sign in</Link> to see your devices.
@@ -59,7 +58,8 @@ function Devices() {
     )
 
   const run = async (op: string, params: Record<string, unknown>) => {
-    const r = await withToken((t) => mutate({ data: { token: t, op, params, idempotency_key: newKey() } }))
+    const r = await mutate({ data: { op, params, idempotency_key: newKey() } })
+    if (r.status === 401) return setSignedIn(false)
     if (r.status === 200) setLast(r.body)
     list.reload()
   }

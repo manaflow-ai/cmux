@@ -1,7 +1,7 @@
 // cmux-next API Worker: all API logic and every owner Durable Object (spec backend.md).
-// One Worker per environment. Production (`cmux-api`) is defined but is NOT deployed
-// until staging works and the coordinator approves. Secrets: `JWT_PRIVATE_JWK` per env
-// via `wrangler secret` (scripts/deploy-worker.sh reads ~/.secrets/cmux-next-api-<env>.env).
+// One Worker per environment: cmux-api (production, cloud-api.cmux.dev), cmux-api-staging
+// (cloud-api-staging.cmux.dev), cmux-api-development (workers.dev only), cmux-api-preview-<pr>.
+// Secret `JWT_PRIVATE_JWK` per env (scripts/deploy-worker.sh; CI uses GitHub environment secrets).
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "cmux-api-local",
@@ -32,6 +32,7 @@
     },
     "staging": {
       "name": "cmux-api-staging",
+      "workers_dev": true,
       "vars": { "ENVIRONMENT": "staging", "API_VERSION": "0.1.0", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
       "durable_objects": {
         "bindings": [
@@ -40,7 +41,22 @@
         ]
       },
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }],
-      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9761093781aa4d6f8a1ad00848663266" }]
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9761093781aa4d6f8a1ad00848663266" }],
+      "routes": [{ "pattern": "cloud-api-staging.cmux.dev", "custom_domain": true }]
+    },
+    "production": {
+      "name": "cmux-api",
+      "workers_dev": true,
+      "vars": { "ENVIRONMENT": "production", "API_VERSION": "0.1.0", "STACK_PROJECT_ID": "9790718f-14cd-4f7e-824d-eaf527a82b82" },
+      "durable_objects": {
+        "bindings": [
+          { "name": "USER_DO", "class_name": "UserDO" },
+          { "name": "TEAM_DO", "class_name": "TeamDO" }
+        ]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }],
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "ef387ca3b20b4ea7878e02746d9545ef" }],
+      "routes": [{ "pattern": "cloud-api.cmux.dev", "custom_domain": true }]
     }
   }
 }

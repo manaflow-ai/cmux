@@ -1,10 +1,19 @@
 import { createServerFn } from "@tanstack/react-start"
+import { deleteCookie, getCookie, setCookie } from "@tanstack/react-start/server"
 
 /**
  * Server functions. They call only the cmux API Worker and Stack Auth's client
- * REST API (sign-in, refresh); never a database (spec D1). The user's Stack
- * access token travels as the bearer to the API.
+ * REST API (sign-in, refresh); never a database (spec D1).
+ *
+ * Session: the Stack access and refresh tokens live in HttpOnly, Secure,
+ * SameSite=Lax cookies set here. Browser code never reads them; server
+ * functions forward the access token to the API as the bearer and refresh it
+ * once on a 401.
  */
+
+const ACCESS = "cmux_at"
+const REFRESH = "cmux_rt"
+const cookieBase = { httpOnly: true, secure: true, sameSite: "lax" as const, path: "/" }
 
 const apiUrl = () => {
   const url = process.env.CMUX_API_URL
@@ -24,36 +33,55 @@ const stackHeaders = () => {
   }
 }
 
-export interface Tokens {
-  readonly access_token: string
-  readonly refresh_token: string
+const setSession = (access: string, refresh?: string) => {
+  // Stack access tokens live about 10 minutes; the cookie never outlives the token by much.
+  setCookie(ACCESS, access, { ...cookieBase, maxAge: 60 * 60 })
+  if (refresh) setCookie(REFRESH, refresh, { ...cookieBase, maxAge: 60 * 60 * 24 * 30 })
+}
+
+const clearSession = () => {
+  deleteCookie(ACCESS, cookieBase)
+  deleteCookie(REFRESH, cookieBase)
 }
 
 export const signIn = createServerFn({ method: "POST" })
   .validator((d: { email: string; password: string }) => d)
-  .handler(async ({ data }): Promise<Tokens | { error: string }> => {
+  .handler(async ({ data }): Promise<{ ok: true } | { error: string }> => {
     const res = await fetch("https://api.stack-auth.com/api/v1/auth/password/sign-in", {
       method: "POST",
       headers: stackHeaders(),
       body: JSON.stringify({ email: data.email, password: data.password })
     })
     const body = (await res.json()) as { access_token?: string; refresh_token?: string; error?: string; code?: string }
-    if (!res.ok || !body.access_token || !body.refresh_token) return { error: body.error ?? body.code ?? `sign-in failed (${res.status})` }
-    return { access_token: body.access_token, refresh_token: body.refresh_token }
+    if (!res.ok || !body.access_token || !body.refresh_token) return { error: body.code ?? body.error ?? `sign-in failed (${res.status})` }
+    setSession(body.access_token, body.refresh_token)
+    return { ok: true }
   })
 
-export const refresh = createServerFn({ method: "POST" })
-  .validator((d: { refresh_token: string }) => d)
-  .handler(async ({ data }): Promise<{ access_token: string } | { error: string }> => {
-    const res = await fetch("https://api.stack-auth.com/api/v1/auth/sessions/current/refresh", {
-      method: "POST",
-      headers: { ...stackHeaders(), "x-stack-refresh-token": data.refresh_token },
-      body: "{}"
-    })
-    const body = (await res.json()) as { access_token?: string; error?: string }
-    if (!res.ok || !body.access_token) return { error: body.error ?? `refresh failed (${res.status})` }
-    return { access_token: body.access_token }
+export const signOut = createServerFn({ method: "POST" }).handler(async () => {
+  clearSession()
+  return { ok: true }
+})
+
+/** Whether a session cookie exists (the browser cannot read HttpOnly cookies itself). */
+export const sessionState = createServerFn({ method: "GET" }).handler(async () => ({ signedIn: Boolean(getCookie(REFRESH) ?? getCookie(ACCESS)) }))
+
+const refreshAccess = async (): Promise<string | undefined> => {
+  const rt = getCookie(REFRESH)
+  if (!rt) return undefined
+  const res = await fetch("https://api.stack-auth.com/api/v1/auth/sessions/current/refresh", {
+    method: "POST",
+    headers: { ...stackHeaders(), "x-stack-refresh-token": rt },
+    body: "{}"
   })
+  const body = (await res.json().catch(() => ({}))) as { access_token?: string }
+  if (!res.ok || !body.access_token) {
+    clearSession()
+    return undefined
+  }
+  setSession(body.access_token)
+  return body.access_token
+}
 
 /** JSON as it crosses the server-function boundary. */
 export type Json = string | number | boolean | null | Array<Json> | { [k: string]: Json }
@@ -73,24 +101,53 @@ export interface OpResponse {
 
 export type ApiResult<T> = { readonly status: number; readonly body: T }
 
-const post = async <T,>(path: string, token: string, payload: unknown): Promise<ApiResult<T>> => {
-  const res = await fetch(`${apiUrl()}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify(payload)
-  })
-  return { status: res.status, body: (await res.json()) as T }
+/** POSTs to the API with the cookie's access token; refreshes once on a missing token or a 401. */
+const post = async <T,>(path: string, payload: unknown): Promise<ApiResult<T>> => {
+  const send = async (token: string) => {
+    const res = await fetch(`${apiUrl()}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload)
+    })
+    return { status: res.status, body: (await res.json().catch(() => ({}))) as T }
+  }
+  const at = getCookie(ACCESS)
+  if (at) {
+    const first = await send(at)
+    if (first.status !== 401) return first
+  }
+  const fresh = await refreshAccess()
+  if (!fresh) return { status: 401, body: { error: "signed out" } as T }
+  return send(fresh)
 }
 
 export const mutate = createServerFn({ method: "POST" })
-  .validator((d: { token: string; op: string; params: Record<string, unknown>; idempotency_key: string }) => d)
-  .handler(async ({ data }) =>
-    post<OpResponse>("/v1/ops", data.token, { op: data.op, params: data.params, idempotency_key: data.idempotency_key, origin: "user" })
-  )
+  .validator((d: { op: string; params: Record<string, unknown>; idempotency_key: string }) => d)
+  .handler(async ({ data }) => post<OpResponse>("/v1/ops", { op: data.op, params: data.params, idempotency_key: data.idempotency_key, origin: "user" }))
 
 export const read = createServerFn({ method: "POST" })
-  .validator((d: { token: string; op: string; params: Record<string, unknown> }) => d)
-  .handler(async ({ data }) => post<{ op: string; value: Json; stream: string; revision: string }>("/v1/read", data.token, { op: data.op, params: data.params }))
+  .validator((d: { op: string; params: Record<string, unknown> }) => d)
+  .handler(async ({ data }) => post<{ op: string; value: Json; stream: string; revision: string }>("/v1/read", { op: data.op, params: data.params }))
 
-/** Public config for the browser (WebSocket origin); no secrets. */
-export const publicConfig = createServerFn({ method: "GET" }).handler(async () => ({ apiUrl: apiUrl() }))
+/**
+ * Token for the live WebSocket panel only. Browsers cannot attach cookies or
+ * headers to a cross-origin WebSocket handshake, so the panel needs the access
+ * token in the `bearer.<token>` subprotocol. Trade-off: this one response
+ * exposes the short-lived (about 10 minute) access token to page script; the
+ * refresh token never leaves the HttpOnly cookie. Replace with a
+ * channel ticket minted by the API (spec sync-and-transport.md section 5) when
+ * it exists.
+ */
+export const wireToken = createServerFn({ method: "POST" }).handler(async (): Promise<{ token: string | null; apiUrl: string }> => {
+  let at = getCookie(ACCESS)
+  if (at) {
+    // Make sure it is still valid for the API before handing it to the socket.
+    const probe = await fetch(`${apiUrl()}/v1/read`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${at}` },
+      body: JSON.stringify({ op: "install.list", params: {} })
+    })
+    if (probe.status === 401) at = undefined
+  }
+  return { token: at ?? (await refreshAccess()) ?? null, apiUrl: apiUrl() }
+})

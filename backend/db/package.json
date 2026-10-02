@@ -6,7 +6,9 @@
   "scripts": {
     "migrate": "bun migrate.ts",
     "typecheck": "tsc -p .",
-    "e2e": "bun e2e.ts"
+    "e2e": "bun e2e.ts",
+    "test": "bun test test",
+    "lint": "bun migrate.ts --lint"
   },
   "devDependencies": {
     "@types/node": "26.6.2",

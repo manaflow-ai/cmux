@@ -1,66 +1,39 @@
-import { useCallback, useSyncExternalStore } from "react"
-import { refresh, type Tokens } from "./server"
+import { useSyncExternalStore } from "react"
+import { sessionState } from "./server"
 
 /**
- * Browser-side session: Stack tokens in localStorage (internal dashboard, phase 1).
- * Access tokens are short-lived; `withToken` refreshes once on a 401.
+ * Browser-side session state: only "signed in or not". The tokens stay in
+ * HttpOnly cookies that server functions read; page script never sees them.
  */
-const KEY = "cmux-next-dashboard.tokens"
+let signedIn: boolean | null = null
+let loading: Promise<void> | null = null
 const listeners = new Set<() => void>()
 
-const load = (): Tokens | null => {
-  if (typeof window === "undefined") return null
-  try {
-    const raw = window.localStorage.getItem(KEY)
-    return raw ? (JSON.parse(raw) as Tokens) : null
-  } catch {
-    return null
-  }
+const emit = () => listeners.forEach((l) => l())
+
+export const setSignedIn = (v: boolean) => {
+  signedIn = v
+  emit()
 }
 
-let cached: Tokens | null | undefined
-const snapshot = () => {
-  if (cached === undefined) cached = load()
-  return cached
+const ensureLoaded = () => {
+  if (signedIn !== null || loading || typeof window === "undefined") return
+  loading = sessionState().then(
+    (s) => setSignedIn(s.signedIn),
+    () => setSignedIn(false)
+  )
 }
 
-export const setTokens = (t: Tokens | null) => {
-  cached = t
-  try {
-    if (t) window.localStorage.setItem(KEY, JSON.stringify(t))
-    else window.localStorage.removeItem(KEY)
-  } catch {}
-  listeners.forEach((l) => l())
-}
-
-export const useTokens = () =>
+/** null while the first check runs, then true or false. */
+export const useSignedIn = (): boolean | null =>
   useSyncExternalStore(
     (l) => {
       listeners.add(l)
+      ensureLoaded()
       return () => listeners.delete(l)
     },
-    snapshot,
+    () => signedIn,
     () => null
   )
-
-/** Runs `fn` with the access token; on 401 refreshes once and retries. */
-export const useWithToken = () => {
-  const tokens = useTokens()
-  return useCallback(
-    async <T extends { status: number }>(fn: (token: string) => Promise<T>): Promise<T> => {
-      if (!tokens) throw new Error("signed out")
-      const first = await fn(tokens.access_token)
-      if (first.status !== 401) return first
-      const r = await refresh({ data: { refresh_token: tokens.refresh_token } })
-      if ("error" in r) {
-        setTokens(null)
-        return first
-      }
-      setTokens({ ...tokens, access_token: r.access_token })
-      return fn(r.access_token)
-    },
-    [tokens]
-  )
-}
 
 export const newKey = () => `dash:${crypto.randomUUID()}`

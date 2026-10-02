@@ -1,7 +1,8 @@
 /// <reference types="vite/client" />
 import { createRootRoute, HeadContent, Link, Outlet, Scripts } from "@tanstack/react-router"
 import type { ReactNode } from "react"
-import { setTokens, useTokens } from "../lib/session"
+import { signOut } from "../lib/server"
+import { setSignedIn, useSignedIn } from "../lib/session"
 
 const css = `
 :root { color-scheme: light dark; --fg:#111; --bg:#fafafa; --muted:#666; --line:#ddd; --card:#fff; --accent:#2563eb; --bad:#b91c1c; }
@@ -44,7 +45,7 @@ function Shell({ children }: { children: ReactNode }) {
 }
 
 function Layout() {
-  const tokens = useTokens()
+  const signedIn = useSignedIn()
   return (
     <>
       <header>
@@ -56,7 +57,11 @@ function Layout() {
           Team
         </Link>
         <span style={{ flex: 1 }} />
-        {tokens ? <button onClick={() => setTokens(null)}>Sign out</button> : <Link to="/">Sign in</Link>}
+        {signedIn ? (
+          <button onClick={() => void signOut().then(() => setSignedIn(false))}>Sign out</button>
+        ) : signedIn === false ? (
+          <Link to="/">Sign in</Link>
+        ) : null}
       </header>
       <main>
         <Outlet />

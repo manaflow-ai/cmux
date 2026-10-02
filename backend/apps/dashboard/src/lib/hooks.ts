@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { wireToken } from "./server"
 
 /**
  * Loads data when `key` changes (and on `reload()`); the only effect in the
@@ -33,25 +34,40 @@ export interface WireEvent {
   readonly stream?: string
 }
 
-/** Subscribes to the user's stream over cmux.wire/1 while `token` is set. */
-export function useWire(apiUrl: string | undefined, token: string | null, stream: string | null) {
+/**
+ * Subscribes to the user's stream over cmux.wire/1 while `stream` is set. The
+ * socket token comes from the `wireToken` server function (see its trade-off note).
+ */
+export function useWire(stream: string | null) {
   const [frames, setFrames] = useState<Array<WireEvent>>([])
   const [status, setStatus] = useState("idle")
   useEffect(() => {
-    if (!apiUrl || !token || !stream) return
-    const ws = new WebSocket(`${apiUrl.replace(/^http/, "ws")}/v1/wire/user`, ["cmux.wire.v1", `bearer.${token}`])
+    if (!stream) return
+    let ws: WebSocket | undefined
+    let live = true
+    const attach = (socket: WebSocket) => {
+      socket.onopen = () => {
+        setStatus("open")
+        socket.send(JSON.stringify({ t: "subscribe", stream, pending: [] }))
+      }
+      socket.onmessage = (e) => {
+        const f = JSON.parse(String(e.data)) as WireEvent
+        setFrames((fs) => [f, ...fs].slice(0, 50))
+      }
+      socket.onclose = () => setStatus("closed")
+      socket.onerror = () => setStatus("error")
+    }
     setStatus("connecting")
-    ws.onopen = () => {
-      setStatus("open")
-      ws.send(JSON.stringify({ t: "subscribe", stream, pending: [] }))
+    void wireToken().then(({ token, apiUrl }) => {
+      if (!live) return
+      if (!token) return setStatus("signed out")
+      ws = new WebSocket(`${apiUrl.replace(/^http/, "ws")}/v1/wire/user`, ["cmux.wire.v1", `bearer.${token}`])
+      attach(ws)
+    })
+    return () => {
+      live = false
+      ws?.close()
     }
-    ws.onmessage = (e) => {
-      const f = JSON.parse(String(e.data)) as WireEvent
-      setFrames((fs) => [f, ...fs].slice(0, 50))
-    }
-    ws.onclose = () => setStatus("closed")
-    ws.onerror = () => setStatus("error")
-    return () => ws.close()
-  }, [apiUrl, token, stream])
+  }, [stream])
   return { frames, status }
 }

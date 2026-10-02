@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useLoad } from "../lib/hooks"
 import { read } from "../lib/server"
-import { useTokens, useWithToken } from "../lib/session"
+import { setSignedIn, useSignedIn } from "../lib/session"
 
 export const Route = createFileRoute("/team")({ component: Team })
 
@@ -12,14 +12,14 @@ interface Directory {
 }
 
 function Team() {
-  const tokens = useTokens()
-  const withToken = useWithToken()
-  const dir = useLoad<{ value: Directory; revision: string }>(tokens ? "team" : null, async () => {
-    const r = await withToken((t) => read({ data: { token: t, op: "team.directory", params: {} } }))
+  const signedIn = useSignedIn()
+  const dir = useLoad<{ value: Directory; revision: string }>(signedIn ? "team" : null, async () => {
+    const r = await read({ data: { op: "team.directory", params: {} } })
+    if (r.status === 401) setSignedIn(false)
     if (r.status !== 200) throw new Error(`team.directory failed: ${r.status} (open Devices once to create your personal team)`)
     return { value: r.body.value as unknown as Directory, revision: r.body.revision }
   })
-  if (!tokens)
+  if (signedIn === false)
     return (
       <p>
         <Link to="/">Sign in</Link> to see your team.
