@@ -1,6 +1,6 @@
 {
-  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
-  "manifestVersion": 1,
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
   "id": "cmux/github-prs",
   "name": { "en": "GitHub PRs", "ja": "GitHub PR" },
   "version": "1.0.0",
@@ -9,9 +9,18 @@
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "MIT",
   "icon": "assets/icon.svg",
-  "categories": ["sidebar", "git"],
-  "engines": { "cmux": "^1.0" },
-  "main": "dist/main.js",
+  "categories": ["sidebar", "git", "samples"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "catalog": "catalog.json",
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderPRs",
+      "title": { "en": "Pull Requests", "ja": "プルリクエスト" },
+      "symbol": "arrow.triangle.pull",
+      "options": { "defaultRegion": "middle", "maxRows": 10 }
+    }
+  },
   "scopes": {
     "net:api.github.com": "Read your open pull requests from GitHub.",
     "actions:run": "Open a pull request in a browser tab when you click it."
@@ -19,17 +28,13 @@
   "optionalScopes": {
     "integration:github:read": "Use your connected GitHub account (private repositories) without seeing its token."
   },
-  "contributes": {
-    "sidebarSections": [{ "id": "prs", "title": { "en": "Pull Requests", "ja": "プルリクエスト" }, "symbol": "arrow.triangle.pull", "defaultRegion": "middle", "render": "renderPRs", "maxRows": 10 }],
-    "commands": [{ "id": "refresh", "title": { "en": "Refresh Pull Requests", "ja": "プルリクエストを更新" }, "run": "refresh", "keywords": ["github", "pr"], "contexts": ["palette", "sidebarSection:prs"] }],
-    "settings": {
-      "type": "object",
-      "properties": {
-        "login": { "type": "string", "title": "GitHub login", "default": "" },
-        "showDrafts": { "type": "boolean", "title": "Show drafts", "default": true }
-      }
+  "settings": {
+    "type": "object",
+    "properties": {
+      "login": { "type": "string", "title": "GitHub login", "default": "" },
+      "showDrafts": { "type": "boolean", "title": "Show drafts", "default": true }
     }
   },
-  "activation": ["onSidebarSection:prs", "onCommand:refresh"],
-  "files": ["dist/", "assets/"]
+  "activation": ["onInterface:cmux.section/1", "onOp:github-prs.refresh"],
+  "files": ["dist/", "assets/", "catalog.json"]
 }
