@@ -175,7 +175,7 @@ final class WindowRootView: NSView {
     /// touches the theme frame.
     func applyBackdrop(to window: NSWindow) {
         let tokens = themeTokens
-        let backdrop = WindowBackdrop(backgroundOpacity: tokens.backgroundOpacity, backgroundBlur: tokens.backgroundBlur)
+        let backdrop = WindowBackdrop(tokens)
         let color = backdrop.isOpaque
             ? performWithTheme { Palette.windowBackground }
             : NSColor.white.withAlphaComponent(backdrop.windowBackgroundAlpha)

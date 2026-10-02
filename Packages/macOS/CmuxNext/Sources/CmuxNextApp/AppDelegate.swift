@@ -26,6 +26,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // SIGTERM (dev tooling, `kill`) is "Quit, keep sessions" with no alert.
+        QuitSignal.install(quit: { [weak self] in
+            guard let services = self?.services else { return NSApp.terminate(nil) }
+            services.quit.terminateFromSignal()
+        }, forceExit: { [weak self] in
+            self?.services?.crashRecovery.applicationWillTerminate()
+            exit(0)
+        })
         control.startWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
         DebugTimings.install()

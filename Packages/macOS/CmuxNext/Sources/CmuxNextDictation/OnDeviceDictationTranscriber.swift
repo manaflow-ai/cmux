@@ -11,6 +11,17 @@ public actor OnDeviceDictationTranscriber: SpeechTranscribing {
     private let authorizer: any DictationAuthorizing
     private var active: (any SpeechTranscribing)?
     private var isFinishing = false
+    #if DEBUG
+    private var recordedInput: URL?
+
+    /// Debug builds: hears a recorded clip instead of the microphone
+    /// (``RecordedDictationInput``), with no permission to ask for.
+    public init(levelMeter: DictationAudioLevelMeter?, recordedInput url: URL) {
+        self.levelMeter = levelMeter
+        self.authorizer = RecordedInputAuthorizer()
+        self.recordedInput = url
+    }
+    #endif
 
     public init(levelMeter: DictationAudioLevelMeter?, authorizer: any DictationAuthorizing = SystemDictationAuthorizer()) {
         self.levelMeter = levelMeter
@@ -19,11 +30,19 @@ public actor OnDeviceDictationTranscriber: SpeechTranscribing {
 
     public func transcribe(locale: Locale) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
         let analyzer = SpeechAnalyzerDictationTranscriber(levelMeter: levelMeter)
+        #if DEBUG
+        if let recordedInput { await analyzer.hear(recordedInput) }
+        #endif
         active = analyzer
         do {
             return try await analyzer.transcribe(locale: locale)
         } catch DictationFailure.onDeviceRecognitionUnavailable {
             guard !isFinishing else { throw CancellationError() }
+            #if DEBUG
+            // The fallback engine listens to the live microphone: a recorded
+            // clip fails here instead of quietly dictating from the mic.
+            if recordedInput != nil { throw DictationFailure.onDeviceRecognitionUnavailable(localeIdentifier: locale.identifier) }
+            #endif
             try await authorizeSpeechRecognition()
             guard !isFinishing else { throw CancellationError() }
             let fallback = SFSpeechDictationTranscriber(levelMeter: levelMeter)
