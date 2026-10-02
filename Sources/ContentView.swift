@@ -13046,11 +13046,11 @@ struct VerticalTabsSidebar: View, Equatable {
     /// whether a title collides depends on every other title. Empty while the flag is off.
     private func hostTitleSuffixes(tabs: [Workspace], mirrorDestinations: [UUID: String]?) -> [UUID: String] {
         guard remoteTmuxOriginHostTitlesEnabled else { return [:] }
-        return RemoteHostTitleSuffixes.suffixes(for: tabs.map { workspace in
+        return RemoteHostTitleSuffixes().suffixes(for: tabs.map { workspace in
             RemoteHostTitleSuffixes.Entry(
                 id: workspace.id,
                 title: workspace.title,
-                destination: RemoteHostTitleSuffixes.origin(
+                destination: RemoteHostTitleSuffixes().origin(
                     destination: originDestination(for: workspace, mirrorDestinations: mirrorDestinations),
                     cloudVMID: workspace.cloudVMID
                 )

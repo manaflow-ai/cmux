@@ -3,7 +3,7 @@ import Foundation
 /// Assigns each remote destination a color from ``hostPalette`` so servers are easy
 /// to tell apart at a glance, and the same destination shows the same color in every
 /// open window for the life of the app session. Gated by the
-/// `remoteTmux.originColors.beta` flag at the call sites.
+/// `remoteTmux.beta.originColors.enabled` flag at the call sites.
 ///
 /// Keyed by the host's `destination` STRING (the ssh alias or `user@host` — the
 /// "host name" the user typed), NOT the port/identity-specific ``connectionHash``.
@@ -41,8 +41,10 @@ final class RemoteHostColorRegistry {
     /// sidebar rail brightens them (two pairs there differ by under 5). As the rail draws them,
     /// every pair differs by at least 11 in OKLab (x100), colors that are neighbors in this order
     /// differ by at least 26, so a host bumped to the next slot by a collision lands on a clearly
-    /// different color, each differs from the grey sidebar (#A9A9A9) by at least 15, and from the
-    /// selected row's blue by at least 12. `RemoteHostColorRegistryTests` checks those floors.
+    /// different color, each differs from the grey sidebar (#A9A9A9) by at least 15, and from
+    /// cmux's built-in blue accent by at least 12. Custom accents are user-controlled and may
+    /// intentionally match a palette color, so no universal contrast guarantee is possible for
+    /// arbitrary custom accents. `RemoteHostColorRegistryTests` checks those floors.
     static let hostPalette: [String] = [
         "#B1A2FA", // violet
         "#E7BB4E", // gold
@@ -71,8 +73,8 @@ final class RemoteHostColorRegistry {
     /// palette slot → destination that holds it (drives collision probing).
     private var hostBySlot: [Int: String] = [:]
 
-    init(slotCount: Int = RemoteHostColorRegistry.hostPalette.count) {
-        self.slotCount = max(0, slotCount)
+    init(slotCount: Int? = nil) {
+        self.slotCount = max(0, slotCount ?? Self.hostPalette.count)
     }
 
     /// The palette slot for `destination`, assigning one on first sight (stable

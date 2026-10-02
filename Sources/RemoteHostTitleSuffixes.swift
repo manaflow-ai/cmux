@@ -1,8 +1,9 @@
 import Foundation
+import Darwin
 
 /// When sidebar workspaces share a title, names the remote host after each remote one's title so the
-/// rows can be told apart. Gated by the `remoteTmux.originHostTitles.beta` flag at the call sites.
-enum RemoteHostTitleSuffixes {
+/// rows can be told apart. Gated by the `remoteTmux.beta.originHostTitles.enabled` flag at the call sites.
+struct RemoteHostTitleSuffixes {
     struct Entry: Equatable {
         let id: UUID
         let title: String
@@ -19,7 +20,7 @@ enum RemoteHostTitleSuffixes {
     /// `web2.eu-west.example.com` read `web1.us-east` and `web2.eu-west`. IP addresses are never
     /// trimmed, and a lone remote host beside a local workspace keeps its whole name. The row
     /// truncates the end, so as much of the host shows as fits.
-    static func suffixes(for entries: [Entry]) -> [UUID: String] {
+    func suffixes(for entries: [Entry]) -> [UUID: String] {
         var groups: [String: [Entry]] = [:]
         var order: [String] = []
         for entry in entries {
@@ -49,20 +50,20 @@ enum RemoteHostTitleSuffixes {
     /// The place a workspace comes from, for naming after its title. A managed Cloud VM connects
     /// through one shared gateway (`<vm id>+cmux@<gateway>`), so the VM id is what tells two VMs
     /// apart; every other remote workspace uses its destination.
-    static func origin(destination: String?, cloudVMID: String?) -> String? {
+    func origin(destination: String?, cloudVMID: String?) -> String? {
         if let cloudVMID, !cloudVMID.isEmpty { return cloudVMID }
         return destination
     }
 
     /// Whether a host is an IPv4 or IPv6 literal rather than a name.
-    static func isIPAddress(_ host: String) -> Bool {
+    func isIPAddress(_ host: String) -> Bool {
         if host.contains(":") { return true }
         let labels = host.split(separator: ".", omittingEmptySubsequences: false)
         return labels.count == 4 && labels.allSatisfy { !$0.isEmpty && $0.allSatisfy(\.isNumber) }
     }
 
     /// The host part of a destination: everything after the last `@`, trimmed.
-    static func hostName(_ destination: String) -> String? {
+    func hostName(_ destination: String) -> String? {
         var host = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         if let at = host.lastIndex(of: "@") {
             host = String(host[host.index(after: at)...])
@@ -71,7 +72,7 @@ enum RemoteHostTitleSuffixes {
     }
 
     /// How many trailing dot-separated labels every host shares, leaving each host at least one label.
-    static func sharedTrailingLabelCount(_ hosts: [String]) -> Int {
+    func sharedTrailingLabelCount(_ hosts: [String]) -> Int {
         let labels = hosts.map { $0.split(separator: ".", omittingEmptySubsequences: false) }
         guard let first = labels.first, let shortest = labels.map(\.count).min() else { return 0 }
         var count = 0
@@ -83,7 +84,7 @@ enum RemoteHostTitleSuffixes {
         return count
     }
 
-    private static func dropping(trailingLabels count: Int, from host: String) -> String {
+    private func dropping(trailingLabels count: Int, from host: String) -> String {
         guard count > 0 else { return host }
         return host.split(separator: ".", omittingEmptySubsequences: false).dropLast(count).joined(separator: ".")
     }

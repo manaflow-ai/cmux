@@ -353363,6 +353363,124 @@
         }
       }
     },
+    "settings.search.alias.setting.betaFeatures.remote-tmux-origin-colors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host colors remote host colors origin color tint per-host server workspace sidebar row tab beta unstable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホストの色 接続元 カラー 色合い ホストごと サーバー ワークスペース サイドバー 行 タブ ベータ 不安定"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Host-Farben Herkunft Farbe Tönung pro Host Server Arbeitsbereich Seitenleiste Zeile Tab Beta instabil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleurs des hôtes distants origine couleur teinte par hôte serveur espace de travail barre latérale ligne onglet bêta instable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ألوان المضيف البعيد الأصل لون تلوين لكل مضيف خادم مساحة عمل شريط جانبي صف علامة تبويب تجريبي غير مستقر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colores de hosts remotos origen color tinte por host servidor espacio de trabajo barra lateral fila pestaña beta inestable"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端主機顏色 來源 色彩 著色 每台主機 伺服器 工作區 側邊欄 列 分頁 測試版 不穩定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程主机颜色 来源 色彩 着色 每台主机 服务器 工作区 侧边栏 行 标签页 测试版 不稳定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 호스트 색상 출처 색 색조 호스트별 서버 작업 공간 사이드바 행 탭 베타 불안정"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.betaFeatures.remote-tmux-origin-host-titles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host names on duplicate titles hostname server duplicate same title collision workspace sidebar row beta unstable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複タイトルにリモートホスト名を表示 ホスト名 サーバー 重複 同じタイトル 衝突 ワークスペース サイドバー 行 ベータ 不安定"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Host-Namen bei gleichen Titeln Hostname Server doppelt gleicher Titel Kollision Arbeitsbereich Seitenleiste Zeile Beta instabil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noms des hôtes distants pour les titres identiques nom hôte serveur doublon même titre conflit espace de travail barre latérale ligne bêta instable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أسماء المضيف البعيد للعناوين المكررة اسم المضيف خادم مكرر نفس العنوان تعارض مساحة عمل شريط جانبي صف تجريبي غير مستقر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombres de hosts remotos en títulos duplicados nombre host servidor duplicado mismo título colisión espacio de trabajo barra lateral fila beta inestable"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複標題顯示遠端主機名稱 主機名稱 伺服器 重複 相同標題 衝突 工作區 側邊欄 列 測試版 不穩定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重复标题显示远程主机名称 主机名 服务器 重复 相同标题 冲突 工作区 侧边栏 行 测试版 不稳定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중복 제목의 원격 호스트 이름 호스트명 서버 중복 같은 제목 충돌 작업 공간 사이드바 행 베타 불안정"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.betaFeatures.workspace-todo-controls": {
       "extractionState": "manual",
       "localizations": {

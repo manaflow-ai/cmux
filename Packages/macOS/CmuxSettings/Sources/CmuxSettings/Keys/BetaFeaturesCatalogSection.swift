@@ -101,18 +101,18 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
     /// user's manual workspace color always wins. Defaults off; while off, remote
     /// workspaces render with no origin tint.
     public let remoteTmuxOriginColors = DefaultsKey<Bool>(
-        id: "remoteTmux.originColors.beta.enabled",
+        id: "remoteTmux.beta.originColors.enabled",
         defaultValue: false,
-        userDefaultsKey: "remoteTmux.originColors.beta.enabled"
+        userDefaultsKey: "remoteTmux.beta.originColors.enabled"
     )
 
     /// Remote host names on duplicate titles: when sidebar workspaces share a title and come from
     /// different places, show each remote one's host after its title, leaving off the domain the
     /// hosts share. Defaults off; while off, titles show as they are.
     public let remoteTmuxOriginHostTitles = DefaultsKey<Bool>(
-        id: "remoteTmux.originHostTitles.beta.enabled",
+        id: "remoteTmux.beta.originHostTitles.enabled",
         defaultValue: false,
-        userDefaultsKey: "remoteTmux.originHostTitles.beta.enabled"
+        userDefaultsKey: "remoteTmux.beta.originHostTitles.enabled"
     )
 
     public init() {}

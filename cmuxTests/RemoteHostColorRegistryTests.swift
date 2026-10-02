@@ -89,6 +89,14 @@ import Testing
         #expect(reg.slot(for: "anything") == nil)
     }
 
+    @Test func injectedSlotCountCannotExceedPalette() {
+        let reg = RemoteHostColorRegistry(slotCount: RemoteHostColorRegistry.hostPalette.count + 10)
+        #expect(reg.slotCount == RemoteHostColorRegistry.hostPalette.count)
+        for i in 0 ..< (RemoteHostColorRegistry.hostPalette.count + 3) {
+            #expect(reg.colorHex(for: "oversized-\(i)") != nil)
+        }
+    }
+
     /// The color each slot resolves to, in slot order, read through `colorHex(for:)` with a fresh
     /// registry per host so no probing moves it. This checks the palette the registry really hands out.
     private func paletteInSlotOrder() -> [String] {
@@ -113,11 +121,13 @@ import Testing
         // collision takes the next slot, and each color must stand out from the grey sidebar.
         let palette = paletteInSlotOrder()
         #expect(palette.count == 16)
-        let rails = palette.map { hex -> (String, Self.RGB) in
+        let rails = palette.compactMap { hex -> (String, Self.RGB)? in
             let color = WorkspaceTabColorSettings.displayNSColor(hex: hex, colorScheme: .light, forceBright: true)
             #expect(color != nil, "\(hex) does not parse")
-            return (hex, color.map(Self.srgb) ?? (0, 0, 0))
+            guard let color else { return nil }
+            return (hex, Self.srgb(color))
         }
+        guard rails.count == palette.count else { return }
         for i in rails.indices {
             for j in rails.indices where j > i {
                 let distance = Self.deltaE(rails[i].1, rails[j].1)
@@ -133,6 +143,9 @@ import Testing
             let distance = Self.deltaE(rgb, sidebarGrey)
             #expect(distance >= 15, "\(hex) differs from the grey sidebar by \(distance)")
         }
+        // This floor is for cmux's built-in blue accent. A custom accent is
+        // user-controlled and may intentionally match a palette color, so no
+        // universal contrast guarantee is possible for arbitrary custom accents.
         for scheme in [ColorScheme.light, .dark] {
             let selection = Self.srgb(CmuxAccentColor(mode: .cmux).nsColor(isDark: scheme == .dark))
             for (hex, rgb) in rails {
