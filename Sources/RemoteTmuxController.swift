@@ -479,8 +479,15 @@ final class RemoteTmuxController {
                 #if DEBUG
                 cmuxDebugLog("remote-tmux: attaching the new session \(name) failed: \(error)")
                 #endif
+                // Nobody has attached to it and nothing runs in it but its shell.
+                let removed = (try? await self.transport(for: host)
+                    .runTmux(["kill-session", "-t", "=\(name)"]))?.succeeded == true
                 guard managerIsLive() else { return }
-                self.reportNewSessionFailure(host, .create(detail: error.localizedDescription), manager)
+                self.reportNewSessionFailure(
+                    host,
+                    .attach(sessionName: name, removed: removed, detail: error.localizedDescription),
+                    manager
+                )
             }
         }
         return true

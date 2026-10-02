@@ -184035,6 +184035,381 @@
         }
       }
     },
+    "dialog.remoteTmux.newSessionAttachFailed.left.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إنشاء الجلسة ”%@“، لكن تعذّر على cmux الاتصال بها. ما زالت تعمل على المضيف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesija „%@“ je kreirana, ali se cmux nije mogao povezati s njom. Još uvijek radi na hostu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionen “%@” blev oprettet, men cmux kunne ikke tilslutte sig den. Den kører stadig på værten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Sitzung „%@“ wurde erstellt, aber cmux konnte sich nicht mit ihr verbinden. Sie läuft weiterhin auf dem Host."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The session “%@” was created, but cmux couldn't attach to it. It is still running on the host."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sesión “%@” se creó, pero cmux no pudo conectarse a ella. Sigue ejecutándose en el host."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La session « %@ » a été créée, mais cmux n’a pas pu s’y attacher. Elle est toujours en cours d’exécution sur l’hôte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sessione “%@” è stata creata, ma cmux non è riuscito a collegarsi. È ancora in esecuzione sull’host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション「%@」は作成されましたが、cmux が接続できませんでした。ホスト上でまだ実行中です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session “%@” ត្រូវបានបង្កើត ប៉ុន្តែ cmux មិនអាចភ្ជាប់ទៅវាបានទេ។ វានៅតែដំណើរការនៅលើម៉ាស៊ីន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 “%@”이(가) 생성되었지만 cmux가 연결할 수 없습니다. 호스트에서 계속 실행 중입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Økten «%@» ble opprettet, men cmux kunne ikke koble seg til den. Den kjører fortsatt på verten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesja „%@” została utworzona, ale cmux nie mógł się do niej podłączyć. Nadal działa na hoście."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sessão “%@” foi criada, mas o cmux não conseguiu se conectar a ela. Ela continua em execução no host."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс «%@» был создан, но cmux не смог к нему подключиться. Он по-прежнему работает на хосте."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สร้างเซสชัน “%@” แล้ว แต่ cmux เชื่อมต่อไม่ได้ เซสชันยังทำงานอยู่บนโฮสต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” oturumu oluşturuldu, ancak cmux ona bağlanamadı. Ana bilgisayarda çalışmaya devam ediyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс «%@» було створено, але cmux не зміг до нього під’єднатися. Він досі працює на хості."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话“%@”已创建，但 cmux 无法连接到它。它仍在主机上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段「%@」已建立，但 cmux 無法連接。它仍在主機上執行。"
+          }
+        }
+      }
+    },
+    "dialog.remoteTmux.newSessionAttachFailed.removed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إنشاء الجلسة، لكن تعذّر على cmux الاتصال بها، فتمت إزالتها من المضيف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesija je kreirana, ali se cmux nije mogao povezati s njom, pa je uklonjena s hosta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionen blev oprettet, men cmux kunne ikke tilslutte sig den, så den blev fjernet fra værten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Sitzung wurde erstellt, aber cmux konnte sich nicht mit ihr verbinden. Sie wurde daher vom Host entfernt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The session was created, but cmux couldn't attach to it, so it was removed from the host."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sesión se creó, pero cmux no pudo conectarse a ella, así que se eliminó del host."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La session a été créée, mais cmux n’a pas pu s’y attacher. Elle a donc été supprimée de l’hôte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sessione è stata creata, ma cmux non è riuscito a collegarsi, quindi è stata rimossa dall’host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションは作成されましたが、cmux が接続できなかったため、ホストから削除されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session ត្រូវបានបង្កើត ប៉ុន្តែ cmux មិនអាចភ្ជាប់ទៅវាបានទេ ដូច្នេះវាត្រូវបានលុបចេញពីម៉ាស៊ីន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션이 생성되었지만 cmux가 연결할 수 없어 호스트에서 제거했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Økten ble opprettet, men cmux kunne ikke koble seg til den, så den ble fjernet fra verten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesja została utworzona, ale cmux nie mógł się do niej podłączyć, więc usunięto ją z hosta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sessão foi criada, mas o cmux não conseguiu se conectar a ela, então ela foi removida do host."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс был создан, но cmux не смог к нему подключиться, поэтому сеанс удалён с хоста."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สร้างเซสชันแล้ว แต่ cmux เชื่อมต่อไม่ได้ จึงลบเซสชันออกจากโฮสต์แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum oluşturuldu, ancak cmux ona bağlanamadı; bu nedenle ana bilgisayardan kaldırıldı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс було створено, але cmux не зміг до нього під’єднатися, тому сеанс видалено з хоста."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话已创建，但 cmux 无法连接到它，因此已将其从主机上移除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段已建立，但 cmux 無法連接，因此已從主機上移除。"
+          }
+        }
+      }
+    },
+    "dialog.remoteTmux.newSessionAttachFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر فتح جلسة tmux الجديدة على %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće otvoriti novu tmux sesiju na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke åbne den nye tmux-session på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue tmux-Sitzung auf %@ konnte nicht geöffnet werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Open the New tmux Session on %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir la nueva sesión de tmux en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ouvrir la nouvelle session tmux sur %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile aprire la nuova sessione tmux su %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の新しい tmux セッションを開けませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបើក tmux session ថ្មីនៅលើ %@ បានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 새 tmux 세션을 열 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke åpne den nye tmux-økten på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można otworzyć nowej sesji tmux na %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível abrir a nova sessão do tmux em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось открыть новый сеанс tmux на %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถเปิดเซสชัน tmux ใหม่บน %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ üzerindeki yeni tmux oturumu açılamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося відкрити новий сеанс tmux на %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开 %@ 上的新 tmux 会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟 %@ 上的新 tmux 工作階段"
+          }
+        }
+      }
+    },
     "dialog.remoteTmux.newSessionFailed.message": {
       "extractionState": "manual",
       "localizations": {
