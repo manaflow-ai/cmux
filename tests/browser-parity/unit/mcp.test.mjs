@@ -132,3 +132,65 @@ test("repl mcp: handshake, tools/list and each tool over the REPL socket methods
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// One MCP server process: requests over stdio, replies by id.
+function startServer(args, env) {
+  const child = spawn(CLI, ["browser", "repl", "mcp", ...args], { env, stdio: ["pipe", "pipe", "pipe"] });
+  let stderr = "";
+  child.stderr.on("data", (d) => (stderr += d));
+  const waiters = new Map();
+  readline.createInterface({ input: child.stdout }).on("line", (line) => {
+    try {
+      const msg = JSON.parse(line);
+      waiters.get(msg.id)?.(msg);
+    } catch {}
+  });
+  let next = 0;
+  const request = (method, params) => {
+    const id = ++next;
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`no reply to ${method}; stderr: ${stderr}`)), 15000);
+      waiters.set(id, (m) => {
+        clearTimeout(timer);
+        resolve(m);
+      });
+    });
+  };
+  const stop = () => {
+    child.stdin.end();
+    return new Promise((r) => child.once("exit", r));
+  };
+  return { child, request, stop };
+}
+
+test("repl mcp: without --session each server process gets its own session", { skip: !CLI && "set PARITY_CMUX_CLI" }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mcp-"));
+  const socket = path.join(dir, "s.sock");
+  const calls = [];
+  const server = await fakeSocket(socket, calls);
+  const env = { ...process.env, CMUX_SOCKET_PATH: socket, CMUX_SOCKET: socket, CMUX_CLI_SENTRY_DISABLED: "1" };
+  delete env.CMUX_WORKSPACE_ID;
+  const servers = [startServer([], env), startServer([], env)];
+  try {
+    const sessions = [];
+    for (const s of servers) {
+      await s.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } });
+      await s.request("tools/call", { name: "eval", arguments: { code: "1" } });
+      const before = calls.length;
+      const reset = await s.request("tools/call", { name: "reset", arguments: {} });
+      const resetCall = calls.slice(before).find((c) => c.method === "browser.repl.reset");
+      sessions.push({ eval: calls.filter((c) => c.method === "browser.repl.eval").at(-1).params.session, reset: resetCall.params.session, text: reset.result.content[0].text });
+    }
+    for (const [i, s] of sessions.entries()) {
+      assert.match(s.eval, new RegExp(`^mcp-${servers[i].child.pid}-[a-z0-9]+$`), "the default session names this server process");
+      assert.equal(s.reset, s.eval, "reset targets the same session");
+      assert.ok(s.text.includes(s.eval));
+    }
+    assert.notEqual(sessions[0].eval, sessions[1].eval, "two clients without --session do not share a session");
+  } finally {
+    await Promise.all(servers.map((s) => s.stop()));
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
