@@ -50,14 +50,9 @@ struct CloudSurfaceDragFeedbackTests {
         let destination = CountingCloudDragDestination(frame: NSRect(x: 20, y: 20, width: 120, height: 120))
         destination.registerForDraggedTypes([DragOverlayRoutingPolicy.bonsplitTabTransferType])
         root.addSubview(destination)
-        let gate = CloudSurfaceDropGateView(frame: root.bounds)
+        let gate = CloudSurfaceDropGateView(frame: root.bounds, sourceResolver: fixture.resolver)
         gate.workspace = fixture.workspace
         gate.isActive = true
-        var resolveCount = 0
-        gate.destinationBeneathOverride = { _ in
-            resolveCount += 1
-            return resolveCount == 1 ? destination : nil
-        }
         root.addSubview(gate)
         window.contentView = root
         window.orderFront(nil)

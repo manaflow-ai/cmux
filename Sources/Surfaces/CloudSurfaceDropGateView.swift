@@ -66,7 +66,6 @@ final class CloudSurfaceDropGateView: NSView {
     /// overlay passing through.
     private weak var forwardedDestination: NSView?
     private var forwardedSequenceNumber: Int?
-    var destinationBeneathOverride: ((any NSDraggingInfo) -> NSView?)?
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         update(sender)
@@ -76,6 +75,7 @@ final class CloudSurfaceDropGateView: NSView {
         update(sender)
     }
 
+    /// Updates feedback and forwards the native drag event to the current pane.
     private func update(_ sender: any NSDraggingInfo) -> NSDragOperation {
         let rejection = rejection(for: sender.draggingPasteboard)
         feedback.update(rejection, over: self)
@@ -105,9 +105,10 @@ final class CloudSurfaceDropGateView: NSView {
            destinationContainsDragLocation(forwardedDestination, sender: sender) {
             return forwardedDestination
         }
-        return destinationBeneathOverride?(sender) ?? destinationBeneath(sender)
+        return destinationBeneath(sender)
     }
 
+    /// Returns whether a forwarded destination still owns the pointer and drag type.
     @MainActor
     func destinationContainsDragLocation(
         _ destination: NSView,
