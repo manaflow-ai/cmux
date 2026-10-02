@@ -152,7 +152,7 @@ final class PageInfoChipButton: NSView {
     private var showsFocus = false { didSet { refreshFill() } }
 
     private func refreshFill() {
-        layer?.borderWidth = showsFocus ? 1.5 : 0
+        layer?.borderWidth = Metrics.lineWidth(showsFocus ? 1.5 : 0)
         performWithTheme {
             let fill: NSColor = isPressed ? PageInfoStyle.pressed : (isHovering ? OmnibarStyle.chipHoverFill : .clear)
             layer?.backgroundColor = fill.cgColor

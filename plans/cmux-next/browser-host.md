@@ -1,6 +1,6 @@
 # cmux next: browser host (agent browser use, WebKit and Chromium)
 
-Design note, 2026-10-01. Owner: the cmux-next browser-use lead. Binding inputs: cmux-next-spec `spec/browser-use.md` (draft 2), `decisions.md` D12 and D20, `references/browser-use.md`, `references/browser-repl-inventory.md`; OWNERSHIP-PRINCIPLES.md; browser.md (CEF fork, shim, R2). Base implementation: PR https://github.com/manaflow-ai/cmux/pull/15570 (`cmux browser repl`, owner session feat-browser-repl-parity-8c, called "the REPL session" below). Its `docs/browser-repl/driver-protocol.md` is the contract this note builds on; its `tests/browser-parity` is the conformance suite. This note does not change either; changes to them go to the REPL session through the coordinator.
+Design note, 2026-10-01. Owner: the cmux-next browser-use lead. Binding inputs: cmux-next-spec `spec/browser-use.md` (draft 2), `decisions.md` D12 and D20, `references/browser-use.md`, `references/browser-repl-inventory.md`; OWNERSHIP-PRINCIPLES.md; browser.md (CEF fork, shim, R2). Base implementation: PR https://github.com/manaflow-ai/cmux/pull/15570 (`cmux browser repl`, owner session feat-browser-repl-parity-8c, called "the REPL session" below). Its driver protocol ([browser-repl/driver-protocol.md](browser-repl/driver-protocol.md), moved from `docs/browser-repl`) is the contract this note builds on; its `tests/browser-parity` is the conformance suite. This note does not change either; changes to them go to the REPL session through the coordinator.
 
 ## Decisions (Lawrence, 2026-10-01, via the coordinator)
 
@@ -10,7 +10,8 @@ Design note, 2026-10-01. Owner: the cmux-next browser-use lead. Binding inputs: 
 4. See 2.
 5. **No host|inapp switch (decided).** cmux-next uses only the Rust host for Chromium and WebKit.
 
-Open for Lawrence: the WebKit driver language (section 2a). Recommended: Swift now, behind the driver protocol, so a Rust replacement later does not change the host or the bridge.
+6. **WebKit driver in Swift (decided, no Rust spike).** `CmuxNextBrowserAutomation` behind `DriverCallHandler`, built by the mover agent.
+7. **Engines (decided).** Chrome and WebKit are both first class in the host, CLI, MCP and code mode: same API, same conformance goldens. Chrome is the default engine: `browser.repl.open {engine: "auto"}` resolves to in-app Chromium (CEF) on the Mac and headless Chromium on Linux. WebKit is reachable only through the CLI (`--engine webkit`), MCP (`engine: "webkit"`) and the Cmd-Shift-P palette; no menu, right-click or new-tab-page entry.
 
 ## 1. Process model
 
@@ -65,7 +66,7 @@ Framing: length-prefixed JSON (u32 big-endian length, then UTF-8 JSON), one fram
 
 Authentication: the daemon mints a per-launch provider secret when it starts the host and hands it to the app over the app's existing trusted daemon connection; the app proves it in `hello` and the host also checks peer credentials (same uid). A provider connection is never accepted from the agent listener. The host refuses a second provider with the same `install_id` (one app per install) and replaces it only after the first disconnects.
 
-CEF relay: the shim gains `cmux_shim_devtools_send(browser_id, message_json)` (`CefBrowserHost::SendDevToolsMessage`, raw JSON with its own `id` and optional `sessionId`) and forwards every `CefDevToolsMessageObserver::OnDevToolsMessage` for attached browsers as a new shim event. Raw messages keep flat sessions, so out-of-process iframes work through `Target.setAutoAttach {flatten: true}`. Every CEF tab under an agent lease gets `cmux_tab_set_password_fill` (CEF fork API 15) set by the provider when the lease starts and restored when it ends, so Chromium's own password filling follows the same rule as the sign-in sheet (exact semantics confirmed with the fork owner before wiring). The existing `cmux_shim_devtools_call` path stays for the app's own uses (previews, occlusion snapshots). Header edit changes the shim ABI identity (browser.md "CEF shim ABI identity"); the relay needs no fork change.
+CEF relay: the shim gains `cmux_shim_devtools_send(browser_id, message_json)` (`CefBrowserHost::SendDevToolsMessage`, raw JSON with its own `id` and optional `sessionId`) and forwards every `CefDevToolsMessageObserver::OnDevToolsMessage` for attached browsers as a new shim event. Raw messages keep flat sessions, so out-of-process iframes work through `Target.setAutoAttach {flatten: true}`. Every tab under an agent lease turns password fill off before the first agent action (Leo's browser lane rule, 2026-10-01): the provider's lease path calls `TabContentCache.markAgentDriven(key)` for every engine, and for CEF tabs also `cmux_tab_set_password_fill` (CEF fork API 15) when the lease starts, restored when it ends. The existing `cmux_shim_devtools_call` path stays for the app's own uses (previews, occlusion snapshots). Header edit changes the shim ABI identity (browser.md "CEF shim ABI identity"); the relay needs no fork change.
 
 ### Agent protocol (host listener)
 

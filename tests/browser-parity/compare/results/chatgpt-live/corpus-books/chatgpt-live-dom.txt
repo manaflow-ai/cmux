@@ -1,0 +1,64 @@
+<a node_id=1 href="https://books.toscrape.com/index.html">Books to Scrape</a>
+<a node_id=2 href="https://books.toscrape.com/index.html">Home</a>
+<a node_id=3 href="https://books.toscrape.com/catalogue/category/books_1/index.html">Books</a>
+<a node_id=4 href="https://books.toscrape.com/catalogue/category/books/travel_2/index.html">Travel</a>
+<a node_id=5 href="https://books.toscrape.com/catalogue/category/books/mystery_3/index.html">Mystery</a>
+<a node_id=6 href="https://books.toscrape.com/catalogue/category/books/historical-fiction_4/index.html">Historical Fiction</a>
+<a node_id=7 href="https://books.toscrape.com/catalogue/category/books/sequential-art_5/index.html">Sequential Art</a>
+<a node_id=8 href="https://books.toscrape.com/catalogue/category/books/classics_6/index.html">Classics</a>
+<a node_id=9 href="https://books.toscrape.com/catalogue/category/books/philosophy_7/index.html">Philosophy</a>
+<a node_id=10 href="https://books.toscrape.com/catalogue/category/books/romance_8/index.html">Romance</a>
+<a node_id=11 href="https://books.toscrape.com/catalogue/category/books/womens-fiction_9/index.html">Womens Fiction</a>
+<a node_id=12 href="https://books.toscrape.com/catalogue/category/books/fiction_10/index.html">Fiction</a>
+<a node_id=13 href="https://books.toscrape.com/catalogue/category/books/childrens_11/index.html">Childrens</a>
+<a node_id=14 href="https://books.toscrape.com/catalogue/category/books/religion_12/index.html">Religion</a>
+<a node_id=15 href="https://books.toscrape.com/catalogue/category/books/nonfiction_13/index.html">Nonfiction</a>
+<a node_id=16 href="https://books.toscrape.com/catalogue/category/books/music_14/index.html">Music</a>
+<a node_id=17 href="https://books.toscrape.com/catalogue/category/books/default_15/index.html">Default</a>
+<a node_id=18 href="https://books.toscrape.com/catalogue/category/books/science-fiction_16/index.html">Science Fiction</a>
+<a node_id=19 href="https://books.toscrape.com/catalogue/category/books/sports-and-games_17/index.html">Sports and Games</a>
+<a node_id=20 href="https://books.toscrape.com/catalogue/category/books/add-a-comment_18/index.html">Add a comment</a>
+<a node_id=21 href="https://books.toscrape.com/catalogue/category/books/fantasy_19/index.html">Fantasy</a>
+<a node_id=22 href="https://books.toscrape.com/catalogue/category/books/new-adult_20/index.html">New Adult</a>
+<a node_id=23 href="https://books.toscrape.com/catalogue/category/books/young-adult_21/index.html">Young Adult</a>
+<a node_id=24 href="https://books.toscrape.com/catalogue/category/books/science_22/index.html">Science</a>
+<a node_id=25 href="https://books.toscrape.com/catalogue/category/books/poetry_23/index.html">Poetry</a>
+<a node_id=26 href="https://books.toscrape.com/catalogue/category/books/paranormal_24/index.html">Paranormal</a>
+<a node_id=27 href="https://books.toscrape.com/catalogue/category/books/art_25/index.html">Art</a>
+<a node_id=28 href="https://books.toscrape.com/catalogue/category/books/psychology_26/index.html">Psychology</a>
+<a node_id=29 href="https://books.toscrape.com/catalogue/category/books/autobiography_27/index.html">Autobiography</a>
+<a node_id=30 href="https://books.toscrape.com/catalogue/category/books/parenting_28/index.html">Parenting</a>
+<a node_id=31 href="https://books.toscrape.com/catalogue/category/books/adult-fiction_29/index.html">Adult Fiction</a>
+<a node_id=32 href="https://books.toscrape.com/catalogue/category/books/humor_30/index.html">Humor</a>
+<a node_id=33 href="https://books.toscrape.com/catalogue/category/books/horror_31/index.html">Horror</a>
+<a node_id=34 href="https://books.toscrape.com/catalogue/category/books/history_32/index.html">History</a>
+<a node_id=35 href="https://books.toscrape.com/catalogue/category/books/food-and-drink_33/index.html">Food and Drink</a>
+<a node_id=36 href="https://books.toscrape.com/catalogue/category/books/christian-fiction_34/index.html">Christian Fiction</a>
+<a node_id=37 href="https://books.toscrape.com/catalogue/category/books/business_35/index.html">Business</a>
+<a node_id=38 href="https://books.toscrape.com/catalogue/category/books/biography_36/index.html">Biography</a>
+<a node_id=39 href="https://books.toscrape.com/catalogue/category/books/thriller_37/index.html">Thriller</a>
+<a node_id=40 href="https://books.toscrape.com/catalogue/category/books/contemporary_38/index.html">Contemporary</a>
+<a node_id=41 href="https://books.toscrape.com/catalogue/category/books/spirituality_39/index.html">Spirituality</a>
+<a node_id=42 href="https://books.toscrape.com/catalogue/category/books/academic_40/index.html">Academic</a>
+<a node_id=43 href="https://books.toscrape.com/catalogue/category/books/self-help_41/index.html">Self Help</a>
+<a node_id=44 href="https://books.toscrape.com/catalogue/category/books/historical_42/index.html">Historical</a>
+<a node_id=45 href="https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html" />
+<a node_id=46 href="https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html" title="A Light in the Attic">A Light in the ...</a>
+<button node_id=47 type="submit">Add to basket</button>
+<a node_id=48 href="https://books.toscrape.com/catalogue/tipping-the-velvet_999/index.html" />
+<a node_id=49 href="https://books.toscrape.com/catalogue/tipping-the-velvet_999/index.html" title="Tipping the Velvet">Tipping the Velvet</a>
+<button node_id=50 type="submit">Add to basket</button>
+<a node_id=51 href="https://books.toscrape.com/catalogue/soumission_998/index.html" />
+<a node_id=52 href="https://books.toscrape.com/catalogue/soumission_998/index.html" title="Soumission">Soumission</a>
+<button node_id=53 type="submit">Add to basket</button>
+<a node_id=54 href="https://books.toscrape.com/catalogue/sharp-objects_997/index.html" />
+<a node_id=55 href="https://books.toscrape.com/catalogue/sharp-objects_997/index.html" title="Sharp Objects">Sharp Objects</a>
+<button node_id=56 type="submit">Add to basket</button>
+<a node_id=57 href="https://books.toscrape.com/catalogue/sapiens-a-brief-history-of-humankind_996/index.html" />
+<a node_id=58 href="https://books.toscrape.com/catalogue/sapiens-a-brief-history-of-humankind_996/index.html" title="Sapiens: A Brief History of Humankind">Sapiens: A Brief History ...</a>
+<a node_id=59 href="https://books.toscrape.com/catalogue/the-requiem-red_995/index.html" />
+<a node_id=60 href="https://books.toscrape.com/catalogue/the-requiem-red_995/index.html" title="The Requiem Red">The Requiem Red</a>
+<a node_id=61 href="https://books.toscrape.com/catalogue/the-dirty-little-secrets-of-getting-your-dream-job_994/index.html" />
+<a node_id=62 href="https://books.toscrape.com/catalogue/the-dirty-little-secrets-of-getting-your-dream-job_994/index.html" title="The Dirty Little Secrets of Getting Your Dream Job">The Dirty Little Secrets ...</a>
+<a node_id=63 href="https://books.toscrape.com/catalogue/the-coming-woman-a-novel-based-on-the-life-of-the-infamous-feminist-victoria-woodhull_993/index.html" />
+<a node_id=64 href="https://books.toscrape.com/catalogue/the-coming-woman-a-novel-based-on-the-life-of-the-infamous-feminist-victoria-woodhull_993/index.html" title="The Coming Woman: A Novel Based on the Life of the Infamous Feminist, Victoria Woodhull">The Coming Woman: A ...</a>

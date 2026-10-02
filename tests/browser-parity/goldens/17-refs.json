@@ -1,0 +1,20 @@
+{
+  "oracle": {},
+  "cmux": {
+    "s1": "title: Parity Fixture\nurl: PRIMARY/\n- button \"Alpha\" [ref=e1]\n- button \"Beta\" [ref=e2]\n- button \"Out\" [ref=e3]",
+    "s2": "title: Parity Fixture\nurl: PRIMARY/\n- button \"Zero\" [ref=e4]\n- button \"Beta renamed\" [ref=e2]\n- button \"Out\" [ref=e3]",
+    "s2-printed": "title: Parity Fixture\nurl: PRIMARY/\n- button \"Zero\" [ref=e4]\n- button \"Beta renamed\" [ref=e2]\n- button \"Out\" [ref=e3]",
+    "removed": "ref e1 is stale: the element was removed; take a new snapshot",
+    "unknown": "ref e99 does not exist; take a new snapshot",
+    "unknown-frame": "ref f9e1 does not exist; take a new snapshot",
+    "moved-still-works": "Out clicked",
+    "renamed-still-works": "Beta renamed",
+    "never-reused": "e5",
+    "scoped": "title: Parity Fixture\nurl: PRIMARY/\n- button \"Beta renamed\" [ref=e2]",
+    "not-invalidated-by-scope": "Out clicked",
+    "ref-validates": "page.ref: expected a snapshot ref such as \"e5\" or \"f1e2\", got \"button\"",
+    "is-visible-stale": false,
+    "after-navigation": "ref e2 is stale: the element was removed; take a new snapshot",
+    "new-document-continues": "e6"
+  }
+}

@@ -5,6 +5,7 @@ import Foundation
 enum OnboardingStrings {
     static var windowTitle: String { String(localized: "onboarding.window.title", defaultValue: "Welcome to cmux", bundle: .module) }
     static var continueButton: String { String(localized: "onboarding.button.continue", defaultValue: "Continue", bundle: .module) }
+    static var importButton: String { String(localized: "onboarding.button.import", defaultValue: "Import", bundle: .module) }
     static var skip: String { String(localized: "onboarding.button.skip", defaultValue: "Skip", bundle: .module) }
     static var done: String { String(localized: "onboarding.button.done", defaultValue: "Done", bundle: .module) }
     static func stepCounter(_ index: Int, _ count: Int) -> String {
@@ -43,6 +44,18 @@ enum OnboardingStrings {
     static var openSystemSettings: String { String(localized: "onboarding.button.openSystemSettings", defaultValue: "Open System Settings", bundle: .module) }
     static var checkAgain: String { String(localized: "onboarding.import.fda.recheck", defaultValue: "Check Again", bundle: .module) }
 
+    static var importWaiting: String { String(localized: "onboarding.import.waiting", defaultValue: "Waiting", bundle: .module) }
+    static var importRowFailed: String { String(localized: "onboarding.import.rowFailed", defaultValue: "Couldn’t read", bundle: .module) }
+    static var importedNothing: String {
+        String(localized: "onboarding.import.importedNothing", defaultValue: "Done. These profiles had nothing new to bring.", bundle: .module)
+    }
+    static var importSomeFailed: String {
+        String(localized: "onboarding.import.someFailed", defaultValue: "Some profiles couldn’t be read; hover one for why.", bundle: .module)
+    }
+    /// "Imported: Bookmarks 1,204 · History 8,311".
+    static func imported(_ counts: String) -> String {
+        String(format: String(localized: "onboarding.import.imported", defaultValue: "Imported: %@", bundle: .module), counts)
+    }
     static func kind(_ kind: ImportDataKind) -> String {
         switch kind {
         case .bookmarks: String(localized: "onboarding.kind.bookmarks", defaultValue: "Bookmarks", bundle: .module)

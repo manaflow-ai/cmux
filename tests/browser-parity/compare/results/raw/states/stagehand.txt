@@ -1,0 +1,77 @@
+[0-2] RootWebArea: States Fixture
+  [0-12] scrollable, html
+    [0-17] main
+      [0-18] heading: States
+      [0-3] form: Profile
+        [0-20] LabelText
+          [0-21] StaticText: Name
+          [0-4] textbox: Name
+        [0-24] LabelText
+          [0-25] StaticText: Code
+          [0-5] textbox: Code
+            [0-28] StaticText: x1
+        [0-29] LabelText
+          [0-30] StaticText: Account
+          [0-6] textbox: Account
+            [0-33] StaticText: 42
+        [0-34] LabelText
+          [0-35] StaticText: Secret
+          [0-7] textbox: Secret
+            [0-38] StaticText: •••••••
+        [0-9] checkbox: Some selected
+        [0-8] select: Size
+          [0-45] MenuListPopup
+            [0-47] option: S
+            [0-48] option: M [selected]
+            [0-49] option: L
+        [0-10] listbox: Tags
+          [0-68] slot
+            [0-69] option: red [selected]
+            [0-70] option: blue
+      [0-83] button: Partial
+      [0-85] combobox: City
+        [0-86] StaticText: Paris
+      [0-87] listbox: Cities
+        [0-88] option: Paris [selected]
+        [0-91] option: Rome
+      [0-94] table: Users
+        [0-95] tbody
+          [0-96] row
+            [0-97] columnheader: User
+            [0-99] columnheader: Action
+          [0-101] row
+            [0-102] cell: Ada
+            [0-104] cell: Edit
+              [0-105] button: Edit
+          [0-107] row
+            [0-108] cell: Grace
+            [0-110] cell: none
+      [0-112] paragraph
+        [0-113] StaticText: Links:
+        [0-114] link: relative
+        [0-116] StaticText: ,
+        [0-117] link: peer
+        [0-119] StaticText: ,
+        [0-120] link: script
+        [0-122] StaticText: .
+      [0-123] DescriptionList
+        [0-124] term: Term
+        [0-126] definition
+          [0-127] StaticText: Definition
+      [0-128] progressbar: Progress
+      [0-133] paragraph
+        [0-134] StaticText: Spaces
+        [0-135] emphasis
+          [0-136] StaticText: around
+        [0-137] StaticText: inline
+        [0-139] StaticText: elements
+        [0-140] StaticText: stay single.
+      [0-141] scrollable, div: Log
+        [0-142] paragraph
+          [0-143] StaticText: line one
+        [0-144] paragraph
+          [0-145] StaticText: line two
+        [0-146] paragraph
+          [0-147] StaticText: line three
+        [0-148] paragraph
+          [0-149] StaticText: line four

@@ -53,7 +53,7 @@ final class OmnibarPillView: NSView {
                 layer?.backgroundColor = fill.cgColor
                 layer?.borderColor = OmnibarStyle.ring.cgColor
             }
-            layer?.borderWidth = ring
+            layer?.borderWidth = Metrics.lineWidth(ring)
         }
     }
 }
