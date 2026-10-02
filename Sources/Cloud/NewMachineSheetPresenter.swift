@@ -244,7 +244,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 #endif
         // The cache is warmed at sign-in, so this returns at once; only a
         // cold cache waits, for at most a second.
-        let data = await dataCache?.data()
+        _ = await dataCache?.data()
         guard let page = await CloudMenuModel.shared.fleetPageForPresentation(),
               !Task.isCancelled, !isPresenting else {
             finishSelection(selectionID, request: nil)
