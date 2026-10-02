@@ -125,14 +125,16 @@ fn sticky_column_flags_cleared_by_a_close_stay_cleared_after_restart() {
     let right = ColumnSticky { edge: StickyEdge::Right, mode: StickyMode::Docked };
 
     let mux = open_restart_mux(&root, session);
-    // Three columns: the fixture's two plus a new one holding pane one's tab.
-    let (moved, from, middle) = mux.with_state(|state| {
+    // Three columns: the fixture's two plus a new one holding a second tab
+    // of pane one (a pane's only tab cannot be dragged out).
+    let (from, middle) = mux.with_state(|state| {
         let screen = &state.workspaces[0].screens[0];
         let from = state.resource_indexes.panes[&restore_pane_id(1)];
-        let middle = screen.layout_columns[1].root.first_visible_pane();
-        (state.panes[&from].tabs[0], from, middle)
+        (from, screen.layout_columns[1].root.first_visible_pane())
     });
-    mux.move_tab_to_column(moved, from, None, None, None).unwrap();
+    let moved =
+        mux.new_browser_tab("about:blank#third".into(), Some(from), Some((80, 24))).unwrap();
+    mux.move_tab_to_column(moved.id, from, None, None, None).unwrap();
     let (first, last) = mux.with_state(|state| {
         let columns = &state.workspaces[0].screens[0].layout_columns;
         assert_eq!(columns.len(), 3);

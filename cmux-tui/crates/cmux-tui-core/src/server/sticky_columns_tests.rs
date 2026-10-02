@@ -477,7 +477,8 @@ fn sticky_column_flags_survive_a_layout_apply_that_keeps_the_column() {
 
     let applied = apply_layout(&wire.mux, layout, "sticky-apply-keep");
     assert!(applied.get("error").is_none(), "{applied}");
-    assert_eq!(wire.columns()[1]["width"], 0.4);
+    let width = wire.columns()[1]["width"].as_f64().unwrap();
+    assert!((width - 0.4).abs() < 1e-6, "{width}");
     assert_eq!(wire.sticky(), vec![None, None, sticky("right", "docked")]);
 }
 
@@ -493,7 +494,7 @@ fn sticky_column_flags_clear_when_a_layout_apply_leaves_only_sticky_columns() {
     let merged = json!({
         "kind": "split",
         "split_id": columns[1]["column_id"],
-        "direction": "down",
+        "direction": "vertical",
         "ratio": 0.5,
         "first": columns[0]["root"],
         "second": columns[1]["root"],
