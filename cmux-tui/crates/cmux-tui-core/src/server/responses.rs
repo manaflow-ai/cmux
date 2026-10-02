@@ -52,3 +52,17 @@ pub(super) fn send_request_error_with_delivery(
 pub(super) fn send_response(writer: &MessageWriter, response: Response) -> bool {
     serde_json::to_value(response).is_ok_and(|value| writer.send_control(&value).is_ok())
 }
+
+/// Sends `response` with the stable `reason` of a conversation reject next to
+/// its `error_code` (home.md section 2), when there is one.
+pub(super) fn send_response_with_reason(
+    writer: &MessageWriter,
+    response: Response,
+    reason: Option<String>,
+) -> bool {
+    let Ok(mut value) = serde_json::to_value(response) else { return false };
+    if let Some(reason) = reason {
+        value["reason"] = Value::String(reason);
+    }
+    writer.send_control(&value).is_ok()
+}
