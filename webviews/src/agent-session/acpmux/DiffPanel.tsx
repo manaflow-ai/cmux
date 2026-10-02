@@ -247,8 +247,10 @@ function ChangedFilesTree({
           type="search"
           aria-label="Filter files"
           placeholder="Filter files…"
-          value={filter}
-          onChange={(event) => setFilter(event.target.value)}
+          // Uncontrolled and read on each native input event (typing, paste, the clear button),
+          // so filtering does not depend on React's change-event emulation.
+          defaultValue=""
+          onInput={(event) => setFilter(event.currentTarget.value)}
         />
       </label>
       {displayPaths.length === 0 && <div className="acpmux-diff-tree-empty">No matching files</div>}
