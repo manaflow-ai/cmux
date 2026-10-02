@@ -47,8 +47,10 @@
   },
   "ops": {
     "note.list": {
-      "notes": [],
-      "next": null
+      "$error": {
+        "code": "operation.unsupported",
+        "message": "the notes server is not running on this host"
+      }
     },
     "workspace.list": [
       {

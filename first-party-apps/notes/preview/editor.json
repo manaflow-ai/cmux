@@ -174,32 +174,6 @@
       ],
       "next": null
     },
-    "note.get": {
-      "$sequence": [
-        {
-          "note": {
-            "id": "note_release000000001",
-            "doc": "doc_release000000001",
-            "title": "Release checklist",
-            "title_explicit": true,
-            "preview": "tag the build · update the changelog · announce in the team channel · watch error rates for an hour",
-            "pinned": true,
-            "scratchpad": false,
-            "workspace": null,
-            "lines": 4,
-            "created_at": 1790769411680,
-            "updated_at": 1790938611680,
-            "revision": 1,
-            "last_edit": {
-              "actor_kind": "user",
-              "actor": "usr_test",
-              "at": 1790938611680
-            },
-            "body": "- [x] tag the build\n- [x] update the changelog\n- [ ] announce in the team channel\n- [ ] watch error rates for an hour"
-          }
-        }
-      ]
-    },
     "workspace.list": [
       {
         "id": "workspace_api",
