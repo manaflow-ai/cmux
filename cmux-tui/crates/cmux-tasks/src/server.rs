@@ -134,7 +134,7 @@ fn writer_loop(mut engine: Engine, rx: Receiver<Msg>) {
                     subscribers.remove(&conn);
                 }
                 Msg::Request { conn, actor, request } if request.op == "task.subscribe" => {
-                    subscribes.push((conn, actor, request))
+                    subscribes.push((conn, actor, request));
                 }
                 Msg::Request { conn, actor, request } => requests.push((conn, actor, request)),
             }

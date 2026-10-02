@@ -130,7 +130,7 @@ impl Conn {
                     match self.read_line()? {
                         ServerLine::Ok { id: rid, ok } if rid == id => reply = Some(Ok(ok)),
                         ServerLine::Err { id: rid, err } if rid == id || rid == 0 => {
-                            reply = Some(Err(err))
+                            reply = Some(Err(err));
                         }
                         ServerLine::Settled { settled } if settled.id == id => {
                             let reply = reply.unwrap_or_else(|| {
