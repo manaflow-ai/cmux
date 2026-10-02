@@ -71,8 +71,9 @@ struct WindowTranslucencyTests {
         if c.roomTheme { room.setOverride(ThemeSpec("Catppuccin Mocha")!, input: input, animated: false) }
 
         let blurs = BlurLog()
-        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()),
-                                  rail: WindowRailView(registry: ActionBindingCoverageTests.boundServices().registry),
+        let model = SidebarModel()
+        let root = WindowRootView(sidebar: SidebarContainerView(model: model),
+                                  rail: WindowRailView(model: model, registry: ActionBindingCoverageTests.boundServices().registry),
                                   reduceTransparency: { false },
                                   applyWindowBlur: { blurs.windows.append($0) })
         // WindowController's order: backdrop, content view, room scope.
@@ -94,7 +95,7 @@ struct WindowTranslucencyTests {
         room.show(workspace)
         root.layoutSubtreeIfNeeded()
 
-        #expect(root.backdrop.material == (c.blur > 0 ? .frosted : .translucent))
+        #expect(root.backdrop.material == (c.blur > 0 ? WindowMaterial.frosted : WindowMaterial.translucent))
         #expect(!window.isOpaque)
         #expect((window.backgroundColor?.alphaComponent ?? 1) < 0.01)
         #expect(root.layer?.backgroundColor == nil)
