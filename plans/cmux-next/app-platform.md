@@ -82,7 +82,12 @@ Sidebar: the sections lead accepted app sections: `SectionContent.app` + `Layout
 | App settings values | config layer (cmux.json `apps."<id>".settings`) | owner |
 | Prototype engine state (JSC) | the macOS app, DEV only | temporary owner until the Rust host lands |
 
-## 8. Open items
+## 8. Decided
+
+- 2026-10-02 (Lawrence via the coordinator): agent-initiated app installs are blocked until the owner stamps the actor; users install only from the app's App Store/palette and the web store (`app.install`, scope-growing `app.update` and `app.approval.decide` need origin `user`; not MCP tools). New apps start `unverified` and stay out of search until staff set a tier.
+- The spec repo is written only by the coordinator; this file is the app platform proposal.
+
+## 9. Open items
 
 - Catalog fields needed from the D7 generator owners: `scope_family`, `invalidated_by`, `since`, event payload schemas.
 - Sections agent: `content: app(contribution)` in the layout document and placeholder rows.
