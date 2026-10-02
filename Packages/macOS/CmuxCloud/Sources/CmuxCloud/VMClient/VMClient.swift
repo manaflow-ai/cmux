@@ -384,6 +384,7 @@ public struct VMPlanLimits: Sendable {
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
+        vcpusByMemoryMb: [String: Int]? = nil,
         activeVmCount: Int? = nil,
         imageKinds: [VMImageKindOption] = []
     ) {
@@ -395,6 +396,7 @@ public struct VMPlanLimits: Sendable {
         self.lockedMemoryOptionsMb = lockedMemoryOptionsMb
         self.memoryUpgradePlanId = memoryUpgradePlanId
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
+        self.vcpusByMemoryMb = vcpusByMemoryMb
         self.activeVmCount = activeVmCount
         self.imageKinds = imageKinds
     }
@@ -416,6 +418,7 @@ public struct VMPlanLimits: Sendable {
     /// The plan that sells the locked sizes ("max"); nil when nothing is locked.
     public var memoryUpgradePlanId: String? = nil
     public var memoryUpgradePlansByMb: [String: String]? = nil
+    public var vcpusByMemoryMb: [String: Int]? = nil
     var activeVmCount: Int? = nil
     /// The kinds the default provider can serve and the image each resolves to;
     /// informational (`vm.limits` echoes it): one snapshot serves every kind.
