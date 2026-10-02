@@ -275,7 +275,7 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .credentials: [
             "palette.auth.signIn", "palette.auth.signOut", "accounts.reauthenticate", "accounts.connect",
-            "accounts.remove", "password.importCSV",
+            "accounts.remove",
         ],
         .endsApp: [
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything",
