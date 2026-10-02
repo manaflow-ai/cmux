@@ -77,6 +77,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
+    /// `history.terminalCommands` (opt-in terminal command history).
+    public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
     public var diagnostics: [SettingsDiagnostic]
@@ -136,6 +138,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
+        let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)
+        snapshot.recordsTerminalCommands = recordsCommands
+        if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
 
         if let appearance = root["appearance"] {

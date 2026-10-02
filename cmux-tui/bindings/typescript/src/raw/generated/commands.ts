@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43. */
+/* cmux-tui mux protocol 12, IR 813ecf93e56fd007de1dc8654da3403126c62fd638d3ab1937e9d421200d92d1. */
 
 
 import type * as T from "./types.js";
@@ -1451,6 +1451,13 @@ export interface SetTabPinnedRequest extends CmuxRequestBase {
 }
 export type SetTabPinnedResult = T.JsonValue;
 
+/** Protocol v12; authority: local-admin. */
+export interface SetTerminalCommandHistoryRequest extends CmuxRequestBase {
+  cmd: "set-terminal-command-history";
+  "enabled": boolean;
+}
+export type SetTerminalCommandHistoryResult = T.TerminalCommandHistoryResult;
+
 /** Protocol v12; authority: control. */
 export interface SetTerminalIdlePolicyRequest extends CmuxRequestBase {
   cmd: "set-terminal-idle-policy";
@@ -1896,6 +1903,7 @@ export type CmuxRequest =
   | SetSizePolicyRequest
   | SetSplitRatioRequest
   | SetTabPinnedRequest
+  | SetTerminalCommandHistoryRequest
   | SetTerminalIdlePolicyRequest
   | SetTerminalKeepRequest
   | SetViewportPaneWidthRequest
@@ -3170,6 +3178,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "tab-metadata-v1";
+    stream: null;
+  };
+  "set-terminal-command-history": {
+    request: SetTerminalCommandHistoryRequest;
+    result: SetTerminalCommandHistoryResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "terminal-command-journal-v1";
     stream: null;
   };
   "set-terminal-idle-policy": {

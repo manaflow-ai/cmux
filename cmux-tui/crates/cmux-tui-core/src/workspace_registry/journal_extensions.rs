@@ -456,6 +456,7 @@ pub(super) fn create_journal_extensions_schema(
          END;",
     )?;
     ensure_built_in_agent_producer(transaction)?;
+    ensure_built_in_shell_producer(transaction)?;
     migrate_journal_receipt_origins(transaction)?;
     let delivery_columns = {
         let mut statement = transaction.prepare("PRAGMA table_info(journal_hook_deliveries)")?;
@@ -523,6 +524,32 @@ fn ensure_built_in_agent_producer(transaction: &Transaction<'_>) -> anyhow::Resu
             i64::from(manifest.manifest_version),
             manifest_json,
             manifest.producer_id,
+        ],
+    )?;
+    Ok(())
+}
+
+/// The reserved `cmux_shell` producer (terminal command history). New in
+/// manifest version 1; an older session gets the row added, and a row that
+/// differs from this binary's manifest is replaced (no shipped legacy shape).
+fn ensure_built_in_shell_producer(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let manifest = crate::shell_history::built_in_shell_producer_manifest();
+    let manifest_json = canonical_json(&serde_json::to_value(&manifest)?)?;
+    transaction.execute(
+        "INSERT INTO journal_producers(
+           producer_id, namespace, manifest_version, manifest_json, installed_at_ms
+         ) VALUES(?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(producer_id) DO UPDATE SET
+           namespace = excluded.namespace,
+           manifest_version = excluded.manifest_version,
+           manifest_json = excluded.manifest_json
+         WHERE journal_producers.manifest_json != excluded.manifest_json",
+        params![
+            manifest.producer_id,
+            manifest.namespace,
+            i64::from(manifest.manifest_version),
+            manifest_json,
+            i64::try_from(unix_epoch_ms()?)?,
         ],
     )?;
     Ok(())

@@ -7216,6 +7216,31 @@ Result<TerminalColors> Codec<TerminalColors>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<TerminalCommandHistoryResult>::encode(const TerminalCommandHistoryResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_enabled = encode_value(value.enabled);
+    if (!encoded_enabled) return std::move(encoded_enabled).error();
+    object.emplace("enabled", std::move(encoded_enabled).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalCommandHistoryResult> Codec<TerminalCommandHistoryResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalCommandHistoryResult result{};
+    const Json* field_enabled = value.find("enabled");
+    if (!field_enabled) {
+        return make_error(ErrorCode::decode, "missing required field 'enabled'");
+    }
+    if (field_enabled) {
+        auto decoded = decode_value<bool>(*field_enabled);
+        if (!decoded) return std::move(decoded).error();
+        result.enabled = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<TerminalEventsResult>::encode(const TerminalEventsResult& value) {
     (void)value;
     Json::Object object;
@@ -18259,6 +18284,31 @@ Result<SetTabPinnedRequest> Codec<SetTabPinnedRequest>::decode(const Json& value
     return result;
 }
 
+Result<Json> Codec<SetTerminalCommandHistoryRequest>::encode(const SetTerminalCommandHistoryRequest& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_enabled = encode_value(value.enabled);
+    if (!encoded_enabled) return std::move(encoded_enabled).error();
+    object.emplace("enabled", std::move(encoded_enabled).value());
+    return Json(std::move(object));
+}
+
+Result<SetTerminalCommandHistoryRequest> Codec<SetTerminalCommandHistoryRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    SetTerminalCommandHistoryRequest result{};
+    const Json* field_enabled = value.find("enabled");
+    if (!field_enabled) {
+        return make_error(ErrorCode::decode, "missing required field 'enabled'");
+    }
+    if (field_enabled) {
+        auto decoded = decode_value<bool>(*field_enabled);
+        if (!decoded) return std::move(decoded).error();
+        result.enabled = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<SetTerminalIdlePolicyRequest>::encode(const SetTerminalIdlePolicyRequest& value) {
     (void)value;
     Json::Object object;
@@ -25680,29 +25730,29 @@ constexpr std::array<CommandFieldRequirement, 7> kCommand144FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand153FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand157FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand158FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand159FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand160FieldRequirements{{
     {"marked_unread", 12U, "notification-mark-unread-v1"},
     {"pinned", 12U, "workspace-pin-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand160FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand161FieldRequirements{{
     {"end_terminals", 12U, "terminal-reap-v1"},
     {"force", 10U, "daemon-handoff-force-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand162FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand163FieldRequirements{{
     {"cwd", 12U, "terminal-env-v1"},
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
     {"shell_args", 12U, "terminal-shell-args-v1"},
     {"terminal_id", 12U, "terminal-placement-env-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand163FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand164FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandMetadata, 188> kCommands{{
+constexpr std::array<CommandMetadata, 189> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-screens-to-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-tabs-to-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -25858,15 +25908,16 @@ constexpr std::array<CommandMetadata, 188> kCommands{{
     {"set-size-policy", "control", 12U, "shared-sizing-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand153FieldRequirements)},
     {"set-tab-pinned", "control", 12U, "tab-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"set-terminal-command-history", "local-admin", 12U, "terminal-command-journal-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-terminal-idle-policy", "control", 12U, "terminal-idle-close-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-terminal-keep", "control", 12U, "terminal-reap-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand157FieldRequirements)},
+    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand158FieldRequirements)},
     {"set-window-title", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-workspace-metadata", "control", 12U, "workspace-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand159FieldRequirements)},
-    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand160FieldRequirements)},
+    {"set-workspace-metadata", "control", 12U, "workspace-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand160FieldRequirements)},
+    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand161FieldRequirements)},
     {"sidebar-plugin", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand162FieldRequirements)},
-    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand163FieldRequirements)},
+    {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand163FieldRequirements)},
+    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand164FieldRequirements)},
     {"swap-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-events", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-resources", "control", 12U, "terminal-resources-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -27671,6 +27722,17 @@ Result<JsonValue> Client::set_tab_pinned(
     auto response = core_.request("set-tab-pinned", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<JsonValue>(response.value());
+}
+
+Result<TerminalCommandHistoryResult> Client::set_terminal_command_history(
+    const SetTerminalCommandHistoryRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("set-terminal-command-history", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<TerminalCommandHistoryResult>(response.value());
 }
 
 Result<SetTerminalIdlePolicyResult> Client::set_terminal_idle_policy(

@@ -23,6 +23,7 @@ enum HistoryHandlers {
             ("recentlyFocused", HistoryPalettePages.locations),
             ("recentlyClosed", HistoryPalettePages.closed),
             ("history.search", HistoryPalettePages.search),
+            ("history.commands", HistoryPalettePages.commands),
         ]
         for (id, make) in pages {
             services.palette.sources.actionPages[id] = { [weak services] in services.map(make) }
