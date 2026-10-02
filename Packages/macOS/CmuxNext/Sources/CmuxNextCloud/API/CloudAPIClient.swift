@@ -55,6 +55,16 @@ public struct CloudAPIClient: Sendable {
         _ = try await send("DELETE", "/api/vm/\(id)", timeout: .seconds(120), as: Ignored.self)
     }
 
+    /// Parks the machine while preserving its disk and session.
+    public func pauseMachine(_ id: String) async throws {
+        _ = try await send("POST", "/api/vm/\(id)/pause", timeout: .seconds(960), as: Ignored.self)
+    }
+
+    /// Resume can wait up to the route's 16-minute provider readiness budget.
+    public func resumeMachine(_ id: String) async throws {
+        _ = try await send("POST", "/api/vm/\(id)/resume", timeout: .seconds(960), as: Ignored.self)
+    }
+
     public func attachEndpoint(_ id: String) async throws -> CloudAttachEndpoint {
         try await send("POST", "/api/vm/\(id)/attach-endpoint", body: ["transport": "cmux-remote"], timeout: .seconds(30),
                        as: CloudAttachEndpoint.self)
@@ -80,6 +90,11 @@ public struct CloudAPIClient: Sendable {
         return try await send("GET", "/api/vm/\(id)/snapshots", as: List.self).snapshots
     }
 
+    /// Deletes a snapshot scoped to the machine that owns it.
+    public func deleteSnapshot(_ id: String, snapshotID: String) async throws {
+        _ = try await send("DELETE", "/api/vm/\(id)/snapshots/\(snapshotID)", timeout: .seconds(960), as: Ignored.self)
+    }
+
     public func restore(snapshotID: String, idempotencyKey: String = UUID().uuidString) async throws -> CloudMachine {
         try await send("POST", "/api/vm/restore", body: ["snapshotId": snapshotID], idempotencyKey: idempotencyKey,
                        timeout: .seconds(620), as: CloudMachine.self)
@@ -103,6 +118,52 @@ public struct CloudAPIClient: Sendable {
                        timeout: .milliseconds(timeoutMs) + .seconds(5), as: CloudExecResult.self)
     }
 
+    // MARK: Files and SCP
+
+    /// Mints a short-lived private SCP route. The public key is the only key
+    /// material sent to the backend; the caller owns the corresponding secret.
+    public func prepareSCP(_ id: String, publicKey: String) async throws -> CloudSCPEndpoint {
+        let endpoint = try await send("POST", "/api/vm/\(id)/scp-endpoint", body: ["publicKey": publicKey],
+                                      timeout: .seconds(100), as: CloudSCPEndpoint.self)
+        guard endpoint.port == 22, endpoint.username == "cmux",
+              endpoint.hostPublicKey.hasPrefix("ssh-ed25519 "),
+              endpoint.expiresAtUnix > Int64(Date().timeIntervalSince1970) else {
+            throw CloudAPIError.decoding("/api/vm/\(id)/scp-endpoint returned an unsafe endpoint")
+        }
+        return endpoint
+    }
+
+    /// Lists a guest directory through the authenticated backend wrapper.
+    public func listFiles(_ id: String, path: String) async throws -> [CloudFileEntry] {
+        struct List: Decodable { var entries: [CloudFileEntry] }
+        return try await send("GET", "/api/vm/\(id)/fs/dir?path=\(query(path))", as: List.self).entries
+    }
+
+    /// Reads a guest file. The backend encodes bytes as base64 for this JSON API.
+    public func readFile(_ id: String, path: String) async throws -> CloudFileContents {
+        try await send("GET", "/api/vm/\(id)/fs/read?path=\(query(path))", timeout: .seconds(120), as: CloudFileContents.self)
+    }
+
+    /// Writes a guest file atomically through the backend wrapper.
+    public func writeFile(_ id: String, path: String, data: Data, mode: Int? = nil) async throws {
+        var body: [String: any Sendable] = ["path": path, "dataBase64": data.base64EncodedString()]
+        if let mode { body["mode"] = mode }
+        _ = try await send("POST", "/api/vm/\(id)/fs/write", body: body, timeout: .seconds(120), as: Ignored.self)
+    }
+
+    public func makeDirectory(_ id: String, path: String) async throws {
+        _ = try await send("POST", "/api/vm/\(id)/fs/mkdir", body: ["path": path], as: Ignored.self)
+    }
+
+    public func removeFile(_ id: String, path: String) async throws {
+        _ = try await send("DELETE", "/api/vm/\(id)/fs/remove?path=\(query(path))", timeout: .seconds(120), as: Ignored.self)
+    }
+
+    public func statFile(_ id: String, path: String) async throws -> CloudFileStat {
+        try await send("GET", "/api/vm/\(id)/fs/stat?path=\(query(path))", as: CloudFileStat.self)
+    }
+
+
     // MARK: Tunnel
 
     /// `POST /api/vm/tunnel`: enrolls this Mac's WireGuard public key. The
@@ -114,6 +175,13 @@ public struct CloudAPIClient: Sendable {
     /// `DELETE /api/vm/tunnel?deviceId=…`: revokes this Mac's peer.
     public func revokeTunnel(deviceID: String) async throws {
         _ = try await send("DELETE", "/api/vm/tunnel?deviceId=\(deviceID)", as: Ignored.self)
+    }
+
+    private func query(_ value: String) -> String {
+        // Keep guest path separators readable, but never let a path inject a
+        // second query item or fragment into the request URL.
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~/"))
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
     // MARK: Transport

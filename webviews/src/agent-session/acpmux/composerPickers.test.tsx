@@ -26,6 +26,7 @@ const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
 const { ComposerPickers, isPlan, loadRecents, rememberCombo, unrestricted } = await import("./ComposerPickers");
+const { openPicker, pickerLabels } = await import("./pickerOpeners");
 
 const doc = dom.window.document;
 const snapshot = (
@@ -399,6 +400,60 @@ describe("acpmux composer pickers", () => {
   test("a model the catalog doesn't list still shows by the id the agent reported", async () => {
     await render(snapshot({ model: "claude-opus-5-5" }));
     expect(button("Model")!.textContent).toBe("claude-opus-5-5");
+  });
+
+  test("automation opens a menu by its label, through the click path, with no pointer event", async () => {
+    await render(snapshot({ configOptions: [effort] }));
+    expect(pickerLabels().sort()).toEqual(["Effort", "Model"]);
+    expect(openPicker("Approvals")).toBe(false);
+    let opened = false;
+    await act(async () => {
+      opened = openPicker("Model");
+    });
+    expect(opened).toBe(true);
+    expect(button("Model")!.getAttribute("aria-expanded")).toBe("true");
+    expect(options()).toEqual(["6 Astra *", "6.1 Sol"]);
+    // Keys reach the menu as after a click: the button has focus.
+    expect(doc.activeElement).toBe(button("Model"));
+    await key(button("Model")!, "ArrowDown");
+    await key(button("Model")!, "Enter");
+    expect(calls).toEqual(["model sol"]);
+    // Opening an open menu keeps it open rather than toggling it shut.
+    await act(async () => {
+      openPicker("Effort");
+    });
+    await act(async () => {
+      openPicker("Effort");
+    });
+    expect(button("Effort")!.getAttribute("aria-expanded")).toBe("true");
+    expect(doc.activeElement).toBe(doc.querySelector(".acpmux-effort-range"));
+    expect(doc.querySelector('button[data-menu="Effort"]')).toBe(button("Effort"));
+  });
+
+  test("opening a menu by its label takes focus off the prompt first, as a click does", async () => {
+    await render(snapshot());
+    const outside = doc.createElement("textarea");
+    doc.body.append(outside);
+    let blurred = false;
+    outside.addEventListener("blur", () => {
+      blurred = true;
+    });
+    outside.focus();
+    await act(async () => {
+      openPicker("Model");
+    });
+    expect(blurred).toBe(true);
+    expect(doc.activeElement).toBe(button("Model"));
+    outside.remove();
+  });
+
+  test("an unmounted menu is no longer openable", async () => {
+    await render(snapshot());
+    expect(pickerLabels()).toContain("Model");
+    await act(async () => root.unmount());
+    expect(pickerLabels()).toEqual([]);
+    expect(openPicker("Model")).toBe(false);
+    root = createRoot(doc.getElementById("root")!);
   });
 
   test("the menu closes when the window loses focus", async () => {

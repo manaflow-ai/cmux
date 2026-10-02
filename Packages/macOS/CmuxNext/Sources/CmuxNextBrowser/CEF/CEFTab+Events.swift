@@ -15,10 +15,12 @@ extension CEFTab {
             if loading, !state.isLoading {
                 let id = makeNavigationID()
                 navigation = id
+                capturesTitleBeforeCommit = true
                 machine.apply(.started(id, url: nil))
             } else if !loading, state.isLoading, let navigation {
                 machine.apply(.finished(navigation))
             }
+            if !loading { clearTitleBeforeCommit() }
         case .loadStart(_, let url):
             if navigation == nil || !state.isLoading {
                 let id = makeNavigationID()
@@ -26,6 +28,8 @@ extension CEFTab {
                 machine.apply(.started(id, url: URL(string: url)))
             }
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
+            if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
+            clearTitleBeforeCommit()
             committedURL = URL(string: url)
             pageInfoDocumentCommitted(URL(string: url))
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
@@ -37,12 +41,14 @@ extension CEFTab {
             // badges are per page; refresh cheaply on each document load.
             refreshExtensionActions()
         case .loadError(_, let code, let text, let url):
+            clearTitleBeforeCommit()
             guard let navigation else { return }
             machine.apply(.failed(navigation, Self.loadError(code: code, text: text, url: url)))
         case .address(_, let url):
             machine.apply(.urlChanged(URL(string: url)))
         case .title(_, let title):
             machine.apply(.titleChanged(title.isEmpty ? nil : title))
+            if capturesTitleBeforeCommit, state.phase == .provisional { titleBeforeCommit = title.isEmpty ? nil : title }
         case .favicon(_, let url):
             let faviconURL = URL(string: url)
             machine.apply(.faviconChanged(faviconURL))
@@ -187,5 +193,10 @@ extension CEFTab {
         // Chromium screen DIPs have a top-left origin on the primary screen.
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         runtime.shim?.extActionContextMenu(browserID, id, point.x.clampedInt32, (primaryHeight - point.y).clampedInt32)
+    }
+
+    func clearTitleBeforeCommit() {
+        titleBeforeCommit = nil
+        capturesTitleBeforeCommit = false
     }
 }

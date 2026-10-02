@@ -25,7 +25,9 @@ One component, `CmuxNextDesign/StatusIndicator`:
 - `StatusIndicatorState`: `idle | busy(progress?) | paused(progress?) | waiting | error | success`.
 - `StatusIndicatorStyle`: `arc` (default, the thin 72% arc), `native` (NSProgressIndicator's spokes, rendered
   once per pixel size by AppKit, alpha-normalized and used as a tinted mask, rotated in 8 discrete steps like
-  the control), `dot` (pulsing dot), `none` (no loading mark; waiting/error/success still show).
+  the control), `dot` (pulsing dot), `braille` (the terminal braille spinner ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ in the terminal font,
+  rendered once per pixel size as tinted masks and stepped through `contents` once per `spinner` period; still,
+  it shows ⠋), `none` (no loading mark; waiting/error/success still show).
 - Known progress always draws a still ring (track + clockwise arc from 12 o'clock), in every style except
   `none`; the AppKit determinate circular indicator is the same shape. Paused uses the attention color.
 - `StatusIndicatorPlan.make(state, style:, animates:)` is the pure rule table (tested). `StatusIndicatorLayer`
@@ -47,7 +49,7 @@ icon slot (the tab spinner layer), and available to sections (sidebar-sections l
 `SidebarItemInfo` items), Home and pane headers.
 
 Settings (`cmux.json`, Settings > Appearance > Loading Indicator): `appearance.statusIndicator.style`
-(`arc|native|dot|none`), `.size` (0.5...1.5 of the slot), `.thickness` (0.5...4 pt), `.color` (`#RRGGBB` or
+(`arc|native|dot|braille|none`), `.size` (0.5...1.5 of the slot), `.thickness` (0.5...4 pt), `.color` (`#RRGGBB` or
 `theme`). Debug Settings > Status Indicators: style override (compare variants live), arc length, ring track
 opacity, dot size, pulse low opacity, native steps. Style precedence: Debug override, then the reporter's
 hint (`--style`) when its source is honored (`appearance.statusIndicator.honorStatusStyle`: true by default,
@@ -111,7 +113,7 @@ CLI (noun-first; target defaults to the caller's terminal, else `current` worksp
 
 ```
 cmux status set [KEY] --label T [--target ws_|tab_|term_|current] [--state busy|success|error|waiting|info]
-                [--progress 0.4|40%] [--style arc|native|dot|none] [--ttl 30s] [--pid N | --keep] [--json]
+                [--progress 0.4|40%] [--style arc|native|dot|braille|none] [--ttl 30s] [--pid N | --keep] [--json]
 cmux status clear [KEY] [--target ...] [--all]
 cmux status list [--target ...] [--json]            # raw entries and terminal facts, merged order
 cmux status run [--label T] [--target ...] [--notify auto|always|never] [--badge-ttl 8s] -- CMD ...

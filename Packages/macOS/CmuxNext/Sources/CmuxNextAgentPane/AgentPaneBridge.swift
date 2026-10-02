@@ -44,6 +44,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // customization were first pushed; push them again so they land.
         if request == .ready {
             view.applyTheme()
+            view.applyShortcuts()
             view.replayCustomization()
         }
         return view.model

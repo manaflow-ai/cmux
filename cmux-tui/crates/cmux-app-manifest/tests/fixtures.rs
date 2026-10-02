@@ -1,16 +1,21 @@
 //! Shared fixtures (`cmux-app-host/schema/v2/fixtures`): every valid manifest
 //! passes; every invalid one fails at (or under) the expected JSON pointer.
 
-use cmux_app_manifest::{is_valid, validate_manifest, validate_package, Issue};
-use serde_json::{json, Value};
+use cmux_app_manifest::{Issue, is_valid, validate_manifest, validate_package};
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 fn fixtures(kind: &str) -> Vec<PathBuf> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../cmux-app-host/schema/v2/fixtures").join(kind);
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../cmux-app-host/schema/v2/fixtures")
+        .join(kind);
     let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
         .expect("fixture dir")
         .map(|e| e.expect("entry").path())
-        .filter(|p| p.extension().is_some_and(|e| e == "json") && !p.to_string_lossy().ends_with(".expect.json"))
+        .filter(|p| {
+            p.extension().is_some_and(|e| e == "json")
+                && !p.to_string_lossy().ends_with(".expect.json")
+        })
         .collect();
     out.sort();
     out
@@ -41,7 +46,9 @@ fn invalid_fixtures_fail_at_the_expected_path() {
         assert!(!is_valid(&issues), "{} should be invalid", p.display());
         // Schema errors for unknown keys and oneOf point at the parent object; accept the expected path or a parent of it.
         assert!(
-            issues.iter().any(|i: &Issue| want == i.path || want.starts_with(&format!("{}/", i.path)) || i.path.is_empty()),
+            issues.iter().any(|i: &Issue| want == i.path
+                || want.starts_with(&format!("{}/", i.path))
+                || i.path.is_empty()),
             "{}: no issue at {want}: {issues:?}",
             p.display()
         );
@@ -66,9 +73,11 @@ fn native_code_is_first_party_only() {
         "server": { "kind": "native", "binaries": { "linux-x64": "x" }, "instances": "user", "hosts": ["local"] },
         "implements": { "cmux.pane/1": { "native": "x.view" } } }));
     assert_eq!(codes(&third), vec!["tier.native", "tier.native"]);
-    let first = manifest(json!({ "id": "cmux/x", "repository": "https://github.com/manaflow-ai/cmux",
+    let first = manifest(
+        json!({ "id": "cmux/x", "repository": "https://github.com/manaflow-ai/cmux",
         "server": { "kind": "native", "binaries": { "linux-x64": "x" }, "instances": "user", "hosts": ["local"] },
-        "implements": { "cmux.pane/1": { "native": "x.view" } } }));
+        "implements": { "cmux.pane/1": { "native": "x.view" } } }),
+    );
     assert!(codes(&first).is_empty());
 }
 
