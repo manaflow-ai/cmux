@@ -10,8 +10,8 @@ import PackageDescription
 let package = Package(
     name: "CmuxHomeCore",
     platforms: [
-        .iOS(.v18),
-        .macOS(.v15),
+        .iOS(.v17),
+        .macOS(.v14),
     ],
     products: [
         .library(name: "CmuxHomeCore", targets: ["CmuxHomeCore"]),

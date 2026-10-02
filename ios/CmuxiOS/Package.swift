@@ -8,7 +8,7 @@ let package = Package(
     name: "CmuxiOS",
     defaultLocalization: "en",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
     ],
     products: [
         .library(name: "CmuxiOSApp", targets: ["CmuxiOSApp"]),
