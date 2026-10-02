@@ -18,6 +18,9 @@ final class AppsService {
     let storage: AppStorageStore
     private let sink = DeferredAppSink()
     private var fingerprints: [String: Int] = [:]
+    private var store: AppStoreWindowController?
+    /// Runs previews of apps that are not installed (sample data, no grant).
+    private lazy var previewHost = AppHost(sink: AppPreviewSink())
 
     init(services: AppServices) {
         self.services = services
@@ -47,6 +50,23 @@ final class AppsService {
         }
         sink.attach(AppOperationRouter(router: router, storage: storage, ledger: ledger))
     }
+
+    /// Opens the App Store window (palette "App Store", `appStore.show`):
+    /// on a listing when `appID` is given, else on Installed when asked.
+    /// Drawn in the theme of the window it was opened from.
+    func showStore(appID: String? = nil, installed: Bool = false) {
+        if store == nil {
+            let model = AppStoreModel(catalog: BundledAppStoreCatalog.scanned(), registry: registry, host: host, previewHost: previewHost)
+            model.onRemoved = { [storage] id in await storage.clear(app: id) }
+            let controller = AppStoreWindowController(model: model)
+            controller.onClose = { [weak self] in self?.store = nil }
+            store = controller
+        }
+        store?.setThemeScope(services.windows.active?.themeScope ?? .app)
+        store?.present(appID: appID, installed: installed)
+    }
+
+    var storeWindow: NSWindow? { store?.window }
 
     /// Posts `<family>.changed` for streams an app listens to, when the
     /// published mirror changed for that family.
