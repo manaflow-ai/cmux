@@ -10,7 +10,7 @@ One line per landed change to a shared surface (daemon protocol or state, layout
 - Sticky column (layout document fields + app) and strip scrollbar: sticky-column lead.
 - Federation daemon (remote-terminal tabs, detached create, terminal.project delta): branch feat-cmux-next-federation-tui-r8.
 - Upstream cmux-tui test fixes (kitty-shell-cwd, clear-history test env, ReconnectPolicy maximum_duration): branch feat-cmux-next-tui-upstream-fixes.
-- cmux-tui pin cuts: the next cut belongs to the Rust CLI session (feat-cmux-next-99), from #16174's merged tree. Pending for it: terminal-command-journal-v1 (6ed2890368a, review fixes dc6227eb6ce) and the federation daemon caps when they land. The daemon-features agent is finished; all its daemon commits are in pin 63626e2d798.
+- cmux-tui pin cuts: the next cut belongs to the Rust CLI session (feat-cmux-next-99), from #16174's merged tree. Pending for it: terminal-command-journal-v1 (6ed2890368a, review fixes dc6227eb6ce) sticky-columns-v1 (380bc53cc58; in the pin commit move `stickyColumns` from awaitingPin to optional in DaemonEndpoint.swift) and the federation daemon caps when they land. The daemon-features agent is finished; all its daemon commits are in pin 63626e2d798.
 
 ## Landed
 
