@@ -21,7 +21,6 @@ public final class TerminalSurfaceModel {
     public internal(set) var progress: TerminalProgress?
     public internal(set) var lastCommand: TerminalCommandResult?
     public internal(set) var scrollbar: TerminalScrollbar?
-    public internal(set) var search: TerminalSearchState?
     /// Grid the surface currently renders.
     public internal(set) var grid: TerminalGridSize?
     /// Cell size in backing pixels.

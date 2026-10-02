@@ -58,9 +58,7 @@ extension TabCell {
         guard let closeBackgroundLayer, let closeGlyphLayer else { return }
         themeScope.perform {
             closeGlyphLayer.strokeColor = (isCloseHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
-            closeBackgroundLayer.backgroundColor = isClosePressed
-                ? Palette.selectionFill.cgColor
-                : (isCloseHovered ? Palette.hoverFill.cgColor : nil)
+            closeBackgroundLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: isCloseHovered, pressed: isClosePressed))?.cgColor
         }
     }
 

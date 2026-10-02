@@ -31,11 +31,3 @@ public nonisolated enum TerminalHostAction: Sendable, Equatable {
     /// Open the host's find UI (copy mode's `/`).
     case find
 }
-
-/// Find-in-terminal state (`START_SEARCH`, `SEARCH_TOTAL`, ...). The host
-/// draws the find bar and drives it through ``TerminalSurfaceView/search(_:)``.
-public nonisolated struct TerminalSearchState: Sendable, Equatable {
-    public var needle: String
-    public var total: Int?
-    public var selected: Int?
-}
