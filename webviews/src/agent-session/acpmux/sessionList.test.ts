@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  filterSessions,
   shortAge,
   groupMark,
   GROUP_ROWS,
@@ -229,6 +230,36 @@ describe("sections", () => {
     expect(
       groups.map((group) => [group.label, group.host, group.sessions.map((session) => session.sessionId)]),
     ).toEqual([["web", undefined, ["e", "b"]]]);
+  });
+  test("a search matches every word in title, folder, branch or cloud machine, and never splits a project", () => {
+    const list: AcpmuxSessionEntry[] = [
+      { sessionId: "l", displayTitle: "Lint", cwd: "/src/web", hostKind: "local", updatedAt: 3 },
+      { sessionId: "e", displayTitle: "Flaky CI", cwd: "/src/web", host: "elk", hostKind: "cloud", updatedAt: 2 },
+      {
+        sessionId: "b",
+        displayTitle: "CI cache",
+        cwd: "/src/web",
+        host: "butte",
+        hostKind: "cloud",
+        branch: "ci-keys",
+        updatedAt: 1,
+      },
+      { sessionId: "m", displayTitle: "Notes", cwd: "/src/docs", host: "This Mac", hostKind: "local", updatedAt: 0 },
+    ];
+    const ids = (query: string) => filterSessions(list, query).map((session) => session.sessionId);
+    expect(ids("ci")).toEqual(["e", "b"]);
+    expect(ids("CI  KEYS")).toEqual(["b"]);
+    expect(ids("elk")).toEqual(["e"]);
+    expect(ids("this mac")).toEqual([]);
+    expect(ids("src")).toEqual([]);
+    expect(ids("docs")).toEqual(["m"]);
+    expect(ids("  ")).toEqual(["l", "e", "b", "m"]);
+    // The local session that anchors /src/web is filtered out, but the cloud matches stay in its project.
+    expect(sidebarSections(list, "ci").groups.map((group) => [group.label, group.host])).toEqual([["web", undefined]]);
+    // A header keeps the machine it shows unsearched: matching only elk's session doesn't name elk.
+    expect(sidebarSections(list, "flaky").groups.map((group) => [group.label, group.host])).toEqual([
+      ["web", undefined],
+    ]);
   });
 });
 

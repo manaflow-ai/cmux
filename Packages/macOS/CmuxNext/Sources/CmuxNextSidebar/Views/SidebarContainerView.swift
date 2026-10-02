@@ -2,8 +2,9 @@ public import AppKit
 import CmuxNextDesign
 import Observation
 
-/// The sidebar: a flat surface on the window background (the terminal
-/// theme's background), with no panel, border or seam. It owns its width.
+/// The sidebar: a flat surface in the window background's color (the
+/// terminal theme's background) over behind-window vibrancy, with no
+/// panel, border or seam. It owns its width.
 ///
 /// Pin leading, top, and bottom; the view animates its own width constraint
 /// between the user's width (`SidebarModel.presentation == .shown`) and 0
@@ -21,6 +22,8 @@ public final class SidebarContainerView: NSView {
     /// The width constraint this view drives. Do not add another.
     public private(set) var widthConstraint: NSLayoutConstraint!
 
+    /// Vibrancy tinted with the sidebar color, under the rows.
+    private let backdrop = ChromeBackdropView(material: .sidebar, tint: SidebarContainerView.backdropTint)
     /// Clips the sliding panel to the container's (animating) width.
     private let clip = NSView()
     /// Holds the sidebar at `model.width`, pinned to the clip's trailing edge.
@@ -38,6 +41,10 @@ public final class SidebarContainerView: NSView {
     /// (there is no intermediate width below `Metrics.sidebarMinWidth`).
     public static var hideThreshold: CGFloat { Metrics.sidebarMinWidth / 2 }
 
+    /// The backdrop's tint. theme-scoped: ChromeBackdropView calls it inside
+    /// its performWithTheme.
+    private static func backdropTint() -> NSColor { Palette.sidebarBackground }
+
     public init(model: SidebarModel) {
         self.model = model
         sidebarView = SidebarView(model: model)
@@ -47,9 +54,10 @@ public final class SidebarContainerView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         clip.wantsLayer = true
         clip.layer?.masksToBounds = true
-        for view in [clip, panel, sidebarView, handle] { view.translatesAutoresizingMaskIntoConstraints = false }
+        for view in [backdrop, clip, panel, sidebarView, handle] { view.translatesAutoresizingMaskIntoConstraints = false }
         panel.addSubview(sidebarView)
         clip.addSubview(panel)
+        addSubview(backdrop)
         addSubview(clip)
         addSubview(handle)
         widthConstraint = widthAnchor.constraint(equalToConstant: model.displayWidth)
@@ -61,6 +69,10 @@ public final class SidebarContainerView: NSView {
             sidebarView.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
             sidebarView.topAnchor.constraint(equalTo: panel.topAnchor),
             sidebarView.bottomAnchor.constraint(equalTo: panel.bottomAnchor),
+            backdrop.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backdrop.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backdrop.topAnchor.constraint(equalTo: topAnchor),
+            backdrop.bottomAnchor.constraint(equalTo: bottomAnchor),
             clip.leadingAnchor.constraint(equalTo: leadingAnchor),
             clip.trailingAnchor.constraint(equalTo: trailingAnchor),
             clip.topAnchor.constraint(equalTo: topAnchor),

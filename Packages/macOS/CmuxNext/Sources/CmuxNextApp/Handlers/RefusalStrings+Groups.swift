@@ -12,6 +12,7 @@ nonisolated extension RefusalStrings {
     static var savedGroupAlreadyOpen: String { text("handlers.refusal.savedGroupAlreadyOpen", "the saved group is already open") }
     static func noSavedTabGroup(_ id: String) -> String { format("handlers.refusal.noSavedTabGroup", "no saved tab group %@", id) }
     static func workspaceHasNoPane(_ id: String) -> String { format("handlers.refusal.workspaceHasNoPane", "workspace %@ has no pane", id) }
+    static var otherMachine: String { text("handlers.refusal.groupOtherMachine", "the group and the target are on different machines") }
     static var groupAtEdge: String { text("handlers.refusal.groupAtEdge", "the group is already at the edge") }
     static var closedTabPaneGone: String { text("handlers.refusal.closedTabPaneGone", "the closed tab's pane is gone and no pane is focused") }
     static var browserReopenNeedsWindow: String { text("handlers.refusal.browserReopenNeedsWindow", "browser tabs reopen only in a pane shown in a window") }
