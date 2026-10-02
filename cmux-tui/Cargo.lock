@@ -679,6 +679,7 @@ dependencies = [
 name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-sdk",
  "libc",
  "log",
