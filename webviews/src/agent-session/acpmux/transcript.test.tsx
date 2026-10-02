@@ -1336,7 +1336,7 @@ describe("acpmux turn diff", () => {
     const opens: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = [];
     host.cmuxAcpmuxActions = {
       "file.open": () => new Promise((resolve, reject) => opens.push({ resolve, reject })),
-      "git.scope.diff": () =>
+      "git.diff": () =>
         Promise.resolve({
           scope: "uncommitted",
           root: "/repo",
