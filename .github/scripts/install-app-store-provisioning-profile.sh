@@ -411,9 +411,11 @@ PY
 ensure_extension_profile_from_asc() {
   resolve_expected_cert_fingerprint
   if try_secret_extension_profile "extension profile secret" "${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64:-}"; then
+    ensure_cloud_vpn_profile_if_enabled
     return 0
   fi
   if try_installed_extension_profile; then
+    ensure_cloud_vpn_profile_if_enabled
     return 0
   fi
 
@@ -478,6 +480,7 @@ ensure_extension_profile_from_asc() {
   validate_extension_profile "$TMP_EXTENSION_PROFILE" "$TMP_EXTENSION_PLIST" "downloaded profile '$profile_name'" ||
     die "downloaded extension profile '$profile_name' is not usable"
   install_extension_profile
+  ensure_cloud_vpn_profile_if_enabled
 }
 
 ensure_cloud_vpn_profile_from_asc() {
@@ -624,12 +627,10 @@ download_profile_from_asc() {
   validate_profile "$TMP_PROFILE" "$TMP_PLIST" "downloaded profile '$profile_name'" "true"
   install_profile
   ensure_extension_profile_from_asc
-  ensure_cloud_vpn_profile_if_enabled
 }
 
 if try_secret_profile "primary profile secret" "${IOS_APPSTORE_PROVISIONING_PROFILE_BASE64:-}" "false"; then
   ensure_extension_profile_from_asc
-  ensure_cloud_vpn_profile_if_enabled
   exit 0
 fi
 
@@ -643,7 +644,6 @@ do
   value="${candidate#*:}"
   if try_secret_profile "$label" "$value" "false"; then
     ensure_extension_profile_from_asc
-    ensure_cloud_vpn_profile_if_enabled
     exit 0
   fi
 done

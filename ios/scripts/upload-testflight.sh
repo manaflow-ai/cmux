@@ -96,7 +96,7 @@ verify_ipa_aps_environment_production() {
 verify_ipa_cloud_vpn_extension() {
   local ipa="$1"
   local workdir app extension ent profile
-  local bundle_id expected_app_id app_id team_id network_extension
+  local bundle_id expected_bundle_id expected_app_id app_id team_id network_extension
   local profile_app_id profile_network_extension
   workdir="$(mktemp -d)"
   if ! ( cd "$workdir" && unzip -q "$ipa" ); then
@@ -131,8 +131,9 @@ verify_ipa_cloud_vpn_extension() {
   app_id="$($PLISTBUDDY -c 'Print :application-identifier' "$ent" 2>/dev/null || true)"
   team_id="$($PLISTBUDDY -c 'Print :com.apple.developer.team-identifier' "$ent" 2>/dev/null || true)"
   network_extension="$($PLISTBUDDY -c 'Print :com.apple.developer.networking.networkextension:0' "$ent" 2>/dev/null || true)"
-  expected_app_id="$DEVELOPMENT_TEAM.$bundle_id"
-  if [[ "$app_id" != "$expected_app_id" || "$team_id" != "$DEVELOPMENT_TEAM" ]] ||
+  expected_bundle_id="$CLOUD_VPN_BUNDLE_IDENTIFIER"
+  expected_app_id="$DEVELOPMENT_TEAM.$expected_bundle_id"
+  if [[ "$bundle_id" != "$expected_bundle_id" || "$app_id" != "$expected_app_id" || "$team_id" != "$DEVELOPMENT_TEAM" ]] ||
     ! python3 - "$ent" <<'PY'
 import plistlib
 import sys
@@ -144,7 +145,7 @@ if "packet-tunnel-provider" not in values:
     raise SystemExit(1)
 PY
   then
-    echo "error: signed CloudVPN identity is invalid (application-identifier='${app_id:-<absent>}', expected='$expected_app_id', team='${team_id:-<absent>}', network-extension='${network_extension:-<absent>}'): $extension" >&2
+    echo "error: signed CloudVPN identity is invalid (bundle-id='${bundle_id:-<absent>}', expected-bundle-id='$expected_bundle_id', application-identifier='${app_id:-<absent>}', expected='$expected_app_id', team='${team_id:-<absent>}', network-extension='${network_extension:-<absent>}'): $extension" >&2
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1
