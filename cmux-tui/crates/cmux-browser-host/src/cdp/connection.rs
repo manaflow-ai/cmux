@@ -31,6 +31,13 @@ pub type CdpEventHandler = Arc<dyn Fn(CdpEvent) + Send + Sync>;
 
 type Reply = Result<Value, DriverError>;
 
+/// A sent call waiting for its reply.
+struct Pending {
+    id: u64,
+    method: String,
+    rx: mpsc::Receiver<Reply>,
+}
+
 pub struct CdpConnection {
     wire: Box<dyn CdpWire>,
     next_id: AtomicU64,
@@ -74,6 +81,40 @@ impl CdpConnection {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, DriverError> {
+        let pending = self.send(session_id, method, params)?;
+        self.wait(pending, timeout)
+    }
+
+    /// Sends several methods back to back, then waits for every reply.
+    /// A target paused at start (`waitForDebuggerOnStart`) may hold replies
+    /// until `Runtime.runIfWaitingForDebugger`, so setup sends its domain
+    /// enables and the resume in one batch, as Playwright and Puppeteer do.
+    pub fn call_batch(
+        &self,
+        session_id: Option<&str>,
+        calls: Vec<(&str, Value)>,
+        timeout: Duration,
+    ) -> Vec<Result<Value, DriverError>> {
+        let sent: Vec<_> = calls
+            .into_iter()
+            .map(|(method, params)| self.send(session_id, method, params))
+            .collect();
+        let deadline = std::time::Instant::now() + timeout;
+        sent.into_iter()
+            .map(|pending| {
+                let pending = pending?;
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                self.wait(pending, left)
+            })
+            .collect()
+    }
+
+    fn send(
+        &self,
+        session_id: Option<&str>,
+        method: &str,
+        params: Value,
+    ) -> Result<Pending, DriverError> {
         if let Some(reason) = self.closed_reason() {
             return Err(DriverError::closed(reason));
         }
@@ -97,12 +138,17 @@ impl CdpConnection {
             self.pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
             return Err(DriverError::closed(format!("CDP connection write failed: {error}")));
         }
-        match rx.recv_timeout(timeout) {
+        Ok(Pending { id, method: method.to_owned(), rx })
+    }
+
+    fn wait(&self, pending: Pending, timeout: Duration) -> Result<Value, DriverError> {
+        match pending.rx.recv_timeout(timeout) {
             Ok(reply) => reply,
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                self.pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
+                self.pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&pending.id);
                 Err(DriverError::timeout(format!(
-                    "{method} timed out after {} ms",
+                    "{} timed out after {} ms",
+                    pending.method,
                     timeout.as_millis()
                 )))
             }

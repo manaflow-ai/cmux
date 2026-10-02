@@ -215,13 +215,28 @@ impl Inner {
     }
 
     fn set_up_page(&self, target_id: &str, session_id: &str) -> Result<(), DriverError> {
-        let call = |method: &str, params: Value| {
-            self.conn.call(Some(session_id), method, params, INTERNAL_TIMEOUT)
-        };
-        call("Page.enable", json!({}))?;
-        let tree = call("Page.getFrameTree", json!({}))?;
-        let frame = &tree["frameTree"]["frame"];
-        {
+        let auto_attach =
+            json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true});
+        let results = self.conn.call_batch(
+            Some(session_id),
+            vec![
+                ("Page.enable", json!({})),
+                ("Page.getFrameTree", json!({})),
+                ("Page.setLifecycleEventsEnabled", json!({"enabled": true})),
+                ("Runtime.enable", json!({})),
+                (
+                    "Page.addScriptToEvaluateOnNewDocument",
+                    json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
+                ),
+                ("Emulation.setFocusEmulationEnabled", json!({"enabled": true})),
+                // Out-of-process iframes attach as child sessions of this page.
+                ("Target.setAutoAttach", auto_attach),
+                ("Runtime.runIfWaitingForDebugger", json!({})),
+            ],
+            INTERNAL_TIMEOUT,
+        );
+        if let Some(Ok(tree)) = results.get(1) {
+            let frame = &tree["frameTree"]["frame"];
             let mut state = self.lock();
             if let Some(tab) = state.tabs.get_mut(target_id)
                 && tab.main_frame.is_none()
@@ -231,39 +246,28 @@ impl Inner {
                 tab.url = super::state::frame_url(frame);
             }
         }
-        call("Page.setLifecycleEventsEnabled", json!({"enabled": true}))?;
-        call("Runtime.enable", json!({}))?;
-        call(
-            "Page.addScriptToEvaluateOnNewDocument",
-            json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
-        )?;
-        call("Emulation.setFocusEmulationEnabled", json!({"enabled": true}))?;
-        // Out-of-process iframes attach as child sessions of this page.
-        call(
-            "Target.setAutoAttach",
-            json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true}),
-        )?;
-        call("Runtime.runIfWaitingForDebugger", json!({}))?;
-        Ok(())
+        results.into_iter().find_map(Result::err).map_or(Ok(()), Err)
     }
 
     fn set_up_frame(&self, session_id: &str) -> Result<(), DriverError> {
-        let call = |method: &str, params: Value| {
-            self.conn.call(Some(session_id), method, params, INTERNAL_TIMEOUT)
-        };
-        call("Page.enable", json!({}))?;
-        call("Page.setLifecycleEventsEnabled", json!({"enabled": true}))?;
-        call("Runtime.enable", json!({}))?;
-        call(
-            "Page.addScriptToEvaluateOnNewDocument",
-            json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
-        )?;
-        call(
-            "Target.setAutoAttach",
-            json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true}),
-        )?;
-        call("Runtime.runIfWaitingForDebugger", json!({}))?;
-        Ok(())
+        let auto_attach =
+            json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true});
+        let results = self.conn.call_batch(
+            Some(session_id),
+            vec![
+                ("Page.enable", json!({})),
+                ("Page.setLifecycleEventsEnabled", json!({"enabled": true})),
+                ("Runtime.enable", json!({})),
+                (
+                    "Page.addScriptToEvaluateOnNewDocument",
+                    json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
+                ),
+                ("Target.setAutoAttach", auto_attach),
+                ("Runtime.runIfWaitingForDebugger", json!({})),
+            ],
+            INTERNAL_TIMEOUT,
+        );
+        results.into_iter().find_map(Result::err).map_or(Ok(()), Err)
     }
 
     /// The CDP session that owns a frame of a tab (its own session for an
