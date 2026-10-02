@@ -355,14 +355,6 @@ impl ConversationStore {
             let result = serde_json::from_str(&result).context("conversation ledger is corrupt")?;
             return Ok(OpOutcome { result, replayed: true });
         }
-        if let Op::MessageSend { parts, .. } = op {
-            // Work cards are not counted, so read past them to the window's turns.
-            let window = (cmux_conversation::BUDGET_WINDOW * 4) as u32;
-            let mut recent = load_page(&transaction, conversation, head.last_seq + 1, window)?;
-            recent.reverse();
-            cmux_conversation::check_agent_budget(&head, actor, parts, &recent, now_ms)
-                .map_err(rejected)?;
-        }
         let target = match op.target_message_id() {
             Some(id) => load_message_by_id(&transaction, id)?,
             None => None,
@@ -386,6 +378,15 @@ impl ConversationStore {
             },
         )
         .map_err(rejected)?;
+        if let Op::MessageSend { parts, .. } = op {
+            // After every reducer rule (the conformance corpus order). Work cards are
+            // not counted, so read past them to the window's turns.
+            let window = (cmux_conversation::BUDGET_WINDOW * 4) as u32;
+            let mut recent = load_page(&transaction, conversation, head.last_seq + 1, window)?;
+            recent.reverse();
+            cmux_conversation::check_agent_budget(&head, actor, parts, &recent, now_ms)
+                .map_err(rejected)?;
+        }
         write_head(&transaction, &commit.head)?;
         if let Some(message) = &commit.message {
             write_message(&transaction, message)?;
