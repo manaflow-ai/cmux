@@ -209,11 +209,8 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
 @Suite("Pane attention color")
 struct PaneAttentionColorTests {
     @Test
-    func fallsBackToSystemBlueWhenUnset() {
-        #expect(
-            WorkspaceAttentionColor(configuredHex: nil).nsColor.hexString() ==
-                NSColor.systemBlue.hexString()
-        )
+    func fallsBackToInjectedAccentWhenUnset() {
+        assertUsesInjectedAccent(configuredHex: nil)
     }
 
     @Test
@@ -223,11 +220,40 @@ struct PaneAttentionColorTests {
         )
     }
 
+    @Test
+    func flashFollowsThemeForegroundWhenUnset() {
+        let accent = CmuxAccentColor()
+        let color = WorkspaceAttentionColor(
+            configuredHex: nil,
+            accent: accent,
+            themeForeground: NSColor(hex: "#CDD6F4"),
+            useThemeForeground: true
+        )
+        #expect(color.flashNSColor.hexString() == "#CDD6F4")
+        #expect(color.flashNSColor.alphaComponent == 1)
+        // Unread rings keep the accent.
+        #expect(color.nsColor.hexString() == accent.dynamicNSColor.hexString())
+    }
+
+    @Test
+    func configuredHexOverridesThemeForegroundForFlash() {
+        let color = WorkspaceAttentionColor(configuredHex: "#ff69b4", themeForeground: .white, useThemeForeground: true)
+        #expect(color.flashNSColor.hexString() == "#FF69B4")
+        #expect(color.flashNSColor.alphaComponent == 1)
+    }
+
     @Test(arguments: ["not-a-color", "#FFZZZZ", "FF69B4", "#FF69B4AA"])
     func rejectsValuesOutsideSchema(configuredHex: String) {
-        #expect(
-            WorkspaceAttentionColor(configuredHex: configuredHex).nsColor.hexString() ==
-                NSColor.systemBlue.hexString()
-        )
+        assertUsesInjectedAccent(configuredHex: configuredHex)
+    }
+
+    private func assertUsesInjectedAccent(configuredHex: String?) {
+        for mode in CmuxAccentColorMode.allCases {
+            let accent = CmuxAccentColor(mode: mode)
+            #expect(
+                WorkspaceAttentionColor(configuredHex: configuredHex, accent: accent).nsColor.hexString() ==
+                    accent.dynamicNSColor.hexString()
+            )
+        }
     }
 }

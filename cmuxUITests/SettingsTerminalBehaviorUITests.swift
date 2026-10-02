@@ -14,17 +14,15 @@ import XCTest
 /// app relaunch — none of which a single in-process XCUITest can drive
 /// deterministically without adding a runtime seam (which this task
 /// forbids). What *is* observable through XCUITest is the Settings row
-/// itself: six of the rows render a description (`subtitle`) whose text
-/// is bound to the live setting value and flips between an "on" and
-/// "off" sentence when the control changes, and the three numeric rows
-/// render a value label that updates when the stepper is driven.
+/// itself: six toggle rows report the live setting value through their
+/// control while keeping one fixed description (`subtitle`), and the
+/// three numeric rows render a value label that updates when the stepper
+/// is driven.
 ///
-/// These tests assert that observable EFFECT (the bound description /
-/// value re-renders to match the changed setting), not merely that the
-/// control reports a new toggle state. The toggle-state assertion alone
-/// would not prove the setting propagated; the bound subtitle/value
-/// re-render does, because it reads back through the same persisted
-/// settings model the rest of the app consumes.
+/// These tests assert that observable state: the toggle value reads back
+/// through the same persisted settings model the rest of the app
+/// consumes, the fixed subtitle stays in both states, and the value
+/// label re-renders to match the changed setting.
 ///
 /// Identifiers asserted here all exist in the live Settings UI
 /// (`Sources/cmuxApp.swift`, the `Settings…` window) and in the
@@ -52,7 +50,7 @@ import XCTest
 ///   exposed as a queryable XCUI accessibility element. Verifying real
 ///   visibility would require a debug seam that reports scroller frame /
 ///   alpha. Behaviorally tested here only at the Settings-row level
-///   (subtitle flips on/off).
+///   (toggle value, fixed subtitle).
 ///
 /// TIER 2 (needs runtime seam): TextBox Max Lines
 ///   (`terminal.textBoxMaxLines`) — consumed by
@@ -72,7 +70,7 @@ import XCTest
 ///   it needs a live terminal surface with selectable content plus
 ///   pasteboard inspection; XCUITest cannot make a Ghostty selection
 ///   deterministically. Behaviorally tested here only at the
-///   Settings-row level (subtitle flips on/off).
+///   Settings-row level (toggle value, fixed subtitle).
 ///
 /// TIER 2 (needs runtime seam): Hibernate After Idle Seconds
 ///   (`terminal.agentHibernation.idleSeconds`) and Max Live Agent
@@ -96,7 +94,7 @@ import XCTest
 ///   deterministically. The closest e2e proof would be a relaunch test
 ///   with pre-seeded restorable agent sessions, which is out of scope
 ///   here. Behaviorally tested here only at the Settings-row level
-///   (subtitle flips on/off).
+///   (toggle value, fixed subtitle).
 final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
 
     /// UserDefaults keys (debug suite) backing the Terminal section.
@@ -134,7 +132,7 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
     /// Opens Settings and navigates to the TextBox section.
     private func openTextBoxSettings(_ app: XCUIApplication) -> XCUIElement {
         let window = openSettings(app)
-        navigate(window, to: "TextBox (Beta)")
+        navigate(window, to: "TextBox")
         return window
     }
 
@@ -150,188 +148,107 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
         return poll(timeout: timeout) { element.exists }
     }
 
-    // Distinctive substrings of the on/off description sentences. These
-    // mirror the localized defaultValue strings in the live Terminal
-    // section and are stable enough to disambiguate the two states.
+    // Distinctive substrings of the fixed description sentences. These
+    // mirror the localized defaultValue strings in the live Terminal and
+    // TextBox sections.
     private enum Subtitle {
-        static let scrollBarOn = "Shows the right-edge terminal scroll bar"
-        static let scrollBarOff = "Hides the right-edge terminal scroll bar"
-        static let copyOn = "Selected terminal text is also copied to the system clipboard"
-        static let copyOff = "cmux does not add system-clipboard copy on selection"
-        static let resumeOn = "automatically run their resume command"
-        static let resumeOff = "stay idle until you resume them manually"
-        static let hibernateOn = "Idle background agent terminals can be suspended"
-        static let hibernateOff = "Scheduled hibernation is off"
-        static let showTextBoxOn = "open with the TextBox visible"
-        static let showTextBoxOff = "start with the TextBox hidden"
-        static let focusTextBoxOn = "put keyboard focus in the TextBox"
-        static let focusTextBoxOff = "keep keyboard focus in the terminal surface"
+        static let scrollBar = "Shows a scroll bar in terminals"
+        static let copy = "Selecting text in a terminal copies it to the clipboard"
+        static let resume = "Reopening cmux resumes agent sessions automatically"
+        static let hibernate = "Hibernates idle background agent terminals"
+        static let showTextBox = "Opening a terminal tab, split, or workspace shows the TextBox"
+        static let focusTextBox = "Opening a terminal tab, split, or workspace puts keyboard focus in the TextBox"
     }
 
-    // MARK: - TIER 1: bound description flips with the setting
+    // MARK: - TIER 1: toggle value tracks the setting under a fixed subtitle
 
-    /// Show Terminal Scroll Bar defaults ON, so the description starts in
-    /// its "on" sentence; toggling the control flips the bound subtitle
-    /// to the "off" sentence and back. This proves the toggle change
-    /// propagates through the live settings model that drives the row's
-    /// description, not just the control's reported value.
-    func testScrollBarToggleFlipsBoundDescription() {
-        let app = makeLaunchedApp()
-        let window = openTerminalSettings(app)
-
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.scrollBarOn),
-            "Scroll bar row should start with the on-state description (default true)"
+    /// Show Terminal Scroll Bar defaults ON.
+    func testScrollBarToggleKeepsFixedSubtitle() {
+        assertToggleFlipsWithFixedSubtitle(
+            id: "SettingsTerminalScrollBarToggle", subtitle: Subtitle.scrollBar,
+            defaultOn: true, open: openTerminalSettings
         )
-
-        let control = toggle(window, id: "SettingsTerminalScrollBarToggle")
-        control.click()
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.scrollBarOff),
-            "After turning the scroll bar off the description should switch to the off sentence"
-        )
-
-        control.click()
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.scrollBarOn),
-            "Turning the scroll bar back on should restore the on sentence"
-        )
-
-        closeSettings(app, window)
     }
 
-    /// Copy on Selection defaults OFF; toggling on switches the bound
-    /// description to the clipboard-copy sentence and back.
-    func testCopyOnSelectToggleFlipsBoundDescription() {
-        let app = makeLaunchedApp()
-        let window = openTerminalSettings(app)
-
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.copyOff),
-            "Copy-on-select row should start with the off-state description (default false)"
+    /// Copy on Selection defaults OFF.
+    func testCopyOnSelectToggleKeepsFixedSubtitle() {
+        assertToggleFlipsWithFixedSubtitle(
+            id: "SettingsTerminalCopyOnSelectToggle", subtitle: Subtitle.copy,
+            defaultOn: false, open: openTerminalSettings
         )
-
-        let control = toggle(window, id: "SettingsTerminalCopyOnSelectToggle")
-        control.click()
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.copyOn),
-            "Enabling copy-on-select should switch the description to the clipboard-copy sentence"
-        )
-
-        control.click()
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.copyOff),
-            "Disabling copy-on-select should restore the off sentence"
-        )
-
-        closeSettings(app, window)
     }
 
-    /// Resume Agent Sessions defaults ON; toggling flips the bound
-    /// description between the auto-resume and stay-idle sentences. (The
-    /// actual reopen behavior is TIER 3 — see file header.)
-    func testAutoResumeToggleFlipsBoundDescription() {
-        let app = makeLaunchedApp()
-        let window = openTerminalSettings(app)
-
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.resumeOn),
-            "Auto-resume row should start with the on-state description (default true)"
+    /// Resume Agent Sessions defaults ON. (The actual reopen behavior is
+    /// TIER 3; see file header.)
+    func testAutoResumeToggleKeepsFixedSubtitle() {
+        assertToggleFlipsWithFixedSubtitle(
+            id: "SettingsTerminalAgentAutoResumeToggle", subtitle: Subtitle.resume,
+            defaultOn: true, open: openTerminalSettings
         )
-
-        let control = toggle(window, id: "SettingsTerminalAgentAutoResumeToggle")
-        control.click()
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.resumeOff),
-            "Disabling auto-resume should switch the description to the stay-idle sentence"
-        )
-
-        control.click()
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.resumeOn),
-            "Re-enabling auto-resume should restore the auto-run sentence"
-        )
-
-        closeSettings(app, window)
     }
 
-    /// Agent Hibernation defaults OFF; toggling on switches the bound
-    /// description to the suspend sentence and back. (Actual hibernation
-    /// is TIER 2 — see file header.)
-    func testAgentHibernationToggleFlipsBoundDescription() {
-        let app = makeLaunchedApp()
-        let window = openTerminalSettings(app)
-
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.hibernateOff),
-            "Hibernation row should start with the off-state description (default false)"
+    /// Agent Hibernation defaults OFF. (Actual hibernation is TIER 2; see
+    /// file header.)
+    func testAgentHibernationToggleKeepsFixedSubtitle() {
+        assertToggleFlipsWithFixedSubtitle(
+            id: "SettingsTerminalAgentHibernationToggle", subtitle: Subtitle.hibernate,
+            defaultOn: false, open: openTerminalSettings
         )
-
-        let control = toggle(window, id: "SettingsTerminalAgentHibernationToggle")
-        control.click()
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.hibernateOn),
-            "Enabling hibernation should switch the description to the suspend sentence"
-        )
-
-        control.click()
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.hibernateOff),
-            "Disabling scheduled hibernation should restore the critical-pressure disclosure"
-        )
-
-        closeSettings(app, window)
     }
 
-    /// Show TextBox on New Terminals defaults OFF; toggling on switches
-    /// the bound description to the visible-on-new-terminals sentence and back.
-    func testShowTextBoxOnNewTerminalsToggleFlipsBoundDescription() {
-        let app = makeLaunchedApp()
-        let window = openTextBoxSettings(app)
-
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.showTextBoxOff),
-            "Show TextBox row should start with the off-state description (default false)"
+    /// Show TextBox on New Terminals defaults OFF.
+    func testShowTextBoxOnNewTerminalsToggleKeepsFixedSubtitle() {
+        assertToggleFlipsWithFixedSubtitle(
+            id: "SettingsTextBoxShowOnNewTerminalsToggle", subtitle: Subtitle.showTextBox,
+            defaultOn: false, open: openTextBoxSettings
         )
-
-        let control = toggle(window, id: "SettingsTextBoxShowOnNewTerminalsToggle")
-        control.click()
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.showTextBoxOn),
-            "Enabling show TextBox should switch the description to the visible sentence"
-        )
-
-        control.click()
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.showTextBoxOff),
-            "Disabling show TextBox should restore the hidden sentence"
-        )
-
-        closeSettings(app, window)
     }
 
-    /// Focus TextBox on New Terminals defaults OFF; toggling on switches
-    /// the bound description to the focus-TextBox sentence and back.
-    func testFocusTextBoxOnNewTerminalsToggleFlipsBoundDescription() {
+    /// Focus TextBox on New Terminals defaults OFF.
+    func testFocusTextBoxOnNewTerminalsToggleKeepsFixedSubtitle() {
+        assertToggleFlipsWithFixedSubtitle(
+            id: "SettingsTextBoxFocusOnNewTerminalsToggle", subtitle: Subtitle.focusTextBox,
+            defaultOn: false, open: openTextBoxSettings
+        )
+    }
+
+    /// Shared driver: the toggle starts at `defaultOn`, flips after one
+    /// click, flips back after a second click, and the row shows the same
+    /// subtitle in every state.
+    private func assertToggleFlipsWithFixedSubtitle(
+        id: String,
+        subtitle: String,
+        defaultOn: Bool,
+        open: (XCUIApplication) -> XCUIElement
+    ) {
         let app = makeLaunchedApp()
-        let window = openTextBoxSettings(app)
+        let window = open(app)
 
         XCTAssertTrue(
-            waitForStaticText(window, Subtitle.focusTextBoxOff),
-            "Focus TextBox row should start with the off-state description (default false)"
+            waitForStaticText(window, subtitle),
+            "\(id): subtitle should be shown at the default value"
         )
-
-        let control = toggle(window, id: "SettingsTextBoxFocusOnNewTerminalsToggle")
-        control.click()
-        XCTAssertTrue(
-            waitForStaticText(window, Subtitle.focusTextBoxOn),
-            "Enabling focus TextBox should switch the description to the focus sentence"
-        )
+        let control = toggle(window, id: id)
+        XCTAssertEqual(isOn(control), defaultOn, "\(id): toggle should start at its default")
 
         control.click()
         XCTAssertTrue(
-            waitForStaticText(window, Subtitle.focusTextBoxOff),
-            "Disabling focus TextBox should restore the terminal-focus sentence"
+            poll(timeout: 4.0) { self.isOn(control) != defaultOn },
+            "\(id): toggle should flip after one click"
+        )
+        XCTAssertTrue(
+            staticTextContaining(window, subtitle).exists,
+            "\(id): the same subtitle should be shown after the toggle flips"
+        )
+
+        control.click()
+        XCTAssertTrue(
+            poll(timeout: 4.0) { self.isOn(control) == defaultOn },
+            "\(id): toggle should return to its default after a second click"
+        )
+        XCTAssertTrue(
+            staticTextContaining(window, subtitle).exists,
+            "\(id): the same subtitle should be shown after the toggle flips back"
         )
 
         closeSettings(app, window)

@@ -30,8 +30,7 @@ impl ForwardConnections {
 
     async fn shutdown(&self) {
         let mut tasks = self.tasks.lock().await;
-        tasks.abort_all();
-        while tasks.join_next().await.is_some() {}
+        tasks.shutdown().await;
     }
 
     fn abort_all(&self) {
@@ -205,21 +204,20 @@ pub async fn serve_mux_bridge(
             }
         }
     }
-    connections.abort_all();
-    while connections.join_next().await.is_some() {}
+    connections.shutdown().await;
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
-struct ServiceOpenFeatures {
-    mux_input_v1: bool,
+pub(crate) struct ServiceOpenFeatures {
+    pub(crate) mux_input_v1: bool,
 }
 
-struct OpenedStream {
-    features: ServiceOpenFeatures,
-    buffered: VecDeque<crate::service::StreamChunk>,
+pub(crate) struct OpenedStream {
+    pub(crate) features: ServiceOpenFeatures,
+    pub(crate) buffered: VecDeque<crate::service::StreamChunk>,
 }
 
-async fn await_opened(stream: &ServiceStream) -> Result<OpenedStream, BridgeError> {
+pub(crate) async fn await_opened(stream: &ServiceStream) -> Result<OpenedStream, BridgeError> {
     if stream.service() != Service::MuxControl {
         let chunk = stream.receive().await?.ok_or(BridgeError::Rejected("stream closed".into()))?;
         return Ok(OpenedStream {

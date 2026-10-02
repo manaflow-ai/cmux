@@ -313,7 +313,7 @@ struct KeyboardShortcutContextSwiftTests {
                     notifications: notifications
                 )
                 #expect(updated.count == notifications.count)
-                #expect(updated.allSatisfy(\.isRead))
+                #expect(updated.allSatisfy { notification in notification.isRead })
             }
         }
     }

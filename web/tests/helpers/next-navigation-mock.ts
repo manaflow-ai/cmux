@@ -13,6 +13,10 @@ export function createNextNavigationMock(redirect: Redirect) {
   return {
     redirect,
     permanentRedirect: redirect,
+    // Mirrors Next: a thrown redirect propagates through catch blocks.
+    unstable_rethrow: (error: unknown) => {
+      if (error instanceof Error && error.message.startsWith("redirect:")) throw error;
+    },
     notFound: () => {
       throw new Error("notFound");
     },

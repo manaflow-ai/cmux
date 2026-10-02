@@ -1,11 +1,13 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589. */
+/* cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298. */
 
 
 import type * as T from "./types.js";
 
 /** Protocol v11; emission: emitted; streams: subscribe. */
 export type AgentChangedEvent = { event: "agent-changed" } & {
+  /** Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified. */
+  "agent"?: (string) | null;
   "session": (string) | null;
   "source": T.AgentSource;
   "state": T.AgentState;
@@ -63,6 +65,7 @@ export type ColorsChangedEvent = { event: "colors-changed" } & {
   "cursor_blink"?: (boolean) | null;
   "cursor_style"?: (T.CursorStyle) | null;
   "fg": (T.ColorHex) | null;
+  "overrides"?: T.TerminalColorOverrides;
   "palette"?: Record<string, T.ColorHex>;
   "selection_bg": (T.ColorHex) | null;
   "selection_fg": (T.ColorHex) | null;
@@ -73,9 +76,17 @@ export type ColorsChangedEvent = { event: "colors-changed" } & {
 export type ConfigReloadRequestedEvent = { event: "config-reload-requested" } & {
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
+};
+
 /** Protocol v5; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
 export type DetachedEvent = { event: "detached" } & {
+  "by"?: T.SizeDetachActor;
+  "reason"?: T.DetachReason;
+  "scope"?: string;
   "surface": T.Id;
+  "view"?: string;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -116,6 +127,11 @@ export type GraphicsStatusEvent = { event: "graphics-status" } & {
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type LayoutChangedEvent = { event: "layout-changed" } & {
   "screen": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type MachineUsageChangedEvent = { event: "machine-usage-changed" } & {
+  "usage": (T.MachineUsage) | null;
 };
 
 /** Protocol v6; emission: emitted; streams: subscribe, attach-byte, attach-browser. */
@@ -242,6 +258,13 @@ export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "surface": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe, attach-byte, attach-render. */
+export type SizeStateEvent = { event: "size-state" } & {
+  "self_participant"?: string;
+  "state": T.SizeState;
+  "surface": T.Id;
+};
+
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type StatusEvent = { event: "status" } & {
   "message": string;
@@ -320,6 +343,13 @@ export type TitleChangedEvent = { event: "title-changed" } & {
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type TreeChangedEvent = { event: "tree-changed" } & {
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type UrlOpenEvent = { event: "url-open" } & {
+  "request_id": string;
+  "terminal_id": string;
+  "url": string;
 };
 
 /** Protocol v5; emission: emitted; streams: attach-byte. */
@@ -401,12 +431,14 @@ export type KnownCmuxEvent =
   | ClientDetachedEvent
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
+  | DaemonShutdownEvent
   | DetachedEvent
   | EmptyEvent
   | FrameEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | LayoutChangedEvent
+  | MachineUsageChangedEvent
   | NotificationEvent
   | OutputEvent
   | OverflowEvent
@@ -421,6 +453,7 @@ export type KnownCmuxEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
@@ -432,6 +465,7 @@ export type KnownCmuxEvent =
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
   | TreeChangedEvent
+  | UrlOpenEvent
   | VtStateEvent
   | WindowTitleRequestedEvent
   | WorkspaceAddedEvent
@@ -455,6 +489,7 @@ export type KnownSubscribeEvent =
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | LayoutChangedEvent
+  | MachineUsageChangedEvent
   | NotificationEvent
   | OverflowEvent
   | PairingRequestedEvent
@@ -465,6 +500,7 @@ export type KnownSubscribeEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
@@ -510,6 +546,7 @@ export type KnownAttachEvent =
   | RenderStateEvent
   | ResizedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | VtStateEvent;
 
 /** Known byte attach events. */
@@ -521,6 +558,7 @@ export type KnownByteAttachEvent =
   | OverflowEvent
   | ResizedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | VtStateEvent;
 
 /** Known render attach events. */
@@ -529,7 +567,8 @@ export type KnownRenderAttachEvent =
   | OverflowEvent
   | RenderDeltaEvent
   | RenderStateEvent
-  | ScrollChangedEvent;
+  | ScrollChangedEvent
+  | SizeStateEvent;
 
 /** Known browser attach events. */
 export type KnownBrowserAttachEvent =

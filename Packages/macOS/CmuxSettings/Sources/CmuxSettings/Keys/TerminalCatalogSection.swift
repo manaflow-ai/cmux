@@ -43,13 +43,106 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.copyOnSelect"
     )
 
+    /// Whether copy also rejoins lines an application hard-wrapped to the
+    /// terminal width. Off by default. Soft-wrapped rows Ghostty marks with
+    /// the row wrap flag are always joined, regardless of this key.
+    public let reflowHardWrapOnCopy = DefaultsKey<Bool>(
+        id: "terminal.reflowHardWrapOnCopy",
+        defaultValue: false,
+        userDefaultsKey: "terminal.reflowHardWrapOnCopy"
+    )
+
+    /// Whether a paste Ghostty flags as unsafe asks for confirmation in a
+    /// sheet on the terminal's window. Off by default: cmux has always
+    /// approved these pastes without asking. Ghostty's
+    /// `clipboard-paste-protection` decides which pastes are unsafe.
+    public let confirmUnsafePaste = DefaultsKey<Bool>(
+        id: "terminal.confirmUnsafePaste",
+        defaultValue: false,
+        userDefaultsKey: "terminal.confirmUnsafePaste"
+    )
+
+    /// Whether macOS text-editing gestures are replayed as their line-editor
+    /// equivalents: Command and Option arrow motion, and the Command and Option
+    /// deletion chords. Off by default, because the mode claims chords the
+    /// running application would otherwise receive.
+    public let textEditingGestures = DefaultsKey<Bool>(
+        id: "terminal.textEditingGestures",
+        defaultValue: false,
+        userDefaultsKey: "terminal.textEditingGestures"
+    )
+
+    /// Whether text-editing gestures use the browser-style layout: Command
+    /// moves and deletes by word like Option, and Control+Left/Right move to
+    /// the line start and end. Only consulted while ``textEditingGestures`` is
+    /// on. Off by default, which keeps the macOS text-field convention of
+    /// Command for lines and Option for words.
+    public let textEditingCommandMovesByWord = DefaultsKey<Bool>(
+        id: "terminal.textEditingCommandMovesByWord",
+        defaultValue: false,
+        userDefaultsKey: "terminal.textEditingCommandMovesByWord"
+    )
+
+    /// Whether text-editing gestures stay active while a full-screen
+    /// application has the terminal on the alternate screen. Off by default,
+    /// so vim, less and htop get keys as if gestures were off (Ghostty's own
+    /// key bindings still apply). tmux, screen and
+    /// zellij keep the outer terminal on the alternate screen the whole time,
+    /// so people who work inside a multiplexer turn this on to keep gestures
+    /// at the multiplexed shell prompt.
+    public let textEditingGesturesInFullScreenApps = DefaultsKey<Bool>(
+        id: "terminal.textEditingGesturesInFullScreenApps",
+        defaultValue: false,
+        userDefaultsKey: "terminal.textEditingGesturesInFullScreenApps"
+    )
+
     /// Whether cmux supplies its appearance-adaptive managed palette for an
-    /// untouched Ghostty config. Default-on preserves cmux's historical fresh
-    /// install behavior; any Ghostty directive suppresses the managed palette.
+    /// Ghostty config without authored themes or terminal colors. Font and
+    /// behavior settings preserve the managed palette; it is enabled by default.
     public let adaptiveDefaultTheme = DefaultsKey<Bool>(
         id: "terminal.adaptiveDefaultTheme",
         defaultValue: true,
         userDefaultsKey: "terminal.adaptiveDefaultTheme"
+    )
+
+    /// Predictive local echo: draw typed characters over a terminal whose
+    /// shell runs on another machine before the remote echoes them, and
+    /// withdraw them if the remote disagrees. Only engages at a shell prompt
+    /// on a link slow enough to notice, never in a full-screen application,
+    /// never in a local terminal, and never until the remote has been seen
+    /// echoing, so a password prompt displays nothing. On by default.
+    ///
+    /// Stored under its former Beta Features key, so a choice made while it
+    /// was a beta carries over.
+    public let predictiveLocalEcho = DefaultsKey<Bool>(
+        id: "terminal.predictiveLocalEcho",
+        defaultValue: true,
+        userDefaultsKey: "terminal.beta.predictedEcho.enabled"
+    )
+
+    /// Whether cmux shows a lock badge in the terminal chrome while the
+    /// foreground program has turned echo off for a password prompt. On by
+    /// default. The badge is drawn by cmux and never touches terminal text.
+    public let showPasswordInputIndicator = DefaultsKey<Bool>(
+        id: "terminal.showPasswordInputIndicator",
+        defaultValue: true,
+        userDefaultsKey: "terminal.showPasswordInputIndicator"
+    )
+
+    /// Whether the password input badge also shows one dot per typed
+    /// character. Off by default. Only a count is kept, never the characters.
+    public let showPasswordInputDots = DefaultsKey<Bool>(
+        id: "terminal.showPasswordInputDots",
+        defaultValue: false,
+        userDefaultsKey: "terminal.showPasswordInputDots"
+    )
+
+    /// Whether cmux shows a "Jump to Bottom" button in a terminal pane while
+    /// its viewport is scrolled up into scrollback. On by default.
+    public let showJumpToBottomButton = DefaultsKey<Bool>(
+        id: "terminal.showJumpToBottomButton",
+        defaultValue: true,
+        userDefaultsKey: "terminal.showJumpToBottomButton"
     )
 
     public let autoResumeAgentSessions = DefaultsKey<Bool>(
@@ -179,10 +272,10 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// Whether the per-pane runaway-memory guardrail is active. When on, cmux
     /// polls each pane's process-tree memory and warns (badge + dismissible
     /// banner with a kill action) when one crosses the threshold, before the OS
-    /// can OOM-suspend the whole app. On by default.
+    /// can OOM-suspend the whole app. Off by default.
     public let runawayMemoryGuardrailEnabled = DefaultsKey<Bool>(
         id: "terminal.runawayMemoryGuardrail.enabled",
-        defaultValue: true,
+        defaultValue: false,
         userDefaultsKey: "terminal.runawayMemoryGuardrail.enabled"
     )
 

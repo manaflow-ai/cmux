@@ -77,6 +77,7 @@ extension TerminalController {
                 resumeBinding: controlResumeBinding(
                     from: dock.surfaceResumeBinding(panelId: panel.id)
                 ),
+                renderHealthRawValue: terminal?.surface.renderHealth.rawValue,
                 dockScopeRawValue: dock.scope.rawValue
             )
         }

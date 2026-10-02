@@ -4,6 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::OnceLock;
 
+use crate::{PaneId, ScreenId, SplitId, SurfaceId, WorkspaceId};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -356,6 +357,10 @@ pub enum ResourceOperation {
     NotificationList,
     #[serde(rename = "notification.create")]
     NotificationCreate,
+    #[serde(rename = "notification.ack")]
+    NotificationAck,
+    #[serde(rename = "notification.clear")]
+    NotificationClear,
     #[serde(rename = "agent.list")]
     AgentList,
     #[serde(rename = "agent.report")]
@@ -378,7 +383,6 @@ pub enum ResourceOperation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-
 pub enum OperationClass {
     Read,
     Mutation,
@@ -632,6 +636,8 @@ impl ResourceOperation {
             Self::BrowserClose => "browser.close",
             Self::NotificationList => "notification.list",
             Self::NotificationCreate => "notification.create",
+            Self::NotificationAck => "notification.ack",
+            Self::NotificationClear => "notification.clear",
             Self::AgentList => "agent.list",
             Self::AgentReport => "agent.report",
             Self::SidebarViewGet => "sidebar_view.get",
@@ -1561,23 +1567,23 @@ impl ResourceJournal {
 
 #[derive(Debug, Default, Clone)]
 pub struct PublicSlotIndexes {
-    pub workspaces: HashMap<WorkspacePublicId, crate::WorkspaceId>,
-    pub screens: HashMap<ScreenPublicId, crate::ScreenId>,
-    pub panes: HashMap<PanePublicId, crate::PaneId>,
-    pub tabs: HashMap<TabPublicId, crate::SurfaceId>,
+    pub workspaces: HashMap<WorkspacePublicId, WorkspaceId>,
+    pub screens: HashMap<ScreenPublicId, ScreenId>,
+    pub panes: HashMap<PanePublicId, PaneId>,
+    pub tabs: HashMap<TabPublicId, SurfaceId>,
     /// Every view placement of a content resource. Terminal content may have
     /// any number of placements; browser content currently has one.
-    pub content_placements: HashMap<ContentPublicId, Vec<crate::SurfaceId>>,
-    pub workspace_ids: HashMap<crate::WorkspaceId, WorkspacePublicId>,
-    pub screen_ids: HashMap<crate::ScreenId, ScreenPublicId>,
-    pub pane_ids: HashMap<crate::PaneId, PanePublicId>,
-    pub tab_ids: HashMap<crate::SurfaceId, TabPublicId>,
-    pub content_ids: HashMap<crate::SurfaceId, ContentPublicId>,
-    pub splits: HashMap<SplitPublicId, crate::SplitId>,
-    pub split_ids: HashMap<crate::SplitId, SplitPublicId>,
-    pub screen_workspace: HashMap<crate::ScreenId, crate::WorkspaceId>,
-    pub pane_screen: HashMap<crate::PaneId, crate::ScreenId>,
-    pub tab_pane: HashMap<crate::SurfaceId, crate::PaneId>,
+    pub content_placements: HashMap<ContentPublicId, Vec<SurfaceId>>,
+    pub workspace_ids: HashMap<WorkspaceId, WorkspacePublicId>,
+    pub screen_ids: HashMap<ScreenId, ScreenPublicId>,
+    pub pane_ids: HashMap<PaneId, PanePublicId>,
+    pub tab_ids: HashMap<SurfaceId, TabPublicId>,
+    pub content_ids: HashMap<SurfaceId, ContentPublicId>,
+    pub splits: HashMap<SplitPublicId, SplitId>,
+    pub split_ids: HashMap<SplitId, SplitPublicId>,
+    pub screen_workspace: HashMap<ScreenId, WorkspaceId>,
+    pub pane_screen: HashMap<PaneId, ScreenId>,
+    pub tab_pane: HashMap<SurfaceId, PaneId>,
 }
 
 #[cfg(test)]

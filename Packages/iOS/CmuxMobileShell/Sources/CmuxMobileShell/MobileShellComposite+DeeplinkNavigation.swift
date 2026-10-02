@@ -13,6 +13,9 @@ public import Foundation
 public enum DeeplinkWorkspaceNavigationOrigin: Equatable, Sendable {
     case external
     case notificationFeed
+    /// Opened from a Feed row: push inside the Feed tab so Back returns to
+    /// the Feed, as a Notifications row returns to Notifications.
+    case agentFeed
 }
 
 public struct DeeplinkWorkspaceNavigationRequest: Equatable, Sendable {
@@ -137,6 +140,37 @@ extension CMUXMobileShellStore {
     /// a global search could resolve a sibling's retained snapshot and route
     /// terminal commands to the wrong build's workspace id.
     func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
+        // Demonstration surfaces resolve to their demo-owned row regardless
+        // of the foreground pairing: the demo Mac is never foreground, and
+        // this resolver gates the terminal view's OUTPUT-START viewport
+        // preparation — a nil here keeps the mounted canvas blank forever.
+        // Surface ids are unique by construction (cmux-demo- prefixed), so
+        // the sibling-build ambiguity this scoping defends against cannot
+        // involve a demo surface.
+        if MobileSSHIdentifier(terminalID).isSSH {
+            return sshWorkspaceID(forTerminalID: terminalID)
+        }
+        if MobileDemoContentCatalog.ownsIdentifier(terminalID) {
+            // Self-heal first: a teardown can remove the seeded rows under a
+            // still-presented detail, and this resolver must keep answering
+            // for the remount to paint.
+            _ = demonstrationSessionForInteraction()
+            return workspaces.first { row in
+                demonstrationOwnsMac(
+                    deviceID: row.macDeviceID,
+                    instanceTag: row.macInstanceTag
+                ) && row.terminals.contains { $0.id.rawValue == terminalID }
+            }?.id
+        }
+        // An external host's surfaces resolve to that host's row whichever
+        // Mac is in the foreground. Their ids are namespaced by construction,
+        // so the sibling-build ambiguity the scoping below defends against
+        // cannot arise, and the Mac-scoped lookups never match them.
+        if externalHostOwnsSurface(terminalID) {
+            return workspaces.first { row in
+                row.terminals.contains { $0.id.rawValue == terminalID }
+            }?.id
+        }
         guard let foregroundMacDeviceID else {
             return workspaceID(forTerminalID: terminalID, macDeviceID: nil)
         }

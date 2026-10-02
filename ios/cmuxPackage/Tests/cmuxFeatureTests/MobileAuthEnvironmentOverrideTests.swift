@@ -92,6 +92,31 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(composition.authEnvironment == .production)
     }
 
+    @Test func cloudUsesRemoteOriginWhenGeneralDevelopmentOriginIsLoopback() {
+        #expect(MobileAuthComposition.cloudAPIBaseURL(
+            authEnvironment: .development,
+            configuredBaseURL: "http://localhost:9660"
+        ) == "https://cmux-staging.vercel.app")
+        #expect(MobileAuthComposition.cloudAPIBaseURL(
+            authEnvironment: .development,
+            configuredBaseURL: "http://127.0.0.1:3000"
+        ) == "https://cmux-staging.vercel.app")
+    }
+
+    @Test func cloudKeepsExplicitRemoteDevelopmentOrigin() {
+        #expect(MobileAuthComposition.cloudAPIBaseURL(
+            authEnvironment: .development,
+            configuredBaseURL: "https://dev-api.example.test"
+        ) == "https://dev-api.example.test")
+    }
+
+    @Test func cloudPinsProductionToProductionOrigin() {
+        #expect(MobileAuthComposition.cloudAPIBaseURL(
+            authEnvironment: .production,
+            configuredBaseURL: "http://localhost:3000"
+        ) == "https://cmux.com")
+    }
+
     // MARK: - Pure environment resolution
 
     @Test func overrideWinsOverBuildDefaultInBothDirections() {
@@ -102,7 +127,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(MobileAuthComposition.resolvedAuthEnvironment(
             isDevelopmentBuild: false,
             overrides: ["AuthEnvironment": "development"]
-        ) == .development)
+        ) == .production)
     }
 
     @Test func overrideIsCaseInsensitiveAndTrimmed() {
@@ -184,6 +209,27 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         )
 
         #expect(overrides["ApiBaseURL"] == "http://localhost:8123")
+    }
+
+    @Test func productionBuildCannotKeepDevelopmentAuthOrAPIOverrides() {
+        let resolved = MobileAuthComposition.resolvedAuthEnvironment(
+            isDevelopmentBuild: false,
+            overrides: [
+                "AuthEnvironment": "development",
+                "ApiBaseURL": "https://cmux-staging.vercel.app",
+            ]
+        )
+        #expect(resolved == .production)
+
+        let safe = MobileAuthComposition.productionSafeOverrides(
+            [
+                "AuthEnvironment": "development",
+                "ApiBaseURL": "https://cmux-staging.vercel.app",
+            ],
+            authEnvironment: resolved
+        )
+        #expect(safe["AuthEnvironment"] == "production")
+        #expect(safe["ApiBaseURL"] == "https://cmux.com")
     }
 
     // MARK: - Dev sign-in shortcut gating
@@ -386,14 +432,44 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         ) == PresenceClient.debugDefaultServiceURL)
     }
 
-    @Test func explicitPresenceOverrideStillBeatsChannelDefault() throws {
-        // Per-developer isolated workers keep working with --prod-auth.
+    @Test func productionAuthChannelIgnoresPresenceOverride() throws {
+        // A production-auth build must reach the production worker even when a
+        // stale env, defaults, or baked override names a staging worker (#11524).
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [PresenceClient.serviceURLEnvKey: "https://cmux-presence-dev-alice.acct.workers.dev"],
+            defaults: try freshDefaults(),
+            infoPlistValue: "https://cmux-presence-dev-alice.acct.workers.dev",
+            isDebugBuild: true,
+            isDevelopmentAuthChannel: false
+        ) == PresenceClient.productionServiceURL)
+    }
+
+    @Test func explicitPresenceOverrideStillBeatsDevelopmentChannelDefault() throws {
+        // Per-developer isolated workers keep working on development auth.
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [PresenceClient.serviceURLEnvKey: "https://cmux-presence-dev-alice.acct.workers.dev"],
+            defaults: try freshDefaults(),
+            infoPlistValue: nil,
+            isDebugBuild: true,
+            isDevelopmentAuthChannel: true
+        ) == "https://cmux-presence-dev-alice.acct.workers.dev")
+    }
+
+    @Test func productionPresenceCannotUseAStaleStagingOverride() throws {
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [PresenceClient.serviceURLEnvKey: "https://cmux-presence-dev-alice.acct.workers.dev"],
+            defaults: try freshDefaults(),
+            infoPlistValue: "https://cmux-presence-dev-bob.acct.workers.dev",
+            isDebugBuild: false,
+            isDevelopmentAuthChannel: nil
+        ) == PresenceClient.productionServiceURL)
+
         #expect(PresenceClient.resolvedServiceBaseURL(
             environment: [PresenceClient.serviceURLEnvKey: "https://cmux-presence-dev-alice.acct.workers.dev"],
             defaults: try freshDefaults(),
             infoPlistValue: nil,
             isDebugBuild: true,
             isDevelopmentAuthChannel: false
-        ) == "https://cmux-presence-dev-alice.acct.workers.dev")
+        ) == PresenceClient.productionServiceURL)
     }
 }

@@ -1,10 +1,14 @@
 import XCTest
 import AppKit
+import Darwin
 import SwiftUI
+import Testing
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
+import CmuxCloud
+import CmuxSettings
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -34,6 +38,47 @@ private final class NotificationHookEvaluationResultBox: @unchecked Sendable {
     }
 }
 
+@Suite("Notification hook process isolation")
+struct NotificationHookProcessIsolationTests {
+    @Test
+    func hookDoesNotInheritUnrelatedParentFileDescriptor() async throws {
+        var unrelatedPipe = [Int32](repeating: -1, count: 2)
+        try #require(Darwin.pipe(&unrelatedPipe) == 0)
+        defer {
+            for descriptor in unrelatedPipe where descriptor >= 0 {
+                Darwin.close(descriptor)
+            }
+        }
+        let unrelatedDescriptor = try #require(unrelatedPipe.first)
+        try #require(unrelatedDescriptor > STDERR_FILENO)
+
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Title",
+            subtitle: "",
+            body: "Body",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "descriptor-isolation",
+            command: "if [ -e /dev/fd/\(unrelatedDescriptor) ]; then printf '{\"notification\":{\"body\":\"inherited\"}}'; else cat; fi",
+            timeoutSeconds: 5,
+            sourcePath: "/tmp/cmux.json",
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let result = await TerminalNotificationPolicyEngine.evaluate(
+            request: request,
+            hooks: [hook]
+        )
+        let envelope = try result.get()
+        #expect(envelope.notification.body == "Body")
+    }
+}
+
 final class TerminalNotificationPolicyEngineTests: XCTestCase {
     private func evaluate(
         request: TerminalNotificationPolicyRequest,
@@ -43,6 +88,88 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
             request: request,
             hooks: hooks
         )
+    }
+
+    func testHookCancellationKillsADescendantThatOutlivesTheLeader() async throws {
+        // The hook's own shell dies on SIGTERM while the descendant it left behind
+        // ignores it. Reaping the shell at that point would end the run and cancel the
+        // escalation, leaving the descendant running.
+        //
+        // Cancelling the evaluation is what starts the teardown here, rather than the
+        // hook's timeout. The descendant has to exist before there is anything to
+        // prove, and a one second budget can expire on a loaded machine before the
+        // shell is ever scheduled; the test would then fail having tested nothing.
+        // Both paths run the same termination code, so the regression is still
+        // covered. The timeout is only a backstop.
+        let pidPath = NSTemporaryDirectory() + "cmux-hook-teardown-\(UUID().uuidString).pid"
+        defer { try? FileManager.default.removeItem(atPath: pidPath) }
+
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Title",
+            subtitle: "Subtitle",
+            body: "Body",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "teardown",
+            command: "/bin/sh -c 'trap \"\" TERM; echo $$ > \(pidPath); exec /bin/sleep 30' & wait",
+            timeoutSeconds: 60,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let evaluation = Task {
+            await TerminalNotificationPolicyEngine.evaluate(request: request, hooks: [hook])
+        }
+        let recorded = await Self.waitForRecordedPID(atPath: pidPath, within: 20)
+        evaluation.cancel()
+
+        let result = await evaluation.value
+        guard case .failure = result else {
+            XCTFail("a cancelled hook must fail closed")
+            return
+        }
+
+        guard let descendant = recorded else {
+            XCTFail("the descendant never recorded its pid, so this proved nothing")
+            return
+        }
+        let died = Self.waitForExit(descendant, within: 5)
+        if !died { kill(descendant, SIGKILL) }
+        XCTAssertTrue(died, "a descendant that ignores SIGTERM must not survive teardown")
+    }
+
+    private static func recordedPID(atPath path: String) -> pid_t? {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        return pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// The pid the spawned descendant wrote to `path`, waiting up to `seconds` for it
+    /// to appear. A partially written file reads back as nil, so keep polling. Sleeps
+    /// rather than spinning: the evaluation it is waiting on runs on the same pool.
+    private static func waitForRecordedPID(atPath path: String, within seconds: TimeInterval) async -> pid_t? {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if let pid = recordedPID(atPath: path) { return pid }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return recordedPID(atPath: path)
+    }
+
+    /// Whether `pid` is gone within `seconds`. Polled rather than waited on: it is not
+    /// our child, so there is no exit to wait for — the reparented process is reaped by
+    /// launchd and `kill(pid, 0)` starts failing.
+    private static func waitForExit(_ pid: pid_t, within seconds: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if kill(pid, 0) != 0 { return true }
+            usleep(20_000)
+        }
+        return kill(pid, 0) != 0
     }
 
     func testHookCanDisableDesktopAndTransformBody() async throws {
@@ -474,6 +601,84 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
         let envLine = try String(contentsOf: envCapture, encoding: .utf8)
         XCTAssertEqual(envLine, "unset")
     }
+
+    func testPolicyHookOmittingSoundContextInheritsIt() async throws {
+        let context = try XCTUnwrap(
+            NotificationSoundOverrideContext(agentID: "claude", alertType: .turnDone)
+        )
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Done",
+            subtitle: "",
+            body: "Finished",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false,
+            soundContext: context
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "inherit-context",
+            command: #"printf '{"effects":{"desktop":false}}'"#,
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+        let result = await evaluate(request: request, hooks: [hook])
+        XCTAssertEqual(try result.get().context.soundContext, context)
+    }
+
+    func testPolicyHookCannotInjectMismatchedSoundContext() async throws {
+        let context = try XCTUnwrap(
+            NotificationSoundOverrideContext(agentID: "claude", alertType: .turnDone)
+        )
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Done",
+            subtitle: "",
+            body: "Finished",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false,
+            soundContext: context
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "mismatched-context",
+            command: #"printf '{"context":{"soundContext":{"agentID":"codex","alertType":"errorStalled"}}}'"#,
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+        let result = await evaluate(request: request, hooks: [hook])
+        XCTAssertEqual(try result.get().context.soundContext, context)
+    }
+
+    func testPolicyHookCanExplicitlyClearSoundContext() async throws {
+        let context = try XCTUnwrap(
+            NotificationSoundOverrideContext(agentID: "claude", alertType: .errorStalled)
+        )
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Error",
+            subtitle: "",
+            body: "Failed",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false,
+            soundContext: context
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "clear-context",
+            command: #"printf '{"context":{"soundContext":null}}'"#,
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+        let result = await evaluate(request: request, hooks: [hook])
+        XCTAssertNil(try result.get().context.soundContext)
+    }
 }
 
 @MainActor
@@ -904,6 +1109,8 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        AppFocusState.overrideIsFocused = false
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, notification in
             delivered = notification
@@ -915,6 +1122,7 @@ final class NotificationDockBadgeTests: XCTestCase {
             store.resetNotificationDeliveryHandlerForTesting()
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
         }
 
         guard let workspace = manager.selectedWorkspace else {
@@ -1130,7 +1338,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults))
     }
 
-    func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() {
+    func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() async {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -1149,10 +1357,11 @@ final class NotificationDockBadgeTests: XCTestCase {
         defer {
             try? FileManager.default.removeItem(at: stagingDirectory)
         }
-        XCTAssertNotNil(NotificationSoundSettings.sound(
+        let sound = await NotificationSoundSettings.sound(
             defaults: defaults,
             systemSoundStagingDirectory: stagingDirectory
-        ))
+        )
+        XCTAssertNotNil(sound)
         let stagedSoundURL = stagingDirectory.appendingPathComponent(
             NotificationSoundSettings.stagedSystemSoundFileName(for: "Ping"),
             isDirectory: false
@@ -1160,7 +1369,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: stagedSoundURL.path))
     }
 
-    func testNotificationSoundDisablesSystemSoundForNoneAndCustomFile() {
+    func testNotificationSoundDisablesSystemSoundForNoneAndCustomFile() async {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -1172,11 +1381,13 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         defaults.set("none", forKey: NotificationSoundSettings.key)
         XCTAssertFalse(NotificationSoundSettings.usesSystemSound(defaults: defaults))
-        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+        let silentSound = await NotificationSoundSettings.sound(defaults: defaults)
+        XCTAssertNil(silentSound)
 
         defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
         XCTAssertFalse(NotificationSoundSettings.usesSystemSound(defaults: defaults))
-        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+        let missingCustomSound = await NotificationSoundSettings.sound(defaults: defaults)
+        XCTAssertNil(missingCustomSound)
     }
 
     func testNotificationCustomFileURLExpandsTildePath() {
@@ -1217,7 +1428,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
     }
 
-    func testNotificationCustomStagingPreservesSourceFileWithCmuxPrefix() {
+    func testNotificationCustomStagingPreservesSourceFileWithCmuxPrefix() async {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -1256,9 +1467,9 @@ final class NotificationDockBadgeTests: XCTestCase {
         defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
         defaults.set(sourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
 
-        _ = NotificationSoundSettings.sound(defaults: defaults)
+        _ = await NotificationSoundSettings.sound(defaults: defaults)
 
-        guard let stagedName = NotificationSoundSettings.stagedCustomSoundName(defaults: defaults) else {
+        guard let stagedName = await NotificationSoundSettings.stagedCustomSoundName(defaults: defaults) else {
             XCTFail("Expected staged custom sound name")
             return
         }
@@ -1306,7 +1517,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(stagedA.hasSuffix(".caf"))
     }
 
-    func testNotificationCustomPreparationKeepsActiveSourceMetadataSidecar() {
+    func testNotificationCustomPreparationKeepsActiveSourceMetadataSidecar() async {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -1344,7 +1555,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
         defaults.set(sourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
 
-        let prepareResult = NotificationSoundSettings.prepareCustomFileForNotifications(path: sourceURL.path)
+        let prepareResult = await NotificationSoundSettings.prepareCustomFileForNotifications(path: sourceURL.path)
         let stagedName: String
         switch prepareResult {
         case .success(let name):
@@ -1365,7 +1576,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: metadataURL.path))
     }
 
-    func testNotificationCustomSoundReturnsNilWhenPreparationFails() {
+    func testNotificationCustomSoundReturnsNilWhenPreparationFails() async {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -1396,15 +1607,16 @@ final class NotificationDockBadgeTests: XCTestCase {
         defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
         defaults.set(invalidSourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
 
-        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+        let invalidSound = await NotificationSoundSettings.sound(defaults: defaults)
+        XCTAssertNil(invalidSound)
     }
 
-    func testNotificationCustomPreparationReportsMissingFile() {
+    func testNotificationCustomPreparationReportsMissingFile() async {
         let missingPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-missing-\(UUID().uuidString).wav", isDirectory: false)
             .path
 
-        let result = NotificationSoundSettings.prepareCustomFileForNotifications(path: missingPath)
+        let result = await NotificationSoundSettings.prepareCustomFileForNotifications(path: missingPath)
         switch result {
         case .success:
             XCTFail("Expected missing file failure")
@@ -1551,6 +1763,136 @@ final class NotificationDockBadgeTests: XCTestCase {
             ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
             ?? "cmux"
         XCTAssertEqual(output.components(separatedBy: "\n"), [expectedTitle, "Focused subtitle", "Focused body"])
+    }
+
+    /// An agent turn ending in the pane the user is looking at shows the ring;
+    /// it must not also play the "default" sound, which is the system alert.
+    func testFocusedTerminalNotificationPlaysNoSoundByDefault() throws {
+        XCTAssertEqual(try focusedTerminalNotificationSoundEffect(soundWhenFocused: nil), false)
+    }
+
+    func testFocusedTerminalNotificationPlaysSoundWhenOptedIn() throws {
+        XCTAssertEqual(try focusedTerminalNotificationSoundEffect(soundWhenFocused: true), true)
+    }
+
+    /// A banner scheduled for a background pane can reach `willPresent` after
+    /// the user focused that pane; it must present without sound by default.
+    func testPendingBannerForNowFocusedPanePresentsQuietlyByDefault() throws {
+        XCTAssertEqual(try pendingBannerPresentsSound(soundWhenFocused: nil), [false, true])
+    }
+
+    func testPendingBannerForNowFocusedPaneKeepsSoundWhenOptedIn() throws {
+        XCTAssertEqual(try pendingBannerPresentsSound(soundWhenFocused: true), [true, true])
+    }
+
+    /// Returns whether `willPresent` includes `.sound` for a banner that targets
+    /// the focused pane, then for the same banner once the app loses focus.
+    private func pendingBannerPresentsSound(soundWhenFocused: Bool?) throws -> [Bool] {
+        let appDelegate = try XCTUnwrap(AppDelegate.shared, "AppDelegate.shared must be set for this test")
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+        let soundWhenFocusedKey = "notificationSoundWhenFocused"
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalSoundWhenFocused = defaults.object(forKey: soundWhenFocusedKey)
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        if let soundWhenFocused {
+            defaults.set(soundWhenFocused, forKey: soundWhenFocusedKey)
+        } else {
+            defaults.removeObject(forKey: soundWhenFocusedKey)
+        }
+        defer {
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalSoundWhenFocused {
+                defaults.set(originalSoundWhenFocused, forKey: soundWhenFocusedKey)
+            } else {
+                defaults.removeObject(forKey: soundWhenFocusedKey)
+            }
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let content = UNMutableNotificationContent()
+        content.sound = .default
+        content.userInfo = [
+            "tabId": workspace.id.uuidString,
+            "surfaceId": terminalPanel.id.uuidString,
+        ]
+        var presentsSound: [Bool] = []
+        for appFocused in [true, false] {
+            AppFocusState.overrideIsFocused = appFocused
+            let options = appDelegate.foregroundPresentationOptions(for: content)
+            XCTAssertTrue(options.contains(.banner))
+            XCTAssertTrue(options.contains(.list))
+            presentsSound.append(options.contains(.sound))
+        }
+        return presentsSound
+    }
+
+    /// Posts one notification to the focused terminal pane and returns the
+    /// `sound` effect its suppressed local feedback receives.
+    private func focusedTerminalNotificationSoundEffect(soundWhenFocused: Bool?) throws -> Bool? {
+        let appDelegate = try XCTUnwrap(AppDelegate.shared, "AppDelegate.shared must be set for this test")
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+        let soundWhenFocusedKey = "notificationSoundWhenFocused"
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalSoundWhenFocused = defaults.object(forKey: soundWhenFocusedKey)
+
+        var soundEffects: [Bool] = []
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in
+            XCTFail("A focused-pane notification must not use external delivery")
+        }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _, effects in
+            soundEffects.append(effects.sound)
+        }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+        if let soundWhenFocused {
+            defaults.set(soundWhenFocused, forKey: soundWhenFocusedKey)
+        } else {
+            defaults.removeObject(forKey: soundWhenFocusedKey)
+        }
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalSoundWhenFocused {
+                defaults.set(originalSoundWhenFocused, forKey: soundWhenFocusedKey)
+            } else {
+                defaults.removeObject(forKey: soundWhenFocusedKey)
+            }
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            title: "Claude Code",
+            subtitle: "",
+            body: "Turn complete"
+        )
+
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+        XCTAssertEqual(soundEffects.count, 1)
+        return soundEffects.first
     }
 
     func testNotificationAuthorizationStateMappingCoversKnownUNAuthorizationStatuses() {
@@ -1791,6 +2133,52 @@ final class NotificationDockBadgeTests: XCTestCase {
         store.clearNotifications(forTabId: tab)
         XCTAssertEqual(store.unreadCount(forTabId: tab), 0)
         XCTAssertNil(store.latestNotification(forTabId: tab))
+    }
+
+    func testWorkspaceLevelMarkReadKeepsOtherPanesUnread() {
+        let tab = UUID()
+        let surface = UUID()
+        let manualUnreadSurface = UUID()
+        let workspaceLevelNotification = TerminalNotification(
+            id: UUID(),
+            tabId: tab,
+            surfaceId: nil,
+            title: "Workspace level",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: false
+        )
+        let surfaceNotification = TerminalNotification(
+            id: UUID(),
+            tabId: tab,
+            surfaceId: surface,
+            title: "Surface scoped",
+            subtitle: "",
+            body: "",
+            createdAt: Date().addingTimeInterval(-1),
+            isRead: false
+        )
+
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([workspaceLevelNotification, surfaceNotification])
+        store.markWindowDockSurfaceUnread(windowId: tab, surfaceId: manualUnreadSurface)
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: tab, surfaceId: nil))
+        let previousObserver = store.readTargetObserver
+        var readTargets: [NotificationReadTarget] = []
+        store.readTargetObserver = { readTargets.append($0) }
+        defer { store.readTargetObserver = previousObserver }
+
+        store.markWorkspaceLevelNotificationsRead(forTabId: tab)
+
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: tab, surfaceId: nil))
+        // Cloud rows placed at the workspace level follow the same read.
+        XCTAssertEqual(readTargets, [.surface(workspaceID: tab, surfaceID: nil)])
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: tab, surfaceId: surface))
+        XCTAssertTrue(store.hasManualUnread(forTabId: tab, surfaceId: manualUnreadSurface))
+
+        store.clearNotifications(forTabId: tab)
+        store.clearWindowDockSurfaceUnread(windowId: tab, surfaceId: manualUnreadSurface)
     }
 
     func testClearLatestNotificationRemovesOnlyCurrentSidebarPreviewSource() {

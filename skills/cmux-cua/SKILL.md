@@ -1,6 +1,7 @@
 ---
 name: cmux-cua
-description: "Drive real macOS apps from a cmux agent session via the bundled computer-use engine (accessibility tree + screenshot perception, click/type/scroll/drag, branded agent cursor). Use when an agent should see and operate GUI apps on the local Mac, when computer-use tools are missing or failing, or when explaining how to grant permissions, brand the cursor, or focus the driving session."
+disable-model-invocation: true
+description: "Use only after the user explicitly asks for cmux Computer Use through the cmux-cua skill: drive real macOS apps from a cmux agent session via the bundled engine (accessibility tree + screenshots, click/type/scroll/drag, branded cursor), or explain its user-directed permission setup. Reading or discovering this skill is not consent."
 ---
 
 # cmux-cua
@@ -17,6 +18,11 @@ helper has its own TCC identity, so Accessibility and Screen Recording never
 belong to the main cmux app and granting Screen Recording never requires
 restarting cmux. Upstream telemetry and update checks are disabled at runtime.
 
+Do not invoke this skill, start its helper, request permissions, or perform a
+GUI action when the user is only reading, asking about, quoting, or mentioning
+cmux Computer Use. Wait for a direct user request to use cmux Computer Use; missing tools
+or permissions are not a reason to begin setup automatically.
+
 ## How it attaches
 
 - The `cmux-claude-wrapper` and `cmux-codex-wrapper` inject `cmux-cua` as an
@@ -25,8 +31,15 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
   its authenticated approval broker; Claude uses the bundled native-profile
   proxy client. The Codex wrapper additionally passes
   `--codex-computer-use-compat`; the Claude wrapper deliberately does not.
-  No user setup per session — start `claude` or `codex` inside cmux and the
-  corresponding tool profile is there.
+  Attachment availability is not user consent: merely starting an agent or
+  discovering this skill is not a request to use it, and it must not open a
+  permission window or perform GUI work.
+- In Codex sessions launched by cmux, the wrapper disables Codex's native
+  `computer_use` provider. When the user says `$cmux-cua`, use only the
+  namespaced `cmux-cua` MCP tools below. Never substitute Codex's built-in
+  `computer` tool, another CUA connector, or a direct helper launch. If the
+  `cmux-cua` tools are absent or unavailable, report that they are unavailable
+  and stop; do not silently switch providers.
 - `ComputerUseRuntimeService` is the only helper lifecycle owner. It installs
   the nested helper under the tag-scoped
   `~/Library/Application Support/cmux/cmux-cua/helper/<scope>/` directory
@@ -35,18 +48,24 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
   `/tmp/cmux-cua-<uid>/<scope>/cmux-cua.sock`; the Codex compatibility daemon uses
   `cmux-cua-codex.sock` beside it. Both fit Darwin's Unix-socket path limit and share
   the tag-scoped cmux Application Support state directory.
-- The wrappers keep the signed, app-bundled skill discoverable in both agent
-  pickers: each repairs the link in its agent's own root before launching —
-  `~/.claude/skills/cmux-cua` for Claude, `~/.agents/skills/cmux-cua` for
-  Codex (migrating any older cmux-owned `cmux-computer-use` link) — so the
-  picker shows one plain `cmux-cua` entry. Codex falls back to an
-  invocation-scoped `skills.config` entry only when that repair fails; there
-  is deliberately no Claude plugin fallback and no plugin manifest in this
-  directory, because a manifest makes Codex namespace the skill
-  (`cmux-cua:cmux-cua`) and Claude display it plugin-qualified. A user-owned
-  directory or unrelated symlink at that path is never replaced. Set
-  `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0` when a strictly session-local
-  launch is required.
+- Neither wrapper installs global skills or adds skill directories by default.
+  Use the agent's normal skill installer for a persistent user-owned installation.
+  Alternatively, `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1` requests an app-managed
+  global link for that launch (`~/.agents/skills/cmux-cua` for Codex or
+  `~/.claude/skills/cmux-cua` for Claude). Export the flag to retain these links
+  on future launches; they may also appear outside cmux. Unset or `=0` removes
+  only verified app-managed links. Project and user-owned skills take precedence,
+  with no competing global install or automatic fallback. Codex 0.153 does not
+  discover new paths from `skills.config`; no Claude projection or plugin
+  fallback is used. Migration of the canonical and legacy `cmux-computer-use` /
+  `codex-cua` links requires an existing cmux bundle ID, known install/build root,
+  and root/current-user ownership. Unknown or dangling targets, real skill
+  directories, unrelated symlinks, and project paths are preserved.
+  `CMUX_CUA_DIAGNOSTICS=1` identifies preserved paths blocking explicit install
+  and verified managed links retired by the per-launch policy. Historical
+  app-created and manually-created symlinks with identical verified targets
+  cannot be distinguished retroactively; recognized app-bundle links are
+  treated as cmux-managed, while unknown and dangling links are preserved.
 - While Computer Use is enabled, the helper daemon starts quietly at cmux
   startup with its internal permission gate disabled. Starting cmux or an agent
   never requests access or shows onboarding.
@@ -56,9 +75,11 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
   helper to raise an intermediate native prompt. The proxy keeps its
   external-flow flag on so the first driving call waits for both helper grants
   before it is forwarded.
-- Kill switch: set `CMUX_COMPUTER_USE_MCP_DISABLED=1`, or toggle it off in
-  Settings → Computer Use (persists to `~/.config/cmux/cmux.json` and is
-  exported to spawned terminals).
+- An explicit functional `$cmux-cua` request is the opt-in: if the saved
+  Computer Use toggle is off, cmux enables the runtime and opens onboarding
+  automatically. The hard kill switch is `CMUX_COMPUTER_USE_MCP_DISABLED=1`
+  (or managed policy); turning the Settings toggle off only stops automatic
+  helper startup until the next explicit request.
 - Attaches only on cmux-launched, live-socket sessions (same authority bar as
   cmux hooks); hooks-disabled and stale-socket sessions do not attach.
 
@@ -70,8 +91,12 @@ the main cmux app:
 - **Accessibility** — inspect and drive app UI (`AXIsProcessTrusted`).
 - **Screen Recording** — screenshots / vision (`CGPreflightScreenCaptureAccess`).
 
-Onboarding appears on the first real Computer Use tool invocation, not on cmux
-or agent startup. Settings → Computer Use always shows the two authoritative
+When the user has asked for cmux Computer Use through this skill, the first functional tool call from
+a current cmux agent session opens setup automatically if setup is required.
+Opening setup does not grant access: the user still completes each permission
+step. Skill loading, prompt text, MCP discovery, `check_permissions`, cmux
+startup, and agent resume never open setup. Settings → cmux Computer Use also opens
+setup through **Finish Setup…**, **Grant…**, or **Open System Settings** and shows the two authoritative
 permission states; choosing **Grant…** for an ungranted permission opens that
 same permission step and its draggable helper-app recovery path. Each **Allow**
 action opens the matching permanent System Settings pane in one step and stays
@@ -87,13 +112,20 @@ from onboarding's host-authenticated capture probe, onboarding explains it in
 place, and the user must allow it before setup completes. Never "fix" it by
 suppressing the probe; without that consent, agent screenshots on Tahoe fail.
 The consent follows the helper's code signature, so every rebuilt (ad-hoc
-signed) dev helper re-triggers it: cmux invalidates its cached
-direct-capture-ready flag whenever it replaces the installed helper build,
-which re-presents onboarding so the alert always lands with its explanation.
+signed) dev helper can require the direct-capture step again: cmux invalidates
+its cached direct-capture-ready flag whenever it replaces the installed helper
+build. Helper replacement stays quiet until the next functional Computer Use
+request or a deliberate Settings action.
 Do not invoke `check_permissions {prompt:true}` or any standalone helper while
 this flow is active: that creates the stray native permission dialogs this
 onboarding deliberately avoids. The main cmux process never calls a TCC API or
 executes the cmux-cua binary.
+
+An unconfigured proxy waits for setup before forwarding its protected call.
+If setup is not finished before the bounded wait ends, it returns **“cmux Computer Use onboarding is still in progress. Finish setup in cmux, then retry.”**
+Retries do not repeatedly reopen a dismissed setup window. Resume a dismissed
+flow with **Finish Setup…** in Settings, then retry the requested tool. Never
+attempt to grant consent by calling a setup/status tool.
 
 A TCC prompt naming **Codex Computer Use** (`com.openai.sky.CUAService`) is
 not from cmux. The `codex` CLI ships its own computer-use helper; when codex
@@ -222,12 +254,14 @@ The active target and session ordering come from cmux-cua's per-session state
 files under `~/Library/Application Support/cmux/cmux-cua/runtime/<scope>/state/`.
 
 The item hides when there is no live or recent session. Toggle visibility in
-Settings → Computer Use.
+Settings → cmux Computer Use.
 
 ## Troubleshooting
 
-- **Agent has no computer-use tools** — Settings → Computer Use must be on;
-  start a *new* session (tools attach at launch).
+- **Agent has no computer-use tools** — the session was launched outside cmux,
+  the hard kill switch is active, or the wrapper started before the tagged app.
+  Start a fresh session inside the tagged cmux app; the first functional
+  request enables setup automatically.
 - **Clicks do nothing / not permitted** — grant Accessibility to cmux Computer Use.
 - **Black/empty screenshots** — grant Screen Recording to cmux Computer Use;
   restart only the helper if its automatic refresh has not completed yet.
@@ -254,10 +288,11 @@ Settings → Computer Use.
   closed instead of running a user-supplied executable.
 - If the cmux-owned daemon is unavailable, do **not** invoke `cmux-cua`
   directly through Bash and do not start its default socket. Tell the user to
-  open Settings → Computer Use or restart the tagged cmux build, then retry the
+  open Settings → cmux Computer Use or restart the tagged cmux build, then retry the
   MCP tool after the helper runtime is healthy.
 - Never hand-edit `docs/.../cmux-cua/mcp-tools.mdx` in the fork — it is
   generated from the Rust tool descriptions.
-- cmux-side UX lives in `Sources/App/ComputerUse*.swift`,
+- The runtime service, helper lifecycle, capture and daemon admission live in
+  `Packages/macOS/CmuxComputerUse/`. cmux-side UX lives in `Sources/App/ComputerUse*.swift`,
   `Packages/macOS/CmuxSettingsUI/.../Sections/ComputerUseSection.swift`, and the
   two wrappers under `Resources/bin/`.
