@@ -754,7 +754,7 @@ export function devboxPrepareTemplateTerminalCommand(timeoutSeconds = 60): strin
     `(${run("terminal list")} > /tmp/cmux-template-terminals.json || :)`,
     `for id in $(jq -r '${TERMINAL_IDS_JQ}' /tmp/cmux-template-terminals.json 2>/dev/null); do ${run('terminal "$id" close')} >/dev/null || exit 1; done`,
     `install -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} -m 644 /dev/null ${TEMPLATE_RUN_DIR}/template-arm`,
-    `${run("workspace create --name Cloud")} >/dev/null`,
+    `${run("workspace create --name workspace-1")} >/dev/null`,
     `for i in $(seq 1 ${timeoutSeconds * 10}); do [ -e ${TEMPLATE_RUN_DIR}/template-shell-ready ] && break; sleep 0.1; done`,
     `test -e ${TEMPLATE_RUN_DIR}/template-shell-ready`,
     `test ! -e ${TEMPLATE_RUN_DIR}/template-arm`,

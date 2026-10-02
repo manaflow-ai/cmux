@@ -113,13 +113,12 @@ struct CloudTreeRowContentView: View {
         case .resource(_, let row):
             CloudTreeMachineResourceRowContent(row: row, style: style)
         case .port(let resource, let url, _):
-            let presentation = CloudTreePortPresentation(resource: resource, url: url)
+            let presentation = CloudTreePortPresentation(resource: resource)
             CloudTreeLeafRow(
                 style: style,
                 icon: "network",
                 tint: CloudTreeIconPalette.browser,
                 title: presentation.title,
-                titleIsLink: url != nil,
                 detail: presentation.detail
             )
             .help(presentation.toolTip ?? presentation.title)
@@ -190,8 +189,6 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     let title: String
     var titleWeight: Font.Weight = .regular
     var titleDimmed: Bool = false
-    /// Underlined and tinted when the title opens content in cmux.
-    var titleIsLink: Bool = false
     var detail: String?
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
     @ViewBuilder var accessories: () -> Accessories
@@ -204,7 +201,6 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         title: String,
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
-        titleIsLink: Bool = false,
         detail: String? = nil,
         @ViewBuilder accessories: @escaping () -> Accessories
     ) {
@@ -215,7 +211,6 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         self.title = title
         self.titleWeight = titleWeight
         self.titleDimmed = titleDimmed
-        self.titleIsLink = titleIsLink
         self.detail = detail
         self.accessories = accessories
     }
@@ -267,7 +262,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         Text(title)
             .cmuxFont(size: style.titleSize, weight: titleWeight, design: style.fontDesign)
             .foregroundStyle(titleColor)
-            .underline(titleIsLink)
+            .underline(false)
             .lineLimit(1)
             .truncationMode(.tail)
             .layoutPriority(1)
@@ -299,7 +294,6 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
         title: String,
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
-        titleIsLink: Bool = false,
         detail: String? = nil
     ) {
         self.init(
@@ -310,7 +304,6 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
             title: title,
             titleWeight: titleWeight,
             titleDimmed: titleDimmed,
-            titleIsLink: titleIsLink,
             detail: detail,
             accessories: { EmptyView() }
         )

@@ -18,7 +18,6 @@ struct AgentFeedView: View {
     let pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
     var failedTerminalReplies: [MobileAgentFeedItemID: MobileAgentFeedFailedReply] = [:]
     let refreshesOnAppear: Bool
-    var isActive = true
     let actions: AgentFeedActions
     var searchText: String = ""
     @Environment(MobileDisplaySettings.self) private var displaySettings
@@ -35,7 +34,6 @@ struct AgentFeedView: View {
         pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>,
         failedTerminalReplies: [MobileAgentFeedItemID: MobileAgentFeedFailedReply] = [:],
         refreshesOnAppear: Bool,
-        isActive: Bool = true,
         actions: AgentFeedActions,
         searchText: String = ""
     ) {
@@ -45,7 +43,6 @@ struct AgentFeedView: View {
         self.pendingTerminalReplyItemIDs = pendingTerminalReplyItemIDs
         self.failedTerminalReplies = failedTerminalReplies
         self.refreshesOnAppear = refreshesOnAppear
-        self.isActive = isActive
         self.actions = actions
         self.searchText = searchText
         _preparedRows = State(initialValue: items.map(AgentFeedRowModel.init))
@@ -144,14 +141,8 @@ struct AgentFeedView: View {
         }
         .onAppear {
             now = Date()
-        }
-        .task(id: isActive) {
-            guard isActive, refreshesOnAppear else { return }
-            // Relative timestamps are anchored to the last visible visit, so
-            // switching away and back cannot leave the feed comparing rows to
-            // the date from its first appearance.
-            now = Date()
-            await actions.refresh()
+            guard refreshesOnAppear else { return }
+            Task { await actions.refresh() }
         }
         .onChange(of: items) { _, newItems in
             preparedRows = newItems.map(AgentFeedRowModel.init)

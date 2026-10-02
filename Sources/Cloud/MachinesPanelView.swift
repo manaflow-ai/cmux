@@ -224,16 +224,7 @@ struct MachinesPanelView: View {
         } else if isTeamChangePending {
             teamScopeLoading
         } else {
-            VStack(spacing: 0) {
-                HStack {
-                    Spacer(minLength: 0)
-                    cloudAgentMenu
-                }
-                .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
-                .padding(.vertical, 2)
-                .accessibilityIdentifier("CloudMachinesAgentActionsRow")
-                content
-            }
+            content
         }
     }
 
@@ -304,7 +295,6 @@ struct MachinesPanelView: View {
             isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
             onRefresh: refreshMachines,
             onNewMachine: requestNewMachine,
-            agentMenu: { cloudAgentMenu },
             status: { cloudStatus }
         )
     }
@@ -414,54 +404,6 @@ struct MachinesPanelView: View {
         }
     }
 
-    /// Cloud-agent launcher: each agent entry opens a local terminal running
-    /// that agent preloaded with the cmux Cloud skill; Copy Cloud Prompt puts
-    /// the same kickoff prompt on the clipboard for any other terminal.
-    private var cloudAgentMenu: some View {
-        Menu {
-            ForEach(CloudAgentSkillLauncher.CodingAgent.allCases, id: \.rawValue) { agent in
-                Button(agent.displayName) {
-                    launchCloudAgent(agent)
-                }
-            }
-            Divider()
-            Button(String(localized: "machines.agent.copyPrompt", defaultValue: "Copy Cloud Prompt")) {
-                runCloudAgentAction { try CloudAgentSkillLauncher.copyPrompt() }
-            }
-        } label: {
-            Image(systemName: "sparkles")
-                .font(.system(size: 11, weight: .medium))
-                .frame(width: 22, height: 20)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(width: 22, height: 20)
-        .foregroundColor(.secondary)
-        .help(String(localized: "machines.agent.menuLabel", defaultValue: "Open Cloud Agent"))
-        .accessibilityLabel(String(localized: "machines.agent.menuLabel", defaultValue: "Open Cloud Agent"))
-        .accessibilityIdentifier("CloudMachinesAgentMenu")
-    }
-
-    private func runCloudAgentAction(_ action: () throws -> Void) {
-        do {
-            try action()
-        } catch {
-            viewModel.noteTreeFailure(error.localizedDescription)
-        }
-    }
-
-    private func launchCloudAgent(_ agent: CloudAgentSkillLauncher.CodingAgent) {
-        Task { @MainActor [weak viewModel] in
-            do {
-                _ = try await CloudAgentSkillLauncher.openAgent(agent)
-            } catch {
-                viewModel?.noteTreeFailure(error.localizedDescription)
-            }
-            viewModel?.endOperation()
-        }
-    }
-
     private func requestNewMachine() {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
@@ -469,6 +411,7 @@ struct MachinesPanelView: View {
             lockedMemoryOptionsMb: viewModel.lockedMemoryOptionsMb,
             memoryUpgradePlanId: viewModel.memoryUpgradePlanId,
             memoryUpgradePlansByMb: viewModel.memoryUpgradePlansByMb,
+            vcpusByMemoryMb: viewModel.vcpusByMemoryMb,
             preferredWindow: tabManager?.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )
@@ -486,7 +429,8 @@ struct MachinesPanelView: View {
         // Max-only size and wait for a server rejection.
         let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
         machineActions.resizeMemoryOptionsGiB = planMemoryGiB
-        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
+        // The image ladder pairs one vCPU with every 2 GB (8 GB = 4 vCPU).
+        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 1) / 2) }
         viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         var nodeActions = CloudTreeNodeActions.bound(
@@ -662,7 +606,7 @@ struct MachinesPanelView: View {
         )
     }
 
-    /// Paid plans: "Your plan includes 50 machines" under the create button,
+    /// Paid plans: "Your plan includes 5 machines" under the create button,
     /// so the empty state answers "what do I get" before the Cloud Machines
     /// header shows a count. The uncapped wording only appears when an
     /// operator lifted the cap.

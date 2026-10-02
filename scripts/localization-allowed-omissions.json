@@ -2059,13 +2059,9 @@
       "de": "Reviewed native word, technical abbreviation, or SaaS tier name with the same spelling in this context."
     }
   },
-  "pricing.native.compare.concurrent.free": {
-    "class": "format",
-    "source": "1"
-  },
   "pricing.native.compare.concurrent.paid": {
     "class": "format",
-    "source": "50"
+    "source": "5"
   },
   "pricing.native.compare.support.community": {
     "source": "Community",
@@ -4284,6 +4280,14 @@
       "de": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
       "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
       "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
+    }
+  },
+  "cli.vm.tree.vcpu": {
+    "source": "%.0f vCPU",
+    "identityLocales": {
+      "de": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "fr": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "es": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale."
     }
   },
   "terminalSharing.device.mac": {
