@@ -92,6 +92,20 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 destructive: true
             ),
             ActionDescriptor(
+                id: "cloudPauseMachine",
+                title: String(localized: "action.cloudPauseMachine", defaultValue: "Pause Machine", bundle: .module),
+                keywords: ["vm", "cloud tree", "pause", "sleep"], category: .cloud, symbol: "pause.circle",
+                surfaces: [.palette, .contextMenu], requires: [.cloudWorkspace], targets: [.machine],
+                cliName: "cloud pause-machine"
+            ),
+            ActionDescriptor(
+                id: "cloudResumeMachine",
+                title: String(localized: "action.cloudResumeMachine", defaultValue: "Resume Machine", bundle: .module),
+                keywords: ["vm", "cloud tree", "resume", "wake", "start"], category: .cloud, symbol: "play.circle",
+                surfaces: [.palette, .contextMenu], requires: [.cloudWorkspace], targets: [.machine],
+                cliName: "cloud resume-machine"
+            ),
+            ActionDescriptor(
                 id: "cloudCopyLink",
                 title: String(localized: "action.cloudCopyLink", defaultValue: "Copy Machine Link", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "link", surfaces: [.contextMenu],
@@ -115,6 +129,13 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 keywords: ["vm", "cloud tree", "cpu", "memory"], category: .cloud,
                 symbol: "arrow.up.left.and.arrow.down.right", surfaces: [.contextMenu],
                 arguments: [CatalogArgument.sizeChoice], targets: [.machine], cliName: "cloud resize-machine"
+            ),
+            ActionDescriptor(
+                id: "palette.cloud.deleteSnapshot",
+                title: String(localized: "action.palette.cloud.deleteSnapshot", defaultValue: "Delete Cloud Snapshot…", bundle: .module),
+                keywords: ["vm", "snapshot", "delete", "remove"], category: .cloud, symbol: "trash",
+                surfaces: [.palette], requires: [.cloudWorkspace], arguments: [CatalogArgument.snapshotString, CatalogArgument.confirmBool],
+                targets: [.machine], cliName: "cloud delete-snapshot", destructive: true
             ),
             ActionDescriptor(
                 id: "cloudDiagnostics",
