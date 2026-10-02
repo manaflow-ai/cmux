@@ -474,6 +474,9 @@ public final class RecorderHostButton: NSButton {
         if restingImage != nil || recordingImage != nil {
             image = isRecording ? (recordingImage ?? restingImage) : restingImage
             imagePosition = .imageLeading
+            // Center symbol and title together instead of pinning the symbol
+            // to the leading edge.
+            imageHugsTitle = true
         }
         if let recordingTintColor {
             contentTintColor = isRecording ? recordingTintColor : nil

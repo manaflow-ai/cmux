@@ -121,8 +121,8 @@ private struct ShortcutDetectorView: NSViewRepresentable {
         let onKeys = onKeys
         button.placeholder = placeholder
         button.recordingPrompt = String(localized: "settings.shortcuts.detector.prompt", defaultValue: "Listening…")
-        button.restingImage = NSImage(systemSymbolName: "keyboard", accessibilityDescription: nil)
-        button.recordingImage = NSImage(systemSymbolName: "keyboard.badge.ellipsis", accessibilityDescription: nil)
+        button.restingImage = Self.symbol("keyboard", for: button)
+        button.recordingImage = Self.symbol("keyboard.badge.ellipsis", for: button)
         button.recordingTintColor = .controlAccentColor
         button.firstStrokeRequiresModifier = false
         button.startsRecordingOnFocus = false
@@ -131,5 +131,12 @@ private struct ShortcutDetectorView: NSViewRepresentable {
         button.onStroke = { onKeys(StoredShortcut(first: $0)) }
         button.onChord = onKeys
         button.refreshTitle()
+    }
+
+    /// A symbol sized to the button's title font so the two share a center line.
+    private static func symbol(_ name: String, for button: RecorderHostButton) -> NSImage? {
+        let pointSize = button.font?.pointSize ?? NSFont.systemFontSize
+        return NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular, scale: .small))
     }
 }
