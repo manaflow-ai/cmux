@@ -334,6 +334,11 @@ final class FocusEffectApplier: FocusEffectApplying {
         let services = controller.services
         guard services.windows.active === controller else { return }
         let registry = services.registry
+        if context.agent, case .agentPage(_, let tab) = controller.focus.state.underlying {
+            services.agentTabs.setCheckpointFocus(tab)
+        } else {
+            services.agentTabs.setCheckpointFocus(nil)
+        }
         var next = registry.context
         next.subtract([.terminalFocused, .browserFocused, .agentPaneFocused])
         if context.terminal { next.insert(.terminalFocused) }
