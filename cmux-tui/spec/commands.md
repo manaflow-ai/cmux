@@ -178,7 +178,7 @@ order: `array<object{id:string, name:string, color:string, collapsed:bool,
 saved_id:string|null, start:usize, count:usize, surfaces:array<Id>}>`, and
 `group:string|null` to every tab. `start` is the strip index of the group's
 first tab. Group members are contiguous; a tab another path moved away from
-its group's run is reported ungrouped. Colors are Chrome's nine: `grey`,
+its group's run is reported ungrouped. Colors are nine: `grey`,
 `blue`, `red`, `yellow`, `green`, `pink`, `purple`, `cyan`, `orange`.
 
 The `dead` pane variant is serialized only if the tree references a pane missing from state. That should not occur in normal operation, but clients must tolerate it.
@@ -2657,7 +2657,7 @@ object{screen:Id,workspace:Id,key:string,index:uint}
 | status | implemented |
 | since | protocol 12 additive extension; capability `screen-groups-v1` |
 
-Creates a Chrome-style group from screens of one workspace. Members become contiguous at the position of the first; screens leave any group they were in. Pinned screens cannot be grouped. Emits `tree-changed` and a `screen-changed` per member.
+Creates a group from screens of one workspace. Members become contiguous at the position of the first; screens leave any group they were in. Pinned screens cannot be grouped. Emits `tree-changed` and a `screen-changed` per member.
 
 Params:
 
@@ -4094,8 +4094,7 @@ Params: `group` (string, required), `surfaces` (array of `Id`, required),
 | status | implemented |
 | since | protocol 12 additive extension; capability `tab-groups-v1` |
 
-Removes tabs from their groups; each lands just after its former group, as in
-Chrome. A group left without members disappears.
+Removes tabs from their groups; each lands just after its former group. A group left without members disappears.
 
 Params: `surfaces` (array of `Id`, required), `transaction` (string).
 
@@ -4809,7 +4808,7 @@ Result: `object{browser_profile:string, cleared_workspaces:[object{session_id:st
 | since | protocol 12 additive extension; capability `bookmarks-v1` |
 
 Bookmark commands (plans/cmux-next/bookmarks.md sections 1 and 2.1) store
-one Chrome-style bookmark tree per browser profile in the home session. Every
+one bookmark tree per browser profile in the home session. Every
 daemon serves them; the app writes them only on its home session. The two
 roots, the Bookmarks Bar (`bar`) and Other Bookmarks (`other`), are reserved
 `parent` values, not nodes. Each change bumps the session's
