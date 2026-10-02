@@ -28,6 +28,7 @@ enum DebugThemes {
             var object = scope(entry.themeScope)
             object["tab"] = .string(key)
             object["surface_theme"] = entry.session.theme.map { .string($0.themeName) } ?? .null
+            object["surface_scheme"] = .string(entry.session.surfaceIsDark ? "dark" : "light")
             object["badge"] = services.themes.badge(forTerminal: entry.themeKey).map { .string($0.name) } ?? .null
             return .object(object)
         }

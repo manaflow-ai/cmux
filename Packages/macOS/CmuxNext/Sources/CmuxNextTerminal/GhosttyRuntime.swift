@@ -30,6 +30,13 @@ public final class GhosttyRuntime {
     /// Bumps on every config change (reload, conditional theme switch).
     public private(set) var configGeneration = 0
 
+    /// The light/dark scheme last given to Ghostty (the app's appearance).
+    public private(set) var isDark = false
+    /// Live surfaces, which get every scheme change.
+    let colorSchemeSurfaces = NSHashTable<TerminalSurfaceView>.weakObjects()
+    /// Set while `reloadConfig` waits for Ghostty to apply the new config.
+    var adoptedDuringReload = false
+
     /// Messages from the last config load (unknown keys, bad values).
     public private(set) var configDiagnostics: [String] = []
 
@@ -104,13 +111,18 @@ public final class GhosttyRuntime {
         var opacity: Double = 1
         guard let fresh = Self.loadConfig(diagnostics: &diagnostics, opacity: &opacity) else { return }
         configuredBackgroundOpacity = opacity
+        adoptedDuringReload = false
         ghostty_app_update_config(app, fresh)
-        replaceConfig(fresh)
+        // Ghostty answers with CONFIG_CHANGE on this thread: the config it
+        // applied carries the light/dark variant, `fresh` does not (it
+        // would put a dark app's chrome back on the light variant).
+        if adoptedDuringReload { ghostty_config_free(fresh) } else { replaceConfig(fresh) }
         configDiagnostics = diagnostics
     }
 
     /// Adopts a config Ghostty already applied (`GHOSTTY_ACTION_CONFIG_CHANGE`).
     func adoptAppliedConfig(_ applied: ghostty_config_t) {
+        adoptedDuringReload = true
         replaceConfig(ghostty_config_clone(applied))
     }
 
@@ -269,8 +281,12 @@ public final class GhosttyRuntime {
     /// (`ghostty_app_set_color_scheme`, ghostty.h:1347).
     private func applyColorScheme(_ appearance: NSAppearance) {
         guard let app else { return }
-        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         ghostty_app_set_color_scheme(app, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+        // A surface copies the app's scheme only when it is created; live
+        // ones need it too (as Ghostty.app does per surface view), or open
+        // terminals keep the old variant while the chrome switches.
+        for view in colorSchemeSurfaces.allObjects { view.applyColorScheme(dark: isDark) }
     }
 
     // MARK: Environment

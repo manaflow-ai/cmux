@@ -35,25 +35,30 @@ def rpc(method, params=None):
 
 def state():
     themes = rpc("debug.themes")
-    return themes.get("ghostty_background"), [w["window_background"] for w in themes["windows"]]
+    surfaces = [t["surface_scheme"] for t in themes["terminals"] if t.get("surface_theme") is None]
+    return themes.get("ghostty_background"), [w["window_background"] for w in themes["windows"]], surfaces
 
 
-def check(mode, expected):
+def check(mode, expected, step=None):
     rpc("debug.appearance", {"mode": mode})
-    # Ghostty applies the color scheme on its next config change; give the
-    # main thread a few turns (bounded).
+    if step:
+        rpc("action.run", {"action": step})
+    # The scheme change applies on the main thread; a reload answers through
+    # Ghostty's CONFIG_CHANGE. Give the app a few turns (bounded).
     for _ in range(50):
-        ghostty, windows = state()
-        if ghostty == expected and windows and all(w == expected for w in windows):
-            print(f"ok {mode}: ghostty {ghostty}, windows {windows}")
+        ghostty, windows, surfaces = state()
+        if ghostty == expected and windows and all(w == expected for w in windows) and all(s == mode for s in surfaces):
+            print(f"ok {mode}{' after ' + step if step else ''}: ghostty {ghostty}, windows {windows}, surfaces {surfaces}")
             return True
         time.sleep(0.1)
-    print(f"FAIL {mode}: ghostty {ghostty}, windows {windows}, expected {expected}")
+    print(f"FAIL {mode}{' after ' + step if step else ''}: ghostty {ghostty}, windows {windows}, surfaces {surfaces}, expected {expected}")
     return False
 
 
 try:
-    good = check("dark", opts.expect_dark) & check("light", opts.expect_light) & check("dark", opts.expect_dark)
+    good = (check("dark", opts.expect_dark) & check("light", opts.expect_light) & check("dark", opts.expect_dark)
+            # A config reload in dark mode keeps the dark variant.
+            & check("dark", opts.expect_dark, step="reloadConfiguration"))
 finally:
     rpc("debug.appearance", {"mode": "system"})
 sys.exit(0 if good else 1)

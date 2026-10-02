@@ -14,12 +14,12 @@ import Testing
             .appending(path: "../../../../../Resources/ghostty/themes").standardizedFileURL
     }
 
-    private static func withResources<T>(_ body: () throws -> T) rethrows -> T {
+    /// The default's colors with the repo's theme files (by absolute path,
+    /// so neither the host's Ghostty.app nor ~/.config/ghostty/themes can
+    /// stand in).
+    private static func colors(_ text: String) -> GhosttyThemeColors? {
         _ = GhosttyRuntime.shared
-        let previous = ProcessInfo.processInfo.environment["GHOSTTY_RESOURCES_DIR"]
-        setenv("GHOSTTY_RESOURCES_DIR", themesFolder.deletingLastPathComponent().path, 1)
-        defer { if let previous { setenv("GHOSTTY_RESOURCES_DIR", previous, 1) } else { unsetenv("GHOSTTY_RESOURCES_DIR") } }
-        return try body()
+        return GhosttyRuntime.themeColors(configText: text, themesFolder: themesFolder)
     }
 
     private static func hex(_ rgb: GhosttyThemeColors.RGB?) -> String {
@@ -40,7 +40,7 @@ import Testing
     }
 
     @Test func aConfigWithoutAThemeGetsTheDefault() throws {
-        let colors = try Self.withResources { try #require(GhosttyRuntime.themeColors(configText: "")) }
+        let colors = try #require(Self.colors(""))
         // A bare config resolves the light variant; the app's color scheme
         // picks the dark one live.
         #expect(Self.hex(colors.background) == "#feffff")
@@ -48,9 +48,9 @@ import Testing
     }
 
     @Test func theUsersThemeAndColorsWin() throws {
-        let theirs = try Self.withResources { try #require(GhosttyRuntime.themeColors(configText: "theme = Nord\n")) }
+        let theirs = try #require(Self.colors("theme = \(Self.themesFolder.appending(path: "Nord").path)\n"))
         #expect(Self.hex(theirs.background) == "#2e3440")
-        let explicit = try Self.withResources { try #require(GhosttyRuntime.themeColors(configText: "background = #123456\n")) }
+        let explicit = try #require(Self.colors("background = #123456\n"))
         #expect(Self.hex(explicit.background) == "#123456")
     }
 }
