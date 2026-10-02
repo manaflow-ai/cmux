@@ -11,6 +11,7 @@ use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
 
+mod git;
 mod state;
 
 pub(super) enum ParsedCommand {
@@ -206,6 +207,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
         "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
+        "git" => git::parse_git(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
         "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags)?,
         "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
@@ -321,6 +323,7 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
 /// cmux's custom forwarding and error text.
 const BOOLEAN_FLAGS: &[&str] = &[
     "collapse",
+    "patch",
     "expand",
     "clear",
     "reply",
@@ -5440,13 +5443,31 @@ mod tests {
                 ],
                 "notification.clear",
             ),
+            (vec!["git", "status", "--path", "/repo"], "git.status"),
+            (
+                vec![
+                    "git",
+                    "diff",
+                    "--path",
+                    "/repo",
+                    "--scope",
+                    "staged",
+                    "--patch",
+                    "--max-patch-bytes",
+                    "1024",
+                    "--max-files",
+                    "10",
+                    "src",
+                ],
+                "git.diff",
+            ),
         ];
         let mut cases = cases;
         cases.extend(state_resource_cases(WORKSPACE, SCREEN, PANE, TAB));
 
-        assert_eq!(cases.len(), 171);
+        assert_eq!(cases.len(), 173);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 181);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 183);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {
