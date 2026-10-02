@@ -75,12 +75,14 @@ public struct ChromiumPasswordCrypto: Sendable {
     static func isUTF8(_ bytes: UnsafeRawBufferPointer) -> Bool {
         var decoder = UTF8()
         var iterator = bytes.makeIterator()
-        while true {
+        // Each step reads at least one byte, so this ends within `bytes.count` steps.
+        for _ in 0...bytes.count {
             switch decoder.decode(&iterator) {
             case .scalarValue: continue
             case .emptyInput: return true
             case .error: return false
             }
         }
+        return false
     }
 }
