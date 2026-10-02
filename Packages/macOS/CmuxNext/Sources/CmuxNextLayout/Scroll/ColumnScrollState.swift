@@ -75,4 +75,7 @@ public nonisolated struct ColumnScrollEffects: Hashable, Sendable {
     public var focus: PaneID?
     /// Report the settled leading column when the spring rests.
     public var reportOnSettle = false
+    /// The offset jumped to a new target without frames (animation off or
+    /// Reduce Motion), where a spring would have scrolled.
+    public var snapped = false
 }

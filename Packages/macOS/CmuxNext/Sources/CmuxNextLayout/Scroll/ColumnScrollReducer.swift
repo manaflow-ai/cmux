@@ -71,7 +71,11 @@ nonisolated extension ColumnScrollState {
 
     private mutating func finish(animated: Bool, into effects: inout ColumnScrollEffects) {
         if let strip, gesture == nil { spring.target = strip.clamp(spring.target) }
-        if !animated, gesture == nil { spring.snap() }
+        if !animated, gesture == nil {
+            // The spring's rest epsilon: less than this would not have stepped.
+            effects.snapped = abs(spring.target - spring.value) > 0.25
+            spring.snap()
+        }
         effects.needsFrames = spring.value != spring.target || spring.velocity != 0
     }
 
