@@ -75,7 +75,7 @@ public nonisolated struct ProcessFixRunner: ServerFixRunner {
 
 /// Records what would run (the prototype and tests never change a developer's Mac).
 public final nonisolated class DryRunFixRunner: ServerFixRunner, @unchecked Sendable {
-    private let lock = NSLock()
+    private let lock = NSLock() // concurrency-allow: guards one array append or copy, never held across an await or IO
     private var calls: [(URL, [String])] = []
 
     public init() {}
