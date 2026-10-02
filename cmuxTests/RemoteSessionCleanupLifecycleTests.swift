@@ -467,6 +467,11 @@ private final class CleanupLifecycleRecordingRunner: RemoteSessionProcessRunning
         operation: (any RemoteTransferCancelling)?
     ) throws -> RemoteCommandResult {
         let command = request.arguments.last ?? ""
+        // A successful relay stop also removes the session's private paste
+        // directory. That teardown is neither relay cleanup nor a startup request.
+        if command.contains(".cache/cmux/paste/") {
+            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
         let isCleanup = command.contains("relay_socket=") ||
             command.contains("serve --persistent-stop --slot")
         guard isCleanup else {
