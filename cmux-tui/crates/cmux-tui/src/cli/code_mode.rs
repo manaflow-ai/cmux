@@ -84,7 +84,7 @@ fn exit_code(status: ExitStatus) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_runner;
+    use super::{help, resolve_runner, scope_help};
     use std::fs;
 
     #[test]
