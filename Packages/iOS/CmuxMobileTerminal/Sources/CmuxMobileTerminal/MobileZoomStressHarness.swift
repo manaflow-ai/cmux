@@ -123,11 +123,11 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
         /// past 64 messages per burst to overflow it.
         private static func promptRedrawBurst(cols: Int) -> Data {
             var s = "\u{1b}[?2004l\r\u{1b}[0m\u{1b}[J" // reset + clear-to-end
-            let cwd = "\u{1b}]7;file://mac/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-ios-swift-mobile-core/ios\u{07}"
+            let cwd = "\u{1b}]7;file://mac/Users/dev/project/ios\u{07}"
             for i in 0..<160 {
                 s += "\u{1b}]133;A\u{07}"                                   // prompt start
                 s += cwd                                                    // cwd (OSC 7)
-                s += "\u{1b}]0;lawrence@mac: ~/fun/cmuxterm-hq (\(i))\u{07}" // title (OSC 0)
+                s += "\u{1b}]0;dev@mac: ~/project (\(i))\u{07}" // title (OSC 0)
                 s += "\u{1b}]11;rgb:1d/1f/21\u{07}"                         // bg color (OSC 11)
                 s += "\u{1b}]133;B\u{07}"                                   // prompt end (input start)
             }

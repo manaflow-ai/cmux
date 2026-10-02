@@ -29,7 +29,7 @@ struct MachineAvatarPaletteTests {
 
     @Test func distinctMachinesSpreadAcrossSlots() {
         // djb2 should not pile a handful of realistic machine ids onto one slot.
-        let ids = ["cmux-lawrence", "cmux-macmini", "cmux-studio", "macbook-pro", "mac-mini-2"]
+        let ids = ["build-host", "cmux-macmini", "cmux-studio", "macbook-pro", "mac-mini-2"]
         let palette = MachineAvatarPalette()
         let slots = Set(ids.map { palette.slot(machineID: $0, fallbackID: "fb") })
         #expect(slots.count >= 3)
