@@ -188,6 +188,8 @@ try:
         output.write(text)
         output.flush()
         os.fsync(output.fileno())
+    if source.read_bytes() != text.encode():
+        sys.exit(0)
     os.replace(temporary, source)
 except BaseException:
     try:
