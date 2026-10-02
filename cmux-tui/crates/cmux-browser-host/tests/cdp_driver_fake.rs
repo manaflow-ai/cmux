@@ -711,3 +711,48 @@ fn a_request_filter_intercepts_and_decides_every_request() {
     assert!(h.driver.set_request_filter(None));
     assert!(h.methods_since(mark).iter().any(|m| m == "Fetch.disable"));
 }
+
+#[test]
+fn workers_and_prerenders_are_intercepted_before_they_run() {
+    let h = Harness::new();
+    h.open(None);
+    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(|_: &str| None);
+    assert!(h.driver.set_request_filter(Some(filter)));
+    let mark = h.mark();
+    for (session, kind, subtype) in [("W1", "worker", ""), ("P1", "page", "prerender")] {
+        h._conn.receive(&json!({"sessionId": "S1", "method": "Target.attachedToTarget", "params": {
+            "sessionId": session,
+            "targetInfo": {"targetId": format!("{session}-target"), "type": kind, "subtype": subtype, "url": "https://a.test/"},
+            "waitingForDebugger": true,
+        }}).to_string());
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let browser = h.wire.browser.lock().unwrap();
+        let sent: Vec<(String, String)> = browser.sent[mark..]
+            .iter()
+            .map(|m| {
+                (
+                    m["sessionId"].as_str().unwrap_or("").to_owned(),
+                    m["method"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect();
+        drop(browser);
+        let order = |session: &str| -> Vec<String> {
+            sent.iter().filter(|(s, _)| s == session).map(|(_, m)| m.clone()).collect()
+        };
+        if order("W1").len() >= 2 && order("P1").len() >= 2 {
+            for session in ["W1", "P1"] {
+                assert_eq!(
+                    order(session),
+                    vec!["Fetch.enable".to_string(), "Runtime.runIfWaitingForDebugger".to_string()],
+                    "{session}"
+                );
+            }
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "{sent:?}");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}

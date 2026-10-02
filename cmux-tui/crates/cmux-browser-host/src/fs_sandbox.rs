@@ -295,6 +295,15 @@ mod tests {
     }
 
     #[test]
+    fn a_dangling_final_symlink_cannot_write_outside() {
+        let (fs, root, outside) = sandbox();
+        std::os::unix::fs::symlink(outside.join("created.txt"), root.join("dang")).unwrap();
+        let written = fs.call("writeFile", &json!({"path": "dang", "base64": "aGk="}));
+        assert_eq!(written["error"]["code"], "EACCES", "{written}");
+        assert!(!outside.join("created.txt").exists());
+    }
+
+    #[test]
     fn the_temp_root_is_the_sessions_own() {
         let (fs, _root, _outside) = sandbox();
         let shared = std::env::temp_dir().join("not-this-session.txt");

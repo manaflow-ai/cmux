@@ -247,3 +247,22 @@ fn eval_options_reach_the_runtime() {
     );
     assert_eq!(lines(&out), vec![r#""{\"maxOutput\":0}""#]);
 }
+
+#[test]
+fn async_continuations_after_an_evaluation_are_interrupted() {
+    let (vm, _) = session(0);
+    let first = vm.eval(
+        "(async () => { await driver('tab.info', {targetId: 'T'}); for (;;) {} })(); return 'left running';",
+        Duration::from_secs(5),
+    );
+    assert_eq!(lines(&first), vec!["\"left running\""]);
+    let next = vm.eval("return 'alive';", Duration::from_secs(20));
+    assert_eq!(lines(&next), vec!["\"alive\""], "{next:?}");
+}
+
+#[test]
+fn enormous_eval_timeouts_do_not_crash_the_session() {
+    let (vm, _) = session(0);
+    assert_eq!(lines(&vm.eval("return 1;", Duration::MAX)), vec!["1"]);
+    assert_eq!(lines(&vm.eval("return 2;", Duration::from_secs(5))), vec!["2"]);
+}
