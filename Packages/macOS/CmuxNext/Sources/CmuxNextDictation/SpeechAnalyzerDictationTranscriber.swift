@@ -36,7 +36,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
 
     /// Caps queued audio to about a third of a second of 4096-frame taps; dropping the
     /// oldest lets the analyzer catch up after a model stall without an unbounded recording.
-    private static let inputBufferCapacity = 8
+    private static let inputBufferCapacity = 64
 
     /// Silence the analyzer hears before capture, longer than its first chunk.
     private static let leadInSeconds = 1.5
@@ -62,7 +62,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             transcriptionOptions: [],
             // Apple's volatileResults contract emits tentative results for an
             // audio range in addition to its finalized result.
-            reportingOptions: [.volatileResults],
+            reportingOptions: traceEnv("CMUX_TRACE_FAST") != nil ? [.volatileResults, .fastResults] : [.volatileResults],
             // Preserve per-run audio ranges so finalization metadata can
             // commit an unchanged volatile result without a second callback.
             attributeOptions: [.audioTimeRange]
@@ -153,7 +153,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             try await analyzer.prepareToAnalyze(in: analyzerFormat)
             dictationTrace.error("TRACE prepare done")
             guard !isFinishing else { throw CancellationError() }
-            if let silence = AVAudioPCMBuffer.silence(analyzerFormat, seconds: Self.leadInSeconds) {
+            if let silence = AVAudioPCMBuffer.silence(analyzerFormat, seconds: traceEnv("CMUX_TRACE_LEAD") ?? Self.leadInSeconds) {
                 inputContinuation.yield(timeline.leadIn(silence))
             }
             do {
@@ -240,13 +240,30 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     }
 
     /// Converts one raw tap buffer off the realtime audio callback.
+    // DIAGNOSTIC: hold captured audio until CMUX_TRACE_HOLD seconds are buffered, then release it at once.
+    private func feed(_ continuation: AsyncThrowingStream<AnalyzerInput, any Error>.Continuation, _ input: AnalyzerInput) -> AsyncThrowingStream<AnalyzerInput, any Error>.Continuation.YieldResult {
+        guard let hold = traceEnv("CMUX_TRACE_HOLD"), !traceReleased else { return continuation.yield(input) }
+        traceHeld.append(input)
+        traceHeldSeconds += Double(input.buffer.frameLength) / input.buffer.format.sampleRate
+        guard traceHeldSeconds >= hold else { return .enqueued(remaining: 0) }
+        traceReleased = true
+        dictationTrace.error("TRACE release \(self.traceHeld.count, privacy: .public) buffers")
+        var last = AsyncThrowingStream<AnalyzerInput, any Error>.Continuation.YieldResult.enqueued(remaining: 0)
+        for held in traceHeld { last = continuation.yield(held) }
+        traceHeld = []
+        return last
+    }
+    private var traceHeld: [AnalyzerInput] = []
+    private var traceHeldSeconds = 0.0
+    private var traceReleased = false
+
     private func convertAndYield(_ input: AnalyzerRawInput) throws {
         try Task.checkCancellation()
         guard let analyzerFormat, let continuation = convertedInputContinuation else { return }
         let buffer = input.buffer
         guard buffer.frameLength > 0 else { return }
         if buffer.format == analyzerFormat {
-            let result = continuation.yield(
+            let result = feed(continuation,
                 traceInput(timeline.input(buffer, capturedAt: input.bufferStartTime), buffer, raw: input)
             )
             if case .dropped = result {
@@ -267,7 +284,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             throw DictationFailure.audioCaptureFailed("audio format conversion unavailable")
         }
         let converted = try converter.convertOne(buffer, to: analyzerFormat)
-        let result = continuation.yield(
+        let result = feed(continuation,
             traceInput(timeline.input(converted, capturedAt: input.bufferStartTime), converted, raw: input)
         )
         if case .dropped = result {
@@ -400,9 +417,15 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
 
 // DIAGNOSTIC (scratch only)
 func traceInput(_ analyzerInput: AnalyzerInput, _ buffer: AVAudioPCMBuffer, raw: AnalyzerRawInput) -> AnalyzerInput {
-    var sum: Float = 0
-    if let data = buffer.floatChannelData?[0] { for i in 0..<Int(buffer.frameLength) { sum += data[i] * data[i] } }
-    let rms = buffer.frameLength > 0 ? (sum / Float(buffer.frameLength)).squareRoot() : 0
+    func rms(_ b: AVAudioPCMBuffer) -> Float {
+        var sum: Float = 0
+        let n = Int(b.frameLength)
+        if let d = b.floatChannelData?[0] { for i in 0..<n { sum += d[i] * d[i] } }
+        else if let d = b.int16ChannelData?[0] { for i in 0..<n { let v = Float(d[i]) / 32768; sum += v * v } }
+        return n > 0 ? (sum / Float(n)).squareRoot() : 0
+    }
+    let rms = "\(rms(raw.buffer))->\(rms(buffer))"
     dictationTrace.error("TRACE in cap=\(traceTime(raw.bufferStartTime ?? .invalid), privacy: .public) raw=\(raw.buffer.frameLength, privacy: .public)@\(raw.buffer.format.sampleRate, privacy: .public) fed=\(traceTime(analyzerInput.bufferStartTime ?? .invalid), privacy: .public) n=\(buffer.frameLength, privacy: .public) rms=\(rms, privacy: .public) common=\(buffer.format.commonFormat.rawValue, privacy: .public)")
     return analyzerInput
 }
+func traceEnv(_ key: String) -> Double? { ProcessInfo.processInfo.environment[key].flatMap(Double.init) }
