@@ -20,8 +20,18 @@ nonisolated enum PinnedDaemonBinary {
 
 /// A fresh session, end to end: the real daemon, the app's launch window,
 /// restore, and the empty-workspace guard.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1)), .enabled(if: PinnedDaemonBinary.url != nil, "needs the pinned cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: PinnedDaemonBinary.url != nil, "needs the pinned cmux-tui"))
 struct FirstLaunchTests {
+    /// Returns once `store` has a tab or `limit` passes, whichever is first.
+    /// A poll, not a task group over `Observations`: the Swift 6.2 region
+    /// isolation checker rejects that pattern in this suite.
+    private static func firstTab(in store: DaemonStore, within limit: Duration) async {
+        let deadline = ContinuousClock.now + limit
+        while tabs(store) == 0, ContinuousClock.now < deadline, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
     private static func tabs(_ store: DaemonStore) -> Int {
         store.workspaces.reduce(0) { $0 + $1.screens.reduce(0) { $0 + $1.panes.reduce(0) { $0 + $1.tabs.count } } }
     }
@@ -47,12 +57,12 @@ struct FirstLaunchTests {
         let store = services.daemon.store
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let deadline = ContinuousClock.now + .seconds(20)
-        while Self.tabs(store) == 0, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        // No wall-clock deadline tight enough to trip on a stalled test process
+        // (CI runs saw every test stall for 24-41 s); a launch that never makes a
+        // tab still ends here, so the daemon below is always shut down.
+        await Self.firstTab(in: store, within: .seconds(90))
         // Give a duplicate create-terminal time to land; test-only wait.
-        try await Task.sleep(for: .seconds(2))
+        try? await Task.sleep(for: .seconds(2))
         let workspaces = store.workspaces.count
         let tabs = Self.tabs(store)
 

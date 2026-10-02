@@ -33,6 +33,7 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
+pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
 pub(crate) mod personal_store;
@@ -40,6 +41,7 @@ mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
 mod public_projection_store;
+mod resource_effect_commit;
 pub(crate) mod resource_store;
 pub(crate) mod screen_store;
 pub(crate) mod session_journal;
@@ -68,9 +70,7 @@ pub(crate) use journal_extensions::{
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
-pub use personal_browser_profiles::{
-    BrowserProfileInput, BrowserProfileUpdate, PersonalBrowserProfile,
-};
+pub use personal_browser_profiles::{BrowserProfileInput, BrowserProfileUpdate};
 pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
 pub use personal_store::{DEFAULT_PROFILE_ID, PersonalSnapshot};
 pub use presentation_store::{
@@ -3467,71 +3467,6 @@ impl WorkspaceRegistry {
             result,
             true,
             Some(&write),
-        )
-    }
-
-    /// Stage a legacy workspace row inside a prepared resource effect.
-    ///
-    /// The outer effect must subsequently commit a full resource projection.
-    /// This stage deliberately leaves the public revision and event stream
-    /// untouched so one logical creation produces one public batch.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn commit_for_resource_effect(
-        &mut self,
-        mutation: &WorkspaceMutation,
-        fingerprint: &Value,
-        expected_generation: Option<&str>,
-        expected_revision: Option<u64>,
-        event_kind: &str,
-        workspace_key: &str,
-        workspaces: &[RegistryWorkspace],
-        active_workspace: Option<&WorkspacePublicId>,
-        result: &Value,
-    ) -> anyhow::Result<RegistryCommit> {
-        self.commit_for_resource_effect_with(
-            mutation,
-            fingerprint,
-            expected_generation,
-            expected_revision,
-            event_kind,
-            workspace_key,
-            workspaces,
-            active_workspace,
-            result,
-            None,
-        )
-    }
-
-    /// [`Self::commit_for_resource_effect`] that also writes `extra` (state
-    /// rows such as the ephemeral flag) in the staging transaction, so the
-    /// resource projection that later publishes the workspace already sees
-    /// them.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn commit_for_resource_effect_with(
-        &mut self,
-        mutation: &WorkspaceMutation,
-        fingerprint: &Value,
-        expected_generation: Option<&str>,
-        expected_revision: Option<u64>,
-        event_kind: &str,
-        workspace_key: &str,
-        workspaces: &[RegistryWorkspace],
-        active_workspace: Option<&WorkspacePublicId>,
-        result: &Value,
-        extra: Option<RegistryTransactionWrite<'_>>,
-    ) -> anyhow::Result<RegistryCommit> {
-        self.commit_workspace_registry(
-            mutation,
-            fingerprint,
-            expected_generation,
-            expected_revision,
-            event_kind,
-            workspace_key,
-            workspaces,
-            active_workspace,
-            result,
-            false,
-            extra,
         )
     }
 

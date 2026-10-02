@@ -168,10 +168,12 @@ public final class DaemonCommandScope: Sendable {
         return ordinal.map { Self.derivedUUID(key: key, kind: kind, ordinal: $0) }
     }
 
-    /// A name-based UUID (version 8 layout) from SHA-256 of key, kind and ordinal.
+    /// A UUID from SHA-256 of key, kind and ordinal, in the version 4
+    /// layout: the hash bits stand in for the random bits, and cmux-tui
+    /// accepts caller-chosen terminal ids only as UUIDv4.
     static func derivedUUID(key: String, kind: String, ordinal: Int) -> UUID {
         var bytes = Array(SHA256.hash(data: Data("cmux-next/\(kind)/\(ordinal)/\(key)".utf8)).prefix(16))
-        bytes[6] = (bytes[6] & 0x0F) | 0x80
+        bytes[6] = (bytes[6] & 0x0F) | 0x40
         bytes[8] = (bytes[8] & 0x3F) | 0x80
         return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
                            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))

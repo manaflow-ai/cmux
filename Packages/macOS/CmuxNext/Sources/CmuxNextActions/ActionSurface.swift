@@ -56,6 +56,14 @@ public nonisolated enum SurfaceExemption: String, CaseIterable, Sendable, Hashab
     /// The App binds it as unavailable in every build today (no handler
     /// yet); offer it when it works.
     case unimplemented
+    /// The browser engine that is not the default (WebKit; Chrome is the
+    /// default): reachable from the palette, the CLI and MCP, never from a
+    /// menu (Lawrence, 2026-10-01).
+    case secondaryEngine
+    /// The same action as the default one the surface already offers
+    /// (New Browser Tab on Chrome next to New Browser Tab on the default
+    /// engine).
+    case duplicateOfDefault
     /// Sign-in, accounts and secrets: a person does it (MCP).
     case credentials
     /// Quits the app the user works in (MCP).
@@ -63,6 +71,10 @@ public nonisolated enum SurfaceExemption: String, CaseIterable, Sendable, Hashab
     /// Changes preferences, the system or the running app outside the
     /// user's work (MCP).
     case systemChange
+    /// The object's owner already offers the same verb under this CLI name
+    /// (the daemon's `room create` for Rooms); the app action is its GUI
+    /// form, and the CLI runs the owner's operation.
+    case ownerVerb
 }
 
 /// A surface decision: offered, or exempt with a reason.

@@ -22,6 +22,11 @@ export const ChevronDown = (p: P) => (
     <path d="M4 6l4 4 4-4" />
   </svg>
 );
+export const Check = (p: P) => (
+  <svg {...line(14)} {...p}>
+    <path d="M3.5 8.5l3 3 6-7" />
+  </svg>
+);
 export const ChevronLeft = (p: P) => (
   <svg {...line(16)} {...p}>
     <path d="M10 3.5L5.5 8l4.5 4.5" />
@@ -57,6 +62,13 @@ export const Eye = (p: P) => (
   <svg {...line(16)} {...p}>
     <path d="M1.6 8s2.3-4.4 6.4-4.4S14.4 8 14.4 8s-2.3 4.4-6.4 4.4S1.6 8 1.6 8z" />
     <circle cx="8" cy="8" r="2" />
+  </svg>
+);
+export const More = (p: P) => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="currentColor" aria-hidden {...p}>
+    <circle cx="3.5" cy="8" r="1.1" />
+    <circle cx="8" cy="8" r="1.1" />
+    <circle cx="12.5" cy="8" r="1.1" />
   </svg>
 );
 export const Search = (p: P) => (

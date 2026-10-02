@@ -243,14 +243,14 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "workspace new",
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
       ],
       "id" : "newTab",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -529,14 +529,14 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "workspace close",
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
       ],
       "id" : "closeWorkspace",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -1411,7 +1411,7 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "room create",
       "context_menu" : "offered",
       "context_menus" : [
@@ -1419,7 +1419,7 @@
         "profile"
       ],
       "id" : "room.new",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -2342,10 +2342,9 @@
     {
       "cli" : "offered",
       "cli_name" : "tab new-webkit",
-      "context_menu" : "offered",
+      "context_menu" : "secondaryEngine",
       "context_menus" : [
-        "tab",
-        "newTab"
+
       ],
       "id" : "openBrowser.webkit",
       "mcp" : "offered",
@@ -2361,17 +2360,17 @@
       ],
       "id" : "openBrowser.chromium",
       "mcp" : "offered",
-      "palette" : "offered"
+      "palette" : "duplicateOfDefault"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "tab close",
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
       ],
       "id" : "closeTab",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -2420,7 +2419,7 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "tab focus",
+      "cli_name" : "app show-tab",
       "context_menu" : "focusMove",
       "context_menus" : [
 
@@ -3070,7 +3069,7 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "screen new",
       "context_menu" : "offered",
       "context_menus" : [
@@ -3078,7 +3077,7 @@
         "screenBar"
       ],
       "id" : "screen.new",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -3105,14 +3104,14 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "screen close",
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
       ],
       "id" : "screen.close",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -4007,25 +4006,25 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "browser back",
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
       ],
       "id" : "browserBack",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "browser forward",
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
       ],
       "id" : "browserForward",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -4064,9 +4063,9 @@
     {
       "cli" : "offered",
       "cli_name" : "browser open-in-webkit",
-      "context_menu" : "offered",
+      "context_menu" : "secondaryEngine",
       "context_menus" : [
-        "tab"
+
       ],
       "id" : "browser.openInWebKit",
       "mcp" : "offered",
@@ -6837,14 +6836,14 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "pane close",
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
       ],
       "id" : "closePane",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {

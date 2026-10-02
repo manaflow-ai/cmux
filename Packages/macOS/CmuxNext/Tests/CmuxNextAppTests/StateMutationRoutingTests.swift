@@ -12,7 +12,7 @@ import Testing
         let services = ActionBindingCoverageTests.boundServices()
         services.daemon.start(makeConnection: { daemon.connection() })
         let clock = ContinuousClock(), end = clock.now.advanced(by: .seconds(10))
-        while !(services.daemon.store.isLoaded && services.daemon.store.servesStateResources && services.daemon.store.sessionStateKnown), clock.now < end {
+        while !(services.daemon.store.isLoaded && services.daemon.store.servesStateResources && services.daemon.store.session.known), clock.now < end {
             try await clock.sleep(for: .milliseconds(20)) // test-only wait
         }
         return services
@@ -43,7 +43,7 @@ import Testing
         let key = try #require(workspace.key)
         let resource = services.daemon.store.stateResourceID(workspace: key)
         #expect(resource == ResourceID(rawValue: "ws_w"))
-        services.daemon.send("set-workspace-metadata") { try await $0.setWorkspaceIdentity(key, resource: resource, color: .set("red")) }
+        services.daemon.send("set-workspace-metadata") { try await $0.state.setWorkspaceIdentity(key, resource: resource, color: .set("red")) }
         try await waitFor(daemon, "workspace.update")
         #expect(daemon.params(of: "workspace.update")?["color"] == .string("red"))
         #expect(daemon.requests.allSatisfy { $0["operation"]?.stringValue == "session.events" || $0["idempotency_key"] != nil })

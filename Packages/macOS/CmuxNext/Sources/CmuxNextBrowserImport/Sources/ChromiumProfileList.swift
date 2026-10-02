@@ -16,6 +16,10 @@ public struct ChromiumProfileList {
     public struct Entry: Sendable, Equatable {
         public var directoryName: String
         public var displayName: String
+        /// The account picture the browser saved in the profile folder
+        /// (`gaia_picture_file_name`: "Google Profile Picture.png" in Chrome,
+        /// "Edge Profile Picture.png" in Edge), when it has one.
+        public var avatarFileName: String? = nil
     }
 
     public func entries(in userDataDirectory: URL) -> [Entry] {
@@ -33,7 +37,8 @@ public struct ChromiumProfileList {
             for directory in names {
                 let info = cache[directory] as? [String: Any]
                 let name = (info?["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? directory
-                entries.append(Entry(directoryName: directory, displayName: name))
+                let picture = (info?["gaia_picture_file_name"] as? String).flatMap { $0.isEmpty || $0.contains("/") ? nil : $0 }
+                entries.append(Entry(directoryName: directory, displayName: name, avatarFileName: picture))
             }
         }
         // Profiles on disk that Local State does not list (or no Local State).

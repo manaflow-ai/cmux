@@ -41,7 +41,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.state = state
         self.services = services
         sidebar = SidebarBridge(services: services, state: state)
-        root = WindowRootView(sidebar: sidebar.container)
+        root = WindowRootView(sidebar: sidebar.container, rail: WindowRailView(registry: services.registry))
         let window = ShellWindow(
             contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -210,7 +210,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // now that the content is installed, re-applies it.
         controller.sendTopology()
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
-        services.windows.stateDidChange(state)
+        services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
         services.windows.contentDidAppear(self)
     }
@@ -256,8 +256,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowWillBeginSheet(_ notification: Notification) { focus.send(.overlayOpened(.sheet)) }
     func windowDidEndSheet(_ notification: Notification) { focus.send(.overlayClosed(.sheet)) }
 
-    func windowDidMove(_ notification: Notification) { services.windows.geometryDidChange(state) }
-    func windowDidEndLiveResize(_ notification: Notification) { services.windows.geometryDidChange(state) }
+    func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
+    func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
 
     private var badgeObservation: Task<Void, Never>?
 

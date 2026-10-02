@@ -8,10 +8,10 @@ import Testing
 /// configured font size, and only when it changed.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct TerminalFontScaleTests {
     @Test func fontScaleIsRelativeToTheConfiguredSize() {
-        #expect(TerminalSurfaceView.fontScale(points: 15, adjusted: true, base: 12) == 1.25)
-        #expect(TerminalSurfaceView.fontScale(points: 12, adjusted: true, base: 12) == nil)
-        #expect(TerminalSurfaceView.fontScale(points: 15, adjusted: false, base: 12) == nil)
-        #expect(TerminalSurfaceView.fontScale(points: 15, adjusted: true, base: nil) == nil)
+        #expect(TerminalFontScale.scale(points: 15, adjusted: true, base: 12) == 1.25)
+        #expect(TerminalFontScale.scale(points: 12, adjusted: true, base: 12) == nil)
+        #expect(TerminalFontScale.scale(points: 15, adjusted: false, base: 12) == nil)
+        #expect(TerminalFontScale.scale(points: 15, adjusted: true, base: nil) == nil)
     }
 
     @Test func aChangedScaleIsSavedOnTheTabRecord() async throws {
@@ -22,7 +22,7 @@ import Testing
         services.daemon.start(makeConnection: { daemon.connection() })
         defer { services.daemon.shutdownConnection() }
         let clock = ContinuousClock(), end = clock.now.advanced(by: .seconds(10))
-        while !(services.daemon.store.isLoaded && services.daemon.store.servesStateResources && services.daemon.store.sessionStateKnown), clock.now < end {
+        while !(services.daemon.store.isLoaded && services.daemon.store.servesStateResources && services.daemon.store.session.known), clock.now < end {
             try await clock.sleep(for: .milliseconds(20)) // test-only wait
         }
         let key = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first?.tabs.first?.id)

@@ -1,13 +1,16 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod agent_hook_errors;
 mod host_close;
 mod idle_close;
 mod personal;
 mod presentation;
 mod public_projections;
+mod registry_viewport;
 mod resource_content;
 mod resource_topology;
+mod screen_changed;
 pub(crate) mod screen_groups;
 mod sticky_columns;
 pub(crate) mod tab_drag;
@@ -20,6 +23,11 @@ mod terminal_directory;
 mod terminal_progress;
 mod terminal_reap;
 mod terminal_work;
+
+use agent_hook_errors::{
+    AGENT_HOOK_RETRY_ERROR, AgentHookTerminalGone, AgentHookTerminalUnavailable,
+    agent_hook_retry_class, agent_hook_terminal_gone,
+};
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use presentation::{
@@ -41,6 +49,7 @@ pub use terminal_reap::{
 };
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
+use registry_viewport::restore_registry_viewport;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::ops::{Deref, DerefMut};
@@ -983,6 +992,7 @@ pub enum MuxEvent {
     PersonalChanged {
         personal_revision: u64,
     },
+    BookmarksChanged(personal::BookmarksChange),
     /// A durable terminal-registry mutation committed. Consumers use this as
     /// a barrier, then fetch `terminal-events` or a fresh snapshot.
     TerminalRegistryChanged {
@@ -1494,56 +1504,6 @@ fn published_agent_session_id(terminal_id: &TerminalPublicId, session_id: &str) 
 /// the previous fence identity after restart.
 pub(super) fn legacy_hook_session_id(terminal_id: &TerminalPublicId, sequence: u64) -> String {
     crate::journal_reducers::legacy_hook_session_id(terminal_id.as_str(), sequence)
-}
-
-const AGENT_HOOK_RETRY_ERROR: &str = "agent hook projection retry deferred";
-
-#[derive(Debug)]
-struct AgentHookTerminalUnavailable;
-
-impl fmt::Display for AgentHookTerminalUnavailable {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("terminal is not available for agent hook projection")
-    }
-}
-
-impl std::error::Error for AgentHookTerminalUnavailable {}
-
-#[derive(Debug)]
-struct AgentHookTerminalGone;
-
-impl fmt::Display for AgentHookTerminalGone {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("terminal no longer exists for agent hook projection")
-    }
-}
-
-impl std::error::Error for AgentHookTerminalGone {}
-
-fn agent_hook_terminal_gone(error: &anyhow::Error) -> bool {
-    error.downcast_ref::<AgentHookTerminalGone>().is_some()
-}
-
-fn agent_hook_retry_class(error: &anyhow::Error) -> crate::workspace_registry::AgentHookRetryClass {
-    if error.downcast_ref::<AgentHookTerminalUnavailable>().is_some()
-        || error.chain().any(|cause| {
-            matches!(
-                cause.downcast_ref::<rusqlite::Error>(),
-                Some(rusqlite::Error::SqliteFailure(
-                    rusqlite::ffi::Error {
-                        code: rusqlite::ErrorCode::DatabaseBusy
-                            | rusqlite::ErrorCode::DatabaseLocked,
-                        ..
-                    },
-                    _
-                ))
-            )
-        })
-    {
-        crate::workspace_registry::AgentHookRetryClass::Transient
-    } else {
-        crate::workspace_registry::AgentHookRetryClass::Permanent
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -19904,57 +19864,6 @@ fn restore_layout_node(
     })
 }
 
-fn restore_registry_viewport(
-    viewport: &RegistryViewport,
-    panes: &HashMap<PanePublicId, PaneId>,
-    splits: &mut HashMap<SplitPublicId, SplitId>,
-    allocate: &mut impl FnMut() -> anyhow::Result<u64>,
-) -> anyhow::Result<RestoredViewport> {
-    if viewport.columns.is_empty() {
-        return Ok((Default::default(), None, Vec::new()));
-    }
-    let mut columns = Vec::with_capacity(viewport.columns.len());
-    for (index, column) in viewport.columns.iter().enumerate() {
-        let id = match splits.get(&column.id).copied() {
-            Some(id) => id,
-            None if index == 0 => {
-                let id = allocate()?;
-                splits.insert(column.id.clone(), id);
-                id
-            }
-            None => anyhow::bail!("viewport references unknown boundary split {}", column.id),
-        };
-        let root = restore_layout_node_from_known_splits(&column.layout, panes, splits)?;
-        let zellij_auto_layout = column
-            .auto_layout
-            .as_ref()
-            .map(|members| {
-                members
-                    .iter()
-                    .map(|pane| {
-                        panes.get(pane).copied().ok_or_else(|| {
-                            anyhow::anyhow!("viewport auto-layout has unknown pane {pane}")
-                        })
-                    })
-                    .collect::<anyhow::Result<Vec<_>>>()
-            })
-            .transpose()?;
-        columns.push(LayoutColumn {
-            id,
-            width: column.width,
-            root,
-            zellij_auto_layout,
-            sticky: column.sticky,
-        });
-    }
-    // Every writer stores normalized flags. The registry does not reject
-    // inconsistent flags, so a damaged record still loads; it is repaired
-    // here instead of producing a screen with no scrolling column.
-    crate::model::normalize_sticky_columns(&mut columns);
-    let viewport_splits = columns.iter().skip(1).map(|column| (column.id, column.width)).collect();
-    Ok((viewport_splits, viewport.base_width, columns))
-}
-
 fn restore_layout_node_from_known_splits(
     node: &RegistryLayoutNode,
     panes: &HashMap<PanePublicId, PaneId>,
@@ -34464,72 +34373,7 @@ mod tests {
         mux.shutdown();
     }
 
-    #[test]
-    fn authority_rotation_waits_for_an_authorized_lifecycle_mutation() {
-        const MUX_GENERATION: &str = "0123456789abcdef0123456789abcdef";
-        const AUTHORITY_ONE: &str = "locked-authority-one-0000000000000000001";
-        const AUTHORITY_TWO: &str = "locked-authority-two-0000000000000000002";
-
-        let mux = Mux::new_provider_managed_pending_for_test(
-            "authority-lock-test",
-            SurfaceOptions::default(),
-            MUX_GENERATION,
-        );
-        mux.install_or_rotate_provider_workspace_authority(
-            MUX_GENERATION,
-            0,
-            1,
-            ProviderWorkspaceAuthority::new(AUTHORITY_ONE).unwrap(),
-        )
-        .unwrap();
-        let workspace = mux.create_empty_workspace(Some("managed".into()), None, None).unwrap();
-        let (locked_tx, locked_rx) = std::sync::mpsc::sync_channel(1);
-        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
-        let release_rx = Arc::new(Mutex::new(release_rx));
-        *mux.workspace_close_after_selector_resolution.lock().unwrap() =
-            Some(Arc::new(move || {
-                locked_tx.send(()).unwrap();
-                release_rx.lock().unwrap().recv().unwrap();
-            }));
-
-        let close = std::thread::spawn({
-            let mux = mux.clone();
-            let key = workspace.key.clone();
-            move || {
-                mux.close_provider_managed_workspace_authorized(
-                    workspace.workspace,
-                    &key,
-                    AUTHORITY_ONE,
-                )
-                .unwrap()
-            }
-        });
-        locked_rx.recv().unwrap();
-        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
-        let (rotated_tx, rotated_rx) = std::sync::mpsc::sync_channel(1);
-        let rotate = std::thread::spawn({
-            let mux = mux.clone();
-            move || {
-                started_tx.send(()).unwrap();
-                let result = mux.install_or_rotate_provider_workspace_authority(
-                    MUX_GENERATION,
-                    1,
-                    2,
-                    ProviderWorkspaceAuthority::new(AUTHORITY_TWO).unwrap(),
-                );
-                rotated_tx.send(()).unwrap();
-                result
-            }
-        });
-        started_rx.recv().unwrap();
-        assert!(rotated_rx.recv_timeout(Duration::from_millis(50)).is_err());
-        release_tx.send(()).unwrap();
-        assert_eq!(close.join().unwrap(), Some(2));
-        rotate.join().unwrap().unwrap();
-        rotated_rx.recv().unwrap();
-        mux.authorize_provider_workspace_authority(AUTHORITY_TWO).unwrap();
-        *mux.workspace_close_after_selector_resolution.lock().unwrap() = None;
-    }
+    mod authority_rotation_tests;
 }
 #[test]
 fn initial_bootstrap_lock_serializes_concurrent_callers() {

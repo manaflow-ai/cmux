@@ -69,9 +69,15 @@ extension PaneHandlers {
         guard let host = view.layer, let fade = Motion.flashAnimation() else { return }
         let ring = CALayer()
         ring.frame = host.bounds.insetBy(dx: 2, dy: 2)
-        ring.borderWidth = 3
         ring.cornerRadius = 8
-        ring.borderColor = view.performWithTheme { Palette.focusRing.cgColor }
+        let color = view.performWithTheme { Palette.focusRing }
+        if Borders.drawsLines {
+            ring.borderWidth = 3
+            ring.borderColor = color.cgColor
+        } else {
+            // appearance.borders none: a soft fill instead of an outline.
+            ring.backgroundColor = color.withAlphaComponent(0.18).cgColor
+        }
         ring.opacity = 0
         host.addSublayer(ring)
         CATransaction.begin()

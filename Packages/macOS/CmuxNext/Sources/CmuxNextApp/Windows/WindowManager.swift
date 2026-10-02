@@ -21,7 +21,7 @@ import Observation
 /// membership exists and is registered once it receives workspaces. Both persist in
 /// the daemon's `personal` frontend projection (architecture.md 1), written
 /// on every selection or focus change (geometry 500 ms after it settles)
-/// and flushed on quit (WindowManager+Saving).
+/// and flushed on quit (WindowRecordSaver).
 final class WindowManager {
     unowned let services: AppServices
     let registry = WindowRegistryStore()
@@ -31,10 +31,8 @@ final class WindowManager {
     private weak var lastActive: WindowController?
     /// Called after a window is ordered in (the restart notice attaches).
     var onPresent: ((WindowController) -> Void)?
-    /// Debounced save of window geometry (architecture.md 1: 500 ms).
-    let geometryTimer = DemandTimer(owner: "WindowManager.geometry")
-    /// Coalesced saves of the window records (WindowManager+Saving).
-    var saves = WindowRecordSaves()
+    /// Writes the window records (WindowRecordSaver).
+    lazy var recordSaver = WindowRecordSaver(manager: self)
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
     /// Records connected sessions in the home session (rooms, data-model.md 1.1).
@@ -188,7 +186,7 @@ final class WindowManager {
             registry.apply { $0.markDiscarding(leftover); return WindowRegistry.Changes() }
             discard(leftover)
         }
-        await awaitEphemeralFlags()
+        await EphemeralWorkspaces.awaitFlags(self)
         if services.daemon.store.workspaces.contains(where: { !leftover.contains($0.id) && !$0.ephemeral }) == false {
             _ = await createWorkspace()
         }
@@ -338,9 +336,9 @@ final class WindowManager {
 
     /// Flushes state and stops saving (quit).
     func prepareForTermination() async {
-        geometryTimer.cancel()
+        recordSaver.geometryTimer.cancel()
         await closeIncognitoWindowsForTermination()
-        await flushSaves()
+        await recordSaver.flushSaves()
         isTerminating = true
         membershipObservation?.cancel()
         // Close Chromium before exit without spinning the run loop (5a).

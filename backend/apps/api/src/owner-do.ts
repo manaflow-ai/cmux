@@ -1,0 +1,213 @@
+import { DurableObject } from "cloudflare:workers"
+import { OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
+import type { Env } from "./env.ts"
+import { drainOutbox } from "./projection.ts"
+
+/** DO SQLite as the engine's synchronous store. Output gates hold every outgoing message until writes are durable. */
+const doSql = (storage: DurableObjectStorage): SqlStore => ({
+  exec: <T>(q: string, ...params: Array<unknown>) => storage.sql.exec(q, ...params).toArray() as Array<T>,
+  transaction: <T>(fn: () => T): T => storage.transactionSync(fn)
+})
+
+interface Attachment {
+  readonly principal: Principal
+  subscribed: boolean
+}
+
+export interface SubmitResult {
+  readonly frames: ReadonlyArray<OwnerFrame>
+}
+
+export type ReadResult = { readonly ok: true; readonly value: unknown; readonly revision: string } | ({ readonly ok: false } & Reject)
+
+const MAX_BACKOFF_MS = 5 * 60_000
+
+/** A closing socket must not stop delivery to the others (events are committed already). */
+const safeSend = (ws: WebSocket, text: string) => {
+  try {
+    ws.send(text)
+  } catch {}
+}
+
+/**
+ * The shared base of every cloud owner (spec 00-overview 7.1): one entity per
+ * object, ops through OwnerEngine (ledger, pure reducer, one transaction for
+ * state + ledger + events + outbox, commit before publish, request-settled),
+ * hibernating WebSocket subscribers, outbox drained to PlanetScale by alarm.
+ * The principal always comes from the Worker, never from a frame.
+ */
+export abstract class OwnerDO<S> extends DurableObject<Env> {
+  private engine: OwnerEngine<S> | undefined
+  private readonly store: SqlStore
+
+  constructor(
+    ctx: DurableObjectState,
+    env: Env,
+    private readonly domain: Domain<S>,
+    private readonly streamPrefix: string,
+    private readonly eventActor?: (p: Principal) => Principal
+  ) {
+    super(ctx, env)
+    this.store = doSql(ctx.storage)
+    void ctx.blockConcurrencyWhile(async () => {
+      this.store.exec(`CREATE TABLE IF NOT EXISTS do_entity (id INTEGER PRIMARY KEY CHECK (id = 1), entity TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)`)
+      const row = this.store.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
+      if (row) this.open(row.entity)
+    })
+  }
+
+  /** Per-stream read projection for a principal. */
+  protected abstract read(state: S, op: string, params: unknown, principal: Principal): ReadResult
+  /** Who may subscribe to this stream. */
+  protected abstract maySubscribe(state: S, principal: Principal): boolean
+
+  private open(entity: string): OwnerEngine<S> {
+    if (!this.engine)
+      this.engine = new OwnerEngine(this.store, this.domain, {
+        stream: `${this.streamPrefix}:${entity}`,
+        ...(this.eventActor ? { eventActor: this.eventActor } : {})
+      })
+    return this.engine
+  }
+
+  /** Binds this object to its entity on first use; refuses any other entity. */
+  protected bind(entity: string): OwnerEngine<S> {
+    const row = this.store.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
+    if (!row) this.store.exec(`INSERT INTO do_entity (id, entity) VALUES (1, ?)`, entity)
+    else if (row.entity !== entity) throw new Error(`object bound to ${row.entity}, not ${entity}`)
+    return this.open(entity)
+  }
+
+  private broadcast(frame: OwnerFrame) {
+    const text = JSON.stringify(frame)
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() as Attachment | null
+      if (a?.subscribed) safeSend(ws, text)
+    }
+  }
+
+  /** Closes every socket whose principal matches (revocation). */
+  protected closeSockets(match: (p: Principal) => boolean, reason: string) {
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() as Attachment | null
+      if (a && match(a.principal)) {
+        try {
+          ws.close(4401, reason)
+        } catch {}
+      }
+    }
+  }
+
+  /** Hook after each committed op (for example: close a revoked install's sockets). */
+  protected afterOp(_principal: Principal, _op: string, _frames: ReadonlyArray<OwnerFrame>) {}
+
+  private afterCommit() {
+    if (this.engine && this.engine.outboxPending(1).length > 0) void this.ctx.storage.getAlarm().then((t) => (t === null ? this.ctx.storage.setAlarm(Date.now()) : undefined))
+  }
+
+  /** RPC: one op from an authenticated principal. Requester frames return; events fan out to subscribers. */
+  async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
+    const engine = this.bind(entity)
+    const frames: Array<OwnerFrame> = []
+    engine.submit(principal, frame, (target, f) => (target === "all" ? this.broadcast(f) : frames.push(f)))
+    this.afterCommit()
+    this.afterOp(principal, frame.op, frames)
+    return { frames }
+  }
+
+  async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
+    const engine = this.bind(entity)
+    const r = this.read(engine.currentState, op, params, principal)
+    return r.ok ? { ...r, revision: String(engine.currentSeq) } : r
+  }
+
+  async debug(entity: string) {
+    return this.bind(entity).debugDump()
+  }
+
+  /** WebSocket gateway (cmux.wire/1 subset). The Worker sets the principal headers after authentication. */
+  override async fetch(request: Request): Promise<Response> {
+    const entity = request.headers.get("x-cmux-entity")
+    const principalJson = request.headers.get("x-cmux-principal")
+    if (!entity || !principalJson || request.headers.get("Upgrade") !== "websocket") return new Response("bad request", { status: 400 })
+    const principal = JSON.parse(principalJson) as Principal
+    const engine = this.bind(entity)
+    if (!this.maySubscribe(engine.currentState, principal)) return new Response("forbidden", { status: 403 })
+    const pair = new WebSocketPair()
+    const [client, server] = [pair[0], pair[1]]
+    this.ctx.acceptWebSocket(server)
+    server.serializeAttachment({ principal, subscribed: false } satisfies Attachment)
+    safeSend(server, JSON.stringify({ t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [engine.stream] }))
+    return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
+  }
+
+  override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    const a = ws.deserializeAttachment() as Attachment
+    // A socket lives no longer than its token.
+    if (a.principal.expires_at !== undefined && a.principal.expires_at <= Date.now()) return ws.close(4401, "token expired")
+    const row = this.store.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
+    if (!row) return ws.close(1011, "unbound")
+    const engine = this.open(row.entity)
+    let frame: { t?: string; after_seq?: number; pending?: Array<string> } & Partial<Omit<OpFrame, "t">>
+    try {
+      frame = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message))
+    } catch {
+      return safeSend(ws, JSON.stringify({ t: "error", code: "validation.invalid", message: "frames are JSON" }))
+    }
+    switch (frame.t) {
+      case "subscribe": {
+        a.subscribed = true
+        ws.serializeAttachment(a)
+        const after = typeof frame.after_seq === "number" ? frame.after_seq : undefined
+        const pending = frame.pending ?? []
+        // Resume by replaying the gap when the client holds no unconfirmed intents and the gap is
+        // small; otherwise a snapshot, which carries the decided keys that settle those intents.
+        const gap = after !== undefined && after <= engine.currentSeq && engine.currentSeq - after <= 1000 && pending.length === 0
+        if (gap) for (const e of engine.eventsAfter(after)) safeSend(ws, JSON.stringify(e))
+        else safeSend(ws, JSON.stringify(engine.snapshot(a.principal.identity, pending)))
+        return
+      }
+      case "snapshot.request":
+        safeSend(ws, JSON.stringify(engine.snapshot(a.principal.identity, frame.pending ?? [])))
+        return
+      case "unsubscribe":
+        a.subscribed = false
+        ws.serializeAttachment(a)
+        return
+      case "op": {
+        const frames: Array<OwnerFrame> = []
+        engine.submit(a.principal, frame as OpFrame, (target, f) => (target === "all" ? this.broadcast(f) : (frames.push(f), safeSend(ws, JSON.stringify(f)))))
+        this.afterCommit()
+        this.afterOp(a.principal, (frame as OpFrame).op, frames)
+        return
+      }
+      default:
+        safeSend(ws, JSON.stringify({ t: "error", code: "validation.invalid", message: `unknown frame ${frame.t}` }))
+    }
+  }
+
+  override async webSocketClose(ws: WebSocket, code: number) {
+    // 1005/1006 are reserved: they report "no code" and "abnormal" and cannot be sent.
+    try {
+      ws.close(code === 1005 || code === 1006 ? 1000 : code, "closing")
+    } catch {}
+  }
+
+  /** Drains the outbox into PlanetScale with idempotent upserts keyed by (stream, seq). */
+  override async alarm() {
+    if (!this.engine) return
+    const rows = this.engine.outboxPending(100)
+    if (rows.length === 0) return
+    try {
+      await drainOutbox(this.env, this.engine.stream, rows)
+      this.engine.outboxMarkSent(rows.map((r) => r.id))
+      this.store.exec(`UPDATE do_entity SET attempts = 0 WHERE id = 1`)
+      if (this.engine.outboxPending(1).length > 0) await this.ctx.storage.setAlarm(Date.now())
+    } catch (e) {
+      const attempts = (this.store.exec<{ attempts: number }>(`SELECT attempts FROM do_entity WHERE id = 1`)[0]?.attempts ?? 0) + 1
+      this.store.exec(`UPDATE do_entity SET attempts = ? WHERE id = 1`, attempts)
+      console.error(JSON.stringify({ msg: "outbox drain failed", stream: this.engine.stream, attempts, error: String(e) }))
+      await this.ctx.storage.setAlarm(Date.now() + Math.min(MAX_BACKOFF_MS, 1000 * 2 ** attempts))
+    }
+  }
+}

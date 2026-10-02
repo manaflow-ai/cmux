@@ -280,7 +280,7 @@ export const mockSessions: MockSession[] = [
     harness: "codex",
     model: "gpt-6-astra",
     status: "waiting",
-    pendingPermissions: 2,
+    pendingPermissions: 1,
     cwd: "~/code/atlas-web",
     ago: 15,
     host: LOCAL_HOST,
@@ -288,7 +288,7 @@ export const mockSessions: MockSession[] = [
     branch: "home-screen",
     worktree: "~/code/atlas-web-worktrees/home-screen",
     permission: { title: "Install @pierre/trees", kind: "execute" },
-    reply: "I need to install `@pierre/trees` and write to package.json. Approve both?",
+    reply: "I need to install `@pierre/trees`, which also updates package.json. Approve?",
   },
   {
     sessionId: "mock-light-theme",
@@ -453,6 +453,14 @@ test("retries a 503 and then succeeds", async () => {
 });
 `;
 
+/// The worked turn's files before and after it, which the mock's git scopes diff too.
+export const workedSources = {
+  root: CMUX,
+  upload: { path: "Sources/Fleet/upload.ts", before: uploadBefore, after: uploadAfter },
+  retry: { path: "Sources/Fleet/retry.ts", after: retrySource },
+  test: { path: "Sources/Fleet/upload.test.ts", before: testBefore, after: testAfter },
+};
+
 const MIN = 60_000;
 /// The worked turn starts 3.5 minutes before the fixture loads and ends about 2 minutes before.
 const START = 3 * MIN + 30_000;
@@ -519,14 +527,13 @@ export const workedTurn: SeedStep[] = [
   },
   {
     ago: START - 80_000,
-    update: tool(
-      "w-test",
-      "execute",
-      "Run bun test Sources/Fleet",
-      output(
+    update: tool("w-test", "execute", "Run bun test Sources/Fleet", {
+      rawInput: { command: "bun test Sources/Fleet", cwd: CMUX },
+      rawOutput: { exit_code: 0 },
+      ...output(
         "bun test v1.4.0\n\nSources/Fleet/upload.test.ts:\n✓ uploads the artifact [3.12ms]\n✓ retries a 503 and then succeeds [1504.40ms]\n\n 2 pass\n 0 fail\nRan 2 tests across 1 file. [1.53s]",
       ),
-    ),
+    }),
   },
   {
     ago: START - 84_000,

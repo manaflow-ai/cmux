@@ -53,9 +53,9 @@ enum DaemonClosedHistory {
         }
         services.registry.track(Task { @MainActor in
             guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
-            let reopened: DaemonConnection.ReopenedItem
+            let reopened: StateResourceClient.ReopenedItem
             do {
-                reopened = try await connection.reopenClosed(item.id)
+                reopened = try await connection.state.reopenClosed(item.id)
             } catch {
                 daemon.logger.error("closed.reopen failed: \(String(describing: error), privacy: .public)")
                 return "closed.reopen: \(error)"
@@ -71,7 +71,7 @@ enum DaemonClosedHistory {
     }
 
     /// Shows a reopened item once the store has it.
-    private static func show(_ reopened: DaemonConnection.ReopenedItem, kind: ClosedItem.Kind, daemon: DaemonService,
+    private static func show(_ reopened: StateResourceClient.ReopenedItem, kind: ClosedItem.Kind, daemon: DaemonService,
                              services: AppServices) {
         guard let workspace = daemon.store.workspace(resourceID: reopened.workspaceID),
               let window = services.windows.active else { return }

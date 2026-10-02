@@ -57,6 +57,18 @@ pub(super) enum Credential {
     Bedrock { region: Option<String>, models: Vec<(String, String)> },
 }
 
+/// `cmux coderouter …` and `cmux cr …`. `None` for any other command.
+pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
+    let (global, command_args) = super::parse_globals(args).ok()?;
+    let (word, rest) = split(&command_args)?;
+    Some(match parse(word, rest, args) {
+        Ok(invocation) => run(&global, invocation),
+        Err(error) => {
+            super::app::failure("usage.invalid", &format!("cmux: {error}"), global.output, 2)
+        }
+    })
+}
+
 /// `Some(args after the command word)` when `args` (after the global
 /// options) start with `coderouter` or `cr`.
 pub(super) fn split(command_args: &[String]) -> Option<(&str, &[String])> {

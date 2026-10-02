@@ -88,6 +88,23 @@ import Testing
         }
     }
 
+    /// Lawrence (2026-10-01): long menus use submenus. Each menu keeps at
+    /// most 12 top-level rows (a folder counts as one); the rest live in
+    /// folders ("Move ▸"), and each folder holds at least two rows.
+    /// Reachability inside folders is checked by the tests above, which
+    /// walk submenus.
+    @Test func everyMenuKeepsAShortTopLevel() {
+        for context in ActionMenuContext.allCases {
+            let entries = ContextMenuCatalog.shared.entries(for: context)
+            let rows = entries.filter { if case .separator = $0 { false } else { true } }
+            #expect(rows.count <= 12, "\(context) has \(rows.count) top-level rows")
+            for case .folder(let folder, let children) in entries {
+                let count = ContextMenuCatalog.shared.referencedIDs(children).count
+                #expect(count >= 2, "\(context) folder \(folder) has \(count) rows")
+            }
+        }
+    }
+
     @Test func cliNamesAndShortcutsAreUnique() {
         var byName: [String: ActionID] = [:]
         for descriptor in catalog where descriptor.surfacePlan.cli?.isOffered == true {
@@ -152,7 +169,7 @@ import Testing
     @Test func reportIsFresh() throws {
         let url = Self.planURL("actions.md")
         let text = try String(contentsOf: url, encoding: .utf8)
-        let current = ActionSurfaceReport.markdown(catalog, menus: .shared)
+        let current = ActionSurfaceReport(catalog, menus: .shared).markdown
         let start = try #require(text.range(of: ActionSurfaceReport.begin), "actions.md has no generated block")
         let end = try #require(text.range(of: ActionSurfaceReport.end), "actions.md has no generated block end")
         if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
@@ -167,7 +184,7 @@ import Testing
     @Test func surfaceTablesNameOnlyCatalogActions() {
         let ids = Set(catalog.map(\.id))
         var tableIDs = Array(ActionSurfaceCatalog.placements.keys) + Array(ActionSurfaceCatalog.cliNamed)
-        for table in [ActionSurfaceCatalog.cliExemptionsByReason, ActionSurfaceCatalog.contextMenuExemptionsByReason,
+        for table in [ActionSurfaceCatalog.paletteExemptionsByReason, ActionSurfaceCatalog.cliExemptionsByReason, ActionSurfaceCatalog.contextMenuExemptionsByReason,
                       ActionSurfaceCatalog.mcpExemptionsByReason] {
             let listed = table.values.flatMap { $0 }
             #expect(Set(listed).count == listed.count, "an id listed under two reasons")

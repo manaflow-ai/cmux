@@ -1,0 +1,20 @@
+Browser tab: 370922516, Title: "Nested top", URL: "http://127.0.0.1:18911/pages/top.html".
+0 AXWebArea Nested top, URL: 127.0.0.1:18911/pages/top.html
+	1 heading Top, Value: 1
+		2 text Top
+	3 button Top button
+	4 container Description: Level one, ID: l1
+		5 AXWebArea L1, URL: 127.0.0.1:18912/pages/l1.html
+			6 text Level one (peer origin)
+			7 text field (settable) L1 field
+			8 container Description: Level two, ID: l2
+				9 AXWebArea L2, URL: 127.0.0.1:18911/pages/l2.html
+					10 text Level two (back to top origin)
+					11 container Description: Level three, ID: l3
+						12 AXWebArea L3, URL: 127.0.0.1:18912/pages/l3.html
+							13 button Deep button
+	14 container Description: Srcdoc, ID: srcdoc
+		15 AXWebArea about:srcdoc
+			16 button Srcdoc button
+
+The focused UI element is 0 AXWebArea Nested top, URL: 127.0.0.1:18911/pages/top.html

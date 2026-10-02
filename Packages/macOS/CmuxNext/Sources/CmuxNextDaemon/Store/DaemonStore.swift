@@ -16,7 +16,7 @@ public enum DaemonConnectionState: Sendable, Equatable {
 /// they render. Events arrive decoded off the main actor and are applied in
 /// batches at most once per frame (`run(connection:scheduler:)`).
 @Observable @MainActor
-public final class DaemonStore {
+public final class DaemonStore: StateResourceQueries {
     public internal(set) var workspaces: [WorkspaceModel] = []
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Rooms in order (`profiles-v1`, home session only; the wire calls
@@ -39,15 +39,7 @@ public final class DaemonStore {
     public internal(set) var generation: DaemonGeneration?
     public internal(set) var registryID: String?
     public internal(set) var workspaceRevision: UInt64 = 0
-    /// The state resources the daemon serves over `session.events` (closed
-    /// history, workspace status, ephemeral workspaces, screen metadata and
-    /// groups, tab records, terminal progress); nil while the daemon serves
-    /// none (it predates them, or the stream has not delivered its snapshot).
-    /// The store lays it over the tree's records (`applyStateOverlay`).
-    public internal(set) var sessionState: SessionStateMirror?
-    /// True once this connection's daemon answered whether it serves state
-    /// resources (a snapshot, or a stream it refused); reset on connect.
-    public internal(set) var sessionStateKnown = false
+    public let session = SessionStateStore()
     /// Recent notifications, newest last (bounded).
     public internal(set) var notifications: [DaemonNotification] = []
     /// True once the first snapshot is applied.
@@ -97,6 +89,7 @@ public final class DaemonStore {
     @ObservationIgnored var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
     @ObservationIgnored var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
     @ObservationIgnored var agentsBySurface: [SurfaceID: AgentStatus] = [:]
+    @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
     /// (DaemonStore+Intents.swift).
     @ObservationIgnored var intentLog = IntentLog()
@@ -149,6 +142,11 @@ public final class DaemonStore {
     public func screen(_ handle: ScreenID) -> ScreenModel? { screensByHandle[handle] }
     public func pane(_ handle: PaneID) -> PaneModel? { panesByHandle[handle] }
     public func tab(surface: SurfaceID) -> TabModel? { tabsBySurface[surface] }
+    /// The shell's reported folder (OSC 7); a remote terminal's is never a local cwd.
+    public func noteTerminalDirectory(_ directory: String?, surface: SurfaceID) {
+        guard let tab = tabsBySurface[surface], tab.kind != .remoteTerminal else { return }
+        tab.setObservedCwd(directories.note(directory, surface: surface))
+    }
     public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
     /// The tab with durable id `id` (`TabModel.id`).
     public func tab(id: String) -> TabModel? { tabsBySurface.values.first { $0.id == id } }
@@ -211,6 +209,7 @@ public final class DaemonStore {
     }
 
     private func applyTree(_ tree: DaemonTree) {
+        directories.follow(tree.generation)
         if let value = tree.generation, generation != value { generation = value }
         if let value = tree.registryID, registryID != value { registryID = value }
         if workspaceRevision != tree.workspaceRevision { workspaceRevision = tree.workspaceRevision }
@@ -266,6 +265,7 @@ public final class DaemonStore {
                     for tab in pane.tabs {
                         tabs[tab.surface] = tab
                         if tab.agent == nil, let agent = agentsBySurface[tab.surface] { tab.setAgent(agent) }
+                        tab.setObservedCwd(directories[tab.surface])
                     }
                 }
             }
@@ -277,7 +277,7 @@ public final class DaemonStore {
         workspacesByKey = byKey
         tabGroupsByID = tabGroups
         recomputeSidebar()
-        applyStateOverlay()
+        session.overlay(workspaces)
     }
 
     /// Runs `onWorkspaceListChanged` when the workspace list differs from

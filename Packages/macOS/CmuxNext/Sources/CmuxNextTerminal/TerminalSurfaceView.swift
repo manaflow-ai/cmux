@@ -20,9 +20,6 @@ public final class TerminalSurfaceView: NSView {
     /// The light/dark scheme last given to this surface (diagnostics).
     var colorSchemeIsDark = false
     let bridge: Unmanaged<SurfaceBridge>
-    /// The font scale after each font size change (nil: the configured
-    /// size); `TerminalSurfaceView+FontScale`.
-    public var onFontScaleChange: ((Double?) -> Void)?
     /// Serial lane for output and other process_output-ordered calls.
     private(set) var lane: TerminalOutputLane?
     weak var session: TerminalSession?
@@ -69,11 +66,10 @@ public final class TerminalSurfaceView: NSView {
     var lastPerformKeyEventTimestamp: TimeInterval?
     var previousPressureStage = 0
 
-    // Copy mode (see TerminalSurfaceView+CopyMode.swift).
-    var copyMode: CopyModeSession?
-    /// Keys whose key-down copy mode took; their key-up is swallowed too,
-    /// also after the key that left copy mode.
-    var copyModeConsumedKeyUps: Set<UInt16> = []
+    /// Keyboard copy mode (``TerminalCopyMode``).
+    private(set) lazy var copyMode = TerminalCopyMode(view: self)
+    /// Ghostty's clipboard reads and confirmations (``TerminalClipboardRequests``).
+    private(set) lazy var clipboardRequests = TerminalClipboardRequests(view: self)
 
     // MARK: Lifecycle
 
@@ -128,9 +124,8 @@ public final class TerminalSurfaceView: NSView {
             return
         }
         self.surface = surface
-        installFontSizeCallback()
-        // Light/dark themes (the default Apple System Colors) follow the
-        // app's appearance on every live surface.
+        TerminalFontScale.installCallback(on: self)
+        // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output")
         registerForDraggedTypes([.fileURL, .URL, .string])
@@ -203,7 +198,7 @@ public final class TerminalSurfaceView: NSView {
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         updateSurfaceSize()
-        syncCopyModeCursor()
+        copyMode.syncCursor()
     }
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`

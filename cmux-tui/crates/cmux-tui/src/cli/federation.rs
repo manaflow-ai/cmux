@@ -57,6 +57,8 @@ const ID_OPTIONS: &[&str] = &[
 /// sessions. `cmux mcp` shares it.
 pub(super) fn qualified(value: &str) -> Option<(&str, &str)> {
     let (session, id) = value.split_once(':')?;
+    // A kind (`workspace:ws_…`, an action target) and the `name:` escape are
+    // not sessions.
     if session == "name" || cmux_tui_core::resource::is_reserved_selector_token(session) {
         return None;
     }

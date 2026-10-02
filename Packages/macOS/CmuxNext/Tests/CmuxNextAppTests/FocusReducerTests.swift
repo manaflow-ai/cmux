@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextDesign
 import Testing
 
 /// Table tests for the focus reducer (plans/cmux-next/focus.md). Each race
@@ -138,8 +139,20 @@ struct FocusReducerTests {
 
     // MARK: R2: removed pane successor
 
-    @Test func removedFocusedPaneReturnsToThePreviouslyFocusedPane() {
+    // layout.closeFocus default previousNeighbor (close-focus.md): the
+    // previous pane in the column, not the most recently focused one.
+    @Test func removedFocusedPaneFocusesItsPreviousNeighbor() {
         var state = Self.run([.focusPane("c", source: .mouse), .focusPane("b", source: .mouse)], from: Self.loaded()).0
+        var topology = Self.topology()
+        topology.panes.remove(at: 1)
+        state = Self.run([.topology(topology)], from: state).0
+        #expect(state.pane == "a")
+    }
+
+    @Test func removedFocusedPaneReturnsToThePreviouslyFocusedPaneWithMostRecent() {
+        var start = Self.loaded()
+        start.closeFocus = .mostRecent
+        var state = Self.run([.focusPane("c", source: .mouse), .focusPane("b", source: .mouse)], from: start).0
         var topology = Self.topology()
         topology.panes.remove(at: 1)
         state = Self.run([.topology(topology)], from: state).0

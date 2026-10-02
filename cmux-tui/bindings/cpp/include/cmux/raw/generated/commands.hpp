@@ -72,6 +72,7 @@ public:
     [[nodiscard]] Result<CloseTerminalResult> close_terminal(const CloseTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> close_workspace(const CloseWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<CopyResult> copy(const CopyRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> create_bookmark(const CreateBookmarkRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_browser_profile(const CreateBrowserProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_personal_group(const CreatePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_profile(const CreateProfileRequest& request, RequestOptions options = {});
@@ -81,6 +82,7 @@ public:
     [[nodiscard]] Result<TerminalPlacement> create_terminal(const CreateTerminalRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> create_workspace(const CreateWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_workspace_group(const CreateWorkspaceGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> delete_bookmark(const DeleteBookmarkRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> delete_browser_profile(const DeleteBrowserProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> delete_personal_group(const DeletePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> delete_profile(const DeleteProfileRequest& request, RequestOptions options = {});
@@ -99,9 +101,11 @@ public:
     [[nodiscard]] Result<GetSizeStateResult> get_size_state(const GetSizeStateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<IdentifyResult> identify(const IdentifyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<IdsResult> ids(const IdsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> import_bookmarks(const ImportBookmarksRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> import_session_organization(const ImportSessionOrganizationRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JournalFrontendEventResult> journal_frontend_event(const JournalFrontendEventRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ListAgentsResult> list_agents(const ListAgentsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> list_bookmarks(const ListBookmarksRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ListClientsResult> list_clients(const ListClientsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> list_notifications(const ListNotificationsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> list_personal(const ListPersonalRequest& request = {}, RequestOptions options = {});
@@ -116,6 +120,7 @@ public:
     [[nodiscard]] Result<EmptyResult> mark_workspaces_provider_managed(const MarkWorkspacesProviderManagedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer(const MintTerminalRendererRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer_by_terminal(const MintTerminalRendererByTerminalRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> move_bookmark(const MoveBookmarkRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_browser_profile(const MoveBrowserProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_personal_group(const MovePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_profile(const MoveProfileRequest& request, RequestOptions options = {});
@@ -217,6 +222,7 @@ public:
     [[nodiscard]] Result<BrowserProviderUnregisterResult> unregister_browser_provider(const UnregisterBrowserProviderRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> unsave_screen_group(const UnsaveScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> unsave_tab_group(const UnsaveTabGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> update_bookmark(const UpdateBookmarkRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_browser_profile(const UpdateBrowserProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_frontend_browser_tab(const UpdateFrontendBrowserTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_personal_group(const UpdatePersonalGroupRequest& request, RequestOptions options = {});

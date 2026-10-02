@@ -12,8 +12,8 @@ extension TabContentCache {
         let session = TerminalSession(io: io, ownsGeometry: true)
         session.delegate = sessionDelegate
         let key = tab.id
-        if daemon.store.servesStateResources, let zoom = tab.zoom { session.surfaceView.applyFontScale(zoom) }
-        session.surfaceView.onFontScaleChange = { [weak daemon] scale in
+        if daemon.store.servesStateResources, let zoom = tab.zoom { TerminalFontScale.apply(zoom, to: session.surfaceView) }
+        TerminalFontScale.observe(session.surfaceView) { [weak daemon] scale in
             guard let daemon else { return }
             Self.saveFontScale(scale, tab: key, daemon: daemon)
         }
@@ -26,6 +26,6 @@ extension TabContentCache {
               let tab = daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == key }),
               let resource = tab.resourceID, tab.zoom != scale else { return }
         let zoom: FieldUpdate<Double> = scale.map(FieldUpdate.set) ?? .clear
-        daemon.send("tab.update") { try await $0.updateTabRecord(resource, zoom: zoom) }
+        daemon.send("tab.update") { try await $0.state.updateTabRecord(resource, zoom: zoom) }
     }
 }
