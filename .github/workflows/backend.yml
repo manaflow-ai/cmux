@@ -97,6 +97,9 @@ jobs:
       - name: Dashboard build
         working-directory: backend/apps/dashboard
         run: bun run build
+      - name: Dashboard server build renders the invite card
+        working-directory: backend/apps/dashboard
+        run: bun run test:server
       - name: Wrangler dry-run build
         working-directory: backend/apps/api
         run: ./node_modules/.bin/wrangler deploy --env production --dry-run --outdir dist

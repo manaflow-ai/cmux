@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun scripts/copy-og-assets.ts && vite dev --port 3010",
-    "build": "bun scripts/copy-og-assets.ts && vite build",
+    "dev": "vite dev --port 3010",
+    "build": "vite build",
     "typecheck": "tsc -p .",
     "test": "bun test test",
-    "og:assets": "bun scripts/copy-og-assets.ts"
+    "test:server": "bun test test-server"
   },
   "dependencies": {
     "@fontsource/inter": "5.3.0",
