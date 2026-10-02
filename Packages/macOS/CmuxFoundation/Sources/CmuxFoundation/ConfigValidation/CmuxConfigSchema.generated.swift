@@ -1798,6 +1798,20 @@ enum CmuxEmbeddedConfigSchema {
         }
       }
     },
+    "agentMessages": {
+      "x-cmux-scopes": ["global"],
+      "title": "agentMessages",
+      "description": "Agent-to-agent messages sent with cmux agent message. Per-agent and per-workspace opt-outs are set with cmux agent messages off.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow agents to message each other through cmux. When false, cmux agent message fails, nothing is stored, and messages already queued are marked failed instead of being delivered."
+        }
+      }
+    },
     "browser": {
       "x-cmux-scopes": ["global"],
       "title": "browser",

@@ -5271,9 +5271,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "ចូលគណនី cmux",
-    "signInSubtitle": "គណនីតែមួយសម្រាប់កម្មវិធី Cloud និងផ្ទាំងគ្រប់គ្រង។",
+    "signInSubtitle": "គណនីតែមួយសម្រាប់កម្មវិធី cloud និងផ្ទាំងគ្រប់គ្រង។",
     "signUpTitle": "បង្កើតគណនី cmux",
-    "signUpSubtitle": "គណនីតែមួយសម្រាប់កម្មវិធី Cloud និងផ្ទាំងគ្រប់គ្រង។",
+    "signUpSubtitle": "គណនីតែមួយសម្រាប់កម្មវិធី cloud និងផ្ទាំងគ្រប់គ្រង។",
     "continueWithProvider": "បន្តជាមួយ {provider}",
     "signInWithPasskey": "ចូលដោយប្រើ passkey",
     "orContinueWith": "ឬបន្តជាមួយ",

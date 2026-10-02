@@ -5270,9 +5270,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "تسجيل الدخول إلى cmux",
-    "signInSubtitle": "حساب واحد للتطبيق وCloud ولوحة التحكم.",
+    "signInSubtitle": "حساب واحد للتطبيق وcloud ولوحة التحكم.",
     "signUpTitle": "أنشئ حسابك في cmux",
-    "signUpSubtitle": "حساب واحد للتطبيق وCloud ولوحة التحكم.",
+    "signUpSubtitle": "حساب واحد للتطبيق وcloud ولوحة التحكم.",
     "continueWithProvider": "المتابعة باستخدام {provider}",
     "signInWithPasskey": "تسجيل الدخول باستخدام مفتاح المرور",
     "orContinueWith": "أو تابع باستخدام",
