@@ -43,12 +43,16 @@ public nonisolated struct AppScopeTable: Sendable, Hashable {
     /// URL's host; `integration.request` needs `integration:<provider>`
     /// (or its `:read` form for GET); `app.storage.*` is the app's own
     /// storage and always allowed.
-    public func refusal(op: String, params: AppJSON, granted: Set<String>) -> AppOperationError? {
+    public func refusal(op: String, params: AppJSON, granted: Set<String>, sandboxed: Bool = false) -> AppOperationError? {
         if never.contains(op) {
             return AppOperationError(code: "operation.forbidden", message: "apps cannot call \(op)", details: ["op": .string(op)])
         }
         guard let entry = ops[op] else {
             return AppOperationError(code: "operation.unsupported", message: "unknown operation \(op)", details: ["op": .string(op)])
+        }
+        if sandboxed, entry.scope == "net:<host>" || entry.scope == "integration:<provider>" {
+            return AppOperationError(code: "sandbox.denied", message: "this app runs sandboxed: no network or integrations",
+                                     details: ["op": .string(op), "scope": .string(entry.scope)])
         }
         let needed: String
         switch entry.scope {

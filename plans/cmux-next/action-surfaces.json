@@ -7733,6 +7733,28 @@
       "id" : "sidebar.layout.reset",
       "mcp" : "offered",
       "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action app-store-show",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "id" : "appStore.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action app-store-show-installed",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "appStore.showInstalled",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
     }
   ],
   "version" : 1
