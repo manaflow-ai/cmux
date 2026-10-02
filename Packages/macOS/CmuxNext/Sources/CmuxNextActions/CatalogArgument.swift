@@ -88,6 +88,18 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "command", title: String(localized: "argument.command", defaultValue: "Command", bundle: .module), kind: .string)
     }
 
+    static var pathString: ActionArgument {
+        ActionArgument(name: "path", title: String(localized: "argument.path", defaultValue: "Path", bundle: .module), kind: .string)
+    }
+
+    static var contentsString: ActionArgument {
+        ActionArgument(name: "contents", title: String(localized: "argument.contents", defaultValue: "Contents", bundle: .module), kind: .string)
+    }
+
+    static var publicKeyString: ActionArgument {
+        ActionArgument(name: "publicKey", title: String(localized: "argument.publicKey", defaultValue: "SSH Public Key", bundle: .module), kind: .string)
+    }
+
     static var appString: ActionArgument {
         ActionArgument(name: "app", title: String(localized: "argument.app", defaultValue: "App", bundle: .module), kind: .string)
     }
