@@ -277,7 +277,9 @@ degrades to the normal detach.
 Both policies apply only to a process end, an exit status or signal that
 the terminal host reported. When the host dies without one (it is killed,
 or it dies while no daemon runs), every tab stays and shows the terminal
-dead; only a close removes it.
+dead; only a close removes it. A process that dies of a signal while its
+session shuts down (logout, reboot, `SIGTERM` to the daemon) counts as a
+host death too.
 
 ## Resource paths
 
