@@ -25,12 +25,13 @@ const { AcpmuxApp } = await import("./App");
 type Posted = { method: string; params: Record<string, unknown> };
 
 /// The pane with a host that records every request and answers the handshake with no daemon.
-async function mountPane() {
+async function mountPane(options: { refuse?: string } = {}) {
   const posted: Posted[] = [];
   const host = dom.window as unknown as Record<string, unknown>;
   host.webkit = { messageHandlers: { agentSession: { postMessage(message: Posted) {
     posted.push(message);
     if (message.method === "ready") return Promise.resolve({ ok: true, value: { protocolVersion: 1, transport: "none" } });
+    if (options.refuse && message.method.startsWith("dictation.")) return Promise.resolve({ ok: false, error: { userMessage: options.refuse } });
     return Promise.resolve({ ok: true, value: null });
   } } } };
   const root = createRoot(dom.window.document.getElementById("root")!);
@@ -134,5 +135,67 @@ describe("composer dictation", () => {
     await pane.send({ state: "listening", text: "half" });
     await pane.unmount();
     expect(pane.methods()).toEqual(["dictation.cancel"]);
+  });
+
+  test("rapid toggling sends every press and follows the host's state", async () => {
+    const pane = await mountPane();
+    try {
+      for (let press = 0; press < 4; press += 1) await act(async () => pane.mic().click());
+      expect(pane.methods()).toEqual(["dictation.toggle", "dictation.toggle", "dictation.toggle", "dictation.toggle"]);
+      // The host settles it: started, cancelled while starting, started, stopped.
+      await pane.send({ state: "starting" });
+      await pane.send({ state: "idle", cancelled: true });
+      await pane.send({ state: "starting" });
+      await pane.send({ state: "listening", text: "ok" });
+      await pane.send({ state: "idle", text: "ok" });
+      expect(pane.prompt.value).toBe("ok");
+      expect(pane.mic().dataset.state).toBe("idle");
+    } finally {
+      await pane.unmount();
+    }
+  });
+
+  test("closing the pane right after a press, before any update, still releases the microphone", async () => {
+    const pane = await mountPane();
+    await act(async () => pane.mic().click());
+    await pane.unmount();
+    expect(pane.methods()).toEqual(["dictation.toggle", "dictation.cancel"]);
+  });
+
+  test("Esc that closes an input method's candidates does not cancel dictation", async () => {
+    const pane = await mountPane();
+    try {
+      await pane.send({ state: "listening", text: "words" });
+      const composing = new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true, isComposing: true });
+      expect(pane.document.dispatchEvent(composing)).toBe(true);
+      expect(pane.methods()).toEqual([]);
+    } finally {
+      await pane.unmount();
+    }
+  });
+
+  test("words arriving during an input method composition wait for it to end", async () => {
+    const pane = await mountPane();
+    try {
+      await pane.send({ state: "listening", text: "hello" });
+      pane.prompt.dispatchEvent(new dom.window.Event("compositionstart"));
+      await pane.send({ state: "listening", text: "hello world" });
+      expect(pane.prompt.value).toBe("hello");
+      pane.prompt.dispatchEvent(new dom.window.Event("compositionend"));
+      expect(pane.prompt.value).toBe("hello world");
+    } finally {
+      await pane.unmount();
+    }
+  });
+
+  test("a refused toggle shows the host's reason", async () => {
+    const pane = await mountPane({ refuse: "Dictation is busy in another window." });
+    try {
+      await act(async () => pane.mic().click());
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(pane.document.querySelector(".acpmux-dictation-notice")?.textContent).toContain("Dictation is busy in another window.");
+    } finally {
+      await pane.unmount();
+    }
   });
 });

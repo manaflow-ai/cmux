@@ -14,7 +14,7 @@ function run(start: PromptState, updates: DictationUpdate[], edit?: (index: numb
     const splice = applyDictation(prompt, anchor, next);
     if (splice) {
       anchor = splice.anchor;
-      prompt = { value: splice.value, selectionStart: splice.caret, selectionEnd: splice.caret };
+      prompt = { value: splice.value, selectionStart: splice.selectionStart, selectionEnd: splice.selectionEnd };
     }
     seen.push(prompt);
   });
@@ -74,13 +74,50 @@ describe("dictation text", () => {
     expect(run(caretAt(""), [update("listening", "first part"), update("failed", "first part", { message: "x" })]).prompt.value).toBe("first part");
   });
 
-  test("typing mid-session keeps the edit and continues at the caret", () => {
-    const { prompt } = run(caretAt(""), [update("listening", "hello"), update("listening", "hello world"), update("idle", "hello world")], (index, current) => {
-      // Before the second update the user types "!" after the dictated word.
-      if (index !== 1) return current;
-      return caretAt(current.value + "!");
-    });
-    expect(prompt.value).toBe("hello! world");
+  test("typing after the words while listening keeps the edit, the caret, and the revision", () => {
+    const { prompt } = run(caretAt(""), [update("listening", "hello wor"), update("listening", "hello world"), update("idle", "hello world")], (index, current) =>
+      index === 1 ? caretAt(current.value + "!") : current);
+    // The hypothesis "wor" still becomes "world"; the typed "!" and the caret after it stay.
+    expect(prompt.value).toBe("hello world!");
+    expect(prompt.selectionStart).toBe("hello world!".length);
+  });
+
+  test("typing before the words while listening moves them, without duplicates", () => {
+    const { prompt } = run(caretAt(""), [update("listening", "fix it"), update("listening", "fix it now"), update("idle", "fix it now")], (index, current) =>
+      index === 1 ? { value: "Please " + current.value, selectionStart: 7, selectionEnd: 7 } : current);
+    expect(prompt.value).toBe("Please fix it now");
+    expect(prompt.selectionStart).toBe(7);
+  });
+
+  test("moving the cursor away keeps it there while words keep landing at the anchor", () => {
+    const { prompt } = run(caretAt("intro. "), [update("listening", "one"), update("listening", "one two"), update("idle", "one two three")], (index, current) =>
+      index === 1 ? { ...current, selectionStart: 2, selectionEnd: 2 } : current);
+    expect(prompt.value).toBe("intro. one two three");
+    expect(prompt.selectionStart).toBe(2);
+  });
+
+  test("editing inside the words hands them over and continues at the caret", () => {
+    const { prompt } = run(caretAt(""), [update("listening", "hello"), update("listening", "hello world"), update("idle", "hello world")], (index, current) =>
+      index === 1 ? caretAt("Hello") : current);
+    expect(prompt.value).toBe("Hello world");
+  });
+
+  test("the final text replaces the partial without duplicates or lost words", () => {
+    const { seen } = run(caretAt("Note: "), [
+      update("listening", "the quick"), update("listening", "the quick brown"), update("listening", "the quick brown fox jumps"),
+      update("finalizing", "The quick brown fox jumps."), update("idle", "The quick brown fox jumps."),
+    ]);
+    expect(seen.map((prompt) => prompt.value)).toEqual([
+      "Note: the quick", "Note: the quick brown", "Note: the quick brown fox jumps", "Note: The quick brown fox jumps.", "Note: The quick brown fox jumps.",
+    ]);
+  });
+
+  test("CJK and paths get no stray spaces", () => {
+    expect(run(caretAt("我想"), [update("listening", "修复这个")]).prompt.value).toBe("我想修复这个");
+    expect(run(caretAt("これは"), [update("listening", "テストです")]).prompt.value).toBe("これはテストです");
+    expect(run(caretAt("错误", 0), [update("listening", "修复")]).prompt.value).toBe("修复错误");
+    expect(run(caretAt("open src/"), [update("listening", "main")]).prompt.value).toBe("open src/main");
+    expect(run(caretAt("call ("), [update("listening", "foo")]).prompt.value).toBe("call (foo");
   });
 
   test("updates before a session starts change nothing", () => {

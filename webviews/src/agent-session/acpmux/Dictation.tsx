@@ -24,9 +24,21 @@ export function configureDictation(layout: Record<string, unknown> | undefined):
 
 const isActive = (state: DictationState) => state === "starting" || state === "listening" || state === "finalizing";
 
-/// Writes the prompt the way typing does, so React and anything listening for input see it.
+/// Writes the prompt the way typing does: as one undoable edit of the changed span when the
+/// prompt has focus, so Cmd-Z works, and an input event either way.
 function writePrompt(node: HTMLTextAreaElement, value: string): void {
-  if (node.value === value) return;
+  const old = node.value;
+  if (old === value) return;
+  let head = 0;
+  while (head < old.length && head < value.length && old[head] === value[head]) head += 1;
+  let tail = 0;
+  while (tail < old.length - head && tail < value.length - head && old[old.length - 1 - tail] === value[value.length - 1 - tail]) tail += 1;
+  if (node.ownerDocument.activeElement === node && typeof node.ownerDocument.execCommand === "function") {
+    node.setSelectionRange(head, old.length - tail);
+    const inserted = value.slice(head, value.length - tail);
+    const done = inserted ? node.ownerDocument.execCommand("insertText", false, inserted) : node.ownerDocument.execCommand("delete");
+    if (done && node.value === value) return;
+  }
   const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(node), "value")?.set;
   if (setter) setter.call(node, value);
   else node.value = value;
@@ -49,24 +61,49 @@ export function useDictation(prompt: React.RefObject<HTMLTextAreaElement | null>
   const [level, setLevel] = useState(0);
   const [notice, setNotice] = useState<DictationUpdate | null>(null);
   const anchor = useRef<DictationAnchor | null>(null);
+  /// The latest update that arrived while an input method was composing; applied when it ends,
+  /// so a splice never breaks the user's composition.
+  const pending = useRef<DictationUpdate | null>(null);
+  /// A toggle went to the host and no update came back yet.
+  const requested = useRef(false);
 
   useEffect(() => {
-    const receive = (update: DictationUpdate) => {
-      setState(update.state);
-      setLevel(isActive(update.state) ? update.level : 0);
-      if (update.state === "failed" || update.state === "denied") setNotice(update);
-      else if (update.state === "starting") setNotice(null);
+    let composing = false;
+    const apply = (update: DictationUpdate) => {
       const node = prompt.current;
       if (!node) return;
       const splice = applyDictation({ value: node.value, selectionStart: node.selectionStart, selectionEnd: node.selectionEnd }, anchor.current, update);
       if (!splice) return;
       anchor.current = splice.anchor;
       writePrompt(node, splice.value);
-      node.setSelectionRange(splice.caret, splice.caret);
+      node.setSelectionRange(splice.selectionStart, splice.selectionEnd);
       if (update.state === "idle" && !update.cancelled && autoSend && update.text.trim()) node.form?.requestSubmit();
     };
+    const receive = (update: DictationUpdate) => {
+      requested.current = false;
+      setState(update.state);
+      setLevel(isActive(update.state) ? update.level : 0);
+      if (update.state === "failed" || update.state === "denied") setNotice(update);
+      else if (update.state === "starting") setNotice(null);
+      if (composing) pending.current = update;
+      else apply(update);
+    };
+    const node = prompt.current;
+    const compositionStart = () => { composing = true; };
+    const compositionEnd = () => {
+      composing = false;
+      const update = pending.current;
+      pending.current = null;
+      if (update) apply(update);
+    };
+    node?.addEventListener("compositionstart", compositionStart);
+    node?.addEventListener("compositionend", compositionEnd);
     listeners.add(receive);
-    return () => { listeners.delete(receive); };
+    return () => {
+      listeners.delete(receive);
+      node?.removeEventListener("compositionstart", compositionStart);
+      node?.removeEventListener("compositionend", compositionEnd);
+    };
   }, [prompt]);
 
   // Esc cancels, only while a session runs; idle composers keep every key.
@@ -74,7 +111,8 @@ export function useDictation(prompt: React.RefObject<HTMLTextAreaElement | null>
   useEffect(() => {
     if (!active) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      // Esc that closes an input method's candidates is the input method's.
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
       event.preventDefault();
       event.stopPropagation();
       void call("dictation.cancel").catch(() => {});
@@ -86,7 +124,7 @@ export function useDictation(prompt: React.RefObject<HTMLTextAreaElement | null>
   // A closed composer must not leave the microphone on.
   const latest = useRef(state);
   latest.current = state;
-  useEffect(() => () => { if (isActive(latest.current)) void call("dictation.cancel").catch(() => {}); }, [call]);
+  useEffect(() => () => { if (isActive(latest.current) || requested.current) void call("dictation.cancel").catch(() => {}); }, [call]);
 
   return {
     state,
@@ -94,7 +132,11 @@ export function useDictation(prompt: React.RefObject<HTMLTextAreaElement | null>
     notice,
     toggle() {
       if (!active) prompt.current?.focus();
-      void call("dictation.toggle").catch(() => setNotice({ state: "failed", text: "", level: 0, cancelled: false, message: "Dictation is not available in this build." }));
+      requested.current = true;
+      void call("dictation.toggle").catch((error: unknown) => {
+        requested.current = false;
+        setNotice({ state: "failed", text: "", level: 0, cancelled: false, message: error instanceof Error && error.message ? error.message : "Dictation is not available." });
+      });
     },
     cancel() { void call("dictation.cancel").catch(() => {}); },
     openSettings() { if (notice?.permission) void call("dictation.openSettings", { permission: notice.permission }).catch(() => {}); },
