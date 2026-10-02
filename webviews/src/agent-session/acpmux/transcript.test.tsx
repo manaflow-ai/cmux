@@ -653,3 +653,35 @@ describe("acpmux turn counts", () => {
     }
   });
 });
+
+describe("acpmux new chat", () => {
+  /// A new chat drew an empty transcript; it now names the project, as Codex's home and new-chat screens do.
+  test("an empty connected session shows the hero with its folder, and rows or a pending connection hide it", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window;
+    const snapshot = (rows: unknown[], connection = "connected", cwd?: string) => ({ type: "snapshot", protocolVersion: 1, rows, sessions: [], connection, isWorking: false, queue: [], canLoadOlder: false, catalog: [], summary: { sessionId: "s", cwd } });
+    const hero = () => dom.window.document.querySelector(".acpmux-empty-title")?.textContent;
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot([], "connecting", "/Users/me/harness-research") as never));
+      expect(hero()).toBeUndefined();
+      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot([], "connected", "/Users/me/harness-research/") as never));
+      expect(hero()).toBe("What should we build in harness-research?");
+      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot([]) as never));
+      expect(hero()).toBe("What should we build?");
+      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot([{ id: "u1", version: 1, at: 1, kind: "user", text: "hi" }]) as never));
+      expect(hero()).toBeUndefined();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  test("the project is the working directory's last component", async () => {
+    const { projectName } = await import("./EmptyState");
+    expect(projectName("/Users/me/cmux")).toBe("cmux");
+    expect(projectName("/Users/me/cmux//")).toBe("cmux");
+    expect(projectName("C:\\work\\repo")).toBe("repo");
+    expect(projectName("/")).toBeUndefined();
+    expect(projectName(undefined)).toBeUndefined();
+  });
+});
