@@ -27,7 +27,7 @@ extension TabStripView {
     public func beginInlineRename(_ id: TabID) {
         guard let item = model.tab(id), let cell = cells[id] else { return }
         cancelInlineRename()
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         // Follows theme changes while open (ThemedTextField).
         let field = ThemedTextField(string: item.title)
         field.font = Typography.body

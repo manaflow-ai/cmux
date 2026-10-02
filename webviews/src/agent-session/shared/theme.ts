@@ -15,6 +15,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   accentSoft: "--agent-accent-soft",
   accentText: "--agent-accent-text",
   danger: "--agent-danger",
+  warning: "--agent-warning",
   shadow: "--agent-shadow",
   palette: null,
 };

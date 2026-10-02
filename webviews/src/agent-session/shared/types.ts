@@ -29,6 +29,8 @@ export type AgentSessionTheme = {
   /// Labels on the accent; the cmux-next pane sends it, others fall back to white.
   accentText?: string;
   danger: string;
+  /// Caution, softer than `danger` (ANSI yellow): the full-access mode chip.
+  warning?: string;
   shadow: string;
   /// The terminal's 16 ANSI colors, for syntax colors that follow the theme; the cmux-next
   /// pane sends it, others keep Codex's syntax colors.

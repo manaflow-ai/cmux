@@ -83,6 +83,7 @@ export function themeTokens(input) {
     paneBorder: withAlpha(fg, isDark ? 0.07 : 0.09),
     shadow: mixed(bg, black, 0.85),
     danger: readable(palette[1], bg, 3),
+    attention: readable(palette[3], bg, 3),
   };
 }
 
@@ -108,6 +109,7 @@ export function agentPaneTheme(input) {
     // Labels on the accent: the page background, opaque so a translucent backdrop doesn't thin them.
     accentText: css(withAlpha(page, 1)),
     danger: css(t.danger),
+    warning: css(t.attention),
     shadow: css(t.shadow),
     // The terminal's ANSI colors in order, for syntax colors that follow the theme.
     palette: (input.palette.length >= 8 ? input.palette : ghosttyDefault.palette).slice(0, 16).map(css),

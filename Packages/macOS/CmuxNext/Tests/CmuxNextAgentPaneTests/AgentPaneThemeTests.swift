@@ -6,7 +6,19 @@ import Testing
     @Test func coversEveryKeyThePageMapsToACSSVariable() {
         let keys = Set(AgentPaneTheme.values(.fallback).keys)
         #expect(keys == ["isDark", "pageBackground", "surfaceBackground", "surfaceElevatedBackground", "inputBackground", "border",
-                         "borderStrong", "text", "mutedText", "softText", "accent", "accentSoft", "accentText", "danger", "shadow", "palette"])
+                         "borderStrong", "text", "mutedText", "softText", "accent", "accentSoft", "accentText", "danger", "warning", "shadow", "palette"])
+    }
+
+    /// The composer's full-access chip needs a caution color that is not
+    /// the error red: the theme's ANSI yellow, readable on the background.
+    @Test func warningIsTheThemesAttentionColor() {
+        let gruvbox = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0x282828), foreground: ThemeRGB(hex: 0xEBDBB2), palette: [
+            0x282828, 0xCC241D, 0x98971A, 0xD79921, 0x458588, 0xB16286, 0x689D6A, 0xA89984,
+            0x928374, 0xFB4934, 0xB8BB26, 0xFABD2F, 0x83A598, 0xD3869B, 0x8EC07C, 0xEBDBB2,
+        ].map { ThemeRGB(hex: $0) }))
+        let values = AgentPaneTheme.values(gruvbox)
+        #expect(values["warning"] as? String == AgentPaneTheme.css(gruvbox.attention))
+        #expect(values["warning"] as? String != values["danger"] as? String)
     }
 
     @Test func writesCSSColors() {

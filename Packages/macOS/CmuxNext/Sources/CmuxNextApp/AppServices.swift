@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextBrowserImport
@@ -114,6 +115,9 @@ final class AppServices {
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
     let favicons = TabFaviconStore()
+    /// The one owner of hover cards in the app: at most one card, ever
+    /// (plans/cmux-next/hovercards.md).
+    let hoverCards = HoverCardCoordinator()
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
     private(set) var remoteTerminals: RemoteTerminalService!
 
