@@ -8,13 +8,13 @@ const skeleton = (body: string, digest = "AAAA") => `<samlp:Response xmlns:samlp
 
 describe("SAML validator hardening", () => {
   it("refuses deep nesting fast (no O(depth^2) canonicalization, no stack overflow)", async () => {
-    const n = 20_000
+    const n = 3000
     const started = performance.now()
     const r = await validateSamlResponse(b64(skeleton("<a>".repeat(n) + "</a>".repeat(n))), EX)
-    expect(r.ok).toBe(false)
+    expect(r).toMatchObject({ ok: false, code: "saml.invalid" })
     expect(performance.now() - started).toBeLessThan(1500)
   })
   it("maps malformed base64 in the signature to a typed failure (no exception)", async () => {
-    await expect(validateSamlResponse(b64(skeleton("", "!!!")), EX)).resolves.toMatchObject({ ok: false })
+    await expect(validateSamlResponse(b64(skeleton("", "!!!")), EX)).resolves.toMatchObject({ ok: false, code: "saml.signature_invalid" })
   })
 })

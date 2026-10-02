@@ -28,7 +28,18 @@ const escapeText = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
 const escapeAttr = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;").replace(/\t/g, "&#x9;").replace(/\n/g, "&#xA;").replace(/\r/g, "&#xD;")
 
-/** Namespace declarations in scope at `el` (nearest wins), prefix "" for the default namespace. */
+/** This element's own namespace declarations applied over `parent` (prefix "" is the default namespace). */
+const withOwn = (el: DomElement, parent: Map<string, string>): Map<string, string> => {
+  let map = parent
+  for (const a of Array.from(el.attributes)) {
+    if (a.namespaceURI !== XMLNS) continue
+    if (map === parent) map = new Map(parent)
+    map.set(a.prefix === "xmlns" ? a.localName : "", a.value)
+  }
+  return map
+}
+
+/** Namespace declarations in scope at `el` (nearest wins), computed once for the apex. */
 const inScope = (el: DomElement): Map<string, string> => {
   const chain: Array<DomElement> = []
   for (let n: DomNode | null = el; n && n.nodeType === ELEMENT; n = n.parentNode) chain.push(n as DomElement)
@@ -53,8 +64,8 @@ export const excC14n = (apex: DomElement, options: { skip?: DomNode; inclusivePr
   const inclusive = new Set((options.inclusivePrefixes ?? []).map((p) => (p === "#default" ? "" : p)))
   const out: Array<string> = []
 
-  const element = (el: DomElement, rendered: Map<string, string>) => {
-    const scope = inScope(el)
+  // The scope is passed down the tree (linear in the subtree), not recomputed per element from its ancestors.
+  const element = (el: DomElement, rendered: Map<string, string>, scope: Map<string, string>) => {
     const used = new Set<string>([el.prefix ?? ""])
     const attrs: Array<DomAttr> = []
     for (const a of Array.from(el.attributes)) {
@@ -86,15 +97,15 @@ export const excC14n = (apex: DomElement, options: { skip?: DomNode; inclusivePr
     for (const [p, uri] of decls) out.push(p === "" ? ` xmlns="${escapeAttr(uri)}"` : ` xmlns:${p}="${escapeAttr(uri)}"`)
     for (const a of attrs) out.push(` ${a.name}="${escapeAttr(a.value)}"`)
     out.push(">")
-    for (const child of Array.from(el.childNodes)) node(child, next)
+    for (const child of Array.from(el.childNodes)) node(child, next, scope)
     out.push(`</${el.tagName}>`)
   }
 
-  const node = (n: DomNode, rendered: Map<string, string>) => {
+  const node = (n: DomNode, rendered: Map<string, string>, parentScope: Map<string, string>) => {
     if (n === options.skip) return
     switch (n.nodeType) {
       case ELEMENT:
-        return element(n as DomElement, rendered)
+        return element(n as DomElement, rendered, withOwn(n as DomElement, parentScope))
       case TEXT:
       case CDATA:
         return void out.push(escapeText((n as DomCharacterData).data))
@@ -108,6 +119,6 @@ export const excC14n = (apex: DomElement, options: { skip?: DomNode; inclusivePr
     }
   }
 
-  element(apex, new Map())
+  element(apex, new Map(), inScope(apex))
   return out.join("")
 }

@@ -17,7 +17,7 @@ const tlv = (b: Uint8Array, at: number) => {
   let head = 2
   if (len & 0x80) {
     const n = len & 0x7f
-    if (n === 0 || n > 4) throw new Error("x509: unsupported length")
+    if (n === 0 || n > 4 || at + 2 + n > b.length) throw new Error("x509: unsupported or truncated length")
     len = 0
     for (let i = 0; i < n; i++) len = len * 256 + b[at + 2 + i]!
     head += n

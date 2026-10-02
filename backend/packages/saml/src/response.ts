@@ -15,6 +15,13 @@ export const SAML = "urn:oasis:names:tc:SAML:2.0:assertion"
 const SUCCESS = "urn:oasis:names:tc:SAML:2.0:status:Success"
 const BEARER = "urn:oasis:names:tc:SAML:2.0:cm:bearer"
 const MAX_BYTES = 256 * 1024
+/** Bounds checked before any canonicalization (which runs before any key check): no CPU or stack exhaustion. */
+const MAX_DEPTH = 64
+const MAX_ELEMENTS = 5000
+/** XML whitespace only: JS trim() would also strip NBSP and U+FEFF, letting "victim@acme.com\u00A0" read as the victim. */
+const xmlTrim = (s: string) => s.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "")
+/** xsd:dateTime with an explicit zone; loose or zoneless forms are refused. */
+const DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/
 
 export interface SamlExpectations {
   /** The IdP's entity id (Issuer of the assertion). */
@@ -66,7 +73,7 @@ const textOnly = (el: El): string | undefined => {
   return s
 }
 const time = (v: string | null | undefined): number | undefined => {
-  if (!v) return undefined
+  if (!v || !DATETIME.test(v)) return undefined
   const t = Date.parse(v)
   return Number.isNaN(t) ? undefined : t
 }
@@ -94,6 +101,17 @@ export const validateSamlResponse = async (base64Response: string, ex: SamlExpec
   } catch {
     return fail("saml.invalid", "the SAML response is not well-formed XML")
   }
+  // Depth and size before anything walks the tree recursively.
+  let elements = 0
+  const tooBig = (n: El, depth: number): boolean => {
+    if (depth > MAX_DEPTH) return true
+    for (const c of Array.from(n.childNodes as ArrayLike<El>)) {
+      if (c.nodeType !== 1) continue
+      if (++elements > MAX_ELEMENTS || tooBig(c, depth + 1)) return true
+    }
+    return false
+  }
+  if (!doc.documentElement || tooBig(doc.documentElement, 1)) return fail("saml.invalid", "the SAML response is nested too deeply or has too many elements")
   const root = doc.documentElement
   if (!root || root.namespaceURI !== SAMLP || root.localName !== "Response") return fail("saml.invalid", "not a SAML Response")
   if (root.getAttribute("Version") !== "2.0") return fail("saml.invalid", "only SAML 2.0 is accepted")
@@ -126,12 +144,18 @@ export const validateSamlResponse = async (base64Response: string, ex: SamlExpec
   } catch (e) {
     return fail("saml.not_configured", `the connection's certificate is unusable: ${e instanceof Error ? e.message : String(e)}`)
   }
-  const signature = await verifyEnvelopedSignature(assertion, id, keys)
+  let signature: Awaited<ReturnType<typeof verifyEnvelopedSignature>>
+  try {
+    signature = await verifyEnvelopedSignature(assertion, id, keys)
+  } catch {
+    // Malformed base64, undeclared prefixes, unusable keys: a typed refusal, never an exception.
+    return fail("saml.signature_invalid", "the signature could not be verified")
+  }
   if (!signature.ok) return fail("saml.signature_invalid", signature.reason)
 
   // From here on, read only from `assertion`, the node that was verified.
   const issuer = one(assertion, SAML, "Issuer")
-  if (!issuer || textOnly(issuer)?.trim() !== ex.idpEntityId) return fail("saml.invalid", "the assertion is from another identity provider")
+  if (!issuer || (textOnly(issuer) === undefined ? undefined : xmlTrim(textOnly(issuer)!)) !== ex.idpEntityId) return fail("saml.invalid", "the assertion is from another identity provider")
 
   const conditions = one(assertion, SAML, "Conditions")
   if (!conditions) return fail("saml.invalid", "the assertion has no conditions")
@@ -144,12 +168,13 @@ export const validateSamlResponse = async (base64Response: string, ex: SamlExpec
   const restrictions = child(conditions, SAML, "AudienceRestriction")
   if (restrictions.length === 0) return fail("saml.invalid", "the assertion has no audience restriction")
   for (const r of restrictions) {
-    if (!child(r, SAML, "Audience").some((a) => textOnly(a)?.trim() === ex.spEntityId)) return fail("saml.invalid", "the assertion is meant for another service")
+    if (!child(r, SAML, "Audience").some((a) => (textOnly(a) === undefined ? undefined : xmlTrim(textOnly(a)!)) === ex.spEntityId)) return fail("saml.invalid", "the assertion is meant for another service")
   }
 
   const subject = one(assertion, SAML, "Subject")
   const nameIdEl = subject ? one(subject, SAML, "NameID") : undefined
-  const nameId = nameIdEl ? textOnly(nameIdEl)?.trim() : undefined
+  const nameIdRaw = nameIdEl ? textOnly(nameIdEl) : undefined
+  const nameId = nameIdRaw === undefined ? undefined : xmlTrim(nameIdRaw)
   if (!nameIdEl || !nameId) return fail("saml.invalid", "the assertion has no usable NameID (comments or markup inside it are refused)")
   const confirmed = child(subject, SAML, "SubjectConfirmation").some((sc) => {
     if (sc.getAttribute("Method") !== BEARER) return false
@@ -172,7 +197,7 @@ export const validateSamlResponse = async (base64Response: string, ex: SamlExpec
       for (const v of child(attr, SAML, "AttributeValue")) {
         const t = textOnly(v)
         if (t === undefined) return fail("saml.invalid", `attribute ${name} has markup or comments in a value`)
-        values.push(t.trim())
+        values.push(xmlTrim(t))
       }
       attributes[name] = [...(attributes[name] ?? []), ...values]
     }
