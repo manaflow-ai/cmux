@@ -1,6 +1,6 @@
 import Foundation
 
-// Chrome-style tab groups (`tab-groups-v1`, cmux-tui/spec/commands.md
+// Tab groups (`tab-groups-v1`, cmux-tui/spec/commands.md
 // `create-tab-group` ... `close-tab-group`). Tabs are named by numeric
 // surface id (the daemon also accepts `tab_...` ids). Group membership
 // commands take an optional client `transaction` echoed in each member's

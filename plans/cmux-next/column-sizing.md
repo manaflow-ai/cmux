@@ -18,7 +18,7 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
   ended divider intents once the split succeeded. Interim: two undo entries until `Split` carries
   the sizing policy.
 - `layout.newColumnWidth` (matchCurrent default, fitScreen, fixed; a number means fixed at that
-  share) through `NewColumnWidth.plan(mode:)`; fixed keeps niri.md W4 (a lone full-width column
+  share) through `NewColumnWidth.plan(mode:)`; fixed keeps column-scroll.md W4 (a lone full-width column
   shrinks), the other modes never resize except fitScreen's visible scrolling columns.
 - `layout.stickyColumnEdge` (right), `layout.stickyColumnMode` (docked), `layout.minimumPaneWidth`
   (200 pt), `layout.minimumPaneHeight` (64 pt): Settings window (General > Columns) and cmux.json;
@@ -45,8 +45,7 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
 - `layout.closeSizing`: `even` (default) | `neighbor`. Closing a column's last pane removes the
   column; other columns keep their widths; the viewport keeps the newly focused column visible
   without a jump when possible.
-- `layout.closeFocus`: previous-in-column, else the column to the left (default) | `mostRecent`
-  (owned by the focus-after-close lead).
+- `layout.closeFocus`: previous-in-column, else the column to the left (default) | `mostRecent`. Owned by the close-focus work (client view state, not a store op): see close-focus.md.
 - Every default (also minimum pane and column widths, sticky defaults) is a setting in Settings and
   cmux.json, documented, with a test that the default matches the documented value. Sticky columns
   follow the same rules.
@@ -57,8 +56,9 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
 - `InsertColumn {after_pane, width_permille, new_column: caller id, new_pane: caller id,
   idempotency_key}`; the client resolves `matchCurrent`, `fitScreen` or a fraction to permille
   (viewports are per client, so the store never sees a screen size).
-- `ClosePane {pane, sizing: even|neighbor, idempotency_key}`; the result carries a neighbor hint;
-  each client picks its own focus (focus is client view state).
+- `ClosePane {pane, sizing: even|neighbor, idempotency_key}`; it carries and returns no focus or
+  neighbor hint: each client computes focus from its own before/after projections
+  (`FocusAfterClose`, the focus-after-close lead; ownership lead decision 2026-10-02).
 - No floats on the wire or in the reducer: ratios and widths are integer permille; ratios in a
   column sum to 1000 with a defined remainder rule.
 - Reducer invariants with tests: tab conservation, every column has a pane, ratios sum to 1000,

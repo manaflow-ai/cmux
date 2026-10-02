@@ -1192,6 +1192,10 @@ path = "tests/test_verify_local.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_backend_migration_flow.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_simulator_build_once.py"
 lane = "linux-guard"
 
@@ -1354,4 +1358,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fast_guard_status.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_side_lane_placement.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_checks_workflow.py"
 lane = "linux-guard"

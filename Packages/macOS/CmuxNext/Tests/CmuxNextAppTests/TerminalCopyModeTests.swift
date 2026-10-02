@@ -67,7 +67,7 @@ struct TerminalCopyModeTests {
         view.keyDown(with: try Self.key("j", keyCode: 38))
         view.keyDown(with: try Self.key("v", keyCode: 9))
         #expect(view.isCopyModeActive)
-        #expect(view.copyModeConsumedKeyUps == [38, 9])
+        #expect(view.copyMode.consumedKeyUps == [38, 9])
         view.keyDown(with: try Self.key("q", keyCode: 12))
         #expect(!view.isCopyModeActive)
         #expect(!view.hasSelection)
@@ -78,17 +78,17 @@ struct TerminalCopyModeTests {
         #expect(view.toggleCopyMode())
         view.keyDown(with: try Self.key("\u{1b}", keyCode: 53))
         #expect(!view.isCopyModeActive)
-        #expect(view.handleCopyModeKeyUp(try Self.key("\u{1b}", keyCode: 53)))
-        #expect(!view.handleCopyModeKeyUp(try Self.key("\u{1b}", keyCode: 53)))
+        #expect(view.copyMode.handleKeyUp(try Self.key("\u{1b}", keyCode: 53)))
+        #expect(!view.copyMode.handleKeyUp(try Self.key("\u{1b}", keyCode: 53)))
     }
 
     @Test func commandChordsPassThroughAndKeepTheMode() throws {
         let (_, _, view) = try Self.terminal()
         #expect(view.toggleCopyMode())
-        view.copyMode?.input.countPrefix = 3
-        #expect(!view.handleCopyModeKeyDown(try Self.key("c", keyCode: 8, flags: .command)))
+        view.copyMode.session?.input.countPrefix = 3
+        #expect(!view.copyMode.handleKeyDown(try Self.key("c", keyCode: 8, flags: .command)))
         #expect(view.isCopyModeActive)
-        #expect(view.copyMode?.input == CopyModeInputState())
+        #expect(view.copyMode.session?.input == CopyModeInputState())
         view.exitCopyMode()
     }
 }

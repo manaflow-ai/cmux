@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import CmuxNextBrowser
 
-/// Chrome's back/forward entry menus (plans/cmux-next/history.md 4.1).
+/// Back/forward entry menus (plans/cmux-next/history.md 4.1).
 @MainActor
 struct BackForwardMenuTests {
     static func entry(_ name: String) -> BrowserNavigationEntry {

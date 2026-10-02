@@ -26,12 +26,22 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
+    /// Opens a changed file the page names; false when it could not.
+    @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
+    /// What a new chat inherits from the tab it was opened from.
+    @ObservationIgnored private let seed: AgentPaneSeedSource?
 
-    public init(host: any AgentPaneHostProviding, sessionId: String? = nil, newTab: AgentPaneNewTab? = nil) {
+    public init(
+        host: any AgentPaneHostProviding,
+        sessionId: String? = nil,
+        seed: AgentPaneSeedSource? = nil,
+        newTab: AgentPaneNewTab? = nil
+    ) {
         self.host = host
         self.sessionId = sessionId
+        self.seed = seed
         self.newTab = sessionId == nil ? newTab : nil
     }
 
@@ -43,6 +53,11 @@ public final class AgentPaneModel {
                 var handshake = request == .ready
                     ? try await host.handshake(sessionId: sessionId)
                     : try await host.reconnectHandshake(sessionId: sessionId)
+                // Only a chat without a session yet starts from the seed.
+                if sessionId == nil, let seed = await seed?.take() {
+                    handshake.cwd = seed.cwd
+                    handshake.draft = seed.draft
+                }
                 // A new tab page is a new chat on every host, the mock included: the page
                 // never falls back to the most recent session behind it.
                 if sessionId == nil, let newTab {
@@ -77,6 +92,12 @@ public final class AgentPaneModel {
         case .dictation(let command):
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)
+            return AgentPaneReply.success()
+        case .openFile(let path, let target):
+            guard let onOpenFile, let url = AgentPaneFileOpen.resolve(path),
+                  target == .editor || AgentPaneFileOpen.showsInTab(url), await onOpenFile(url, target) else {
+                return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
+            }
             return AgentPaneReply.success()
         case .unsupported(let method):
             return Self.unsupported(method)

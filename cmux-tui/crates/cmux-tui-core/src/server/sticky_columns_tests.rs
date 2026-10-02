@@ -426,3 +426,85 @@ fn sticky_column_ops_preserve_layout_invariants_on_four_columns() {
     // Two edges hold at most two of four columns, so nothing is rejected.
     assert_eq!(run_sticky_sequence(wire, 0xc01), (120, 0));
 }
+
+/// One `cmux.protocol/2` request; returns the response envelope.
+fn resource(mux: &Arc<Mux>, operation: &str, params: Value, key: Option<&str>) -> Value {
+    let mut request = json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": operation,
+        "operation": operation,
+        "params": params,
+    });
+    if let Some(key) = key {
+        request["idempotency_key"] = json!(key);
+    }
+    crate::resource_router::handle_resource_message(mux, &request.to_string()).unwrap()
+}
+
+/// The workspace and screen public ids of the test screen.
+fn public_ids(mux: &Arc<Mux>) -> (String, String) {
+    mux.with_state(|state| {
+        let workspace = &state.workspaces[0];
+        (workspace.public_id.to_string(), workspace.screens[0].public_id.to_string())
+    })
+}
+
+fn export_layout(mux: &Arc<Mux>) -> Value {
+    let (_, screen) = public_ids(mux);
+    let params = json!({"machine": "current", "session": "current", "screen": screen});
+    resource(mux, "screen.layout.export", params, None)["result"].clone()
+}
+
+fn apply_layout(mux: &Arc<Mux>, layout: Value, key: &str) -> Value {
+    let (workspace, _) = public_ids(mux);
+    let params = json!({
+        "machine": "current",
+        "session": "current",
+        "workspace": workspace,
+        "layout": layout,
+    });
+    resource(mux, "workspace.layout.apply", params, Some(key))
+}
+
+#[test]
+fn sticky_column_flags_survive_a_layout_apply_that_keeps_the_column() {
+    let (mut wire, panes) = Wire::with_columns(3);
+    wire.set_sticky(panes[2], "right", "docked");
+    let mut layout = export_layout(&wire.mux);
+    assert_eq!(layout["root"]["kind"], "viewport", "{layout}");
+    layout["root"]["columns"][1]["width"] = json!(0.4);
+
+    let applied = apply_layout(&wire.mux, layout, "sticky-apply-keep");
+    assert!(applied.get("error").is_none(), "{applied}");
+    let width = wire.columns()[1]["width"].as_f64().unwrap();
+    assert!((width - 0.4).abs() < 1e-6, "{width}");
+    assert_eq!(wire.sticky(), vec![None, None, sticky("right", "docked")]);
+}
+
+#[test]
+fn sticky_column_flags_clear_when_a_layout_apply_leaves_only_sticky_columns() {
+    let (mut wire, panes) = Wire::with_columns(3);
+    wire.set_sticky(panes[0], "left", "docked");
+    wire.set_sticky(panes[2], "right", "docked");
+    let mut layout = export_layout(&wire.mux);
+    let columns = layout["root"]["columns"].as_array().unwrap().clone();
+    // Merge the scrolling middle column into the first one; the middle
+    // column's id becomes the merged split's id.
+    let merged = json!({
+        "kind": "split",
+        "split_id": columns[1]["column_id"],
+        "direction": "vertical",
+        "ratio": 0.5,
+        "first": columns[0]["root"],
+        "second": columns[1]["root"],
+    });
+    let mut first = columns[0].clone();
+    first["root"] = merged;
+    layout["root"]["columns"] = json!([first, columns[2]]);
+
+    let applied = apply_layout(&wire.mux, layout, "sticky-apply-merge");
+    assert!(applied.get("error").is_none(), "{applied}");
+    assert_eq!(wire.columns().len(), 2);
+    assert_eq!(wire.sticky(), vec![None, None], "one column must keep scrolling");
+}

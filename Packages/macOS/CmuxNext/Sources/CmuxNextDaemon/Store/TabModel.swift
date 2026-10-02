@@ -26,6 +26,9 @@ public final class TabModel: Identifiable {
     public internal(set) var notification: TabNotification?
     public internal(set) var url: String?
     public internal(set) var pinned: Bool
+    /// The daemon's cwd, else the folder the shell last reported to this
+    /// app's surface (`noteTerminalDirectory`): the pinned daemon clears its
+    /// own on a `kitty-shell-cwd://` report.
     public internal(set) var cwd: String?
     public internal(set) var gitBranch: String?
     public internal(set) var gitDetached: Bool
@@ -39,6 +42,7 @@ public final class TabModel: Identifiable {
     /// Last snapshot, for fields the record does not surface. Views should
     /// read the typed fields; this one changes whenever any field does.
     @ObservationIgnored public private(set) var snapshot: TabSnapshot
+    @ObservationIgnored private var observedCwd: String?
 
     public var displayTitle: String {
         if let name, !name.isEmpty { return name }
@@ -91,7 +95,7 @@ public final class TabModel: Identifiable {
         if notification != s.notification { notification = s.notification }
         if url != s.url { url = s.url }
         if pinned != s.pinned { pinned = s.pinned }
-        if cwd != s.cwd { cwd = s.cwd }
+        refreshCwd()
         if gitBranch != s.gitBranch { gitBranch = s.gitBranch }
         if gitDetached != s.gitDetached { gitDetached = s.gitDetached }
         if browserEngine != s.browserEngine { browserEngine = s.browserEngine }
@@ -129,5 +133,32 @@ public final class TabModel: Identifiable {
     func setName(_ value: String?) {
         if name != value { name = value }
         snapshot.name = value
+    }
+
+    /// The folder the shell reported, already a path (`path(reported:)`).
+    func setObservedCwd(_ value: String?) {
+        guard observedCwd != value else { return }
+        observedCwd = value
+        refreshCwd()
+    }
+
+    /// The path of a folder the shell reported (OSC 7): a path, a `file://`
+    /// URL, or a `kitty-shell-cwd://host/path` URL, whose path is raw (not
+    /// percent-encoded).
+    static func path(reported value: String) -> String? {
+        var path: String? = value
+        if value.hasPrefix("file://") {
+            path = URL(string: value)?.path
+        } else if value.hasPrefix("kitty-shell-cwd://") {
+            let rest = value.dropFirst("kitty-shell-cwd://".count)
+            path = rest.firstIndex(of: "/").map { String(rest[$0...]) }
+        }
+        // Only an absolute local path; a relative or `~` report says nothing usable.
+        return path?.hasPrefix("/") == true ? path : nil
+    }
+
+    private func refreshCwd() {
+        let value = snapshot.cwd ?? observedCwd
+        if cwd != value { cwd = value }
     }
 }

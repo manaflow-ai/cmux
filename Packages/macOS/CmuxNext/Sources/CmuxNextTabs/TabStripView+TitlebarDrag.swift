@@ -12,8 +12,8 @@ extension TabStripView: TitlebarPressDeciding {
 
     /// What a press at a strip point is for.
     public enum TitlebarHit: Equatable, Sendable {
-        /// A tab, a group chip, the gap between two of them, the + button or
-        /// a trailing button: the strip handles it and the window stays.
+        /// A tab, a group chip, the gap between two of them, the + button, the
+        /// location field or a trailing button: the strip handles it and the window stays.
         case strip
         /// Empty strip space: in the top row it moves the window and a
         /// double-click runs the titlebar action.
@@ -21,7 +21,7 @@ extension TabStripView: TitlebarPressDeciding {
     }
 
     /// Strip-local rects that take the mouse: the run of tabs and chips from
-    /// the first one to the + button, and the trailing buttons.
+    /// the first one to the + button, the location field and the trailing buttons.
     func mouseRects() -> [CGRect] {
         var rects: [CGRect] = []
         let clip = contentView.convert(tabsClip.frame, to: self)
@@ -29,6 +29,7 @@ extension TabStripView: TitlebarPressDeciding {
             ? clip.minX + min(tabRunTrailing(), clip.width)
             : contentView.convert(newTabButton.frame, to: self).maxX
         if runEnd > clip.minX { rects.append(CGRect(x: clip.minX, y: 0, width: runEnd - clip.minX, height: bounds.height)) }
+        if let field = locationField.hitColumn(in: self) { rects.append(field) }
         if !buttonGroup.isHidden {
             let buttons = contentView.convert(buttonGroup.frame, to: self)
             rects.append(CGRect(x: buttons.minX, y: 0, width: buttons.width, height: bounds.height))

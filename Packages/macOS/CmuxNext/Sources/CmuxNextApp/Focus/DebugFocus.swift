@@ -21,6 +21,7 @@ enum DebugFocus {
             "context": .object([
                 "terminal_focused": .bool(context.contains(.terminalFocused)),
                 "browser_focused": .bool(context.contains(.browserFocused)),
+                "agent_focused": .bool(context.contains(.agentPaneFocused)),
                 "palette_open": .bool(context.contains(.paletteOpen)),
             ]),
             "consistent": .bool(windowProblems.isEmpty && windows.allSatisfy { $0["consistent"]?.boolValue == true }),

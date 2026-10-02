@@ -1,0 +1,178 @@
+{
+  "$comment": "SKETCH of this app on platform v2 (plan app-platform section 12). Not loaded by today's runtime; cmux-app.json is the live manifest.",
+  "manifestVersion": 2,
+  "id": "cmux/diffs",
+  "version": "0.1.0",
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "name": {
+    "en": "Diffs",
+    "ja": "差分"
+  },
+  "strings": "strings/",
+  "main": "dist/main.js",
+  "scopes": {
+    "workspace:read": "Find the repository of the workspace you are in.",
+    "git:read": "Read git status and diffs.",
+    "diff:read": "Open diffs proposed to you.",
+    "feed:read": "Open the review request an agent sent you."
+  },
+  "optionalScopes": {
+    "git:write": "Stage or discard when you click Stage or Discard.",
+    "diff:write": "Record your decisions and comments.",
+    "feed:write": "Send your review back.",
+    "embed:run": "Show file diffs with your editor app."
+  },
+  "implements": {
+    "cmux.diff.renderer/1": {
+      "export": "renderDiffPane",
+      "renderer": "scene",
+      "inputs": [
+        "worktree",
+        "refs",
+        "resource",
+        "feedItem",
+        "run",
+        "documents"
+      ]
+    },
+    "cmux.section/1": {
+      "id": "changes",
+      "export": "renderChanges",
+      "title": {
+        "en": "Changes",
+        "ja": "変更"
+      },
+      "symbol": "plusminus",
+      "defaultRegion": "middle"
+    }
+  },
+  "consumes": [
+    "cmux.editor/1",
+    "cmux.diff.source/1"
+  ],
+  "handles": [
+    "diff",
+    "doc"
+  ],
+  "catalog": {
+    "owner": "app:cmux/diffs",
+    "ops": [
+      {
+        "name": "diffs.open_changes",
+        "export": "openChanges",
+        "risk": "read",
+        "params": {
+          "staged": "boolean?",
+          "path": "string?"
+        },
+        "surfaces": {
+          "palette": {
+            "title": "Open Changes"
+          },
+          "cli": "cmux apps run cmux/diffs open-changes",
+          "mcp": true,
+          "contexts": [
+            "section:changes"
+          ]
+        },
+        "gesture": "required"
+      },
+      {
+        "name": "diffs.open_refs",
+        "export": "openDiff",
+        "risk": "read",
+        "params": {
+          "repo": "repo_…",
+          "base": "string",
+          "head": "string"
+        },
+        "surfaces": {
+          "cli": "cmux apps run cmux/diffs open-refs",
+          "mcp": true
+        }
+      },
+      {
+        "name": "diffs.review",
+        "export": "review",
+        "risk": "read",
+        "params": {
+          "item": "fi_…?",
+          "diff": "diff_…?",
+          "run": "run_…?"
+        },
+        "surfaces": {
+          "cli": "cmux apps run cmux/diffs review",
+          "automation": true
+        }
+      },
+      {
+        "name": "diffs.review_latest",
+        "export": "reviewLatest",
+        "risk": "read",
+        "surfaces": {
+          "palette": {
+            "title": "Review Latest Proposal"
+          }
+        }
+      },
+      {
+        "name": "diffs.toggle_layout",
+        "export": "toggleLayout",
+        "risk": "mutate-own",
+        "surfaces": {
+          "palette": {
+            "title": "Toggle Side-by-Side Diff"
+          }
+        }
+      }
+    ],
+    "events": []
+  },
+  "variants": {
+    "setting": "variant",
+    "values": [
+      "split",
+      "stream",
+      "review"
+    ],
+    "default": "split",
+    "channels": [
+      "dev",
+      "nightly"
+    ]
+  },
+  "settings": {
+    "layout": {
+      "enum": [
+        "inline",
+        "sideBySide"
+      ],
+      "default": "inline"
+    },
+    "editorApp": {
+      "type": "app-id",
+      "interface": "cmux.editor/1",
+      "default": "cmux/codemirror"
+    },
+    "fallbackLines": {
+      "type": "integer",
+      "default": 160
+    }
+  },
+  "v2Gaps": [
+    "No Embed scene node in the v2 scene vocabulary (V7 lists List, Section, Row, Detail, Form, ActionPanel, Table, Meter): V4 embeds need a placement node.",
+    "No generic hunk decision op across producers: V5 names git.stage/apply only; diff.decide routes accept/reject to any producer.",
+    "No diff.file.read for an embedded editor to read one side of a diff resource.",
+    "No pane open with input (app.pane.open {kind, input}) or pane input in the mount context.",
+    "No ScrollView and no vertical alignment for HStack in the scene (split view clips at the pane height).",
+    "No confirmation primitive for destructive scene actions (Discard uses a second tap)."
+  ]
+}

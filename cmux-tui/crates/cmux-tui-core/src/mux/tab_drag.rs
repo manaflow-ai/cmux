@@ -1,5 +1,5 @@
 //! Tab drag outcomes that create a pane: drop a tab on a pane edge (a new
-//! split) or between niri columns (a new column).
+//! split) or between strip columns (a new column).
 //!
 //! Each outcome is one atomic resource commit. The mutation runs on a clone
 //! of the live [`State`] with the same in-memory helpers the existing split
@@ -15,6 +15,48 @@
 use super::*;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
 use crate::model::{LayoutColumn, LayoutUndoTabRestore};
+use cmux_layout_reducer::{Edge, LayoutOpKind, NewTab, TabContent};
+
+/// The fresh tab a split of a pane's only tab leaves in that pane
+/// (`move-tab-to-split` `respawn`, `tab-split-respawn-v1`): the same kind as
+/// the moved tab, never a copy of its state.
+#[derive(Debug, Clone)]
+pub enum SplitRespawn {
+    /// A new terminal, spawned like `new-tab`.
+    Terminal(TerminalSpawnOptions),
+    /// A new frontend browser tab (usually the new tab page).
+    Browser(crate::workspace_registry::FrontendBrowserRecord),
+}
+
+/// The source pane a respawn split expects at its commit: exactly the
+/// fresh tab and the dragged tab, in any order.
+struct SourceGuard {
+    pane: PaneId,
+    tabs: [SurfaceId; 2],
+}
+
+impl SourceGuard {
+    fn check(&self, state: &State) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            state.panes.get(&self.pane).is_some_and(|pane| {
+                pane.tabs.len() == self.tabs.len()
+                    && self.tabs.iter().all(|tab| pane.tabs.contains(tab))
+            }),
+            "stale: the pane changed during the respawn split"
+        );
+        Ok(())
+    }
+}
+
+fn validate_split_ratio(ratio: Option<f32>) -> anyhow::Result<()> {
+    if let Some(ratio) = ratio {
+        anyhow::ensure!(
+            ratio.is_finite() && (0.05..=0.95).contains(&ratio),
+            "bad request: ratio must be between 0.05 and 0.95"
+        );
+    }
+    Ok(())
+}
 
 /// The pane edge a tab was dropped on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,16 +97,50 @@ pub enum TabDragDestination {
     /// A new pane beside `pane` on `edge`. `ratio` is the new pane's share
     /// of the split (default one half).
     Split { pane: PaneId, edge: TabDropEdge, ratio: Option<f32> },
-    /// A new niri column on the screen containing `pane`, after the column
+    /// A new strip column on the screen containing `pane`, after the column
     /// `after_column` (default: after the last column), `width` wide as a
     /// fraction of the frontend viewport.
     Column { pane: PaneId, after_column: Option<SplitId>, width: f32 },
+}
+
+impl From<TabDropEdge> for Edge {
+    fn from(edge: TabDropEdge) -> Self {
+        match edge {
+            TabDropEdge::Left => Self::Left,
+            TabDropEdge::Right => Self::Right,
+            TabDropEdge::Top => Self::Top,
+            TabDropEdge::Bottom => Self::Bottom,
+        }
+    }
 }
 
 impl TabDragDestination {
     fn pane(self) -> PaneId {
         match self {
             Self::Split { pane, .. } | Self::Column { pane, .. } => pane,
+        }
+    }
+
+    /// The reducer op for this drag, with the ids the daemon reserved.
+    pub(super) fn layout_op(self, tab: SurfaceId, ids: &TabDragIds) -> LayoutOpKind {
+        match self {
+            Self::Split { pane, edge, .. } => LayoutOpKind::MoveTabToSplit {
+                tab,
+                pane,
+                edge: edge.into(),
+                new_pane: ids.pane,
+                respawn: None,
+            },
+            Self::Column { pane, after_column, width } => LayoutOpKind::MoveTabToColumn {
+                tab,
+                anchor: pane,
+                after_column,
+                // `move_tab_to_column` validated the width range.
+                width_permille: (width * 1000.0).round() as u16,
+                new_pane: ids.pane,
+                new_column: ids.split,
+                base_column: ids.base_column,
+            },
         }
     }
 
@@ -126,16 +202,77 @@ impl Mux {
         ratio: Option<f32>,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
-        if let Some(ratio) = ratio {
-            anyhow::ensure!(
-                ratio.is_finite() && (0.05..=0.95).contains(&ratio),
-                "bad request: ratio must be between 0.05 and 0.95"
-            );
-        }
+        validate_split_ratio(ratio)?;
         self.commit_tab_drag(surface, TabDragDestination::Split { pane, edge, ratio }, transaction)
     }
 
-    /// Move a tab into a new niri column on the screen containing `pane`.
+    /// `move-tab-to-split` with `respawn`: split the tab's own pane, which
+    /// holds only that tab, and leave a fresh tab of the given kind in it.
+    ///
+    /// The layout reducer validates the whole op first (the moved tab plus
+    /// the explicitly created one, I1-I3). The fresh tab is created first,
+    /// so the source pane never empties; then the split commits with the
+    /// client transaction, and only while the pane still holds exactly the
+    /// dragged and the fresh tab (another client may have changed it in
+    /// between). If the split fails, the fresh tab is closed again, so a
+    /// failure leaves the layout as it was. A daemon that dies between the
+    /// two commits keeps the fresh tab beside the dragged one; no tab is
+    /// lost.
+    pub fn move_tab_to_split_respawning(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+        pane: PaneId,
+        edge: TabDropEdge,
+        ratio: Option<f32>,
+        respawn: SplitRespawn,
+        transaction: Option<String>,
+    ) -> anyhow::Result<TabDragOutcome> {
+        validate_split_ratio(ratio)?;
+        let model = {
+            let state = self.state.lock().unwrap();
+            anyhow::ensure!(
+                state.panes.get(&pane).is_some_and(|candidate| candidate.tabs == [surface]),
+                "bad request: respawn applies only to a split of the pane's only tab"
+            );
+            layout_invariants::project(&state)
+        };
+        // Ids the model has never used stand in for the pane and tab the
+        // live commits create.
+        let kind = LayoutOpKind::MoveTabToSplit {
+            tab: surface,
+            pane,
+            edge: edge.into(),
+            new_pane: u64::MAX,
+            respawn: Some(NewTab {
+                tab: u64::MAX - 1,
+                content: TabContent { runtime: u64::MAX, terminal: None, dead: false },
+            }),
+        };
+        layout_invariants::model_result("tab.drag", &model, &kind)?;
+        let size = self.surface(surface).map(|runtime| runtime.size());
+        let fresh = match respawn {
+            SplitRespawn::Terminal(spawn) => self.new_tab_with_options(Some(pane), spawn, size)?,
+            SplitRespawn::Browser(record) => {
+                self.new_frontend_browser_tab(Some(pane), record, size)?
+            }
+        };
+        let destination = TabDragDestination::Split { pane, edge, ratio };
+        let guard = SourceGuard { pane, tabs: [fresh.id, surface] };
+        match self.commit_tab_drag_guarded(surface, destination, transaction, Some(guard)) {
+            Ok(outcome) => Ok(outcome),
+            Err(error) => {
+                if let Err(close) = self.close_surface(fresh.id) {
+                    eprintln!(
+                        "cmux-tui: respawn split could not close fresh tab {}: {close:#}",
+                        fresh.id
+                    );
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// Move a tab into a new strip column on the screen containing `pane`.
     pub fn move_tab_to_column(
         self: &Arc<Self>,
         surface: SurfaceId,
@@ -163,6 +300,18 @@ impl Mux {
         destination: TabDragDestination,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
+        self.commit_tab_drag_guarded(surface, destination, transaction, None)
+    }
+
+    /// [`Self::commit_tab_drag`], refused (before anything changes) unless
+    /// `guard`'s pane holds exactly its tabs when the commit runs.
+    fn commit_tab_drag_guarded(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+        destination: TabDragDestination,
+        transaction: Option<String>,
+        guard: Option<SourceGuard>,
+    ) -> anyhow::Result<TabDragOutcome> {
         let ids = TabDragIds::reserve(self)?;
         let fingerprint = serde_json::json!({
             "operation": "tab.drag",
@@ -179,6 +328,9 @@ impl Mux {
             None,
             None,
             |state, registry| {
+                if let Some(guard) = &guard {
+                    guard.check(state)?;
+                }
                 let mut projected = state.clone();
                 let outcome =
                     apply_tab_drag(&mux, &mut projected, surface, destination, &ids, true)?;
@@ -210,12 +362,13 @@ impl Mux {
                     retarget_terminal_workspace(&mut projection.patch, terminal, &target_key);
                 }
                 committed = Some((outcome, target_key));
-                Ok(ResourceMutationPlan::new(
+                Ok(ResourceMutationPlan::replacing(
                     projection.patch,
                     projection.result,
                     projection.changes,
-                    move |state| *state = projected,
-                ))
+                    projected,
+                )
+                .with_layout_op(destination.layout_op(surface, &ids)))
             },
         )?;
         let (outcome, target_key) = committed.context("tab drag committed no outcome")?;
@@ -462,6 +615,79 @@ pub(super) fn apply_tab_drag(
     })
 }
 
+/// Undo one same-screen tab drag: move the tab back to its origin pane and
+/// index, and remove the pane the drag created. Every precondition is
+/// checked first, so a stale entry fails without changing anything.
+pub(super) fn restore_dragged_tab(
+    mux: &Mux,
+    state: &mut State,
+    workspace_index: usize,
+    screen_index: usize,
+    restore: LayoutUndoTabRestore,
+) -> anyhow::Result<()> {
+    let stale = |message: &str| anyhow::Error::new(LayoutUndoError::Stale(message.to_string()));
+    let screen_panes = state.workspaces[workspace_index].screens[screen_index].root.pane_ids_vec();
+    let current = state.pane_of(restore.surface).ok_or_else(|| stale("the dragged tab closed"))?;
+    if !screen_panes.contains(&restore.origin_pane)
+        || !state.panes.contains_key(&restore.origin_pane)
+    {
+        return Err(stale("the dragged tab's origin pane closed"));
+    }
+    if !screen_panes.contains(&current) {
+        return Err(stale("the dragged tab left its screen"));
+    }
+    match restore.created_pane {
+        Some(created) => {
+            let alone = state
+                .panes
+                .get(&created)
+                .is_some_and(|pane| pane.tabs.as_slice() == [restore.surface]);
+            if current != created || !alone {
+                return Err(stale("the pane created by the drag changed"));
+            }
+        }
+        None if current == restore.origin_pane => {
+            return Err(stale("the dragged tab is already in its origin pane"));
+        }
+        // The pane the tab moved into existed before the move and is part
+        // of the layout being restored. If its other tabs have left since,
+        // moving the tab back would leave that pane empty (I3).
+        None if state.panes.get(&current).is_some_and(|pane| pane.tabs.len() == 1) => {
+            return Err(stale("the dragged tab is the last tab of its pane"));
+        }
+        None => {}
+    }
+    {
+        let pane = state.panes.get_mut(&current).expect("checked current pane");
+        let old = pane
+            .tabs
+            .iter()
+            .position(|candidate| *candidate == restore.surface)
+            .expect("checked tab membership");
+        pane.tabs.remove(old);
+        if !pane.tabs.is_empty() && pane.active_tab >= old && pane.active_tab > 0 {
+            pane.active_tab -= 1;
+        }
+    }
+    if restore.created_pane == Some(current) {
+        state.remove_pane(current);
+    }
+    let origin = state.panes.get_mut(&restore.origin_pane).expect("checked origin pane");
+    let index = restore.origin_index.min(origin.tabs.len());
+    origin.tabs.insert(index, restore.surface);
+    origin.active_tab = index;
+    state.resource_indexes.tab_pane.insert(restore.surface, restore.origin_pane);
+    let workspace = state.workspaces[workspace_index].id;
+    let screen = state.workspaces[workspace_index].screens[screen_index].id;
+    mux.subscribers.update_surface_session_path(
+        restore.surface,
+        workspace,
+        screen,
+        restore.origin_pane,
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,6 +763,98 @@ mod tests {
         let durable_tab = topology.tabs.iter().find(|tab| tab.public_id == tab_id).unwrap();
         assert_eq!(durable_tab.pane_id, pane_id);
         assert!(topology.panes.iter().any(|pane| pane.public_id == pane_id));
+    }
+
+    /// User requirement 2026-10-02: a pane's only tab dropped on its own
+    /// pane's edge splits the pane, and a fresh terminal stays in the old
+    /// pane (`respawn`). The moved tab keeps its terminal; the echo carries
+    /// the transaction; without a respawn the same drop is still refused.
+    /// Review finding 2026-10-02: the respawn split runs in two commits,
+    /// so the split checks that the pane still holds exactly the fresh and
+    /// the dragged tab. A pane another client changed in between refuses
+    /// the split before anything moves.
+    #[test]
+    fn cmux_next_respawn_split_refuses_a_pane_that_changed_since_the_fresh_tab() {
+        let mux = Mux::new_for_test("tab-drag-respawn-guard", SurfaceOptions::default());
+        let dragged = mux.new_workspace(None, None).unwrap().id;
+        let pane = pane_of(&mux, dragged);
+        let fresh = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let other = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let before = tabs(&mux, pane);
+        let split = TabDragDestination::Split { pane, edge: TabDropEdge::Right, ratio: None };
+        let guard = SourceGuard { pane, tabs: [fresh, dragged] };
+        let error = mux.commit_tab_drag_guarded(dragged, split, None, Some(guard)).unwrap_err();
+        assert!(error.to_string().contains("stale"), "{error:#}");
+        assert_eq!(tabs(&mux, pane), before);
+        assert_eq!(screen_panes(&mux, pane), vec![pane]);
+        // With the expected pane the same split commits.
+        mux.close_surface(other).unwrap();
+        let guard = SourceGuard { pane, tabs: [fresh, dragged] };
+        let outcome = mux.commit_tab_drag_guarded(dragged, split, None, Some(guard)).unwrap();
+        assert_eq!(tabs(&mux, outcome.pane), vec![dragged]);
+        assert_eq!(tabs(&mux, pane), vec![fresh]);
+    }
+
+    #[test]
+    fn cmux_next_only_tab_splits_its_own_pane_with_a_respawned_terminal() {
+        let mux = Mux::new_for_test("tab-drag-respawn", SurfaceOptions::default());
+        let lone = mux.new_workspace(None, None).unwrap().id;
+        let origin = pane_of(&mux, lone);
+        let terminal = mux.surface(lone).unwrap().terminal_public_id().map(ToString::to_string);
+        assert!(mux.move_tab_to_split(lone, origin, TabDropEdge::Right, None, None).is_err());
+
+        let events = mux.subscribe();
+        let outcome = mux
+            .move_tab_to_split_respawning(
+                lone,
+                origin,
+                TabDropEdge::Right,
+                None,
+                SplitRespawn::Terminal(TerminalSpawnOptions::default()),
+                Some("drag-respawn".into()),
+            )
+            .unwrap();
+        assert_eq!(tabs(&mux, outcome.pane), vec![lone]);
+        let fresh = tabs(&mux, origin);
+        assert_eq!(fresh.len(), 1);
+        assert_ne!(fresh[0], lone);
+        assert_eq!(screen_panes(&mux, origin), vec![origin, outcome.pane]);
+        // The moved tab keeps its terminal; the fresh tab is a new one.
+        assert_eq!(
+            mux.surface(lone).unwrap().terminal_public_id().map(ToString::to_string),
+            terminal
+        );
+        assert_ne!(
+            mux.surface(fresh[0]).unwrap().terminal_public_id().map(ToString::to_string),
+            terminal
+        );
+        assert_eq!(transaction_of(&events, lone).as_deref(), Some("drag-respawn"));
+        drop(events);
+        // The tree is durable: both tabs are in the resource topology.
+        let topology = mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
+        for surface in [lone, fresh[0]] {
+            let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&surface].clone());
+            assert!(topology.tabs.iter().any(|tab| tab.public_id == tab_id));
+        }
+
+        // A respawn is only for the pane's only tab: with two tabs it is refused
+        // and nothing is created.
+        let before = tabs(&mux, outcome.pane);
+        let second = mux.new_tab(Some(outcome.pane), None, None).unwrap().id;
+        let count = mux.with_state(|state| state.surfaces.len());
+        assert!(
+            mux.move_tab_to_split_respawning(
+                second,
+                outcome.pane,
+                TabDropEdge::Left,
+                None,
+                SplitRespawn::Terminal(TerminalSpawnOptions::default()),
+                None,
+            )
+            .is_err()
+        );
+        assert_eq!(mux.with_state(|state| state.surfaces.len()), count);
+        assert_eq!(tabs(&mux, outcome.pane), [before, vec![second]].concat());
     }
 
     #[test]

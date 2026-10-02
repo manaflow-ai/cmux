@@ -25,8 +25,9 @@ public struct BrowserSourceDetector: Sendable {
                 : ChromiumProfileList().entries(in: directory)
             let profiles = entries.map { entry in
                 let path = entry.directoryName.isEmpty ? directory : directory.appending(path: entry.directoryName, directoryHint: .isDirectory)
+                let avatar = entry.avatarFileName.map { path.appending(path: $0) }.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
                 return BrowserSourceProfile(browser: browser, directoryName: entry.directoryName, displayName: entry.displayName,
-                                            path: path, availability: Self.chromiumAvailability(path))
+                                            path: path, availability: Self.chromiumAvailability(path), avatar: avatar)
             }
             return profiles.isEmpty ? nil : BrowserSource(browser: browser, appURL: appURL, profiles: profiles)
         case .firefox:
@@ -72,7 +73,8 @@ public struct BrowserSourceDetector: Sendable {
             .history: present("History") ? .available : .absent,
             .openTabs: hasSession ? .available : .absent,
             .extensions: present("Extensions") ? .available : .absent,
-            .passwords: present("Login Data") ? .unsupported(.exportFromSource) : .absent,
+            // Read only after the consent step (PasswordImporter).
+            .passwords: present("Login Data") ? .available : .absent,
             .cookies: chromiumCookieFile(profile) != nil ? .available : .absent,
         ]
     }

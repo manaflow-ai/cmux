@@ -11,9 +11,11 @@ public struct UpdateBookmarkRequest: DaemonRequest {
     public var url: String?
     public var faviconKey: FieldUpdate<String>
     public var lastUsedMs: FieldUpdate<Int64>
+    public var mutation: MutationIdentity?
 
     public init(bookmark: String, title: String? = nil, url: String? = nil, faviconKey: FieldUpdate<String> = .unchanged,
-                lastUsedMs: FieldUpdate<Int64> = .unchanged) {
+                lastUsedMs: FieldUpdate<Int64> = .unchanged, mutation: MutationIdentity?) {
+        self.mutation = mutation
         self.bookmark = bookmark
         self.title = title
         self.url = url
@@ -34,6 +36,7 @@ public struct UpdateBookmarkRequest: DaemonRequest {
         try c.encodeIfPresent(url, forKey: .url)
         try c.encode(faviconKey, forKey: .faviconKey)
         try c.encode(lastUsedMs, forKey: .lastUsedMs)
+        try MutationFields(identity: mutation).encode(to: encoder)
     }
 }
 
@@ -44,10 +47,22 @@ public struct MoveBookmarkRequest: DaemonRequest {
     public var bookmark: String
     public var parent: String
     public var index: Int
-    public init(bookmark: String, parent: String, index: Int) {
+    public var mutation: MutationIdentity?
+    public init(bookmark: String, parent: String, index: Int, mutation: MutationIdentity?) {
         self.bookmark = bookmark
         self.parent = parent
         self.index = index
+        self.mutation = mutation
+    }
+
+    enum CodingKeys: String, CodingKey { case bookmark, parent, index }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(bookmark, forKey: .bookmark)
+        try c.encode(parent, forKey: .parent)
+        try c.encode(index, forKey: .index)
+        try MutationFields(identity: mutation).encode(to: encoder)
     }
 }
 
@@ -56,5 +71,17 @@ public struct DeleteBookmarkRequest: DaemonRequest {
     public typealias Response = BookmarkDeletion
     public static let command = "delete-bookmark"
     public var bookmark: String
-    public init(bookmark: String) { self.bookmark = bookmark }
+    public var mutation: MutationIdentity?
+    public init(bookmark: String, mutation: MutationIdentity?) {
+        self.bookmark = bookmark
+        self.mutation = mutation
+    }
+
+    enum CodingKeys: String, CodingKey { case bookmark }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(bookmark, forKey: .bookmark)
+        try MutationFields(identity: mutation).encode(to: encoder)
+    }
 }

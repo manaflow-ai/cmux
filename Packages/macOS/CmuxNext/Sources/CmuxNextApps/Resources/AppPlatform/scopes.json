@@ -1,0 +1,634 @@
+{
+  "apiVersion": "1.0.0",
+  "ops": {
+    "action.list": {
+      "scope": "actions:run",
+      "class": "read"
+    },
+    "action.run": {
+      "scope": "actions:run",
+      "class": "mutation"
+    },
+    "agent.list": {
+      "scope": "agent:read",
+      "class": "read"
+    },
+    "agent.report": {
+      "scope": "agent:write",
+      "class": "mutation"
+    },
+    "app.storage.delete": {
+      "scope": "storage:local",
+      "class": "mutation"
+    },
+    "app.storage.get": {
+      "scope": "storage:local",
+      "class": "read"
+    },
+    "app.storage.keys": {
+      "scope": "storage:local",
+      "class": "read"
+    },
+    "app.storage.set": {
+      "scope": "storage:local",
+      "class": "mutation"
+    },
+    "automation.create": {
+      "scope": "automation:write",
+      "class": "mutation"
+    },
+    "automation.get": {
+      "scope": "automation:read",
+      "class": "read"
+    },
+    "automation.list": {
+      "scope": "automation:read",
+      "class": "read"
+    },
+    "automation.run": {
+      "scope": "automation:execute",
+      "class": "mutation"
+    },
+    "automation.runs.list": {
+      "scope": "automation:read",
+      "class": "read"
+    },
+    "automation.settings.get": {
+      "scope": "automation:read",
+      "class": "read"
+    },
+    "automation.settings.set": {
+      "scope": "automation:write",
+      "class": "mutation"
+    },
+    "automation.update": {
+      "scope": "automation:write",
+      "class": "mutation"
+    },
+    "automation.webhook.get": {
+      "scope": "automation:read",
+      "class": "read"
+    },
+    "browser.activate": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.back": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.forward": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.get": {
+      "scope": "browser:read",
+      "class": "read"
+    },
+    "browser.input.key": {
+      "scope": "browser:execute",
+      "class": "mutation"
+    },
+    "browser.input.mouse": {
+      "scope": "browser:execute",
+      "class": "mutation"
+    },
+    "browser.input.text": {
+      "scope": "browser:execute",
+      "class": "mutation"
+    },
+    "browser.input.wheel": {
+      "scope": "browser:execute",
+      "class": "mutation"
+    },
+    "browser.list": {
+      "scope": "browser:read",
+      "class": "read"
+    },
+    "browser.navigate": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.reload": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "feed.adopt": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.answer": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.archive": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.cancel": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.counts": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.get": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.kinds": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.list": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.post": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.prefs.set": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.read": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.seen": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.snooze": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.unarchive": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "github.issue.comment": {
+      "scope": "github:external",
+      "class": "mutation"
+    },
+    "integration.complete": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.connect": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.list": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.policy.get": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.policy.set": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.request": {
+      "scope": "integration:<provider>",
+      "class": "runtime"
+    },
+    "linear.issue.create": {
+      "scope": "linear:write",
+      "class": "mutation"
+    },
+    "linear.teams.list": {
+      "scope": "linear:read",
+      "class": "read"
+    },
+    "machine.get": {
+      "scope": "machine:read",
+      "class": "read"
+    },
+    "machine.list": {
+      "scope": "machine:read",
+      "class": "read"
+    },
+    "net.fetch": {
+      "scope": "net:<host>",
+      "class": "runtime"
+    },
+    "notification.ack": {
+      "scope": "notification:write",
+      "class": "mutation"
+    },
+    "notification.clear": {
+      "scope": "notification:write",
+      "class": "mutation"
+    },
+    "notification.create": {
+      "scope": "notification:write",
+      "class": "mutation"
+    },
+    "notification.list": {
+      "scope": "notification:read",
+      "class": "read"
+    },
+    "pane.create": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "pane.focus": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "pane.focus_direction": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "pane.get": {
+      "scope": "workspace:read",
+      "class": "read"
+    },
+    "pane.list": {
+      "scope": "workspace:read",
+      "class": "read"
+    },
+    "pane.neighbor.get": {
+      "scope": "workspace:read",
+      "class": "read"
+    },
+    "pane.rename": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "pane.run": {
+      "scope": "workspace:execute",
+      "class": "mutation"
+    },
+    "pane.split": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "pane.split_ratio.set": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "pane.swap": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "pane.viewport_width.set": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "pane.zoom": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "screen.create": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "screen.focus": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "screen.get": {
+      "scope": "workspace:read",
+      "class": "read"
+    },
+    "screen.layout.export": {
+      "scope": "workspace:read",
+      "class": "read"
+    },
+    "screen.layout.undo": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "screen.list": {
+      "scope": "workspace:read",
+      "class": "read"
+    },
+    "screen.rename": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "session.get": {
+      "scope": "session:read",
+      "class": "read"
+    },
+    "session.journal.append": {
+      "scope": "session:write",
+      "class": "mutation"
+    },
+    "session.journal.checkpoint.create": {
+      "scope": "session:write",
+      "class": "mutation"
+    },
+    "session.journal.checkpoint.list": {
+      "scope": "session:read",
+      "class": "read"
+    },
+    "session.journal.hook.list": {
+      "scope": "session:read",
+      "class": "read"
+    },
+    "session.journal.hook.put": {
+      "scope": "session:execute",
+      "class": "mutation"
+    },
+    "session.journal.producer.list": {
+      "scope": "session:read",
+      "class": "read"
+    },
+    "session.journal.producer.put": {
+      "scope": "session:write",
+      "class": "mutation"
+    },
+    "session.journal.restore.preview": {
+      "scope": "session:read",
+      "class": "read"
+    },
+    "session.journal.segment.list": {
+      "scope": "session:read",
+      "class": "read"
+    },
+    "session.journal.segment.seal": {
+      "scope": "session:write",
+      "class": "mutation"
+    },
+    "session.list": {
+      "scope": "session:read",
+      "class": "read"
+    },
+    "session.ping": {
+      "scope": "session:read",
+      "class": "read"
+    },
+    "session.snapshot": {
+      "scope": "session:read",
+      "class": "read"
+    },
+    "session.terminal_defaults.update": {
+      "scope": "session:write",
+      "class": "mutation"
+    },
+    "session.window.title.clear": {
+      "scope": "session:write",
+      "class": "mutation"
+    },
+    "session.window.title.set": {
+      "scope": "session:write",
+      "class": "mutation"
+    },
+    "sidebar_view.ensure": {
+      "scope": "sidebar_view:write",
+      "class": "mutation"
+    },
+    "sidebar_view.get": {
+      "scope": "sidebar_view:read",
+      "class": "read"
+    },
+    "sidebar_view.input": {
+      "scope": "sidebar_view:write",
+      "class": "mutation"
+    },
+    "sidebar_view.reload": {
+      "scope": "sidebar_view:write",
+      "class": "mutation"
+    },
+    "sidebar_view.resize": {
+      "scope": "sidebar_view:write",
+      "class": "mutation"
+    },
+    "slack.post_as_bot": {
+      "scope": "slack:external",
+      "class": "mutation"
+    },
+    "tab.create_browser": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "tab.create_terminal": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "tab.focus": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "tab.get": {
+      "scope": "workspace:read",
+      "class": "read"
+    },
+    "tab.list": {
+      "scope": "workspace:read",
+      "class": "read"
+    },
+    "tab.move": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "tab.rename": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "team.device.compliance": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.device.enroll": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.device.policy": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.device.release": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.device.report_status": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.directory": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.enrollment_token.create": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.enrollment_token.list": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.policy.get": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.policy.history": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.policy.rollback": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.policy.update": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "terminal.attach": {
+      "scope": "terminal:execute",
+      "class": "stream_open"
+    },
+    "terminal.copy": {
+      "scope": "terminal:read",
+      "class": "read"
+    },
+    "terminal.get": {
+      "scope": "terminal:read",
+      "class": "read"
+    },
+    "terminal.history.read": {
+      "scope": "terminal:read",
+      "class": "read"
+    },
+    "terminal.input.focus": {
+      "scope": "terminal:write",
+      "class": "mutation"
+    },
+    "terminal.input.keys": {
+      "scope": "terminal:execute",
+      "class": "mutation"
+    },
+    "terminal.input.mouse": {
+      "scope": "terminal:execute",
+      "class": "mutation"
+    },
+    "terminal.input.write": {
+      "scope": "terminal:execute",
+      "class": "mutation"
+    },
+    "terminal.list": {
+      "scope": "terminal:read",
+      "class": "read"
+    },
+    "terminal.move": {
+      "scope": "terminal:write",
+      "class": "mutation"
+    },
+    "terminal.output_read": {
+      "scope": "terminal:read",
+      "class": "read"
+    },
+    "terminal.process.get": {
+      "scope": "terminal:read",
+      "class": "read"
+    },
+    "terminal.project": {
+      "scope": "terminal:execute",
+      "class": "mutation"
+    },
+    "terminal.screen.read": {
+      "scope": "terminal:read",
+      "class": "read"
+    },
+    "terminal.state.read": {
+      "scope": "terminal:read",
+      "class": "read"
+    },
+    "terminal.viewport.scroll": {
+      "scope": "terminal:write",
+      "class": "mutation"
+    },
+    "terminal.wait": {
+      "scope": "terminal:read",
+      "class": "read"
+    },
+    "terminal.wait_exit": {
+      "scope": "terminal:read",
+      "class": "read"
+    },
+    "workspace.create": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "workspace.focus": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "workspace.get": {
+      "scope": "workspace:read",
+      "class": "read"
+    },
+    "workspace.layout.apply": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "workspace.list": {
+      "scope": "workspace:read",
+      "class": "read"
+    },
+    "workspace.move": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "workspace.rename": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "workspace.run": {
+      "scope": "workspace:execute",
+      "class": "mutation"
+    }
+  },
+  "never": [
+    "automation.delete",
+    "browser.attach",
+    "browser.close",
+    "browser.viewer.release",
+    "browser.viewer.resize",
+    "client.cell_pixels.set",
+    "client.detach",
+    "client.get",
+    "client.list",
+    "client.metadata.update",
+    "client.sizing.release",
+    "client.sizing.set",
+    "frontend_projection.get",
+    "frontend_projection.put",
+    "host.enroll",
+    "host.remove",
+    "install.list",
+    "install.register",
+    "install.rename",
+    "install.revoke",
+    "integration.revoke",
+    "pairing_request.list",
+    "pairing_request.resolve",
+    "pane.close",
+    "request.cancel",
+    "screen.close",
+    "session.creation.resolve",
+    "session.events",
+    "session.journal.subscribe",
+    "session.open",
+    "session.reload_config",
+    "session.shutdown",
+    "sidebar_view.attach",
+    "stream.cancel",
+    "tab.close",
+    "team.enrollment_token.revoke",
+    "terminal.close",
+    "terminal.history.clear",
+    "terminal.renderer_grant.create",
+    "terminal.viewer.release",
+    "terminal.viewer.resize",
+    "user.ensure",
+    "workspace.close"
+  ]
+}

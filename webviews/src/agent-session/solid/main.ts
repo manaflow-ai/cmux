@@ -3,18 +3,18 @@ import { render } from "solid-js/web";
 import { activityGlyph } from "../shared/activityGlyph";
 import { callNative, subscribeToAgentEvents } from "../shared/bridge";
 import {
-  CODEX_BUTTON_BASE,
-  CODEX_BUTTON_COMPOSER,
-  CODEX_BUTTON_COMPOSER_SM,
-  CODEX_BUTTON_GHOST,
-  CODEX_BUTTON_PRIMARY,
-  CODEX_BUTTON_UNIFORM,
-  CODEX_COMPOSER_FOOTER_MULTILINE,
-  CODEX_COMPOSER_FRAME,
-  CODEX_COMPOSER_INNER,
-  CODEX_COMPOSER_STACK,
-  CODEX_COMPOSER_SURFACE,
-} from "../shared/codexClassNames";
+  AGENT_BUTTON_BASE,
+  AGENT_BUTTON_COMPOSER,
+  AGENT_BUTTON_COMPOSER_SM,
+  AGENT_BUTTON_GHOST,
+  AGENT_BUTTON_PRIMARY,
+  AGENT_BUTTON_UNIFORM,
+  AGENT_COMPOSER_FOOTER_MULTILINE,
+  AGENT_COMPOSER_FRAME,
+  AGENT_COMPOSER_INNER,
+  AGENT_COMPOSER_STACK,
+  AGENT_COMPOSER_SURFACE,
+} from "../shared/agentClassNames";
 import { insertComposerToken } from "../shared/composerTokens";
 import { isComposingEnter } from "../shared/keyboard";
 import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
@@ -44,7 +44,7 @@ import {
   type TranscriptEntry,
 } from "../shared/sessionModel";
 import { commandText, ComposerCommandSubmissionGate, composerCommandRoute } from "../shared/commandRouting";
-import { applyCodexDocumentMetadata } from "../shared/theme";
+import { applyAgentDocumentMetadata } from "../shared/theme";
 import type { AgentSessionRateLimitRow, ProviderId } from "../shared/types";
 
 function App() {
@@ -143,7 +143,7 @@ function SessionSurface({
   const [isRateLimitOpen, setIsRateLimitOpen] = createSignal(false);
   const root = document.createElement("section");
   root.className = "agent-shell";
-  root.dataset.codexWindowType = "electron";
+  root.dataset.agentWindowType = "electron";
 
   const thread = document.createElement("div");
   thread.className = "agent-thread";
@@ -177,7 +177,7 @@ function SessionSurface({
   });
 
   const composerStack = document.createElement("div");
-  composerStack.className = CODEX_COMPOSER_STACK;
+  composerStack.className = AGENT_COMPOSER_STACK;
   root.append(composerStack);
 
   const form = document.createElement("form");
@@ -193,15 +193,15 @@ function SessionSurface({
   composerStack.append(form);
 
   const composerFrame = document.createElement("div");
-  composerFrame.className = CODEX_COMPOSER_FRAME;
+  composerFrame.className = AGENT_COMPOSER_FRAME;
   form.append(composerFrame);
 
   const composerSurface = document.createElement("div");
-  composerSurface.className = `${CODEX_COMPOSER_SURFACE} overflow-y-auto rounded-3xl`;
+  composerSurface.className = `${AGENT_COMPOSER_SURFACE} overflow-y-auto rounded-3xl`;
   composerFrame.append(composerSurface);
 
   const composerInner = document.createElement("div");
-  composerInner.className = CODEX_COMPOSER_INNER;
+  composerInner.className = AGENT_COMPOSER_INNER;
   composerSurface.append(composerInner);
 
   const composerBody = document.createElement("div");
@@ -251,15 +251,15 @@ function SessionSurface({
   });
 
   const composerFooter = document.createElement("div");
-  composerFooter.className = CODEX_COMPOSER_FOOTER_MULTILINE;
+  composerFooter.className = AGENT_COMPOSER_FOOTER_MULTILINE;
   composerInner.append(composerFooter);
 
   const leftRail = document.createElement("div");
-  leftRail.className = "codex-left-rail";
+  leftRail.className = "agent-left-rail";
   composerFooter.append(leftRail);
 
   const modelPicker = document.createElement("label");
-  modelPicker.className = `model-picker ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} max-w-40 min-w-0 rounded-full`;
+  modelPicker.className = `model-picker ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_COMPOSER} max-w-40 min-w-0 rounded-full`;
   const modelIcon = document.createElement("span");
   modelIcon.className = "model-icon";
   modelIcon.setAttribute("aria-hidden", "true");
@@ -284,9 +284,9 @@ function SessionSurface({
   composerSeparator.setAttribute("aria-hidden", "true");
   leftRail.append(
     composerSeparator,
-    codexIconButton("plus", "+"),
-    codexIconButton("mention", "@", () => insertToken("@")),
-    codexIconButton("skill", "$", () => insertToken("$")),
+    agentIconButton("plus", "+"),
+    agentIconButton("mention", "@", () => insertToken("@")),
+    agentIconButton("skill", "$", () => insertToken("$")),
   );
 
   createEffect(() => {
@@ -306,11 +306,11 @@ function SessionSurface({
   });
 
   const controlsRight = document.createElement("div");
-  controlsRight.className = "codex-right-rail";
+  controlsRight.className = "agent-right-rail";
   composerFooter.append(controlsRight);
 
   const start = document.createElement("button");
-  start.className = `codex-action codex-start ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} rounded-full`;
+  start.className = `agent-action agent-start ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_COMPOSER} rounded-full`;
   start.type = "button";
   start.addEventListener("click", () => void startProvider(state(), dispatch));
   controlsRight.append(start);
@@ -326,7 +326,7 @@ function SessionSurface({
   });
 
   const stop = document.createElement("button");
-  stop.className = `codex-action codex-circle-action ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`;
+  stop.className = `agent-action agent-circle-action ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_COMPOSER} ${AGENT_BUTTON_UNIFORM} rounded-full`;
   stop.type = "button";
   stop.setAttribute("aria-label", "Stop");
   stop.addEventListener("click", () => void stopProvider(state(), dispatch));
@@ -340,7 +340,7 @@ function SessionSurface({
   });
 
   const mic = document.createElement("button");
-  mic.className = `codex-action codex-mic ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`;
+  mic.className = `agent-action agent-mic ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_COMPOSER} ${AGENT_BUTTON_UNIFORM} rounded-full`;
   mic.type = "button";
   mic.disabled = true;
   mic.textContent = "♩";
@@ -350,7 +350,7 @@ function SessionSurface({
   });
 
   const send = document.createElement("button");
-  send.className = `codex-action send-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_PRIMARY} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`;
+  send.className = `agent-action send-button ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_PRIMARY} ${AGENT_BUTTON_COMPOSER} ${AGENT_BUTTON_UNIFORM} rounded-full`;
   send.type = "submit";
   send.append(sendIcon());
   controlsRight.append(send);
@@ -360,7 +360,7 @@ function SessionSurface({
   });
 
   const rateLine = document.createElement("div");
-  rateLine.className = "rate-line codex-rate-limit-summary";
+  rateLine.className = "rate-line agent-rate-limit-summary";
   rateLine.setAttribute("role", "status");
   rateLine.addEventListener("focusout", (event) => {
     const nextTarget = event.relatedTarget;
@@ -383,7 +383,7 @@ function transcriptTurnElement(entry: TranscriptEntry): HTMLDivElement {
   if (entry.role === "user") {
     const bubble = document.createElement("div");
     bubble.className =
-      "codex-user-bubble bg-token-foreground/5 max-w-[77%] min-w-0 overflow-hidden break-words rounded-2xl px-3 py-2 [&_.contain-inline-size]:[contain:initial]";
+      "agent-user-bubble bg-token-foreground/5 max-w-[77%] min-w-0 overflow-hidden break-words rounded-2xl px-3 py-2 [&_.contain-inline-size]:[contain:initial]";
     const text = document.createElement("div");
     text.className = "text-size-chat mb-px";
     bubble.append(text);
@@ -399,41 +399,41 @@ function transcriptTurnElement(entry: TranscriptEntry): HTMLDivElement {
 function updateTranscriptTurn(row: HTMLDivElement, entry: TranscriptEntry): void {
   switch (entry.role) {
     case "user": {
-      row.className = "codex-user-turn group flex w-full flex-col items-end justify-end gap-1";
+      row.className = "agent-user-turn group flex w-full flex-col items-end justify-end gap-1";
       const text = row.querySelector(".text-size-chat");
       (text ?? row).innerHTML = renderPlainTextHTML(entry.text);
       break;
     }
     case "assistant": {
-      row.className = "codex-assistant-turn";
+      row.className = "agent-assistant-turn";
       const content = row.firstElementChild as HTMLDivElement | null;
       if (content) {
         if (entry.isComplete === false) {
           content.className =
-            "codex-assistant-message codex-assistant-message-streaming text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]";
+            "agent-assistant-message agent-assistant-message-streaming text-size-chat leading-[calc(var(--agent-chat-font-size)+8px)]";
           content.textContent = entry.text;
         } else {
-          content.className = "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]";
+          content.className = "agent-assistant-message text-size-chat leading-[calc(var(--agent-chat-font-size)+8px)]";
           content.innerHTML = renderMarkdownHTML(entry.text);
         }
       }
       break;
     }
     case "notice": {
-      row.className = `codex-notice-turn ${entry.tone ?? "warning"}`;
+      row.className = `agent-notice-turn ${entry.tone ?? "warning"}`;
       const content = row.firstElementChild as HTMLDivElement | null;
       if (content) {
-        content.className = "codex-notice-content text-size-chat-sm";
+        content.className = "agent-notice-content text-size-chat-sm";
         content.innerHTML = renderPlainTextHTML(entry.text);
       }
       break;
     }
     case "activity": {
-      row.className = `codex-tool-activity-turn ${entry.activityKind ?? "other"} ${entry.activityStatus ?? "completed"}`;
+      row.className = `agent-tool-activity-turn ${entry.activityKind ?? "other"} ${entry.activityStatus ?? "completed"}`;
       row.replaceChildren(activityContentElement(entry));
       if (entry.output) {
         const output = document.createElement("pre");
-        output.className = "codex-tool-activity-output text-size-chat-sm";
+        output.className = "agent-tool-activity-output text-size-chat-sm";
         output.innerHTML = renderPlainTextHTML(entry.output);
         row.append(output);
       }
@@ -445,25 +445,25 @@ function updateTranscriptTurn(row: HTMLDivElement, entry: TranscriptEntry): void
 function activityContentElement(entry: TranscriptEntry): HTMLDivElement {
   const summary = document.createElement("div");
   summary.className =
-    "codex-tool-activity-summary group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1 self-start text-left";
+    "agent-tool-activity-summary group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1 self-start text-left";
 
   const icon = document.createElement("span");
-  icon.className = "codex-tool-activity-icon icon-xs shrink-0";
+  icon.className = "agent-tool-activity-icon icon-xs shrink-0";
   icon.setAttribute("aria-hidden", "true");
   icon.textContent = activityGlyph(entry);
 
   const text = document.createElement("span");
   text.className =
-    "codex-tool-activity-text shrink overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] pr-1";
+    "agent-tool-activity-text shrink overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] pr-1";
 
   const action = document.createElement("span");
-  action.className = "codex-tool-activity-action";
+  action.className = "agent-tool-activity-action";
   action.innerHTML = renderPlainTextHTML(entry.text);
   text.append(action);
 
   if (entry.detail) {
     const detail = document.createElement("span");
-    detail.className = "codex-tool-activity-detail";
+    detail.className = "agent-tool-activity-detail";
     detail.innerHTML = ` ${renderPlainTextHTML(entry.detail)}`;
     text.append(detail);
   }
@@ -481,7 +481,7 @@ function renderRateLimitFooter(
 ): void {
   target.replaceChildren();
   target.setAttribute("aria-label", `${providerDisplayName} ${statusLabel(state)}`.trim());
-  target.className = "rate-line codex-rate-limit-summary relative";
+  target.className = "rate-line agent-rate-limit-summary relative";
   const rows = state.context?.rateLimitRows ?? [];
   const normalizedRows = rows.map(normalizeRateLimitRow);
   target.hidden = normalizedRows.length === 0;
@@ -639,9 +639,9 @@ function stopIcon(): SVGSVGElement {
   return icon;
 }
 
-function codexIconButton(kind: string, text: string, onClick?: () => void): HTMLButtonElement {
+function agentIconButton(kind: string, text: string, onClick?: () => void): HTMLButtonElement {
   const button = document.createElement("button");
-  button.className = `codex-tool codex-tool-${kind} ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${CODEX_BUTTON_UNIFORM} rounded-full`;
+  button.className = `agent-tool agent-tool-${kind} ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_COMPOSER_SM} ${AGENT_BUTTON_UNIFORM} rounded-full`;
   button.type = "button";
   if (onClick) {
     button.addEventListener("click", onClick);
@@ -655,6 +655,6 @@ function codexIconButton(kind: string, text: string, onClick?: () => void): HTML
 
 const root = document.getElementById("root");
 if (root) {
-  applyCodexDocumentMetadata();
+  applyAgentDocumentMetadata();
   render(App, root);
 }

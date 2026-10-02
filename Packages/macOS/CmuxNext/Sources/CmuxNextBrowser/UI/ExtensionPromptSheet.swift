@@ -2,7 +2,7 @@ import AppKit
 
 /// The native sheet for an extension prompt (`ExtensionInstallPrompt`):
 /// icon, title, what the extension can do, and the two answers. It attaches
-/// to the window of the tab that asked, like Chrome's tab-modal dialog, and
+/// to the window of the tab that asked, as a tab-modal dialog, and
 /// never takes the app's focus by itself (a sheet on a no-activate window
 /// stays inactive until the user clicks it).
 @MainActor final class ExtensionPromptSheet {

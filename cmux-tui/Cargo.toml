@@ -17,12 +17,16 @@ workspace = true
 resolver = "2"
 members = [
     "crates/cmux-cloud-cli",
+    "crates/cmux-conversation",
     "bindings/rust",
     "bindings/rust-sidebar",
+    "bindings/rust-daemon-client",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
+    "crates/cmux-browser-host",
     "crates/cmux-tui-core",
+    "crates/cmux-layout-reducer",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote",
@@ -33,15 +37,26 @@ members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-transport",
+    "crates/cmux-tasks-core",
+    "crates/cmux-tasks",
+    "crates/cmux-server-core",
+    "crates/cmux-motion",
+    "crates/cmux-theme-tokens",
+    "crates/cmux-app-manifest",
 ]
 default-members = [
     "crates/cmux-cloud-cli",
+    "crates/cmux-conversation",
     "bindings/rust",
     "bindings/rust-sidebar",
+    "bindings/rust-daemon-client",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
+    "crates/cmux-browser-host",
     "crates/cmux-tui-core",
+    "crates/cmux-layout-reducer",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote",
@@ -51,6 +66,13 @@ default-members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-transport",
+    "crates/cmux-tasks-core",
+    "crates/cmux-tasks",
+    "crates/cmux-server-core",
+    "crates/cmux-motion",
+    "crates/cmux-theme-tokens",
+    "crates/cmux-app-manifest",
 ]
 exclude = ["vendor/crossterm"]
 
@@ -63,6 +85,8 @@ publish = false
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unused_qualifications = "warn"
+# `cargo kani` sets cfg(kani) for the proof harnesses in cmux-layout-reducer.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
 
 [workspace.lints.clippy]
 uninlined_format_args = "warn"
@@ -74,9 +98,11 @@ redundant_clone = "warn"
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
+cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
+cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
@@ -102,8 +128,10 @@ base64 = "0.22"
 boringtun = { version = "0.7", default-features = false }
 # ip_network is what boringtun already uses for AllowedIPs, so it adds no code.
 ip_network = "0.4"
-# smoltcp is the userspace TCP/IP stack those tunnels terminate in.
-smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "async"] }
+# smoltcp is the userspace TCP/IP stack those tunnels terminate in. Without a
+# congestion-control feature it runs with none and bursts a full window into
+# any bottleneck; CUBIC is the controller cmux-wg selects.
+smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
 png = "0.17"
 libc = "0.2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
@@ -148,6 +176,9 @@ wait-timeout = "0.2"
 # declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.
 rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "hooks"] }
 sha2 = "0.10"
+# Ed25519 verification of the signed channel manifest (cmux-server-core).
+# ring is already in the graph through rustls; this adds no new code.
+ring = "0.17"
 socket2 = { version = "0.5", features = ["all"] }
 snow = "0.10"
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }

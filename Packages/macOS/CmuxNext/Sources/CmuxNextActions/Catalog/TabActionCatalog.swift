@@ -20,7 +20,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "newSurface",
                 title: String(localized: "action.newSurface", defaultValue: "New Terminal Tab", bundle: .module),
-                keywords: ["tab", "terminal", "create"],
+                keywords: ["tab", "terminal", "create"], defaultShortcut: Shortcut("t", modifiers: [.control, .shift, .command]),
                 category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.tab], cliName: "tab new-terminal", startsTerminal: true
             ),
@@ -40,7 +40,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "openBrowser.chromium",
-                title: String(localized: "action.openBrowser.chromium", defaultValue: "New Chromium Tab", bundle: .module),
+                title: String(localized: "action.openBrowser.chromium", defaultValue: "New Browser Tab", bundle: .module),
                 keywords: ["tab", "web", "browser", "chrome", "chromium", "cef", "extensions", "create"],
                 category: .tab, symbol: "circle.circle", surfaces: [.palette, .contextMenu],
                 arguments: [CatalogArgument.urlString], targets: [.tab], cliName: "tab new-chromium"
@@ -169,6 +169,15 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.goToTab", defaultValue: "Go to Tab…", bundle: .module),
                 keywords: ["tab", "switch", "switcher", "surface"], category: .tab, symbol: "rectangle.stack",
                 surfaces: [.palette], arguments: [CatalogArgument.tabTab], targets: [.tab], cliName: "tab go-to"
+            ),
+            ActionDescriptor(
+                id: "tab.search",
+                title: String(localized: "action.tab.search", defaultValue: "Search Tabs…", bundle: .module),
+                keywords: ["tab", "search", "find", "switch", "switcher", "recently closed", "url", "folder", "process"],
+                defaultShortcut: Shortcut("a", modifiers: [.command, .shift]), category: .tab, symbol: "magnifyingglass",
+                surfaces: [.palette, .keyboard, .menu], arguments: [CatalogArgument.queryString], cliName: "tab search",
+                mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "palette.moveTabToNewWorkspace",

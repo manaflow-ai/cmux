@@ -10,11 +10,17 @@ enum AppCompatBrowser {
         guard let (tab, _) = services.locateTab(tabID) else {
             throw ControlError(code: "not_found", message: "Surface not found or not a browser")
         }
+        // Before the page exists or any script runs: this tab never gets a
+        // saved password filled again, so an automated click cannot release
+        // one to page script (plans/cmux-next/browser.md, "Browser import:
+        // passwords and security").
+        let stale = markAgentDriven(tabID, services: services)
         // The engine the record names, with url/title written back to the record.
         let entry = services.cache.existingBrowser(tabID) ?? services.cache.browser(for: tab)
         guard let page = entry?.tab else {
             throw ControlError(code: "unavailable", message: "The browser page is still starting; retry")
         }
+        try rebuildStale(stale, tabID: tabID, for: operation, services: services)
         switch operation {
         case .navigate(let raw):
             guard let target = normalizedURL(raw) else { throw ControlError(code: "invalid_params", message: "Invalid url: \(raw)") }

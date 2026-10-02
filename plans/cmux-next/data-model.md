@@ -144,7 +144,7 @@ its meaning.
 - Rooms start with one `default` room that follows every session (3.2), so
   every existing workspace is visible after the upgrade with no data change.
 
-## 3. Rooms (the Arc-like switchable set)
+## 3. Rooms (the switchable set of workspaces)
 
 ### 3.1 Two kinds of profile
 

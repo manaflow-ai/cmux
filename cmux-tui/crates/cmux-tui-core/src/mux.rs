@@ -1,20 +1,32 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod agent_hook_errors;
+mod conversations;
 mod host_close;
 mod idle_close;
+pub(crate) mod layout_invariants;
 mod personal;
 mod presentation;
 mod public_projections;
+mod registry_viewport;
 mod resource_content;
 mod resource_topology;
+mod screen_changed;
 mod screen_groups;
+mod session_paths;
 mod sticky_columns;
 mod tab_drag;
 mod tab_groups;
 mod terminal_directory;
+mod terminal_move_topology;
 mod terminal_reap;
 mod terminal_work;
+
+use agent_hook_errors::{
+    AGENT_HOOK_RETRY_ERROR, AgentHookTerminalGone, AgentHookTerminalUnavailable,
+    agent_hook_retry_class, agent_hook_terminal_gone,
+};
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use presentation::{
@@ -27,7 +39,8 @@ pub use screen_groups::{
     ScreenDestination, ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec, WorkspaceScreenGroup,
 };
 pub use sticky_columns::{ColumnStickyError, ColumnStickyOutcome, parse_column_sticky};
-pub use tab_drag::{TabDragOutcome, TabDropEdge};
+use tab_drag::restore_dragged_tab;
+pub use tab_drag::{SplitRespawn, TabDragOutcome, TabDropEdge};
 pub(crate) use tab_groups::{PaneTabGroup, pane_tab_groups};
 pub use tab_groups::{TabGroupDestination, TabGroupOutcome};
 pub use terminal_reap::{
@@ -36,6 +49,7 @@ pub use terminal_reap::{
 };
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
+use registry_viewport::restore_registry_viewport;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::ops::{Deref, DerefMut};
@@ -978,6 +992,8 @@ pub enum MuxEvent {
     PersonalChanged {
         personal_revision: u64,
     },
+    BookmarksChanged(personal::BookmarksChange),
+    Conversation(Arc<crate::conversation_store::ConversationEvent>),
     /// A durable terminal-registry mutation committed. Consumers use this as
     /// a barrier, then fetch `terminal-events` or a fresh snapshot.
     TerminalRegistryChanged {
@@ -1489,56 +1505,6 @@ fn published_agent_session_id(terminal_id: &TerminalPublicId, session_id: &str) 
 /// the previous fence identity after restart.
 pub(super) fn legacy_hook_session_id(terminal_id: &TerminalPublicId, sequence: u64) -> String {
     crate::journal_reducers::legacy_hook_session_id(terminal_id.as_str(), sequence)
-}
-
-const AGENT_HOOK_RETRY_ERROR: &str = "agent hook projection retry deferred";
-
-#[derive(Debug)]
-struct AgentHookTerminalUnavailable;
-
-impl fmt::Display for AgentHookTerminalUnavailable {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("terminal is not available for agent hook projection")
-    }
-}
-
-impl std::error::Error for AgentHookTerminalUnavailable {}
-
-#[derive(Debug)]
-struct AgentHookTerminalGone;
-
-impl fmt::Display for AgentHookTerminalGone {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("terminal no longer exists for agent hook projection")
-    }
-}
-
-impl std::error::Error for AgentHookTerminalGone {}
-
-fn agent_hook_terminal_gone(error: &anyhow::Error) -> bool {
-    error.downcast_ref::<AgentHookTerminalGone>().is_some()
-}
-
-fn agent_hook_retry_class(error: &anyhow::Error) -> crate::workspace_registry::AgentHookRetryClass {
-    if error.downcast_ref::<AgentHookTerminalUnavailable>().is_some()
-        || error.chain().any(|cause| {
-            matches!(
-                cause.downcast_ref::<rusqlite::Error>(),
-                Some(rusqlite::Error::SqliteFailure(
-                    rusqlite::ffi::Error {
-                        code: rusqlite::ErrorCode::DatabaseBusy
-                            | rusqlite::ErrorCode::DatabaseLocked,
-                        ..
-                    },
-                    _
-                ))
-            )
-        })
-    {
-        crate::workspace_registry::AgentHookRetryClass::Transient
-    } else {
-        crate::workspace_registry::AgentHookRetryClass::Permanent
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -2596,6 +2562,7 @@ pub struct Mux {
     /// per-client memory; they never move the live shared focus, so other
     /// attached clients stay where they are.
     last_reported_focus: Mutex<Option<(PaneId, Option<usize>)>>,
+    conversations: crate::conversation_store::ConversationHost,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -3046,6 +3013,7 @@ impl Mux {
             client_sizing: Mutex::new(ClientSizingState::default()),
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
+            conversations: Default::default(),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]
@@ -4794,25 +4762,50 @@ impl Mux {
         }
 
         let mut state = self.state.lock().unwrap();
-        let mut plan = prepare(&mut state, &registry)?;
-        persist_public_topology_result(operation, &mut plan.result, &plan.deltas)?;
-        #[cfg(test)]
-        {
-            *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
+        // Prepare and stage run before the durable commit, so subscribers
+        // see a tab's new session path only once that commit succeeds.
+        let (prepared, session_paths) = crate::event_bus::defer_session_paths(|| {
+            let mut plan = prepare(&mut state, &registry)?;
+            let before = plan.stage_checked(&mut state, operation)?;
+            anyhow::Ok((plan, before))
+        });
+        let (mut plan, before) = prepared?;
+        let committed = persist_public_topology_result(operation, &mut plan.result, &plan.deltas)
+            .and_then(|()| {
+                #[cfg(test)]
+                {
+                    *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
+                }
+                registry.commit_resource_patch_with_workspace_ledger(
+                    mutation,
+                    operation,
+                    fingerprint,
+                    expected_generation,
+                    expected_revision,
+                    &plan.patch,
+                    &plan.result,
+                    &plan.deltas,
+                    plan.workspace_ledger.as_ref(),
+                    plan.tab_groups.as_ref(),
+                    plan.screen_state.as_ref(),
+                )
+            });
+        let (commit, workspace_revision) = match committed {
+            Ok(committed) => committed,
+            Err(error) => {
+                if let Some(before) = before {
+                    *state = before;
+                }
+                return Err(error);
+            }
+        };
+        if commit.replayed {
+            if let Some(before) = before {
+                *state = before;
+            }
+        } else {
+            self.subscribers.publish_deferred_session_paths(session_paths);
         }
-        let (commit, workspace_revision) = registry.commit_resource_patch_with_workspace_ledger(
-            mutation,
-            operation,
-            fingerprint,
-            expected_generation,
-            expected_revision,
-            &plan.patch,
-            &plan.result,
-            &plan.deltas,
-            plan.workspace_ledger.as_ref(),
-            plan.tab_groups.as_ref(),
-            plan.screen_state.as_ref(),
-        )?;
         plan.apply(&mut state, &commit, workspace_revision);
         drop(state);
         drop(registry);
@@ -10945,19 +10938,6 @@ impl Mux {
     /// Events that can change the launch snapshot.
     pub(crate) fn subscribe_launch_snapshot(&self) -> MuxEventReceiver {
         self.subscribers.subscribe_launch_snapshot()
-    }
-
-    /// The directory of this session's durable registry, or none for an
-    /// in-memory session.
-    pub(crate) fn session_state_directory(&self) -> Option<std::path::PathBuf> {
-        let database = self.workspace_registry.lock().unwrap().session_journal_database_path()?;
-        database.parent().map(Path::to_path_buf)
-    }
-
-    pub(crate) fn launch_snapshot_frontend_projections(
-        &self,
-    ) -> anyhow::Result<Vec<FrontendProjection>> {
-        self.workspace_registry.lock().unwrap().native_frontend_projections()
     }
 
     /// Post a notification from the legacy `notify` verb. This is the same
@@ -18228,6 +18208,13 @@ impl Mux {
                             &terminal.workspace_key,
                         )?
                     };
+                if topology_changed {
+                    self.commit_full_resource_projection_locked(
+                        &mut registry,
+                        &mut state,
+                        "terminal.move",
+                    )?;
+                }
                 (terminal, current_revision, true, changed, placement, topology_changed)
             } else {
                 let snapshot = registry.terminal_snapshot()?;
@@ -18269,6 +18256,17 @@ impl Mux {
                     terminal_id,
                     &terminal.workspace_key,
                 )?;
+                // The projection moved the terminal's view between panes;
+                // the resource topology must record that move under the
+                // same locks, or a restore reverts it and later tab moves
+                // plan from a placement that memory no longer has.
+                if topology_changed {
+                    self.commit_full_resource_projection_locked(
+                        &mut registry,
+                        &mut state,
+                        "terminal.move",
+                    )?;
+                }
                 (terminal, commit.revision, false, changed, placement, topology_changed)
             }
         };
@@ -18278,6 +18276,8 @@ impl Mux {
             let _ = surface.persist_host_workspace(&terminal.workspace_key);
         }
         if topology_changed {
+            self.publish_resource_event();
+            self.publish_pending_terminal_directories();
             self.emit(MuxEvent::TreeChanged);
         }
         Ok(TerminalMoveResult { placement, terminal, terminal_revision, replayed, changed })
@@ -19882,57 +19882,6 @@ fn restore_layout_node(
     })
 }
 
-fn restore_registry_viewport(
-    viewport: &RegistryViewport,
-    panes: &HashMap<PanePublicId, PaneId>,
-    splits: &mut HashMap<SplitPublicId, SplitId>,
-    allocate: &mut impl FnMut() -> anyhow::Result<u64>,
-) -> anyhow::Result<RestoredViewport> {
-    if viewport.columns.is_empty() {
-        return Ok((Default::default(), None, Vec::new()));
-    }
-    let mut columns = Vec::with_capacity(viewport.columns.len());
-    for (index, column) in viewport.columns.iter().enumerate() {
-        let id = match splits.get(&column.id).copied() {
-            Some(id) => id,
-            None if index == 0 => {
-                let id = allocate()?;
-                splits.insert(column.id.clone(), id);
-                id
-            }
-            None => anyhow::bail!("viewport references unknown boundary split {}", column.id),
-        };
-        let root = restore_layout_node_from_known_splits(&column.layout, panes, splits)?;
-        let zellij_auto_layout = column
-            .auto_layout
-            .as_ref()
-            .map(|members| {
-                members
-                    .iter()
-                    .map(|pane| {
-                        panes.get(pane).copied().ok_or_else(|| {
-                            anyhow::anyhow!("viewport auto-layout has unknown pane {pane}")
-                        })
-                    })
-                    .collect::<anyhow::Result<Vec<_>>>()
-            })
-            .transpose()?;
-        columns.push(LayoutColumn {
-            id,
-            width: column.width,
-            root,
-            zellij_auto_layout,
-            sticky: column.sticky,
-        });
-    }
-    // Every writer stores normalized flags. The registry does not reject
-    // inconsistent flags, so a damaged record still loads; it is repaired
-    // here instead of producing a screen with no scrolling column.
-    crate::model::normalize_sticky_columns(&mut columns);
-    let viewport_splits = columns.iter().skip(1).map(|column| (column.id, column.width)).collect();
-    Ok((viewport_splits, viewport.base_width, columns))
-}
-
 fn restore_layout_node_from_known_splits(
     node: &RegistryLayoutNode,
     panes: &HashMap<PanePublicId, PaneId>,
@@ -20487,73 +20436,6 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
     // stable workspace identity.
     stamp_changed_active_pane(mux, state, previous_active);
     (removed, true)
-}
-
-/// Undo one same-screen tab drag: move the tab back to its origin pane and
-/// index, and remove the pane the drag created. Every precondition is
-/// checked first, so a stale entry fails without changing anything.
-fn restore_dragged_tab(
-    mux: &Mux,
-    state: &mut State,
-    workspace_index: usize,
-    screen_index: usize,
-    restore: crate::model::LayoutUndoTabRestore,
-) -> anyhow::Result<()> {
-    let stale = |message: &str| anyhow::Error::new(LayoutUndoError::Stale(message.to_string()));
-    let screen_panes = state.workspaces[workspace_index].screens[screen_index].root.pane_ids_vec();
-    let current = state.pane_of(restore.surface).ok_or_else(|| stale("the dragged tab closed"))?;
-    if !screen_panes.contains(&restore.origin_pane)
-        || !state.panes.contains_key(&restore.origin_pane)
-    {
-        return Err(stale("the dragged tab's origin pane closed"));
-    }
-    if !screen_panes.contains(&current) {
-        return Err(stale("the dragged tab left its screen"));
-    }
-    match restore.created_pane {
-        Some(created) => {
-            let alone = state
-                .panes
-                .get(&created)
-                .is_some_and(|pane| pane.tabs.as_slice() == [restore.surface]);
-            if current != created || !alone {
-                return Err(stale("the pane created by the drag changed"));
-            }
-        }
-        None if current == restore.origin_pane => {
-            return Err(stale("the dragged tab is already in its origin pane"));
-        }
-        None => {}
-    }
-    {
-        let pane = state.panes.get_mut(&current).expect("checked current pane");
-        let old = pane
-            .tabs
-            .iter()
-            .position(|candidate| *candidate == restore.surface)
-            .expect("checked tab membership");
-        pane.tabs.remove(old);
-        if !pane.tabs.is_empty() && pane.active_tab >= old && pane.active_tab > 0 {
-            pane.active_tab -= 1;
-        }
-    }
-    if restore.created_pane == Some(current) {
-        state.remove_pane(current);
-    }
-    let origin = state.panes.get_mut(&restore.origin_pane).expect("checked origin pane");
-    let index = restore.origin_index.min(origin.tabs.len());
-    origin.tabs.insert(index, restore.surface);
-    origin.active_tab = index;
-    state.resource_indexes.tab_pane.insert(restore.surface, restore.origin_pane);
-    let workspace = state.workspaces[workspace_index].id;
-    let screen = state.workspaces[workspace_index].screens[screen_index].id;
-    mux.subscribers.update_surface_session_path(
-        restore.surface,
-        workspace,
-        screen,
-        restore.origin_pane,
-    );
-    Ok(())
 }
 
 fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId) {

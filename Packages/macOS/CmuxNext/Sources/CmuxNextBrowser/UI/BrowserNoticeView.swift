@@ -10,7 +10,8 @@ final class BrowserNoticeView: NSView {
     var isDismissing = false
     private let label = NSTextField(labelWithString: "")
     private let density = DensityBinding()
-    private var glass: NSGlassEffectView?
+    /// The card's material: glass, or opaque under Reduce Transparency.
+    private(set) var glass: OverlaySurfaceView?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -23,7 +24,7 @@ final class BrowserNoticeView: NSView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         let content = OverlayBackingView()
         content.addSubview(stack)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.overlayCornerRadius)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
         addSubview(glass)
         self.glass = glass
         NSLayoutConstraint.activate([
@@ -62,7 +63,7 @@ final class BrowserNoticeView: NSView {
     private func applyColors() {
         performWithTheme {
             label.textColor = Palette.textSecondary
-            glass?.tintColor = Palette.glassTint
+            glass?.applyTheme()
         }
     }
 

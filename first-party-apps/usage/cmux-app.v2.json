@@ -1,0 +1,63 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "$comment": "Platform v2 sketch (plans/cmux-next/app-platform.md section 12). Not validated or loaded by today's runtime; cmux-app.json is the live manifest.",
+  "manifestVersion": 2,
+  "id": "cmux/usage",
+  "name": { "en": "Usage", "ja": "使用量" },
+  "version": "0.2.0",
+  "description": { "en": "Usage of every AI plan account your routers know, with a pace verdict per provider.", "ja": "ルーターが管理するすべての AI プランアカウントの使用量と、プロバイダーごとのペース判定。" },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "engines": { "cmux": "^2.0" },
+  "main": "dist/main.js",
+  "catalog": "catalog/account-catalog.json",
+  "server": {
+    "kind": "native",
+    "binary": "cmux-usage",
+    "args": ["serve"],
+    "hosts": ["local"],
+    "instances": "machine",
+    "data": "cache",
+    "activation": "onDemand",
+    "scopes": {
+      "process:spawn:sr": "Run your router's status command (sr status --json) to read account usage.",
+      "op:coderouter.accounts.usage": "Read your hosted router's pooled accounts through cmux, never with a key of its own."
+    }
+  },
+  "scopes": {
+    "account:read": "Read account usage from the usage server. The app never sees a credential.",
+    "account:write": "Ask the usage server to read the routers now when you choose Refresh.",
+    "notification:write": "Tell you once when a provider has no usable account left."
+  },
+  "implements": [
+    {
+      "interface": "cmux.status/1",
+      "id": "menu",
+      "title": { "en": "Usage", "ja": "使用量" },
+      "symbol": "gauge.with.needle",
+      "placement": "menuBar",
+      "render": "renderStatus"
+    },
+    {
+      "interface": "cmux.section/1",
+      "id": "usage",
+      "title": { "en": "Usage", "ja": "使用量" },
+      "symbol": "gauge.with.needle",
+      "defaultRegion": "bottom",
+      "render": "renderSection"
+    },
+    { "interface": "cmux.pane/1", "id": "usagePane", "title": { "en": "Usage", "ja": "使用量" }, "symbol": "gauge.with.needle", "renderer": "scene", "render": "renderPane" }
+  ],
+  "variants": { "setting": "variant", "values": ["rows", "meters", "quiet"], "default": "rows", "channels": ["dev", "nightly"] },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "notifications": { "type": "boolean", "title": { "en": "Tell me when a provider has no usable account", "ja": "使えるアカウントがなくなったら知らせる" }, "default": true },
+      "staleMinutes": { "type": "integer", "title": { "en": "Mark data stale after minutes", "ja": "古いデータとみなすまでの分数" }, "minimum": 1, "default": 30 }
+    }
+  },
+  "strings": "strings/",
+  "files": ["dist/", "assets/", "catalog/", "strings/"]
+}

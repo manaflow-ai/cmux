@@ -88,6 +88,23 @@ import Testing
         }
     }
 
+    /// Lawrence (2026-10-01): long menus use submenus. Each menu keeps at
+    /// most 12 top-level rows (a folder counts as one); the rest live in
+    /// folders ("Move ▸"), and each folder holds at least two rows.
+    /// Reachability inside folders is checked by the tests above, which
+    /// walk submenus.
+    @Test func everyMenuKeepsAShortTopLevel() {
+        for context in ActionMenuContext.allCases {
+            let entries = ContextMenuCatalog.shared.entries(for: context)
+            let rows = entries.filter { if case .separator = $0 { false } else { true } }
+            #expect(rows.count <= 12, "\(context) has \(rows.count) top-level rows")
+            for case .folder(let folder, let children) in entries {
+                let count = ContextMenuCatalog.shared.referencedIDs(children).count
+                #expect(count >= 2, "\(context) folder \(folder) has \(count) rows")
+            }
+        }
+    }
+
     @Test func cliNamesAndShortcutsAreUnique() {
         var byName: [String: ActionID] = [:]
         for descriptor in catalog where descriptor.surfacePlan.cli?.isOffered == true {
@@ -167,7 +184,7 @@ import Testing
     @Test func surfaceTablesNameOnlyCatalogActions() {
         let ids = Set(catalog.map(\.id))
         var tableIDs = Array(ActionSurfaceCatalog.placements.keys) + Array(ActionSurfaceCatalog.cliNamed)
-        for table in [ActionSurfaceCatalog.cliExemptionsByReason, ActionSurfaceCatalog.contextMenuExemptionsByReason,
+        for table in [ActionSurfaceCatalog.paletteExemptionsByReason, ActionSurfaceCatalog.cliExemptionsByReason, ActionSurfaceCatalog.contextMenuExemptionsByReason,
                       ActionSurfaceCatalog.mcpExemptionsByReason] {
             let listed = table.values.flatMap { $0 }
             #expect(Set(listed).count == listed.count, "an id listed under two reasons")
