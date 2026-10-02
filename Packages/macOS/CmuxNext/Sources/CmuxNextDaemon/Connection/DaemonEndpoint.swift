@@ -121,7 +121,7 @@ public struct DaemonCapabilities: Sendable {
     /// stream whenever a PTY resize happens mid-sequence (a relaunch resizes
     /// every restored terminal), and the view freezes.
     public let terminalPendingSequence = "terminal-pending-sequence-v1"
-    public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, frontendBrowserHistory, tabDrag,
+    public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
@@ -148,7 +148,7 @@ public struct DaemonCapabilities: Sendable {
     public let tabSplitRespawn = "tab-split-respawn-v1"
     public var awaitingPin: [String] {
         [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns,
-         endTerminalsKeepLayout, stateResources, localConversations, sidebarLayout, tabSplitRespawn]
+         endTerminalsKeepLayout, stateResources, localConversations, sidebarLayout, tabSplitRespawn, frontendBrowserHistory]
     }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
