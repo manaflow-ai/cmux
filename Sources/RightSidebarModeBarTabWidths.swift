@@ -15,14 +15,15 @@ struct RightSidebarModeBarTabWidths {
     init(natural: [CGFloat], floors: [CGFloat], selected: Int?, available: CGFloat) {
         precondition(natural.count == floors.count)
         var result = floors
-        var remaining = max(0, available - floors.reduce(0, +))
         var open = Array(natural.indices)
         if let selected, natural.indices.contains(selected) {
-            let extra = min(max(0, natural[selected] - floors[selected]), remaining)
-            result[selected] += extra
-            remaining -= extra
+            result[selected] = max(floors[selected], natural[selected])
             open.removeAll { $0 == selected }
         }
+        // The selected tab stays readable even when the bar cannot fit every
+        // tab's floor. Unselected tabs then share only the space left after
+        // their floors have been reserved.
+        var remaining = max(0, available - result.reduce(0, +))
         while !open.isEmpty, remaining > 0 {
             let share = remaining / CGFloat(open.count)
             let satisfied = open.filter { natural[$0] - result[$0] <= share }
