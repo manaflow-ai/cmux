@@ -90,7 +90,7 @@ export class TeamDO extends OwnerDO<TeamState> {
         // An admin released the SSO/MDM lock (audited in team.integration.release_lock). ConnectionDO's
         // lock notice then comes back through integrationLockChanged and TeamDO pushes its policy.
         const request = state.integration_release_requested ?? 0
-        const r = (await stub.releaseManagedLock(team, `team_policy:release:${request}`, `release-lock:${team}:${request}`)) as { ok: boolean; message?: string }
+        const r = (await stub.releaseManagedLock(team, state.integration_release_by ?? `team_policy:release:${request}`, `release-lock:${team}:${request}`)) as { ok: boolean; message?: string }
         if (!r.ok) throw new Error(`release refused: ${r.message}`)
         this.requireCommitted(this.submitSystem("team.integration.release_done", { request }, `release-done:${request}`))
         state = this.boundEngine!.currentState
@@ -111,7 +111,7 @@ export class TeamDO extends OwnerDO<TeamState> {
       const r = (await stub.applyTeamPolicy(team, { policy: slice, applied_by: `team_policy:v${policy.version}` }, `team-policy:v3:${team}:v${policy.version}:l${lockVersion}`)) as { ok: boolean; message?: string; managed_by: "sso" | "mdm" | null }
       if (!r.ok) throw new Error(r.message ?? "refused")
       // Under an SSO or MDM lock nothing changed in ConnectionDO; the version is still settled (no retry loop) and reported.
-      this.requireCommitted(this.submitSystem("team.policy.integration_synced", { version: policy.version, slice_hash: sliceHash(slice), managed_by: r.managed_by }, `integration-synced:v4:${policy.version}:l${lockVersion}`))
+      this.requireCommitted(this.submitSystem("team.policy.integration_synced", { version: policy.version, slice_hash: sliceHash(slice), managed_by: r.managed_by, lock_version: lockVersion }, `integration-synced:v4:${policy.version}:l${lockVersion}`))
       this.resetSyncBackoff()
     } catch (e) {
       this.syncAttempts += 1

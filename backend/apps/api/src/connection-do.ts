@@ -113,13 +113,14 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     return new Set(this.ctx.storage.sql.exec<{ key: string }>(`SELECT key FROM refused_system_ops`).toArray().map((r) => r.key))
   }
 
-  private runSystem(op: string, params: unknown, key: string) {
+  private runSystem(op: string, params: unknown, key: string): RejectFrame | undefined {
     const res = this.submitSystem(op, params, key)
     const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
     if (rej) {
       this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO refused_system_ops (key, code, at) VALUES (?, ?, ?)`, key, rej.code, Date.now())
       console.error(JSON.stringify({ msg: "connection system op refused", key, code: rej.code }))
     }
+    return rej
   }
 
   /** Backoff for lock notices to TeamDO (in memory: a restart retries at once). */
@@ -135,11 +136,16 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (!state || !lockNoticePending(state)) return
     if (this.noticeRetryAt !== null && now < this.noticeRetryAt) return
     const version = state.lock_version ?? 0
+    // A refused ack is never retried (refused_system_ops), so it cannot spin the alarm.
+    if (this.skipped().has(`lock-acked:${version}`)) return
     try {
       const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team))
       const r = (await stub.integrationLockChanged(team, lockOf(policyOf(state)), version)) as { ok: boolean; message?: string }
-      if (!r.ok) throw new Error(r.message ?? "refused")
-      this.runSystem("integration.policy.lock_acked", { version }, `lock-acked:${version}`)
+      // A recreated ConnectionDO restarts its lock count; TeamDO's key for that version then conflicts.
+      // Log and acknowledge rather than retry forever (TeamDO learns the lock at its next push).
+      if (!r.ok && !(r.message ?? "").includes("idempotency key reused")) throw new Error(r.message ?? "refused")
+      if (!r.ok) console.error(JSON.stringify({ msg: "lock notice conflicts with an earlier notice; acknowledged", team, version }))
+      if (this.runSystem("integration.policy.lock_acked", { version }, `lock-acked:${version}`)) throw new Error("lock_acked refused")
       this.noticeAttempts = 0
       this.noticeRetryAt = null
     } catch (e) {

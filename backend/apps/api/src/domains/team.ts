@@ -101,7 +101,7 @@ export const teamDomain: Domain<TeamState> = {
         if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot release integration locks")
         const role = p.user ? state.members[p.user]?.role : undefined
         if (role !== "owner" && role !== "admin") return reject("auth.forbidden", "only team owners and admins may release an integration lock")
-        return withAudit(reduceReleaseLock(state), state.team.id, ctx, op)
+        return withAudit(reduceReleaseLock(state, params, ctx), state.team.id, ctx, op)
       }
       case "team.policy.integration_synced": {
         if (p.kind !== "system") return reject("auth.forbidden", "internal op")

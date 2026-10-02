@@ -113,7 +113,8 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
               : Schema.Struct({
                   version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
                   slice_hash: Schema.String,
-                  managed_by: Schema.optionalKey(Schema.NullOr(Schema.Literals(["sso", "mdm"])))
+                  managed_by: Schema.optionalKey(Schema.NullOr(Schema.Literals(["sso", "mdm"]))),
+                  lock_version: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)))
                 }),
           result: Schema.Unknown,
           errors: [],

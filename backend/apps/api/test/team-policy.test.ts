@@ -247,12 +247,16 @@ describe("SSO/MDM lock notices and release (TeamDO)", () => {
     expect(s.integration_managed_by).toBe("mdm")
     // A late, older notice changes nothing.
     expect(teamDomain.reduce(s, "team.policy.integration_lock", { managed_by: null, version: 1 }, sys())).toMatchObject({ ok: true, changed: false })
+    // A push result from before this notice (older lock version) does not overwrite it.
+    const stale = teamDomain.reduce(s, "team.policy.integration_synced", { version: 1, slice_hash: "h", managed_by: null, lock_version: 1 }, sys())
+    expect(stale).toMatchObject({ ok: true, changed: false })
     expect(run(s, "team.integration.release_lock", {}, ctx(MEMBER))).toMatchObject({ ok: false, code: "auth.forbidden" })
     expect(run(s, "team.integration.release_lock", {}, ctx(OWNER, { kind: "agent", agent: "agent_x" }))).toMatchObject({ ok: false, code: "auth.forbidden" })
     const released = run(s, "team.integration.release_lock", { reason: "moved IdP" }, ctx())
     if (!released.ok) throw new Error(released.message)
     expect(released.value).toEqual({ released: "mdm" })
     expect(released.outbox?.map((o) => o.kind)).toEqual(["audit.append"])
+    expect((released.outbox?.[0]?.payload as { detail: { reason: string } }).detail.reason).toBe("moved IdP")
     expect((released.state as TeamState).integration_release_requested).toBe(1)
     // Without a lock there is nothing to release.
     expect(run(baseState(), "team.integration.release_lock", {}, ctx())).toMatchObject({ ok: false, code: "selector.not_found" })

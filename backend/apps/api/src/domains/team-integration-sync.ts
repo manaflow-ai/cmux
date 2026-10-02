@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { canonicalJson, type Reject, type ReduceContext } from "@cmux/ownership"
-import { policyValueSchema, type PolicyKey } from "@cmux/protocol"
+import { policyValueSchema, TeamIntegrationReleaseLock, type PolicyKey } from "@cmux/protocol"
+import { decodeParams } from "./common.ts"
 import { Exit, Schema } from "effect"
 import { currentPolicy, integrationSlice, MAX_POLICY_BYTES, POLICY_HISTORY_LIMIT, policyBytes, type PolicyState, type PolicyValues, type PolicyVersion } from "./team-policy.ts"
 
@@ -27,6 +28,8 @@ export interface IntegrationSyncState extends PolicyState {
   /** Admin release requests (team.integration.release_lock) and the last one ConnectionDO carried out. */
   readonly integration_release_requested?: number
   readonly integration_release_done?: number
+  /** The admin who asked for the latest release (ConnectionDO records it as updated_by). */
+  readonly integration_release_by?: string
 }
 
 export type IntegrationFields = ReturnType<typeof integrationSlice>
@@ -96,7 +99,11 @@ export const reduceIntegrationSeed = <S extends IntegrationSyncState>(state: S, 
 
 /** System op `team.policy.integration_synced {version, slice_hash}`. */
 export const reduceIntegrationSynced = <S extends IntegrationSyncState>(state: S, params: unknown): Result<S> => {
-  const p = params as { version?: unknown; slice_hash?: unknown; managed_by?: unknown }
+  const p = params as { version?: unknown; slice_hash?: unknown; managed_by?: unknown; lock_version?: unknown }
+  // A push result older than the latest lock notice must not overwrite it (it still settles the version).
+  if (typeof p?.lock_version === "number" && p.lock_version < (state.integration_lock_version ?? 0)) {
+    return { ok: true, state, value: { version: p.version, stale: true }, changed: false }
+  }
   const managedBy = p?.managed_by === "sso" || p?.managed_by === "mdm" ? p.managed_by : null
   if (typeof p?.version !== "number" || !Number.isInteger(p.version) || typeof p.slice_hash !== "string") {
     return { ok: false, code: "validation.invalid", message: "version and slice_hash required" }
@@ -120,15 +127,18 @@ export const reduceIntegrationLock = <S extends IntegrationSyncState>(state: S, 
 }
 
 /** Admin op `team.integration.release_lock`: records the request (audited by the caller). */
-export const reduceReleaseLock = <S extends IntegrationSyncState>(state: S): Result<S> => {
+export const reduceReleaseLock = <S extends IntegrationSyncState>(state: S, params: unknown, ctx: ReduceContext): Result<S> => {
+  const d = decodeParams<typeof TeamIntegrationReleaseLock.params.Type>(TeamIntegrationReleaseLock, params)
+  if (!d.ok) return d
   const held = state.integration_managed_by
   if (held !== "sso" && held !== "mdm") return { ok: false, code: "selector.not_found", message: "the integration policy has no SSO or MDM lock" }
   const request = (state.integration_release_requested ?? 0) + 1
+  const by = ctx.principal.user ?? ctx.principal.identity
   return {
     ok: true,
-    state: { ...state, integration_release_requested: request },
+    state: { ...state, integration_release_requested: request, integration_release_by: by },
     value: { released: held },
-    audit: { summary: `released the ${held} lock on the integration policy`, detail: { released: held, request } }
+    audit: { summary: `released the ${held} lock on the integration policy`, detail: { released: held, request, reason: d.value.reason ?? null } }
   }
 }
 
