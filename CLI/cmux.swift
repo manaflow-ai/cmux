@@ -31792,7 +31792,7 @@ struct CMUXCLI {
     }
 
     static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
-        CodexForkMonitorArguments.make(environment: environment)
+        CodexForkMonitorArguments().make(environment: environment)
     }
 
     /// Watches the Codex rollout until the turn settles.
