@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextApps
 import CmuxNextBridge
 import CmuxNextDesign
 import CmuxNextSidebar
@@ -37,11 +38,15 @@ extension SidebarBridge {
         let registry = services.registry
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout
+        let apps = services.apps.registry
         sectionsObservation = Task { [weak self] in
-            for await layout in Observations({ service.document }) {
+            // The app registry is observed too: hiding or installing an app
+            // changes its item at once.
+            for await layout in Observations({ _ = apps.apps; return service.document }) {
                 guard self != nil else { return }
                 if model.layout != layout { model.layout = layout }
-                let infos = Self.itemInfo(for: layout) { registry.action(for: $0) != nil }
+                let infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
+                                          app: { Self.appInfo($0, registry: apps) })
                 if model.itemInfo != infos { model.itemInfo = infos }
             }
         }
@@ -49,10 +54,15 @@ extension SidebarBridge {
 
     /// Presentation of every built-in item in `layout`; `registered` says
     /// whether an action exists.
-    static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool) -> [LayoutItemID: SidebarItemInfo] {
+    static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
+                         app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) }) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
             for item in section.items {
+                if item.ref.kind == LayoutItemRef.appKind {
+                    infos[item.id] = app(item.ref.value)
+                    continue
+                }
                 guard let builtIn = item.ref.builtIn else { continue }
                 var info = builtIn.defaultInfo
                 info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
@@ -60,6 +70,15 @@ extension SidebarBridge {
             }
         }
         return infos
+    }
+
+    /// How an app item draws: its name and symbol; hidden while the app is
+    /// hidden or not active (D55); dimmed when the app is not installed.
+    static func appInfo(_ id: String, registry: AppRegistry) -> SidebarItemInfo {
+        guard let app = registry.app(id) else { return SidebarItemInfo.fallback(for: .app(id)) }
+        let symbol = if case .symbol(let name)? = app.manifest.icon { name } else { "app" }
+        return SidebarItemInfo(title: app.manifest.name.resolved(), symbol: symbol, isMissing: !app.isInstalled,
+                               isHidden: app.isInstalled && !app.isVisible)
     }
 
     /// A layout change from this sidebar (a drag, an inline edit): sent to

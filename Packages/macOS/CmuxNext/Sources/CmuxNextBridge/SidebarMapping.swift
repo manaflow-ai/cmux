@@ -43,7 +43,7 @@ public struct SidebarMapping {
             title: workspace.displayName,
             subtitle: subtitle(tabs),
             status: status.flatMap { $0.isEmpty ? nil : $0 },
-            icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? workspace.icon.map { WorkspaceIcon.symbol($0) },
+            icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? workspace.icon.map(WorkspaceIcon.parse),
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style

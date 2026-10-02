@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextSidebar
 
 /// Workspace verbs that change what a workspace holds: duplicate (layout and
 /// directories, new terminals), merge into another workspace, move a pane
@@ -155,9 +156,7 @@ enum WorkspaceStructureHandlers {
 enum WorkspaceIconValue {
     static func isValid(_ value: String) -> Bool {
         guard !value.isEmpty else { return false }
-        if value.count == 1, let scalar = value.unicodeScalars.first, scalar.properties.isEmojiPresentation || value.unicodeScalars.count > 1 {
-            return true
-        }
+        if WorkspaceIcon.isEmoji(value) { return true }
         return NSImage(systemSymbolName: value, accessibilityDescription: nil) != nil
     }
 }
