@@ -7832,8 +7832,9 @@ struct CMUXCLI {
             let clearing = hasFlag(commandArgs, name: "--clear")
             var notifyEffectParams: [String: Any] = [:]
             // `--desktop` has no effect with `--clear`, so its value is not validated there.
-            if !clearing, let desktopRaw = optionValue(commandArgs, name: "--desktop") {
-                guard let desktop = parseBoolString(desktopRaw) else {
+            let desktopRaw = optionValue(commandArgs, name: "--desktop")
+            if !clearing, hasFlag(commandArgs, name: "--desktop") || desktopRaw != nil {
+                guard let desktopRaw, let desktop = parseBoolString(desktopRaw) else {
                     throw CLIError(message: String(
                         localized: "cli.error.notifyDesktopValue",
                         defaultValue: "--desktop must be true|false"
