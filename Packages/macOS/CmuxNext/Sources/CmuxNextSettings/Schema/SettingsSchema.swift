@@ -269,6 +269,44 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.text("settings.focusRing.showWhenSinglePane", "Show With One Pane"),
                 kind: .toggle, default: .bool(FocusRingSettings().showsForSinglePane)
             ),
+        ] + statusIndicator
+    }
+
+    /// `appearance.statusIndicator.*` (plans/cmux-next/status-indicators.md).
+    static var statusIndicator: [SettingDescriptor] {
+        let group = SettingsText.text("settings.group.statusIndicator", "Loading Indicator")
+        let defaults = StatusIndicatorSettings()
+        let path = StatusIndicatorConfigParser.path
+        return [
+            SettingDescriptor(
+                path + ["style"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.style", "Style"),
+                help: SettingsText.text("settings.statusIndicator.style.help", "How sidebar rows, tabs and panes show work in progress."),
+                kind: .choice([
+                    SettingChoice(StatusIndicatorStyle.arc.rawValue, SettingsText.text("settings.choice.thinArc", "Thin Arc")),
+                    SettingChoice(StatusIndicatorStyle.native.rawValue, SettingsText.text("settings.choice.macSpinner", "macOS Spinner")),
+                    SettingChoice(StatusIndicatorStyle.dot.rawValue, SettingsText.text("settings.choice.pulsingDot", "Pulsing Dot")),
+                    SettingChoice(StatusIndicatorStyle.none.rawValue, SettingsText.text("settings.choice.none", "None")),
+                ]),
+                default: .string(defaults.style.rawValue), keywords: ["spinner", "progress", "loading", "busy"]
+            ),
+            SettingDescriptor(
+                path + ["size"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.size", "Size"),
+                kind: .number(SettingNumber(Double(StatusIndicatorSettings.scaleRange.lowerBound)...Double(StatusIndicatorSettings.scaleRange.upperBound),
+                                            step: 0.05, unit: .fraction)),
+                default: .number(Double(defaults.scale))
+            ),
+            SettingDescriptor(
+                path + ["thickness"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.thickness", "Line Width"),
+                kind: .number(points(StatusIndicatorSettings.thicknessRange, step: 0.25)), default: .number(Double(defaults.thickness))
+            ),
+            SettingDescriptor(
+                path + ["color"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.color", "Color"),
+                kind: .color, default: nil, defaultLabel: SettingsText.text("settings.default.theme", "Theme")
+            ),
         ]
     }
 

@@ -324,11 +324,11 @@ impl Mux {
                     tab_drag::retarget_terminal_workspace(&mut projection.patch, terminal, key);
                 }
                 output = Some(result);
-                let mut plan = ResourceMutationPlan::new(
+                let mut plan = ResourceMutationPlan::replacing(
                     projection.patch,
                     projection.result,
                     projection.changes,
-                    move |state| *state = projected,
+                    projected,
                 )
                 .with_screen_state(screens);
                 if let Some(ledger) = ledger {

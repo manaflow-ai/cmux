@@ -87,6 +87,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var focusRing = FocusRingSettings()
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()
+    /// `appearance.statusIndicator.*`.
+    public var statusIndicator = StatusIndicatorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
     /// `appearance.focusIndicator`; "both" when unset or invalid.
@@ -161,6 +163,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         ColumnLayoutSettings.parse(root, into: &snapshot)
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
+        snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
         snapshot.borders = borders
         if let bordersDiagnostic { snapshot.diagnostics.append(bordersDiagnostic) }

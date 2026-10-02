@@ -187,6 +187,20 @@ extension Motion {
         return spin
     }
 
+    /// A rotation in `steps` discrete jumps per turn (the native spinner's
+    /// spoke-to-spoke motion), one turn per `spinner` period, or nil when
+    /// loops are off. Runs in the render server like `spinAnimation`.
+    public static func stepAnimation(steps: Int) -> CAAnimation? {
+        guard let period = period(.spinner), steps >= 2 else { return nil }
+        let step = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        step.values = (0..<steps).map { -2 * CGFloat.pi * CGFloat($0) / CGFloat(steps) }
+        step.calculationMode = .discrete
+        step.duration = period
+        step.repeatCount = .infinity
+        step.isRemovedOnCompletion = false
+        return step
+    }
+
     /// An opacity pulse (1 -> `low` -> 1), or nil when loops are off.
     public static func pulseAnimation(low: Float) -> CAAnimation? {
         guard let period = period(.pulse) else { return nil }
