@@ -240,6 +240,15 @@ final class CloudTreeCellView: NSTableCellView {
     }
 
     private func configureDisplayHost(node: CloudTreeNode, style: CloudTreeStyle) {
+        // Reused cells can have been hidden from VoiceOver for a spacer row.
+        // Restore AppKit's original setting before any early-return content
+        // branch, including create-action rows.
+        if baseIsAccessibilityElement == nil { baseIsAccessibilityElement = isAccessibilityElement() }
+        if case .machineEndSpacer = node.kind {
+            setAccessibilityElement(false)
+        } else if let baseIsAccessibilityElement {
+            setAccessibilityElement(baseIsAccessibilityElement)
+        }
         if case .createAction(let action) = node.kind, let nodeActions = configuredNodeActions {
             displayHost.passesThrough = false
             displayHost.rootView = AnyView(
@@ -255,13 +264,6 @@ final class CloudTreeCellView: NSTableCellView {
             toolTip = action.title
             setAccessibilityLabel(action.title)
             return
-        }
-        // The gap after a machine is layout, not a row VoiceOver should stop on.
-        if baseIsAccessibilityElement == nil { baseIsAccessibilityElement = isAccessibilityElement() }
-        if case .machineEndSpacer = node.kind {
-            setAccessibilityElement(false)
-        } else if let baseIsAccessibilityElement {
-            setAccessibilityElement(baseIsAccessibilityElement)
         }
         if case .machineDetailTabs(let tabs) = node.kind, let nodeActions = configuredNodeActions {
             displayHost.passesThrough = false

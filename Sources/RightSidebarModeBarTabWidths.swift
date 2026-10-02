@@ -13,32 +13,29 @@ struct RightSidebarModeBarTabWidths {
     ///   - selected: The selected tab's index, if any.
     ///   - available: The width for all tabs, with the gaps between them removed.
     init(natural: [CGFloat], floors: [CGFloat], selected: Int?, available: CGFloat) {
+        precondition(natural.count == floors.count)
         var result = floors
-        var remaining = available
+        var remaining = max(0, available - floors.reduce(0, +))
         var open = Array(natural.indices)
         if let selected, natural.indices.contains(selected) {
-            result[selected] = natural[selected]
-            remaining -= natural[selected]
+            let extra = min(max(0, natural[selected] - floors[selected]), remaining)
+            result[selected] += extra
+            remaining -= extra
             open.removeAll { $0 == selected }
         }
-        // Give every open tab an equal share. A tab whose full label is
-        // narrower than the share takes only that; a tab whose floor is wider
-        // takes its floor. Either way the rest is shared again among the tabs
-        // still open, so a wide floor narrows the others instead of pushing
-        // the bar past `available`.
-        while !open.isEmpty {
-            let share = max(0, remaining) / CGFloat(open.count)
-            var settled = open.filter { natural[$0] <= share }
-            if settled.isEmpty { settled = open.filter { floors[$0] > share } }
-            if settled.isEmpty {
-                for index in open { result[index] = share }
+        while !open.isEmpty, remaining > 0 {
+            let share = remaining / CGFloat(open.count)
+            let satisfied = open.filter { natural[$0] - result[$0] <= share }
+            if satisfied.isEmpty {
+                for index in open { result[index] += share }
                 break
             }
-            for index in settled {
-                result[index] = natural[index] <= share ? natural[index] : floors[index]
-                remaining -= result[index]
+            for index in satisfied {
+                let extra = max(0, natural[index] - result[index])
+                result[index] += extra
+                remaining -= extra
             }
-            open.removeAll { settled.contains($0) }
+            open.removeAll { satisfied.contains($0) }
         }
         widths = result
     }
