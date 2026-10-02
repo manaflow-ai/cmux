@@ -32,13 +32,26 @@ enum TabMoves {
     }
 
     /// New pane on `edge` of `pane` holding the tab.
+    /// The new tab a split of `tab`'s own pane spawns there when `tab` is
+    /// its only tab: the same kind, fresh. Nil when the kind cannot respawn
+    /// (remote-terminal references, app-local tabs).
+    static func respawn(for tab: TabModel) -> SplitRespawn? {
+        switch tab.kind {
+        case .pty: .terminal(cwd: tab.cwd)
+        case .browser: .browser
+        default: nil
+        }
+    }
+
     static func toNewSplit(_ tab: TabModel, pane: PaneModel, edge: PaneEdge, services: AppServices,
+                           respawn: SplitRespawn? = nil,
                            transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
         guard services.daemon(for: pane) === daemon else { return completion(false) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
-        switch services.splitRoom(for: pane, edge: edge, movingFrom: services.locateTab(tab.id)?.1) {
+        // With a respawn the source pane stays (it gets the new tab).
+        switch services.splitRoom(for: pane, edge: edge, movingFrom: respawn == nil ? services.locateTab(tab.id)?.1 : nil) {
         case .split:
             break
         case .newColumn(let afterColumn, _):
@@ -52,8 +65,13 @@ enum TabMoves {
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-split") { connection -> Void in
                 do {
-                    _ = try await connection.moveTabToSplit(surface, pane: paneHandle, edge: edge, transaction: echoes ? transaction : nil)
-                } catch DaemonError.missingCapabilities {
+                    if let respawn {
+                        _ = try await connection.moveTabToSplit(surface, pane: paneHandle, edge: edge, respawn: respawn,
+                                                                transaction: echoes ? transaction : nil)
+                    } else {
+                        _ = try await connection.moveTabToSplit(surface, pane: paneHandle, edge: edge, transaction: echoes ? transaction : nil)
+                    }
+                } catch DaemonError.missingCapabilities where respawn == nil {
                     try await fallbackSplit(surface, target: paneHandle, edge: edge, connection: connection)
                 }
             } != nil

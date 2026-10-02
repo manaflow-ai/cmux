@@ -131,10 +131,16 @@ final class TabDragSession: NSObject {
         }
         let index = first.flatMap { id in ordered.firstIndex { $0.id.rawValue == id } }
         let group: String? = if case .tab = item, let index { ordered[index].groupID?.rawValue } else { nil }
-        return TabDragContext(sourcePaneID: pane.layoutPaneID.rawValue, sourcePaneTabCount: pane.pane.tabs.count,
-                              sourceWorkspaceID: pane.workspace?.workspace.id ?? "", sourceWorkspaceTabCount: workspaceTabs,
-                              draggedTabCount: draggedCount, sourceStripID: pane.stripModel.stripID, sourceIndex: index,
-                              sourceGroupID: group)
+        var context = TabDragContext(sourcePaneID: pane.layoutPaneID.rawValue, sourcePaneTabCount: pane.pane.tabs.count,
+                                     sourceWorkspaceID: pane.workspace?.workspace.id ?? "", sourceWorkspaceTabCount: workspaceTabs,
+                                     draggedTabCount: draggedCount, sourceStripID: pane.stripModel.stripID, sourceIndex: index,
+                                     sourceGroupID: group)
+        // A single daemon tab of a kind that can respawn, on a daemon that
+        // splits a pane with its only tab by spawning a fresh one there.
+        if case .tab(let id) = item, let tab = pane.pane.tabs.first(where: { $0.id == id }), TabMoves.respawn(for: tab) != nil {
+            context.respawnsOnSplit = pane.services.machines.daemon(forPane: pane.pane).supports(DaemonCapabilities.shared.tabSplitRespawn)
+        }
+        return context
     }
 
     /// The resolver's view of `drag` now: the source pane's tabs can change

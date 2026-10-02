@@ -62,7 +62,11 @@ extension TabDragSession {
             }
         case .newSplit(let paneID, let edge):
             guard let pane = paneModel(id: paneID) else { return settle(false) }
-            TabMoves.toNewSplit(tab, pane: pane, edge: edge.paneEdge, services: services, transaction: transaction, completion: settle)
+            // The tab's own pane with its only tab: the owner spawns a fresh
+            // tab of the same kind there in the same op.
+            let respawn = liveContext(drag).splitRespawns(pane: paneID) ? TabMoves.respawn(for: tab) : nil
+            TabMoves.toNewSplit(tab, pane: pane, edge: edge.paneEdge, services: services, respawn: respawn, transaction: transaction,
+                                completion: settle)
         case .newColumn(let screenID, let after):
             guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return settle(false) }
             TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: column, services: services, transaction: transaction, completion: settle)

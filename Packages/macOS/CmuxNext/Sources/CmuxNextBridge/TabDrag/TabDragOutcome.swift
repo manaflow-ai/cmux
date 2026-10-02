@@ -84,6 +84,12 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
         return final == sourceIndex && groupID == sourceGroupID
     }
 
+    /// A split onto `pane` that needs the owner to respawn a tab in the
+    /// source pane (it is the source pane, and the drag holds all its tabs).
+    public func splitRespawns(pane: String) -> Bool {
+        respawnsOnSplit && pane == sourcePaneID && emptiesSourcePane
+    }
+
     /// The drag carries every tab of its pane: the pane closes when they leave.
     var emptiesSourcePane: Bool { draggedTabCount >= sourcePaneTabCount }
     /// The drag carries every tab of its workspace (the last tab of the last
@@ -97,16 +103,19 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
 /// proposal `accepts` allows; the others get `dropExited`.
 public nonisolated enum TabDragResolver {
     /// False for proposals that would be a no-op or break the layout:
-    /// - splitting the source pane with every tab it holds (the pane would
-    ///   close, leaving nothing to split; daemons reject the swap too),
+    /// - the tabs' own place (no drop target: no highlight, no slot; a
+    ///   release there springs back),
+    /// - splitting the source pane with every tab it holds, unless the
+    ///   owner respawns a tab of the same kind there (`respawnsOnSplit`;
+    ///   otherwise the pane would close, leaving nothing to split),
     /// - moving into the workspace the tabs already live in,
     /// - a column before the first one (no daemon command expresses it).
     public static func accepts(_ kind: TabDropKind, context: TabDragContext) -> Bool {
         switch kind {
-        case .strip:
-            return true
+        case .strip(let strip, let index, let group):
+            return !context.isOwnPlace(strip: strip, index: index, groupID: group)
         case .newSplit(let pane, _):
-            return !(pane == context.sourcePaneID && context.emptiesSourcePane)
+            return !(pane == context.sourcePaneID && context.emptiesSourcePane && !context.respawnsOnSplit)
         case .newColumn(_, let after):
             return after != nil
         case .newWorkspace:
