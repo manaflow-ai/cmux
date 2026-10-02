@@ -30,7 +30,6 @@ let package = Package(
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/CustomSidebars"),
-                .copy("Resources/CustomSidebarTemplatePreviews"),
             ]
         ),
         .testTarget(
