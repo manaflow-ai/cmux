@@ -34,6 +34,8 @@ public nonisolated struct ActionContext: OptionSet, Sendable, Hashable {
     public static let cloudWorkspace = ActionContext(rawValue: 1 << 13)
     /// An agent chat (the acpmux web pane) has the keyboard.
     public static let agentPaneFocused = ActionContext(rawValue: 1 << 14)
+    /// The focused agent page can capture through its session-host Git connection.
+    public static let checkpointCaptureAvailable = ActionContext(rawValue: 1 << 15)
 }
 
 extension ActionContext {
