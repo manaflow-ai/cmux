@@ -7,7 +7,7 @@ import { complianceFor, devicePolicyFor, publicToken } from "./domains/team-enro
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
 import { domainExternal, RESOLVERS, txtAnswers, type DomainReply, type Http } from "./team-domain-external.ts"
-import { nextRecheckAt, txtContains } from "./domains/team-domains.ts"
+import { nextRecheckAt, RECHECK_MS, txtContains } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 
@@ -146,12 +146,26 @@ export class TeamDO extends OwnerDO<TeamState> {
     const state = this.boundEngine?.currentState
     if (!state?.team) return
     const team = state.team.id
-    const due = Object.values(state.domains ?? {}).filter((d) => d.state === "verified" && (d.last_checked_at ?? d.verified_at ?? d.requested_at) + 7 * 86_400_000 <= now)
+    const due = Object.values(state.domains ?? {}).filter((d) => d.state === "verified" && (d.last_checked_at ?? d.verified_at ?? d.requested_at) + RECHECK_MS <= now)
     for (const d of due.slice(0, 5)) {
-      const results = await Promise.all(RESOLVERS.map((r) => txtAnswers(this.http, r(d.record_name))))
-      const ok = results.every((answers) => txtContains(answers, d.record_value))
-      if (!ok && (d.check_failures ?? 0) + 1 >= 3) await this.env.DOMAIN_DO.get(this.env.DOMAIN_DO.idFromName(d.domain)).release(team)
-      this.submitSystem("domain.rechecked", { domain: d.domain, record_value: d.record_value, ok, at: now }, `domain-recheck:${d.domain}:${now}`)
+      try {
+        const domainDO = this.env.DOMAIN_DO.get(this.env.DOMAIN_DO.idFromName(d.domain))
+        const results = await Promise.all(RESOLVERS.map((r) => txtAnswers(this.http, r(d.record_name))))
+        // A resolver failure is "unknown": record the attempt time without counting a failure.
+        const unknown = results.some((answers) => answers === null)
+        const ok = unknown || results.every((answers) => answers !== null && txtContains(answers, d.record_value))
+        this.requireCommitted(this.submitSystem("domain.rechecked", { domain: d.domain, record_value: d.record_value, ok, at: now }, `domain-recheck:${d.domain}:${now}`))
+        const after = this.boundEngine!.currentState.domains?.[d.domain]
+        // Commit first, then free: a lost release is retried by the next verify or re-check (release is idempotent);
+        // a passing re-check re-asserts ownership, so TeamDO and DomainDO cannot drift apart for long.
+        if (after?.state === "lapsed") await domainDO.release(team)
+        else if (ok && !unknown) {
+          const held = await domainDO.claim(d.domain, team, now)
+          if (!held.ok) this.requireCommitted(this.submitSystem("domain.mark_lost", { domain: d.domain }, `domain-lost:${d.domain}:${d.record_value}:${now}`))
+        }
+      } catch (e) {
+        console.error(JSON.stringify({ msg: "domain re-check failed", domain: d.domain, error: String(e) }))
+      }
     }
   }
 

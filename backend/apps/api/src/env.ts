@@ -30,6 +30,8 @@ export interface Env {
   readonly ACCOUNT_INDEX_DO: DurableObjectNamespace<AccountIndexDO>
   /** One DomainDO per lowercased email domain: which team verified it (enterprise SSO). */
   readonly DOMAIN_DO: DurableObjectNamespace<DomainDO>
+  /** Workers rate limit for unauthenticated sign-in discovery (30 per minute per client IP). */
+  readonly SSO_DISCOVER_LIMIT?: RateLimit
   /** Where provider redirects land (the dashboard's /integrations/callback). */
   readonly DASHBOARD_ORIGIN?: string
   /** Secret: 32-byte base64 key that wraps credential data keys. Integrations refuse to connect without it. */

@@ -25,13 +25,15 @@ export const RESOLVERS = [
   (name: string) => new Request(`https://dns.google/resolve?name=${encodeURIComponent(name)}&type=TXT`, { headers: { accept: "application/dns-json" } })
 ]
 
-/** TXT strings for `name` from one DNS-over-HTTPS resolver (empty on any failure). */
-export const txtAnswers = async (http: Http, request: Request): Promise<Array<string>> => {
+/** TXT strings for `name` from one DNS-over-HTTPS resolver; null when the resolver failed (unknown, not "missing"). */
+export const txtAnswers = async (http: Http, request: Request): Promise<Array<string> | null> => {
   try {
     const res = await http(request)
-    if (!res.ok) return []
+    if (!res.ok) return null
     const body = (await res.json()) as { Status?: number; Answer?: Array<{ name?: string; type?: number; data?: string }> }
-    if (body.Status !== 0) return []
+    // NXDOMAIN (3) is a real "no record"; other statuses are resolver trouble.
+    if (body.Status === 3) return []
+    if (body.Status !== 0) return null
     // Only TXT records of the exact name: an answer reached through a CNAME (for example a wildcard
     // or dangling record pointing elsewhere) would let whoever controls the target verify.
     const want = new URL(request.url).searchParams.get("name")!.toLowerCase().replace(/\.$/, "")
@@ -39,7 +41,7 @@ export const txtAnswers = async (http: Http, request: Request): Promise<Array<st
       .filter((a) => a.type === 16 && typeof a.data === "string" && (a.name ?? "").toLowerCase().replace(/\.$/, "") === want)
       .map((a) => a.data!)
   } catch {
-    return []
+    return null
   }
 }
 
@@ -98,7 +100,7 @@ export const domainExternal = async (
   }
   if (claim.expires_at <= deps.now && claim.state === "pending") return fail("domain.not_verified", "the claim expired; claim the domain again for a new record")
   const results = await Promise.all(RESOLVERS.map((r) => txtAnswers(deps.http, r(claim.record_name))))
-  if (!results.every((answers) => txtContains(answers, claim.record_value))) {
+  if (!results.every((answers) => answers !== null && txtContains(answers, claim.record_value))) {
     return fail("domain.not_verified", `both resolvers must see TXT ${claim.record_name} = ${claim.record_value}; DNS can take minutes to propagate`, true)
   }
   const owned = await deps.domainStub(domain).claim(domain, deps.team, deps.now)

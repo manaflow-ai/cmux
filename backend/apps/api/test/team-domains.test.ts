@@ -163,7 +163,7 @@ describe("Public Suffix List and public mail (review P2)", () => {
     const { unclaimableReason } = await import("../src/domains/team-domains.ts")
     const { registrableDomain } = await import("../src/domains/public-suffix.ts")
     for (const d of ["co.uk", "github.io", "com", "pages.dev", "yahoo.co.uk", "outlook.de", "gmx.at", "gmail.com"]) expect(unclaimableReason(d), d).toBeDefined()
-    for (const d of ["acme.co.uk", "acme.com", "eng.acme.com", "alice.github.io", "mail.acme.dev"]) expect(unclaimableReason(d), d).toBeUndefined()
+    for (const d of ["acme.co.uk", "acme.com", "eng.acme.com", "alice.github.io", "mail.acme.dev", "live.io", "proton.ai", "aol.example"]) expect(unclaimableReason(d), d).toBeUndefined()
     expect(registrableDomain("eng.acme.co.uk")).toBe("acme.co.uk")
     expect(registrableDomain("co.uk")).toBeUndefined()
   })

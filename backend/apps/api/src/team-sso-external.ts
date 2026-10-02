@@ -125,5 +125,9 @@ export const ssoExternal = async (deps: SsoExternalDeps, principal: Principal, f
   } catch (e) {
     return fail("sso.discovery_failed", String(e instanceof Error ? e.message : e), true)
   }
-  return commit("sso.connection.activated", { connection: c.id, ...endpoints, by, expected_updated_at: c.updated_at }, `sso-activated:${c.id}:${frame.idempotency_key}`)
+  // The key also digests the inputs of the preconditions, so a commit-time refusal (state changed during
+  // discovery) is not replayed after that state changes back.
+  const digest = JSON.stringify([c.updated_at, c.domains.map((x) => deps.state.domains?.[x]?.state ?? "none"), Object.values(deps.state.sso_connections ?? {}).filter((o) => o.state === "active").map((o) => o.id)])
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(digest))).slice(0, 8), (b) => b.toString(16).padStart(2, "0")).join("")
+  return commit("sso.connection.activated", { connection: c.id, ...endpoints, by, expected_updated_at: c.updated_at }, `sso-activated:${c.id}:${frame.idempotency_key}:${hash}`)
 }

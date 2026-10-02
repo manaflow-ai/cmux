@@ -161,3 +161,17 @@ describe("SSO connections over the API (workerd)", () => {
     expect(list.value.connections.map((c: any) => c.state)).toEqual(["disabled", "disabled"])
   })
 })
+
+describe("sign-in discovery rate limit", () => {
+  it("answers 429 with one body shape after 30 requests a minute from one IP", async () => {
+    const statuses: Array<number> = []
+    let limited: unknown
+    for (let i = 0; i < 35; i++) {
+      const res = await worker.fetch(`https://api.test/v1/sso/discover?email=u${i}@limit-test-${i}.dev`, { headers: { "cf-connecting-ip": "203.0.113.9" } })
+      statuses.push(res.status)
+      if (res.status === 429) limited = await res.json()
+    }
+    expect(statuses.filter((s) => s === 429).length).toBeGreaterThan(0)
+    expect(limited).toEqual({ error: "rate limited" })
+  })
+})

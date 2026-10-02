@@ -12,6 +12,11 @@ const DOMAIN = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}
 export const handleSsoDiscover = async (request: Request, env: Env): Promise<Response> => {
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } })
   if (request.method !== "GET") return json({ error: "method not allowed" }, 405)
+  // Per client IP, before any DomainDO wakes (spec 3.3 step 1); the same body whatever the domain.
+  if (env.SSO_DISCOVER_LIMIT) {
+    const { success } = await env.SSO_DISCOVER_LIMIT.limit({ key: request.headers.get("cf-connecting-ip") ?? "unknown" })
+    if (!success) return json({ error: "rate limited" }, 429)
+  }
   const email = new URL(request.url).searchParams.get("email") ?? ""
   const at = email.lastIndexOf("@")
   let domain = at > 0 ? email.slice(at + 1).trim().toLowerCase() : ""

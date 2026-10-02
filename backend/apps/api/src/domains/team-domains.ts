@@ -41,12 +41,20 @@ export const PUBLIC_MAIL_BRANDS: ReadonlySet<string> = new Set([
   "gmail", "googlemail", "yahoo", "ymail", "outlook", "hotmail", "live", "msn", "icloud", "aol", "gmx", "yandex", "protonmail", "proton", "zoho", "naver"
 ])
 
+const GENERIC_CCTLDS: ReadonlySet<string> = new Set(["io", "ai", "co", "me", "tv", "cc", "gg", "sh", "so", "to", "fm", "ly", "ws", "la", "vc", "xyz"])
+
 /** Why `domain` may not be claimed, or undefined. */
 export const unclaimableReason = (domain: string): string | undefined => {
   if (PUBLIC_MAIL_DOMAINS.has(domain)) return `${domain} is a public mail domain and cannot be claimed`
   if (isPublicSuffix(domain)) return `${domain} is a public suffix (Public Suffix List) and cannot be claimed`
   const registrable = registrableDomain(domain)
-  if (registrable === domain && PUBLIC_MAIL_BRANDS.has(domain.split(".")[0]!)) return `${domain} is a public mail domain and cannot be claimed`
+  // Regional variants only: brand + a country-code suffix (yahoo.co.uk, outlook.de, gmx.at). Not every
+  // TLD, which would block unrelated companies (live.io, proton.ai).
+  const [brand, ...suffix] = domain.split(".")
+  const cc = suffix[suffix.length - 1] ?? ""
+  // Country codes used as generic TLDs by companies (live.io, proton.ai) are not regional mail.
+  const regional = /^[a-z]{2}$/.test(cc) && !GENERIC_CCTLDS.has(cc) && (suffix.length === 1 || (suffix.length === 2 && ["co", "com", "net", "org"].includes(suffix[0]!)))
+  if (registrable === domain && PUBLIC_MAIL_BRANDS.has(brand!) && regional) return `${domain} is a public mail domain and cannot be claimed`
   return undefined
 }
 
