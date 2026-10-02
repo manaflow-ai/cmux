@@ -108,7 +108,8 @@ if (!Number.isFinite(maxP95Ms) && maxP95Ms !== Number.POSITIVE_INFINITY) {
 if (p95Ms > maxP95Ms) {
   throw new Error(`diff stream p95 was ${p95Ms.toFixed(2)} ms, budget is ${maxP95Ms.toFixed(2)} ms`);
 }
-process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+// Let the write drain before exiting; a piped stdout can otherwise be cut short.
+await new Promise<void>((resolve) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`, () => resolve()));
 process.exit(0);
 
 function percentile(values: number[], target: number): number {
