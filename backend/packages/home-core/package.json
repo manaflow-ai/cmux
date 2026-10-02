@@ -5,6 +5,10 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./conversation": "./src/conversation/index.ts",
+    "./inbox": "./src/inbox/index.ts",
+    "./mux": "./src/mux/index.ts",
+    "./contact": "./src/contact/index.ts",
     "./invites": "./src/invites/index.ts"
   },
   "scripts": {

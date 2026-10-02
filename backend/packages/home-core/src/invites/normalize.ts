@@ -28,7 +28,7 @@ export const normalizeEmail = (input: string): Address | NormalizeError => {
 }
 
 /**
- * Countries that SMS and iMessage invites may reach, by calling code.
+ * Countries that text-message invites may reach, by calling code.
  * Launch: North America only (D-H5). `+1` is the North American Numbering
  * Plan; other calling codes are refused until a country is added here.
  */

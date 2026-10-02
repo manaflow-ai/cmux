@@ -2,7 +2,7 @@ import type { RenderedSms } from "../copy.ts"
 import type { ProviderRequest } from "./resend.ts"
 
 /**
- * SendBlue SMS and iMessage API (https://docs.sendblue.com). Auth headers
+ * SendBlue text messaging API (https://docs.sendblue.com). Auth headers
  * `sb-api-key-id` and `sb-api-secret-key`. SendBlue documents no
  * idempotency key, so a send whose outcome is unknown (network error, 5xx)
  * is never retried automatically: it is reported `indeterminate` and checked
