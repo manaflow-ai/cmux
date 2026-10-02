@@ -27,13 +27,16 @@ public struct ControlSurfaceRespawnInputs: Sendable, Equatable {
     /// The parsed `focus` value (used only when `hasFocusParam`); the app applies
     /// the socket focus-allowance gate.
     public let requestedFocus: Bool
-    /// Additional environment variables to inject into the respawned surface,
-    /// merged on top of the surface's existing environment. Used by callers such
-    /// as the `__tmux-compat respawn-pane` shim to propagate agent-specific
-    /// variables (e.g. `OPENCODE_PORT`) that are not managed cmux context vars.
+    /// Explicit environment values merged over inherited values for local respawns.
+    /// Remote providers retain their remote session environment. Managed cmux
+    /// identity variables stay protected; provider values include `PATH` and
+    /// `OPENCODE_PORT` supplied by either respawn CLI entrypoint.
     public let startupEnvironment: [String: String]
 
     /// Creates respawn inputs.
+    ///
+    /// - Parameter startupEnvironment: Explicit local replacement environment,
+    ///   defaulting to no caller overrides.
     public init(
         command: String,
         tmuxStartCommand: String,
