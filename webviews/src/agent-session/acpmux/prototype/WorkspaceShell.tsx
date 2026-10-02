@@ -7,7 +7,28 @@ import { mockSessions, sessionSummary } from "../mockFixture";
 import { SessionSidebar } from "../SessionSidebar";
 import { sessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { DisconnectedIcon, NeedsInputIcon, WorkingIcon } from "../sidebarIcons";
-import { AgentIcon, BrowserIcon, CloseIcon, HistoryIcon, PlusIcon, StackIcon, TerminalIcon } from "./icons";
+import {
+  AgentIcon,
+  BrowserIcon,
+  CloseIcon,
+  HistoryIcon,
+  PlusIcon,
+  SlidersIcon,
+  StackIcon,
+  TerminalIcon,
+} from "./icons";
+import { RowAge, RowAgents, RowBranch, RowPreview, RowPullRequest, StatusHeader } from "./RowParts";
+import {
+  groupByStatus,
+  ROW_DETAIL_ITEMS,
+  rowDetailItems,
+  rowDetailLevel,
+  workspaceDetail,
+  type RowDetailItem,
+  type RowDetailItems,
+  type RowDetailLevel,
+  type WorkspaceDetail,
+} from "./rowDetail";
 import {
   newWorkspace,
   openFromHistory,
@@ -42,6 +63,24 @@ const selectInPane = (sessionId: string) => void window.cmuxAcpmuxActions?.["cha
  * terminal; agents and browsers stay available but nothing pushes them. Translucency is untouched. */
 const terminalStyle = new URLSearchParams(location.search).get("style") === "terminal";
 
+/** `sidebar.rowDetail` and `sidebar.rowDetailItems`, seeded from `?rowDetail=everything&rowDetailItems=agents,-branch`. */
+const params = new URLSearchParams(location.search);
+const seedLevel = rowDetailLevel(params.get("rowDetail"));
+const seedOverrides: Partial<RowDetailItems> = Object.fromEntries(
+  (params.get("rowDetailItems") ?? "")
+    .split(",")
+    .filter(Boolean)
+    .map((token) => [token.replace(/^-/, ""), !token.startsWith("-")])
+    .filter(([item]) => ROW_DETAIL_ITEMS.includes(item as RowDetailItem)),
+);
+const ROW_DETAIL_LABELS: Record<RowDetailItem, string> = {
+  preview: "Last message and age",
+  pullRequest: "Pull request and checks",
+  branch: "Branch",
+  agents: "Agents and their status",
+  groupByStatus: "Group by status",
+};
+
 export function WorkspaceShell() {
   const [stack, setStack] = useState<Stack>(() => (terminalStyle ? terminalFirst(seedStack) : seedStack));
   const [historyOpen, setHistoryOpen] = useState(() => new URLSearchParams(location.search).has("history"));
@@ -49,6 +88,17 @@ export function WorkspaceShell() {
   const active = stack.workspaces.find((workspace) => workspace.id === stack.activeId)!;
   const activeTab = active.tabs.find((tab) => tab.id === active.activeTabId)!;
   const openIds = useMemo(() => openSessionIds(stack), [stack]);
+  const [level, setLevel] = useState<RowDetailLevel>(seedLevel);
+  const [overrides, setOverrides] = useState(seedOverrides);
+  const [settingsOpen, setSettingsOpen] = useState(() => params.has("rowDetailSettings"));
+  const items = rowDetailItems(level, overrides, terminalStyle ? "terminal" : undefined);
+  const details = useMemo(() => {
+    const now = Date.now();
+    return new Map(stack.workspaces.map((workspace) => [workspace.id, workspaceDetail(workspace, historyById, now)]));
+  }, [stack]);
+  const groups = items.groupByStatus
+    ? groupByStatus(stack.workspaces, (workspace) => details.get(workspace.id)!.status)
+    : [{ status: "idle" as const, label: "", items: stack.workspaces }];
 
   const show = useCallback((next: Stack) => {
     setStack(next);
@@ -75,11 +125,15 @@ export function WorkspaceShell() {
   }, [flash]);
 
   useEffect(() => {
-    if (!historyOpen) return;
-    const onKey = (event: KeyboardEvent) => event.key === "Escape" && setHistoryOpen(false);
+    if (!historyOpen && !settingsOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setHistoryOpen(false);
+      setSettingsOpen(false);
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [historyOpen]);
+  }, [historyOpen, settingsOpen]);
 
   return (
     <div
@@ -115,22 +169,53 @@ export function WorkspaceShell() {
         >
           <PlusIcon />
         </button>
+        <button
+          type="button"
+          className={`proto-rail-button proto-rail-settings${settingsOpen ? " is-active" : ""}`}
+          aria-label="Row detail"
+          aria-expanded={settingsOpen}
+          aria-controls="proto-row-detail"
+          title="Row detail"
+          onClick={() => setSettingsOpen((open) => !open)}
+        >
+          <SlidersIcon />
+        </button>
       </nav>
 
       <nav className="proto-stack" aria-label="Workspaces">
         <div className="proto-stack-label">Workspaces</div>
-        <ul>
-          {stack.workspaces.map((workspace) => (
-            <WorkspaceRow
-              key={workspace.id}
-              workspace={workspace}
-              active={workspace.id === stack.activeId}
-              flash={workspace.id === flash}
-              onSelect={(tabId) => show(selectTab(stack, workspace.id, tabId))}
-            />
-          ))}
-        </ul>
+        {groups.map((group) => (
+          <section key={group.status} className="proto-stack-group">
+            {items.groupByStatus && <StatusHeader group={group} />}
+            <ul>
+              {group.items.map((workspace) => (
+                <WorkspaceRow
+                  key={workspace.id}
+                  workspace={workspace}
+                  active={workspace.id === stack.activeId}
+                  flash={workspace.id === flash}
+                  detail={details.get(workspace.id)!}
+                  items={items}
+                  onSelect={(tabId) => show(selectTab(stack, workspace.id, tabId))}
+                />
+              ))}
+            </ul>
+          </section>
+        ))}
       </nav>
+
+      {settingsOpen && (
+        <RowDetailSettings
+          level={level}
+          items={items}
+          locked={terminalStyle}
+          onLevel={(next) => {
+            setLevel(next);
+            setOverrides({});
+          }}
+          onItem={(item, on) => setOverrides((current) => ({ ...current, [item]: on }))}
+        />
+      )}
 
       {historyOpen && (
         <>
@@ -191,37 +276,120 @@ export function WorkspaceShell() {
   );
 }
 
+/** The row-detail setting as the Settings window would show it: a level, then each item. */
+function RowDetailSettings({
+  level,
+  items,
+  locked,
+  onLevel,
+  onItem,
+}: {
+  level: RowDetailLevel;
+  items: RowDetailItems;
+  locked: boolean;
+  onLevel: (level: RowDetailLevel) => void;
+  onItem: (item: RowDetailItem, on: boolean) => void;
+}) {
+  return (
+    <section id="proto-row-detail" className="proto-row-settings" aria-labelledby="proto-row-detail-title">
+      <h2 id="proto-row-detail-title">Row detail</h2>
+      <fieldset disabled={locked}>
+        <legend className="acpmux-hidden-label">Level</legend>
+        <div className="proto-row-levels">
+          {(["minimal", "standard", "everything"] as const).map((option) => (
+            <label key={option} htmlFor={`row-detail-${option}`} className={option === level ? "is-on" : undefined}>
+              <input
+                id={`row-detail-${option}`}
+                aria-label={option}
+                type="radio"
+                name="row-detail-level"
+                checked={!locked && option === level}
+                onChange={() => onLevel(option)}
+              />
+              {option[0]!.toUpperCase() + option.slice(1)}
+            </label>
+          ))}
+        </div>
+        {ROW_DETAIL_ITEMS.map((item) => (
+          <label key={item} htmlFor={`row-detail-${item}`} className="proto-row-toggle">
+            <input
+              id={`row-detail-${item}`}
+              aria-label={ROW_DETAIL_LABELS[item]}
+              type="checkbox"
+              checked={items[item]}
+              onChange={(event) => onItem(item, event.target.checked)}
+            />
+            {ROW_DETAIL_LABELS[item]}
+          </label>
+        ))}
+      </fieldset>
+      {locked && <p>Classic cmux keeps rows minimal.</p>}
+    </section>
+  );
+}
+
 function WorkspaceRow({
   workspace,
   active,
   flash,
+  detail,
+  items,
   onSelect,
 }: {
   workspace: Workspace;
   active: boolean;
   flash: boolean;
+  detail: WorkspaceDetail;
+  items: RowDetailItems;
   onSelect: (tabId: string) => void;
 }) {
   const lead = workspaceLead(workspace);
   const Icon = KIND_ICONS[lead.kind];
   const session = lead.sessionId ? historyById.get(lead.sessionId) : undefined;
   const mark = session && sessionMark(session, active);
+  const preview = items.preview ? detail.preview : undefined;
+  const branch = items.branch ? detail.branch : undefined;
+  const pullRequest = items.pullRequest ? detail.pullRequest : undefined;
+  const agents = items.agents && detail.agents.length > 0 ? detail.agents : undefined;
+  const meta = branch || pullRequest || agents;
+  const trailing =
+    mark && mark !== "unread" ? (
+      <span className={`acpmux-session-mark acpmux-session-mark-${mark}`} aria-label={mark}>
+        {MARKS[mark]}
+      </span>
+    ) : (
+      !active && workspace.tabs.length > 1 && <span className="proto-workspace-count">{workspace.tabs.length}</span>
+    );
   return (
     <li>
       <button
         type="button"
-        className={`proto-workspace${active && workspace.activeTabId === lead.id ? " is-active" : active ? " is-current" : ""}${flash ? " is-flash" : ""}${lead.kind === "agent" ? " is-agent" : ""}`}
+        className={`proto-workspace${active && workspace.activeTabId === lead.id ? " is-active" : active ? " is-current" : ""}${flash ? " is-flash" : ""}${lead.kind === "agent" ? " is-agent" : ""}${preview || meta ? " is-detailed" : ""}`}
         aria-current={active ? "true" : undefined}
         onClick={() => onSelect(lead.id)}
       >
         <Icon />
-        <span className="proto-workspace-title">{lead.title}</span>
-        {mark && mark !== "unread" ? (
-          <span className={`acpmux-session-mark acpmux-session-mark-${mark}`} aria-label={mark}>
-            {MARKS[mark]}
+        {preview || meta ? (
+          <span className="proto-workspace-body">
+            <span className="proto-workspace-line">
+              <span className="proto-workspace-title">{lead.title}</span>
+              {preview && <RowAge age={preview.age} />}
+              {trailing}
+            </span>
+            {preview && <RowPreview text={preview.text} />}
+            {meta && (
+              <span className="proto-row-meta">
+                {branch && <RowBranch branch={branch} />}
+                {pullRequest && <RowPullRequest pullRequest={pullRequest} />}
+                {agents && <RowAgents agents={agents} />}
+              </span>
+            )}
           </span>
         ) : (
-          !active && workspace.tabs.length > 1 && <span className="proto-workspace-count">{workspace.tabs.length}</span>
+          <>
+            <span className="proto-workspace-title">{lead.title}</span>
+            {trailing}
+          </>
         )}
       </button>
       {active && workspace.tabs.length > 1 && (

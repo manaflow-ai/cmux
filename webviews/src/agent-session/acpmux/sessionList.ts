@@ -33,8 +33,11 @@ export type SessionPullRequest = {
   title: string;
   state: "open" | "draft" | "merged" | "closed";
   reviewReady?: boolean;
+  /** The head commit's CI rollup, when the daemon reports one. */
+  checks?: "passing" | "failing" | "pending";
 };
 const PR_STATES = new Set(["open", "draft", "merged", "closed"]);
+const CHECK_STATES = new Set(["passing", "failing", "pending"]);
 
 /** A non-empty string, else undefined. */
 export const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
@@ -86,6 +89,7 @@ function pullRequest(value: any): SessionPullRequest | undefined {
     title: value.title,
     state: value.state,
     reviewReady: value.reviewReady === true || undefined,
+    checks: CHECK_STATES.has(value.checks) ? value.checks : undefined,
   };
 }
 
