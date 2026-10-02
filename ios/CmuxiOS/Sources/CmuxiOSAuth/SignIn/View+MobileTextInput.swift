@@ -41,29 +41,4 @@ extension View {
         #endif
     }
 
-    /// Applies the keyboard/content-type behavior for an add-device field kind.
-    @ViewBuilder
-    func addDeviceInputBehavior(_ kind: AddDeviceInputKind) -> some View {
-        #if os(iOS)
-        switch kind {
-        case .text:
-            self
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled()
-        case .url:
-            self
-                .keyboardType(.URL)
-                .textContentType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-        case .number:
-            self
-                .keyboardType(.numberPad)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-        }
-        #else
-        self
-        #endif
-    }
 }
