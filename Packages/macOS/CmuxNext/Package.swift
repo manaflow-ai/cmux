@@ -562,6 +562,18 @@ let package = Package(
             dependencies: ["CmuxNextTerminalGeometry"],
             swiftSettings: uiSwiftSettings
         ),
+        // The terminal find bar's state and search flow (count, next/previous,
+        // reveal, close). No GhosttyKit, so it has tests; CmuxNextTerminal
+        // wires it to Ghostty's search bindings and draws the bar.
+        .target(
+            name: "CmuxNextTerminalFind",
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextTerminalFindTests",
+            dependencies: ["CmuxNextTerminalFind"],
+            swiftSettings: uiSwiftSettings
+        ),
         // Copy mode's vim key table and cursor-box geometry. No GhosttyKit, so
         // it has tests; CmuxNextTerminal drives Ghostty's keyboard-copy API.
         .target(
