@@ -17,24 +17,28 @@ and alignment do not move (lines keep their space and draw clear; the
 | A separator or border color | `Palette.separator`, `Palette.paneBorder` (clear under `none`), or `Borders.color(color)` for any other color |
 | Whether to draw a line at all | `Borders.drawsLines` |
 | A SwiftUI separator | `HairlineDivider(color:)` instead of `Divider()` |
+| An AppKit separator | `HairlineView` instead of a separator `NSBox` |
 | Pane chrome | `LayoutStyle.drawsLines` (from `applyingDesignMetrics`) |
 
 `Borders` (CmuxNextDesign) reads the Debug Settings override, else
 `DesignSettings.shared.borders`; reading it in an observed scope tracks
-the setting, so a change applies live. The pure rule is `BorderPolicy`.
+the setting. `AppServices.observeBorders()` calls `ThemeStore.shared.repaintAll()`
+on a change, so open windows repaint live. The pure rule is `BorderPolicy`.
 
 ## What `none` removes, and the replacements
 
 | Source | Under `none` |
 | --- | --- |
 | Pane content border (`layout.paneBorder`) | `Metrics.paneBorder` is `.none` |
-| Focus ring and glow | off; the focus cue is the unfocused panes' dim (`inactivePaneDimming`, 0.14) |
+| Focus ring and glow | off; the focus cue is the unfocused panes' dim (`inactivePaneDimming`, 0.14), on even when `dimsInactive` is off |
 | Pane unread (attention) ring | width 0; the sidebar unread badge stays |
 | Split divider idle lines | hidden (`showsDividerLine`); the hover and drag line stays as resize feedback |
 | Tab separators, sidebar and titlebar lines, palette rules, browser toolbar separator, page info and popup separators, onboarding hairlines | `Palette.separator` clear |
 | Overlay panel edge (`OverlaySurface` fallback), drag lift, terminal status banner and copy-mode badge, tab profile and theme dots, omnibar and page-info focus rings, browser focus-mode outline | `Metrics.lineWidth` 0 |
 | Settings window, history and bookmark dividers | `SettingsStyle.separator` clear, `HairlineDivider` |
 | CEF DevTools divider | `Borders.color` |
+| Agent pane CSS `--border`, `--border-strong` | `transparent` |
+| Colorless tab profile dot | a faint fill instead of the ring |
 | Pane flash (identify) | a soft fill instead of the 3 pt ring |
 
 Kept on purpose: color swatch selection rings (they mark the chosen color,

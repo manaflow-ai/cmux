@@ -171,7 +171,7 @@ public final class OverlaySurfaceView: NSView {
                 let base = Palette.windowBackground.usingColorSpace(.sRGB) ?? Palette.windowBackground
                 let fill = base.withAlphaComponent(1).blended(withFraction: ChromeTunables.opaqueOverlayLift.value, of: Palette.textPrimary.withAlphaComponent(1)) ?? base
                 materialView?.layer?.backgroundColor = fill.cgColor
-                materialView?.layer?.borderColor = Palette.separator.withAlphaComponent(1).cgColor
+                materialView?.layer?.borderColor = Borders.color(Palette.separator.withAlphaComponent(1)).cgColor
             }
         }
         applyShape()
