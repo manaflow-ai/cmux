@@ -16,6 +16,9 @@ import Observation
 /// terminal read as one sheet with no panel edges or seams.
 final class WindowRootView: NSView {
     let titlebar = TitlebarView()
+    /// The window's one material and tint (`WindowBackdrop`).
+    let backdropView = WindowMaterialView(frame: .zero)
+    private let reduceTransparency: @MainActor () -> Bool
     private let contentHost = NSView()
     private let sidebar: SidebarContainerView
     private var titleHeight: NSLayoutConstraint?
@@ -25,10 +28,15 @@ final class WindowRootView: NSView {
     /// `TitlebarDragPolicy` (`ShellWindow.sendEvent`).
     let titlebarBandBlocker = TitlebarDragBlocker(frame: .zero)
 
-    init(sidebar: SidebarContainerView) {
+    init(sidebar: SidebarContainerView,
+         reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }) {
         self.sidebar = sidebar
+        self.reduceTransparency = reduceTransparency
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
         wantsLayer = true
+        backdropView.frame = bounds
+        backdropView.autoresizingMask = [.width, .height]
+        addSubview(backdropView)
         for view in [contentHost, titlebar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
@@ -165,6 +173,10 @@ final class WindowRootView: NSView {
         if let window { applyBackdrop(to: window) }
     }
 
+    var backdrop: WindowBackdrop {
+        WindowBackdrop(themeTokens, reduceTransparency: reduceTransparency())
+    }
+
     private func paintBackground() {
         layer?.backgroundColor = performWithTheme { Palette.windowBackground }.cgColor
     }
@@ -181,6 +193,6 @@ final class WindowRootView: NSView {
             : NSColor.white.withAlphaComponent(backdrop.windowBackgroundAlpha)
         if window.isOpaque != backdrop.isOpaque { window.isOpaque = backdrop.isOpaque }
         if window.backgroundColor != color { window.backgroundColor = color }
-        if backdrop.appliesBlur { GhosttyRuntime.shared.applyBackgroundBlur(to: window) }
+        if !backdrop.isOpaque && tokens.backgroundBlur >= 0 { GhosttyRuntime.shared.applyBackgroundBlur(to: window) }
     }
 }
