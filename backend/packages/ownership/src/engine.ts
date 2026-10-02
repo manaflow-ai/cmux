@@ -48,6 +48,17 @@ export interface EngineOptions {
   readonly mutants?: EngineMutants
   /** Test hook: called inside the commit transaction; a throw models a crash before commit. */
   readonly beforeCommit?: () => void
+  /**
+   * Row mode only: what subscribers may see of an op's params, the head state and rows, for
+   * fields that must stay with the owner (for example an invite's token hash). Applied to
+   * events, effects and snapshots; the owner keeps the full values. Not allowed without
+   * rowMode, because a JSON domain's mirror replays params and state.
+   */
+  readonly redact?: {
+    readonly params?: (op: string, params: unknown) => unknown
+    readonly state?: (state: unknown) => unknown
+    readonly row?: (table: string, row: unknown) => unknown
+  }
   /** What subscribers see of the actor in events. Default: the full principal. */
   readonly eventActor?: (p: Principal) => Principal
 }
@@ -117,6 +128,7 @@ export class OwnerEngine<S, P = unknown> {
   ) {
     this.stream = options.stream
     this.now = options.now ?? Date.now
+    if (options.redact && !options.rowMode) throw new Error(`redact needs rowMode (stream ${options.stream})`)
     this.t = tablesFor(options.prefix)
     const t = this.t
     sql.transaction(() => {
@@ -200,7 +212,7 @@ export class OwnerEngine<S, P = unknown> {
       // Only row-mode owners have rows: a JSON domain's mirror replays the reducer, so it must
       // never read or write rows the mirror cannot see.
       const rows = this.options.rowMode ? readOnly(this.rows) : EMPTY_ROWS
-      const r = this.domain.reduce(this.state, frame.op, frame.params as P, { principal, origin, now: at, tx, newId: idFactory(tx), rows })
+      const r = this.domain.reduce(this.state, frame.op, frame.params as P, { principal, origin, now: at, tx, newId: idFactory(tx), rows, idempotencyKey: key })
       if (r.ok && (r.writes?.length ?? 0) > 0) {
         if (!this.options.rowMode) throw new Error(`${frame.op}: row writes need rowMode on stream ${this.stream}`)
         checkWrites(r.writes!)
@@ -213,7 +225,7 @@ export class OwnerEngine<S, P = unknown> {
     // 4. Commit (state, rows, ledger, events, outbox) in one transaction, then publish.
     const changed = decision.ok && decision.changed
     const nextSeq = changed ? this.seq + 1 : this.seq
-    const effects = changed && decision.ok && this.options.rowMode ? { state: decision.state as unknown, writes: decision.writes } : undefined
+    const effects = changed && decision.ok && this.options.rowMode ? { state: this.redactState(decision.state), writes: decision.writes.map((w) => this.redactWrite(w)) } : undefined
     const event: EventFrame | undefined = changed
       ? {
           t: "event",
@@ -221,7 +233,7 @@ export class OwnerEngine<S, P = unknown> {
           seq: nextSeq,
           tx,
           op: frame.op,
-          params: frame.params,
+          params: this.options.redact?.params ? this.options.redact.params(frame.op, frame.params) : frame.params,
           actor: this.options.eventActor?.(principal) ?? principal,
           origin,
           at,
@@ -246,7 +258,7 @@ export class OwnerEngine<S, P = unknown> {
           nextSeq,
           tx,
           frame.op,
-          JSON.stringify(frame.params ?? null),
+          JSON.stringify(event!.params ?? null),
           JSON.stringify(event!.actor),
           origin,
           at,
@@ -309,8 +321,24 @@ export class OwnerEngine<S, P = unknown> {
       : this.sql.exec<{ idempotency_key: string; ok: number; sequence: number }>(`SELECT idempotency_key, ok, sequence FROM ${this.t.ledger} WHERE identity = ? ORDER BY created_at`, identity)
     const decided: Array<DecidedKey> = rows.map((r) => ({ idempotency_key: r.idempotency_key, ok: Number(r.ok) === 1, sequence: Number(r.sequence) }))
     const mode = this.options.rowMode
-    const tail = mode ? { table: mode.snapshotTable, rows: this.rows.range(mode.snapshotTable, { limit: mode.snapshotTail, desc: true }).reverse() } : undefined
-    return { t: "snapshot", stream: this.stream, seq: this.seq, state: this.state, decided, ...(tail ? { rows: tail } : {}) }
+    const tail = mode
+      ? {
+          table: mode.snapshotTable,
+          rows: this.rows
+            .range(mode.snapshotTable, { limit: mode.snapshotTail, desc: true })
+            .reverse()
+            .map((r) => (this.options.redact?.row ? { ...r, row: this.options.redact.row(mode.snapshotTable, r.row) } : r))
+        }
+      : undefined
+    return { t: "snapshot", stream: this.stream, seq: this.seq, state: this.redactState(this.state) as S, decided, ...(tail ? { rows: tail } : {}) }
+  }
+
+  private redactState(state: S): unknown {
+    return this.options.redact?.state ? this.options.redact.state(state) : state
+  }
+
+  private redactWrite(w: RowWrite): RowWrite {
+    return w.op === "upsert" && this.options.redact?.row ? { ...w, row: this.options.redact.row(w.table, w.row) } : w
   }
 
   /** Committed events after `seq`, for resume. Check `canReplayFrom` first. */

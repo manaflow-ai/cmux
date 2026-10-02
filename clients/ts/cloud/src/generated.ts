@@ -573,6 +573,7 @@ export type UserProfile = {
   readonly id: UserId
   readonly stack_user_id: string
   readonly email: string | null
+  readonly email_verified?: boolean
   readonly display_name: string
   readonly personal_team: TeamId
 }

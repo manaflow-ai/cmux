@@ -42,6 +42,7 @@ const toPrincipal = (p: CurrentPrincipalShape): Principal => ({
   ...(p.grant ? { grant: p.grant } : {}),
   stack_user_id: p.stack_user_id,
   ...(p.email !== undefined ? { email: p.email } : {}),
+  ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
   ...(p.display_name ? { display_name: p.display_name } : {})
 })
 
@@ -277,6 +278,7 @@ const AuthorizationLive = Layer.succeed(Authorization)(
           ...(p.grant ? { grant: p.grant } : {}),
           stack_user_id: p.stack_user_id ?? "",
           ...(p.email !== undefined ? { email: p.email } : {}),
+          ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
           ...(p.display_name ? { display_name: p.display_name } : {})
         }
         return yield* Effect.provideService(httpEffect, CurrentPrincipal, shape)
