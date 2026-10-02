@@ -56,10 +56,11 @@ fn session(memory_limit: usize) -> (VmSession, Arc<FakeHost>) {
         Arc::new(FakeHost { calls: Mutex::new(Vec::new()), natives: Mutex::new(Vec::new()) });
     let config = VmConfig {
         session_id: "t".into(),
-        cwd: "/tmp".into(),
+        cwd: std::env::temp_dir().join(format!("vm-test-{}", std::process::id())).display().to_string(),
         memory_limit,
         capabilities: vec!["cdp".into()],
         scripts: vec![("mini.js".into(), MINI_RUNTIME.into())],
+        resources: vec![("guide.md".into(), "# guide".into())],
     };
     (VmSession::spawn(config, host.clone()).unwrap(), host)
 }
@@ -146,4 +147,43 @@ fn events_reach_the_runtime() {
     vm.event("tab.closed", json!({"targetId": "T"}));
     let out = vm.eval("return events;", Duration::from_secs(5));
     assert_eq!(lines(&out), vec![r#"[["tab.closed",{"targetId":"T"}]]"#]);
+}
+
+#[test]
+fn natives_cover_resources_home_and_policy_reports() {
+    let (vm, _) = session(0);
+    let out = vm.eval(
+        "const n = __cmuxNative; return [n.readResource('guide.md'), n.readResource('../etc/passwd'), typeof n.homedir, JSON.parse(n.policyLog()), n.policyCheck('T')];",
+        Duration::from_secs(5),
+    );
+    assert_eq!(out.error, None, "{out:?}");
+    assert_eq!(lines(&out), vec![r##"["# guide",null,"string",[],null]"##]);
+}
+
+#[test]
+fn fs_is_sandboxed_to_the_session_root() {
+    let (vm, _) = session(0);
+    let out = vm.eval(
+        "const n = __cmuxNative; const fs = (op, a) => JSON.parse(n.fs(op, JSON.stringify(a)));\n\
+         fs('mkdir', {path: 'd', recursive: true});\n\
+         fs('writeFile', {path: 'd/a.txt', base64: 'aGk='});\n\
+         const read = fs('readFile', {path: 'd/a.txt'}).ok;\n\
+         const list = fs('readdir', {path: 'd'}).ok.map((e) => e.name + ':' + e.type);\n\
+         const outside = fs('readFile', {path: '/etc/hosts'}).error.code;\n\
+         const up = fs('writeFile', {path: '../escape.txt', base64: ''}).error.code;\n\
+         return [read, list, fs('exists', {path: 'd/a.txt'}).ok, outside, up];",
+        Duration::from_secs(5),
+    );
+    assert_eq!(out.error, None, "{out:?}");
+    assert_eq!(lines(&out), vec![r#"["aGk=",["a.txt:file"],true,"EACCES","EACCES"]"#]);
+}
+
+#[test]
+fn fetch_answers_through_the_result_callback() {
+    let (vm, _) = session(0);
+    let out = vm.eval(
+        "return await new Promise((resolve) => { const prev = globalThis.__cmuxHostOnResult; globalThis.__cmuxHostOnResult = (id, err, res) => { globalThis.__cmuxHostOnResult = prev; resolve(JSON.parse(err).code); }; __cmuxNative.fetch(99, JSON.stringify({url: 'https://a.test/'})); });",
+        Duration::from_secs(5),
+    );
+    assert_eq!(lines(&out), vec!["\"unsupported\""]);
 }
