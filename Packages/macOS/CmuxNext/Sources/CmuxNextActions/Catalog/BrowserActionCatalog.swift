@@ -182,6 +182,12 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 cliName: "browser import-data", mainMenu: .view
             ),
             ActionDescriptor(
+                id: "password.importCSV",
+                title: String(localized: "action.password.importCSV", defaultValue: "Import Passwords from CSV…", bundle: .module),
+                keywords: ["passwords", "import", "csv", "chrome", "edge", "safari", "firefox", "1password", "bitwarden"],
+                category: .browser, symbol: "key", surfaces: [.palette, .keyboard, .menu], mainMenu: .file
+            ),
+            ActionDescriptor(
                 id: "palette.enableBrowser",
                 title: String(localized: "action.palette.enableBrowser", defaultValue: "Enable cmux Browser", bundle: .module),
                 keywords: ["browser", "enable"], category: .browser, symbol: "globe", surfaces: [.palette],

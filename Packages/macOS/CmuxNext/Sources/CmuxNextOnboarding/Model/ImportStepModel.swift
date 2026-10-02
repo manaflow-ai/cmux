@@ -186,8 +186,13 @@ public final class ImportStepModel {
     public var isConfirmingPasswords: Bool { phase == .confirmingPasswords }
 
     public var canStart: Bool {
-        (canEditSelection && !plan.items.isEmpty) || isConfirmingPasswords
+        (canEditSelection && !plan.items.isEmpty) || (isConfirmingPasswords && !authorizing)
     }
+
+    /// Touch ID (or the Mac's password) is up, before any Keychain read.
+    public private(set) var authorizing = false
+    /// The last confirmation did not complete; nothing was read.
+    public private(set) var authorizationDenied = false
 
     public var isImporting: Bool {
         if case .importing = phase { return true }
@@ -196,15 +201,35 @@ public final class ImportStepModel {
 
     /// Starts the import of the checked profiles; does nothing when none is
     /// checked. With passwords to bring, the first call only shows the
-    /// consent screen (every profile agreed to); the next one, from there, imports.
+    /// consent screen (every profile agreed to). From there the next one is
+    /// the single confirmation: Touch ID or the Mac's password first, then
+    /// the import, whose Keychain reads macOS asks about once per browser.
     public func start() {
         guard canStart else { return }
         if canEditSelection, !passwordProfiles.isEmpty {
             passwordConsent = Set(passwordProfiles.map(\.id))
+            authorizationDenied = false
             phase = .confirmingPasswords
             startedAt = .now
             return
         }
+        if isConfirmingPasswords, !passwordConsent.isEmpty {
+            authorizing = true
+            authorizationDenied = false
+            task = Task { [weak self, services] in
+                let allowed = await services.authorizePasswordRead(reason: OnboardingStrings.passwordsAuthReason)
+                guard let self else { return }
+                self.authorizing = false
+                // Back or Import Without Passwords while the sheet was up: that choice stands.
+                guard self.isConfirmingPasswords else { return }
+                if allowed { self.beginImport() } else { self.authorizationDenied = true }
+            }
+            return
+        }
+        beginImport()
+    }
+
+    private func beginImport() {
         guard !plan.items.isEmpty else {
             phase = .ready
             return
@@ -233,7 +258,7 @@ public final class ImportStepModel {
 
     /// On the consent screen: agree or not for one profile.
     public func toggleConsent(_ profile: BrowserSourceProfile) {
-        guard isConfirmingPasswords, passwordProfiles.contains(profile) else { return }
+        guard isConfirmingPasswords, !authorizing, passwordProfiles.contains(profile) else { return }
         if passwordConsent.remove(profile.id) == nil { passwordConsent.insert(profile.id) }
     }
 
@@ -241,13 +266,15 @@ public final class ImportStepModel {
     public func skipPasswords() {
         guard isConfirmingPasswords else { return }
         passwordConsent = []
-        start()
+        authorizationDenied = false
+        beginImport()
     }
 
     /// Leaves the consent screen for the list, nothing read.
     public func backFromConsent() {
         guard isConfirmingPasswords else { return }
         passwordConsent = []
+        authorizationDenied = false
         phase = .ready
     }
 

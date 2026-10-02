@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextOnboarding
 import CmuxNextSettings
 import CmuxNextTerminal
+import LocalAuthentication
 import SwiftUI
 
 /// `OnboardingServices` over the app: cmux.json for the theme, the importer
@@ -77,6 +78,16 @@ final class AppOnboardingServices: OnboardingServices {
 
     func canImportPasswords() async -> Bool {
         await services.cache?.cef.canImportPasswords() ?? false
+    }
+
+    /// Touch ID, or the Mac's password where there is none. A Mac that can do
+    /// neither (no login password) goes on: the Keychain prompt that follows
+    /// still guards the key.
+    func authorizePasswordRead(reason: String) async -> Bool {
+        let context = LAContext()
+        var unavailable: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &unavailable) else { return true }
+        return (try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
     }
 
     var defaultApps: any DefaultAppRegistering { owner.defaultApps }

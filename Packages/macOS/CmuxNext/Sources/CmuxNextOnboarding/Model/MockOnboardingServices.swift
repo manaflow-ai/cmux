@@ -58,6 +58,13 @@ public final class MockOnboardingServices: OnboardingServices {
     }
 
     public func canImportPasswords() async -> Bool { passwordStore }
+    /// What the Touch ID sheet answers, and the reasons it was shown with.
+    public var passwordAuthorization = true
+    public private(set) var authorizationReasons: [String] = []
+    public func authorizePasswordRead(reason: String) async -> Bool {
+        authorizationReasons.append(reason)
+        return passwordAuthorization
+    }
 
     public func openExternal(_ url: URL) { opened.append(url) }
 
