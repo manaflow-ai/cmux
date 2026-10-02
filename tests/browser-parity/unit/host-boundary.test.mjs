@@ -143,3 +143,79 @@ test("a session with the raw CDP grant cannot type secrets", async () => {
     assert.equal(await hosted.pageValue("#apikey"), "");
   });
 });
+
+// Review findings (2026-10-02): agent code can run any source in the agent
+// world, so host-side page code must not run there or trust what it reports.
+const AGENT = 'globalThis[Symbol.for("cmux.browserRepl.agent")]';
+const agentEval = (source) => `await page._session.driver.call("frame.evaluate", { targetId: page._targetId, world: "agent", source: ${JSON.stringify(source)}, args: [], awaitPromise: true })`;
+
+test("a patched page agent cannot capture a user secret through capture masking or fill", async () => {
+  const KEY = "Zq7-patched-agent-VALUE-8";
+  await withHosted(async ({ run, hosted, origins }) => {
+    hosted.loadUserSecret("apikey", KEY, { domains: ["localhost"] });
+    const r = await run(`
+      await page.goto("${origins.primary}/agent-tools.html");
+      ${agentEval(`() => { const a = ${AGENT}; a.maskSecrets = (v) => { globalThis.__x1 = btoa(JSON.stringify(v)); return 0; }; a.fill = (h, v) => { globalThis.__x2 = btoa(String(v)); return "done"; }; return true; }`)};
+      await page.fill("#apikey", secret("apikey"));
+      await page.screenshot();
+      ${agentEval(`() => [globalThis.__x1 || "", globalThis.__x2 || ""]`)}
+    `);
+    assert.equal(r.error, null);
+    for (const b64 of r.output.match(/'([A-Za-z0-9+/=]*)'/g) || []) {
+      assert.ok(!Buffer.from(b64.slice(1, -1), "base64").toString("utf8").includes(KEY), "the patched agent got the value");
+    }
+    assert.equal(await hosted.pageValue("#apikey"), KEY);
+  });
+});
+
+test("a spoofed focus report cannot send a user secret to another origin", async () => {
+  const KEY = "Zq7-spoofed-focus-VALUE-4";
+  await withHosted(async ({ run, hosted, origins }) => {
+    hosted.loadUserSecret("apikey", KEY, { domains: ["localhost"] });
+    const r = await run(`
+      await page.goto("${origins.peer}/agent-tools.html");
+      ${agentEval(`() => { const a = ${AGENT}; a.focusInfo = () => ({ url: "http://localhost/", activeIsFrame: false, activeEditable: true, hasFocus: true }); return true; }`)};
+      await page.locator("#apikey").click();
+      await page._session.driver.call("input.insertText", { targetId: page._targetId, text: secret("apikey") })
+    `);
+    assert.match(r.error || "", /may not be typed into http:\/\/127\.0\.0\.1/);
+    assert.equal(await hosted.pageValue("#apikey"), "");
+  });
+});
+
+test("the agent's allow list narrows the user's subresource rules; it never replaces them", async () => {
+  await withHosted(async ({ run, hosted, origins }) => {
+    await hosted.setBasePolicy({ allowed: ["http://localhost"] });
+    const peerHost = new URL(origins.peer).host;
+    let r = await run(`session.allowedDomains(["http://${peerHost}", "http://localhost"]); session.allowedDomains()`);
+    assert.equal(r.error, null);
+    assert.doesNotMatch(r.output, /127\.0\.0\.1/);
+    r = await run(`
+      await page.goto("${origins.primary}/agent-tools.html");
+      await page.evaluate(async (peer) => {
+        const load = (src) => new Promise((ok) => { const s = document.createElement("script"); s.onload = () => ok("loaded"); s.onerror = () => ok("blocked"); s.src = src; document.head.append(s); });
+        return [await load("/log.js?own"), await load(peer + "/log.js?peer")];
+      }, "${origins.peer}")
+    `);
+    assert.equal(r.error, null);
+    assert.match(r.output, /'loaded', 'blocked'/);
+  });
+});
+
+test("the host's objects expose no raw driver or host, and the host world is the host's", async () => {
+  await withHosted(async ({ run, origins }) => {
+    let r = await run(`[Object.getPrototypeOf(page._session.driver), Object.getPrototypeOf(page._session.host)]`);
+    assert.equal(r.error, null);
+    assert.match(r.output, /\[ null, null \]/);
+    r = await run(`await page.goto("${origins.primary}/index.html"); await page._session.driver.call("frame.evaluate", { targetId: page._targetId, world: "host", source: "() => 1", args: [], awaitPromise: true })`);
+    assert.match(r.error || "", /host world/);
+  });
+});
+
+test("a proxy cannot be set while a domain policy is active", async () => {
+  await withHosted(async ({ run, hosted }) => {
+    await hosted.setBasePolicy({ allowed: ["http://localhost"] });
+    const r = await run(`await page._session.driver.call("session.configure", { proxy: { server: "http://evil.example:8080" } })`);
+    assert.match(r.error || "", /proxy cannot be set while a domain policy is active/);
+  });
+});
