@@ -498,7 +498,8 @@
         "active",
         "needs_reauth",
         "error",
-        "revoked"
+        "revoked",
+        "expired"
       ]
     },
     "CronSpec": {
@@ -8434,7 +8435,8 @@
               "active",
               "needs_reauth",
               "error",
-              "revoked"
+              "revoked",
+              "expired"
             ]
           },
           "Connection": {
@@ -8743,7 +8745,8 @@
               "active",
               "needs_reauth",
               "error",
-              "revoked"
+              "revoked",
+              "expired"
             ]
           },
           "Connection": {
@@ -9022,7 +9025,8 @@
               "active",
               "needs_reauth",
               "error",
-              "revoked"
+              "revoked",
+              "expired"
             ]
           },
           "Connection": {
@@ -9712,7 +9716,8 @@
               "active",
               "needs_reauth",
               "error",
-              "revoked"
+              "revoked",
+              "expired"
             ]
           },
           "Connection": {

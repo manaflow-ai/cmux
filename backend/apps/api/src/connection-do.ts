@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { canonicalJson, LEDGER_RETENTION_MS, type OwnerFrame, type Principal, type RejectFrame } from "@cmux/ownership"
-import { cloudOpByName, type Connection, type IntegrationProvider } from "@cmux/protocol"
-import { connectionsDomain, githubRepoAllowed, mayUse, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
+import { cloudOpByName, PENDING_CONNECTION_TTL_MS, type Connection, type IntegrationProvider } from "@cmux/protocol"
+import { connectionsDomain, githubRepoAllowed, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
 import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
 import { aadFor, open, seal, type SealedSecret } from "./integrations/crypto.ts"
@@ -85,9 +85,22 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     this.ctx.storage.sql.exec(`DELETE FROM external_calls WHERE created_at < ?`, before)
   }
 
-  protected override nextWakeAt(_state: ConnectionsState, _now: number): number | null {
+  /** The earlier of: the oldest pending connection's expiry, and the external-call ledger's next prune. */
+  protected override nextWakeAt(state: ConnectionsState, _now: number): number | null {
     const oldest = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(created_at) AS at FROM external_calls`).toArray()[0]?.at
-    return oldest === null || oldest === undefined ? null : Number(oldest) + LEDGER_RETENTION_MS
+    const prune = oldest === null || oldest === undefined ? null : Number(oldest) + LEDGER_RETENTION_MS
+    const expiry = pendingExpiries(state)[0]?.at ?? null
+    return prune === null ? expiry : expiry === null ? prune : Math.min(prune, expiry)
+  }
+
+  /** Expires pending connections whose lifetime ended; the key makes a repeated alarm a replay. */
+  protected override async onWake(now: number): Promise<void> {
+    const engine = this.boundEngine
+    if (!engine) return
+    for (const p of pendingExpiries(engine.currentState)) {
+      if (p.at > now) break
+      this.submitSystem("connection.expire", { connection: p.connection, at: now }, `expire:${p.connection}`)
+    }
   }
 
   /** Revocation deletes the credential at once and unlinks the account from webhook routing. */
@@ -184,6 +197,10 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const c = this.boundEngine!.currentState.connections[st.conn]
     if (!c || c.provider !== st.provider || c.created_by !== principal.user) throw new ProviderError("integration.state_invalid", "this connection attempt is not yours")
     if (c.status === "revoked") throw new ProviderError("integration.state_invalid", "this connection was revoked")
+    // Expired, or past its lifetime with the expiry alarm not yet run: refuse before calling the provider.
+    if (c.status === "expired" || (c.status === "pending" && Date.now() >= c.created_at + PENDING_CONNECTION_TTL_MS)) {
+      throw new ProviderError("integration.state_invalid", "the connection link expired; start again from Connect")
+    }
     const impl = providers[c.provider]
     if (!impl.configured(this.env) || !this.env.INTEGRATIONS_KEK) throw new ProviderError("integration.unavailable", `${c.provider} is not configured`)
     const policy = policyOf(this.boundEngine!.currentState)
@@ -196,7 +213,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     })
     if (c.account && c.account.key !== approved.account.key) throw new ProviderError("integration.state_invalid", "re-authorization must use the same provider account")
     // A disconnect may have committed while we waited on the provider.
-    if (this.boundEngine!.currentState.connections[c.id]?.status === "revoked") throw new ProviderError("integration.state_invalid", "this connection was revoked")
+    const now = this.boundEngine!.currentState.connections[c.id]?.status
+    if (now === "revoked" || now === "expired") throw new ProviderError("integration.state_invalid", `this connection was ${now}`)
     // Route webhooks first (idempotent), then seal, then commit. If the commit is refused (a
     // disconnect landed in between), undo both so no credential or route outlives it.
     await this.index(approved.account.key).add(c.owner, c.id)

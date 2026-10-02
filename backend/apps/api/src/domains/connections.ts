@@ -5,6 +5,7 @@ import {
   IntegrationConnect,
   IntegrationPolicySet,
   IntegrationRevoke,
+  PENDING_CONNECTION_TTL_MS,
   type Connection,
   type TeamIntegrationPolicy
 } from "@cmux/protocol"
@@ -91,7 +92,7 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         if (!owner || !p.user) return reject("auth.forbidden", "integration.connect needs a user in a team")
         const allowed = policyOf(state).allowed_providers
         if (allowed !== null && !allowed.includes(d.value.provider)) return reject("policy.denied", `the team policy does not allow ${d.value.provider}`)
-        if (Object.values(state.connections).filter((c) => c.status !== "revoked").length >= MAX_CONNECTIONS) {
+        if (Object.values(state.connections).filter((c) => c.status !== "revoked" && c.status !== "expired").length >= MAX_CONNECTIONS) {
           return reject("integration.limit", `at most ${MAX_CONNECTIONS} connections per team`)
         }
         const c: Connection = {
@@ -117,7 +118,7 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         if (!c || !mayUse(c, p)) return reject("selector.not_found", "connection not found")
         // Phase 1 knows no team roles here: only the creator disconnects (team admins come with Stack teams).
         if (c.created_by !== p.user) return reject("auth.forbidden", "only the person who connected it may disconnect it")
-        if (c.status === "revoked") return { ok: true, state, value: c, changed: false }
+        if (c.status === "revoked" || c.status === "expired") return { ok: true, state, value: c, changed: false }
         const next: Connection = { ...c, status: "revoked", updated_at: ctx.now }
         return { ok: true, state: { ...state, connections: { ...state.connections, [c.id]: next } }, value: next, outbox: [outbox(next)] }
       }
@@ -131,6 +132,7 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         const c = state.connections[d.value.connection]
         if (!c) return reject("selector.not_found", "connection not found")
         if (c.status === "revoked") return reject("validation.invalid", "connection was revoked")
+        if (c.status === "expired") return reject("validation.invalid", "the connection link expired")
         if (c.account && c.account.key !== d.value.account.key) return reject("validation.invalid", "a connection cannot move to another provider account")
         const next: Connection = {
           ...c,
@@ -149,10 +151,21 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         if (!d.ok) return d
         const c = state.connections[d.value.connection]
         if (!c) return reject("selector.not_found", "connection not found")
-        if (c.status === "revoked" || c.status === "pending") return { ok: true, state, value: c, changed: false }
+        if (c.status === "revoked" || c.status === "pending" || c.status === "expired") return { ok: true, state, value: c, changed: false }
         if (c.status === d.value.status && c.status_detail === d.value.detail) return { ok: true, state, value: c, changed: false }
         const { status_detail: _old, ...rest } = c
         const next: Connection = { ...rest, status: d.value.status, ...(d.value.detail ? { status_detail: d.value.detail } : {}), updated_at: ctx.now }
+        return { ok: true, state: { ...state, connections: { ...state.connections, [c.id]: next } }, value: next, outbox: [outbox(next)] }
+      }
+
+      case "connection.expire": {
+        const d = decodeParams<{ connection: string; at: number }>(internalByName.get(op)!, params)
+        if (!d.ok) return d
+        const c = state.connections[d.value.connection]
+        const at = Math.max(ctx.now, d.value.at)
+        // Only a pending connection past its lifetime expires; anything else is a no-op (a replayed or early alarm).
+        if (!c || c.status !== "pending" || at < c.created_at + PENDING_CONNECTION_TTL_MS) return { ok: true, state, value: c ?? null, changed: false }
+        const next: Connection = { ...c, status: "expired", updated_at: ctx.now }
         return { ok: true, state: { ...state, connections: { ...state.connections, [c.id]: next } }, value: next, outbox: [outbox(next)] }
       }
 
@@ -183,3 +196,10 @@ export const connectionsDomain: Domain<ConnectionsState> = {
     }
   }
 }
+
+/** Pending connections, oldest first, with the instant each expires. */
+export const pendingExpiries = (s: ConnectionsState): Array<{ connection: string; at: number }> =>
+  Object.values(s.connections)
+    .filter((c) => c.status === "pending")
+    .map((c) => ({ connection: c.id, at: c.created_at + PENDING_CONNECTION_TTL_MS }))
+    .sort((a, b) => a.at - b.at)

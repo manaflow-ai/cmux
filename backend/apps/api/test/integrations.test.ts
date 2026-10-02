@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers"
-import { runInDurableObject } from "cloudflare:test"
+import { evictDurableObject, runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { aadFor, open, seal } from "../src/integrations/crypto.ts"
@@ -380,6 +380,52 @@ describe("connections end to end (workerd)", () => {
       "https://api.github.com/user/installations": () => ok({ installations: [{ id: 42, account: { login: "acme", type: "Organization" } }] })
     })
     await expect(github.complete(testEnv as any, f.http, { code: "c", installation_id: "42", redirectUri: "x", policy: { githubScope: "linking_user_repos", requireOrgAdmin: false } })).rejects.toThrow(/more than 1000/)
+  })
+
+  it("pending connections expire once after 30 minutes from the alarm, even after a restart; late callbacks are refused; active ones are untouched", async () => {
+    const { token, team } = await signedIn("conn-expire-1")
+    const TTL = 30 * 60_000
+    // One active connection (linked), one pending that will expire.
+    const a = await op(token, "integration.connect", { provider: "slack" })
+    const activeId = a.json.value.connection.id as string
+    const activeState = new URL(a.json.value.authorize_url).searchParams.get("state")!
+    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
+    await inDO(connections, async (instance) => {
+      instance.http = fakeHttp({ "https://slack.com/api/oauth.v2.access": () => ok({ ok: true, access_token: "xoxb-e", scope: "chat:write", team: { id: "TEXP", name: "Exp" } }) }).http
+    })
+    expect((await op(token, "integration.complete", { state: activeState, code: "c" })).json.value.status).toBe("active")
+    const p = await op(token, "integration.connect", { provider: "slack" })
+    const pendingId = p.json.value.connection.id as string
+    const pendingState = new URL(p.json.value.authorize_url).searchParams.get("state")!
+
+    let createdAt = 0
+    await inDO(connections, async (instance) => {
+      createdAt = instance.boundEngine.currentState.connections[pendingId].created_at
+      // The alarm targets exactly the oldest pending expiry.
+      expect(instance.nextWakeAt(instance.boundEngine.currentState, Date.now())).toBe(createdAt + TTL)
+      await instance.onWake(createdAt + TTL - 1)
+      expect(instance.boundEngine.currentState.connections[pendingId].status).toBe("pending")
+    })
+    // A restarted object keeps the same wake time (it comes from committed state).
+    await evictDurableObject(connections as never)
+    await inDO(connections, async (instance) => {
+      expect(instance.nextWakeAt(instance.boundEngine.currentState, Date.now())).toBe(createdAt + TTL)
+      await instance.onWake(createdAt + TTL)
+      const seq = instance.boundEngine.currentSeq
+      expect(instance.boundEngine.currentState.connections[pendingId].status).toBe("expired")
+      // A second wake for the same slot changes nothing (deterministic key, state check).
+      await instance.onWake(createdAt + TTL + 5)
+      expect(instance.boundEngine.currentSeq).toBe(seq)
+      expect(instance.boundEngine.currentState.connections[activeId].status).toBe("active")
+      expect(instance.nextWakeAt(instance.boundEngine.currentState, Date.now()) === null || instance.nextWakeAt(instance.boundEngine.currentState, Date.now()) > createdAt + TTL).toBe(true)
+    })
+    // The provider redirect for the expired attempt is refused before any provider call.
+    const late = await op(token, "integration.complete", { state: pendingState, code: "c2" })
+    expect(late.json).toMatchObject({ ok: false, error: { code: "integration.state_invalid" } })
+    expect(late.json.error.message).toMatch(/expired/)
+    const listed = (await read(token, "integration.list")).json.value.connections
+    expect(listed.find((c: any) => c.id === pendingId).status).toBe("expired")
+    expect(listed.find((c: any) => c.id === activeId).status).toBe("active")
   })
 
   it("refuses forged provider webhooks and answers Slack URL verification", async () => {
