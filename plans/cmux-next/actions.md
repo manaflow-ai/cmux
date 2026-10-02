@@ -31,9 +31,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 <!-- generated: action surfaces -->
 
-## Counts (734 actions)
+## Counts (735 actions)
 
-Palette 731, CLI verbs 432, right-click 421, MCP tools 378.
+Palette 732, CLI verbs 433, right-click 422, MCP tools 379.
 
 ## Menus
 
@@ -49,7 +49,7 @@ Palette 731, CLI verbs 432, right-click 421, MCP tools 378.
 - **browserPage**: browserBack browserForward browserReload browserHardReload | browserTheme[choices] [options] > (toggleBrowserFocusMode toggleBrowserDesignMode) | bookmark.addPage | toggleBrowserDeveloperTools [tools] > (palette.browserOpenDefault browserScreenshotPage browserScreenshotSection | browser.pageInfo > (browser.pageInfo browser.pageInfo.connection browser.pageInfo.certificate | browser.pageInfo.setPermission browser.pageInfo.resetPermissions | browser.pageInfo.cookies browser.pageInfo.manageSiteData browser.pageInfo.deleteSiteData | browser.pageInfo.siteSettings browser.pageInfo.aboutThisPage) showBrowserJavaScriptConsole inspectBrowserElement | browser.extensions.menu browser.extensions.manage browser.extensions.webStore browser.extensions.loadUnpacked)
 - **cloudMachine**: cloudNewTerminal cloudOpenMachine cloudSSH | cloudRenameMachine | [connection] > (cloudResizeMachine palette.cloud.status palette.cloud.snapshot palette.cloud.fork palette.cloud.handoff palette.cloud.ports palette.cloud.promoteTemplate palette.cloud.restore cloudPauseMachine cloudResumeMachine | palette.cloud.deleteSnapshot) | [copy] > (cloudCopyMachineID cloudCopyLink cloudCopyPort) [tools] > (cloudFilesList cloudFileRead cloudFileWrite cloudFileMkdir cloudFileRemove cloudFileStat cloudPrepareSCP cloudTunnelAttach cloudTunnelDetach cloudTunnelRotateKey cloudNetworkList cloudFirewallList cloudFirewallGet cloudFirewallCreate cloudFirewallDelete | palette.cloud.tools) | cloudKillMachine
 - **sshMachine**: remote.newWorkspace | remote.reconnect remote.disconnect remote.install | remote.forget
-- **newTab**: newSurface openBrowser.chromium browserProfile.newTab palette.newAgentChat
+- **newTab**: newSurface openBrowser.chromium browserProfile.newTab palette.newAgentChat newTab.page
 - **profile**: space.newWindow space.newWorkspace | space.new | space.rename [appearance] > (space.setColor > (space.color.grey space.color.blue space.color.red space.color.yellow space.color.green space.color.pink space.color.purple space.color.cyan space.color.orange | space.clearColor) space.setIcon space.clearIcon space.setTheme[choices] space.clearTheme) [options] > (space.setDefaults browserProfile.setSpaceDefault browserProfile.clearSpaceDefault) | [move] > (space.moveLeft space.moveRight) | space.delete
 - **browserProfile**: browserProfile.newTab browserProfile.newWindow browserProfile.newWorkspace | browserProfile.new | browserProfile.rename browserProfile.setColor browserProfile.clearColor browserProfile.setIcon browserProfile.clearIcon | browserProfile.manageExtensions | browserProfile.delete
 - **bookmark**: bookmark.open bookmark.openInNewTab bookmark.openInBackgroundTab bookmark.openAll | bookmark.addPage bookmark.newFolder bookmark.addAllTabs | bookmark.edit | bookmark.toggleBar bookmark.manager | bookmark.remove

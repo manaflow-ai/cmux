@@ -60,7 +60,12 @@ final class SSHService {
         })
         let machines = machines
         observers.append(Task { [weak self] in
-            for await records in Observations({ machines.local.store.personal.isLoaded ? machines.local.store.personal.sessions : [] }) {
+            // Live state only: restoring connects and prunes saved hosts,
+            // which the launch snapshot's cached registry must not drive.
+            for await records in Observations({ () -> [SessionRecord] in
+                let store = machines.local.store
+                return store.personal.isLoaded && !store.isProvisional ? store.personal.sessions : []
+            }) {
                 self?.restore(records)
                 self?.restoreSavedHosts(registered: records)
             }

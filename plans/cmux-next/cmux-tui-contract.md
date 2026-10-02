@@ -249,10 +249,12 @@ level}, name, title, size, dead`. Layout nodes (`:9485-9506`): `leaf{pane}`,
 
 Launch snapshot (`launch-snapshot-v1`): the daemon keeps a read-only
 `launch-snapshot.json` next to its registry with the last settled
-`list-workspaces` tree and the native frontend projections, rewritten on
-settle and never while idle, and `identify` reports its path. The app
-remembers the path per session, applies the tree before connecting as a
-provisional store (`DaemonStore.applyProvisional`: `isLoaded` stays false),
+`list-workspaces` tree, the `list-personal` state (rooms, pins and
+personal groups, so the provisional sidebar filters and groups as the live
+one will) and the native frontend projections, rewritten on settle and
+never while idle, and `identify` reports its path. The app remembers the
+path per session, applies the tree and personal state before connecting as
+a provisional store (`DaemonStore.applyProvisional`: `isLoaded` stays false),
 opens the frontmost saved window from the snapshot's window records, and
 lets the live snapshot replace it in place. The file is a cache, never a
 source of truth.

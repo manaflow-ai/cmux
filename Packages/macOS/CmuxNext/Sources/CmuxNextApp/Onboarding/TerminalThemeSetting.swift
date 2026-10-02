@@ -13,9 +13,9 @@ import Observation
 /// follow live. The Ghostty config file itself never changes.
 @MainActor
 final class TerminalThemeSetting {
-    static let path = AppThemeSetting.configPath
-    static let fontFamilyPath = TerminalFontSetting.familyPath
-    static let fontSizePath = TerminalFontSetting.sizePath
+    static let path = AppThemeSetting().configPath
+    static let fontFamilyPath = TerminalFontSetting().familyPath
+    static let fontSizePath = TerminalFontSetting().sizePath
 
     private struct State: Equatable {
         var theme: String?

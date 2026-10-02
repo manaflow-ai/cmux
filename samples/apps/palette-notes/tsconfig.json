@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "paths": { "@cmux/app-test": ["../../../cmux-tui/crates/cmux-app-host/app-test/src/index.ts"] }
+  }
+}

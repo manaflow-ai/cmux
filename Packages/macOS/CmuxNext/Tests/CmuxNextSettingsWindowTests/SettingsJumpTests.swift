@@ -55,7 +55,7 @@ import Testing
     @Test func everyCardAndButtonIsIndexedOncePerPage() async throws {
         let model = try await makeModel()
         defer { model.settings.stop() }
-        let entries = SettingsSearchIndex.entries(registry: model.registry)
+        let entries = SettingsSearchIndex(registry: model.registry).entries()
         #expect(Set(entries.map(\.id)).count == entries.count, "anchor ids are unique across the one page")
         for card in SettingsCardID.allCases {
             #expect(entries.contains { $0.kind == .card(card) }, "\(card)")
@@ -73,20 +73,20 @@ import Testing
     // MARK: Jump target
 
     @Test func keysResolveToTheirSectionAndAnchor() {
-        let speed = SettingsSearchIndex.anchor(for: "ui.animationSpeed")
+        let speed = SettingsAnchor(key: "ui.animationSpeed")
         #expect(speed == SettingsAnchor(section: .appearance, id: "ui.animationSpeed"))
-        #expect(SettingsSearchIndex.anchor(for: "  ui.animationSpeed\n") == speed)
-        #expect(SettingsSearchIndex.anchor(for: "theme") == SettingsAnchor(section: .appearance, id: "card.theme"))
-        #expect(SettingsSearchIndex.anchor(for: "card.machines") == SettingsAnchor(section: .machines, id: "card.machines"))
-        #expect(SettingsSearchIndex.anchor(for: "importFromBrowser")
+        #expect(SettingsAnchor(key: "  ui.animationSpeed\n") == speed)
+        #expect(SettingsAnchor(key: "theme") == SettingsAnchor(section: .appearance, id: "card.theme"))
+        #expect(SettingsAnchor(key: "card.machines") == SettingsAnchor(section: .machines, id: "card.machines"))
+        #expect(SettingsAnchor(key: "importFromBrowser")
             == SettingsAnchor(section: .browser, id: "action.browser.importFromBrowser"))
         // A button on two pages: the bare id opens the first, the anchor id its own.
-        #expect(SettingsSearchIndex.anchor(for: "palette.openGhosttySettings")?.section == .appearance)
-        #expect(SettingsSearchIndex.anchor(for: "action.terminal.palette.openGhosttySettings")?.section == .terminal)
-        let header = SettingsSearchIndex.anchor(for: "section.keyboard")
+        #expect(SettingsAnchor(key: "palette.openGhosttySettings")?.section == .appearance)
+        #expect(SettingsAnchor(key: "action.terminal.palette.openGhosttySettings")?.section == .terminal)
+        let header = SettingsAnchor(key: "section.keyboard")
         #expect(header?.isHeader == true && header?.section == .keyboard)
-        #expect(SettingsSearchIndex.anchor(for: "no.such.setting") == nil)
-        #expect(SettingsSearchIndex.anchor(for: "   ") == nil)
+        #expect(SettingsAnchor(key: "no.such.setting") == nil)
+        #expect(SettingsAnchor(key: "   ") == nil)
     }
 
     @Test func openingAResultClearsTheQueryShowsItsPageAndHighlightsIt() async throws {
@@ -193,7 +193,7 @@ import Testing
     @Test func aFilterDropsGroupsLeftEmpty() throws {
         let descriptors = SettingsSchema.settings(in: .appearance)
         let kept = try #require(descriptors.first)
-        let filter = SettingsPageFilter(matches: [SettingsSearchIndex.entry(for: kept)], shortcutsMatch: true)
+        let filter = SettingsPageFilter(matches: [SettingsSearchEntry(setting: kept)], shortcutsMatch: true)
         let groups = SettingsWindowModel.grouped(descriptors)
         #expect(filter.filter(groups).map(\.settings) == [[kept]])
         #expect(filter.filter(SettingsSection.allCases) == [.appearance, .keyboard])
@@ -205,15 +205,15 @@ import Testing
         let order: [SettingsSection] = [.general, .appearance, .terminal, .browser]
         let line: CGFloat = 30
         // Nothing measured yet, or the first header still below the line.
-        #expect(SettingsScrollSpy.section(order: order, offsets: [:], line: line) == .general)
-        #expect(SettingsScrollSpy.section(order: order, offsets: [.general: 40, .appearance: 400], line: line) == .general)
+        #expect(SettingsScrollSpy(order: order, line: line).section(offsets: [:]) == .general)
+        #expect(SettingsScrollSpy(order: order, line: line).section(offsets: [.general: 40, .appearance: 400]) == .general)
         // Scrolled: appearance's header passed the line, terminal's has not.
         let offsets: [SettingsSection: CGFloat] = [.general: -800, .appearance: -20, .terminal: 300, .browser: 900]
-        #expect(SettingsScrollSpy.section(order: order, offsets: offsets, line: line) == .appearance)
-        #expect(SettingsScrollSpy.section(order: order, offsets: offsets.merging([.terminal: 30]) { $1 }, line: line) == .terminal)
+        #expect(SettingsScrollSpy(order: order, line: line).section(offsets: offsets) == .appearance)
+        #expect(SettingsScrollSpy(order: order, line: line).section(offsets: offsets.merging([.terminal: 30]) { $1 }) == .terminal)
         // A hidden section (filtered out) is not in the order and never picked.
-        #expect(SettingsScrollSpy.section(order: [.general, .terminal], offsets: offsets, line: line) == .general)
-        #expect(SettingsScrollSpy.section(order: [], offsets: offsets, line: line) == nil)
+        #expect(SettingsScrollSpy(order: [.general, .terminal], line: line).section(offsets: offsets) == .general)
+        #expect(SettingsScrollSpy(order: [], line: line).section(offsets: offsets) == nil)
     }
 
     // MARK: Highlight

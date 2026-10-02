@@ -113,6 +113,10 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "clipboard.write": {
+      "scope": "clipboard:write",
+      "class": "mutation"
+    },
     "feed.adopt": {
       "scope": "feed:write",
       "class": "mutation"
@@ -464,6 +468,10 @@
     "team.enrollment_token.list": {
       "scope": "team:read",
       "class": "read"
+    },
+    "team.integration.release_lock": {
+      "scope": "team:write",
+      "class": "mutation"
     },
     "team.policy.get": {
       "scope": "team:read",
