@@ -9,10 +9,12 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.account", defaultValue: "auth authentication login logout sign in sign out email user profile team")
         case .app:
             return localized("settings.search.alias.section.app", defaultValue: "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry")
+        case .themes:
+            return localized("settings.search.alias.section.themes", defaultValue: "theme themes color scheme colors palette ghostty light dark mode accent")
         case .terminal:
             return localized("settings.search.alias.section.terminal", defaultValue: "shell scrollback scrollbar scroll bar ghostty tty pty")
         case .textBox:
-            return localized("settings.search.alias.section.textBox", defaultValue: "textbox text box rich input prompt beta focus composer compose attachments")
+            return localized("settings.search.alias.section.textBox", defaultValue: "textbox text box rich input prompt focus composer compose attachments")
         case .sleepyMode:
             return localized("settings.search.alias.section.sleepyMode", defaultValue: "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night")
         case .mobile:
@@ -59,8 +61,8 @@ enum SettingsSearchAliasIndex {
     private static let settingAliases: [String: String] = [
         "account:account": localized("settings.search.alias.setting.account.account", defaultValue: "auth authentication login logout signin sign-in signout sign-out email user profile stack team"),
         "app:language": localized("settings.search.alias.setting.app.language", defaultValue: "app.language locale l10n localization translation japanese english ja en nihongo restart"),
-        "app:accent-color": localized("settings.search.alias.setting.app.accent-color", defaultValue: "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue"),
-        "app:appearance": localized("settings.search.alias.setting.app.appearance", defaultValue: "app.appearance theme color scheme light mode dark mode system mode"),
+        "themes:accent-color": localized("settings.search.alias.setting.app.accent-color", defaultValue: "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue"),
+        "themes:appearance": localized("settings.search.alias.setting.app.appearance", defaultValue: "app.appearance theme color scheme light mode dark mode system mode"),
         "app:app-icon": localized("settings.search.alias.setting.app.app-icon", defaultValue: "app.appIcon dock icon application icon app switcher alternate icon"),
         "app:default-terminal": localized("settings.search.alias.setting.app.default-terminal", defaultValue: "app.defaultTerminal default terminal ssh links command tool unix executable launch services handler"),
         "app:new-workspace-placement": localized("settings.search.alias.setting.app.new-workspace-placement", defaultValue: "app.newWorkspacePlacement new tab insert position order top bottom end"),
@@ -91,6 +93,8 @@ enum SettingsSearchAliasIndex {
         "app:show-menu-bar": localized("settings.search.alias.setting.app.show-menu-bar", defaultValue: "notifications.showInMenuBar menubar menu bar status item tray extra"),
         "app:unread-pane-ring": localized("settings.search.alias.setting.app.unread-pane-ring", defaultValue: "notifications.unreadPaneRing blue border unread ring notification pane outline"),
         "app:pane-flash": localized("settings.search.alias.setting.app.pane-flash", defaultValue: "notifications.paneFlash flash blink highlight pane notification pulse"),
+        "app:pane-flash-double-blink": localized("settings.search.alias.setting.app.pane-flash-double-blink", defaultValue: "notifications.paneFlashDoubleBlink pane flash double blink twice pulse"),
+        "app:pane-flash-on-typing": localized("settings.search.alias.setting.app.pane-flash-on-typing", defaultValue: "notifications.paneFlashOnTyping pane flash typing terminal interaction notification pulse"),
         "app:desktop-notifications": localized("settings.search.alias.setting.app.desktop-notifications", defaultValue: "macos desktop notifications system settings permission alerts notify test"),
         "app:notification-sound": localized("settings.search.alias.setting.app.notification-sound", defaultValue: "notifications.sound notifications.customSoundFilePath sound audio alert chime beep custom file wav mp3 caf aiff"),
         "app:notification-sound-overrides": localized("settings.search.alias.setting.app.notification-sound-overrides", defaultValue: "notifications.soundOverrides per-agent agent sound turn done needs input permission error stalled custom file"),
@@ -118,7 +122,7 @@ enum SettingsSearchAliasIndex {
         "app:palette-search-all": localized("settings.search.alias.setting.app.palette-search-all", defaultValue: "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
         "app:canvas-pane-gap": localized("settings.search.alias.setting.app.canvas-pane-gap", defaultValue: "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
         "app:canvas-snapping": localized("settings.search.alias.setting.app.canvas-snapping", defaultValue: "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
-        "terminal:adaptive-default-theme": localized("settings.search.alias.setting.terminal.adaptive-default-theme", defaultValue: "terminal.adaptiveDefaultTheme adaptive default theme appearance light dark palette Ghostty managed colors empty untouched config preserve settings"),
+        "themes:adaptive-default-theme": localized("settings.search.alias.setting.terminal.adaptive-default-theme", defaultValue: "terminal.adaptiveDefaultTheme adaptive default theme appearance light dark palette Ghostty managed colors empty untouched config preserve settings"),
         "terminal:scrollbar": localized("settings.search.alias.setting.terminal.scrollbar", defaultValue: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
         "terminal:session-content-width": localized("settings.search.alias.setting.terminal.session-content-width", defaultValue: "terminal.sessionContentMaxWidth terminal agent chat max width readable line length points pt narrow wide"),
         "terminal:session-content-alignment": localized("settings.search.alias.setting.terminal.session-content-alignment", defaultValue: "terminal.sessionContentAlignment terminal agent chat left center right alignment position"),
@@ -128,12 +132,14 @@ enum SettingsSearchAliasIndex {
         "terminal:reflow-hard-wrap-on-copy": localized("settings.search.alias.setting.terminal.reflow-hard-wrap-on-copy", defaultValue: "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"),
         "terminal:password-input-indicator": localized("settings.search.alias.setting.terminal.password-input-indicator", defaultValue: "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"),
         "terminal:password-input-dots": localized("settings.search.alias.setting.terminal.password-input-dots", defaultValue: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"),
+        "terminal:jump-to-bottom-button": localized("settings.search.alias.setting.terminal.jump-to-bottom-button", defaultValue: "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude"),
+        "terminal:predictive-local-echo": localized("settings.search.alias.setting.terminal.predictive-local-echo", defaultValue: "terminal.predictiveLocalEcho predictive local echo typing latency lag ssh remote speculative mosh round trip underline"),
         "terminal:tab-bar-font-size": localized("settings.search.alias.setting.terminal.tab-bar-font-size", defaultValue: "surface-tab-bar-font-size tab bar font size text scale terminal browser pane tab title"),
         "terminal:resume-commands": localized("settings.search.alias.setting.terminal.resume-commands", defaultValue: "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"),
-        "textBox:show-textbox-new-terminals": localized("settings.search.alias.setting.textBox.show-textbox-new-terminals", defaultValue: "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta"),
-        "textBox:focus-textbox-new-terminals": localized("settings.search.alias.setting.textBox.focus-textbox-new-terminals", defaultValue: "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta"),
+        "textBox:show-textbox-new-terminals": localized("settings.search.alias.setting.textBox.show-textbox-new-terminals", defaultValue: "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab"),
+        "textBox:focus-textbox-new-terminals": localized("settings.search.alias.setting.textBox.focus-textbox-new-terminals", defaultValue: "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab"),
         "textBox:default-submit-action": localized("settings.search.alias.setting.textBox.default-submit-action", defaultValue: "terminal.textBoxDefaultSubmitAction submit action shift tab claude codex opencode pi agent route provider icon new session"),
-        "textBox:textbox-max-lines": localized("settings.search.alias.setting.textBox.textbox-max-lines", defaultValue: "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta"),
+        "textBox:textbox-max-lines": localized("settings.search.alias.setting.textBox.textbox-max-lines", defaultValue: "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll"),
         "sidebarAppearance:match-terminal": localized("settings.search.alias.setting.sidebarAppearance.match-terminal", defaultValue: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
         "sidebarAppearance:font-size": localized("settings.search.alias.setting.sidebarAppearance.font-size", defaultValue: "sidebar-font-size sidebar font size text scale workspace title badge metadata shortcut hint"),
         "sidebarAppearance:hide-sidebar-details": localized("settings.search.alias.setting.app.hide-sidebar-details", defaultValue: "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),
@@ -156,6 +162,7 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:show-ports": localized("settings.search.alias.setting.app.show-ports", defaultValue: "sidebar.showPorts localhost port listener dev server url"),
         "sidebarAppearance:show-log": localized("settings.search.alias.setting.app.show-log", defaultValue: "sidebar.showLog log status latest message imperative"),
         "sidebarAppearance:show-progress": localized("settings.search.alias.setting.app.show-progress", defaultValue: "sidebar.showProgress progress bar percent status set_progress"),
+        "sidebarAppearance:show-agent-usage": localized("settings.search.alias.setting.app.show-agent-usage", defaultValue: "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex"),
         "sidebarAppearance:show-agent-activity": localized("settings.search.alias.setting.app.show-agent-activity", defaultValue: "sidebar.showAgentActivity loading spinner active coding agent agents running activity"),
         "sidebarAppearance:loading-spinner-position": localized("settings.search.alias.setting.app.loading-spinner-position", defaultValue: "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace"),
         "sidebarAppearance:notification-badge-position": localized("settings.search.alias.setting.app.notification-badge-position", defaultValue: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace"),
@@ -182,6 +189,7 @@ enum SettingsSearchAliasIndex {
         "automation:workspace-auto-naming": localized("settings.search.alias.setting.automation.workspace-auto-naming", defaultValue: "automation.workspaceAutoNaming automation.autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated name summarize summary summarizer conversation agent picker naming agent"),
         "automation:ripgrep-path": localized("settings.search.alias.setting.automation.ripgrep-path", defaultValue: "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),
         "automation:subagent-notifications": localized("settings.search.alias.setting.automation.subagent-notifications", defaultValue: "automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"),
+        "automation:agent-error-auto-resume": localized("settings.search.alias.setting.automation.agent-error-auto-resume", defaultValue: "automation.agentAutoResume auto resume continue retry capacity overloaded agent error"),
         "automation:cursor": localized("settings.search.alias.setting.automation.cursor", defaultValue: "automation.cursorIntegration cursor ide agent hooks notifications"),
         "automation:gemini": localized("settings.search.alias.setting.automation.gemini", defaultValue: "automation.geminiIntegration gemini cli google agent hooks notifications"),
         "automation:kiro": localized("settings.search.alias.setting.automation.kiro", defaultValue: "automation.kiroIntegration kiro cli amazon q agent hooks notifications"),
@@ -194,9 +202,12 @@ enum SettingsSearchAliasIndex {
         "browser:enable-browser": localized("settings.search.alias.setting.browser.enable-browser", defaultValue: "browser.enabled enable disable webview embedded browser tabs links"),
         "browser:search-engine": localized("settings.search.alias.setting.browser.search-engine", defaultValue: "browser.defaultSearchEngine browser.customSearchEngineName browser.customSearchEngineURLTemplate omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider"),
         "browser:search-suggestions": localized("settings.search.alias.setting.browser.search-suggestions", defaultValue: "browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),
-        "browser:theme": localized("settings.search.alias.setting.browser.theme", defaultValue: "browser.theme web page theme color scheme light dark system"),
+        "themes:browser-theme": localized("settings.search.alias.setting.browser.theme", defaultValue: "browser.theme web page theme color scheme light dark system"),
         "browser:hidden-webview-discard": localized("settings.search.alias.setting.browser.hidden-webview-discard", defaultValue: "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"),
+        "browser:hidden-webview-discard-mode": localized("settings.search.alias.setting.browser.hidden-webview-discard-mode", defaultValue: "browser.hiddenWebViewDiscardMode memory saver budget timer hidden tabs discard unload"),
+        "browser:hidden-webview-memory-budget": localized("settings.search.alias.setting.browser.hidden-webview-memory-budget", defaultValue: "browser.hiddenWebViewMemoryBudgetMB memory budget limit megabytes hidden tabs discard unload"),
         "browser:hidden-webview-discard-delay": localized("settings.search.alias.setting.browser.hidden-webview-discard-delay", defaultValue: "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
+        "browser:unloaded-page-auto-restore": localized("settings.search.alias.setting.browser.unloaded-page-auto-restore", defaultValue: "browser.autoRestoreUnloadedPages restore reload unloaded discarded hidden tabs placeholder"),
         "browser:ask-where-to-save-downloads": localized("settings.search.alias.setting.browser.ask-where-to-save-downloads", defaultValue: "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail"),
         "browser:terminal-links": localized("settings.search.alias.setting.browser.terminal-links", defaultValue: "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
         "browser:intercept-open": localized("settings.search.alias.setting.browser.intercept-open", defaultValue: "browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"),

@@ -9,7 +9,8 @@ extension CMUXCLI {
         isShellSnippet: Bool = false,
         passwordCredential: String? = nil,
         controlPathPreflightShellFunction: String? = nil,
-        reconnectLimitDefault: Int = 20
+        reconnectLimitDefault: Int = 20,
+        launchScripts: SSHStartupLaunchScripts
     ) throws -> String {
         let script = buildSSHStartupScriptBody(
             sshCommand: sshCommand,
@@ -21,7 +22,7 @@ extension CMUXCLI {
             oneTimeCommand: nil,
             reconnectLimitDefault: reconnectLimitDefault
         )
-        return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort)
+        return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort, launchScripts: launchScripts)
     }
 
     func buildReusableSSHStartupCommand(
@@ -330,7 +331,9 @@ extension CMUXCLI {
             // Initial transient foreground-auth failures are a reconnect phase, so boot-time outages share this loop.
             "cmux_ssh_reauth_required=\(hasOneTimeCommand ? 1 : 0)",
             "CMUX_SSH_CHILD_PID=; CMUX_SSH_AUTH_PID=; CMUX_SSH_PENDING_SIGNAL=; CMUX_SSH_PENDING_SIGNAL_NAME=",
-        ] + backoffBuilder.stateInitializationLines + [
+        ]
+        scriptLines += backoffBuilder.stateInitializationLines
+        scriptLines += [
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
             "cmux_ssh_reset_terminal_modes() { if [ -t 2 ]; then printf \(terminalModeReset) >&2 || true; fi; }",
             "cmux_ssh_register_attempt() { \(lifecycleLaunching); }",
@@ -343,7 +346,6 @@ extension CMUXCLI {
             "trap 'cmux_ssh_signal_exit 130 INT' INT",
             "trap 'cmux_ssh_signal_exit 143 TERM' TERM",
         ]
-
         scriptLines += [
             "while :; do",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
@@ -423,13 +425,12 @@ extension CMUXCLI {
         ]
         return scriptLines.joined(separator: "\n")
     }
-    private func writeSSHStartupScript(_ scriptBody: String, remoteRelayPort: Int) throws -> String {
-        let scriptURL = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-ssh-startup-\(remoteRelayPort)-\(UUID().uuidString.lowercased()).sh"
-        )
-        let script = "#!/bin/sh\n\(scriptBody)\n"
-        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+    private func writeSSHStartupScript(
+        _ scriptBody: String,
+        remoteRelayPort: Int,
+        launchScripts: SSHStartupLaunchScripts
+    ) throws -> String {
+        let scriptURL = try launchScripts.write(scriptBody: scriptBody, remoteRelayPort: remoteRelayPort)
         return shellQuote(scriptURL.path)
     }
     private func reusableShellStartupCommand(
@@ -458,7 +459,6 @@ extension CMUXCLI {
         ].joined(separator: "\n")
         return "/bin/sh -c \(shellQuote(wrapper))"
     }
-
     private func buildSSHSessionEndShellCommand(remoteRelayPort: Int) -> String {
         [
             "if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]",

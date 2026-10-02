@@ -2,7 +2,6 @@ import CmuxCloud
 import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
-
 /// A collection of resources that travels as one drag or one "open all": a cmux-tui
 /// workspace on a machine, or a local workspace (the panes it projects). The canonical
 /// payload is typed placements. `resources` and the group workspace id remain as derived
@@ -179,33 +178,6 @@ extension SurfaceCatalog {
             throw SurfaceCatalogError.destinationNotFound("empty group")
         }
         return projected
-    }
-
-    private func resolveRemoteView(
-        for member: SurfaceResourcePlacement,
-        fallbackWorkspaceID: String?
-    ) throws -> SurfaceRemoteView? {
-        // Unknown resources are skipped by the group projector. Once a resource exists,
-        // delegate placement validation to the catalog's single resolver so explicit IDs
-        // cannot silently fall back when remote view metadata is absent.
-        guard resources[member.resource] != nil else {
-            return nil
-        }
-        if let tabID = member.remoteTabID {
-            return try remoteView(
-                for: member.resource,
-                tabID: tabID,
-                workspaceID: member.remoteWorkspaceID ?? fallbackWorkspaceID
-            )
-        }
-        let workspaceID = member.remoteWorkspaceID ?? fallbackWorkspaceID
-        guard let workspaceID else { return nil }
-        if projections.contains(where: {
-            $0.resource == member.resource && $0.isLocalWorkspaceView && $0.remoteWorkspaceID == workspaceID
-        }) {
-            return nil
-        }
-        return try remoteView(for: member.resource, workspaceID: workspaceID)
     }
 
     /// How a group becomes a new local workspace: the machinery a caller injects so the

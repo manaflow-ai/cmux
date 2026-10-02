@@ -40,6 +40,13 @@ extension WorkstreamEvent {
         return value
     }
 
+    /// True for the synchronous hook lane whose event order is established by
+    /// the agent before the frame is sent. Detached telemetry workers omit this
+    /// marker because their completion can arrive after a newer prompt.
+    var feedHookIsOrdered: Bool {
+        feedExtraFields?["_cmux_ordered_hook"] as? Bool == true
+    }
+
     private var feedExtraFields: [String: Any]? {
         guard let data = extraFieldsJSON?.data(using: .utf8) else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]

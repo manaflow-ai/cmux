@@ -530,6 +530,16 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "participant": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "shared-sizing-v1"
     }
    },
    "additional_properties": false
@@ -3832,6 +3842,15 @@
      "nullable": false,
      "since": 11
     },
+    "supports_viewer_size_priority": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
     "ttl_ms": {
      "type": {
       "kind": "scalar",
@@ -5347,6 +5366,462 @@
     }
    },
    "additional_properties": false
+  },
+  "SizeDeviceKind": {
+   "kind": "enum",
+   "values": [
+    "mac",
+    "iphone",
+    "ipad",
+    "tui",
+    "browser",
+    "unknown"
+   ]
+  },
+  "SizeMode": {
+   "kind": "enum",
+   "values": [
+    "latest",
+    "smallest",
+    "largest",
+    "priority",
+    "fixed"
+   ]
+  },
+  "SizeReason": {
+   "kind": "enum",
+   "values": [
+    "latest",
+    "smallest",
+    "largest",
+    "priority",
+    "fixed",
+    "held",
+    "priority-fallback"
+   ]
+  },
+  "DetachReason": {
+   "kind": "enum",
+   "values": [
+    "network",
+    "disconnected-by",
+    "host-shutdown",
+    "superseded"
+   ]
+  },
+  "SizePolicy": {
+   "kind": "object",
+   "fields": {
+    "mode": {
+     "type": {
+      "kind": "ref",
+      "name": "SizeMode"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": "latest"
+    },
+    "priority": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": [],
+     "constraints": [
+      "Priority keys `<user_id or anon:id>/<device_kind>`, highest first."
+     ]
+    },
+    "fixed": {
+     "type": {
+      "kind": "ref",
+      "name": "Size"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "constraints": [
+      "Grid used by mode fixed; clamped to at least 2 x 1."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "SizingIdentity": {
+   "kind": "object",
+   "fields": {
+    "user_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "constraints": [
+      "Asserted by the client; the daemon does not verify it."
+     ]
+    },
+    "display_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "device_kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "constraints": [
+      "mac, iphone, ipad, tui, browser; anything else is unknown."
+     ]
+    },
+    "device_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "device_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "constraints": [
+      "Stable per-install device id; tells two devices of one user apart."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "SizeDetachActor": {
+   "kind": "object",
+   "fields": {
+    "user_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "display_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "device_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    }
+   },
+   "additional_properties": false
+  },
+  "DetachClientTarget": {
+   "kind": "opaque_json",
+   "reason": "A uint64 client id or a shared-sizing participant id string."
+  },
+  "SizeParticipant": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "user_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "display_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "device_kind": {
+     "type": {
+      "kind": "ref",
+      "name": "SizeDeviceKind"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "device_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "device_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "via": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "viewport": {
+     "type": {
+      "kind": "ref",
+      "name": "Size"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "counts_override": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "counts": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "priority_key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "SizeState": {
+   "kind": "object",
+   "fields": {
+    "generation": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cols": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "rows": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "reason": {
+     "type": {
+      "kind": "ref",
+      "name": "SizeReason"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "owners": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "policy": {
+     "type": {
+      "kind": "ref",
+      "name": "SizePolicy"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "participants": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "SizeParticipant"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "SetSizePolicyResult": {
+   "kind": "object",
+   "fields": {
+    "state": {
+     "type": {
+      "kind": "ref",
+      "name": "SizeState"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "Present for a surface policy."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "SetSizeCountsResult": {
+   "kind": "object",
+   "fields": {
+    "outcome": {
+     "type": {
+      "kind": "ref",
+      "name": "ViewAttachmentOutcome"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "changed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "participant": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "GetSizeStateResult": {
+   "kind": "object",
+   "fields": {
+    "state": {
+     "type": {
+      "kind": "ref",
+      "name": "SizeState"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "self_participant": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
+  "NoteSizeActivityResult": {
+   "kind": "object",
+   "fields": {
+    "participant": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "changed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ReattachViewResult": {
+   "kind": "object",
+   "fields": {
+    "participant": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "state": {
+     "type": {
+      "kind": "ref",
+      "name": "SizeState"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -5463,6 +5938,76 @@
       "default": null,
       "constraints": [
        "Advertises additive client capabilities for this connection."
+      ]
+     },
+     "user_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1",
+      "constraints": [
+       "Shared sizing identity asserted by the client; not verified."
+      ]
+     },
+     "display_name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1",
+      "constraints": [
+       "Shared sizing identity; defaults to name."
+      ]
+     },
+     "device_kind": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1",
+      "constraints": [
+       "mac, iphone, ipad, tui, browser; anything else is unknown; defaults to kind."
+      ]
+     },
+     "device_name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1",
+      "constraints": [
+       "Shared sizing identity."
+      ]
+     },
+     "device_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1",
+      "constraints": [
+       "Stable per-install device id; tells two devices of one user apart."
       ]
      }
     },
@@ -5602,11 +6147,42 @@
     "fields": {
      "client": {
       "type": {
-       "kind": "scalar",
-       "name": "uint64"
+       "kind": "ref",
+       "name": "DetachClientTarget"
       },
       "presence": "required",
-      "nullable": false
+      "nullable": false,
+      "constraints": [
+       "uint64 client id, or a participant id; a relay sub-view id detaches only that view."
+      ]
+     },
+     "by": {
+      "type": {
+       "kind": "ref",
+       "name": "SizeDetachActor"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1",
+      "constraints": [
+       "Defaults to the requester's identity."
+      ]
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1",
+      "constraints": [
+       "Resolves a participant id on this terminal only; participant ids are per terminal."
+      ]
      }
     },
     "additional_properties": false
@@ -5616,7 +6192,9 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "A participant that is the own view of a client with sizing-view-detach-v1 detaches that view only; the client stays connected."
+   ]
   },
   "reload-config": {
    "authority": "control",
@@ -8670,8 +9248,34 @@
        "kind": "scalar",
        "name": "string"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "view": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1",
+      "constraints": [
+       "Relay sub-view name, 1-128 printable characters; exactly one of lease or view."
+      ]
+     },
+     "identity": {
+      "type": {
+       "kind": "ref",
+       "name": "SizingIdentity"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1"
      },
      "cols": {
       "type": {
@@ -8711,7 +9315,8 @@
    "stream": null,
    "constraints": [
     "The lease must belong to this connection and surface.",
-    "A retired lease returns outcome:superseded without changing replacement views."
+    "A retired lease returns outcome:superseded without changing replacement views.",
+    "With view instead of lease, creates or updates a relay sub-view of this connection."
    ]
   },
   "release-surface-size": {
@@ -8761,8 +9366,23 @@
        "kind": "scalar",
        "name": "string"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "view": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1",
+      "constraints": [
+       "Relay sub-view name; exactly one of lease or view."
+      ]
      }
     },
     "additional_properties": false
@@ -8796,8 +9416,23 @@
        "kind": "scalar",
        "name": "string"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "view": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1",
+      "constraints": [
+       "Relay sub-view name; exactly one of lease or view."
+      ]
      }
     },
     "additional_properties": false
@@ -10806,6 +11441,232 @@
    "constraints": [
     "Moves the existing tab to the selected workspace or atomically creates a workspace when workspace is omitted."
    ]
+  },
+  "set-size-policy": {
+   "authority": "control",
+   "since": 12,
+   "capability": "shared-sizing-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "policy": {
+      "type": {
+       "kind": "ref",
+       "name": "SizePolicy"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "null or omitted clears the override or workspace default."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "SetSizePolicyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Exactly one of surface or workspace."
+   ]
+  },
+  "set-size-counts": {
+   "authority": "control",
+   "since": 12,
+   "capability": "shared-sizing-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "client": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "lease": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "view": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "participant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "counts": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "null clears the override."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "SetSizeCountsResult"
+   },
+   "stream": null,
+   "constraints": [
+    "At most one of client, lease, view or participant; none targets the caller's own view."
+   ]
+  },
+  "get-size-state": {
+   "authority": "control",
+   "since": 12,
+   "capability": "shared-sizing-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "GetSizeStateResult"
+   },
+   "stream": null,
+   "constraints": []
+  },
+  "note-size-activity": {
+   "authority": "control",
+   "since": 12,
+   "capability": "shared-sizing-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "view": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       "Relay sub-view of this connection; omitted marks the caller's own view."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "NoteSizeActivityResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Requires client capability shared-sizing-v1.",
+    "Only explicit input or focus is activity, never hover or visibility."
+   ]
+  },
+  "reattach-view": {
+   "authority": "control",
+   "since": 12,
+   "capability": "sizing-view-detach-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "counts": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       "false reattaches as a viewer; omitted keeps the counts choice."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "ReattachViewResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Only a view detached by detach-client can be reattached."
+   ]
   }
  },
  "events": {
@@ -11344,6 +12205,45 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "reason": {
+      "type": {
+       "kind": "ref",
+       "name": "DetachReason"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12
+     },
+     "by": {
+      "type": {
+       "kind": "ref",
+       "name": "SizeDetachActor"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12
+     },
+     "view": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12
+     },
+     "scope": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "constraints": [
+       "\"view\" when only the client's own view was detached; the connection stays."
+      ]
      }
     },
     "additional_properties": false
@@ -13570,6 +14470,54 @@
        "name": "string"
       },
       "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "size-state": {
+   "since": 12,
+   "capability": "shared-sizing-v1",
+   "streams": [
+    "subscribe",
+    "attach-byte",
+    "attach-render"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "size-state"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "state": {
+      "type": {
+       "kind": "ref",
+       "name": "SizeState"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "self_participant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
       "nullable": false
      }
     },

@@ -7,32 +7,47 @@ import SwiftUI
 /// the same labels, symbols, badge behavior, and selection semantics as the app.
 struct MobilePrimaryTabScaffold<
     Workspaces: View,
+    Feed: View,
     Notifications: View,
+    Cloud: View,
     Search: View
 >: View {
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
+    let feedNeedsInputCount: Int
+    /// False when the Feed replaces the Notifications tab (CMUX Labs).
+    let showsNotificationsTab: Bool
     let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
+    let feed: Feed
     let notifications: Notifications
+    let cloud: Cloud
     let search: Search
 
     init(
         selection: Binding<MobilePrimaryTab>,
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
+        feedNeedsInputCount: Int = 0,
+        showsNotificationsTab: Bool = true,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
+        @ViewBuilder feed: () -> Feed,
         @ViewBuilder notifications: () -> Notifications,
+        @ViewBuilder cloud: () -> Cloud,
         @ViewBuilder search: () -> Search
     ) {
         _selection = selection
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
+        self.feedNeedsInputCount = feedNeedsInputCount
+        self.showsNotificationsTab = showsNotificationsTab
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
+        self.feed = feed()
         self.notifications = notifications()
+        self.cloud = cloud()
         self.search = search()
     }
 
@@ -42,35 +57,29 @@ struct MobilePrimaryTabScaffold<
                 TabView(selection: tabSelection) {
                     primaryTabs
 
-                    Tab(value: MobilePrimaryTab.search, role: .search) {
-                        search
-                            .environment(\.mobilePrimarySearchDestination, true)
+                    if selection == .search || selection.searchScope != nil {
+                        Tab(value: MobilePrimaryTab.search, role: .search) {
+                            search
+                                .environment(\.mobilePrimarySearchDestination, true)
+                        }
+                        .accessibilityIdentifier("MobilePrimaryTabSearch")
                     }
-                    .accessibilityIdentifier("MobilePrimaryTabSearch")
                 }
                 .tabViewSearchActivation(.searchTabSelection)
+                .tabViewStyle(.tabBarOnly)
                 .accessibilityIdentifier("MobilePrimaryTabs")
+                .animation(nil, value: selection)
                 .onChange(of: selection, initial: true) { _, selection in
                     searchCoordinator.synchronizeSelection(selection)
                 }
 
-                if selection == .workspaces, let taskComposerAction {
-                    TaskComposerButton(
-                        action: taskComposerAction,
-                        diameter: iOS26BottomControlDiameter
-                    )
-                    .padding(.trailing, iOS26BottomControlInset)
-                    .padding(.bottom, iOS26TaskComposerBottomPadding)
-                    // Compose anchors to the screen, not the keyboard. The
-                    // only keyboard that can appear while it is visible
-                    // belongs to an overlaying sheet (the composer's
-                    // auto-focused prompt), whose inset dragged the button
-                    // toward mid-screen and stranded it there whenever the
-                    // hide update was missed.
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .ignoresSafeArea(.keyboard, edges: .bottom)
+                if selection == .workspaces {
+                    iOS26TaskComposerButton
                 }
             }
+            // The composer padding is calibrated from the screen edge. Keep
+            // the scaffold's layout space through the bottom container inset
+            // so the button does not float above its intended position.
             .ignoresSafeArea(.container, edges: .bottom)
         } else if #available(iOS 18.0, *) {
             TabView(selection: $selection) {
@@ -82,10 +91,19 @@ struct MobilePrimaryTabScaffold<
                 workspaces
                     .tabItem { workspacesLabel }
                     .tag(MobilePrimaryTab.workspaces)
-                notifications
-                    .tabItem { notificationsLabel }
-                    .tag(MobilePrimaryTab.notifications)
-                    .badge(notificationUnreadCount)
+                feed
+                    .tabItem { feedLabel }
+                    .tag(MobilePrimaryTab.feed)
+                    .badge(feedNeedsInputCount)
+                if showsNotificationsTab {
+                    notifications
+                        .tabItem { notificationsLabel }
+                        .tag(MobilePrimaryTab.notifications)
+                        .badge(notificationUnreadCount)
+                }
+                cloud
+                    .tabItem { cloudLabel }
+                    .tag(MobilePrimaryTab.cloud)
             }
             .accessibilityIdentifier("MobilePrimaryTabs")
         }
@@ -101,11 +119,31 @@ struct MobilePrimaryTabScaffold<
         iOS26BottomControlInset + iOS26BottomControlDiameter + iOS26BottomControlSpacing
     }
 
+    @ViewBuilder
+    private var iOS26TaskComposerButton: some View {
+        if let taskComposerAction {
+            TaskComposerButton(
+                action: taskComposerAction,
+                diameter: iOS26BottomControlDiameter
+            )
+            .padding(.trailing, iOS26BottomControlInset)
+            .padding(.bottom, iOS26TaskComposerBottomPadding)
+            // Compose anchors to the screen, not the keyboard. The
+            // only keyboard that can appear while it is visible
+            // belongs to an overlaying sheet (the composer's
+            // auto-focused prompt), whose inset dragged the button
+            // toward mid-screen and stranded it there whenever the
+            // hide update was missed.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+        }
+    }
+
     private var tabSelection: Binding<MobilePrimaryTab> {
         Binding(
             get: { selection },
             set: { newValue in
-                if newValue.searchScope != nil {
+                if newValue != .search {
                     if searchCoordinator.isPresented {
                         // The round X returns selection to the previous tab
                         // while search is still presented; it cancels the
@@ -115,7 +153,19 @@ struct MobilePrimaryTabScaffold<
                         searchCoordinator.deactivateCurrentSearch()
                     }
                 }
-                selection = newValue
+                // Each primary tab owns a NavigationStack. Letting the
+                // selection write inherit SwiftUI's default animation makes
+                // UIKit animate the outgoing stack's toolbar away before the
+                // incoming stack has installed its own toolbar items. The
+                // resulting empty frame is the brief flash seen at the top
+                // while switching between Workspaces and Notifications.
+                // Keep the tab contents and their navigation state intact,
+                // but commit the stack swap as one layout transaction.
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    selection = newValue
+                }
             }
         )
     }
@@ -129,12 +179,34 @@ struct MobilePrimaryTabScaffold<
             workspacesLabel
         }
 
-        Tab(value: MobilePrimaryTab.notifications) {
-            notifications
+        Tab(value: MobilePrimaryTab.feed) {
+            feed
         } label: {
-            notificationsLabel
+            feedLabel
         }
-        .badge(notificationUnreadCount)
+        .badge(feedNeedsInputCount)
+
+        if showsNotificationsTab {
+            Tab(value: MobilePrimaryTab.notifications) {
+                notifications
+            } label: {
+                notificationsLabel
+            }
+            .badge(notificationUnreadCount)
+        }
+        Tab(value: MobilePrimaryTab.cloud) {
+            cloud
+        } label: {
+            cloudLabel
+        }
+    }
+
+    private var feedLabel: some View {
+        Label(
+            L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
+            systemImage: "waveform"
+        )
+        .accessibilityIdentifier("MobilePrimaryTabFeed")
     }
 
     private var workspacesLabel: some View {
@@ -151,6 +223,14 @@ struct MobilePrimaryTabScaffold<
             systemImage: "bell"
         )
         .accessibilityIdentifier("MobilePrimaryTabNotifications")
+    }
+
+    private var cloudLabel: some View {
+        Label(
+            L10n.string("mobile.tabs.cloud", defaultValue: "Cloud"),
+            systemImage: "cloud"
+        )
+        .accessibilityIdentifier("MobilePrimaryTabCloud")
     }
 }
 
