@@ -10,7 +10,16 @@ export type AcpmuxHostConfig = {
   sessionId?: string;
   /** A pane opened as a new chat: do not fall back to the most recent session; the first prompt creates one. */
   newSession?: boolean;
+  /** A new chat's working directory, inherited from the tab it was opened from. */
+  cwd?: string;
+  /** Text the composer starts with. Shown, never sent by itself. */
+  draft?: string;
 };
+
+/** `session/new` params: the host's cwd when it gave one, else acpmux's default. */
+export function newSessionParams(host: Pick<AcpmuxHostConfig, "cwd">, harness?: string): Record<string, unknown> {
+  return { ...(host.cwd ? { cwd: host.cwd } : {}), mcpServers: [], _meta: { acpmux: { harness } } };
+}
 
 export type EventRecord = { sessionId?: string; seq: number; at: number; dir: string; kind: string; msg: Record<string, any> };
 type Session = Record<string, any> & { sessionId: string };
@@ -531,7 +540,7 @@ export class AcpmuxDirectClient {
     await this.attach(sessionId, generation);
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
-  async create(harness?: string): Promise<string | undefined> { const result = await this.request("session/new", { mcpServers: [], _meta: { acpmux: { harness } } }); if (result?.sessionId) return this.select(String(result.sessionId)); return undefined; }
+  async create(harness?: string): Promise<string | undefined> { const result = await this.request("session/new", newSessionParams(this.host, harness)); if (result?.sessionId) return this.select(String(result.sessionId)); return undefined; }
   async setModel(modelId: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId }); }
   async setMode(modeId: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_mode", { sessionId: this.selectedSessionId, modeId }); }
   async setConfig(configId: string, value: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_config_option", { sessionId: this.selectedSessionId, configId, value }); }

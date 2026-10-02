@@ -5,6 +5,7 @@ import type { Token, Tokens } from "marked";
 import { applyAgentTheme } from "../shared/theme";
 import { diffRows, layoutConversation, markdownBlocks, paneHeader, placeRows, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
+import { seedComposer } from "./composerDraft";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { MockAcpmuxSocket, mockHost } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -387,7 +388,7 @@ function AcpmuxPane() {
     let reconnect = false;
     const connectHost = async () => {
       try {
-        const host = await callNative<{ protocolVersion: number; transport?: string; endpoint?: string; token?: string; sessionId?: string; newSession?: boolean }>("ready", reconnect ? { reconnect } : {});
+        const host = await callNative<{ protocolVersion: number; transport?: string; endpoint?: string; token?: string; sessionId?: string; newSession?: boolean; cwd?: string; draft?: string }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
@@ -423,6 +424,8 @@ function AcpmuxPane() {
           "chat.history": () => client.loadOlder(),
         };
         client.snapshot();
+        // A chat opened from another tab starts with what it inherited (#16620).
+        seedComposer(document.querySelector<HTMLTextAreaElement>(".acpmux-composer textarea[name=prompt]"), host.draft);
       } catch (error) {
         if (!cancelled) {
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));

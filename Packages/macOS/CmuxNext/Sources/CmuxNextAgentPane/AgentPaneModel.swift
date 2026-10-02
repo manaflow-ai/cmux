@@ -19,10 +19,13 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onFramePacing: (([Double]) -> Void)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
+    /// What a new chat inherits from the tab it was opened from.
+    @ObservationIgnored private let seed: AgentPaneSeedSource?
 
-    public init(host: any AgentPaneHostProviding, sessionId: String? = nil) {
+    public init(host: any AgentPaneHostProviding, sessionId: String? = nil, seed: AgentPaneSeedSource? = nil) {
         self.host = host
         self.sessionId = sessionId
+        self.seed = seed
     }
 
     /// The reply for one page request.
@@ -30,9 +33,14 @@ public final class AgentPaneModel {
         switch request {
         case .ready, .reconnect:
             do {
-                let handshake = request == .ready
+                var handshake = request == .ready
                     ? try await host.handshake(sessionId: sessionId)
                     : try await host.reconnectHandshake(sessionId: sessionId)
+                // Only a chat without a session yet starts from the seed.
+                if sessionId == nil, let seed = await seed?.take() {
+                    handshake.cwd = seed.cwd
+                    handshake.draft = seed.draft
+                }
                 lastError = nil
                 return AgentPaneReply.handshake(handshake)
             } catch {
