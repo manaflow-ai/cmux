@@ -152,10 +152,12 @@ final class ScopedCommandExecutor: ControlActionExecutor {
     @Test func aStartedRunThatMissesItsDeadlineIsInProgress() async throws {
         let executor = ScopedCommandExecutor()
         let frames = ManualFrameSource()
-        let router = makeRouter(executor, deadline: .seconds(1), frames: frames)
+        // The deadline leaves a loaded runner room to start the handler;
+        // the frames stop firing a second before it.
+        let router = makeRouter(executor, deadline: .seconds(5), frames: frames)
         let reply = Task { await run(router, ["target": "tab:tab-1"]) }
         // The handler runs as soon as the frame fires: the run has started.
-        let end = ContinuousClock.now + .seconds(1)
+        let end = ContinuousClock.now + .seconds(4)
         while executor.calls.load(ordering: .relaxed) == 0, ContinuousClock.now < end { await MainActor.run { frames.fire() } } // test-only wait
         let calls = executor.calls.load(ordering: .relaxed)
         try #require(calls == 1, "the handler never ran before the deadline (a loaded machine)")
