@@ -50,21 +50,40 @@ public final class SettingsWindowModel {
         return descriptor.effectiveValue(in: root)
     }
 
-    /// Whether the key is set in the file (pending edits included).
+    /// Whether the key is set in the user's file (pending edits included).
+    /// MDM recommended and team default values are not customizations.
     public func isCustomized(_ descriptor: SettingDescriptor) -> Bool {
+        if isManaged(descriptor) { return false }
         if let edit = pending[descriptor.id] { return edit != nil && edit != descriptor.defaultValue }
-        return descriptor.isCustomized(in: root)
+        return descriptor.isCustomized(in: settings.fileRoot)
+    }
+
+    /// Whether an MDM profile or the team policy manages the key; its control is disabled.
+    public func isManaged(_ descriptor: SettingDescriptor) -> Bool {
+        settings.managedSource(for: descriptor) != nil
+    }
+
+    /// "Managed by your organization" or "Managed by <team>", nil when the user decides.
+    public func managedNote(_ descriptor: SettingDescriptor) -> String? {
+        switch settings.managedSource(for: descriptor) {
+        case nil: nil
+        case .device?: SettingsWindowStrings.managedByOrganization
+        case .team(let name)?: name.isEmpty ? SettingsWindowStrings.managedByOrganization : SettingsWindowStrings.managedByTeam(name)
+        }
     }
 
     /// The load diagnostic for this key, when the file holds a bad value.
+    /// A managed key shows its managed note instead.
     public func diagnostic(_ descriptor: SettingDescriptor) -> String? {
-        settings.diagnostics.first { $0.path == descriptor.id || $0.path.hasPrefix(descriptor.id + ".") }?.message
+        if isManaged(descriptor) { return nil }
+        return settings.diagnostics.first { $0.path == descriptor.id || $0.path.hasPrefix(descriptor.id + ".") }?.message
     }
 
     /// Writes `value` (nil resets the key). Bursts (a slider drag, the color
     /// panel) coalesce: one write runs at a time per key and the next one
     /// takes the latest value, so the file sees at most one stale write.
     public func set(_ descriptor: SettingDescriptor, _ value: JSONValue?) {
+        guard !isManaged(descriptor) else { return }
         pending[descriptor.id] = .some(value)
         latest[descriptor.id] = .some(value)
         guard !writing.contains(descriptor.id) else { return }
