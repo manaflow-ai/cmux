@@ -1,9 +1,9 @@
 {
   "meta": {
     "backend": "cmux",
-    "recordedAt": "2026-09-30T18:07:52.365Z",
-    "tag": "brepl-par3",
-    "sha": "b39ead7710c5840776540e2cef55ee70f4f1e094"
+    "recordedAt": "2026-10-02T03:52:27.727Z",
+    "tag": "brepl-in2",
+    "sha": "0a2c79e2cebb8b187ec2ad2d893535ee59a1961d"
   },
   "cases": {
     "tabs.open-current": {
@@ -12,7 +12,7 @@
         "url": "<primary>/diff/lab.html",
         "title": "Diff lab"
       },
-      "ms": 302
+      "ms": 404
     },
     "tabs.list-get": {
       "value": {
@@ -35,7 +35,7 @@
           "name": "Error"
         }
       },
-      "ms": 530
+      "ms": 685
     },
     "tabs.attach": {
       "value": {
@@ -48,7 +48,7 @@
           "name": "Error"
         }
       },
-      "ms": 530
+      "ms": 751
     },
     "tabs.open-errors": {
       "value": {
@@ -58,7 +58,7 @@
         },
         "session": "string"
       },
-      "ms": 67
+      "ms": 114
     },
     "session.name-docs": {
       "value": {
@@ -69,13 +69,13 @@
           "value": " "
         }
       },
-      "ms": 274
+      "ms": 436
     },
     "tabs.keep-deliverable": {
       "value": {
         "kept": true
       },
-      "ms": 351
+      "ms": 507
     },
     "snapshot.full": {
       "value": {
@@ -86,7 +86,7 @@
         "typed": true,
         "clicked": "clicked"
       },
-      "ms": 327
+      "ms": 445
     },
     "snapshot.interactive": {
       "value": {
@@ -94,14 +94,14 @@
         "listText": false,
         "smaller": true
       },
-      "ms": 297
+      "ms": 395
     },
     "snapshot.show-hidden": {
       "value": {
         "plain": false,
         "all": true
       },
-      "ms": 343
+      "ms": 471
     },
     "snapshot.scoped": {
       "value": {
@@ -114,7 +114,7 @@
           "name": "Error"
         }
       },
-      "ms": 361
+      "ms": 456
     },
     "snapshot.diff": {
       "value": {
@@ -122,7 +122,7 @@
         "diffShort": true,
         "printed": true
       },
-      "ms": 414
+      "ms": 546
     },
     "snapshot.ax-get-modes": {
       "value": {
@@ -130,7 +130,7 @@
         "state": true,
         "both": true
       },
-      "ms": 347
+      "ms": 411
     },
     "snapshot.ax-errors": {
       "value": {
@@ -147,14 +147,14 @@
           "name": "Error"
         }
       },
-      "ms": 312
+      "ms": 402
     },
     "screenshot.annotated": {
       "value": {
         "image": true,
         "differs": true
       },
-      "ms": 360
+      "ms": 563
     },
     "element-at": {
       "value": {
@@ -162,7 +162,7 @@
         "name": "Action",
         "ref": true
       },
-      "ms": 284
+      "ms": 388
     },
     "fetch.cookies": {
       "value": {
@@ -184,7 +184,7 @@
         "post": "POST",
         "missing": 404
       },
-      "ms": 306
+      "ms": 377
     },
     "node.fs-path-buffer": {
       "value": {
@@ -200,7 +200,7 @@
           "name": "Error"
         }
       },
-      "ms": 58
+      "ms": 78
     },
     "print.display-console": {
       "value": {
@@ -208,7 +208,7 @@
         "display": true,
         "autoPrint": true
       },
-      "ms": 54
+      "ms": 81
     },
     "page.goto.basic": {
       "value": {
@@ -217,7 +217,7 @@
         "status": 200,
         "ok": true
       },
-      "ms": 359
+      "ms": 419
     },
     "page.goto.wait-until": {
       "value": {
@@ -238,17 +238,17 @@
           "name": "Error"
         }
       },
-      "ms": 2151
+      "ms": 2385
     },
     "page.goto.timeout": {
       "value": {
         "slow": {
-          "ms": 634,
+          "ms": 614,
           "error": "Timeout 600ms exceeded while navigating to \"<primary>/slow?ms=4000\"",
           "name": "Error"
         }
       },
-      "ms": 891
+      "ms": 957
     },
     "page.goto.errors": {
       "value": {
@@ -261,7 +261,7 @@
           "name": "Error"
         }
       },
-      "ms": 346
+      "ms": 402
     },
     "page.reload": {
       "value": {
@@ -269,7 +269,7 @@
         "after": "Count 0",
         "status": 200
       },
-      "ms": 442
+      "ms": 450
     },
     "page.reload.options": {
       "value": {
@@ -277,7 +277,7 @@
         "b": true,
         "title": "Diff lab"
       },
-      "ms": 379
+      "ms": 442
     },
     "page.back-forward": {
       "value": {
@@ -286,7 +286,7 @@
         "title": "Next page",
         "backStatus": 200
       },
-      "ms": 518
+      "ms": 696
     },
     "page.back-forward.no-entry": {
       "value": {
@@ -294,7 +294,7 @@
         "forward": null,
         "url": "<primary>/diff/lab.html"
       },
-      "ms": 272
+      "ms": 379
     },
     "page.url-title.push-state": {
       "value": {
@@ -307,7 +307,7 @@
           "Diff lab pushed"
         ]
       },
-      "ms": 360
+      "ms": 568
     },
     "page.content": {
       "value": {
@@ -316,7 +316,7 @@
         "frameText": true,
         "typedValue": null
       },
-      "ms": 253
+      "ms": 396
     },
     "page.evaluate.forms": {
       "value": {
@@ -338,20 +338,20 @@
           "name": "Error"
         }
       },
-      "ms": 339
+      "ms": 454
     },
     "page.evaluate.mutation": {
       "value": {
         "set": "ok",
         "status": "set by evaluate"
       },
-      "ms": 270
+      "ms": 455
     },
     "page.evaluate.options": {
       "value": {
         "withArg": 2
       },
-      "ms": 289
+      "ms": 369
     },
     "page.query.dollar": {
       "value": {
@@ -369,7 +369,7 @@
           "name": "Error"
         }
       },
-      "ms": 302
+      "ms": 368
     },
     "page.getters.page-level": {
       "value": {
@@ -386,7 +386,7 @@
         "placeholder": 1,
         "testId": 3
       },
-      "ms": 300
+      "ms": 433
     },
     "page.getters.errors": {
       "value": {
@@ -411,7 +411,7 @@
           "name": "Error"
         }
       },
-      "ms": 270
+      "ms": 404
     },
     "page.frame-locator": {
       "value": {
@@ -421,13 +421,13 @@
         "text": 1,
         "regex": 1
       },
-      "ms": 381
+      "ms": 740
     },
     "page.frame-locator.nested": {
       "value": {
         "text": "deep clicked"
       },
-      "ms": 364
+      "ms": 457
     },
     "page.frames": {
       "value": {
@@ -435,7 +435,7 @@
         "mainUrl": "<primary>/diff/lab.html",
         "child": true
       },
-      "ms": 269
+      "ms": 370
     },
     "page.click-fill": {
       "value": {
@@ -446,7 +446,7 @@
           "name": "TimeoutError"
         }
       },
-      "ms": 636
+      "ms": 763
     },
     "page.screenshot.forms": {
       "value": {
@@ -460,7 +460,7 @@
           "height": 800
         }
       },
-      "ms": 397
+      "ms": 493
     },
     "page.screenshot.errors": {
       "value": {
@@ -473,7 +473,7 @@
           "name": "Error"
         }
       },
-      "ms": 276
+      "ms": 367
     },
     "page.pdf": {
       "value": {
@@ -481,7 +481,7 @@
         "a4": "%PDF-",
         "bigger": true
       },
-      "ms": 433
+      "ms": 391
     },
     "page.wait-for-selector": {
       "value": {
@@ -490,12 +490,12 @@
         "attached": true,
         "detached": true,
         "timeout": {
-          "ms": 406,
+          "ms": 403,
           "error": "locator.waitFor: Timeout 400ms exceeded.\n  - waiting for locator('#missing') to be visible",
           "name": "TimeoutError"
         }
       },
-      "ms": 1561
+      "ms": 1612
     },
     "page.wait-for-load-state": {
       "value": {
@@ -507,7 +507,7 @@
           "name": "Error"
         }
       },
-      "ms": 286
+      "ms": 339
     },
     "page.wait-for-url": {
       "value": {
@@ -517,12 +517,12 @@
         "fn": true,
         "opts": true,
         "never": {
-          "ms": 403,
+          "ms": 405,
           "error": "page.waitForURL: Timeout 400ms exceeded.\n  - waiting for navigation to \"<primary>/never\"",
           "name": "TimeoutError"
         }
       },
-      "ms": 816
+      "ms": 2879
     },
     "page.wait-for-timeout": {
       "value": {
@@ -533,7 +533,7 @@
           "name": "Error"
         }
       },
-      "ms": 886
+      "ms": 981
     },
     "page.wait-for-event.popup-console": {
       "value": {
@@ -543,7 +543,7 @@
           "lab log 42"
         ]
       },
-      "ms": 881
+      "ms": 1040
     },
     "page.wait-for-event.errors": {
       "value": {
@@ -552,12 +552,12 @@
           "name": "TimeoutError"
         },
         "none": {
-          "ms": 313,
+          "ms": 304,
           "error": "page.waitForEvent: Timeout 300ms exceeded while waiting for event \"filechooser\"",
           "name": "TimeoutError"
         }
       },
-      "ms": 804
+      "ms": 885
     },
     "page.on-off": {
       "value": {
@@ -567,7 +567,7 @@
           "error:lab error"
         ]
       },
-      "ms": 802
+      "ms": 891
     },
     "page.viewport": {
       "value": {
@@ -581,14 +581,14 @@
           "height": 500
         }
       },
-      "ms": 310
+      "ms": 400
     },
     "page.bring-to-front": {
       "value": {
         "ok": true,
         "visible": "visible"
       },
-      "ms": 367
+      "ms": 447
     },
     "page.close": {
       "value": {
@@ -599,20 +599,20 @@
           "name": "Error"
         }
       },
-      "ms": 359
+      "ms": 417
     },
     "page.video": {
       "value": {
         "recording": false
       },
-      "ms": 319
+      "ms": 349
     },
     "page.keyboard-mouse-objects": {
       "value": {
         "canvas": 1,
         "keys": "hi"
       },
-      "ms": 316
+      "ms": 479
     },
     "loc.click.options": {
       "value": {
@@ -925,7 +925,7 @@
           ]
         ]
       },
-      "ms": 947
+      "ms": 1031
     },
     "loc.dblclick.options": {
       "value": {
@@ -1598,7 +1598,7 @@
           ]
         ]
       },
-      "ms": 943
+      "ms": 1160
     },
     "loc.click.more-options": {
       "value": {
@@ -1672,7 +1672,7 @@
         "trial": [],
         "noWaitAfter": 3
       },
-      "ms": 891
+      "ms": 1029
     },
     "loc.check.options": {
       "value": {
@@ -1695,7 +1695,7 @@
           "name": "Error"
         }
       },
-      "ms": 744
+      "ms": 919
     },
     "loc.timeout-options": {
       "value": {
@@ -1712,7 +1712,7 @@
         "items": 3,
         "itemsWithArg": 4
       },
-      "ms": 330
+      "ms": 461
     },
     "loc.errors.missing": {
       "value": {
@@ -1773,7 +1773,7 @@
           "name": "TimeoutError"
         }
       },
-      "ms": 4517
+      "ms": 4588
     },
     "loc.errors.evaluate": {
       "value": {
@@ -1795,7 +1795,7 @@
         },
         "emptyAll": 0
       },
-      "ms": 291
+      "ms": 372
     },
     "loc.failure-kinds": {
       "value": {
@@ -1840,7 +1840,7 @@
           "name": "Error"
         }
       },
-      "ms": 3503
+      "ms": 3585
     },
     "loc.composition-errors": {
       "value": {
@@ -1885,7 +1885,7 @@
           "name": "Error"
         }
       },
-      "ms": 298
+      "ms": 443
     },
     "loc.filter-options": {
       "value": {
@@ -1903,7 +1903,7 @@
         "lHasNotText": 2,
         "lHasNotTextRe": 2
       },
-      "ms": 297
+      "ms": 379
     },
     "loc.regexp-getters": {
       "value": {
@@ -1936,7 +1936,7 @@
           1
         ]
       },
-      "ms": 300
+      "ms": 401
     },
     "loc.select-option.forms": {
       "value": {
@@ -1969,7 +1969,7 @@
           "name": "Error"
         }
       },
-      "ms": 300
+      "ms": 441
     },
     "loc.wait-for.states": {
       "value": {
@@ -1984,7 +1984,7 @@
           "name": "Error"
         }
       },
-      "ms": 1423
+      "ms": 1650
     },
     "loc.fill.forms": {
       "value": {
@@ -2002,7 +2002,7 @@
           "name": "Error"
         }
       },
-      "ms": 315
+      "ms": 428
     },
     "loc.typing": {
       "value": {
@@ -2026,14 +2026,14 @@
           "name": "Error"
         }
       },
-      "ms": 951
+      "ms": 1065
     },
     "loc.hover": {
       "value": {
         "status": "menu picked",
         "enter": true
       },
-      "ms": 685
+      "ms": 811
     },
     "loc.focus-blur": {
       "value": {
@@ -2044,7 +2044,7 @@
           "blur"
         ]
       },
-      "ms": 260
+      "ms": 367
     },
     "loc.set-input-files": {
       "value": {
@@ -2060,7 +2060,7 @@
           "name": "Error"
         }
       },
-      "ms": 283
+      "ms": 403
     },
     "loc.drag-to": {
       "value": {
@@ -2073,13 +2073,13 @@
           "dragend:true"
         ]
       },
-      "ms": 331
+      "ms": 460
     },
     "loc.drag-to.ax": {
       "value": {
         "drop": "dropped payload"
       },
-      "ms": 338
+      "ms": 451
     },
     "loc.tap": {
       "value": {
@@ -2088,7 +2088,7 @@
         },
         "status": "clicked"
       },
-      "ms": 455
+      "ms": 443
     },
     "loc.scroll-into-view": {
       "value": {
@@ -2096,7 +2096,7 @@
         "inView": true,
         "hiddenBox": null
       },
-      "ms": 298
+      "ms": 370
     },
     "loc.screenshot": {
       "value": {
@@ -2107,7 +2107,7 @@
           "name": "TimeoutError"
         }
       },
-      "ms": 683
+      "ms": 847
     },
     "loc.reads": {
       "value": {
@@ -2130,7 +2130,7 @@
           "Third"
         ]
       },
-      "ms": 290
+      "ms": 390
     },
     "loc.states": {
       "value": {
@@ -2170,7 +2170,7 @@
           "name": "TimeoutError"
         }
       },
-      "ms": 648
+      "ms": 896
     },
     "loc.collections": {
       "value": {
@@ -2188,7 +2188,7 @@
         "nthOut": 0,
         "none": 0
       },
-      "ms": 298
+      "ms": 387
     },
     "loc.and-or": {
       "value": {
@@ -2197,7 +2197,7 @@
         "or": 2,
         "orText": "Second"
       },
-      "ms": 269
+      "ms": 398
     },
     "loc.scoped-getters": {
       "value": {
@@ -2209,7 +2209,7 @@
         "chained": "Third",
         "outside": 0
       },
-      "ms": 285
+      "ms": 432
     },
     "loc.evaluate": {
       "value": {
@@ -2220,7 +2220,7 @@
         "all": "First|Second|Third",
         "shadow": true
       },
-      "ms": 313
+      "ms": 531
     },
     "loc.dispatch-event": {
       "value": {
@@ -2229,7 +2229,7 @@
           false
         ]
       },
-      "ms": 272
+      "ms": 483
     },
     "loc.download-media": {
       "value": {
@@ -2240,11 +2240,11 @@
           "name": "TimeoutError"
         }
       },
-      "ms": 665
+      "ms": 986
     },
     "keyboard.members": {
       "value": {
-        "value": "abCD\u00e9",
+        "value": "abCDé",
         "keys": [
           [
             "a",
@@ -2298,7 +2298,7 @@
         ],
         "trusted": true
       },
-      "ms": 391
+      "ms": 525
     },
     "keyboard.errors": {
       "value": {
@@ -2315,7 +2315,7 @@
           "name": "Error"
         }
       },
-      "ms": 261
+      "ms": 564
     },
     "keyboard.shortcuts": {
       "value": {
@@ -2325,13 +2325,13 @@
           "a,false,false,true,false",
           "Alt,true,false,false,false",
           "Shift,true,false,false,true",
-          "\uf8ff,true,false,false,true",
+          ",true,false,false,true",
           "Control,false,true,false,false",
           "Shift,false,true,false,true",
           "ArrowLeft,false,true,false,true"
         ]
       },
-      "ms": 327
+      "ms": 911
     },
     "mouse.members": {
       "value": {
@@ -2342,7 +2342,7 @@
         "wheel": true,
         "trusted": true
       },
-      "ms": 925
+      "ms": 740
     },
     "cua.options": {
       "value": {
@@ -2370,14 +2370,14 @@
           }
         }
       },
-      "ms": 299
+      "ms": 388
     },
     "cua.download-media": {
       "value": {
         "name": "cd-a.txt",
         "body": "cd body a\n"
       },
-      "ms": 310
+      "ms": 541
     },
     "dom-cua.forms": {
       "value": {
@@ -2390,7 +2390,7 @@
           "name": "Error"
         }
       },
-      "ms": 783
+      "ms": 891
     },
     "ax.click-forms": {
       "value": {
@@ -2400,7 +2400,7 @@
         "right": 1,
         "middle": 2
       },
-      "ms": 568
+      "ms": 696
     },
     "ax.text-forms": {
       "value": {
@@ -2435,14 +2435,14 @@
           3
         ]
       },
-      "ms": 337
+      "ms": 459
     },
     "ax.scroll-forms": {
       "value": {
         "inner": true,
         "page": true
       },
-      "ms": 1109
+      "ms": 1676
     },
     "ax.secondary-action": {
       "value": {
@@ -2452,7 +2452,7 @@
           "name": "Error"
         }
       },
-      "ms": 393
+      "ms": 452
     },
     "clipboard.members": {
       "value": {
@@ -2468,7 +2468,7 @@
           "name": "Error"
         }
       },
-      "ms": 384
+      "ms": 374
     },
     "dev.logs": {
       "value": {
@@ -2499,7 +2499,7 @@
           "name": "Error"
         }
       },
-      "ms": 503
+      "ms": 1015
     },
     "dialogs.held": {
       "value": {
@@ -2519,7 +2519,7 @@
         "prompted": "prompt typed",
         "promptDismissed": "prompt null"
       },
-      "ms": 701
+      "ms": 697
     },
     "dialogs.errors": {
       "value": {
@@ -2533,14 +2533,14 @@
         },
         "result": "prompt null"
       },
-      "ms": 333
+      "ms": 379
     },
     "dialogs.snapshot-blocked": {
       "value": {
         "shows": true,
         "title": "Dialogs Fixture"
       },
-      "ms": 349
+      "ms": 382
     },
     "dialogs.beforeunload": {
       "value": {
@@ -2548,7 +2548,7 @@
         "stayed": false,
         "_onClose": null
       },
-      "ms": 3839
+      "ms": 3921
     },
     "filechooser.event": {
       "value": {
@@ -2557,7 +2557,7 @@
         "heldMultiple": true,
         "shown": true,
         "none": {
-          "ms": 314,
+          "ms": 305,
           "error": "page.waitForEvent: Timeout 300ms exceeded while waiting for event \"filechooser\"",
           "name": "TimeoutError"
         },
@@ -2566,14 +2566,14 @@
           "name": "Error"
         }
       },
-      "ms": 722
+      "ms": 798
     },
     "navigation.expect": {
       "value": {
         "value": "navigated",
         "title": "Next page",
         "stay": {
-          "ms": 301,
+          "ms": 300,
           "error": "page.waitForURL: Timeout 300ms exceeded.\n  - waiting for navigation to \"**/next.html\"",
           "name": "TimeoutError"
         },
@@ -2583,7 +2583,7 @@
         },
         "after": "Next page"
       },
-      "ms": 3782
+      "ms": 1966
     },
     "content.export": {
       "value": {
@@ -2592,7 +2592,7 @@
           "hasHeading": true
         }
       },
-      "ms": 274
+      "ms": 483
     },
     "content.export-site": {
       "value": {
@@ -2609,7 +2609,7 @@
           "name": "Error"
         }
       },
-      "ms": 265
+      "ms": 538
     },
     "tabs.content": {
       "value": {
@@ -2632,7 +2632,7 @@
           "name": "Error"
         }
       },
-      "ms": 855
+      "ms": 1426
     },
     "browser.history": {
       "value": {
@@ -2654,7 +2654,7 @@
           "name": "Error"
         }
       },
-      "ms": 369
+      "ms": 616
     },
     "browser.capabilities": {
       "value": {
@@ -2663,7 +2663,7 @@
           "name": "TypeError"
         }
       },
-      "ms": 272
+      "ms": 439
     },
     "edge.auth-basic": {
       "value": {
@@ -2672,10 +2672,10 @@
           401,
           "401 basic"
         ],
-        "noCredsMs": 225,
+        "noCredsMs": 399,
         "withCreds": "Authed as parity"
       },
-      "ms": 330
+      "ms": 690
     },
     "edge.auth-digest": {
       "value": {
@@ -2686,31 +2686,31 @@
         ],
         "withCreds": "Digest authed as parity"
       },
-      "ms": 332
+      "ms": 543
     },
     "edge.permission-geolocation": {
       "value": {
         "result": "error 1",
-        "settledMs": 62,
+        "settledMs": 98,
         "dialog": false
       },
-      "ms": 328
+      "ms": 459
     },
     "edge.permission-notifications": {
       "value": {
         "result": "result denied",
-        "settledMs": 65,
+        "settledMs": 78,
         "dialog": false
       },
-      "ms": 330
+      "ms": 555
     },
     "edge.permission-camera": {
       "value": {
         "result": "error NotAllowedError",
-        "settledMs": 3895,
+        "settledMs": 3882,
         "dialog": false
       },
-      "ms": 4153
+      "ms": 4340
     },
     "edge.permission-clipboard-read": {
       "value": {
@@ -2718,16 +2718,16 @@
         "settledMs": 61,
         "dialog": false
       },
-      "ms": 474
+      "ms": 618
     },
     "edge.tls-self-signed": {
       "value": {
         "nav": {
-          "error": "The certificate for this server is invalid. You might be connecting to a server that is pretending to be \u201c127.0.0.1\u201d which could put your confidential information at risk. at <tls>/diff/next.html"
+          "error": "The certificate for this server is invalid. You might be connecting to a server that is pretending to be “127.0.0.1” which could put your confidential information at risk. at <tls>/diff/next.html"
         },
-        "ms": 322
+        "ms": 410
       },
-      "ms": 377
+      "ms": 537
     },
     "edge.nav-dns": {
       "value": {
@@ -2736,16 +2736,16 @@
         },
         "url": "<primary>/diff/lab.html"
       },
-      "ms": 365
+      "ms": 547
     },
     "edge.nav-refused": {
       "value": {
         "nav": {
           "error": "Could not connect to the server. at <refused>/"
         },
-        "ms": 38
+        "ms": 42
       },
-      "ms": 316
+      "ms": 430
     },
     "edge.nav-http-errors": {
       "value": {
@@ -2755,7 +2755,7 @@
         "t500": "Broken",
         "ok": false
       },
-      "ms": 443
+      "ms": 566
     },
     "edge.nav-aborted": {
       "value": {
@@ -2765,38 +2765,38 @@
         "url": "<primary>/diff/next.html",
         "title": "Next page"
       },
-      "ms": 559
+      "ms": 630
     },
     "edge.nav-redirect-loop": {
       "value": {
         "loop": {
           "error": "too many HTTP redirects at <primary>/redirect-loop"
         },
-        "loopMs": 63,
+        "loopMs": 109,
         "redirected": "<primary>/diff/next.html"
       },
-      "ms": 412
+      "ms": 603
     },
     "edge.download-blob": {
       "value": {
         "name": "blob.txt",
         "body": "blob body\n"
       },
-      "ms": 345
+      "ms": 562
     },
     "edge.download-data": {
       "value": {
         "name": "data.txt",
         "body": "data body\n"
       },
-      "ms": 333
+      "ms": 456
     },
     "edge.download-cd": {
       "value": {
         "name": "cd-a.txt",
         "body": "cd body a\n"
       },
-      "ms": 430
+      "ms": 520
     },
     "edge.download-post": {
       "value": {
@@ -2804,7 +2804,7 @@
         "body": "name,value\nq,posted\n",
         "url": "<primary>/diff/files.html"
       },
-      "ms": 378
+      "ms": 538
     },
     "edge.download-concurrent": {
       "value": {
@@ -2819,13 +2819,13 @@
           ]
         ]
       },
-      "ms": 2071
+      "ms": 2193
     },
     "edge.file-drop": {
       "value": {
         "result": "dropzone: drop.txt(dropped body)"
       },
-      "ms": 291
+      "ms": 495
     },
     "edge.input-types": {
       "value": {
@@ -2842,7 +2842,7 @@
         "accept": "parity.png",
         "acceptOther": "parity-upload.txt"
       },
-      "ms": 335
+      "ms": 573
     },
     "edge.contenteditable-bold": {
       "value": {
@@ -2850,25 +2850,27 @@
         "bolded": "alpha beta gamma end",
         "text": "alpha beta gamma end"
       },
-      "ms": 430
+      "ms": 616
     },
     "edge.typing-unicode": {
       "value": {
-        "input": "h\u00e9llo w\u00f6rld \ud83d\ude00 \u4e2d\u6587 \ud83d\udc69\u200d\ud83d\udc69\u200d\ud83d\udc67",
-        "rich": "h\u00e9llo w\u00f6rld \ud83d\ude00 \u4e2d\u6587 \ud83d\udc69\u200d\ud83d\udc69\u200d\ud83d\udc67"
+        "input": "héllo wörld 😀 中文 👩‍👩‍👧",
+        "rich": "héllo wörld 😀 中文 👩‍👩‍👧"
       },
-      "ms": 404
+      "ms": 750
     },
     "edge.composition": {
       "value": {
-        "text": "\u65e5\u672c\u8a9e",
+        "text": "日本語",
         "inputTypes": [
           "deleteContentBackward",
-          "insertText"
+          "insertCompositionText",
+          "deleteCompositionText",
+          "insertFromComposition"
         ],
         "trusted": true
       },
-      "ms": 287
+      "ms": 510
     },
     "edge.nested-scroll": {
       "value": {
@@ -2876,14 +2878,14 @@
         "inner": true,
         "outer": true
       },
-      "ms": 413
+      "ms": 553
     },
     "edge.infinite-scroll": {
       "value": {
         "many": true,
         "last": 1
       },
-      "ms": 2509
+      "ms": 2562
     },
     "edge.iframe-sandboxed": {
       "value": {
@@ -2891,20 +2893,20 @@
         "csp": "csp clicked",
         "inertText": true
       },
-      "ms": 436
+      "ms": 626
     },
     "edge.iframe-srcdoc": {
       "value": {
         "text": "frame clicked"
       },
-      "ms": 348
+      "ms": 651
     },
     "edge.iframe-navigation": {
       "value": {
         "heading": "Next page",
         "inSnapshot": true
       },
-      "ms": 399
+      "ms": 706
     },
     "edge.window-open": {
       "value": {
@@ -2913,7 +2915,7 @@
         "opener2": "opener null",
         "listedAfter": 0
       },
-      "ms": 1015
+      "ms": 1381
     },
     "edge.alert-during-navigation": {
       "value": {
@@ -2924,7 +2926,7 @@
         "nav": "loaded",
         "after": "after alert"
       },
-      "ms": 381
+      "ms": 520
     },
     "edge.spa-route-wait": {
       "value": {
@@ -2935,20 +2937,20 @@
           "Linus"
         ]
       },
-      "ms": 1148
+      "ms": 1411
     },
     "edge.service-worker": {
       "value": {
         "state": "controlled",
         "out": "from service worker"
       },
-      "ms": 658
+      "ms": 688
     },
     "edge.websocket": {
       "value": {
         "out": "echo:hi"
       },
-      "ms": 331
+      "ms": 646
     },
     "edge.cookies-flags": {
       "value": {
@@ -2963,7 +2965,7 @@
           "strict"
         ]
       },
-      "ms": 393
+      "ms": 748
     },
     "edge.cookies-subdomain": {
       "value": {
@@ -2972,41 +2974,41 @@
         ],
         "other": []
       },
-      "ms": 739
+      "ms": 2931
     },
     "edge.storage-isolation": {
       "value": {
         "a": "ls=L ss=S",
         "b": "ls=L ss=null"
       },
-      "ms": 650
+      "ms": 1062
     },
     "edge.slow-load": {
       "value": {
         "title": "Slow",
-        "ms": 3062,
+        "ms": 3072,
         "ok": true
       },
-      "ms": 3403
+      "ms": 3717
     },
     "edge.never-finishing-load": {
       "value": {
         "dcl": "ok",
         "text": "pressed",
         "load": {
-          "error": "Timeout 1440ms exceeded while waiting for load"
+          "error": "Timeout 1420ms exceeded while waiting for load"
         },
-        "loadMs": 1521
+        "loadMs": 1511
       },
-      "ms": 1910
+      "ms": 2052
     },
     "edge.main-thread-blocked": {
       "value": {
         "read": "unblocked",
-        "readMs": 1,
+        "readMs": 2,
         "after": "after clicked"
       },
-      "ms": 2887
+      "ms": 2993
     },
     "edge.stale-ref": {
       "value": {
@@ -3016,7 +3018,7 @@
         "ms": 2,
         "status": "ready"
       },
-      "ms": 436
+      "ms": 735
     },
     "edge.detached-mid-click": {
       "value": {
@@ -3025,7 +3027,7 @@
         "vanish": "clicked",
         "gone": 0
       },
-      "ms": 411
+      "ms": 564
     },
     "edge.overlay-intercepts": {
       "value": {
@@ -3035,7 +3037,7 @@
         "out1": "idle",
         "out2": "under clicked"
       },
-      "ms": 1216
+      "ms": 1389
     },
     "edge.zoom-scale": {
       "value": {
@@ -3043,7 +3045,7 @@
         "zoomed": "zoom clicked",
         "clipPx": true
       },
-      "ms": 417
+      "ms": 833
     },
     "edge.large-page": {
       "value": {
@@ -3051,7 +3053,7 @@
         "picked": "picked 4321",
         "count": 5000
       },
-      "ms": 698
+      "ms": 1135
     },
     "tabs.claim-other-workspace": {
       "value": {
@@ -3060,7 +3062,7 @@
         "otherWorkspace": true,
         "count": "Count 1"
       },
-      "ms": 315
+      "ms": 510
     },
     "edge.sessions-two-tabs": {
       "value": {
@@ -3078,7 +3080,7 @@
           null
         ]
       },
-      "ms": 837
+      "ms": 1063
     },
     "edge.sessions-same-tab": {
       "value": {
@@ -3090,7 +3092,7 @@
           "error": "Target page, context or browser has been closed"
         }
       },
-      "ms": 745
+      "ms": 1407
     },
     "edge.web-process-crash": {
       "value": {
@@ -3101,7 +3103,61 @@
         },
         "recovered": "Count 1"
       },
-      "ms": 685
+      "ms": 1243
+    },
+    "edge.ime-only-editor": {
+      "value": {
+        "committed": "alpha",
+        "strict": "gamma",
+        "trusted": true
+      },
+      "ms": 567
+    },
+    "edge.trusted-paste": {
+      "value": {
+        "paste": {
+          "text": "beta",
+          "bold": true,
+          "types": [
+            "text/html",
+            "text/plain"
+          ]
+        },
+        "committed": "beta",
+        "copied": "ab"
+      },
+      "ms": 624
+    },
+    "edge.context-options": {
+      "value": {
+        "configured": {
+          "userAgent": "cmux-parity-agent/1.0",
+          "extraHTTPHeaders": {
+            "X-Parity": "on"
+          },
+          "permissions": [
+            "notifications"
+          ]
+        },
+        "nav": {
+          "userAgent": "cmux-parity-agent/1.0",
+          "parity": "on"
+        },
+        "asset": {
+          "userAgent": "cmux-parity-agent/1.0",
+          "parity": null
+        },
+        "ua": "cmux-parity-agent/1.0",
+        "notify": "granted",
+        "camera": "NotAllowedError",
+        "after": {
+          "userAgent": "restored",
+          "parity": null
+        },
+        "proxiedTitle": "Next page",
+        "proxied": "through the proxy"
+      },
+      "ms": 1171
     }
   }
 }

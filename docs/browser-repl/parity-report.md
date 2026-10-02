@@ -14,16 +14,16 @@ and any member without a same or better case.
 
 - Aside: 1.26.916.1741, recorded 2026-09-30T14:00:25.952Z.
 - ChatGPT for Chrome: reference runtime of the installed ChatGPT app, AX and legacy modes, recorded 2026-09-30T14:01:09.330Z.
-- cmux app: tagged build `brepl-par3` at b39ead7710, recorded 2026-09-30T18:07:52.365Z; 156 of 156 verdicts use the app's result.
+- cmux app: tagged build `brepl-in2` at 0a2c79e2ce, recorded 2026-10-02T03:52:27.727Z; 159 of 159 verdicts use the app's result.
 
 ## Totals
 
-156 cases. cmux misses its own expectation in 1.
+159 cases. cmux misses its own expectation in 1.
 
 | Reference | same | cmux-better | cmux-worse | not-applicable | out-of-scope | not-run |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Aside | 73 | 52 | 0 | 26 | 5 | 0 |
-| ChatGPT for Chrome | 84 | 49 | 0 | 16 | 7 | 0 |
+| Aside | 73 | 52 | 0 | 26 | 8 | 0 |
+| ChatGPT for Chrome | 84 | 49 | 0 | 16 | 10 | 0 |
 
 Verdicts: **same** (normalized outcomes equal), **better** (they differ and the
 case's stated reason holds on the recorded outcomes), **WORSE** (a gap),
@@ -460,11 +460,14 @@ non-loopback host for Aside, a process kill or a person's click).
 | `edge.overlay-intercepts` | edge:overlay-intercepts | cmux | better | better |
 | `edge.zoom-scale` | edge:zoomed-page, edge:device-scale | cmux | same | same |
 | `edge.large-page` | edge:large-page | cmux | same | better |
+| `edge.ime-only-editor` | edge:ime-only-editor | cmux | scope | scope |
+| `edge.trusted-paste` | edge:trusted-paste | cmux | scope | scope |
 | `tabs.claim-other-workspace` | BrowserUser.claimTab, BrowserUser.openTabs | cmux | n/a | same |
 | `edge.sessions-two-tabs` | edge:sessions-two-tabs | cmux | same | scope |
 | `edge.sessions-same-tab` | edge:sessions-same-tab | cmux | n/a | n/a |
 | `edge.web-process-crash` | edge:web-process-crash | cmux | scope | scope |
 | `edge.user-click-while-driving` | edge:user-click-while-driving | cmux FAILS | scope | scope |
+| `edge.context-options` | edge:context-options | cmux | scope | scope |
 
 ## Why cmux is better
 
@@ -606,10 +609,13 @@ non-loopback host for Aside, a process kill or a person's click).
 - `browser.capabilities` (n/a): Aside exposes no raw protocol.
 - `edge.nav-dns` (scope): not a loopback fixture page (the Aside run is limited to localhost fixtures).
 - `edge.cookies-subdomain` (scope): not a loopback fixture page (the Aside run is limited to localhost fixtures).
+- `edge.ime-only-editor` (scope): reproduces WebKit's editing path; Chrome's editor accepts an IME commit without a composition.
+- `edge.trusted-paste` (scope): Aside's paste reads the system clipboard, which these tests do not touch.
 - `tabs.claim-other-workspace` (n/a): Aside has no user-tab claim; attachBrowserTab is covered by tabs.attach.
 - `edge.sessions-same-tab` (n/a): Aside has no named sessions; a one-shot run cannot share a tab with another session.
 - `edge.web-process-crash` (scope): killing a browser renderer process is outside the approved Aside scope.
 - `edge.user-click-while-driving` (scope): a person acting in the user's own Aside or Chrome window is outside the approved scope.
+- `edge.context-options` (scope): browser-context options of a running Aside session are fixed at launch.
 
 ### ChatGPT for Chrome
 
@@ -632,10 +638,13 @@ non-loopback host for Aside, a process kill or a person's click).
 - `edge.nav-dns` (scope): a different origin than the one approved for the ChatGPT reference (approval would be denied, so the task cannot run in scope).
 - `edge.nav-refused` (scope): a different origin than the one approved for the ChatGPT reference (approval would be denied, so the task cannot run in scope).
 - `edge.cookies-subdomain` (scope): a different origin than the one approved for the ChatGPT reference (approval would be denied, so the task cannot run in scope).
+- `edge.ime-only-editor` (scope): reproduces WebKit's editing path; Chrome's editor accepts an IME commit without a composition.
+- `edge.trusted-paste` (scope): ChatGPT's real paste reads the system clipboard, which these tests do not touch.
 - `edge.sessions-two-tabs` (scope): the reference client drives one REPL session; a second concurrent session is outside the approved harness.
 - `edge.sessions-same-tab` (n/a): ChatGPT's REPL is one session per conversation.
 - `edge.web-process-crash` (scope): killing a Chrome renderer process is outside the approved ChatGPT scope.
 - `edge.user-click-while-driving` (scope): a person acting in the user's own Aside or Chrome window is outside the approved scope.
+- `edge.context-options` (scope): ChatGPT for Chrome drives the user's Chrome profile and exposes no context options.
 
 ## Site integrations
 
