@@ -24,6 +24,10 @@ public struct ThemeTokens: Hashable, Sendable {
     public var chromeBackground: ThemeRGB
     /// Floating cards (palette, hover card, editors) under or instead of glass.
     public var elevatedBackground: ThemeRGB
+    /// Every pane's tab strip: a shade darker than the window in light
+    /// themes too, so the strips read as quiet bands (a pure black window
+    /// has no darker shade; there the strip matches it).
+    public var stripBackground: ThemeRGB
 
     // Text
     /// Titles and body text: the foreground, pushed to 4.5:1 when needed.
@@ -129,6 +133,7 @@ public struct ThemeTokens: Hashable, Sendable {
             contentBackground: surface,
             chromeBackground: bg.mixed(toward: fg, isDark ? 0.05 : 0.035),
             elevatedBackground: bg.mixed(toward: fg, isDark ? 0.07 : 0.02),
+            stripBackground: bg.mixed(toward: .black, isDark ? 0.22 : 0.05).withAlpha(input.backgroundOpacity),
             textPrimary: primary,
             textSecondary: secondary,
             textTertiary: tertiary,
