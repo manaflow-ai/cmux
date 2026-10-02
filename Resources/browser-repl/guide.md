@@ -60,7 +60,8 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   new tabs, `fetch` and site tools (a tab that reaches a blocked URL goes to
   `about:blank`; `blockedNavigations()` lists them). `storageState({ path })`
   and `setStorageState(stateOrPath)` save and restore cookies and
-  localStorage (Playwright's format). `downloads()` lists downloads.
+  localStorage (Playwright's format); a save covers the current tab's site
+  only, `{ all: true }` the whole profile, `{ urls }` those URLs. `downloads()` lists downloads.
   `record()` returns a recorder; `stop()` writes `trace.jsonl`, a PNG per
   action and `run.png`, an animated PNG of the run.
 - `secrets.set(name, value, { domains, totp })` or `secrets.load(file)`

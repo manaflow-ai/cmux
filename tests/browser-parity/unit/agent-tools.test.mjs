@@ -289,9 +289,11 @@ test("storage state: scoped to the current tab's site unless { all: true }", asy
         await page.goto("${primary}/set-cookie");
         await page.goto("${primary}/agent-tools.html");
         await page.evaluate(() => localStorage.setItem("site", "primary"));
+        const first = page;
         const other = await tabs.open("${peer}/set-cookie");
         await other.goto("${peer}/agent-tools.html");
         await other.evaluate(() => localStorage.setItem("site", "peer"));
+        await tabs.use(first);
         const view = (s) => [s.cookies.map((c) => c.domain).sort(), s.origins.map((o) => o.origin).sort()];
         const out = [noTab, view(await session.storageState()), view(await session.storageState({ all: true })), view(await other.context().storageState()), view(await session.storageState({ urls: ["${peer}/"] }))];
         await other.close();
