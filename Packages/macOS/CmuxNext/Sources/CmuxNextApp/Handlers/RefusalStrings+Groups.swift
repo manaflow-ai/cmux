@@ -16,7 +16,6 @@ nonisolated extension RefusalStrings {
     static var groupAtEdge: String { text("handlers.refusal.groupAtEdge", "the group is already at the edge") }
     static var closedTabPaneGone: String { text("handlers.refusal.closedTabPaneGone", "the closed tab's pane is gone and no pane is focused") }
     static var browserReopenNeedsWindow: String { text("handlers.refusal.browserReopenNeedsWindow", "browser tabs reopen only in a pane shown in a window") }
-    static var noWindowForFind: String { text("handlers.refusal.noWindowForFind", "no window for the find prompt") }
     static var browserFindClosesWithEscape: String { text("handlers.refusal.browserFindClosesWithEscape", "the browser find bar closes with Escape") }
     static var nothingSelected: String { text("handlers.refusal.nothingSelected", "nothing is selected") }
     static var noActiveFind: String { text("handlers.refusal.noActiveFind", "no find is active; use Find first") }

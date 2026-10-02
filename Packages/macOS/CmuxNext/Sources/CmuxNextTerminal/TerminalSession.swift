@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextTerminalFind
 import CmuxNextWakeups
 import GhosttyKit
 
@@ -27,6 +28,8 @@ import GhosttyKit
 public final class TerminalSession {
     public let model = TerminalSurfaceModel()
     public let view: TerminalHostView
+    /// The find bar over this terminal and the search it drives.
+    public let find = TerminalFindController()
     public weak var delegate: (any TerminalSessionDelegate)?
 
     /// The live surface. Replaced when a later replay arrives.
@@ -92,6 +95,8 @@ public final class TerminalSession {
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
         view.install(surfaceView)
+        find.target = self
+        view.attachFind(find)
 
         writerTask = Task.detached(priority: .userInitiated) { [io] in
             for await item in outgoing {

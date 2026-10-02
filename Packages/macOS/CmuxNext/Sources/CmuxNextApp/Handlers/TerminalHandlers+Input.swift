@@ -3,8 +3,9 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextTerminal
+import CmuxNextTerminalFind
 
-// Find (terminal via Ghostty search, browser via its find bar) and input
+// Find (the terminal's find bar over Ghostty search, the browser's find bar) and input
 // sent through the daemon.
 extension TerminalHandlers {
     static func bindFind(into registry: ActionRegistry, context ctx: AppActionContext) {
@@ -18,10 +19,10 @@ extension TerminalHandlers {
                 window.focus.send(.focusPane(pane.paneKey, source: .intent))
                 window.focus.send(.focusTarget(.findBar, source: .intent))
             case .terminal(let entry):
-                if let text = invocation["text"]?.stringValue, !text.isEmpty { return entry.session.surfaceView.search(text) }
-                guard let window = pane.view.window ?? ctx.refuse(RefusalStrings.noWindowForFind) else { return }
-                let initial = entry.session.model.search?.needle ?? selection(of: entry) ?? ""
-                findPrompt(initial: initial, in: window) { entry.session.surfaceView.search($0) }
+                let find = entry.session.find
+                // The text argument, else the last query, else the selection.
+                let seed = invocation["text"]?.stringValue ?? (find.query.isEmpty ? selection(of: entry) : nil)
+                find.open(seed: seed)
             case .placeholder:
                 return
             }
@@ -31,29 +32,13 @@ extension TerminalHandlers {
         registry.bind("hideFind", invoke: { invocation in
             guard let (_, content) = ctx.visibleContent(invocation) else { return }
             guard case .terminal(let entry) = content else { return ctx.refuse(RefusalStrings.browserFindClosesWithEscape) }
-            entry.session.surfaceView.endSearch()
+            entry.session.find.close()
         })
         registry.bind("useSelectionForFind", invoke: { invocation in
             guard let entry = ctx.terminal(invocation) else { return }
             guard let text = selection(of: entry) ?? ctx.refuse(RefusalStrings.nothingSelected) else { return }
-            entry.session.surfaceView.search(text)
+            entry.session.find.open(seed: text)
         })
-    }
-
-    /// Sheet asking for the text to find (the terminal has no find bar yet).
-    private static func findPrompt(initial: String, in window: NSWindow, completion: @escaping (String) -> Void) {
-        let alert = NSAlert()
-        alert.messageText = HandlerStrings.findTitle
-        alert.addButton(withTitle: HandlerStrings.findConfirm)
-        alert.addButton(withTitle: Strings.cancel)
-        let field = NSTextField(string: initial)
-        field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
-        alert.beginSheetModal(for: window) { response in
-            guard response == .alertFirstButtonReturn, !field.stringValue.isEmpty else { return }
-            completion(field.stringValue)
-        }
     }
 
     private static func navigate(_ invocation: ActionInvocation, forward: Bool, _ ctx: AppActionContext) {
@@ -64,9 +49,8 @@ extension TerminalHandlers {
         case .browser(let entry):
             entry.chrome.perform(forward ? .findNext : .findPrevious)
         case .terminal(let entry):
-            let view = entry.session.surfaceView
-            guard entry.session.model.search != nil else { return ctx.refuse(RefusalStrings.noActiveFind) }
-            if forward { view.searchNext() } else { view.searchPrevious() }
+            // Opens the bar with the last query when it is closed.
+            guard entry.session.find.navigate(forward ? .next : .previous) else { return ctx.refuse(RefusalStrings.noActiveFind) }
         case .placeholder:
             return
         }

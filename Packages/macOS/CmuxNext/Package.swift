@@ -109,6 +109,7 @@ let package = Package(
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextTerminal",
+                "CmuxNextTerminalFind",
                 "CmuxNextTabs",
                 "CmuxNextSidebar",
                 "CmuxNextPalette",
@@ -543,6 +544,7 @@ let package = Package(
                 "CmuxNextDesign",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextCopyMode",
+                "CmuxNextTerminalFind",
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
             ],
             resources: [
