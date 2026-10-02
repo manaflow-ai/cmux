@@ -251,6 +251,8 @@ import { lexer, type Token, type Tokens } from "marked";
 export function paneHeader(snapshot: AcpmuxSnapshot): { title: string; status: string } {
   const harness = snapshot.summary?.harness;
   const title = (harness && snapshot.catalog?.find((entry) => entry.id === harness)?.name) || harness || "Agent Chat";
-  const status = snapshot.isWorking ? "Working" : snapshot.connection === "disconnected" ? "Reconnecting" : snapshot.connection === "mock" ? "Mock" : "";
+  // A turn running when the connection dropped never ends, so connection trouble wins over Working.
+  const connection = snapshot.connection;
+  const status = connection === "disconnected" ? "Reconnecting" : connection.startsWith("connecting") ? "Connecting" : snapshot.isWorking ? "Working" : connection === "mock" ? "Mock" : "";
   return { title, status };
 }
