@@ -20,6 +20,7 @@ pub mod protocol;
 pub mod win_io;
 
 use protocol::Frame;
+pub use protocol::Size;
 
 /// A child's raw platform exit status from an `EXIT` frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,12 +135,25 @@ pub struct PtyIo {
     pub writer: File,
 }
 
+/// A report from the keeper.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Event {
+    /// The terminal now has `size`; `generation` counts applied resizes.
+    Size {
+        size: Size,
+        generation: u64,
+    },
+    Exit(ExitStatus),
+}
+
 /// One connection to a running keeper.
 pub struct Connection {
     child_pid: u32,
     version: u16,
     io: Option<PtyIo>,
-    pending_exit: Option<ExitStatus>,
+    size: Size,
+    generation: u64,
+    exit: Option<ExitStatus>,
     conn: sys::Conn,
 }
 
@@ -149,7 +163,22 @@ impl Connection {
         if hello.kind != protocol::HELLO {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "keeper did not send HELLO"));
         }
-        Ok(Self { child_pid: hello.a, version: hello.version, io, pending_exit: None, conn })
+        let mut connection = Self {
+            child_pid: hello.a,
+            version: hello.version,
+            io,
+            size: Size::default(),
+            generation: 0,
+            exit: None,
+            conn,
+        };
+        // The keeper reports the current size right after HELLO.
+        match connection.next_event()? {
+            Event::Size { .. } => Ok(connection),
+            Event::Exit(_) => {
+                Err(io::Error::new(io::ErrorKind::InvalidData, "keeper did not report a size"))
+            }
+        }
     }
 
     pub fn child_pid(&self) -> u32 {
@@ -161,13 +190,20 @@ impl Connection {
         self.version
     }
 
+    /// The last size the keeper reported.
+    pub fn size(&self) -> (Size, u64) {
+        (self.size, self.generation)
+    }
+
     /// The PTY streams, or `None` when the child had already exited.
     pub fn take_io(&mut self) -> Option<PtyIo> {
         self.io.take()
     }
 
-    pub fn resize(&self, cols: u16, rows: u16) -> io::Result<()> {
-        self.conn.send(&Frame::resize(cols, rows))
+    /// Asks the keeper to resize. The keeper answers every client with an
+    /// `Event::Size` once the size is applied.
+    pub fn resize(&self, size: Size) -> io::Result<()> {
+        self.conn.send(&Frame::resize(size))
     }
 
     pub fn terminate(&self) -> io::Result<()> {
@@ -179,18 +215,33 @@ impl Connection {
         self.conn.send(frame)
     }
 
-    /// Blocks until the keeper reports the child's exit.
-    pub fn wait_exit(&mut self) -> io::Result<ExitStatus> {
-        if let Some(status) = self.pending_exit {
-            return Ok(status);
-        }
+    /// Blocks for the next report, skipping kinds this client does not know.
+    pub fn next_event(&mut self) -> io::Result<Event> {
         loop {
             let frame = self.conn.recv()?;
-            if frame.kind == protocol::EXIT {
-                let status = ExitStatus(frame.a);
-                self.pending_exit = Some(status);
+            match frame.kind {
+                protocol::SIZE => {
+                    self.size = frame.size();
+                    self.generation = frame.c;
+                    return Ok(Event::Size { size: self.size, generation: self.generation });
+                }
+                protocol::EXIT => {
+                    let status = ExitStatus(frame.a);
+                    self.exit = Some(status);
+                    return Ok(Event::Exit(status));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Blocks until the keeper reports the child's exit.
+    pub fn wait_exit(&mut self) -> io::Result<ExitStatus> {
+        loop {
+            if let Some(status) = self.exit {
                 return Ok(status);
             }
+            self.next_event()?;
         }
     }
 }

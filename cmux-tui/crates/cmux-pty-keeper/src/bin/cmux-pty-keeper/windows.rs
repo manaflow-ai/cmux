@@ -8,7 +8,7 @@ use std::ptr;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
-use cmux_pty_keeper::protocol::{self, FRAME_LEN, Frame};
+use cmux_pty_keeper::protocol::{self, FRAME_LEN, Frame, Size};
 use cmux_pty_keeper::win_io::{self, Handle};
 use windows_sys::Win32::Foundation::{
     DUPLICATE_SAME_ACCESS, DuplicateHandle, FALSE, HANDLE, INVALID_HANDLE_VALUE, LocalFree,
@@ -109,6 +109,10 @@ struct State {
     exit: Option<u32>,
     delivered: bool,
     clients: Vec<Arc<Client>>,
+    /// Last size applied to the console, reported after `HELLO`.
+    size: Size,
+    /// Number of resizes applied; lets clients order `SIZE` reports.
+    generation: u64,
 }
 
 struct Shared {
@@ -169,6 +173,10 @@ pub fn run(launch: Launch) -> ! {
         let (child, child_pid) = spawn_child(console, &launch);
         drop((pty_input, pty_output));
 
+        // The keeper must not keep a user directory busy for its whole life.
+        let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\".into());
+        let _ = std::env::set_current_dir(root);
+
         report(&format!("ready {}", std::process::id()));
         windows_sys::Win32::Foundation::CloseHandle(GetStdHandle(STD_OUTPUT_HANDLE));
 
@@ -178,7 +186,13 @@ pub fn run(launch: Launch) -> ! {
             input: Handle(input),
             output: Handle(output),
             child_pid,
-            state: Mutex::new(State { exit: None, delivered: false, clients: Vec::new() }),
+            state: Mutex::new(State {
+                exit: None,
+                delivered: false,
+                clients: Vec::new(),
+                size: Size::new(launch.cols, launch.rows),
+                generation: 0,
+            }),
             done: Condvar::new(),
         });
         let acceptor = Arc::clone(&shared);
@@ -206,7 +220,7 @@ impl Shared {
         // Readers see end of output only once the console is gone.
         self.close_console();
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        while !state.delivered {
+        while !(state.delivered && state.clients.is_empty()) {
             state = self.done.wait(state).unwrap_or_else(|e| e.into_inner());
         }
     }
@@ -225,11 +239,25 @@ impl Shared {
         }
     }
 
-    fn resize(&self, cols: u16, rows: u16) {
+    /// Applies a size and reports it to every client, so all of them
+    /// converge on the last writer's size.
+    fn resize(&self, size: Size) {
+        if size.cols == 0 || size.rows == 0 {
+            return;
+        }
+        // Lock order: console, then state.
         let console = self.console.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(console) = console.as_ref() {
-            // SAFETY: the console stays open while the lock is held.
-            unsafe { (self.conpty.resize)(console.0, Coord::new(cols, rows)) };
+        let Some(console) = console.as_ref() else { return };
+        // SAFETY: the console stays open while its lock is held.
+        if unsafe { (self.conpty.resize)(console.0, Coord::new(size.cols, size.rows)) } < 0 {
+            return;
+        }
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.size = size;
+        state.generation += 1;
+        let report = Frame::size_report(size, state.generation).encode();
+        for client in &state.clients {
+            let _ = win_io::write_all(&client.pipe, &report);
         }
     }
 
@@ -242,10 +270,7 @@ impl Shared {
         while win_io::read_exact(&client.pipe, &mut buf).is_ok() {
             let Some(frame) = Frame::decode(&buf) else { break };
             match frame.kind {
-                protocol::RESIZE => {
-                    let (cols, rows) = frame.size();
-                    self.resize(cols, rows);
-                }
+                protocol::RESIZE => self.resize(frame.size()),
                 protocol::TERMINATE => self.close_console(),
                 _ => {}
             }
@@ -254,8 +279,8 @@ impl Shared {
         state.clients.retain(|other| !Arc::ptr_eq(other, &client));
         if client.exit_sent.load(std::sync::atomic::Ordering::SeqCst) {
             state.delivered = true;
-            self.done.notify_all();
         }
+        self.done.notify_all();
     }
 
     /// Sends `HELLO` with handles duplicated into the client, and `EXIT`
@@ -278,7 +303,10 @@ impl Shared {
             Some(_) => (0, 0),
         };
         let hello = Frame::new(protocol::HELLO, self.child_pid, input, output).encode();
-        if win_io::write_all(&client.pipe, &hello).is_err() {
+        let report = Frame::size_report(state.size, state.generation).encode();
+        if win_io::write_all(&client.pipe, &hello).is_err()
+            || win_io::write_all(&client.pipe, &report).is_err()
+        {
             return false;
         }
         if let Some(code) = state.exit {

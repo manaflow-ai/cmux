@@ -9,8 +9,8 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use cmux_pty_keeper::Connection;
 use cmux_pty_keeper::protocol::Frame;
+use cmux_pty_keeper::{Connection, Event, Size};
 
 const KEEPER: &str = env!("CARGO_BIN_EXE_cmux-pty-keeper");
 const HELPER_ENV: &str = "CMUX_PTY_KEEPER_TEST_HELPER";
@@ -195,26 +195,54 @@ fn keeper_keeps_child_alive_when_its_client_process_exits() {
 }
 
 #[test]
-fn keeper_resizes_and_ignores_unknown_requests() {
+fn keeper_resizes_and_reports_size_to_every_client() {
     let (program, args) =
         shell("while read a; do stty size; done", "for /l %i in (1,0,2) do @(set /p x=& mode con)");
     let endpoint = start(&program, &args);
     let mut conn = Connection::connect(&endpoint).unwrap();
+    assert_eq!(conn.size(), (Size::new(80, 24), 0), "launch size reported after HELLO");
+    let mut watcher = Connection::connect(&endpoint).unwrap();
     let io = conn.take_io().unwrap();
     let mut output = Output::start(io.reader);
     conn.send_raw(&Frame::new(999, 1, 2, 3)).unwrap();
-    conn.resize(100, 40).unwrap();
-    // RESIZE and input travel on different channels, so poll until the
-    // child reports the new size.
+    conn.resize(Size::new(0, 10)).unwrap();
+    let wanted = Size { cols: 100, rows: 40, width_px: 1000, height_px: 800 };
+    conn.resize(wanted).unwrap();
+
+    // The zero size is ignored, so the first report is the real resize,
+    // and the other client hears about it too.
+    let reported = Event::Size { size: wanted, generation: 1 };
+    assert_eq!(conn.next_event().unwrap(), reported);
+    assert_eq!(watcher.next_event().unwrap(), reported);
+    let late = Connection::connect(&endpoint).unwrap();
+    assert_eq!(late.size(), (wanted, 1), "a new client learns the current size");
+
+    // SIZE means the size is applied, but the child may still be
+    // processing SIGWINCH or the console repaint.
     let needle = if cfg!(windows) { "Lines:40Columns:100" } else { "40100" };
-    let resized = (0..40).any(|_| {
+    let seen = (0..40).any(|_| {
         (&io.writer).write_all(b"\r").unwrap();
         output.wait_for(needle, Duration::from_millis(750))
     });
-    assert!(resized, "size never changed: {:?}", output.seen());
+    assert!(seen, "child never saw the size: {:?}", output.seen());
     conn.terminate().unwrap();
     conn.wait_exit().unwrap();
-    drop(conn);
+    drop((conn, watcher, late));
+    wait_until_gone(&endpoint);
+}
+
+#[test]
+fn keeper_serves_many_clients_at_once() {
+    let (program, args) = shell("exec sleep 1000", "ping -n 1000 127.0.0.1 >nul");
+    let endpoint = start(&program, &args);
+    let clients: Vec<_> = (0..40).map(|_| Connection::connect(&endpoint).unwrap()).collect();
+    let mut first = Connection::connect(&endpoint).unwrap();
+    first.terminate().unwrap();
+    first.wait_exit().unwrap();
+    for mut client in clients {
+        assert!(client.wait_exit().is_ok());
+    }
+    drop(first);
     wait_until_gone(&endpoint);
 }
 

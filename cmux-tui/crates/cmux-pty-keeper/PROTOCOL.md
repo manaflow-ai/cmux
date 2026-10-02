@@ -40,17 +40,20 @@ A frame with a bad magic closes the connection. A frame with an unknown kind is 
 Keeper to client:
 
 - `1 HELLO`, sent once on connect. `a` = child pid. Unix: the PTY master is attached with `SCM_RIGHTS` while the child runs; no descriptor is attached after it exited. Windows: `b` = pseudoconsole input write handle, `c` = output read handle, both duplicated into the client process, or `0` after the child exited. `b` and `c` are `0` on Unix.
-- `2 EXIT`, sent to every connected client when the child exits, and right after `HELLO` to clients that connect later. `a` = raw platform status: the Unix `waitpid` status word or the Windows process exit code.
+- `3 SIZE`, sent right after `HELLO` and to every client after each applied resize. `a` = `cols | rows << 16`, `b` = `width_px | height_px << 16`, `c` = generation, the number of resizes applied so far. On Unix the keeper reads the size back from the PTY, so it also reflects a client that set it directly.
+- `2 EXIT`, sent to every connected client when the child exits, and right after `HELLO` and `SIZE` to clients that connect later. `a` = raw platform status: the Unix `waitpid` status word or the Windows process exit code.
 
 Client to keeper:
 
-- `16 RESIZE`, `a` = `cols | rows << 16`. Sets the terminal size.
+- `16 RESIZE`, `a` = `cols | rows << 16`, `b` = `width_px | height_px << 16` (0 when unknown). Sets the terminal size; a zero column or row count is ignored. Every client, including the sender, gets a `SIZE` once the size is applied, so clients that race converge on the last applied size. `SIZE` does not mark a point in the output stream: output produced before the child handled the change can still arrive after it.
 - `17 TERMINATE`. Ends the child. Unix: the keeper closes its master and sends `SIGHUP` to the child. Windows: the keeper closes the pseudoconsole, which ends attached processes. `EXIT` follows when the child is gone. On Unix, `SIGTERM` to the keeper does the same.
 
 ## Lifetime
 
-The keeper exits after the child exited and a client that received `EXIT` closed its connection. On Unix it removes its socket path when it exits. Until then it waits indefinitely, so a client that returns after any delay still gets the exit status. While no client reads, the kernel blocks the child's writes; no output is lost or buffered by the keeper.
+The keeper exits once the child exited, at least one client received `EXIT`, and no client is connected. On Unix it removes its socket path when it exits. Until then it waits indefinitely, so a client that returns after any delay still gets the exit status. While no client reads, the kernel blocks the child's writes; no output is lost or buffered by the keeper.
 
-Only clients running as the keeper's user are accepted (Unix peer credentials, Windows pipe DACL). The keeper serves at most 16 Unix clients at a time.
+Only clients running as the keeper's user are accepted (Unix peer credentials, Windows pipe DACL). There is no client limit: any process of that user can already end the keeper, so a limit protects nothing. When descriptors run out, the Unix keeper refuses the pending connection with a reserved descriptor instead of spinning.
+
+After the child starts, the keeper changes its own working directory to `/` (Unix) or `%SystemRoot%` (Windows), so it never keeps a user directory or mount busy.
 
 Windows requires Windows 10 1809 or later (ConPTY). The keeper resolves the ConPTY functions at runtime and reports `error` on older systems.

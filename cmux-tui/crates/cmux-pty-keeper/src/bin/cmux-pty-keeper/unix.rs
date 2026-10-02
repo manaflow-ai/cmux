@@ -6,7 +6,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
-use cmux_pty_keeper::protocol::{self, FRAME_LEN, Frame, MAX_CLIENTS};
+use cmux_pty_keeper::protocol::{self, FRAME_LEN, Frame, Size};
 use libc::c_int;
 
 use crate::{Launch, report};
@@ -54,12 +54,23 @@ pub fn run(launch: Launch) -> ! {
             }
         };
         libc::close(slave);
+        // The child has its directory; the keeper must not keep a user
+        // directory or mount busy for its whole life.
+        libc::chdir(c"/".as_ptr());
 
         report(&format!("ready {}", libc::getpid()));
         redirect_to_null(1);
 
-        let mut keeper =
-            Keeper { master, child, exit: None, delivered: false, clients: Vec::new() };
+        let mut keeper = Keeper {
+            master,
+            child,
+            exit: None,
+            delivered: false,
+            clients: Vec::new(),
+            size: Size::new(launch.cols, launch.rows),
+            generation: 0,
+            spare: open_spare(),
+        };
         keeper.serve(listener, signals);
         libc::unlink(path.as_ptr());
         libc::_exit(0);
@@ -79,19 +90,20 @@ struct Keeper {
     exit: Option<c_int>,
     delivered: bool,
     clients: Vec<Client>,
+    /// Last size applied to the PTY, reported after `HELLO`.
+    size: Size,
+    /// Number of resizes applied; lets clients order `SIZE` reports.
+    generation: u64,
+    /// A reserved descriptor so `accept` can always make progress.
+    spare: c_int,
 }
 
 impl Keeper {
     unsafe fn serve(&mut self, listener: c_int, signals: c_int) {
-        while !self.delivered {
-            let accepting = self.clients.len() < MAX_CLIENTS;
+        while !(self.delivered && self.clients.is_empty()) {
             let mut fds = vec![
                 libc::pollfd { fd: signals, events: libc::POLLIN, revents: 0 },
-                libc::pollfd {
-                    fd: if accepting { listener } else { -1 },
-                    events: libc::POLLIN,
-                    revents: 0,
-                },
+                libc::pollfd { fd: listener, events: libc::POLLIN, revents: 0 },
             ];
             fds.extend(self.clients.iter().map(|c| libc::pollfd {
                 fd: c.fd,
@@ -112,7 +124,7 @@ impl Keeper {
                 // SAFETY: `fd` is a connected client socket owned by `self`.
                 unsafe { self.on_client(fd) };
             }
-            if accepting && fds[1].revents != 0 {
+            if fds[1].revents != 0 {
                 // SAFETY: `listener` is the keeper's listening socket.
                 unsafe { self.accept(listener) };
             }
@@ -145,7 +157,22 @@ impl Keeper {
 
     unsafe fn accept(&mut self, listener: c_int) {
         // SAFETY: plain accept on the listening socket.
-        let fd = unsafe { libc::accept(listener, ptr::null_mut(), ptr::null_mut()) };
+        let mut fd = unsafe { libc::accept(listener, ptr::null_mut(), ptr::null_mut()) };
+        if fd < 0 && descriptors_exhausted() && self.spare >= 0 {
+            // Out of descriptors: a pending connection would keep the
+            // listener readable and spin the loop. Spend the spare to
+            // accept and refuse it, then reserve it again.
+            // SAFETY: plain descriptor syscalls on keeper-owned descriptors.
+            unsafe {
+                libc::close(self.spare);
+                fd = libc::accept(listener, ptr::null_mut(), ptr::null_mut());
+                if fd >= 0 {
+                    libc::close(fd);
+                }
+                self.spare = open_spare();
+            }
+            return;
+        }
         if fd < 0 {
             return;
         }
@@ -159,6 +186,11 @@ impl Keeper {
             let hello = Frame::new(protocol::HELLO, self.child as u32, 0, 0);
             let master = (self.master >= 0).then_some(self.master);
             if !send(fd, &hello, master) {
+                libc::close(fd);
+                return;
+            }
+            let report = Frame::size_report(self.current_size(), self.generation);
+            if !send(fd, &report, None) {
                 libc::close(fd);
                 return;
             }
@@ -196,25 +228,66 @@ impl Keeper {
             return;
         };
         match frame.kind {
-            protocol::RESIZE if self.master >= 0 => {
-                let (cols, rows) = frame.size();
-                let size = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
-                // SAFETY: TIOCSWINSZ on the keeper's own master.
-                unsafe { libc::ioctl(self.master, libc::TIOCSWINSZ as _, &raw const size) };
-            }
+            // SAFETY: TIOCSWINSZ on the keeper's own master and writes to
+            // keeper-owned client sockets.
+            protocol::RESIZE => unsafe { self.resize(frame.size()) },
             // SAFETY: plain syscalls on keeper-owned state.
             protocol::TERMINATE => unsafe { self.hang_up() },
             _ => {}
         }
     }
 
-    /// The keeper is done once a client that received `EXIT` disconnects,
-    /// so the status cannot be lost in a socket buffer.
+    /// The keeper is done once a client received `EXIT` and every client
+    /// disconnected, so no unread status is lost with the keeper.
     unsafe fn drop_client(&mut self, index: usize) {
         let client = self.clients.remove(index);
         // SAFETY: closes a socket owned by `self`.
         unsafe { libc::close(client.fd) };
         self.delivered |= client.exit_sent;
+    }
+
+    /// Applies a size and reports the result to every client, so all of
+    /// them converge on the last writer's size.
+    unsafe fn resize(&mut self, size: Size) {
+        if self.master < 0 || size.cols == 0 || size.rows == 0 {
+            return;
+        }
+        let wanted = libc::winsize {
+            ws_row: size.rows,
+            ws_col: size.cols,
+            ws_xpixel: size.width_px,
+            ws_ypixel: size.height_px,
+        };
+        // SAFETY: TIOCSWINSZ on the keeper's own master.
+        if unsafe { libc::ioctl(self.master, libc::TIOCSWINSZ as _, &raw const wanted) } != 0 {
+            return;
+        }
+        self.generation += 1;
+        let report = Frame::size_report(self.current_size(), self.generation);
+        for client in &self.clients {
+            // SAFETY: client sockets are owned by `self`. A failed send
+            // surfaces as a read error and drops the client.
+            unsafe { send(client.fd, &report, None) };
+        }
+    }
+
+    /// The PTY's real size, which also reflects a direct `TIOCSWINSZ` by a
+    /// client.
+    fn current_size(&mut self) -> Size {
+        if self.master >= 0 {
+            // SAFETY: zeroed winsize is valid; TIOCGWINSZ fills it.
+            let mut size: libc::winsize = unsafe { std::mem::zeroed() };
+            // SAFETY: TIOCGWINSZ on the keeper's own master.
+            if unsafe { libc::ioctl(self.master, libc::TIOCGWINSZ as _, &raw mut size) } == 0 {
+                self.size = Size {
+                    cols: size.ws_col,
+                    rows: size.ws_row,
+                    width_px: size.ws_xpixel,
+                    height_px: size.ws_ypixel,
+                };
+            }
+        }
+        self.size
     }
 
     unsafe fn hang_up(&mut self) {
@@ -233,6 +306,16 @@ impl Keeper {
             self.master = -1;
         }
     }
+}
+
+fn descriptors_exhausted() -> bool {
+    let error = std::io::Error::last_os_error().raw_os_error();
+    error == Some(libc::EMFILE) || error == Some(libc::ENFILE)
+}
+
+fn open_spare() -> c_int {
+    // SAFETY: opens /dev/null as a reserved close-on-exec descriptor.
+    unsafe { libc::open(c"/dev/null".as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC) }
 }
 
 fn would_block() -> bool {
@@ -362,7 +445,7 @@ unsafe fn listen(path: &[u8]) -> c_int {
         if bound != 0 {
             fail("bind");
         }
-        if libc::listen(fd, MAX_CLIENTS as c_int) != 0 {
+        if libc::listen(fd, libc::SOMAXCONN) != 0 {
             fail("listen");
         }
         fd

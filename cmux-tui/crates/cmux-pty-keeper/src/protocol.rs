@@ -6,11 +6,42 @@ pub const FRAME_LEN: usize = 32;
 
 pub const HELLO: u16 = 1;
 pub const EXIT: u16 = 2;
+pub const SIZE: u16 = 3;
 pub const RESIZE: u16 = 16;
 pub const TERMINATE: u16 = 17;
 
-/// Most Unix clients a keeper serves at once.
-pub const MAX_CLIENTS: usize = 16;
+/// Terminal size in cells and, when known, pixels. Pixel sizes let
+/// programs that draw images (Kitty graphics, sixel) size their output.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Size {
+    pub cols: u16,
+    pub rows: u16,
+    pub width_px: u16,
+    pub height_px: u16,
+}
+
+impl Size {
+    pub fn new(cols: u16, rows: u16) -> Self {
+        Self { cols, rows, width_px: 0, height_px: 0 }
+    }
+
+    pub fn cells(&self) -> u32 {
+        u32::from(self.cols) | (u32::from(self.rows) << 16)
+    }
+
+    pub fn pixels(&self) -> u64 {
+        u64::from(self.width_px) | (u64::from(self.height_px) << 16)
+    }
+
+    pub fn from_fields(cells: u32, pixels: u64) -> Self {
+        Self {
+            cols: cells as u16,
+            rows: (cells >> 16) as u16,
+            width_px: pixels as u16,
+            height_px: (pixels >> 16) as u16,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Frame {
@@ -26,13 +57,17 @@ impl Frame {
         Self { version: VERSION, kind, a, b, c }
     }
 
-    pub fn resize(cols: u16, rows: u16) -> Self {
-        Self::new(RESIZE, u32::from(cols) | (u32::from(rows) << 16), 0, 0)
+    pub fn resize(size: Size) -> Self {
+        Self::new(RESIZE, size.cells(), size.pixels(), 0)
     }
 
-    /// `(cols, rows)` of a `RESIZE` frame.
-    pub fn size(&self) -> (u16, u16) {
-        ((self.a & 0xffff) as u16, (self.a >> 16) as u16)
+    pub fn size_report(size: Size, generation: u64) -> Self {
+        Self::new(SIZE, size.cells(), size.pixels(), generation)
+    }
+
+    /// The size carried by a `RESIZE` or `SIZE` frame.
+    pub fn size(&self) -> Size {
+        Size::from_fields(self.a, self.b)
     }
 
     pub fn encode(&self) -> [u8; FRAME_LEN] {
@@ -94,10 +129,11 @@ mod tests {
 
     #[test]
     fn keeper_frame_accepts_future_versions() {
-        let mut frame = Frame::resize(120, 40);
+        let size = Size { cols: 120, rows: 40, width_px: 960, height_px: 640 };
+        let mut frame = Frame::resize(size);
         frame.version = 9;
         let decoded = Frame::decode(&frame.encode()).unwrap();
         assert_eq!(decoded.version, 9);
-        assert_eq!(decoded.size(), (120, 40));
+        assert_eq!(decoded.size(), size);
     }
 }
