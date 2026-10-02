@@ -97,6 +97,20 @@ def _profile_plist(
     }
 
 
+def _appstore_app_profile_plist() -> dict[str, object]:
+    profile = _profile_plist()
+    entitlements = profile["Entitlements"]
+    assert isinstance(entitlements, dict)
+    # Like the real App Store app profile: the Network Extensions capability
+    # the host app needs to save and start the CloudVPN packet tunnel.
+    entitlements["com.apple.developer.networking.networkextension"] = [
+        "app-proxy-provider",
+        "packet-tunnel-provider",
+        "hotspot-provider",
+    ]
+    return profile
+
+
 def _extension_profile_plist() -> dict[str, object]:
     profile = _profile_plist(
         APPSTORE_EXTENSION_BUNDLE_ID,
@@ -126,6 +140,9 @@ def _cloud_vpn_profile_plist() -> dict[str, object]:
         "app-proxy-provider",
         "packet-tunnel-provider",
     ]
+    # Like the real App Store CloudVPN profile: a team wildcard that the signed
+    # extension narrows to the host app's exact group.
+    entitlements["keychain-access-groups"] = [f"{TEAM_ID}.*", "com.apple.token"]
     return profile
 
 
@@ -160,7 +177,7 @@ def write_plist(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(plist_bytes(value))
 
-APPSTORE_PROFILE = plistlib.loads({_plist_bytes(_profile_plist())!r})
+APPSTORE_PROFILE = plistlib.loads({_plist_bytes(_appstore_app_profile_plist())!r})
 BETA_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test", "00000000-0000-0000-0000-000000000002"))!r})
 EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_extension_profile_plist())!r})
 APPSTORE_CLOUD_VPN_PROFILE = plistlib.loads({_plist_bytes(_cloud_vpn_profile_plist())!r})
@@ -1400,6 +1417,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         cloud_vpn_entitlements.get("com.apple.developer.networking.networkextension")
         == ["packet-tunnel-provider"],
         "CloudVPN signature carries the packet-tunnel-provider entitlement",
+    )
+    _check(
+        cloud_vpn_entitlements.get("keychain-access-groups") == [APPSTORE_APP_ID],
+        "CloudVPN signature carries the host app's exact keychain group",
     )
     _check(
         info.get("CFBundleShortVersionString") == APPSTORE_MARKETING_VERSION,
