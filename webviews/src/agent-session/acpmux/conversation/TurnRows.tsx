@@ -94,13 +94,13 @@ const toolItem = (item: AcpmuxActivity, index: number) =>
     </div>
   );
 
-/// A run of tool calls and thoughts between two pieces of text. Once it settles, a run of two or
-/// more calls folds under one summary line (toolRunSummary.ts); a live run lists each call.
+/// A run of tool calls and thoughts between two pieces of text. In an ended turn's open "Worked
+/// for", two or more calls fold under one summary line (toolRunSummary.ts); a live turn lists each.
 export function ToolRows({ row }: { row: AcpmuxRow }) {
   const items = row.items ?? [];
   return (
     <div className="cv-tools">
-      {isFoldedRun(items) ? <ToolRun items={items} renderItem={toolItem} /> : items.map(toolItem)}
+      {row.settled && isFoldedRun(items) ? <ToolRun items={items} renderItem={toolItem} /> : items.map(toolItem)}
     </div>
   );
 }

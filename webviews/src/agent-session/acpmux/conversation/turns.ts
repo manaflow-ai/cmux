@@ -94,7 +94,8 @@ function shapeTurn(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<str
       toolCount: summary.toolCount,
       durationMs: answer ? Math.max(0, answer.at - user.at) : (summary.durationMs ?? Math.max(0, summary.at - user.at)),
     });
-    if (open) shaped.push(...work.map((row) => (isEdit(row) ? { ...row, id: `${row.id}${FOLDED}` } : row)));
+    if (open)
+      shaped.push(...work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })));
   }
   if (answer) shaped.push(answer);
   shaped.push(...rest, ...edits);

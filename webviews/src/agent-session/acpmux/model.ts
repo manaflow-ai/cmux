@@ -18,6 +18,9 @@ export type AcpmuxRow = {
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
   /// footer need not repeat the time and count.
   folded?: boolean;
+  /// Work shown inside an open "Worked for": its turn has ended, so each run of tool calls
+  /// folds under one summary line (conversation/toolRunSummary.ts).
+  settled?: boolean;
 };
 
 export type AcpmuxActivity = {
@@ -195,8 +198,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
       const files = new Set(edits.flatMap((item) => item.tool?.diffs?.map((diff) => diff.path) ?? [])).size;
       return 14 + editedCardHeight(files, plainEditLabels(edits).length);
     }
-    // A settled run of two or more calls draws one summary line until opened (toolRunSummary.ts).
-    if (row.items && isFoldedRun(row.items)) return 36;
+    // In an open "Worked for", a run of two or more calls draws one summary line until opened.
+    if (row.settled && row.items && isFoldedRun(row.items)) return 36;
     return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
   }
   // The 27px disclosure line.

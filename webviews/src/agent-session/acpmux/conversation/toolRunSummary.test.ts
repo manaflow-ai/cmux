@@ -26,7 +26,8 @@ describe("tool run summary", () => {
   test("web fetches, file moves and unknown tools", () => {
     expect(toolRunSummary([call("fetch"), call("fetch")])).toBe("Searched the web");
     expect(toolRunSummary([call("move"), call("delete")])).toBe("Edited files");
-    expect(toolRunSummary([call(undefined), call("read")])).toBe("Used tools, read a file");
+    expect(toolRunSummary([call(undefined), call("read")])).toBe("Used a tool, read a file");
+    expect(toolRunSummary([call(undefined), call(undefined)])).toBe("Used tools");
   });
 
   test("thoughts in a run don't count as calls", () => {
@@ -35,18 +36,14 @@ describe("tool run summary", () => {
 });
 
 describe("which runs fold", () => {
-  test("a settled run of two or more calls folds", () => {
+  test("two or more calls fold, whatever their last status", () => {
     expect(isFoldedRun([call("read"), call("execute")])).toBe(true);
-    expect(isFoldedRun([call("read"), call("execute", "failed")])).toBe(true);
+    // A stopped turn can leave a call without a final status; the turn has still ended.
+    expect(isFoldedRun([call("read"), call("execute", "in_progress")])).toBe(true);
   });
 
   test("a single call shows as itself", () => {
     expect(isFoldedRun([call("read")])).toBe(false);
     expect(isFoldedRun([thought, call("read")])).toBe(false);
-  });
-
-  test("a live run lists every call, so the running one shows", () => {
-    expect(isFoldedRun([call("read"), call("execute", "in_progress")])).toBe(false);
-    expect(isFoldedRun([call("read"), call("execute", "pending")])).toBe(false);
   });
 });

@@ -28,13 +28,11 @@ export function toolRunCategory(kind?: string): ToolRunCategory {
   }
 }
 
-const running = (item: AcpmuxActivity) => item.tool?.status === "pending" || item.tool?.status === "in_progress";
-
-/// A run folds under one summary line once it holds two or more calls and none is still
-/// running; a live run stays open so its current call shows.
+/// A run in an ended turn (inside an open "Worked for") folds under one summary line once it
+/// holds two or more calls. A live turn lists every call, so its height and the user's place
+/// don't change as each call starts and ends.
 export function isFoldedRun(items: readonly AcpmuxActivity[]): boolean {
-  const tools = items.filter((item) => item.tool);
-  return tools.length >= 2 && !tools.some(running);
+  return items.filter((item) => item.tool).length >= 2;
 }
 
 /// The categories a run's calls fall in, in summary order. Searches count as reads when the
@@ -57,7 +55,7 @@ export function toolRunSummary(items: readonly AcpmuxActivity[]): string {
     const one = count(category) === 1;
     switch (category) {
       case "used":
-        return "used tools";
+        return one ? "used a tool" : "used tools";
       case "edited":
         return one ? "edited a file" : "edited files";
       case "read":

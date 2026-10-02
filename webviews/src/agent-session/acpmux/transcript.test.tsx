@@ -1422,8 +1422,8 @@ describe("acpmux tool runs", () => {
     tool: { id, title: id, kind, status },
   });
 
-  /// Codex folds a settled run of calls under one summary line that opens to the calls.
-  test("a settled run shows one summary line and opens to its calls", async () => {
+  /// In an ended turn's open "Worked for", Codex folds a run of calls under one summary line.
+  test("a run in an ended turn shows one summary line and opens to its calls", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
     const items = [call("Read upload.ts", "read"), call("Search for retry", "search"), call("Run bun test", "execute")];
@@ -1432,7 +1432,7 @@ describe("acpmux tool runs", () => {
       await act(async () =>
         root.render(
           createElement(VirtualTranscript, {
-            rows: [{ id: "a", version: 1, at: 1, kind: "activity", items }],
+            rows: [{ id: "a", version: 1, at: 1, kind: "activity", settled: true, items }],
             onToggleActivity: () => {},
             expanded: new Set<string>(),
           }),
@@ -1450,24 +1450,44 @@ describe("acpmux tool runs", () => {
     }
   });
 
-  test("a live run lists each call", async () => {
+  /// A live turn never folds, so its rows keep their height as each call starts and ends.
+  test("a live turn lists each call until it ends, then folds inside the open fold", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
-    const items = [call("Read upload.ts", "read"), call("Run bun test", "execute", "in_progress")];
-    try {
-      await act(async () =>
+    const user: AcpmuxRow = { id: "u", version: 1, at: 1, kind: "user", text: "fix it" };
+    const activity = (version: number, last: string): AcpmuxRow => ({
+      id: "a",
+      version,
+      at: 2,
+      kind: "activity",
+      items: [call("Read upload.ts", "read"), call("Run bun test", "execute", last)],
+    });
+    const texts = () => [...dom.window.document.querySelectorAll(".cv-tool")].map((node) => node.textContent);
+    const show = (rows: AcpmuxRow[], open: Set<string>) =>
+      act(async () =>
         root.render(
           createElement(VirtualTranscript, {
-            rows: [{ id: "a", version: 1, at: 1, kind: "activity", items }],
+            rows: turnView(rows, open),
             onToggleActivity: () => {},
-            expanded: new Set<string>(),
+            expanded: open,
           }),
         ),
       );
-      expect([...dom.window.document.querySelectorAll(".cv-tool")].map((node) => node.textContent)).toEqual([
-        "Read upload.ts",
-        "Run bun test",
-      ]);
+    try {
+      for (const [version, status] of [
+        [1, "completed"],
+        [2, "pending"],
+        [3, "completed"],
+      ] as const) {
+        await show([user, activity(version, status)], new Set());
+        expect(texts()).toEqual(["Read upload.ts", "Run bun test"]);
+      }
+      const ended = [user, activity(3, "completed"), { id: "s", version: 1, at: 9, kind: "turnSummary", toolCount: 2 }];
+      await show(ended, new Set());
+      expect(texts()).toEqual([]);
+      const worked = turnView(ended, new Set()).find((row) => row.kind === "worked")!;
+      await show(ended, new Set([worked.id]));
+      expect(texts()).toEqual(["Read a file, ran a command"]);
     } finally {
       await act(async () => root.unmount());
       restore();
