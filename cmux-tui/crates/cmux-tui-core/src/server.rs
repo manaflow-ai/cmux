@@ -14181,6 +14181,10 @@ fn handle_command_with_cancellation(
         Command::BrowserNavigate { surface, url } => {
             let surface = get_surface(mux, surface)?;
             require_browser(&surface)?;
+            anyhow::ensure!(
+                !mux.is_frontend_browser_surface(&surface),
+                "browser surface is rendered by the frontend; navigate it through its record"
+            );
             surface.browser_navigate(&url)?;
             Ok(json!({}))
         }

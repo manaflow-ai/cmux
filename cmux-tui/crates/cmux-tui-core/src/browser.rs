@@ -14,6 +14,7 @@ use crate::resource::TabResourceIdentity;
 use crate::surface::{Surface, SurfaceMeta, SurfaceOptions};
 use crate::{Mux, MuxEvent, SurfaceId};
 
+mod navigation_hold;
 mod navigation_hold_tests;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -722,6 +723,7 @@ pub struct BrowserSurface {
     command_order: Arc<Mutex<BrowserCommandOrder>>,
     latest_nav: Arc<Mutex<Option<SequencedBrowserCommand>>>,
     latest_authority: Arc<Mutex<Option<SequencedBrowserCommand>>>,
+    navigation_hold: Mutex<navigation_hold::NavigationHold>,
     #[cfg(test)]
     worker_done: Mutex<Option<Receiver<()>>>,
 }
@@ -895,13 +897,12 @@ impl BrowserRuntime {
         if browser.is_dead() {
             anyhow::bail!("browser surface was closed before it started");
         }
-        browser.mark_live(BrowserSession {
-            runtime: self.clone(),
-            target_id: target_id.to_string(),
-            session_id: session_id.to_string(),
-        })?;
-        browser.set_url_title(normalized_url.to_string(), normalized_url.to_string());
-        Ok(())
+        let session_id = session_id.to_string();
+        let target_id = target_id.to_string();
+        browser.attach_live(
+            BrowserSession { runtime: self.clone(), target_id, session_id },
+            normalized_url,
+        )
     }
 
     fn register(&self, target_id: &str, session_id: &str) -> Arc<SurfaceRoute> {
@@ -1084,6 +1085,7 @@ pub(crate) fn new_surface_with_resource_identity(
         command_order: command_order.clone(),
         latest_nav: latest_nav.clone(),
         latest_authority: latest_authority.clone(),
+        navigation_hold: Mutex::default(),
         #[cfg(test)]
         worker_done: Mutex::new(Some(worker_done_rx)),
     }));
@@ -1532,7 +1534,7 @@ fn start_browser_worker(
                 coalesce_worker_mouse_moves(&mut batch);
                 for queued in batch {
                     service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
-                    run_browser_worker_command(&surface, queued.command, &mux, id, &mut failures);
+                    run_browser_worker_command(&surface, queued, &mux, id, &mut failures);
                 }
             }
             if let Some(done_tx) = done_tx {
@@ -1664,12 +1666,12 @@ fn coalesce_worker_mouse_moves(batch: &mut Vec<SequencedBrowserCommand>) {
 
 fn run_browser_worker_command(
     surface: &Surface,
-    command: BrowserCommand,
+    queued: SequencedBrowserCommand,
     mux: &Weak<Mux>,
     id: SurfaceId,
     failures: &mut BrowserWorkerErrorState,
 ) {
-    let (mut command, confirmed) = match command {
+    let (mut command, confirmed) = match queued.command {
         BrowserCommand::Confirmed { command, completion } => (*command, Some(completion)),
         command => (command, None),
     };
@@ -1770,7 +1772,7 @@ fn run_browser_worker_command(
                 browser.insert_text_blocking(&text).map(|_| BrowserWorkerSuccess::BrowserResponded)
             }
             BrowserCommand::Navigate(url) => {
-                browser.navigate_blocking(&url).map(|_| BrowserWorkerSuccess::BrowserResponded)
+                browser.run_navigation(queued.sequence, &url, confirmed.is_some())
             }
             BrowserCommand::Back => {
                 browser.back_blocking().map(|_| BrowserWorkerSuccess::BrowserResponded)
@@ -2068,6 +2070,7 @@ impl BrowserSurface {
         if self.is_dead() || self.session.lock().unwrap().is_some() {
             return false;
         }
+        self.expect_attach();
         let mut state = self.state.lock().unwrap();
         state.status = BrowserStatus::Starting;
         state.failure_kind = None;
@@ -4172,30 +4175,6 @@ impl BrowserSurface {
         }
     }
 
-    fn enqueue_latest_nav(&self, command: BrowserCommand) -> anyhow::Result<()> {
-        if self.is_dead() {
-            anyhow::bail!("browser surface is closed");
-        }
-        self.enqueue_latest_nav_ignoring_dead(command)
-    }
-
-    fn enqueue_latest_nav_ignoring_dead(&self, command: BrowserCommand) -> anyhow::Result<()> {
-        let tx = self.command_sender()?;
-        let mut order = self.command_order.lock().unwrap();
-        let command = order.sequence(command);
-        let mut latest_nav = self.latest_nav.lock().unwrap();
-        *latest_nav = Some(command);
-        drop(latest_nav);
-        let wake = order.sequence(BrowserCommand::WakeLatest);
-        match tx.try_send(wake) {
-            Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
-            Err(TrySendError::Disconnected(_)) => {
-                self.latest_nav.lock().unwrap().take();
-                anyhow::bail!("browser command worker is closed")
-            }
-        }
-    }
-
     fn enqueue_latest_authority(&self, command: BrowserCommand) -> anyhow::Result<()> {
         if self.is_dead() {
             anyhow::bail!("browser surface is closed");
@@ -5047,10 +5026,6 @@ impl BrowserSurface {
         )
     }
 
-    pub fn navigate(&self, url: &str) -> anyhow::Result<()> {
-        self.enqueue_latest_nav(BrowserCommand::Navigate(url.to_string()))
-    }
-
     fn begin_latest_navigation_frame_transition(
         &self,
         session: &BrowserSession,
@@ -5109,42 +5084,6 @@ impl BrowserSurface {
             anyhow::anyhow!("main-frame snapshot was invalidated by repeated page navigation");
         self.fail_same_document_authority(&error);
         Err(error)
-    }
-
-    fn navigate_blocking(&self, url: &str) -> anyhow::Result<()> {
-        let session = self.require_navigation_session()?;
-        let normalized = normalize_url(url);
-        let invalidation = self.begin_latest_navigation_frame_transition(&session, true)?;
-        match session.runtime.client.navigate(&session.session_id, &normalized) {
-            Ok(result) => {
-                if result.is_download {
-                    // Chrome explicitly confirmed that the response was handed
-                    // to the download manager, so the current document and its
-                    // rendered frame remain authoritative.
-                    self.restore_pointer_frame_after_failed_command(invalidation);
-                    return Ok(());
-                }
-                if let Some(error) = result.error_text {
-                    self.abandon_frame_transition();
-                    self.mark_failed(error.clone());
-                    anyhow::bail!("browser failed: {error}");
-                }
-                let loaderless = result.loader_id.is_none();
-                if loaderless {
-                    self.reconcile_loaderless_navigation(&session)?;
-                } else {
-                    self.finish_navigation_command(invalidation, Ok(()))?;
-                }
-            }
-            Err(error) => self.finish_navigation_command(invalidation, Err(error))?,
-        }
-        self.set_url_title(normalized.clone(), normalized);
-        self.dirty.store(true, Ordering::Release);
-        Ok(())
-    }
-
-    pub(crate) fn navigate_confirmed(&self, url: &str) -> anyhow::Result<()> {
-        self.execute_confirmed(BrowserCommand::Navigate(url.to_string()))
     }
 
     pub fn back(&self) -> anyhow::Result<()> {

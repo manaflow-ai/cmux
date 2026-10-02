@@ -183,3 +183,41 @@ fn navigation_hold_attach_loads_the_record_url_not_the_stale_bootstrap_url() {
     browser.kill();
     cdp.shutdown();
 }
+
+#[test]
+fn navigation_hold_survives_a_rejected_confirmed_navigation() {
+    let cdp = fake_cdp();
+    let surface = starting_surface();
+    let browser = surface.as_browser().expect("browser surface");
+
+    browser.navigate("https://raw.test").unwrap();
+    drain_worker(&surface);
+    let confirmed = browser.navigate_confirmed("https://confirmed.test");
+    assert!(confirmed.is_err(), "a confirmed navigation is refused while starting");
+    attach(&cdp, &surface);
+
+    let loaded = cdp.navigations.recv_timeout(WAIT).expect("the acknowledged navigation loads");
+    assert_eq!(loaded, "https://raw.test");
+    wait_for_record_url(&surface, "https://raw.test");
+
+    browser.kill();
+    cdp.shutdown();
+}
+
+#[test]
+fn navigation_hold_refuses_navigation_after_the_bootstrap_failed_for_good() {
+    let surface = starting_surface();
+    let browser = surface.as_browser().expect("browser surface");
+
+    browser.navigate("https://held.test").unwrap();
+    drain_worker(&surface);
+    browser.abandon_attach("no browser endpoint".to_string());
+
+    let error = browser.navigate("https://late.test").expect_err("no attach will come");
+    assert!(error.to_string().contains("no browser endpoint"), "{error}");
+    assert!(!browser.has_held_navigation(), "a held navigation is dropped");
+
+    browser.expect_attach();
+    browser.navigate("https://retry.test").expect("a new bootstrap attempt accepts navigation");
+    browser.kill();
+}
