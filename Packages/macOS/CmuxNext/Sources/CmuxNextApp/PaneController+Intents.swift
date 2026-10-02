@@ -41,6 +41,8 @@ extension PaneController {
             TabMoves.toNewColumn(tab, anchor: pane, services: services)
         case .trailingButton(let id):
             services.tabBarButtons.perform(id, paneKey: paneKey)
+        case .focusLocation:
+            StripLocation.request(pane: paneKey) { _ = services.registry.perform($0, invocation: $1) }
         case .dragBegan(let start):
             services.dragSession.begin(start, from: self)
         case .groupDragBegan(let start):

@@ -1,0 +1,33 @@
+import CmuxNextDesign
+import CoreGraphics
+
+/// Where the strip's location field goes (plain math, testable with fixed
+/// numbers): in the free space between the end of the tab run (the + button
+/// when shown) and the trailing buttons, leading-aligned after a small gap,
+/// as wide as the address needs up to that space. It never overlaps a tab or
+/// a trailing button: with less than `minimumWidth` free it hides instead
+/// of squeezing, and a long address truncates in the middle.
+enum TabLocationFieldLayout {
+    /// Narrowest free space the field still shows in.
+    static let minimumWidth: CGFloat = 120
+
+    /// The field's frame, or nil when it hides: no address to show, or less
+    /// than `minimumWidth` between `runEnd + gap` and `limit`.
+    static func frame(runEnd: CGFloat, limit: CGFloat, naturalWidth: CGFloat, gap: CGFloat,
+                      y: CGFloat, height: CGFloat) -> CGRect? {
+        let start = runEnd + gap
+        let available = limit - start
+        guard naturalWidth > 0, available >= minimumWidth else { return nil }
+        return CGRect(x: start, y: y, width: min(naturalWidth, available), height: height)
+    }
+
+    /// The tab run's far end for the field: the later of where it is drawn
+    /// now and where it is going, so a tab growing in pushes the field away
+    /// at once and a closing tab never slides under it.
+    static func runEnd(current: CGFloat, target: CGFloat) -> CGFloat {
+        max(current, target)
+    }
+
+    /// The default leading gap after the run.
+    static var gap: CGFloat { Metrics.space2 }
+}
