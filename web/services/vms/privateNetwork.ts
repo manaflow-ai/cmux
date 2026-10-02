@@ -124,7 +124,10 @@ export function networkSlugForUser(userId: string, env: VmRuntimeEnv = process.e
  * Freestyle derives a /24 (254 members) when a network is created without a
  * CIDR, and a network's CIDR is fixed for its life. Every machine and every
  * Mac tunnel attachment holds one address, so a /24 filled up and refused new
- * machines. A /16 holds 65,534. The pool sits inside 10.0.0.0/8, which every
+ * machines. A /20 holds 4,094, 16 times more than the busiest network has ever
+ * used, and keeps 1,024 slots in the pool, so the chance that a user's range
+ * overlaps a team network is small even once the platform's band reaches
+ * this pool. The pool sits inside 10.0.0.0/8, which every
  * tunnel routes by default, and above the band the platform derives its /24s
  * from (10.16-10.97 so far), so a user's own range does not overlap the
  * platform-derived team networks their tunnel also attaches. Different users
@@ -132,14 +135,14 @@ export function networkSlugForUser(userId: string, env: VmRuntimeEnv = process.e
  * and a tunnel attaches only its owner's network plus team networks.
  */
 const USER_NETWORK_POOL_BASE = (10 << 24) + (192 << 16);
-const USER_NETWORK_POOL_SLOTS = 64;
-const USER_NETWORK_RANGE_SIZE = 65536;
+const USER_NETWORK_POOL_SLOTS = 1024;
+const USER_NETWORK_RANGE_SIZE = 4096;
 
-/** The IPv4 /16 a production user's network is created with. */
+/** The IPv4 /20 a production user's network is created with. */
 export function userNetworkCidr(userId: string): string {
   const slot = Number.parseInt(accountHash("network-cidr", userId).slice(0, 8), 16) % USER_NETWORK_POOL_SLOTS;
   const base = USER_NETWORK_POOL_BASE + slot * USER_NETWORK_RANGE_SIZE;
-  return `${[24, 16, 8, 0].map((shift) => (base >>> shift) & 255).join(".")}/16`;
+  return `${[24, 16, 8, 0].map((shift) => (base >>> shift) & 255).join(".")}/20`;
 }
 
 /**
@@ -453,13 +456,17 @@ function resolveUserNetwork(
   repo: PrivateNetworkRepo,
 ) {
   return Effect.gen(function* () {
-    const existing = yield* repo.findNetwork(input.userId, input.provider);
-    if (existing) return existing;
-
     const slug = networkSlugForUser(input.userId);
-    // Production networks get a /16 (see userNetworkCidr). A namespaced
+    const existing = yield* repo.findNetwork(input.userId, input.provider);
+    // A namespaced deployment never reuses a network outside its namespace: a
+    // dev database created before namespaces holds a row for the user's
+    // production network. The upsert below replaces that row. Production
+    // reuses its row whatever slug it stores.
+    if (existing && (vmNetworkNamespace() === null || existing.slug === slug)) return existing;
+
+    // Production networks get a /20 (see userNetworkCidr). A namespaced
     // deployment keeps the platform's derived /24, which is unique within the
-    // provider account: the /16 comes from the user id, so every dev stack
+    // provider account: the /20 comes from the user id, so every dev stack
     // would give one person the same range, and a Mac running several builds
     // could not tell their machines' addresses apart. Existing networks keep
     // the range they were created with.
