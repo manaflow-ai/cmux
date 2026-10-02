@@ -47,7 +47,8 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     `_` for `.` (`workspace_list`, `tab_create_terminal`, `terminal_input_write`), and
     the input schema is the operation's typed params;
   - `window_list` (the app's windows, for `win_` targets);
-  - one tool per app action with `cli: true` in `action.list`, named `app_` plus its
+  - one tool per app action that `action.list` offers to the CLI and to MCP
+    (`surfaces.cli` and `surfaces.mcp` are `offered`), named `app_` plus its
     CLI name (`app_new_window`, `app_workspace_move_to_window`), with the action's
     arguments (kinds, choices, ranges) as the schema. These appear only while the app
     answers. The server declares `tools.listChanged` and sends
@@ -90,9 +91,7 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
 | stream operations (`session.events`, `terminal.attach`, `browser.attach`, `sidebar_view.attach`, `session.journal.subscribe`) | tools are request and response |
 | connection control (`client.*` sizing and metadata, viewer resize and release, `request.cancel`, `stream.cancel`, renderer grants) | scoped to one socket connection |
 | `machine.*`, `session.*` (list, get, open, snapshot, ping, creation, journal, defaults, window title, shutdown, reload), `client.get/list`, `frontend_projection.*`, `pairing_request.*`, `sidebar_view.*` | cmux-tui-only scopes the curated `cmux` CLI also refuses; pairing needs a person |
-| app actions `accounts.connect`, `accounts.remove`, `accounts.reauthenticate`, `coderouter claude add`, `palette.auth.signIn`, `palette.auth.signOut` | credentials, secrets and sign-in stay with a person |
-| app actions `quit`, `quitKeepSessions`, `quitEndSessions`, `quitEndEverything` | end the app the user works in |
-| app actions `palette.toggleSetting`, `palette.installCLI`, `palette.uninstallCLI`, `palette.applyUpdateIfAvailable`, `palette.switchAppChannel`, `palette.restartSocketListener` | change preferences, the system or the running app outside the user's work |
+| app actions the app exempts from MCP (`surfaces.mcp` in `action.list`, its `ActionSurfacePlan`: `credentials` such as account connect/remove and sign in/out, `endsApp` such as quit, `systemChange` such as toggle setting or install CLI) | the app owns the decision; the server words the reason and refuses an action whose app reports no `surfaces.mcp` |
 | GUI-only actions, `action.run` by id | only `cli: true` actions |
 | `settings.*`, `history.list`, `bookmark.list`, `accounts.list`, `browser.page.*`, `events.stream`, `system.*` | not catalog operations or CLI actions; private data, credentials or page access; later phases decide |
 

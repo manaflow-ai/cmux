@@ -17,37 +17,20 @@ use super::v2_tools::invalid;
 /// The app tool that lists windows (`snapshot.get`), for `win_` targets.
 pub(super) const WINDOW_LIST: &str = "window_list";
 
-/// Actions marked for the CLI that are not tools, by action id or CLI name.
-pub(super) const EXCLUDED_ACTIONS: &[(&str, &str)] = &[
-    (
-        "accounts.connect",
-        "Links a provider account to CodeRouter: a credential change a person makes.",
-    ),
-    (
-        "accounts.remove",
-        "Removes a provider account from CodeRouter: a credential change a person makes.",
-    ),
-    ("accounts.reauthenticate", "Starts a provider sign-in, which needs a person."),
-    ("coderouter claude add", "Takes a secret; secrets never pass through tool arguments."),
-    ("palette.auth.signIn", "Signs in to a cmux account, which needs a person."),
-    ("palette.auth.signOut", "Signs the user out of their cmux account."),
-    (
-        "palette.toggleSetting",
-        "Writes cmux.json; preferences belong to the config layer (settings.* are excluded too).",
-    ),
-    ("palette.installCLI", "Changes the system outside cmux (installs the cmux command)."),
-    ("palette.uninstallCLI", "Changes the system outside cmux (removes the cmux command)."),
-    ("palette.applyUpdateIfAvailable", "Replaces and restarts the app the user works in."),
-    ("palette.switchAppChannel", "Replaces the app the user works in with another channel."),
-    (
-        "palette.restartSocketListener",
-        "Restarts the control socket that this server and every CLI use.",
-    ),
-    ("quit", "Ends the app the user works in; a person quits it."),
-    ("quitKeepSessions", "Ends the app the user works in; a person quits it."),
-    ("quitEndSessions", "Ends the app and its sessions; a person quits it."),
-    ("quitEndEverything", "Ends the app, its sessions and its daemon; a person quits it."),
-];
+/// Why the app keeps an action from MCP (`surfaces.mcp` in `action.list`,
+/// the app's `ActionSurfacePlan`). The app decides; this only words it.
+fn mcp_exemption_reason(exemption: &str) -> String {
+    let why = match exemption {
+        "credentials" => "credentials and sign-in stay with a person",
+        "endsApp" => "it ends the app the user works in",
+        "systemChange" => "it changes preferences, the system or the running app",
+        "guiOnly" => "it has no purpose outside the GUI",
+        "liveInput" | "focusMove" | "stepAdjust" => "it is live input or view navigation",
+        "clipboard" => "it reads or writes the user's clipboard",
+        _ => "the app keeps it out of MCP",
+    };
+    format!("The app marks it `{exemption}` for MCP (surfaces.mcp): {why}.")
+}
 
 /// App control methods that are neither actions nor tools, with the reason.
 pub(super) const EXCLUDED_APP_METHODS: &[(&str, &str)] = &[
@@ -83,7 +66,13 @@ pub(super) fn from_list(list: &Value) -> (Vec<ActionTool>, Vec<Exclusion>) {
     let mut excluded = Vec::new();
     let actions = list.get("actions").and_then(Value::as_array).map(Vec::as_slice);
     for action in actions.unwrap_or_default() {
-        if action.get("cli") != Some(&Value::Bool(true)) {
+        let surfaces = action.get("surfaces");
+        let surface = |name: &str| surfaces.and_then(|surfaces| surfaces[name].as_str());
+        let cli = match surface("cli") {
+            Some(cli) => cli == "offered",
+            None => action.get("cli") == Some(&Value::Bool(true)),
+        };
+        if !cli {
             continue;
         }
         let id = action["id"].as_str().unwrap_or_default().to_owned();
@@ -95,11 +84,18 @@ pub(super) fn from_list(list: &Value) -> (Vec<ActionTool>, Vec<Exclusion>) {
                 reason: reason.to_owned(),
             });
         };
-        if let Some((_, reason)) = EXCLUDED_ACTIONS.iter().find(|(name, _)| {
-            *name == id || cli_name == *name || cli_name.starts_with(&format!("{name} "))
-        }) {
-            exclude(reason);
-            continue;
+        // Fail closed: an app that does not say whether MCP may run the
+        // action does not get it run.
+        match surface("mcp") {
+            Some("offered") => {}
+            Some(exemption) => {
+                exclude(&mcp_exemption_reason(exemption));
+                continue;
+            }
+            None => {
+                exclude("The app does not report surfaces.mcp for it; update the app.");
+                continue;
+            }
         }
         let Some(name) = tool_name(&cli_name) else {
             exclude("Its CLI name does not make a valid tool name.");

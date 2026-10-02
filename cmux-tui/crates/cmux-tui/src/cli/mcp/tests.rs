@@ -89,26 +89,32 @@ fn fixture_actions() -> Value {
         {
             "id": "renameWorkspace", "title": "Rename Workspace…", "cli_name": "workspace rename",
             "cli": true, "targets": ["workspace"], "requires": [], "destructive": false,
+            "surfaces": {"cli": "offered", "mcp": "offered"},
             "arguments": [{"name": "name", "title": "Name", "kind": "string", "required": true}],
         },
         {
-            "id": "newWindow", "title": "New Window", "cli_name": "app new-window", "cli": true,
-            "targets": [], "arguments": [],
+            "id": "newWindow", "title": "New Window", "cli_name": "app new-window",
+            "surfaces": {"cli": "offered", "mcp": "offered"}, "targets": [], "arguments": [],
         },
         {
             "id": "closeWorkspace", "title": "Close Workspace", "cli_name": "workspace close",
             "cli": true, "destructive": true, "targets": ["workspace"],
+            "surfaces": {"cli": "offered", "mcp": "offered"},
             "arguments": [{"name": "confirm", "title": "Confirm", "kind": "bool", "required": false}],
         },
         {
             "id": "accounts.connect", "title": "Connect Account", "cli_name": "accounts connect",
-            "cli": true, "targets": [],
+            "surfaces": {"cli": "offered", "mcp": "credentials"}, "targets": [],
             "arguments": [{"name": "provider", "title": "Provider", "kind": "enum", "required": true,
                            "choices": [{"value": "codex", "title": "Codex"}]}],
         },
         {
             "id": "palette.toggleSidebar", "title": "Toggle Sidebar", "cli_name": "sidebar toggle",
             "cli": false, "targets": [], "arguments": [],
+        },
+        {
+            "id": "oldApp", "title": "Old App Action", "cli_name": "old action", "cli": true,
+            "targets": [], "arguments": [],
         },
     ]})
 }
@@ -198,8 +204,11 @@ fn cli_actions_become_tools_with_the_cli_request_and_an_mcp_origin() {
     let (tools, excluded) = action_tools::from_list(&fixture_actions());
     let names = tools.iter().map(|tool| tool.name.as_str()).collect::<Vec<_>>();
     assert_eq!(names, ["app_workspace_rename", "app_new_window", "app_workspace_close"]);
-    assert_eq!(excluded.len(), 1);
+    // The app decides (surfaces.mcp); an app that does not say is refused.
+    assert_eq!(excluded.len(), 2);
     assert!(excluded[0].name.starts_with("accounts.connect"));
+    assert!(excluded[0].reason.contains("credentials"));
+    assert!(excluded[1].name.starts_with("oldApp"));
     assert!(!names.iter().any(|name| name.contains("sidebar")), "GUI-only actions stay out");
 
     // `cmux workspace rename --target … --name …` and the tool send the
