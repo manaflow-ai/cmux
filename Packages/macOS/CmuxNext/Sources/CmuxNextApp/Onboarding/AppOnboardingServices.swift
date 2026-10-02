@@ -57,13 +57,26 @@ final class AppOnboardingServices: OnboardingServices {
             cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default)
         }
         let cef = cache.cef
+        // One Keychain prompt per browser for cookies and passwords together; the keys go when the run ends.
+        let keys = OneReadSafeStorage(SafeStorageKeys().live())
         let cookies = CookieImporter(destination: AppCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) },
-                                     keys: SafeStorageKeys().live())
+                                     keys: keys)
+        // Passwords only from profiles the user agreed to on the consent screen (the plan carries no others).
+        var passwords: PasswordImporter?
+        if plan.items.contains(where: { $0.kinds.contains(.passwords) }), await cef.canImportPasswords() {
+            passwords = PasswordImporter(keys: keys, destination: AppPasswordDestination(available: true) { rows, profile in
+                try await cef.importPasswords(rows, into: profile)
+            })
+        }
         let importer = BrowserImporter(provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore,
-                                       cookies: cookies)
+                                       cookies: cookies, passwords: passwords)
         return try await importer.run(plan, into: destination) { step in
             Task { @MainActor in progress(step) }
         }
+    }
+
+    func canImportPasswords() async -> Bool {
+        await services.cache?.cef.canImportPasswords() ?? false
     }
 
     var defaultApps: any DefaultAppRegistering { owner.defaultApps }

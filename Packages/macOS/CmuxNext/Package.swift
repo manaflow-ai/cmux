@@ -38,6 +38,8 @@ import PackageDescription
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
 //   CmuxNextAgentPane -> Design, Actions, Dictation (WKWebView host for the React agent pane and the acpmux
 //     handshake; the page talks to acpmux itself; no daemon)
+//   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
+//     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
 
@@ -116,6 +118,7 @@ let package = Package(
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
+                "CmuxNextAgentActivity",
             ],
             resources: [
                 .process("Resources"),
@@ -248,6 +251,23 @@ let package = Package(
         .testTarget(
             name: "CmuxNextBookmarksTests",
             dependencies: ["CmuxNextBookmarks"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Agent activity (plans/cmux-next/computer-use.md section 7): the
+        // pane listing computer use sessions on every machine, their
+        // screenshot timeline and user controls. A projection: the CUA host
+        // owns every session; the App supplies the source.
+        .target(
+            name: "CmuxNextAgentActivity",
+            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentActivityTests",
+            dependencies: ["CmuxNextAgentActivity"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -496,6 +516,17 @@ let package = Package(
         .testTarget(
             name: "CmuxNextBrowserTests",
             dependencies: ["CmuxNextBrowser"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
+        .target(
+            name: "CmuxNextBrowserAutomation",
+            dependencies: ["CmuxNextBrowser", "CmuxNextWakeups"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextBrowserAutomationTests",
+            dependencies: ["CmuxNextBrowserAutomation", "CmuxNextBrowser"],
             swiftSettings: uiSwiftSettings
         ),
         .target(

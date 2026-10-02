@@ -51,7 +51,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/journal_ingress.rs	2996	100
 rust-file	cmux-tui/crates/cmux-tui-core/src/journal_reducers.rs	1930	65
 rust-file	cmux-tui/crates/cmux-tui-core/src/layout.rs	1638	82
 rust-file	cmux-tui/crates/cmux-tui-core/src/model.rs	1145	74
-rust-file	cmux-tui/crates/cmux-tui-core/src/mux.rs	34457	1034
+rust-file	cmux-tui/crates/cmux-tui-core/src/mux.rs	34453	1031
 rust-file	cmux-tui/crates/cmux-tui-core/src/mux/resource_content.rs	1368	21
 rust-file	cmux-tui/crates/cmux-tui-core/src/mux/resource_topology.rs	7182	150
 rust-file	cmux-tui/crates/cmux-tui-core/src/mux/screen_groups.rs	1040	37

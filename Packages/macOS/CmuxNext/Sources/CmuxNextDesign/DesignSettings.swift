@@ -34,6 +34,8 @@ public final class DesignSettings {
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .auto
+    /// `layout.closeFocus`: who gets focus when the focused pane closes.
+    public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
     public var defaultColumnWidth: Double = 0.5
     /// `layout.newColumnWidth`: how a new column's width is chosen.
@@ -55,6 +57,8 @@ public final class DesignSettings {
     public var borders: BorderMode = .default
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
+    /// `window.rail`: the window's icon rail, off by default.
+    public var rail: WindowRailPlacement = .off
 
     public init() {}
 

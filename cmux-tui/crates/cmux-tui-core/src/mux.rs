@@ -1,6 +1,7 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod agent_hook_errors;
 mod host_close;
 mod idle_close;
 mod personal;
@@ -22,6 +23,11 @@ mod terminal_directory;
 mod terminal_progress;
 mod terminal_reap;
 mod terminal_work;
+
+use agent_hook_errors::{
+    AGENT_HOOK_RETRY_ERROR, AgentHookTerminalGone, AgentHookTerminalUnavailable,
+    agent_hook_retry_class, agent_hook_terminal_gone,
+};
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use presentation::{
@@ -986,6 +992,7 @@ pub enum MuxEvent {
     PersonalChanged {
         personal_revision: u64,
     },
+    BookmarksChanged(personal::BookmarksChange),
     /// A durable terminal-registry mutation committed. Consumers use this as
     /// a barrier, then fetch `terminal-events` or a fresh snapshot.
     TerminalRegistryChanged {
@@ -1497,56 +1504,6 @@ fn published_agent_session_id(terminal_id: &TerminalPublicId, session_id: &str) 
 /// the previous fence identity after restart.
 pub(super) fn legacy_hook_session_id(terminal_id: &TerminalPublicId, sequence: u64) -> String {
     crate::journal_reducers::legacy_hook_session_id(terminal_id.as_str(), sequence)
-}
-
-const AGENT_HOOK_RETRY_ERROR: &str = "agent hook projection retry deferred";
-
-#[derive(Debug)]
-struct AgentHookTerminalUnavailable;
-
-impl fmt::Display for AgentHookTerminalUnavailable {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("terminal is not available for agent hook projection")
-    }
-}
-
-impl std::error::Error for AgentHookTerminalUnavailable {}
-
-#[derive(Debug)]
-struct AgentHookTerminalGone;
-
-impl fmt::Display for AgentHookTerminalGone {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("terminal no longer exists for agent hook projection")
-    }
-}
-
-impl std::error::Error for AgentHookTerminalGone {}
-
-fn agent_hook_terminal_gone(error: &anyhow::Error) -> bool {
-    error.downcast_ref::<AgentHookTerminalGone>().is_some()
-}
-
-fn agent_hook_retry_class(error: &anyhow::Error) -> crate::workspace_registry::AgentHookRetryClass {
-    if error.downcast_ref::<AgentHookTerminalUnavailable>().is_some()
-        || error.chain().any(|cause| {
-            matches!(
-                cause.downcast_ref::<rusqlite::Error>(),
-                Some(rusqlite::Error::SqliteFailure(
-                    rusqlite::ffi::Error {
-                        code: rusqlite::ErrorCode::DatabaseBusy
-                            | rusqlite::ErrorCode::DatabaseLocked,
-                        ..
-                    },
-                    _
-                ))
-            )
-        })
-    {
-        crate::workspace_registry::AgentHookRetryClass::Transient
-    } else {
-        crate::workspace_registry::AgentHookRetryClass::Permanent
-    }
 }
 
 #[derive(Debug, Clone)]

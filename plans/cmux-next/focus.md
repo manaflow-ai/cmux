@@ -178,10 +178,11 @@ Reducer `(FocusState, FocusEvent) -> (FocusState, [FocusEffect])`, pure, rules:
 - Initial placement and workspace switch: remembered pane if it exists, else the first
   pane. The target becomes `content`, except that keyboard navigation in the sidebar
   keeps `sidebar(keyboard: true)`.
-- The focused pane disappears: successor is the most recently focused surviving pane
-  (closing a split you just made returns to where you were), else the next surviving pane
-  after it in the old layout order, else the previous one. Deterministic, never a
-  dictionary order.
+- The focused pane disappears: successor per `layout.closeFocus` (close-focus.md):
+  default the previous pane in its column, else the next one there, else the column to the
+  left (its most recently focused pane), else the column to the right, on the same screen;
+  `mostRecent` takes the newest surviving pane of the history first. Deterministic, never
+  a dictionary order.
 - A tab moved to another pane by a shortcut, menu or CLI verb is followed: focus lands
   on it in its new pane once the daemon reports the move.
 - The focused pane's selected tab changes: focus follows it; `addressBar`/`findBar` of
@@ -558,11 +559,21 @@ it never changes a pane frame, inset or the hosted view's frame
 (`FocusRingNoShiftTests` moves focus across splits and niri columns under every ring
 style, width and corner setting). cmux.json `focusRing.{enabled, style (ring | glow |
 none), color (default: the Ghostty theme's focus gray), width, cornerRadius (default: the
-pane radius), showWhenSinglePane}`; palette: Toggle Focus Ring, Use Ring / Glow Focus
+pane radius), showWhenSinglePane, contrast (subtle | standard | strong)}`; palette: Toggle Focus Ring, Use Ring / Glow Focus
 Style, Toggle Focus Ring for a Single Pane. The glow is a stroke with a shadow clipped to
 the content rect, so it falls inward only. The attention ring of an unread notification
 shares the overlay (plans/cmux-next/notifications.md). Column scrolling:
 plans/cmux-next/niri.md.
+
+Contrast (2026-10-02, user: "we need focus ring to be subtler by default somehow. color
+subtler"): `focusRing.contrast` sets the pane ring's share of the theme focus color (the
+Ghostty foreground; it replaces the token's own alpha): subtle 0.20 (the default),
+standard 0.55 (the previous look), strong 0.85. `FocusRingSettings.ringColor(in:override:)`
+is the one rule the overlay draws (`Palette.paneFocusRing`) and `FocusRingContrastTests`
+checks: subtle stays at least 1.4 times a pane border's visibility in every fixture theme,
+so the focused pane is still findable. No accent hue. The accent uses of `Palette.focusRing`
+(Settings tint, omnibar and page info rings) do not change. Settings: Appearance > Focus
+Ring > Contrast; Debug Settings: Focus > Focus ring alpha overrides it.
 
 Resize rule (2026-09-30): the ring's layers move in the same call that sets the overlay's
 frame (`PaneOverlayView.setFrameSize`), so the pass that places the panes places the ring,

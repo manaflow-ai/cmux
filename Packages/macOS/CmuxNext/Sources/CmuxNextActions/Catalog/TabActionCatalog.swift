@@ -26,7 +26,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "openBrowser.webkit",
-                title: String(localized: "action.openBrowser.webkit", defaultValue: "New WebKit Tab (experimental)", bundle: .module),
+                title: String(localized: "action.openBrowser.webkit", defaultValue: "New WebKit Tab", bundle: .module),
                 keywords: ["tab", "web", "browser", "safari", "webkit", "create"],
                 category: .tab, symbol: "safari", surfaces: [.palette, .contextMenu],
                 arguments: [CatalogArgument.urlString], targets: [.tab], cliName: "tab new-webkit"

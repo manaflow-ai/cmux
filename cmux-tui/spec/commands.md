@@ -309,7 +309,8 @@ With `launch-snapshot-v1`, `launch_snapshot_path` is the absolute path of the se
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`). `terminal-placement-env-v1` advertises a caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and `new-pane-right`, `cwd` and `env` on `new-pane` and `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four results. `terminal-resources-v1` advertises `terminal-resources`, which reads the CPU time and memory of each terminal's shell, descendants, and terminal host at request time. `batch-close-v1` advertises `close-tabs` and the optional `end_terminals` field on `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group`: many placements and the terminals they end close in one durable commit. `end-terminals-keep-layout-v1` advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`, placed terminals keep their tabs across the handoff. `terminal-reap-v1` advertises the owner-side reaper that ends a terminal after it has had no tab placement for the reap grace period (active only when the daemon was started with `--terminal-reap-grace-seconds`), `set-terminal-keep`, the `keep` field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped` event, and `end_terminals` on `shutdown-daemon`. `sticky-columns-v1` advertises `set-column-sticky` and the optional `Screen.columns[].sticky` field. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-pin-v1` advertises the `pinned` field on `set-workspace-metadata` and `Workspace.pinned`. `notification-mark-unread-v1` advertises the `marked_unread` field on `set-workspace-metadata` and `Workspace.marked_unread`. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`. `loopback-forward-v1` advertises multiplexed TCP streams to the daemon machine's own loopback services (see "Loopback forwarding"); a Unix client echoes it in `set-client-info` before its first `loopback-open`. `session-identity-v1` advertises `identify.session_id` (the durable `registry_id`, stable across restarts and upgrades) and `identify.machine_name` (the host name, at most 255 bytes, no control characters). `profiles-v1` advertises the home session's personal state: `list-personal`, the `*-profile` room commands, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `import-session-organization`, the `*-personal-group` commands, `set-personal-workspace`, and the `personal-changed` event. `personal-terminals-v1` advertises `set-personal-terminal` and `list-personal.terminals`. `screen-metadata-v1` advertises `set-screen-metadata`, `set-screen-pinned`, `move-screen`, the `screen_name`, `color`, `icon`, `pinned`, `index`, `group`, and `cwd` fields on `new-screen` (whose result then also carries `screen`), the `Screen.color`, `Screen.icon`, `Screen.pinned`, and `Screen.group` fields, and the `screen-changed` delta. `screen-groups-v1` advertises Chrome-style screen groups: the `*-screen-group` commands, saved screen groups, and `Workspace.screen_groups`. `browser-profiles-v1` advertises browser profile records in personal state: `browser_profiles` in `list-personal` and `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, and `delete-browser-profile`. `notification-source-v1` advertises `source` on `notify`, the `notification` event, the tab `notification` marker, and `list-notifications` rows (`extra.source` in resource notification snapshots), and daemon-side desktop notifications from terminal output (OSC 9, OSC 777 `notify`, kitty OSC 99) with source `terminal`. `terminal-shell-args-v1` advertises `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and `create-terminal`: the terminal runs its `SHELL` from `env` (else the daemon's default shell) with those arguments, so a frontend can apply Ghostty's argv-based shell integration (bash `--posix` with `ENV`, nushell `--execute`). `launch-snapshot-v1` advertises `launch_snapshot_path` in `identify` and the launch snapshot file described there. `state-resources-v1` advertises the `cmux.protocol/2` state resources (workspace metadata, tab pins and tab groups, personal workspace groups, rooms and saved tab groups, screen metadata, order and screen groups, closed history, ephemeral workspaces, and workspace status, progress and log; see `resource-api-v2.md`), `extra.state` on session snapshots, and `state_upsert`/`state_delete` changes on `session.events`. `window-records-v1` advertises `window_record.list`, `window_record.put` and `window_record.delete` (see `resource-api-v2.md`). `frontend-browser-owner-v1` advertises `owner` on `new-frontend-browser-tab` and `update-frontend-browser-tab`, `Tab.browser_owner`, `tab.update {owner}` and the tab's `extra.owner`. The raw screen commands of `screen-metadata-v1` and `screen-groups-v1` and the v2 `screen.*` and `screen_group.*` operations read and write one storage and publish the same changes.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`). `terminal-placement-env-v1` advertises a caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and `new-pane-right`, `cwd` and `env` on `new-pane` and `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four results. `terminal-resources-v1` advertises `terminal-resources`, which reads the CPU time and memory of each terminal's shell, descendants, and terminal host at request time. `batch-close-v1` advertises `close-tabs` and the optional `end_terminals` field on `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group`: many placements and the terminals they end close in one durable commit. `end-terminals-keep-layout-v1` advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`, placed terminals keep their tabs across the handoff. `terminal-reap-v1` advertises the owner-side reaper that ends a terminal after it has had no tab placement for the reap grace period (active only when the daemon was started with `--terminal-reap-grace-seconds`), `set-terminal-keep`, the `keep` field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped` event, and `end_terminals` on `shutdown-daemon`. `sticky-columns-v1` advertises `set-column-sticky` and the optional `Screen.columns[].sticky` field. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-pin-v1` advertises the `pinned` field on `set-workspace-metadata` and `Workspace.pinned`. `notification-mark-unread-v1` advertises the `marked_unread` field on `set-workspace-metadata` and `Workspace.marked_unread`. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`. `loopback-forward-v1` advertises multiplexed TCP streams to the daemon machine's own loopback services (see "Loopback forwarding"); a Unix client echoes it in `set-client-info` before its first `loopback-open`. `session-identity-v1` advertises `identify.session_id` (the durable `registry_id`, stable across restarts and upgrades) and `identify.machine_name` (the host name, at most 255 bytes, no control characters). `profiles-v1` advertises the home session's personal state: `list-personal`, the `*-profile` room commands, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `import-session-organization`, the `*-personal-group` commands, `set-personal-workspace`, and the `personal-changed` event. `personal-terminals-v1` advertises `set-personal-terminal` and `list-personal.terminals`. `screen-metadata-v1` advertises `set-screen-metadata`, `set-screen-pinned`, `move-screen`, the `screen_name`, `color`, `icon`, `pinned`, `index`, `group`, and `cwd` fields on `new-screen` (whose result then also carries `screen`), the `Screen.color`, `Screen.icon`, `Screen.pinned`, and `Screen.group` fields, and the `screen-changed` delta. `screen-groups-v1` advertises Chrome-style screen groups: the `*-screen-group` commands, saved screen groups, and `Workspace.screen_groups`. `browser-profiles-v1` advertises browser profile records in personal state: `browser_profiles` in `list-personal` and `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, and `delete-browser-profile`. `notification-source-v1` advertises `source` on `notify`, the `notification` event, the tab `notification` marker, and `list-notifications` rows (`extra.source` in resource notification snapshots), and daemon-side desktop notifications from terminal output (OSC 9, OSC 777 `notify`, kitty OSC 99) with source `terminal`. `terminal-shell-args-v1` advertises `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and `create-terminal`: the terminal runs its `SHELL` from `env` (else the daemon's default shell) with those arguments, so a frontend can apply Ghostty's argv-based shell integration (bash `--posix` with `ENV`, nushell `--execute`). `launch-snapshot-v1` advertises `launch_snapshot_path` in `identify` and the launch snapshot file described there. `state-resources-v1` advertises the `cmux.protocol/2` state resources (workspace metadata, tab pins and tab groups, personal workspace groups, rooms and saved tab groups, screen metadata, order and screen groups, closed history, ephemeral workspaces, and workspace status, progress and log; see `resource-api-v2.md`), `extra.state` on session snapshots, and `state_upsert`/`state_delete` changes on `session.events`. `window-records-v1` advertises `window_record.list`, `window_record.put` and `window_record.delete` (see `resource-api-v2.md`). `frontend-browser-owner-v1` advertises `owner` on `new-frontend-browser-tab` and `update-frontend-browser-tab`, `Tab.browser_owner`, `tab.update {owner}` and the tab's `extra.owner`. The raw screen commands of `screen-metadata-v1` and `screen-groups-v1` and the v2 `screen.*` and `screen_group.*` operations read and write one storage and publish the same changes. `bookmarks-v1` advertises one bookmark tree per browser profile: `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, the `bookmarks-changed` event, and `deleted_bookmarks` in the `delete-browser-profile` result.
+.
 
 Errors:
 
@@ -4803,12 +4804,175 @@ Result: `object{browser_profile:BrowserProfile, changed:bool}`
 
 Deletes a browser profile record; `default` is refused. Every
 `personal_workspaces.browser_profile_id` and room `browser_profile_id` naming
-it is cleared in the same commit. The app moves its tabs and removes its
-engine data.
+it is cleared in the same commit. With `bookmarks-v1` the same commit deletes
+the profile's bookmarks, reports their number in `deleted_bookmarks`, and,
+when there were any, emits `bookmarks-changed`. The app moves its tabs and
+removes its engine data.
 
 Params: `browser_profile` (required).
 
-Result: `object{browser_profile:string, cleared_workspaces:[object{session_id:string, workspace_key:string}], cleared_rooms:[string]}`
+Result: `object{browser_profile:string, cleared_workspaces:[object{session_id:string, workspace_key:string}], cleared_rooms:[string], deleted_bookmarks?:usize}`
+
+### list-bookmarks
+
+| Field | Value |
+| --- | --- |
+| name | `list-bookmarks` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Bookmark commands (plans/cmux-next/bookmarks.md sections 1 and 2.1) store
+one Chrome-style bookmark tree per browser profile in the home session. Every
+daemon serves them; the app writes them only on its home session. The two
+roots, the Bookmarks Bar (`bar`) and Other Bookmarks (`other`), are reserved
+`parent` values, not nodes. Each change bumps the session's
+`bookmarks_revision` (separate from `personal_revision`) and emits
+`bookmarks-changed`; an unchanged retry emits nothing.
+
+Shapes:
+
+```text
+Bookmark = object{id:string, browser_profile_id:string, parent:string, kind:"url"|"folder", index:usize, title:string, url?:string, favicon_key?:string, source_key?:string, created_ms:uint64, last_used_ms?:uint64}
+ImportNode = object{kind:"url"|"folder", title:string, url?:string, created_ms?:uint64, children?:[ImportNode]}
+```
+
+A null optional field is omitted. A bookmark id is `bm_` and 32 lowercase hex
+digits; the request field that names one is `bookmark`, because the request
+envelope owns `id`. `parent` is `bar`, `other`, or a folder of the same
+profile. `index` is a dense 0-based position among the node's siblings.
+`title` is at most 4096 UTF-8 bytes without NUL and may be empty. `url` is
+required for a `url` node and refused for a folder: an absolute URL (it has a
+scheme), at most 65536 bytes, without control characters. `favicon_key` and
+`source_key` are at most 4096 bytes without control characters; only a folder
+carries `source_key`. Times are
+milliseconds since the Unix epoch, at most `i64::MAX`. A node one level under
+a root has depth 1; no node is deeper than 64, and a profile holds at most
+100,000 nodes. Nodes never move between profiles. The browser profile must
+exist (`list-personal.browser_profiles`).
+
+Errors carry `error_code`: `invalid_params` for a bad id, parent, kind, URL,
+size, cycle, limit or idempotency key, and `not_found` for an unknown bookmark
+or browser profile. A rejected command changes nothing.
+
+Every mutation (`create-bookmark`, `update-bookmark`, `move-bookmark`,
+`delete-bookmark`, `import-bookmarks`) is one typed op and takes an optional
+idempotency key: `origin` and `mutation_id`, both or neither, following the
+durable mutation envelope's identifier rules. The daemon looks the key up
+before anything else and stores it with the op's result in the op's
+transaction. A retry with the same key and request returns the original
+result with `replayed:true`, writes nothing and emits nothing; the same key
+with another request is refused with `invalid_params`. The daemon keeps the
+replay records of the last 10,000 keyed ops; a key older than that, or a
+key whose op was refused, runs as a new op. Every mutation result carries
+`replayed:bool`.
+
+Params: `browser_profile_id` (required).
+
+Result: `object{bookmarks_revision:uint64, bookmarks:[Bookmark]}`
+
+`bookmarks` is the profile's whole tree in depth-first pre-order: the `bar`
+tree, then the `other` tree; each folder is followed by its subtree, and
+siblings follow `index`.
+
+### create-bookmark
+
+| Field | Value |
+| --- | --- |
+| name | `create-bookmark` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Creates a URL or folder node. `index` is the insertion position among the
+parent's children, clamped; absent appends. `created_ms` defaults to now.
+`bookmark` is the new node's id (generated when absent); an existing id
+returns the stored node unchanged with `changed:false`, so a retry is
+idempotent.
+
+Params: `browser_profile_id`, `parent`, `kind`, `title` (required); `index`,
+`url`, `favicon_key`, `source_key`, `created_ms`, `bookmark`, `origin`,
+`mutation_id`.
+
+Result: `object{bookmark:Bookmark, changed:bool, replayed:bool}`
+
+### update-bookmark
+
+| Field | Value |
+| --- | --- |
+| name | `update-bookmark` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Changes a node's title, URL (`url` nodes only), favicon key or last use. An
+absent field (or a null `title` or `url`) is unchanged; JSON null clears
+`favicon_key` or `last_used_ms`.
+
+Params: `bookmark` (required), `title`, `url`, `favicon_key`, `last_used_ms`,
+`origin`, `mutation_id`.
+
+Result: `object{bookmark:Bookmark, changed:bool, replayed:bool}`
+
+### move-bookmark
+
+| Field | Value |
+| --- | --- |
+| name | `move-bookmark` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Moves a node and its subtree under `parent` in the same profile. `index` is
+the node's final position among the destination's children after the move,
+clamped, in the same parent too. A folder cannot move into itself or a
+descendant, and the move must keep every node within depth 64.
+
+Params: `bookmark`, `parent`, `index` (required); `origin`, `mutation_id`.
+
+Result: `object{bookmark:Bookmark, changed:bool, replayed:bool}`
+
+### delete-bookmark
+
+| Field | Value |
+| --- | --- |
+| name | `delete-bookmark` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Deletes a node and its whole subtree; the node's later siblings close the gap.
+
+Params: `bookmark` (required); `origin`, `mutation_id`.
+
+Result: `object{deleted:[string], replayed:bool}`, the deleted node's id
+first, then its descendants.
+
+### import-bookmarks
+
+| Field | Value |
+| --- | --- |
+| name | `import-bookmarks` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Writes an imported tree in one transaction, so a rejected node writes
+nothing. `nodes` become new nodes at `parent`, starting at the insertion
+position `index` (clamped; absent appends); `created_ms` defaults to now.
+`nodes[0]` carries `source_key` when it is a folder.
+
+With `replace:true`, `source_key` is required and `nodes[0]` must be a folder.
+When the profile has a folder carrying that `source_key`, the folder keeps its
+id, parent and position, takes `nodes[0]`'s title and children (its old
+subtree is deleted), and `nodes[1..]` are inserted right after it. Otherwise
+the import proceeds as without `replace`. When several folders carry the
+`source_key`, the oldest by `created_ms` is refilled. The HTML import and the onboarding
+import use this so a re-import replaces its folder.
+
+The request line is subject to the JSON nesting limit (128), which bounds one
+import to about 60 nested levels; import a deeper tree in parts.
+
+Params: `browser_profile_id`, `parent`, `nodes` (required); `index`,
+`source_key`, `replace` (default false), `origin`, `mutation_id`.
+
+Result: `object{root_ids:[string], count:usize, replayed:bool}`: the ids of the top-level
+nodes written (in replace mode the kept folder first), and the number of
+nodes in `nodes`, descendants included.
 
 
 ### create-profile

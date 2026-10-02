@@ -22,6 +22,11 @@ export const ChevronDown = (p: P) => (
     <path d="M4 6l4 4 4-4" />
   </svg>
 );
+export const Check = (p: P) => (
+  <svg {...line(14)} {...p}>
+    <path d="M3.5 8.5l3 3 6-7" />
+  </svg>
+);
 export const ChevronLeft = (p: P) => (
   <svg {...line(16)} {...p}>
     <path d="M10 3.5L5.5 8l4.5 4.5" />

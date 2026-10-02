@@ -44,6 +44,14 @@ final class BrowserPageRequests: BrowserTabDelegate {
             }
             return
         }
+        // A page an agent drives passes that on to the pages it makes (an
+        // OAuth popup must not get a saved password filled either).
+        if services.cache.agentDrivenTabs.contains(key) {
+            switch intent {
+            case .adoptTab(let child, _), .openPopup(let child, _): child.markAgentDriven()
+            default: break
+            }
+        }
         let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
         // A page's new tabs stay in its browser profile (its cookies, and the
         // store an engine-made child page already uses).

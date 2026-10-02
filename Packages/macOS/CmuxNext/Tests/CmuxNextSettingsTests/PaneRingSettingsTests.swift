@@ -44,6 +44,15 @@ import Testing
         #expect(Set(snapshot.diagnostics.map(\.path)) == ["focusRing.style", "focusRing.color", "focusRing.width", "focusRing.enabled"])
     }
 
+    @Test func readsFocusRingContrast() throws {
+        #expect(try parse("{}").focusRing.contrast == .subtle)
+        #expect(try parse(#"{"focusRing": {"contrast": "strong"}}"#).focusRing.contrast == .strong)
+        let bad = try parse(#"{"focusRing": {"contrast": "loud"}}"#)
+        #expect(bad.focusRing.contrast == .subtle)
+        #expect(bad.diagnostics.map(\.path) == ["focusRing.contrast"])
+        #expect(SettingsSchema.all.contains { $0.path == ["focusRing", "contrast"] })
+    }
+
     @Test func readsAttention() throws {
         let attention = try parse(#"""
         {"notifications": {"attention": {"style": "pulse", "color": "#00FFAA", "width": 4, "blinkCount": 3,

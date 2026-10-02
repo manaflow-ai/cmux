@@ -19,6 +19,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     private var audioEngine: AVAudioEngine?
     private var analyzerFormat: AVAudioFormat?
     private var converter: AVAudioConverter?
+    private var timeline = AnalyzerTimeline()
     private var convertedInputContinuation:
         AsyncThrowingStream<AnalyzerInput, any Error>.Continuation?
     private var conversionTask: Task<Void, Never>?
@@ -259,7 +260,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         guard buffer.frameLength > 0 else { return }
         if buffer.format == analyzerFormat {
             let result = continuation.yield(
-                AnalyzerInput(buffer: buffer, bufferStartTime: input.bufferStartTime)
+                timeline.input(buffer, capturedAt: input.bufferStartTime)
             )
             if case .dropped = result {
                 throw DictationFailure.audioCaptureFailed("converted audio backlog")
@@ -280,7 +281,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         }
         let converted = try converter.convertOne(buffer, to: analyzerFormat)
         let result = continuation.yield(
-            AnalyzerInput(buffer: converted, bufferStartTime: input.bufferStartTime)
+            timeline.input(converted, capturedAt: input.bufferStartTime)
         )
         if case .dropped = result {
             throw DictationFailure.audioCaptureFailed("converted audio backlog")

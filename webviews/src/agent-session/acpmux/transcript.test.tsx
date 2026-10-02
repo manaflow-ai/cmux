@@ -976,7 +976,7 @@ describe("acpmux turn diff", () => {
       (review as HTMLElement).focus();
       await act(async () => review!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
       const panel = document.querySelector("section.acpmux-diff-panel")!;
-      expect(panel.querySelector(".acpmux-diff-header strong")?.textContent).toBe("2 files changed");
+      expect(panel.querySelector(".acpmux-diff-header strong")?.textContent).toBe("Last turn");
       expect(document.activeElement?.getAttribute("aria-label")).toBe("Back to transcript");
       // Each edit is one Pierre diff with the pane's own file header, in turn order.
       expect(
@@ -1373,6 +1373,182 @@ describe("acpmux turn diff", () => {
       await act(async () => root.unmount());
     }
   });
+
+  test("the scope menu loads a git scope, fails with Retry, shows an empty scope, and returns to the turn", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window & {
+      cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    };
+    const document = dom.window.document;
+    const asked: unknown[] = [];
+    const answers: (() => Promise<unknown>)[] = [
+      () => Promise.reject(new Error("Not a git repository")),
+      () =>
+        Promise.resolve({
+          scope: "uncommitted",
+          root: "/repo",
+          files: [
+            {
+              path: "src/main.ts",
+              status: "modified",
+              additions: 1,
+              deletions: 1,
+              patch: "@@ -1,2 +1,2 @@\n-a\n+A\n b\n",
+            },
+          ],
+        }),
+      // Picked again, Uncommitted loads afresh; this answer never comes.
+      () => new Promise(() => {}),
+      () => Promise.resolve({ scope: "staged", files: [] }),
+    ];
+    host.cmuxAcpmuxActions = {
+      "git.scope.diff": (params) => {
+        asked.push(params);
+        return answers.shift()!();
+      },
+    };
+    const diffRow: AcpmuxRow = {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      toolCount: 1,
+      items: [
+        {
+          kind: "tool",
+          text: "Edit main.ts",
+          tool: {
+            id: "t1",
+            title: "Edit main.ts",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/src/main.ts", oldText: "a\nb\nc\n", newText: "a\nB\nc\n" }],
+          },
+        },
+      ],
+    };
+    const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const click = async (node: Element) => {
+      await act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+      await settle();
+    };
+    const key = (node: Element, name: string) =>
+      act(async () => {
+        node.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+      });
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow],
+          sessions: [],
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        }),
+      );
+      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
+      const paths = () =>
+        [...panel.querySelectorAll<HTMLElement>(".acpmux-diff-file")].map((node) => node.dataset.path);
+      const pill = panel.querySelector<HTMLElement>('.acpmux-diff-header [aria-haspopup="menu"]')!;
+      expect(pill).not.toBeNull();
+      expect(pill.querySelector("strong")?.textContent).toBe("Last turn");
+      const items = () => [...panel.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitemradio"]')];
+      const eye = () => panel.querySelector<HTMLElement>(".acpmux-diff-file [aria-pressed]")!;
+      // The turn's file, marked viewed, folds away.
+      await click(eye());
+      expect(eye().getAttribute("aria-pressed")).toBe("true");
+      expect(panel.querySelector(".acpmux-diff-file diffs-container")).toBeNull();
+      // The menu lists the scopes in Codex's order, in three groups, and opens on the chosen one.
+      pill.focus();
+      await click(pill);
+      expect(pill.getAttribute("aria-expanded")).toBe("true");
+      expect(items().map((item) => item.textContent)).toEqual([
+        "Last turn",
+        "Uncommitted",
+        "Unstaged",
+        "Staged",
+        "Committed",
+        "Branch",
+      ]);
+      expect(panel.querySelectorAll('[role="menu"] hr').length).toBe(2);
+      expect(items().map((item) => item.getAttribute("aria-checked"))).toEqual([
+        "true",
+        "false",
+        "false",
+        "false",
+        "false",
+        "false",
+      ]);
+      expect(document.activeElement).toBe(items()[0]);
+      // A scope that fails to load says so and offers Retry; Retry asks again and shows its files.
+      await click(items()[1]!);
+      expect(asked).toEqual([{ scope: "uncommitted" }]);
+      expect(items()).toEqual([]);
+      expect(document.activeElement).toBe(pill);
+      expect(pill.querySelector("strong")?.textContent).toBe("Uncommitted");
+      const failure = panel.querySelector('[role="alert"]');
+      expect(failure?.querySelector("strong")?.textContent).toBe("Couldn't load changes");
+      expect(paths()).toEqual([]);
+      // With no files the pill names the scope only, as in Codex.
+      expect(pill.querySelector(".acpmux-diff-counts")).toBeNull();
+      const retryButton = [...failure!.querySelectorAll<HTMLElement>("button")].find(
+        (button) => button.textContent === "Retry",
+      )!;
+      retryButton.focus();
+      expect(document.activeElement).toBe(retryButton);
+      await click(retryButton);
+      expect(asked).toEqual([{ scope: "uncommitted" }, { scope: "uncommitted" }]);
+      // Retry leaves as the load starts; focus moves to the scope pill, not the page.
+      expect(document.activeElement).toBe(pill);
+      expect(panel.querySelector('[role="alert"]')).toBeNull();
+      expect(paths()).toEqual(["/repo/src/main.ts"]);
+      expect(panel.querySelector(".acpmux-diff-file .acpmux-fh-name")?.textContent).toBe("src/main.ts");
+      // The same file in another scope is other contents: open and not viewed.
+      expect(eye().getAttribute("aria-pressed")).toBe("false");
+      expect(panel.querySelector(".acpmux-diff-file diffs-container")).not.toBeNull();
+      expect(pill.querySelector(".acpmux-diff-add")?.textContent).toBe("+1");
+      // Back to Last turn and to Uncommitted again: it loads afresh, without its old files.
+      await click(pill);
+      await click(items()[0]!);
+      expect(paths()).toEqual(["/repo/src/main.ts"]);
+      await click(pill);
+      await click(items()[1]!);
+      expect(asked.length).toBe(3);
+      expect(paths()).toEqual([]);
+      expect(panel.querySelector("output")?.textContent).toBe("Loading changes…");
+      // A scope with nothing in it says so. An arrow key opens the menu from the pill too.
+      await key(pill, "ArrowDown");
+      expect(document.activeElement?.textContent).toBe("Uncommitted");
+      await key(document.activeElement!, "ArrowDown");
+      await key(document.activeElement!, "ArrowDown");
+      expect(document.activeElement?.textContent).toBe("Staged");
+      await key(document.activeElement!, "Enter");
+      await settle();
+      expect(asked.at(-1)).toEqual({ scope: "staged" });
+      expect(asked.length).toBe(4);
+      expect(panel.querySelector("output strong")?.textContent).toBe("No changes");
+      // Last turn is the transcript's own files again, without asking the host.
+      await click(pill);
+      await key(document.activeElement!, "Home");
+      await key(document.activeElement!, "Enter");
+      await settle();
+      expect(asked.length).toBe(4);
+      expect(paths()).toEqual(["/repo/src/main.ts"]);
+      expect(pill.querySelector("strong")?.textContent).toBe("Last turn");
+    } finally {
+      await act(async () => root.unmount());
+      delete host.cmuxAcpmuxActions;
+      delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
+    }
+  });
 });
 
 describe("acpmux composer", () => {
@@ -1528,5 +1704,206 @@ describe("acpmux new chat", () => {
     expect(projectName("/Users/me")).toBeUndefined();
     expect(projectName("/")).toBeUndefined();
     expect(projectName(undefined)).toBeUndefined();
+  });
+});
+
+describe("acpmux live turn status", () => {
+  /// A running turn showed nothing until its first output, and no time while it worked.
+  test("a running turn says Thinking, then Working over its work, then folds when it ends", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const user: AcpmuxRow = { id: "u", version: 1, at: Date.now() - 42_000, kind: "user", text: "run it" };
+    const work: AcpmuxRow = {
+      id: "a",
+      version: 1,
+      at: user.at + 2_000,
+      kind: "activity",
+      toolCount: 1,
+      items: [{ kind: "tool", text: "Run total.py" }],
+    };
+    const draw = (rows: AcpmuxRow[], working: boolean) =>
+      act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: turnView(rows, new Set(), working),
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+    const status = () => dom.window.document.querySelector(".cv-worked");
+    try {
+      await draw([user, { id: "typing", version: 1, at: user.at, kind: "typing" }], true);
+      expect(status()?.textContent).toBe("Thinking");
+      expect(dom.window.document.querySelector(".cv-thinking")).not.toBeNull();
+
+      await draw([user, work], true);
+      expect(status()?.textContent).toMatch(/^Working for 4[23]s$/);
+      // A status, not a control: nothing to open until the turn ends.
+      expect(status()?.tagName).toBe("DIV");
+      expect(dom.window.document.querySelector(".cv-thinking")).toBeNull();
+
+      await draw([user, work, { id: "s", version: 1, at: user.at + 50_000, kind: "turnSummary", toolCount: 1 }], false);
+      expect(status()?.tagName).toBe("BUTTON");
+      expect(status()?.textContent).toBe("Worked for 50s · 1 tool call");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  test("the Working line ticks each second", async () => {
+    const { WorkingFor } = await import("./conversation/WorkingFor");
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    let clock = 42_000;
+    const now = () => clock;
+    try {
+      await act(async () =>
+        root.render(createElement(WorkingFor, { row: { id: "working-u", version: 1, at: 0, kind: "working" }, now })),
+      );
+      const label = () => dom.window.document.querySelector(".cv-worked__label")?.textContent;
+      expect(label()).toBe("Working for 42s");
+      clock = 61_000;
+      await act(() => new Promise((resolve) => setTimeout(resolve, 1_100)));
+      expect(label()).toBe("Working for 1m 1s");
+      // While text streams, the line holds at the text's start instead of ticking.
+      const held = { id: "working-u", version: 2, at: 0, kind: "working", durationMs: 15_000 };
+      await act(async () => root.render(createElement(WorkingFor, { row: held, now })));
+      expect(label()).toBe("Working for 15s");
+      clock = 90_000;
+      await act(() => new Promise((resolve) => setTimeout(resolve, 1_100)));
+      expect(label()).toBe("Working for 15s");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+});
+
+describe("acpmux tool runs", () => {
+  const call = (id: string, kind: string, status = "completed") => ({
+    kind: "tool",
+    text: id,
+    tool: { id, title: id, kind, status },
+  });
+
+  /// In an ended turn's open "Worked for", Codex folds a run of calls under one summary line.
+  test("a run in an ended turn shows one summary line and opens to its calls", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const items = [call("Read upload.ts", "read"), call("Search for retry", "search"), call("Run bun test", "execute")];
+    const texts = () => [...dom.window.document.querySelectorAll(".cv-tool")].map((node) => node.textContent);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [{ id: "a", version: 1, at: 1, kind: "activity", settled: true, items }],
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      const summary = dom.window.document.querySelector<HTMLButtonElement>(".cv-tool.is-toggle")!;
+      expect(texts()).toEqual(["Read files, ran a command"]);
+      expect(summary.getAttribute("aria-expanded")).toBe("false");
+      await act(async () => summary.click());
+      expect(summary.getAttribute("aria-expanded")).toBe("true");
+      expect(texts()).toEqual(["Read files, ran a command", "Read upload.ts", "Search for retry", "Run bun test"]);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  /// A live turn never folds, so its rows keep their height as each call starts and ends.
+  test("a live turn lists each call until it ends, then folds inside the open fold", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const user: AcpmuxRow = { id: "u", version: 1, at: 1, kind: "user", text: "fix it" };
+    const activity = (version: number, last: string): AcpmuxRow => ({
+      id: "a",
+      version,
+      at: 2,
+      kind: "activity",
+      items: [call("Read upload.ts", "read"), call("Run bun test", "execute", last)],
+    });
+    const texts = () => [...dom.window.document.querySelectorAll(".cv-tool")].map((node) => node.textContent);
+    const show = (rows: AcpmuxRow[], open: Set<string>) =>
+      act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: turnView(rows, open),
+            onToggleActivity: () => {},
+            expanded: open,
+          }),
+        ),
+      );
+    try {
+      for (const [version, status] of [
+        [1, "completed"],
+        [2, "pending"],
+        [3, "completed"],
+      ] as const) {
+        await show([user, activity(version, status)], new Set());
+        expect(texts()).toEqual(["Read upload.ts", "Run bun test"]);
+      }
+      const ended = [user, activity(3, "completed"), { id: "s", version: 1, at: 9, kind: "turnSummary", toolCount: 2 }];
+      await show(ended, new Set());
+      expect(texts()).toEqual([]);
+      const worked = turnView(ended, new Set()).find((row) => row.kind === "worked")!;
+      await show(ended, new Set([worked.id]));
+      expect(texts()).toEqual(["Read a file, ran a command"]);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+});
+
+describe("acpmux shell calls", () => {
+  /// A shell call opens to its Shell block; Codex's MCP calls also say "execute" but run no
+  /// command, so they open to the plain output.
+  test("a shell call opens to the Shell block and an MCP call to plain output", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const items = [
+      {
+        kind: "tool",
+        text: "Run bun test",
+        tool: {
+          id: "s",
+          title: "Run bun test",
+          kind: "execute",
+          status: "failed",
+          command: "bun test",
+          exitCode: 1,
+          output: "1 fail",
+        },
+      },
+      {
+        kind: "tool",
+        text: "mcp.cua_repl.js",
+        tool: { id: "m", title: "mcp.cua_repl.js", kind: "execute", status: "completed", output: "{ apps: [] }" },
+      },
+    ];
+    try {
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [{ id: "a", version: 1, at: 1, kind: "activity", items }],
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      const rows = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".cv-tool.is-toggle")];
+      await act(async () => rows.forEach((row) => row.click()));
+      const shell = dom.window.document.querySelector(".cv-shell");
+      expect(shell?.textContent).toBe("Shell$ bun test1 failExit code 1");
+      expect(dom.window.document.querySelector(".cv-tool-output")?.textContent).toBe("{ apps: [] }");
+      expect(dom.window.document.querySelectorAll(".cv-shell")).toHaveLength(1);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
   });
 });
