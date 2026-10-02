@@ -117,6 +117,9 @@ describe("dashboard account menu", () => {
     expect(html).toContain('href="/dashboard/settings"');
     expect(html).toContain('href="/dashboard/billing"');
     expect(html).toContain("signOut");
+    // Switch account opens the sign-in page's chooser, back to the dashboard.
+    expect(html).toContain(">switchAccount<");
+    expect(html).toMatch(/href="\/handler\/sign-in\?[^"]*prompt=select_account/);
     // Without a team catalog the menu has no team entry at all.
     expect(html).not.toContain("team-submenu");
   });
@@ -153,8 +156,8 @@ describe("dashboard account menu", () => {
     expect(submenu.match(/aria-checked="false"/g)).toHaveLength(2);
     // The trigger row names the current team under the user's name.
     expect(html.indexOf("Manaflow")).toBeLessThan(html.indexOf("/dashboard/settings"));
-    // Order: settings, theme, billing, team, then sign out.
-    const order = ["/dashboard/settings", ">themeLight<", "/dashboard/billing", 'data-testid="team-submenu"', "signOut"]
+    // Order: settings, theme, billing, team, switch account, then sign out.
+    const order = ["/dashboard/settings", ">themeLight<", "/dashboard/billing", 'data-testid="team-submenu"', ">switchAccount<", ">signOut<"]
       .map((marker) => html.indexOf(marker));
     expect(order.every((index) => index >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
