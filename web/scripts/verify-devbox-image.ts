@@ -438,7 +438,8 @@ if (provider === "freestyle") {
     );
     // An idle machine must not wake: the terminal host's main thread (the warm
     // template terminal) stays under a small bound of voluntary context
-    // switches over a quiet minute. Run before anything else touches the guest.
+    // switches over a quiet minute. Runs before the agent and desktop checks,
+    // which start processes of their own.
     const idle = await exec(devboxIdleWakeupCheckCommand(), 180_000);
     console.log(`  $ idle-wakeup check\n    exit=${idle.exitCode}\n    ${idle.output.trim().split("\n").join("\n    ")}`);
     const idleOk = idle.exitCode === 0;
@@ -475,16 +476,20 @@ if (provider === "freestyle") {
         throw new Error(`two machines from ${image} share one SSH host key (${fingerprintA})`);
       }
       console.log(`SSH host keys differ across machines: ${fingerprintA.slice(7, 19)}… vs ${fingerprintB.slice(7, 19)}…`);
-      // machine-id (journald, D-Bus) and the kernel random state must be per
-      // machine too. The first urandom read is taken right away on both.
-      const perMachine = "cat /etc/machine-id; head -c 32 /dev/urandom | sha256sum | cut -c1-64";
+      // machine-id (journald, D-Bus) must be per machine too. boot_id is
+      // reported for the record: memory-snapshot clones share it by design.
+      // The random state is not compared here: by now both kernels have used
+      // randomness, so their output differs even if the clones resumed with
+      // one state; the reseed is proven at clone time, not by this read.
+      const perMachine = "echo mid=$(cat /etc/machine-id 2>/dev/null); echo boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)";
       const [idA, idB] = await Promise.all([exec(perMachine, 30_000), exec2(perMachine, 30_000)]);
-      const [machineA, randomA] = idA.output.trim().split("\n");
-      const [machineB, randomB] = idB.output.trim().split("\n");
-      const machineIdShared = idA.exitCode !== 0 || idB.exitCode !== 0 || !machineA || machineA === machineB;
-      const randomShared = !randomA || randomA === randomB;
-      console.log(`machine-id ${machineIdShared ? "SHARED" : "differs"} across machines (${(machineA ?? "").slice(0, 8)}… vs ${(machineB ?? "").slice(0, 8)}…); first urandom bytes ${randomShared ? "SHARED" : "differ"}`);
-      if (strictCloneIdentity && (machineIdShared || randomShared)) cloneIdentityOk = false;
+      const field = (output: string, key: string) => output.match(new RegExp(`^${key}=(\\S*)$`, "m"))?.[1] ?? "";
+      const machineA = field(idA.output, "mid");
+      const machineB = field(idB.output, "mid");
+      const machineIdShared = !/^[0-9a-f]{32}$/.test(machineA) || !/^[0-9a-f]{32}$/.test(machineB) || machineA === machineB;
+      const bootShared = field(idA.output, "boot") === field(idB.output, "boot");
+      console.log(`machine-id ${machineIdShared ? "SHARED or unreadable" : "differs"} across machines (${machineA.slice(0, 8)}… vs ${machineB.slice(0, 8)}…); boot_id ${bootShared ? "shared" : "differs"}`);
+      if (strictCloneIdentity && machineIdShared) cloneIdentityOk = false;
     } finally {
       await second.vm.delete();
       console.log(`deleted ${second.vmId}`);

@@ -64,6 +64,14 @@ describe("devbox idle-wakeup check", () => {
     expect(r.out).not.toContain(" 300 ");
   });
 
+  test("a host whose status disappears in the window is not counted as idle", () => {
+    const proc = fakeProc();
+    const status = path.join(proc, "100", "task", "100", "status");
+    const result = spawnSync("bash", ["-c", devboxIdleWakeupCheckCommand({ procRoot: proc, pause: `rm -f '${status}'` })], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain("FAIL no terminal host main thread measured");
+  });
+
   test("fails when there is no terminal host to measure", () => {
     const r = run(fakeProc(false), 0);
     expect(r.code).toBe(1);

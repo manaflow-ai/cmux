@@ -781,6 +781,7 @@ snap() {
 before=$(snap); @PAUSE@; after=$(snap)
 printf '%s\n--\n%s\n' "$before" "$after" | awk -v max=@MAX@ -v window=@WINDOW@ '
   $0 == "--" { second = 1; next }
+  $4 !~ /^[0-9]+$/ { next }
   !second { start[$1 " " $2 " " $3] = $4; next }
   {
     key = $1 " " $2 " " $3
