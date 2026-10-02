@@ -1425,3 +1425,6 @@ async fn a_resend_after_a_restart_is_answered_from_the_log() {
     assert_eq!(user_messages(&hub2, &id), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[path = "hub_integration/adopt.rs"]
+mod adopt;

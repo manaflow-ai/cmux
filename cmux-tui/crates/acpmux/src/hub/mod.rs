@@ -200,6 +200,8 @@ pub struct Hub {
     pub config: RwLock<Config>,
     pub(super) store: Box<dyn Store>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
+    /// Where adopt looks for harness sessions.
+    pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
     pub(super) events: broadcast::Sender<HubEvent>,
     pub shutdown: Notify,
     pub started_at: u64,
@@ -261,6 +263,7 @@ impl Hub {
             config: RwLock::new(config),
             store,
             sessions: StdMutex::new(HashMap::new()),
+            harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
             shutdown: Notify::new(),
             started_at: now_ms(),
@@ -282,6 +285,11 @@ impl Hub {
             }
         }
         hub
+    }
+
+    /// Points adopt at other harness stores (tests use fixture stores).
+    pub fn set_harness_homes(&self, homes: crate::adopt::HarnessHomes) {
+        *self.harness_homes.lock().unwrap() = homes;
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
