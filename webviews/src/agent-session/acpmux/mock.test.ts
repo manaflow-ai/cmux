@@ -52,7 +52,7 @@ describe("mock transport", () => {
     for (const mark of ["input", "running", "error", "unread"] as const) expect(marks).toContain(mark);
     expect(snapshot.sessions.filter((entry) => entry.pinned).map((entry) => entry.displayTitle)).toEqual(["Add retry backoff to the fleet uploader", "Resume sessions after a daemon restart"]);
     expect(new Set(snapshot.sessions.map((entry) => entry.hostKind))).toEqual(new Set(["local", "cloud"]));
-    expect(snapshot.sessions.filter((entry) => entry.pullRequest?.reviewReady).map((entry) => entry.pullRequest!.number)).toEqual([16488, 212, 88]);
+    expect(snapshot.sessions.filter((entry) => entry.pullRequest?.reviewReady).map((entry) => entry.pullRequest!.number)).toEqual([18204, 212, 88]);
     expect(snapshot.sessions.every((entry) => entry.preview)).toBe(true);
     // The largest project is long enough to fold behind Show more.
     expect(groupByProject(snapshot.sessions).find((group) => group.label === "cmux")!.sessions.length).toBeGreaterThan(GROUP_ROWS + 1);
@@ -80,6 +80,60 @@ describe("mock transport", () => {
     // Its turn is still running on a cloud machine.
     expect(snapshot.isWorking).toBe(true);
     expect(snapshot.summary).toMatchObject({ host: "hearty-beige-elk", hostKind: "cloud" });
+    client.close();
+  });
+
+  test("Stop ends a seeded running turn, and the session goes idle", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    const client = await connectMock(snapshots);
+    await client.select("mock-sidebar-flicker");
+    await until(() => snapshots.at(-1)?.isWorking === true);
+    await client.cancel();
+    await until(() => snapshots.at(-1)?.isWorking === false);
+    expect(snapshots.at(-1)?.isWorking).toBe(false);
+    expect(snapshots.at(-1)?.rows.find((row) => row.kind === "turnSummary")?.status).toBe("cancelled");
+    expect(snapshots.at(-1)?.sessions.find((entry) => entry.sessionId === "mock-sidebar-flicker")?.status).toBe("idle");
+    client.close();
+  });
+
+  test("a session needing input opens on its permission card, and answering it ends the turn", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    const client = await connectMock(snapshots);
+    await client.select("mock-tab-strip");
+    await until(() => snapshots.at(-1)?.permission !== undefined);
+    const permission = snapshots.at(-1)!.permission!;
+    expect(permission).toMatchObject({ title: "Run bun run lint:ci", kind: "execute" });
+    expect(permission.options.map((option) => option.name)).toEqual(["Allow", "Always allow", "Deny"]);
+    expect(snapshots.at(-1)?.rows.some((row) => row.kind === "turnSummary")).toBe(false);
+    await client.permission(permission.permissionId, "allow_once");
+    await until(() => snapshots.at(-1)?.permission === undefined && snapshots.at(-1)!.rows.some((row) => row.kind === "turnSummary"));
+    expect(snapshots.at(-1)?.permission).toBeUndefined();
+    const entry = snapshots.at(-1)?.sessions.find((session) => session.sessionId === "mock-tab-strip");
+    expect([entry?.status, entry?.pendingPermissions]).toEqual(["idle", 0]);
+    client.close();
+  });
+
+  test("opening a session reads it, and its history runs out", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    const client = await connectMock(snapshots);
+    await client.select("mock-prorate");
+    await until(() => snapshots.at(-1)?.sessionId === "mock-prorate" && snapshots.at(-1)!.rows.length > 0);
+    await until(() => snapshots.at(-1)?.sessions.find((entry) => entry.sessionId === "mock-prorate")?.unread === false);
+    expect(snapshots.at(-1)?.sessions.find((entry) => entry.sessionId === "mock-prorate")?.unread).toBe(false);
+    await client.loadOlder();
+    expect(snapshots.at(-1)?.canLoadOlder).toBe(false);
+    client.close();
+  });
+
+  test("a new chat opens in the project of the session it was started from, with Claude's commands", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    const client = await connectMock(snapshots);
+    await client.select("mock-zsh");
+    await until(() => snapshots.at(-1)?.sessionId === "mock-zsh" && snapshots.at(-1)!.rows.length > 0);
+    await client.create();
+    await until(() => (snapshots.at(-1)?.commands?.length ?? 0) > 0);
+    expect(snapshots.at(-1)?.summary).toMatchObject({ cwd: "~/code/dotfiles", branch: "main", turnCount: 0 });
+    expect(snapshots.at(-1)?.commands?.map((command) => command.name)).toContain("compact");
     client.close();
   });
 
