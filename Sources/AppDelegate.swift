@@ -921,7 +921,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Shared result for the one crash-artifact scan used by both the
     /// diagnostic notification and the rare missing-primary recovery probe.
     private var pendingCrashScanTask: Task<GhosttyCrashBreadcrumb.PendingCrash?, Never>?
-    private var isWaitingForStartupSessionPreparation = false
+    private var isWaitingForStartupCrashRecoveryProbe = false
     private var deferredInitialMainWindowBootstrapDebugSource: String?
     struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
@@ -3731,7 +3731,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if shouldAwaitCrashRecoveryProbe() {
-            isWaitingForStartupSessionPreparation = true
+            isWaitingForStartupCrashRecoveryProbe = true
             let pendingCrashScanTask = pendingCrashScanTaskIfNeeded()
             Task { @MainActor [weak self] in
                 let pendingCrash = await pendingCrashScanTask.value
@@ -3744,7 +3744,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "session.restore.crashProbe pending=\(pendingCrash != nil ? 1 : 0)"
                 )
 #endif
-                self.isWaitingForStartupSessionPreparation = false
+                self.isWaitingForStartupCrashRecoveryProbe = false
                 self.finishPreparingStartupSessionSnapshot()
                 self.resumeDeferredInitialMainWindowBootstrapIfNeeded()
             }
@@ -3754,9 +3754,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// A missing primary with a backup is ambiguous until the asynchronous
-    /// crash-artifact probe completes. Replay-file cleanup shares the same
-    /// startup-preparation gate so filesystem I/O stays off the main actor and
-    /// completes before any restored surface can consume replay state.
+    /// crash-artifact probe completes. Replay-file cleanup runs independently
+    /// in a detached utility task and does not participate in this restore gate.
     private func shouldAwaitCrashRecoveryProbe() -> Bool {
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup,
@@ -8448,7 +8447,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.didScheduleInitialMainWindowBootstrap = false
                 return
             }
-            if self.isWaitingForStartupSessionPreparation {
+            if self.isWaitingForStartupCrashRecoveryProbe {
                 self.didScheduleInitialMainWindowBootstrap = false
                 if self.deferredInitialMainWindowBootstrapDebugSource == nil {
                     self.deferredInitialMainWindowBootstrapDebugSource = debugSource
