@@ -91,4 +91,24 @@ enum CloudHandlers {
         guard let id = await context.services.windows.createWorkspace(on: daemon) else { throw ActionFailure(message: CloudStrings.notConnected) }
         return id
     }
+
+    /// The existing workspace and pane where a Cloud terminal should land.
+    /// Keep the durable workspace key on the spawn request so terminals stay
+    /// attached to the machine after daemon handle ids are recycled.
+    @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
+        let id = try await firstWorkspace(on: session, context)
+        guard let workspace = session.daemon.store.workspaces.first(where: { $0.id == id }),
+              let key = workspace.key,
+              let pane = workspace.screens.first?.panes.first else {
+            throw ActionFailure(message: CloudStrings.notConnected)
+        }
+        return (id, key, pane)
+    }
+
+    static func commandArgument(_ invocation: ActionInvocation) throws -> String {
+        guard let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else {
+            throw ActionFailure(message: CloudStrings.commandRequired)
+        }
+        return command
+    }
 }

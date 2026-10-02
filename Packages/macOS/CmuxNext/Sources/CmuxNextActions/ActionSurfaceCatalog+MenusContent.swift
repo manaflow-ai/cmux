@@ -135,6 +135,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.cloud.handoff": [p(.cloudMachine, .connection, 204, folder: .connection)],
         "cloudNewTerminal": [p(.cloudMachine, .create, 0)],
         "cloudOpenMachine": [p(.cloudMachine, .create, 1)],
+        "cloudSSH": [p(.cloudMachine, .create, 2)],
         "cloudRenameMachine": [p(.cloudMachine, .identity, 2)],
         "cloudKillMachine": [p(.cloudMachine, .close, 300)],
         "cloudPauseMachine": [p(.cloudMachine, .connection, 208, folder: .connection)],
