@@ -16,8 +16,9 @@ import Observation
 /// terminal read as one sheet with no panel edges or seams. In a
 /// translucent window that sheet is one material with one theme tint
 /// (`backdropView`, the bottom subview) and everything above it is clear.
-/// `window.rail` adds the icon rail (`WindowRail`) before the sidebar or
-/// between the sidebar and the content column.
+/// `window.rail` moves the sidebar's sticky sections into an icon rail
+/// (`WindowRail`) before the sidebar or between the sidebar and the
+/// content column.
 final class WindowRootView: NSView {
     let titlebar = TitlebarView()
     /// The window's one material and tint (`WindowBackdrop`).
@@ -155,6 +156,8 @@ final class WindowRootView: NSView {
         constraints += [titleFollowsColumn, contentHost.leadingAnchor.constraint(equalTo: column)]
         NSLayoutConstraint.activate(constraints)
         placementConstraints = constraints
+        // The sidebar shows its sticky sections only without the rail.
+        sidebar.sidebarView.needsLayout = true
         needsLayout = true
     }
 

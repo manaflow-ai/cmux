@@ -21,8 +21,9 @@ struct WindowRootMaterialTests {
     /// pinned by `reduceTransparency` (the host setting differs between
     /// machines).
     private func makeRoot(_ input: ThemeInput, reduceTransparency: Flag = Flag(false)) -> (WindowRootView, ThemeScope) {
-        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()),
-                                  rail: WindowRailView(registry: ActionBindingCoverageTests.boundServices().registry),
+        let model = SidebarModel()
+        let root = WindowRootView(sidebar: SidebarContainerView(model: model),
+                                  rail: WindowRailView(model: model, registry: ActionBindingCoverageTests.boundServices().registry),
                                   reduceTransparency: { reduceTransparency.on })
         let room = ThemeScope(level: .room)
         room.setOverride(ThemeSpec("Catppuccin Mocha")!, input: input, animated: false)
