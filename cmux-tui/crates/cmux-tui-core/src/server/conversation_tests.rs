@@ -447,3 +447,25 @@ fn conversation_actor_is_stamped_by_the_owner() {
                           "parts":[{"type":"text","text":"hi"}]}});
     assert_eq!(rejection(&mux, ghost, intruder).0, "not_participant");
 }
+
+#[test]
+fn conversation_reject_reason_and_ledger_per_actor() {
+    let (mux, client) = conversation_mux();
+    let conversation = create(&mux, client);
+    let agent = agent_client(&mux, client, "agent_mux");
+    // The same client_msg_id from two actors: each commits once (the ledger is per actor).
+    run(&mux, client, send(&conversation, "same", "from the user")).unwrap();
+    let theirs = json!({"cmd":"conversation-op","conversation":conversation,
+                        "idempotency_key":"same","op":{"kind":"message.send",
+                        "client_msg_id":"same","parts":[{"type":"text","text":"from the mux"}]}});
+    let reply = run(&mux, agent, theirs).unwrap();
+    assert_eq!(reply["replayed"], false);
+    assert_eq!(reply["change"]["message"]["author"], "agent_mux");
+
+    let again = json!({"cmd":"conversation-op","conversation":conversation,
+                       "idempotency_key":"again","op":{"kind":"message.send",
+                       "client_msg_id":"again","parts":[{"type":"text","text":"too soon"}]}});
+    let error = run(&mux, agent, again).unwrap_err();
+    assert_eq!(super::error_reason(&error).as_deref(), Some("agent_rate"));
+    assert_eq!(response_error_code(&error).as_deref(), Some("conversation_rejected"));
+}
