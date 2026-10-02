@@ -5278,9 +5278,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "ลงชื่อเข้าใช้ cmux",
-    "signInSubtitle": "บัญชีเดียวสำหรับแอป Cloud และแดชบอร์ด",
+    "signInSubtitle": "บัญชีเดียวสำหรับแอป cloud และแดชบอร์ด",
     "signUpTitle": "สร้างบัญชี cmux",
-    "signUpSubtitle": "บัญชีเดียวสำหรับแอป Cloud และแดชบอร์ด",
+    "signUpSubtitle": "บัญชีเดียวสำหรับแอป cloud และแดชบอร์ด",
     "continueWithProvider": "ดำเนินการต่อด้วย {provider}",
     "signInWithPasskey": "ลงชื่อเข้าใช้ด้วยพาสคีย์",
     "orContinueWith": "หรือดำเนินการต่อด้วย",

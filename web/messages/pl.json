@@ -5273,9 +5273,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "Zaloguj się do cmux",
-    "signInSubtitle": "Jedno konto do aplikacji, Cloud i panelu.",
+    "signInSubtitle": "Jedno konto do aplikacji, cloud i panelu.",
     "signUpTitle": "Utwórz konto cmux",
-    "signUpSubtitle": "Jedno konto do aplikacji, Cloud i panelu.",
+    "signUpSubtitle": "Jedno konto do aplikacji, cloud i panelu.",
     "continueWithProvider": "Kontynuuj z {provider}",
     "signInWithPasskey": "Zaloguj się kluczem dostępu",
     "orContinueWith": "Lub kontynuuj za pomocą",
