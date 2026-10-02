@@ -8,12 +8,25 @@ enum AgentFeedFilter: Hashable, Sendable {
     case needsInput
 }
 
+struct AgentFeedItemsRevision: Equatable, Sendable {
+    let sourceRevision: UInt64
+    let scopeRevision: AgentFeedScopeRevision?
+
+    init(
+        sourceRevision: UInt64,
+        scopeRevision: AgentFeedScopeRevision? = nil
+    ) {
+        self.sourceRevision = sourceRevision
+        self.scopeRevision = scopeRevision
+    }
+}
+
 /// The store-free Feed presentation: an X-style full-width timeline of agent
 /// activity with inline output and inline decision controls. Distinct from
 /// the Notifications tab, which stays a read/unread notification list.
 struct AgentFeedView: View {
     let items: [MobileAgentFeedItem]
-    let itemsRevision: UInt64
+    let itemsRevision: AgentFeedItemsRevision
     let status: MobileNotificationFeedStatus
     let pendingReplyRequestIDs: Set<String>
     let pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
@@ -30,7 +43,7 @@ struct AgentFeedView: View {
 
     init(
         items: [MobileAgentFeedItem],
-        itemsRevision: UInt64 = 0,
+        itemsRevision: AgentFeedItemsRevision = AgentFeedItemsRevision(sourceRevision: 0),
         status: MobileNotificationFeedStatus,
         pendingReplyRequestIDs: Set<String>,
         pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>,

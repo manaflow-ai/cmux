@@ -19,7 +19,10 @@ struct AgentFeedStoreView: View {
         let items = selectionScope.agentFeedItems(from: store.agentFeedItems)
         AgentFeedView(
             items: items,
-            itemsRevision: store.agentFeedRevision,
+            itemsRevision: AgentFeedItemsRevision(
+                sourceRevision: store.agentFeedRevision,
+                scopeRevision: selectionScope.agentFeedScopeRevision
+            ),
             status: store.agentFeedStatus,
             pendingReplyRequestIDs: store.agentFeedPendingReplyRequestIDs,
             pendingTerminalReplyItemIDs: store.agentFeedPendingTerminalReplyItemIDs,

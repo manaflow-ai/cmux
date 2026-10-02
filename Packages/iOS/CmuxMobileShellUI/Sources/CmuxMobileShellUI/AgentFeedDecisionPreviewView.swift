@@ -15,6 +15,7 @@ public struct AgentFeedDecisionPreviewView: View {
     @State private var stressMetrics = "state=idle"
     @State private var referenceDate: Date
     @State private var items: [MobileAgentFeedItem]
+    @State private var itemsRevision = 0
 
     public init() {
         let referenceDate = Date()
@@ -36,6 +37,7 @@ public struct AgentFeedDecisionPreviewView: View {
             NavigationStack(path: $path) {
                 AgentFeedView(
                     items: items,
+                    itemsRevision: AgentFeedItemsRevision(sourceRevision: UInt64(itemsRevision)),
                     status: .ready,
                     pendingReplyRequestIDs: [],
                     pendingTerminalReplyItemIDs: [],
@@ -60,6 +62,7 @@ public struct AgentFeedDecisionPreviewView: View {
             ) {
                 AgentFeedView(
                     items: items,
+                    itemsRevision: AgentFeedItemsRevision(sourceRevision: UInt64(itemsRevision)),
                     status: .ready,
                     pendingReplyRequestIDs: [],
                     pendingTerminalReplyItemIDs: [],
@@ -273,6 +276,7 @@ public struct AgentFeedDecisionPreviewView: View {
         }) {
             items.remove(at: oldRowIndex)
         }
+        itemsRevision &+= 1
     }
 
     private var rootToolbar: some ToolbarContent {

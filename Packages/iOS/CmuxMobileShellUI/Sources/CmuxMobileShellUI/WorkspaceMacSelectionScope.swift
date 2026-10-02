@@ -1,6 +1,11 @@
 import CmuxMobilePairedMac
 import CmuxMobileShellModel
 
+struct AgentFeedScopeRevision: Equatable, Sendable {
+    let selection: WorkspaceMacSelection
+    let selectedMachineIDs: Set<String>?
+}
+
 struct WorkspaceMacSelectionScope {
     let selection: WorkspaceMacSelection
     let aliasIndex: WorkspaceMacPickerAliasIndex
@@ -253,6 +258,16 @@ struct WorkspaceMacSelectionScope {
         case .all, .automatic:
             nil
         }
+    }
+
+    /// The inputs that can change which retained Agent Feed rows are visible.
+    /// This stays small so selection changes do not require comparing the
+    /// complete retained event payload.
+    var agentFeedScopeRevision: AgentFeedScopeRevision {
+        AgentFeedScopeRevision(
+            selection: visibleSelection,
+            selectedMachineIDs: selectedMachineIDs
+        )
     }
 
     /// Applies the shared computer scope to Agent Feed rows without making
