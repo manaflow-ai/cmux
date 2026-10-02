@@ -34,6 +34,7 @@ enum AppActions {
         TabGroupHandlers.bind(into: registry, context: context)
         PaneHandlers.bind(into: registry, context: context)
         ColumnHandlers.bind(into: registry, context: context)
+        StickyColumnHandlers.bind(into: registry, context: context)
         ScreenHandlers.bind(into: registry, context: context)
         TerminalHandlers.bind(into: registry, context: context)
         FindInDirectoryHandlers.bind(into: registry, context: context)

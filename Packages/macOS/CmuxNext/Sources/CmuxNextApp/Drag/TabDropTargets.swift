@@ -91,7 +91,12 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         switch target {
         case .pane(let pane, .center):
             guard let controller = content.panes[pane] else { return nil }
-            return TabDropProposal(kind: .strip(stripID: controller.stripModel.stripID, index: controller.pane.tabs.count, groupID: nil),
+            // A tab dropped on its own pane keeps its tab group (the end of
+            // its own strip is not a group change).
+            let ownGroup: String? = if case .tab(let id, _) = payload {
+                controller.stripModel.orderedTabs.first { $0.id.rawValue == id }?.groupID?.rawValue
+            } else { nil }
+            return TabDropProposal(kind: .strip(stripID: controller.stripModel.stripID, index: controller.pane.tabs.count, groupID: ownGroup),
                                    highlightFrame: screenFrame(of: pane, in: layout) ?? point)
         case .pane(let pane, let zone):
             guard let edge = zone.edge else { return nil }

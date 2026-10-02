@@ -256,11 +256,16 @@ public final class AgentPaneView: NSView {
         source.load(into: webView)
     }
 
+    /// Runs a script in the page (tests record them).
+    lazy var evaluateScript: (String) -> Void = { [weak self] script in
+        self?.webView.evaluateJavaScript(script, completionHandler: nil)
+    }
+
     /// Pushes ``customization`` to the page, even an empty one (it clears
     /// what removed files left behind).
     func applyCustomization() {
         for script in customization.scripts() {
-            webView.evaluateJavaScript(script, completionHandler: nil)
+            evaluateScript(script)
         }
     }
 
@@ -279,6 +284,6 @@ public final class AgentPaneView: NSView {
         webView.underPageBackgroundColor = tokens.contentBackground.nsColor
         themeCrashNotice(tokens)
         guard let script = AgentPaneTheme.script(tokens) else { return }
-        webView.evaluateJavaScript(script, completionHandler: nil)
+        evaluateScript(script)
     }
 }

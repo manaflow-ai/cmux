@@ -35,14 +35,16 @@ public nonisolated struct ColumnStrip: Hashable, Sendable {
     /// Builds the strip of a columns screen; nil for a split screen.
     public init?(layout: ScreenLayout, geometry: ScreenGeometry, gap: CGFloat) {
         guard geometry.isColumns else { return nil }
+        // Sticky columns never scroll: the strip is the scrolling columns only.
+        let scrolling = Set(geometry.columnOrder)
         let columns = layout.columns.compactMap { column -> Column? in
-            guard let frame = geometry.columns[column.id] else { return nil }
+            guard scrolling.contains(column.id), let frame = geometry.columns[column.id] else { return nil }
             let panes = column.root.panes
             var frames: [PaneID: CGRect] = [:]
             for pane in panes { frames[pane] = geometry.panes[pane] }
             return Column(id: column.id, frame: frame, panes: panes, paneFrames: frames)
         }
-        self.init(columns: columns, viewportWidth: geometry.viewport.width, contentWidth: geometry.contentWidth, gap: gap)
+        self.init(columns: columns, viewportWidth: geometry.stripWidth, contentWidth: geometry.contentWidth, gap: gap)
     }
 
     public var maxOffset: CGFloat { max(0, contentWidth - viewportWidth) }

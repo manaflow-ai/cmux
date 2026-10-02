@@ -84,6 +84,17 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.report(services: services))
             },
+            // Pane chrome alignment: tab pill gaps, border, first terminal cell.
+            .mainActor("debug.pane_chrome") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugPaneChrome.report(services: services))
+            },
+            // Sticky columns, the strip range and its scrollbar; `pane` +
+            // `sticky` changes a column (plans/cmux-next/sticky-column.md).
+            .mainActor("debug.sticky") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugStickyColumns.handle(call.params, services: services))
+            },
             .mainActor("debug.screens") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugScreens.report(services: services))

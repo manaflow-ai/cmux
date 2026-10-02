@@ -28,7 +28,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         addSubview(stripView)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            for await _ in Observations({ Metrics.tabStripHeight }) { self?.needsLayout = true }
+            for await _ in Observations({ PaneChromeMetrics.current }) { self?.needsLayout = true }
         }
     }
 
@@ -43,7 +43,7 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     override func layout() {
         super.layout()
-        let stripHeight = Metrics.tabStripHeight
+        let stripHeight = self.stripHeight
         stripView.frame = NSRect(x: 0, y: 0, width: bounds.width, height: stripHeight)
         let hostFrame = NSRect(x: 0, y: stripHeight, width: bounds.width, height: max(0, bounds.height - stripHeight))
         reportHeaderIfChanged()
@@ -57,7 +57,19 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The hosted content's own header (a browser toolbar), if it has one.
     private var innerChrome: PaneContentChrome? { hostsContent ? content as? PaneContentChrome : nil }
 
-    var paneHeaderHeight: CGFloat { Metrics.tabStripHeight + (innerChrome?.paneHeaderHeight ?? 0) }
+    var paneHeaderHeight: CGFloat { stripHeight + (innerChrome?.paneHeaderHeight ?? 0) }
+
+    /// The strip's height: its tabs sit with equal gaps above (from the
+    /// pane cell's top, through the pane padding) and below (to the content
+    /// border), on this window's pixel grid (`PaneChromeMetrics`).
+    var stripHeight: CGFloat {
+        PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsLayout = true
+    }
 
     func setPaneContentCornerRadius(_ radius: CGFloat) {
         contentCornerRadius = radius
