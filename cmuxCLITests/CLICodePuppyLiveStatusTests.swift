@@ -18,7 +18,8 @@ struct CLICodePuppyLiveStatusTests {
         ("session-end", "SessionEnd", ""),
         ("session-update", "PostAutosave", "Existing"),
         ("session-update", "PostAutosave", "Fresh"),
-        ("session-update", "PostAutosave", "Fresh error")
+        ("session-update", "PostAutosave", "Fresh error"),
+        ("session-update", "PostAutosave", "Fresh missing")
     ])
     func lifecycleProjectsStatusAndFeed(_ subcommand: String, _ event: String, _ status: String) throws {
         let context = try Harness.makeContext(name: "puppy-status")
@@ -26,7 +27,9 @@ struct CLICodePuppyLiveStatusTests {
         let sessionID = "puppy-turn"
         let autosaves = context.root.appendingPathComponent(".code_puppy/autosaves")
         try FileManager.default.createDirectory(at: autosaves, withIntermediateDirectories: true)
-        try Data("durable session fixture".utf8).write(to: autosaves.appendingPathComponent(sessionID + ".pkl"))
+        if status != "Fresh missing" {
+            try Data("durable session fixture".utf8).write(to: autosaves.appendingPathComponent(sessionID + ".pkl"))
+        }
         let storeURL = context.root.appendingPathComponent("code-puppy-hook-sessions.json")
         let record: [String: Any] = [
             "sessionId": sessionID, "workspaceId": Self.workspace, "surfaceId": Self.surface,
@@ -45,6 +48,9 @@ struct CLICodePuppyLiveStatusTests {
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
         environment["CMUX_CODE_PUPPY_PID"] = String(getpid())
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "code-puppy"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/code-puppy"
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Data("/usr/local/bin/code-puppy\u{0}".utf8).base64EncodedString()
         var payloadObject: [String: Any] = [
             "session_id": sessionID, "hook_event_name": event, "tool_name": "read_file",
             "tool_input": ["path": "README.md"], "tool_result": "file contents", "cwd": context.root.path
@@ -66,7 +72,12 @@ struct CLICodePuppyLiveStatusTests {
         if subcommand == "session-update" {
             #expect(!commands.contains { $0.hasPrefix("set_status ") || $0.hasPrefix("clear_agent_pid ") || $0.hasPrefix("agent_journal_append ") })
             let bindings = commands.compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
-            #expect(bindings.contains { $0["method"] as? String == "surface.resume_binding.set" })
+            if status == "Fresh missing" {
+                #expect(!bindings.contains { $0["method"] as? String == "surface.resume.set" })
+                #expect(!FileManager.default.fileExists(atPath: storeURL.path))
+                return
+            }
+            #expect(bindings.contains { $0["method"] as? String == "surface.resume.set" && ($0["params"] as? [String: Any])?["checkpoint_id"] as? String == sessionID })
             let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
             let sessions = try #require(saved["sessions"] as? [String: Any])
             let current = try #require(sessions[sessionID] as? [String: Any])

@@ -36655,6 +36655,44 @@ export default {
         }
 
         switch action {
+        case .sessionUpdate:
+            // Post-save checkpoint refresh only: no turn, journal, status or Feed replay.
+            didSendFeedTelemetry = true
+            guard !sessionId.isEmpty else { break }
+            let mapped = try? store.lookup(sessionId: sessionId)
+            guard let target = resolveAgentHookTarget(mapped: mapped) else { break }
+            let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
+            guard !shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: liveAgentPID(pid), nestedPromptEvent: (mapped?.activePromptDepth ?? 0) > 1, env: env
+            ) else { break }
+            let launchCommand = agentLaunchCommandFromEnvironment(
+                env, fallbackPID: pid, fallbackKind: def.name, cwd: hookCwd ?? mapped?.cwd
+            )
+            let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
+                kind: def.name, current: launchCommand, mapped: mapped,
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: inferredPID
+            )
+            let failed = input.rawObject?["success"] as? Bool == false
+            do {
+                _ = try store.upsert(
+                    sessionId: sessionId, workspaceId: target.workspaceId, surfaceId: target.surfaceId,
+                    cwd: hookCwd ?? mapped?.cwd, transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid, launchCommand: resumeLaunchCommand, isRestorable: true,
+                    agentLifecycle: mapped == nil ? (failed ? .needsInput : .idle) : nil,
+                    lastNotificationStatus: mapped == nil ? (failed ? .error : .idle) : nil,
+                    runtimeStatus: mapped == nil ? (failed ? .error : .idle) : nil
+                )
+            } catch { break }
+            publishAgentSurfaceResumeBinding(
+                client: client, workspaceId: target.workspaceId, surfaceId: target.surfaceId,
+                kind: def.name, displayName: def.displayName, sessionId: sessionId,
+                cwd: preferredAgentHookResumeWorkingDirectory(
+                    kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped
+                ),
+                launchCommand: resumeLaunchCommand, transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                telemetry: telemetry
+            )
+
         case .toolStart, .toolEnd:
             // Status-only progress: do not submit another prompt, create a
             // restore binding, or settle a turn for each tool call.
