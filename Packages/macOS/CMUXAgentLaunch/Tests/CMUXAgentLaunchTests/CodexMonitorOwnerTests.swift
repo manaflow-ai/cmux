@@ -27,17 +27,17 @@ struct CodexForkMonitorArgumentTests {
         for parent in [String?.none, ""] {
             var environment = ["CMUX_AGENT_FORK_LAUNCH_ID": "launch-id", "CMUX_CODEX_PID": "1234"]
             environment["CMUX_AGENT_FORK_PARENT_SESSION_ID"] = parent
-            #expect(CmuxTuiRemoteRouting.codexForkMonitorArguments(environment: environment).isEmpty)
+            #expect(CodexMonitorOwner(environment: environment).forkMonitorArguments().isEmpty)
         }
     }
 
     @Test
     func omitsEmptyOptionalForkMetadata() {
-        #expect(CmuxTuiRemoteRouting.codexForkMonitorArguments(environment: [
+        #expect(CodexMonitorOwner(environment: [
             "CMUX_AGENT_FORK_PARENT_SESSION_ID": "parent-session",
             "CMUX_AGENT_FORK_LAUNCH_ID": "",
             "CMUX_CODEX_PID": "",
-        ]) == ["--fork-parent", "parent-session"])
+        ]).forkMonitorArguments() == ["--fork-parent", "parent-session"])
     }
 
 }
