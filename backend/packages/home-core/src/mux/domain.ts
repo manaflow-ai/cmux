@@ -1,4 +1,6 @@
 import type { Domain, Principal, Reject, ReduceResult, RowWrite } from "../conversation/engine-types.ts"
+import { authorizeLevel, LEVEL_OPS, reduceLevel, type ConfirmLevel, type LevelLocks, type PendingLevelChange } from "./confirm-level.ts"
+import { authorizeConfirm, CONFIRM_OPS, reduceConfirm } from "./text-confirm.ts"
 
 /**
  * MuxDO, one per chief (home-messaging.md sections 3 and 4.3): the chief's
@@ -26,6 +28,14 @@ export interface MuxHead {
   readonly next_n: number
   /** Per conversation: highest acked seq (wakes at or below it are ignored) and pending seqs, ascending. */
   readonly queues: Readonly<Record<string, ConversationQueue>>
+  /** In-app confirmation for risky actions asked by text: level (confirm-level.ts) and requests (text-confirm.ts). */
+  readonly text_confirm_level?: ConfirmLevel
+  /** Legacy boolean before levels; read once by levelOf (on -> strict, off -> off). */
+  readonly text_confirm?: "destructive" | "off"
+  readonly text_confirm_lock?: LevelLocks | null
+  readonly level_change?: PendingLevelChange | null
+  readonly level_audit_n?: number
+  readonly confirm_n?: number
 }
 
 export interface ConversationQueue {
@@ -71,6 +81,8 @@ const bounded = (queues: Readonly<Record<string, ConversationQueue>>): Readonly<
 export const muxDomain: Domain<MuxHead, Params> = {
   initial: () => INITIAL_MUX_HEAD,
   authorize: (head, op, _params, p): Reject | undefined => {
+    if (CONFIRM_OPS.has(op)) return authorizeConfirm(head, op, p) ? undefined : { code: "forbidden", message: `${op} is not allowed for this caller` }
+    if (LEVEL_OPS.has(op)) return authorizeLevel(head, op, p) ? undefined : { code: "forbidden", message: `${op} is not allowed for this caller` }
     const ok =
       op === "mux.bind" || op === "mux.wake"
         ? p.kind === "system"
@@ -82,6 +94,8 @@ export const muxDomain: Domain<MuxHead, Params> = {
     return ok ? undefined : { code: "forbidden", message: `${op} is not allowed for this caller` }
   },
   reduce: (head, op, params, ctx) => {
+    if (CONFIRM_OPS.has(op)) return head.agent === null ? refuse("mux.unbound") : reduceConfirm(head, op, params, ctx)
+    if (LEVEL_OPS.has(op)) return head.agent === null ? refuse("mux.unbound") : reduceLevel(head, op, params, ctx)
     switch (op) {
       case "mux.bind": {
         const { agent, owner_user, brain } = params

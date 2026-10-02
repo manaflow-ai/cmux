@@ -203,7 +203,7 @@ an emptied column or dock, unpinning on E2) is decided by the store in the same 
 | Split Right / Down (Cmd-D, Cmd-Shift-D) | unchanged | splits inside the dock |
 | New Column (Ctrl-Cmd-D) | after the focused column | from a left/right dock: a strip column at that end of the strip; from top/bottom: refused with a HUD |
 | New Row (Ctrl-Cmd-Shift-D) | below the focused row | left/right dock: a row in the dock; top/bottom: refused (E3) |
-| Make Column Sticky Left/Right, Unstick, Toggle Sticky Overlay | exist (no shortcut) | unchanged |
+| Make Column Sticky Left/Right, Unstick, Toggle Floating Sticky Column | exist (no shortcut) | unchanged |
 | Toggle Frame Orientation | new (palette, CLI `screen toggle-frame-orientation`, screen menu; no shortcut) | `SetOrientation` |
 | Make Row Sticky Top / Bottom | new (no shortcut) | from a strip row: `PinRow` |
 | Move Tab to Top/Bottom/Left/Right Dock | new (palette, CLI, tab menu) | `Destination::Dock` or the dock's pane |
@@ -280,9 +280,15 @@ vertical range; floating bands inset it), F3 (band shares), F4 (stacking by corn
 the strip scrollbar above a bottom dock), F5 (cover, uncovered and clip on both axes; hit
 testing over covers), the `layout.frameOrientation` setting, and the guard that keeps top and
 bottom from the daemon until `edge-docks-v1`.
-Not done yet: F6 (reveal and snap points that use the uncovered range in `ColumnStrip`), a
-resize handle on a band's inner edge, the drop edge bands (DD1), "Docked"/"Floating" UI labels
-for the existing sticky actions and settings, and the daemon's `edge-docks-v1`.
+Done since (2026-10-02): "Floating" replaces "Overlay" in every user-facing string (21
+languages; wire values, action id and CLI verb unchanged; cmux.json also accepts `floating`),
+F6 (`ColumnStrip.leadingCover`/`trailingCover`: reveal, visibility and snaps use the uncovered
+window, so a column under a floating side dock is revealed), and the inner-edge resize handle
+of top and bottom docks.
+Not done yet: the drop edge bands (DD1), deferred until the daemon serves `edge-docks-v1`
+(`Destination::Dock`), because until then a dock drop has no op to send; the daemon's
+`edge-docks-v1`; a vertical reveal for top and bottom docks (the strip does not scroll
+vertically until rows land in the app).
 
 ## Verification plan
 

@@ -122,7 +122,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.renameWorkspace", defaultValue: "Rename Workspace…", bundle: .module),
                 keywords: ["title", "name"], defaultShortcut: Shortcut("r", modifiers: [.command, .shift]),
                 category: .workspace, symbol: "pencil", surfaces: [.palette, .keyboard, .menu, .contextMenu],
-                arguments: [CatalogArgument.nameString], targets: [.workspace], cliName: "workspace rename",
+                arguments: [CatalogArgument.nameString.renamingTarget], targets: [.workspace], cliName: "workspace rename",
                 mainMenu: .file
             ),
             ActionDescriptor(
@@ -314,7 +314,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "workspaceGroup.rename",
                 title: String(localized: "action.workspaceGroup.rename", defaultValue: "Rename Group…", bundle: .module),
                 keywords: ["group", "title"], category: .workspace, symbol: "pencil.line", surfaces: [.contextMenu],
-                arguments: [CatalogArgument.nameString], targets: [.workspaceGroup], cliName: "workspace-group rename"
+                arguments: [CatalogArgument.nameString.renamingTarget], targets: [.workspaceGroup], cliName: "workspace-group rename"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.togglePin",

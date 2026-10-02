@@ -11,6 +11,13 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.cwdString.optional], targets: [.tab], cliName: "tab new", mainMenu: .file
             ),
             ActionDescriptor(
+                id: "newTab.page",
+                title: String(localized: "action.newTab.page", defaultValue: "New Tab Page", bundle: .module),
+                keywords: ["tab", "terminal", "browser", "agent", "chat", "new tab page"],
+                category: .tab, symbol: "plus.rectangle.on.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
+                targets: [.pane], cliName: "tab new-page"
+            ),
+            ActionDescriptor(
                 id: "newSurface",
                 title: String(localized: "action.newSurface", defaultValue: "New Terminal Tab", bundle: .module),
                 keywords: ["tab", "terminal", "create"], defaultShortcut: Shortcut("t", modifiers: [.control, .shift, .command]),
@@ -68,7 +75,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.renameTab", defaultValue: "Rename Tab…", bundle: .module),
                 keywords: ["tab", "title"], defaultShortcut: Shortcut("r", modifiers: [.command]), category: .tab,
                 symbol: "pencil", surfaces: [.palette, .keyboard, .contextMenu],
-                arguments: [CatalogArgument.nameString], targets: [.tab], cliName: "tab rename"
+                arguments: [CatalogArgument.nameString.renamingTarget], targets: [.tab], cliName: "tab rename"
             ),
             ActionDescriptor(
                 id: "palette.clearTabName",
