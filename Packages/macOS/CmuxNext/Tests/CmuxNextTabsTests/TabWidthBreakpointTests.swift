@@ -3,8 +3,8 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextTabs
 
-/// Narrow tabs follow Chrome and Helium (user request on nxdog13: "handle
-/// small tabs better, example from helium"). Chromium `Tab::UpdateIconVisibility`
+/// Narrow tabs follow Chromium's breakpoints (user request on nxdog13:
+/// handle small tabs better). Chromium `Tab::UpdateIconVisibility`
 /// and `Tab::Layout` decide from the tab's contents width (its width less
 /// both content insets):
 /// - an inactive tab shows its favicon while it fits and otherwise centers

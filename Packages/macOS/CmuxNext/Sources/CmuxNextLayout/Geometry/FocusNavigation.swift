@@ -7,10 +7,8 @@ public nonisolated enum FocusNavigation {
     ///
     /// Candidates lie entirely past the source edge. The adjacent ones are
     /// those that overlap the source on the perpendicular axis at the
-    /// smallest distance (tmux `window_pane_find_*`, zellij
-    /// `next_selectable_pane_id_*`). Among them the most recently focused
-    /// wins (`recency`, newest first; tmux `window_pane_choose_best`, zellij
-    /// `max_by_key(active_at)`); without history the largest overlap, then
+    /// smallest distance. Among them the most recently focused
+    /// wins (`recency`, newest first); without history the largest overlap, then
     /// the nearest center, then the top-left one. When no candidate overlaps,
     /// the nearest edge, then the nearest center.
     ///

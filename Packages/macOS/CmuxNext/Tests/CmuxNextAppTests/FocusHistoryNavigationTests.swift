@@ -6,8 +6,7 @@ import Testing
 /// Directional focus with history (plans/cmux-next/focus.md section 4a):
 /// the reducer keeps each workspace's focus history from every source, and
 /// directional navigation picks the most recently focused of the adjacent
-/// panes (tmux `window_pane_choose_best`, zellij `max_by_key(active_at)`),
-/// falling back to geometry only when none of them has history.
+/// panes, falling back to geometry only when none of them has history.
 struct FocusHistoryNavigationTests {
     typealias Pane = FocusTopology.Pane
 
@@ -106,7 +105,7 @@ struct FocusHistoryNavigationTests {
         #expect(moved == "t")
         (state, moved) = Self.move(.down, state, frames: frames)
         #expect(moved == "d")
-        // Without history, down from T picks the top-left one (tmux: first in layout order).
+        // Without history, down from T picks the top-left one (first in layout order).
         #expect(Self.move(.down, Self.reduce([.focusPane("t", source: .mouse)], from: Self.loaded(["t", "c", "d"])), frames: frames).1 == "c")
     }
 

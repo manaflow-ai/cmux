@@ -5,7 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 
-/// Screen actions (tmux-style windows inside a workspace). Screens have no
+/// Screen actions (windows inside a workspace). Screens have no
 /// chrome until a workspace holds two or more; then the bottom screen bar
 /// shows them. Every verb runs through `ScreenCommands`, the same path the
 /// bar's clicks, drags, and editor use.

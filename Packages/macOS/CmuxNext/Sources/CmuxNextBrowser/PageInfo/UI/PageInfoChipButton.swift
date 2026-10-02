@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// The omnibar's leading page-info button (Chrome's location icon): the
 /// tune icon for secure pages, a "Not secure" / "Dangerous" chip with text,
 /// or an input icon while the user types. Transparent at rest with a 6 pt
-/// hover shape (Helium). Opens page info on click, Space or Return.
+/// hover shape. Opens page info on click, Space or Return.
 final class PageInfoChipButton: NSView {
     var onPress: (() -> Void)?
 

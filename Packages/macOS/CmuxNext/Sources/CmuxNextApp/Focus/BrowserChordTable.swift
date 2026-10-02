@@ -8,7 +8,7 @@ import CmuxNextActions
 /// (catalog default or `cmux.json`), then, only when the registry has none,
 /// the user's Ghostty keybinds for window, tab and split actions. In a
 /// browser context that fallback is refused for every chord listed here,
-/// because Chrome (and Safari) give it a meaning users expect in a page:
+/// because browsers give it a meaning users expect in a page:
 /// Ghostty's default `super+[` (`goto_split:previous`) must not replace
 /// Back. Chords cmux itself binds (Cmd-D split, Cmd-T new tab, Cmd-W close,
 /// Cmd-1..9 tab select) are resolved by the registry before this table is

@@ -83,7 +83,7 @@ import Testing
         guard let directory = ProcessInfo.processInfo.environment["OMNIBAR_SNAPSHOT_DIR"] else { return }
         let history = [
             ("https://github.com/manaflow-ai/cmux", "manaflow-ai/cmux: The terminal for coding agents"),
-            ("https://github.com/imputnet/helium", "imputnet/helium: Private, fast, and honest web browser"),
+            ("https://github.com/manaflow-ai/ghostty", "manaflow-ai/ghostty: cmux fork of Ghostty"),
             ("https://gist.github.com/", "Discover gists"),
         ]
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {

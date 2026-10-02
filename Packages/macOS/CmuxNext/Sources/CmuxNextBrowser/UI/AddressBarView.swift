@@ -1,7 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 
-/// The omnibar, drawn after Helium's location bar (`OmnibarStyle`): a gray
+/// The omnibar, drawn by `OmnibarStyle`: a gray
 /// 8 pt pill with a page-info chip, the compact URL with the host at full
 /// strength, and on focus the full URL, all selected. While suggestions show,
 /// the bar turns into the top of a white card that continues as the dropdown.

@@ -273,7 +273,7 @@ extension TabStripView {
         return true
     }
 
-    /// Holding + opens the new tab menu, like Safari's back button history.
+    /// Holding + opens the new tab menu, as a long press on a back button opens history.
     func startNewTabHold() {
         newTabHoldTask?.cancel()
         newTabHoldOpenedMenu = false

@@ -10,7 +10,7 @@ final class ChromeIconButton: NSButton {
     private var isHovering = false { didSet { updateFill() } }
     private var tracking: NSTrackingArea?
 
-    /// Toolbar buttons use Helium's geometry (`OmnibarStyle`); others the
+    /// Toolbar buttons use the omnibar geometry (`OmnibarStyle`); others the
     /// compact overlay size.
     private let isToolbar: Bool
     /// A menu for right-click and long-press (Back / Forward entries).

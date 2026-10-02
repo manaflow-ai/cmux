@@ -2,7 +2,7 @@ public import CoreGraphics
 
 /// Which parts of a tab are visible at a given width and state.
 ///
-/// Chrome and Helium's rules (Chromium `Tab::UpdateIconVisibility` and
+/// Chromium's rules (`Tab::UpdateIconVisibility` and
 /// `Tab::Layout`, plans/cmux-next/tabs.md), decided from the contents
 /// width, the tab less both content insets:
 /// - an inactive tab shows its icon while it fits, else centers it; its
