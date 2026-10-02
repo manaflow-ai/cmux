@@ -8384,6 +8384,1709 @@
           }
         }
       }
+    },
+    "onboarding.firstTask.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try a first task"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جرّب مهمتك الأولى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isprobajte prvi zadatak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøv en første opgave"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Probier eine erste Aufgabe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prueba una primera tarea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Essayez une première tâche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prova un primo compito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最初のタスクを試す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សាកល្បងកិច្ចការដំបូង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "첫 작업 해 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøv en første oppgave"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wypróbuj pierwsze zadanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Experimente uma primeira tarefa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попробуйте первую задачу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลองงานแรก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İlk görevi deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спробуйте перше завдання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thử một tác vụ đầu tiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "试试第一个任务"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "試試第一個任務"
+          }
+        }
+      }
+    },
+    "onboarding.firstTask.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick one. It runs for real, and you keep what it makes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختر واحدة. ستُنفَّذ فعليًا، وتحتفظ بما تنتجه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberite jedan. Zaista se izvršava, a vi zadržavate rezultat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg en. Den kører for alvor, og du beholder resultatet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wähle eine aus. Sie läuft wirklich, und das Ergebnis gehört dir."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elige una. Se ejecuta de verdad y te quedas con lo que crea."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisissez-en une. Elle s’exécute pour de vrai, et vous gardez le résultat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegline uno. Viene eseguito davvero e il risultato resta tuo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "1つ選んでください。実際に実行され、作成されたものは手元に残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសមួយ។ វាដំណើរការពិតប្រាកដ ហើយអ្នករក្សាទុកអ្វីដែលវាបង្កើត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "하나를 고르세요. 실제로 실행되고, 만든 결과는 그대로 남습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg én. Den kjøres på ordentlig, og du beholder resultatet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybierz jedno. Działa naprawdę, a wynik zostaje u Ciebie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escolha uma. Ela roda de verdade, e você fica com o resultado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выберите одну. Она выполняется по-настоящему, а результат остаётся у вас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกหนึ่งงาน งานจะทำงานจริง และคุณได้เก็บสิ่งที่สร้างขึ้นไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Birini seçin. Gerçekten çalışır ve ürettiği sizde kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оберіть одне. Воно виконується насправді, а результат лишається у вас."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn một. Tác vụ chạy thật và bạn giữ lại kết quả."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "选一个。它会真正运行，生成的内容归你所有。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選一個。它會真正執行，產生的內容歸你所有。"
+          }
+        }
+      }
+    },
+    "onboarding.firstTask.where": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs with your default agent in ~/cmux/first-task."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل باستخدام وكيلك الافتراضي في ‎~/cmux/first-task."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreće se s vašim zadanim agentom u ~/cmux/first-task."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kører med din standardagent i ~/cmux/first-task."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Läuft mit deinem Standard-Agent in ~/cmux/first-task."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se ejecuta con tu agente predeterminado en ~/cmux/first-task."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "S’exécute avec votre agent par défaut dans ~/cmux/first-task."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viene eseguito con il tuo agente predefinito in ~/cmux/first-task."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "既定のエージェントが ~/cmux/first-task で実行します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដំណើរការជាមួយភ្នាក់ងារលំនាំដើមរបស់អ្នកក្នុង ~/cmux/first-task។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기본 에이전트가 ~/cmux/first-task에서 실행합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kjøres med standardagenten din i ~/cmux/first-task."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Działa z Twoim domyślnym agentem w ~/cmux/first-task."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Roda com seu agente padrão em ~/cmux/first-task."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выполняется вашим агентом по умолчанию в ~/cmux/first-task."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทำงานด้วยเอเจนต์เริ่มต้นของคุณใน ~/cmux/first-task"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varsayılan ajanınızla ~/cmux/first-task içinde çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виконується вашим типовим агентом у ~/cmux/first-task."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chạy bằng tác tử mặc định của bạn trong ~/cmux/first-task."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由你的默认代理在 ~/cmux/first-task 中运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由你的預設代理在 ~/cmux/first-task 中執行。"
+          }
+        }
+      }
+    },
+    "onboarding.firstTask.noAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent could not start here. Skip this step and try one from a new chat later."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تشغيل الوكيل هنا. تخطَّ هذه الخطوة وجرّب مهمة من محادثة جديدة لاحقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent se ovdje nije mogao pokrenuti. Preskočite ovaj korak i kasnije isprobajte zadatak iz novog razgovora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten kunne ikke starte her. Spring dette trin over, og prøv en opgave fra en ny chat senere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Agent konnte hier nicht starten. Überspring diesen Schritt und probier später eine Aufgabe in einem neuen Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El agente no pudo iniciarse aquí. Omite este paso y prueba una tarea desde un chat nuevo más tarde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’agent n’a pas pu démarrer ici. Passez cette étape et essayez une tâche depuis une nouvelle discussion plus tard."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’agente non è riuscito ad avviarsi qui. Salta questo passaggio e prova un compito da una nuova chat più tardi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ここではエージェントを起動できませんでした。このステップをスキップし、あとで新しいチャットから試してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារមិនអាចចាប់ផ្ដើមនៅទីនេះបានទេ។ រំលងជំហាននេះ ហើយសាកល្បងកិច្ចការពីការជជែកថ្មីនៅពេលក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여기서 에이전트를 시작할 수 없습니다. 이 단계를 건너뛰고 나중에 새 채팅에서 해 보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten kunne ikke starte her. Hopp over dette trinnet, og prøv en oppgave fra en ny chat senere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się tu uruchomić agenta. Pomiń ten krok i wypróbuj zadanie później w nowym czacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível iniciar o agente aqui. Pule esta etapa e experimente uma tarefa em um novo chat depois."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Здесь не удалось запустить агента. Пропустите этот шаг и попробуйте задачу позже в новом чате."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเริ่มเอเจนต์ที่นี่ได้ ข้ามขั้นตอนนี้แล้วลองงานจากแชตใหม่ภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan burada başlatılamadı. Bu adımı atlayın ve daha sonra yeni bir sohbetten bir görev deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тут не вдалося запустити агента. Пропустіть цей крок і спробуйте завдання пізніше в новому чаті."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể khởi động tác tử ở đây. Hãy bỏ qua bước này và thử một tác vụ trong cuộc trò chuyện mới sau."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理无法在这里启动。跳过此步骤，稍后在新聊天中试试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理無法在這裡啟動。跳過此步驟，稍後在新聊天中試試。"
+          }
+        }
+      }
+    },
+    "onboarding.firstTask.saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved files"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الملفات المحفوظة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sačuvane datoteke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gemte filer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gespeicherte Dateien"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivos guardados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fichiers enregistrés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "File salvati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保存されたファイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារដែលបានរក្សាទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "저장된 파일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lagrede filer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zapisane pliki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arquivos salvos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сохранённые файлы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์ที่บันทึกไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kaydedilen dosyalar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Збережені файли"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp đã lưu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已保存的文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已儲存的檔案"
+          }
+        }
+      }
+    },
+    "onboarding.firstTask.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打開"
+          }
+        }
+      }
+    },
+    "onboarding.firstTask.reveal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Finder"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار في Finder"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži u Finderu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis i Finder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Im Finder zeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar en el Finder"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher dans le Finder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra nel Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finderに表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញក្នុង Finder"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finder에서 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis i Finder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż w Finderze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar no Finder"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать в Finder"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงใน Finder"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finder’da göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати у Finder"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện trong Finder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在访达中显示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 Finder 中顯示"
+          }
+        }
+      }
+    },
+    "onboarding.firstTask.note.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave yourself a note"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اترك لنفسك ملاحظة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ostavite sebi bilješku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Efterlad en note til dig selv"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hinterlass dir eine Notiz"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déjate una nota"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Laissez-vous une note"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lasciati una nota"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自分にメモを残す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទុកកំណត់ចំណាំសម្រាប់ខ្លួនឯង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "나에게 메모 남기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legg igjen et notat til deg selv"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zostaw sobie notatkę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deixe um recado para você"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оставьте себе заметку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เขียนโน้ตถึงตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kendinize bir not bırakın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Залиште собі нотатку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Để lại một ghi chú cho bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "给自己留个便条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "給自己留個便條"
+          }
+        }
+      }
+    },
+    "onboarding.firstTask.chart.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn a spreadsheet into a chart"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حوّل جدول بيانات إلى مخطط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretvorite tabelu u grafikon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gør et regneark til et diagram"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mach aus einer Tabelle ein Diagramm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Convierte una hoja de cálculo en un gráfico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transformez un tableur en graphique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trasforma un foglio di calcolo in un grafico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スプレッドシートをグラフにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បំប្លែងសៀវភៅបញ្ជីទៅជាតារាងក្រាហ្វិក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스프레드시트를 차트로 만들기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjør et regneark om til et diagram"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamień arkusz w wykres"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transforme uma planilha em um gráfico"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Превратите таблицу в диаграмму"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปลี่ยนสเปรดชีตเป็นแผนภูมิ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir tabloyu grafiğe dönüştürün"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перетворіть таблицю на діаграму"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biến bảng tính thành biểu đồ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "把电子表格变成图表"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "把試算表變成圖表"
+          }
+        }
+      }
+    },
+    "onboarding.firstTask.note.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A short welcome note with three tips, saved as a file."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ملاحظة ترحيب قصيرة مع ثلاث نصائح، محفوظة كملف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kratka poruka dobrodošlice s tri savjeta, sačuvana kao datoteka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En kort velkomstnote med tre tips, gemt som en fil."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine kurze Willkommensnotiz mit drei Tipps, als Datei gespeichert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una breve nota de bienvenida con tres consejos, guardada como archivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un court mot de bienvenue avec trois conseils, enregistré dans un fichier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una breve nota di benvenuto con tre consigli, salvata come file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "3つのヒント付きの短いウェルカムメモを、ファイルとして保存します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ចំណាំស្វាគមន៍ខ្លីមួយ ជាមួយគន្លឹះបី រក្សាទុកជាឯកសារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "세 가지 팁이 담긴 짧은 환영 메모를 파일로 저장합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et kort velkomstnotat med tre tips, lagret som en fil."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Krótka notatka powitalna z trzema wskazówkami, zapisana jako plik."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um breve recado de boas-vindas com três dicas, salvo como arquivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Короткая приветственная заметка с тремя советами, сохранённая в файл."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โน้ตต้อนรับสั้น ๆ พร้อมเคล็ดลับสามข้อ บันทึกเป็นไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Üç ipucu içeren kısa bir karşılama notu, dosya olarak kaydedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коротка вітальна нотатка з трьома порадами, збережена у файл."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một ghi chú chào mừng ngắn với ba mẹo, được lưu thành tệp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一段附有三个提示的简短欢迎便条，保存为文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一段附有三個提示的簡短歡迎便條，儲存為檔案。"
+          }
+        }
+      }
+    },
+    "onboarding.firstTask.chart.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charts a sample year of sales and saves the image."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يرسم مخططًا لعام نموذجي من المبيعات ويحفظ الصورة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pravi grafikon za primjer godišnje prodaje i čuva sliku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Laver et diagram over et års eksempelsalg og gemmer billedet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erstellt ein Diagramm aus einem Beispieljahr an Umsätzen und speichert das Bild."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grafica un año de ventas de ejemplo y guarda la imagen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trace un graphique d’une année de ventes d’exemple et enregistre l’image."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Crea il grafico di un anno di vendite d’esempio e salva l’immagine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サンプルの1年分の売上をグラフにして、画像を保存します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គូរតារាងក្រាហ្វិកនៃការលក់គំរូមួយឆ្នាំ ហើយរក្សាទុករូបភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "1년치 샘플 매출을 차트로 그리고 이미지를 저장합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lager et diagram over et års eksempelsalg og lagrer bildet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tworzy wykres przykładowej rocznej sprzedaży i zapisuje obraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cria um gráfico de um ano de vendas de exemplo e salva a imagem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Строит диаграмму продаж за пример года и сохраняет изображение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สร้างแผนภูมิยอดขายตัวอย่างหนึ่งปีและบันทึกรูปภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Örnek bir yıllık satışın grafiğini çizer ve görseli kaydeder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Будує діаграму продажів за приклад року та зберігає зображення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẽ biểu đồ doanh số mẫu của một năm và lưu hình ảnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "为一年的示例销售数据绘制图表并保存图片。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "為一年的範例銷售資料繪製圖表並儲存圖片。"
+          }
+        }
+      }
+    },
+    "onboarding.firstTask.note.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Write me a short, friendly welcome note with three tips for getting started with cmux. Save it as welcome-note.md in this folder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اكتب لي ملاحظة ترحيب قصيرة وودودة مع ثلاث نصائح للبدء مع cmux. احفظها باسم welcome-note.md في هذا المجلد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Napiši mi kratku, prijateljsku poruku dobrodošlice s tri savjeta za početak rada s cmux-om. Sačuvaj je kao welcome-note.md u ovoj fascikli."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriv en kort, venlig velkomstnote til mig med tre tips til at komme i gang med cmux. Gem den som welcome-note.md i denne mappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schreib mir eine kurze, freundliche Willkommensnotiz mit drei Tipps für den Einstieg in cmux. Speichere sie als welcome-note.md in diesem Ordner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escríbeme una nota de bienvenida breve y amable con tres consejos para empezar con cmux. Guárdala como welcome-note.md en esta carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Écris-moi un court mot de bienvenue chaleureux avec trois conseils pour bien démarrer avec cmux. Enregistre-le sous welcome-note.md dans ce dossier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scrivimi una breve e cordiale nota di benvenuto con tre consigli per iniziare con cmux. Salvala come welcome-note.md in questa cartella."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux を使い始めるための3つのヒントを入れた、短く親しみやすいウェルカムメモを書いてください。このフォルダに welcome-note.md として保存してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សរសេរកំណត់ចំណាំស្វាគមន៍ខ្លី និងរួសរាយមួយឱ្យខ្ញុំ ដោយមានគន្លឹះបីសម្រាប់ចាប់ផ្ដើមប្រើ cmux។ រក្សាទុកវាជា welcome-note.md ក្នុងថតនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux를 시작하는 데 도움이 되는 팁 세 가지를 담아 짧고 친근한 환영 메모를 써 주세요. 이 폴더에 welcome-note.md로 저장해 주세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriv et kort, vennlig velkomstnotat til meg med tre tips for å komme i gang med cmux. Lagre det som welcome-note.md i denne mappen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Napisz mi krótką, przyjazną notatkę powitalną z trzema wskazówkami na start z cmux. Zapisz ją jako welcome-note.md w tym folderze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escreva para mim um recado de boas-vindas curto e simpático com três dicas para começar a usar o cmux. Salve como welcome-note.md nesta pasta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Напиши мне короткую дружелюбную приветственную заметку с тремя советами, как начать работу с cmux. Сохрани её как welcome-note.md в этой папке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เขียนโน้ตต้อนรับสั้น ๆ ที่เป็นกันเองให้ฉัน พร้อมเคล็ดลับสามข้อสำหรับเริ่มต้นใช้ cmux บันทึกเป็น welcome-note.md ในโฟลเดอร์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bana cmux’a başlamak için üç ipucu içeren kısa ve samimi bir karşılama notu yaz. Bu klasöre welcome-note.md olarak kaydet."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Напиши мені коротку дружню вітальну нотатку з трьома порадами, як почати роботу з cmux. Збережи її як welcome-note.md у цій папці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy viết cho tôi một ghi chú chào mừng ngắn, thân thiện với ba mẹo để bắt đầu dùng cmux. Lưu thành welcome-note.md trong thư mục này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "给我写一段简短友好的欢迎便条，附上三个上手 cmux 的提示。在此文件夹中保存为 welcome-note.md。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "給我寫一段簡短友善的歡迎便條，附上三個上手 cmux 的提示。在此資料夾中儲存為 welcome-note.md。"
+          }
+        }
+      }
+    },
+    "onboarding.firstTask.chart.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read sales.csv in this folder and make a bar chart of revenue by month. Save it as chart.svg in this folder, then tell me in one sentence what it shows."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اقرأ sales.csv في هذا المجلد وأنشئ مخططًا شريطيًا للإيرادات حسب الشهر. احفظه باسم chart.svg في هذا المجلد، ثم أخبرني في جملة واحدة بما يُظهره."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pročitaj sales.csv u ovoj fascikli i napravi stupčasti grafikon prihoda po mjesecima. Sačuvaj ga kao chart.svg u ovoj fascikli, a zatim mi u jednoj rečenici reci šta pokazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Læs sales.csv i denne mappe, og lav et søjlediagram over omsætning pr. måned. Gem det som chart.svg i denne mappe, og fortæl mig så i én sætning, hvad det viser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lies sales.csv in diesem Ordner und erstelle ein Balkendiagramm des Umsatzes nach Monat. Speichere es als chart.svg in diesem Ordner und sag mir dann in einem Satz, was es zeigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lee sales.csv en esta carpeta y haz un gráfico de barras de los ingresos por mes. Guárdalo como chart.svg en esta carpeta y luego dime en una frase qué muestra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lis sales.csv dans ce dossier et fais un graphique en barres du chiffre d’affaires par mois. Enregistre-le sous chart.svg dans ce dossier, puis dis-moi en une phrase ce qu’il montre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leggi sales.csv in questa cartella e crea un grafico a barre dei ricavi per mese. Salvalo come chart.svg in questa cartella, poi dimmi in una frase cosa mostra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このフォルダの sales.csv を読み、月別売上の棒グラフを作ってください。このフォルダに chart.svg として保存し、何がわかるかを1文で教えてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាន sales.csv ក្នុងថតនេះ ហើយបង្កើតតារាងក្រាហ្វិកជាសសរនៃចំណូលតាមខែ។ រក្សាទុកវាជា chart.svg ក្នុងថតនេះ រួចប្រាប់ខ្ញុំក្នុងប្រយោគមួយថាវាបង្ហាញអ្វី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 폴더의 sales.csv를 읽고 월별 매출 막대 차트를 만들어 주세요. 이 폴더에 chart.svg로 저장한 다음, 차트가 보여 주는 내용을 한 문장으로 알려 주세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les sales.csv i denne mappen og lag et søylediagram over inntekter per måned. Lagre det som chart.svg i denne mappen, og fortell meg så i én setning hva det viser."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przeczytaj sales.csv w tym folderze i zrób wykres słupkowy przychodów według miesięcy. Zapisz go jako chart.svg w tym folderze, a potem powiedz mi w jednym zdaniu, co pokazuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leia sales.csv nesta pasta e faça um gráfico de barras da receita por mês. Salve como chart.svg nesta pasta e depois me diga em uma frase o que ele mostra."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прочитай sales.csv в этой папке и построй столбчатую диаграмму выручки по месяцам. Сохрани её как chart.svg в этой папке, а затем одним предложением скажи, что она показывает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อ่าน sales.csv ในโฟลเดอร์นี้แล้วสร้างแผนภูมิแท่งของรายได้ตามเดือน บันทึกเป็น chart.svg ในโฟลเดอร์นี้ แล้วบอกฉันในประโยคเดียวว่าแผนภูมิแสดงอะไร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu klasördeki sales.csv dosyasını oku ve aylara göre gelirin sütun grafiğini yap. Bu klasöre chart.svg olarak kaydet, sonra bana tek cümleyle ne gösterdiğini söyle."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прочитай sales.csv у цій папці та побудуй стовпчасту діаграму виручки за місяцями. Збережи її як chart.svg у цій папці, а потім одним реченням скажи, що вона показує."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đọc sales.csv trong thư mục này và vẽ biểu đồ cột doanh thu theo tháng. Lưu thành chart.svg trong thư mục này, rồi cho tôi biết trong một câu biểu đồ cho thấy điều gì."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "读取此文件夹中的 sales.csv，制作按月收入的柱状图。在此文件夹中保存为 chart.svg，然后用一句话告诉我它说明了什么。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "讀取此資料夾中的 sales.csv，製作按月收入的長條圖。在此資料夾中儲存為 chart.svg，然後用一句話告訴我它說明了什麼。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

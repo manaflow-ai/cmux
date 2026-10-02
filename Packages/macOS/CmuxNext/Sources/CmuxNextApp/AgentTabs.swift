@@ -129,6 +129,15 @@ final class AgentTabStore {
 
     func existingView(_ key: String) -> AgentPaneView? { views[key] }
 
+    /// A new chat outside any pane (onboarding's first task), on the same
+    /// daemon and page as the tabs. The caller owns it and closes it.
+    func standaloneView(seed: AgentPaneSeed) -> AgentPaneView? {
+        let model = AgentPaneModel(host: host, seed: AgentPaneSeedSource(seed))
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
+        view.customization = customization.current
+        return view
+    }
+
     /// The tab closed: stop its page and forget it.
     func close(_ key: String) {
         for pane in tabsByPane.keys { tabsByPane[pane]?.removeAll { $0 == key } }

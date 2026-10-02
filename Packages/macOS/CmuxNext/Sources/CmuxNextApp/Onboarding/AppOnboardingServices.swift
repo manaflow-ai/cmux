@@ -23,6 +23,13 @@ final class AppOnboardingServices: OnboardingServices {
 
     var savedProfile: OnboardingProfile? { owner.profile }
 
+    var canRunFirstTask: Bool { true }
+    var firstTaskFolder: FirstTaskFolder { .live() }
+
+    func makeFirstTaskView(cwd: URL, prompt: String) -> NSView? {
+        owner.firstTaskView(cwd: cwd, prompt: prompt)
+    }
+
     func saveProfile(_ profile: OnboardingProfile) {
         owner.saveProfile(profile)
     }
