@@ -44,7 +44,7 @@ extension SidebarBridge {
         case .rename(let id, let name):
             model.apply(intent)
             guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue), let key = workspace.key else { return }
-            command("rename-workspace", on: daemon, patch: .renameWorkspace(key: key, name: name)) { c, _ in _ = try await c.renameWorkspace(key, to: name) }
+            command("rename-workspace", on: daemon, intent: .renameWorkspace(key: key, name: name)) { c in _ = try await c.renameWorkspace(key, to: name) }
         case .close(let ids):
             // The row's close button is an entrypoint of `closeWorkspace`,
             // so it asks the same confirmation and ends the terminals too.
@@ -61,7 +61,7 @@ extension SidebarBridge {
             for (daemon, key) in keys(ids) {
                 let update: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .clear
                 let resource = daemon.store.stateResourceID(workspace: key)
-                command("set-workspace-metadata", on: daemon) { c, _ in try await c.setWorkspaceIdentity(key, resource: resource, color: update) }
+                command("set-workspace-metadata", on: daemon) { c in try await c.setWorkspaceIdentity(key, resource: resource, color: update) }
             }
         case .toggleCollapse, .createGroup, .move, .renameGroup, .setGroupColor, .ungroup, .reorderGroup:
             // Workspace groups are personal (the home session's
@@ -77,7 +77,7 @@ extension SidebarBridge {
             }
             model.apply(intent)
             for (daemon, key, terminals) in members {
-                command("close-workspace", on: daemon) { c, _ in try await WorkspaceClose.close(key, terminals: terminals, on: c) }
+                command("close-workspace", on: daemon) { c in try await WorkspaceClose.close(key, terminals: terminals, on: c) }
             }
         case .switchProfile(let profile):
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
@@ -86,7 +86,7 @@ extension SidebarBridge {
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)
-            command("move-profile", on: services.machines.local) { c, _ in try await c.moveProfile(id, to: index) }
+            command("move-profile", on: services.machines.local) { c in try await c.moveProfile(id, to: index) }
         case .setPinned(let ids, let pinned):
             model.apply(intent)
             sendPinned(ids, pinned)
@@ -105,7 +105,7 @@ extension SidebarBridge {
                 resync()
                 continue
             }
-            command("set-workspace-metadata", on: daemon) { c, _ in _ = try await c.setWorkspaceMetadata(key, pinned: pinned) }
+            command("set-workspace-metadata", on: daemon) { c in _ = try await c.setWorkspaceMetadata(key, pinned: pinned) }
         }
     }
 
@@ -151,7 +151,7 @@ extension SidebarBridge {
                 switch command {
                 case .move(let id, let index):
                     guard let key = keys[id] else { continue }
-                    ok = await daemon.perform("move-workspace", patch: .custom { _ in }) { c, _ in
+                    ok = await daemon.intend("move-workspace", .moveWorkspace(key: key, index: index)) { c in
                         _ = try await c.moveWorkspace(key, to: index)
                     }
                 case .place:
@@ -174,10 +174,13 @@ extension SidebarBridge {
         model.profiles = Self.profiles(services.machines.local.store)
     }
 
-    private func command(_ label: String, on daemon: DaemonService, patch: OptimisticPatch = .custom { _ in },
-                         _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
+    /// Sends one command, shown at once through the store's intent log when
+    /// it has an `intent`; a failure re-syncs the sidebar.
+    private func command(_ label: String, on daemon: DaemonService, intent: Intent? = nil,
+                         _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
         Task {
-            if !(await daemon.perform(label, patch: patch, body)) { resync() }
+            let ok = if let intent { await daemon.intend(label, intent, body) } else { await daemon.request(label, body) != nil }
+            if !ok { resync() }
         }
     }
 }

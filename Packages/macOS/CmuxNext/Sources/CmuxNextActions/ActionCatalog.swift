@@ -61,8 +61,7 @@ public nonisolated enum ActionCatalog {
     private static func makeAll() -> [ActionDescriptor] {
         var all: [ActionDescriptor] = []
         for group in groups { all += group.descriptors() }
-        for index in all.indices where cliActionIDs.contains(all[index].id) { all[index].cli = true }
         for index in all.indices where focusActionIDs.contains(all[index].id) { all[index].focuses = true }
-        return all
+        return ActionSurfaceCatalog.apply(to: all)
     }
 }

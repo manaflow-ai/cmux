@@ -4993,6 +4993,7 @@ impl Mux {
                             width,
                             root: Node::Leaf(pane_id),
                             zellij_auto_layout: Some(vec![pane_id]),
+                            sticky: None,
                         },
                     ),
                     "target pane disappeared from its layout"
@@ -5536,7 +5537,14 @@ fn parse_resource_layout_document(
                     &mut seen_tabs,
                     &mut tab_orders,
                 )?;
-                parsed.push(LayoutColumn { id, width, root, zellij_auto_layout: None });
+                // The layout document has no sticky field; a column that
+                // keeps its id keeps its flag.
+                let sticky = current
+                    .layout_columns
+                    .iter()
+                    .find(|column| column.id == id)
+                    .and_then(|column| column.sticky);
+                parsed.push(LayoutColumn { id, width, root, zellij_auto_layout: None, sticky });
             }
             anyhow::ensure!(
                 parsed.first().is_some_and(|column| column.width == base_width),
@@ -6712,6 +6720,7 @@ fn registry_screen_from_layout(
                             .collect::<anyhow::Result<Vec<_>>>()
                     })
                     .transpose()?,
+                sticky: column.sticky,
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -6884,6 +6893,7 @@ fn overwrite_layout_snapshot(screen: &mut Screen, layout: ScreenLayoutSnapshot) 
 }
 
 fn sync_layout_column_projection(layout: &mut ScreenLayoutSnapshot) {
+    crate::model::normalize_sticky_columns(&mut layout.layout_columns);
     let Some(first) = layout.layout_columns.first() else {
         layout.viewport_splits.clear();
         layout.viewport_base_width = None;

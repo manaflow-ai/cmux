@@ -410,6 +410,7 @@ pub(crate) fn apply_tab_drag(
                             width,
                             root: Node::Leaf(ids.pane),
                             zellij_auto_layout: Some(vec![ids.pane]),
+                            sticky: None,
                         },
                     ),
                     "column anchor disappeared from its layout"

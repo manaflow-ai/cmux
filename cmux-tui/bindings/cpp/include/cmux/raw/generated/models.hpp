@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "775c143e40049003fdc122b643a0f7d56fee06b3e9c46dff2d40bf7fc9767faa";
+inline constexpr std::string_view kProtocolIrSha256 = "1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -309,6 +309,7 @@ struct ServerStatsRequest;
 struct SetCellPixelsRequest;
 struct SetClientInfoRequest;
 struct SetClientSizingRequest;
+struct SetColumnStickyRequest;
 struct SetDefaultColorsRequest;
 struct SetPersonalTerminalRequest;
 struct SetPersonalWorkspaceRequest;
@@ -3043,6 +3044,15 @@ struct SetClientSizingRequest {
     friend bool operator==(const SetClientSizingRequest&, const SetClientSizingRequest&) = default;
 };
 
+struct SetColumnStickyRequest {
+    Field<std::string> edge{};
+    Field<std::string> mode{};
+    Id pane{};
+    bool sticky{};
+    Field<std::uint64_t> transaction{};
+    friend bool operator==(const SetColumnStickyRequest&, const SetColumnStickyRequest&) = default;
+};
+
 struct SetDefaultColorsRequest {
     Field<ColorHex> bg{};
     std::optional<bool> complete{};
@@ -5492,6 +5502,12 @@ template <>
 struct Codec<SetClientSizingRequest> {
     static Result<Json> encode(const SetClientSizingRequest& value);
     static Result<SetClientSizingRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetColumnStickyRequest> {
+    static Result<Json> encode(const SetColumnStickyRequest& value);
+    static Result<SetColumnStickyRequest> decode(const Json& value);
 };
 
 template <>

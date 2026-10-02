@@ -112,6 +112,10 @@ nonisolated final class TopologyDaemon: Sendable {
                 return ok(#"{"app":"cmux-tui","version":"0.1.0","protocol":12,"capabilities":[\#(caps)],"session":"local","pid":7,"registry_id":"r","generation":"g1","workspace_revision":\#(revision)}"#)
             case "list-workspaces":
                 return ok(state.tree.withLock { $0.json })
+            case "list-agents":
+                // A resync after `connected` seeds agents; `{}` would fail it
+                // and leave `refresh()` waiting on retries.
+                return ok(#"{"agents":[]}"#)
             case "new-tab":
                 let surface = state.tree.withLock { tree -> Int in
                     let surface = tree.next()

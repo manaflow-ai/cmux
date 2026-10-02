@@ -1296,6 +1296,7 @@ mod tests {
                         width: 0.4,
                         layout: nested,
                         auto_layout: None,
+                        sticky: None,
                     },
                     RegistryViewportColumn {
                         id: column_b.clone(),
@@ -1305,6 +1306,7 @@ mod tests {
                             expanded: pane_c.clone(),
                         },
                         auto_layout: None,
+                        sticky: None,
                     },
                 ],
             },
