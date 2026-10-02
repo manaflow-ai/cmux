@@ -125,7 +125,7 @@ describe("hunk review", () => {
 
   test("a numbered hunk carries its ranges", () => {
     const [a] = files;
-    expect(hunkPatch(a, a.edits[0], a.edits[0].hunks[0])).toBe(["--- a/a.ts", "+++ b/a.ts", "@@ -10,3 +10,3 @@", " one", "-two", "+2", " three"].join("\n"));
+    expect(hunkPatch(a, a.edits[0], a.edits[0].hunks[0])).toBe(["--- /repo/src/a.ts", "+++ /repo/src/a.ts", "@@ -10,3 +10,3 @@", " one", "-two", "+2", " three"].join("\n"));
   });
 
   test("a fragment's hunk has no ranges to get wrong", () => {

@@ -14,20 +14,29 @@ export type DiffLayout = "unified" | "split";
 /// What the reader decided about a hunk: keep it, undo it, or undo already asked of the agent.
 export type HunkDecision = "accepted" | "rejected" | "requested";
 export type HunkReview = { decisions: ReadonlyMap<string, HunkDecision>; decide: (key: string, decision: HunkDecision | undefined) => void; requestRevert: (keys: string[], prompt: string) => void };
-type HunkAnchor = { key: string };
+type HunkAnchor = { key: string; label: string };
+/// The hunk whose action the reader just took; its next button takes focus, since the one
+/// pressed is replaced.
+type FocusAfter = { current: string | undefined };
 
-/// A hunk's actions sit under its last changed line, on the side that line is on.
-function hunkAnchor(hunk: DiffHunk, key: string) {
+/// A hunk's actions sit under its last changed line, on the side that line is on. `label`
+/// names the hunk for its buttons, so a screen reader can tell one hunk's Reject from another's.
+function hunkAnchor(hunk: DiffHunk, key: string, file: TurnFile, numbered: boolean) {
   const changed = hunk.lines.filter((line) => line.type !== "context");
   const last = changed[changed.length - 1];
   if (!last) return undefined;
-  return last.type === "add" ? { side: "additions" as const, lineNumber: last.newLine!, metadata: { key } } : { side: "deletions" as const, lineNumber: last.oldLine!, metadata: { key } };
+  const first = changed[0]!;
+  const line = first.newLine ?? first.oldLine;
+  const label = numbered && line !== undefined ? `${file.displayPath} line ${line}` : file.displayPath;
+  return last.type === "add" ? { side: "additions" as const, lineNumber: last.newLine!, metadata: { key, label } } : { side: "deletions" as const, lineNumber: last.oldLine!, metadata: { key, label } };
 }
 
-function HunkActions({ decision, onDecide }: { decision?: HunkDecision; onDecide: (decision: HunkDecision | undefined) => void }) {
-  if (decision === "requested") return <div className="acpmux-hunk-actions" data-decision={decision}><span>Revert requested</span></div>;
-  if (decision) return <div className="acpmux-hunk-actions" data-decision={decision}><span>{decision === "accepted" ? "Accepted" : "Rejected"}</span><button type="button" onClick={() => onDecide(undefined)}>Undo</button></div>;
-  return <div className="acpmux-hunk-actions"><button type="button" className="acpmux-hunk-reject" onClick={() => onDecide("rejected")}>Reject</button><button type="button" className="acpmux-hunk-accept" onClick={() => onDecide("accepted")}>Accept</button></div>;
+function HunkActions({ anchor, decision, onDecide, focusAfter }: { anchor: HunkAnchor; decision?: HunkDecision; onDecide: (decision: HunkDecision | undefined) => void; focusAfter: FocusAfter }) {
+  const decide = (next: HunkDecision | undefined) => { focusAfter.current = anchor.key; onDecide(next); };
+  const takeFocus = (node: HTMLButtonElement | null) => { if (node && focusAfter.current === anchor.key) { focusAfter.current = undefined; node.focus(); } };
+  if (decision === "requested") return <div className="acpmux-hunk-actions" data-decision={decision}><output>Revert requested</output></div>;
+  if (decision) return <div className="acpmux-hunk-actions" data-decision={decision}><output>{decision === "accepted" ? "Accepted" : "Rejected"}</output><button ref={takeFocus} type="button" aria-label={`Undo, ${anchor.label}`} onClick={() => decide(undefined)}>Undo</button></div>;
+  return <div className="acpmux-hunk-actions"><button ref={takeFocus} type="button" className="acpmux-hunk-reject" aria-label={`Reject change at ${anchor.label}`} onClick={() => decide("rejected")}>Reject</button><button type="button" className="acpmux-hunk-accept" aria-label={`Accept change at ${anchor.label}`} onClick={() => decide("accepted")}>Accept</button></div>;
 }
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
@@ -56,7 +65,7 @@ function FileHeader({ file, edit, index }: { file: TurnFile; edit: DiffEdit; ind
 /// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.
 const paneThemeType = () => document.documentElement.dataset.theme === "light" ? "light" as const : "dark" as const;
 
-function EditBlock({ file, edit, index, layout, onPainted, review }: { file: TurnFile; edit: DiffEdit; index: number; layout: DiffLayout; onPainted: () => void; review?: HunkReview }) {
+function EditBlock({ file, edit, index, layout, onPainted, review, focusAfter }: { file: TurnFile; edit: DiffEdit; index: number; layout: DiffLayout; onPainted: () => void; review?: HunkReview; focusAfter?: FocusAfter }) {
   // A language the bundle can't highlight shows as plain text; Pierre throws for it otherwise.
   // Each transcript update rebuilds the turn's files; the patch text is compared so an
   // unchanged edit keeps its parsed diff and does not paint again.
@@ -68,7 +77,7 @@ function EditBlock({ file, edit, index, layout, onPainted, review }: { file: Tur
   }, [patch, highlighted]);
   const afterRender = useStableCallback(onPainted);
   const reviewing = review !== undefined;
-  const annotations = useMemo(() => reviewing ? edit.hunks.flatMap((hunk, hunkIndex) => hunkAnchor(hunk, hunkKey(file, index, hunkIndex)) ?? []) : [], [reviewing, edit, file, index]);
+  const annotations = useMemo(() => reviewing ? edit.hunks.flatMap((hunk, hunkIndex) => hunkAnchor(hunk, hunkKey(file, index, hunkIndex), file, edit.numbered) ?? []) : [], [reviewing, edit, file, index]);
   const options = useMemo(() => ({
     theme: { dark: AGENT_DIFF_THEME, light: AGENT_DIFF_THEME_LIGHT },
     themeType: paneThemeType(),
@@ -88,7 +97,7 @@ function EditBlock({ file, edit, index, layout, onPainted, review }: { file: Tur
   // Only a final newline changed, or an empty file was written: no lines to show.
   if (edit.hunks.length === 0) return <div className="acpmux-diff-file" data-path={file.path}>{header}<div className="acpmux-diff-empty-edit">No line changes</div></div>;
   return <div className="acpmux-diff-file" data-path={file.path}>
-    <FileDiff<HunkAnchor> className="acpmux-diff-pierre" fileDiff={fileDiff} options={options} lineAnnotations={annotations} renderAnnotation={(annotation) => review && annotation.metadata ? <HunkActions decision={review.decisions.get(annotation.metadata.key)} onDecide={(decision) => review.decide(annotation.metadata!.key, decision)} /> : null} renderCustomHeader={() => header} />
+    <FileDiff<HunkAnchor> className="acpmux-diff-pierre" fileDiff={fileDiff} options={options} lineAnnotations={annotations} renderAnnotation={(annotation) => review && focusAfter && annotation.metadata ? <HunkActions anchor={annotation.metadata} decision={review.decisions.get(annotation.metadata.key)} onDecide={(decision) => review.decide(annotation.metadata!.key, decision)} focusAfter={focusAfter} /> : null} renderCustomHeader={() => header} />
   </div>;
 }
 
@@ -144,6 +153,7 @@ export const DiffPanel = memo(function DiffPanel({ files, initialPath, onClose, 
   const [selected, setSelected] = useState(initialPath ?? files[0]?.path);
   const body = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
+  const focusAfter = useRef<string | undefined>(undefined);
   const totals = useMemo(() => files.reduce((sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }), { additions: 0, deletions: 0 }), [files]);
   const reveal = (path: string) => {
     setSelected(path);
@@ -187,25 +197,26 @@ export const DiffPanel = memo(function DiffPanel({ files, initialPath, onClose, 
       </div>
     </header>
     <div className="acpmux-diff-main">
-      <div ref={body} className="acpmux-diff-body">{files.length === 0 ? <div className="acpmux-muted">No file changes in this turn.</div> : files.flatMap((file) => file.edits.map((edit, index) => <EditBlock key={`${file.path}\u0000${edit.toolId}\u0000${index}`} file={file} edit={edit} index={index} layout={layout} onPainted={onPainted} review={review} />))}</div>
+      <div ref={body} className="acpmux-diff-body">{files.length === 0 ? <div className="acpmux-muted">No file changes in this turn.</div> : files.flatMap((file) => file.edits.map((edit, index) => <EditBlock key={`${file.path}\u0000${edit.toolId}\u0000${index}`} file={file} edit={edit} index={index} layout={layout} onPainted={onPainted} review={review} focusAfter={focusAfter} />))}</div>
       <nav className="acpmux-diff-tree" aria-label="Changed files"><ChangedFilesTree files={files} selected={selected} onSelect={revealFromTree} /></nav>
     </div>
-    {review && <RevertBar files={files} review={review} />}
+    {review && <RevertBar files={files} review={review} onSent={() => back.current?.focus()} />}
   </section>;
 });
 
 /// The rejected hunks not yet sent, with an optional note, go to the agent as one prompt.
-function RevertBar({ files, review }: { files: TurnFile[]; review: HunkReview }) {
+/// After a send the bar goes away with the control that had focus; `onSent` places focus again.
+function RevertBar({ files, review, onSent }: { files: TurnFile[]; review: HunkReview; onSent: () => void }) {
   const [note, setNote] = useState("");
   const rejected = files.flatMap((file) => file.edits.flatMap((edit, editIndex) => edit.hunks.flatMap((hunk, hunkIndex) => {
     const key = hunkKey(file, editIndex, hunkIndex);
     return review.decisions.get(key) === "rejected" ? [{ key, patch: hunkPatch(file, edit, hunk) }] : [];
   })));
   if (rejected.length === 0) return null;
-  const send = () => { review.requestRevert(rejected.map((entry) => entry.key), rejectionPrompt(rejected.map((entry) => entry.patch), note)); setNote(""); };
+  const send = () => { review.requestRevert(rejected.map((entry) => entry.key), rejectionPrompt(rejected.map((entry) => entry.patch), note)); setNote(""); onSent(); };
   return <div className="acpmux-revert-bar">
     <span className="acpmux-revert-count">{rejected.length === 1 ? "1 change rejected" : `${rejected.length} changes rejected`}</span>
-    <input aria-label="Note for the agent" placeholder="Add a note (optional)" value={note} onChange={(event) => setNote(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") send(); }} />
+    <input aria-label="Note for the agent" placeholder="Add a note (optional)" value={note} onChange={(event) => setNote(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) send(); }} />
     <button type="button" className="acpmux-revert-send" onClick={send}>Ask agent to revert</button>
   </div>;
 }

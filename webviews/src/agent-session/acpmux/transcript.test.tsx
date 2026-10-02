@@ -581,14 +581,18 @@ describe("acpmux hunk review", () => {
     try {
       await act(async () => render());
       for (let tries = 0; tries < 50 && !document.querySelector(".acpmux-hunk-reject"); tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      expect(document.querySelector(".acpmux-hunk-reject")?.getAttribute("aria-label")).toBe("Reject change at a.ts line 5");
       await click(document.querySelector(".acpmux-hunk-reject")!);
       expect(document.querySelector(".acpmux-hunk-actions")?.textContent).toBe("RejectedUndo");
+      // The pressed button is gone; focus moves to the Undo that replaced it.
+      expect(document.activeElement?.textContent).toBe("Undo");
       expect(document.querySelector(".acpmux-revert-count")?.textContent).toBe("1 change rejected");
       await click([...document.querySelectorAll(".acpmux-revert-send")][0]);
       expect(sent.length).toBe(1);
-      expect(sent[0].prompt).toContain("@@ -4,2 +4,2 @@\n one\n-two\n+2");
+      expect(sent[0].prompt).toContain("--- /repo/a.ts\n+++ /repo/a.ts\n@@ -4,2 +4,2 @@\n one\n-two\n+2");
       expect(document.querySelector(".acpmux-hunk-actions")?.textContent).toBe("Revert requested");
       expect(document.querySelector(".acpmux-revert-bar")).toBeNull();
+      expect(document.activeElement?.getAttribute("aria-label")).toBe("Back to transcript");
     } finally {
       await act(async () => root.unmount());
     }
