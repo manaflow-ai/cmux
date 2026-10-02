@@ -60,6 +60,8 @@ type Props = {
 /// so its arguments can follow.
 export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, accessory, onAttach, searchFiles }: Props) {
   const [findingFiles, setFindingFiles] = useState(false);
+  // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
+  useEffect(() => setFindingFiles(false), [searchFiles]);
   // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
@@ -136,7 +138,7 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     const at = textarea.current?.selectionStart ?? text.length;
     const before = text.slice(0, at);
     // A path with a space is quoted, or an agent would read the mention only up to it.
-    const mentioned = path && /\s/.test(path) ? `"${path.replace(/"/g, '\\"')}"` : path;
+    const mentioned = path && /\s/.test(path) ? `"${path.replace(/[\\"]/g, "\\$&")}"` : path;
     const insert = (before && !/\s$/.test(before) ? " @" : "@") + (mentioned ? `${mentioned} ` : "");
     plusDraft.current = undefined;
     pendingCaret.current = at + insert.length;

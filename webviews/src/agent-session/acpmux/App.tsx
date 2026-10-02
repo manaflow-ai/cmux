@@ -33,7 +33,7 @@ import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { WORKED, isFoldedCopy, turnView } from "./conversation/turns";
 
-type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
+type Reply<T> = { ok: true; value: T } | { ok: false; error?: { code?: string; userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
 /// `onOpenDiff` opens the changes of the turn holding `rowId`, at `path` when given.
@@ -88,7 +88,9 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   if (!handler) return Promise.reject(new Error("Native bridge is unavailable"));
   return Promise.resolve(handler.postMessage({ id: crypto.randomUUID(), method, params }) as unknown as Reply<T>).then(
     (reply) => {
-      if (!reply.ok) throw new Error(reply.error?.userMessage ?? "Request failed");
+      // The failure's code (`validation.invalid`, ...) rides along, as the acpmux client's does.
+      if (!reply.ok)
+        throw Object.assign(new Error(reply.error?.userMessage ?? "Request failed"), { code: reply.error?.code });
       return reply.value;
     },
   );
@@ -984,7 +986,8 @@ function AcpmuxPane() {
           chips={ComposerChips}
           onSend={(text) => void callNative("chat.send", { text })}
           onStop={() => void callNative("chat.cancel")}
-          searchFiles={searchFiles}
+          // Without a folder there is nothing to search; the + menu leaves the item out.
+          searchFiles={fileRoot ? searchFiles : undefined}
         />
       </div>
     </section>

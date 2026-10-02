@@ -266,9 +266,19 @@ test("+ then Search files mentions the picked file at the caret, and Escape retu
   await key("Escape");
   expect(doc.querySelector(".acpmux-file-search")).toBeNull();
   expect(doc.activeElement).toBe(prompt);
+  // Another chat's folder closes an open palette, so its rows can't be picked into this draft.
+  await act(async () => plus().click());
+  await act(async () => {
+    [...doc.querySelectorAll("[role=option]")]
+      .find((option) => option.textContent === "Search files")!
+      .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  });
+  expect(doc.querySelector(".acpmux-file-search")).not.toBeNull();
+  await render(async (query) => mockFileSearch("~/code/acpmux", query, 50));
+  expect(doc.querySelector(".acpmux-file-search")).toBeNull();
 });
 
-test("a picked path with a space is quoted, so the agent reads the whole mention", async () => {
+test("a picked path with a space is quoted, with its quotes and backslashes escaped, so the agent reads the whole mention", async () => {
   await act(async () =>
     root.render(
       createElement(Composer, {
@@ -276,7 +286,7 @@ test("a picked path with a space is quoted, so the agent reads the whole mention
         chips: () => null,
         onSend: () => {},
         onStop: () => {},
-        searchFiles: async () => ({ root: "~/notes", results: [{ path: 'docs/My "big" Notes.md' }] }),
+        searchFiles: async () => ({ root: "~/notes", results: [{ path: 'docs/My "big" \\ Notes.md' }] }),
       }),
     ),
   );
@@ -289,7 +299,7 @@ test("a picked path with a space is quoted, so the agent reads the whole mention
   await act(async () => typeInto(field(), "notes"));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 120)));
   await key("Enter");
-  expect(doc.querySelector("textarea")!.value).toBe('@"docs/My \\"big\\" Notes.md" ');
+  expect(doc.querySelector("textarea")!.value).toBe('@"docs/My \\"big\\" \\\\ Notes.md" ');
 });
 
 test("the mock daemon answers file.search for a folder, empty for no query, and fails outside a repository", async () => {

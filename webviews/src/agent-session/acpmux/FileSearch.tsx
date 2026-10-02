@@ -122,6 +122,8 @@ export function FileSearch({
       // While a newer query is out, the highlighted row on screen is still what Enter picks.
       pick(results[selected]);
     } else if (event.key === "Tab") {
+      // Closing hands focus back to the prompt; Tab's own move would carry it past.
+      event.preventDefault();
       onClose();
     }
   };
