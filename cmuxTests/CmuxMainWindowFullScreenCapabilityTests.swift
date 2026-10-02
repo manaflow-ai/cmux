@@ -45,6 +45,10 @@ struct CmuxMainWindowFullScreenCapabilityTests {
             !window.collectionBehavior.contains(.fullScreenNone),
             "Main window must never carry .fullScreenNone, which suppresses native fullscreen"
         )
+        #expect(
+            !window.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "Main window must allow Full Screen Tile so other apps can join its fullscreen Space"
+        )
     }
 
     // The capability decision is a pure, screen-agnostic transform so it runs
