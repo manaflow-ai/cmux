@@ -33,6 +33,11 @@ final class TabDragSession: NSObject {
     }
 
     var isDragging: Bool { drag != nil }
+    /// Commits sent and not yet settled (their presentation is still on).
+    var commitsInFlight: Set<ClientTransactionID> = []
+    /// A drag, its landing flight, or a commit is in flight: strips may
+    /// still hide the dragged tabs (DP1 waits).
+    var hasDragInFlight: Bool { drag != nil || landing != nil || !commitsInFlight.isEmpty }
 
     // MARK: Begin
 
@@ -60,7 +65,7 @@ final class TabDragSession: NSObject {
         finishLanding()
 
         let window = sourceWindow ?? services.windows.controllers.first { $0.content === pane?.workspace }
-        var context = pane.map { Self.context(of: $0, draggedCount: draggedCount) } ?? .workspaces(count: draggedCount)
+        var context = pane.map { Self.context(of: $0, item: item, draggedCount: draggedCount) } ?? .workspaces(count: draggedCount)
         if let window { context.sourceWindowWorkspaceCount = max(1, services.windows.registry.members(of: window.state.id).count) }
         let content = pane?.view.bounds ?? window?.content?.layoutView?.bounds ?? .zero
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
@@ -74,15 +79,19 @@ final class TabDragSession: NSObject {
             tabOffset: CGPoint(x: frame.minX - windowFrame.minX, y: windowFrame.maxY - frame.maxY),
             windowSize: windowFrame.size, context: context
         )
-        let lifecycle = TabDragLifecycle { [weak pane] in
+        let lifecycle = TabDragLifecycle(restore: { [weak pane] in
             guard let pane else { return }
-            switch item {
-            case .tab(let id): pane.view.stripView.restoreDetachedTab(StripTabID(id))
-            case .group(let id, _): pane.view.stripView.restoreDetachedGroup(id)
-            case .workspaces: return
-            }
+            Self.endPresentation(item, in: pane)
             pane.resyncStrip()
-        }
+        }, release: { [weak pane] in
+            // Every end, the landed ones too: a move into the tab's own strip
+            // keeps the tab there, and the strip must show it again. The
+            // store already holds the result; push it into the strip first,
+            // so a tab that left is never shown back for a moment.
+            guard let pane else { return }
+            pane.syncStripFromStore()
+            Self.endPresentation(item, in: pane)
+        })
         let drag = Drag(source: source, lifecycle: lifecycle, ghost: ghost, motion: motion, point: point)
         drag.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .leftMouseDown, .keyDown]) { [weak self] event in
             self?.handle(event) ?? event
@@ -112,11 +121,40 @@ final class TabDragSession: NSObject {
         }
     }
 
-    static func context(of pane: PaneController, draggedCount: Int) -> TabDragContext {
+    static func context(of pane: PaneController, item: Item, draggedCount: Int) -> TabDragContext {
         let workspaceTabs = pane.workspace?.workspace.screens.flatMap(\.panes).reduce(0) { $0 + $1.tabs.count } ?? pane.pane.tabs.count
+        let ordered = pane.stripModel.orderedTabs
+        let first: String? = switch item {
+        case .tab(let id): id
+        case .group(_, let members): members.first
+        case .workspaces: nil
+        }
+        let index = first.flatMap { id in ordered.firstIndex { $0.id.rawValue == id } }
+        let group: String? = if case .tab = item, let index { ordered[index].groupID?.rawValue } else { nil }
         return TabDragContext(sourcePaneID: pane.layoutPaneID.rawValue, sourcePaneTabCount: pane.pane.tabs.count,
                               sourceWorkspaceID: pane.workspace?.workspace.id ?? "", sourceWorkspaceTabCount: workspaceTabs,
-                              draggedTabCount: draggedCount)
+                              draggedTabCount: draggedCount, sourceStripID: pane.stripModel.stripID, sourceIndex: index,
+                              sourceGroupID: group)
+    }
+
+    /// The resolver's view of `drag` now: the source pane's tabs can change
+    /// during a drag (another client, an agent), so the own place is read
+    /// from the live strip model, not from the drag's start.
+    func liveContext(_ drag: Drag) -> TabDragContext {
+        guard let pane = drag.source.pane else { return drag.source.context }
+        var context = Self.context(of: pane, item: drag.source.item, draggedCount: drag.source.context.draggedTabCount)
+        context.sourceWindowWorkspaceCount = drag.source.context.sourceWindowWorkspaceCount
+        return context
+    }
+
+    /// Ends the drag's presentation in its source strip: the hidden tab (or
+    /// group) shows again wherever the model now has it.
+    static func endPresentation(_ item: Item, in pane: PaneController) {
+        switch item {
+        case .tab(let id): pane.view.stripView.restoreDetachedTab(StripTabID(id))
+        case .group(let id, _): pane.view.stripView.restoreDetachedGroup(id)
+        case .workspaces: return
+        }
     }
 
     // MARK: Events
@@ -128,6 +166,7 @@ final class TabDragSession: NSObject {
             return nil
         case .leftMouseUp:
             update(Self.screenPoint(of: event))
+            drag?.filesAway = event.modifierFlags.contains(.option)
             finish(commit: true)
             return nil
         case .leftMouseDown:
@@ -162,7 +201,7 @@ final class TabDragSession: NSObject {
         }
         drag.winner = hit.winner
         drag.outcome = TabDragResolver.outcome(for: hit.winner?.proposal, insideWindow: hit.window != nil, screenPoint: point,
-                                               context: drag.source.context)
+                                               context: liveContext(drag))
         present(drag)
         wake(drag)
     }
@@ -184,7 +223,7 @@ final class TabDragSession: NSObject {
         for provider in providers(in: controller, near: point, drag: drag) {
             guard let proposal = provider.dropHitTest(screenPoint: point, payload: payload) else { continue }
             drag.touched[ObjectIdentifier(provider)] = provider
-            if TabDragResolver.accepts(proposal.kind, context: drag.source.context) {
+            if TabDragResolver.accepts(proposal.kind, context: liveContext(drag)) {
                 return Hit(window: controller, winner: Winner(provider: provider, proposal: proposal, window: controller))
             }
             provider.dropExited()

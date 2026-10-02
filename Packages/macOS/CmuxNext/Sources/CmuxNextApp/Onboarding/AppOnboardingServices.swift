@@ -21,6 +21,7 @@ final class AppOnboardingServices: OnboardingServices {
     }
 
     var ghosttyTheme: ThemeInput { ThemeStore.shared.input }
+    var ghosttyHasOwnTheme: Bool { GhosttyOwnTheme.isSet() }
     var selectedThemeName: String? { services.settings?.snapshot.root.value(at: TerminalThemeSetting.path)?.stringValue }
     var density: Density { DesignSettings.shared.density }
 
@@ -75,6 +76,21 @@ final class AppOnboardingServices: OnboardingServices {
 
     func makeAccountsStepView() -> NSView? {
         NSHostingView(rootView: AccountsStepView(model: services.accounts.model, palette: .app))
+    }
+
+    /// The review tool's pick (DEBUG builds only): a Release first run
+    /// always uses each screen's default. Picks live in the review file,
+    /// never in cmux.json.
+    func variantID(for step: OnboardingModel.Step) -> String? {
+        #if DEBUG
+        owner.galleryStore.pick(for: step)
+        #else
+        nil
+        #endif
+    }
+
+    func setVariantID(_ id: String?, for step: OnboardingModel.Step) {
+        owner.galleryStore.update { $0.picks[step.rawValue] = id }
     }
 
     func onboardingDidEnd(completed: Bool) {

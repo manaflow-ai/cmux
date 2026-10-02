@@ -18,11 +18,23 @@ extension TabDragSession {
         // The tabs leave their workspace for another one: the emptied
         // workspace closes once they landed, and is never repaired meanwhile.
         emptied.map { claimClosing($0) }
+        // A landed move settles once the store holds its result (its echo),
+        // so ending the presentation shows the daemon's placement, never a
+        // stale one.
+        let daemon = drag.source.pane.map { services.machines.daemon(forPane: $0.pane) }
+        let dropWindow = drag.winner?.window ?? drag.source.window
+        commitsInFlight.insert(transaction)
         let settle: @MainActor (Bool) -> Void = { [weak self] ok in
-            lifecycle.settle(transaction, ok: ok)
+            let end: @MainActor () -> Void = { [weak self] in
+                lifecycle.settle(transaction, ok: ok)
+                self?.commitsInFlight.remove(transaction)
+                self?.services.inputMonitor.noteChange()
+                // The view change of a landed user drop, after the echo.
+                if ok { self?.revealLanded(drag, outcome: outcome, dropWindow: dropWindow) }
+            }
+            if ok, let daemon { daemon.whenApplied(transaction, end) } else { end() }
             if let emptied { self?.finishClosing(emptied, moved: ok) }
         }
-        let dropWindow = drag.winner?.window ?? drag.source.window
         switch drag.source.item {
         case .tab(let id):
             guard let (tab, _) = services.locateTab(id) else { return settle(false) }
@@ -60,16 +72,19 @@ extension TabDragSession {
             let slot = gapSlot(drag)
             Task {
                 let key = await TabMoves.toNewWorkspace(tab, services: services, transaction: transaction)
-                if let key, let state = dropWindow?.state { claimAndPlace(key, in: state, at: slot) }
+                drag.landedWorkspaceID = key?.rawValue
+                if let key, let state = dropWindow?.state { claimAndPlace(key, in: state, at: slot, select: !drag.filesAway) }
                 settle(key != nil)
             }
         case .workspace(let id):
             guard let workspace = services.workspace(id: id) else { return settle(false) }
+            drag.landedWorkspaceID = id
             TabMoves.toWorkspace(tab, workspace: workspace, services: services, transaction: transaction, completion: settle)
         case .tearOff(let point):
             let frame = tearOffFrame(drag, at: point, size: drag.source.windowSize)
             Task {
                 let key = await TabMoves.toNewWorkspace(tab, services: services, transaction: transaction)
+                drag.landedWorkspaceID = key?.rawValue
                 if let key { focusTornOff(openTornOff(workspace: key, frame: frame, drag: drag), drag: drag) }
                 settle(key != nil)
             }
@@ -98,17 +113,20 @@ extension TabDragSession {
             let slot = gapSlot(drag)
             Task {
                 let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: services, transaction: transaction)
-                if let key, let state = dropWindow?.state { claimAndPlace(key, in: state, at: slot) }
+                drag.landedWorkspaceID = key?.rawValue
+                if let key, let state = dropWindow?.state { claimAndPlace(key, in: state, at: slot, select: !drag.filesAway) }
                 settle(key != nil)
             }
         case .workspace(let id):
             // Into the workspace's first pane, after its tabs.
             guard let pane = services.workspace(id: id)?.screens.first?.panes.first else { return settle(false) }
+            drag.landedWorkspaceID = id
             TabGroupMoves.move(group, to: pane, index: pane.tabs.count, services: services, transaction: transaction, completion: settle)
         case .tearOff(let point):
             let frame = tearOffFrame(drag, at: point, size: drag.source.windowSize)
             Task {
                 let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: services, transaction: transaction)
+                drag.landedWorkspaceID = key?.rawValue
                 if let key { focusTornOff(openTornOff(workspace: key, frame: frame, drag: drag), drag: drag) }
                 settle(key != nil)
             }
@@ -123,7 +141,8 @@ extension TabDragSession {
     /// A tab torn off an incognito window opens an incognito window.
     func openTornOff(workspace key: WorkspaceKey, frame: CGRect, drag: Drag) -> WindowController? {
         let incognito = drag.source.window.map { services.windows.isIncognito(window: $0.state.id) } ?? false
-        return services.windows.openWindow(workspaces: [key.rawValue], frame: frame, incognito: incognito)
+        // Option files it away: the new window opens behind, never key.
+        return services.windows.openWindow(workspaces: [key.rawValue], frame: frame, incognito: incognito, behind: drag.filesAway)
     }
 
     // MARK: Lookup
@@ -137,9 +156,26 @@ extension TabDragSession {
         }
     }
 
-    func claimAndPlace(_ key: WorkspaceKey, in state: WindowState, at slot: WorkspaceSlot?) {
-        services.windows.claim(workspaceID: key.rawValue, in: state)
+    func claimAndPlace(_ key: WorkspaceKey, in state: WindowState, at slot: WorkspaceSlot?, select: Bool = true) {
+        services.windows.claim(workspaceID: key.rawValue, in: state, select: select)
         if let slot { services.windows.place(newWorkspace: key.rawValue, in: state.id, at: slot) }
+    }
+
+    /// The view change after a landed drop (`DropRevealPolicy`): drags are
+    /// always the user's; Option files the tabs away.
+    func revealLanded(_ drag: Drag, outcome: TabDragOutcome, dropWindow: WindowController?) {
+        // A move onto another machine is a reference move, not this
+        // client's layout: no view change (product decision 2026-10-01).
+        if let landed = drag.landedWorkspaceID, let source = drag.source.pane,
+           services.machines.daemon(forWorkspace: landed) !== services.machines.daemon(forPane: source.pane) { return }
+        let landing = drag.landedWorkspaceID.flatMap { services.windows.registry.value.owner(of: $0) }
+            .flatMap(services.windows.controller(for:)) ?? dropWindow
+        let facts = DropRevealPolicy.Facts(outcome: outcome, landed: true, userInitiated: true, filesAway: drag.filesAway,
+                                           crossesWindows: landing !== drag.source.window, appActive: NSApp.isActive,
+                                           noActivate: WindowPlacement.noActivate,
+                                           landingOnActiveSpace: landing?.window?.isOnActiveSpace ?? true)
+        guard let reveal = DropRevealPolicy.decide(facts) else { return }
+        services.applyReveal(reveal, workspaceID: drag.landedWorkspaceID, fallback: dropWindow)
     }
 
     func paneController(stripID: UUID) -> PaneController? {

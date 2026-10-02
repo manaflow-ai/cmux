@@ -55,6 +55,7 @@ class MockBridge {
         window.setTimeout(() => { const assistant: AcpmuxRow = { id: `preview-assistant-${Date.now()}`, version: 1, at: Date.now(), kind: "assistant", text: `Preview response for “${text}”`, streaming: false }; this.snapshot = { ...this.snapshot, rows: [...this.snapshot.rows, assistant], isWorking: false }; this.emit(); }, 400);
         break;
       }
+      case "chat.select": this.snapshot = { ...this.snapshot, sessionId: String(message.params?.sessionId ?? "") }; this.emit(); break;
       case "chat.cancel": this.snapshot = { ...this.snapshot, isWorking: false }; this.emit(); break;
       case "chat.permission": this.snapshot = { ...this.snapshot, permission: undefined }; this.emit(); break;
       default: break;
@@ -63,8 +64,11 @@ class MockBridge {
   }
 }
 
+/// `?fixture=<id>` opens a fixture directly, so a headless browser can capture it.
+const initialFixture = previewFixtures.find((candidate) => candidate.id === new URLSearchParams(window.location.search).get("fixture")) ?? previewFixtures[0];
+
 function PreviewControls({ bridge, onFixture }: { bridge: MockBridge; onFixture: (fixture: PreviewFixture) => void }) {
-  const [fixtureId, setFixtureId] = useState(previewFixtures[0].id);
+  const [fixtureId, setFixtureId] = useState(initialFixture.id);
   const [dark, setDark] = useState(true);
   const [width, setWidth] = useState(900);
   const [fps, setFps] = useState("—");
@@ -93,8 +97,8 @@ function PreviewControls({ bridge, onFixture }: { bridge: MockBridge; onFixture:
 }
 
 export function PreviewApp() {
-  const bridge = useMemo(() => { const next = new MockBridge(previewFixtures[0]); next.install(); return next; }, []);
-  const [fixture, setFixture] = useState(previewFixtures[0]);
+  const bridge = useMemo(() => { const next = new MockBridge(initialFixture); next.install(); return next; }, []);
+  const [fixture, setFixture] = useState(initialFixture);
   useEffect(() => { applyAgentTheme({ isDark: true, pageBackground: "#171717", surfaceBackground: "#202020", surfaceElevatedBackground: "#292929", inputBackground: "#111", border: "#3a3a3a", borderStrong: "#555", text: "#f2f2f2", mutedText: "#a1a1a1", softText: "#c4c4c4", accent: "#7c9cff", accentSoft: "#263866", danger: "#d55", shadow: "#0008" }); }, [bridge]);
   void fixture;
   return <main className="acpmux-preview-page"><PreviewControls bridge={bridge} onFixture={(next) => { setFixture(next); bridge.select(next); }} /><div className="acpmux-preview-frame"><AcpmuxApp /></div></main>;

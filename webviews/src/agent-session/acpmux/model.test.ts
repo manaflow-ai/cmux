@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Tokens } from "marked";
-import { diffRows, layoutConversation, markdownBlocks, measuredText, visibleLayoutRange, visibleRowRange, type AcpmuxRow, type ConversationLayout } from "./model";
+import { diffRows, layoutConversation, markdownBlocks, measuredText, paneHeader, visibleLayoutRange, visibleRowRange, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "./model";
 
 const row = (id: string, version: number): AcpmuxRow => ({ id, version, at: 0, kind: "assistant", text: id });
 
@@ -56,6 +56,14 @@ test("a heading or a list after a single newline is its own block", () => {
   expect(height("assistant", "Intro:\n- one\n- two", 724)).toBeGreaterThanOrEqual(rowGap + 3 * line + gap);
 });
 
+/// A nested list's items are lines of their own, indented a second 40px.
+test("a nested list measures each of its items", () => {
+  const line = 20;
+  const flat = height("assistant", "- order:", 724);
+  expect(height("assistant", "- order:\n  - one\n  - two\n  - three", 724)).toBeGreaterThanOrEqual(flat + 3 * line);
+  expect(height("assistant", `- order:\n  - ${paragraph}`, 724)).toBeGreaterThanOrEqual(flat + height("assistant", paragraph, 724 - 80) - 16);
+});
+
 /// List items are indented 40px (the browser's list padding), so their text wraps sooner.
 test("a list item wraps at the list's indented width", () => {
   expect(height("assistant", `- ${paragraph}`, 724)).toBeGreaterThanOrEqual(height("assistant", paragraph, 724 - 40));
@@ -77,4 +85,38 @@ test("code spaces and unopenable links are measured as drawn", () => {
   expect(measured("Run `a b` now")).toBe("Run 00 0 now");
   expect(measured("[**b**](mailto:x@y)")).toBe("**b**");
   expect(measured("[**b**](https://example.com)")).toBe("b");
+});
+
+describe("acpmux pane header", () => {
+  const snapshot = (patch: Partial<AcpmuxSnapshot>): AcpmuxSnapshot => ({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connected", isWorking: false, queue: [], catalog: [], canLoadOlder: false, ...patch });
+  /// A real acpmux daemon names harnesses by id only, so the header read "codex".
+  test("names a known agent when the catalog has only its id", () => {
+    const header = (harness: string, catalog: AcpmuxSnapshot["catalog"] = []) => paneHeader(snapshot({ summary: { sessionId: "s", harness }, catalog })).title;
+    expect(header("codex")).toBe("Codex");
+    expect(header("codex", [{ id: "codex", name: "codex", models: [] }])).toBe("Codex");
+    expect(header("claude")).toBe("Claude Code");
+    expect(header("claude-sr", [{ id: "claude-sr", name: "claude-sr", models: [] }])).toBe("Claude Code");
+    expect(header("gemini")).toBe("Gemini CLI");
+    expect(header("opencode")).toBe("OpenCode");
+    expect(header("my-agent")).toBe("My Agent");
+    expect(header("codex", [{ id: "codex", name: "Codex (team)", models: [] }])).toBe("Codex (team)");
+  });
+  const prompt = "Run total.py and tell me what it prints";
+  /// The title repeated the session's first prompt, which the picker and the transcript already show,
+  /// and the status showed the client's last event ("session changed", "tool_call").
+  test("names the agent rather than repeating the prompt, and shows only a status a reader acts on", () => {
+    const base = { summary: { sessionId: "s", title: prompt, harness: "codex" }, catalog: [{ id: "codex", name: "Codex", models: [] }] };
+    expect(paneHeader(snapshot({ ...base, connection: "session changed" }))).toEqual({ title: "Codex", status: "" });
+    expect(paneHeader(snapshot({ ...base, connection: "tool_call", isWorking: true }))).toEqual({ title: "Codex", status: "Working" });
+    expect(paneHeader(snapshot({ ...base, connection: "disconnected" }))).toEqual({ title: "Codex", status: "Reconnecting" });
+    expect(paneHeader(snapshot({ connection: "mock" }))).toEqual({ title: "Agent Chat", status: "Mock" });
+  });
+
+  /// While the daemon is down the pane retries, setting "connecting" or "connecting: <error>"; a turn
+  /// that was running when the connection dropped never ends, so connection trouble wins over Working.
+  test("shows connection trouble while retrying, even during a turn", () => {
+    expect(paneHeader(snapshot({ connection: "connecting" })).status).toBe("Connecting");
+    expect(paneHeader(snapshot({ connection: "connecting: Error: refused" })).status).toBe("Connecting");
+    expect(paneHeader(snapshot({ connection: "disconnected", isWorking: true })).status).toBe("Reconnecting");
+  });
 });

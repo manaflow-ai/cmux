@@ -176,6 +176,30 @@ describe("acpmux transcript accessibility", () => {
     }
   });
 
+  /// A nested list drew inline as its source ("order:- Notebook: `3 × 4.50`"), and a numbered
+  /// list drew with bullets.
+  test("a nested list renders inside its item, and a numbered list keeps its numbers", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const text = "- Multiplies qty by price for each order:\n  - Notebook: `3 × 4.50 = 13.50`\n  - Pens: `12 × 0.80 = 9.60`\n- Adds the subtotals.\n\n3. Third\n4. Fourth";
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "a", version: 1, at: 0, kind: "assistant", text }], onToggleActivity: () => {}, expanded: new Set<string>() })));
+      const markdown = dom.window.document.querySelector(".acpmux-markdown")!;
+      const outer = markdown.querySelector(":scope > ul")!;
+      expect([...outer.querySelectorAll(":scope > li")].length).toBe(2);
+      const nested = outer.querySelector(":scope > li > ul")!;
+      expect([...nested.querySelectorAll(":scope > li")].map((node) => node.textContent)).toEqual(["Notebook: 3 × 4.50 = 13.50", "Pens: 12 × 0.80 = 9.60"]);
+      expect(nested.querySelector("code")?.textContent).toBe("3 × 4.50 = 13.50");
+      expect(markdown.textContent).not.toContain("- Notebook");
+      const numbered = markdown.querySelector(":scope > ol")!;
+      expect(numbered.getAttribute("start")).toBe("3");
+      expect([...numbered.querySelectorAll("li")].map((node) => node.textContent)).toEqual(["Third", "Fourth"]);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
   /// Rows are at most 760px wide (styles.css), but a wide pane laid them out at its whole width, so
   /// long messages wrapped onto more lines than their rows had room for.
   test("a wide pane lays rows out at the row's capped width", async () => {
@@ -563,6 +587,63 @@ describe("acpmux turn diff", () => {
       expect(opened).toEqual([["activity-1", "/repo/a.ts"]]);
     } finally {
       await act(async () => root.unmount());
+    }
+  });
+});
+
+describe("acpmux composer", () => {
+  /// Codex has no modes: its mode picker drew as an empty pill next to the model picker, and Stop sat beside Send between turns.
+  test("shows only the pickers that have choices, and Stop only while a turn runs", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window;
+    const snapshot = (isWorking: boolean) => ({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connected", isWorking, queue: [], canLoadOlder: false, catalog: [{ id: "codex", models: [{ id: "gpt", name: "GPT" }] }], summary: { harness: "codex", model: "gpt", modes: { availableModes: [], currentModeId: null } } });
+    const composer = () => dom.window.document.querySelector(".acpmux-composer")!;
+    const buttons = () => Array.from(composer().querySelectorAll("button"), (button) => button.textContent);
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot(false) as never));
+      expect(composer().querySelector("[aria-label=Model]")).not.toBeNull();
+      expect(composer().querySelector("[aria-label=Mode]")).toBeNull();
+      expect(buttons()).toEqual(["Send"]);
+      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot(true) as never));
+      expect(buttons()).toEqual(["Send", "Stop"]);
+    } finally {
+      await act(async () => root.unmount());
+      delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
+    }
+  });
+});
+
+describe("acpmux turn counts", () => {
+  /// The fold and the turn summary read "1 tool calls".
+  test("one tool call is counted in the singular", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const turn: AcpmuxRow[] = [
+      { id: "u", version: 1, at: 1, kind: "user", text: "run it" },
+      { id: "a", version: 1, at: 2, kind: "activity", toolCount: 1, items: [{ kind: "tool", text: "Run total.py" }] },
+      { id: "s", version: 1, at: 3, kind: "turnSummary", durationMs: 3000, toolCount: 1 },
+    ];
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: turn, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      expect(dom.window.document.querySelector(".acpmux-activity-toggle")?.textContent).toBe("› Worked with 1 tool call");
+      expect(dom.window.document.querySelector(".acpmux-summary")?.textContent).toBe("Worked for 3s · 1 tool call");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  /// History loaded from mid-turn has no user message to time the turn from.
+  test("a summary without a start time shows only the count", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "s", version: 1, at: 3, kind: "turnSummary", toolCount: 2 }], onToggleActivity: () => {}, expanded: new Set<string>() })));
+      expect(dom.window.document.querySelector(".acpmux-summary")?.textContent).toBe("2 tool calls");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
     }
   });
 });

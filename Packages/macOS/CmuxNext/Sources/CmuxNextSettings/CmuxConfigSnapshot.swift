@@ -67,6 +67,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
     /// `layout.centerFocusedColumn`; "never" when unset or invalid.
     public var centerFocusedColumn: CenterFocusedColumn = CenterFocusedColumnSetting.fallback
+    /// `layout.stripScrollbar`; "auto" when unset or invalid.
+    public var stripScrollbar: StripScrollbarMode = StripScrollbarSetting.fallback
     /// `layout.defaultColumnWidth`; 0.5 when unset or invalid.
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback
     /// `focusRing.*`.
@@ -129,6 +131,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
         snapshot.centerFocusedColumn = centering
         if let centeringDiagnostic { snapshot.diagnostics.append(centeringDiagnostic) }
+        let (scrollbar, scrollbarDiagnostic) = StripScrollbarSetting.parse(root)
+        snapshot.stripScrollbar = scrollbar
+        if let scrollbarDiagnostic { snapshot.diagnostics.append(scrollbarDiagnostic) }
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)

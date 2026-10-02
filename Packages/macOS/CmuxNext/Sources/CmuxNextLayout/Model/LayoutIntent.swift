@@ -32,4 +32,7 @@ public nonisolated enum LayoutIntent: Hashable, Sendable {
     /// Daemon `split {pane, dir}`.
     case split(PaneID, axis: SplitAxis)
     case selectScreen(ScreenID)
+    /// Daemon `set-column-sticky {pane, sticky, edge, mode, transaction}`
+    /// (`sticky-columns-v1`); nil makes the column scroll again.
+    case setColumnSticky(ColumnID, anyPane: PaneID, sticky: StickyColumn?, transaction: LayoutTransactionID)
 }

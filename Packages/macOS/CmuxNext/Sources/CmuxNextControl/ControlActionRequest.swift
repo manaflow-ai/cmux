@@ -6,11 +6,19 @@ public struct ControlActionRequest: Sendable, Hashable {
     public var actionID: String
     public var target: ControlTargetRef?
     public var arguments: [String: ControlValue]
+    /// `action.run` `origin` (`user`, `cli`, `mcp`, `script`, `remote`);
+    /// absent means `cli`.
+    public var origin: String
+    /// `action.run` `focus: true`: change this client's view anyway.
+    public var focus: Bool
 
-    public init(actionID: String, target: ControlTargetRef? = nil, arguments: [String: ControlValue] = [:]) {
+    public init(actionID: String, target: ControlTargetRef? = nil, arguments: [String: ControlValue] = [:], origin: String = "cli",
+                focus: Bool = false) {
         self.actionID = actionID
         self.target = target
         self.arguments = arguments
+        self.origin = origin
+        self.focus = focus
     }
 }
 

@@ -1,17 +1,17 @@
 public import AppKit
 public import CmuxNextDesign
 
-/// The onboarding window: one Liquid Glass surface (opaque theme background
-/// under Reduce Transparency) with only a close button. Return continues, Escape skips the rest,
+/// The onboarding window: a transparent window whose step variants draw
+/// their own Liquid Glass or opaque surface, with only a close button. Return continues, Escape skips the rest,
 /// Command-[ goes back. Closing it by any means ends the flow as skipped
 /// unless the last step finished it.
 public final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
     public let model: OnboardingModel
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
-    private var tintLoop: RenderLoop?
 
-    public init(model: OnboardingModel) {
+    /// `variant` forces one screen design (the gallery's full-size preview).
+    public init(model: OnboardingModel, variant: (any OnboardingScreenVariant.Type)? = nil) {
         self.model = model
         let window = OnboardingWindow(
             contentRect: NSRect(origin: .zero, size: OnboardingMetrics.windowSize),
@@ -33,28 +33,11 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         ThemeStore.shared.adopt(window)
         super.init(window: window)
         window.delegate = self
-        let root = OnboardingRootView(model: model)
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
-            // Reduce Transparency: the same layout on an opaque theme background.
-            window.backgroundColor = Palette.windowBackground
-            window.contentView = root
-        } else {
-            // One real Liquid Glass surface for the whole window.
-            window.isOpaque = false
-            window.backgroundColor = .clear
-            let glass = Glass.makePanel(content: root, cornerRadius: 0)
-            glass.translatesAutoresizingMaskIntoConstraints = true
-            glass.autoresizingMask = [.width, .height]
-            window.contentView = glass
-            // The content carries the theme background at partial alpha over
-            // the glass, so a light theme reads light over any desktop (also
-            // in an inactive window, where the glass tint is not drawn).
-            root.wantsLayer = true
-            tintLoop = RenderLoop { [weak root] in
-                _ = ThemeStore.shared.input
-                root?.layer?.backgroundColor = Palette.windowBackground.withAlphaComponent(Self.glassTintAlpha).cgColor
-            }
-        }
+        // The window is transparent; each variant's surface draws its own
+        // glass or opaque background (`OnboardingSurfaceView`).
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.contentView = OnboardingHostView(model: model, variant: variant)
         window.onKey = { [weak model] key in
             switch key {
             case .next: model?.next()
@@ -67,10 +50,6 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    /// How much of the theme background the glass carries (the rest is the
-    /// blurred desktop).
-    static let glassTintAlpha: CGFloat = 0.7
 
     /// Shows the window (placement and no-activate rules: `WindowPlacement`).
     public func present() {

@@ -26,6 +26,14 @@ final class ScreenContentView: NSView {
     var lastFocused: PaneID?
 
     var activeDrag: ActiveDrag?
+    /// Overlay sticky columns' glass rims, keyed by column.
+    var backdrops: [ColumnID: StickyBackdropView] = [:]
+    /// The strip scrollbar; created on first use.
+    var scrollbar: StripScrollbarView?
+    /// The offset the scrollbar last showed, and whether the next change
+    /// came from scrolling (it flashes the scrollbar).
+    var scrollbarOffset: CGFloat?
+    var scrollbarFlash = false
 
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext) {
         self.screenID = screenID
@@ -139,6 +147,7 @@ final class ScreenContentView: NSView {
             dividerFrames[kind] = nil
         }
 
+        reconcileSticky()
         // The scroll follows in `syncScroll`, which the root calls with the
         // focus after every update (ColumnScrollState.reduce).
         applyPresentation()
@@ -169,6 +178,7 @@ final class ScreenContentView: NSView {
         if !isUserScrolling {
             if scroll.advance(dt, parameters: Motion.spring(.scroll), epsilon: 0.25) {
                 moving = true
+                scrollbarFlash = true
             } else if reportScrollOnSettle {
                 reportScrollOnSettle = false
                 reportLeadingColumn()
@@ -179,17 +189,25 @@ final class ScreenContentView: NSView {
     }
 
     func applyPresentation() {
-        let dx = -scroll.value
+        let strip = stripShift
+        let uncovered = uncoveredRect
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
-            host.frame = frame.rect.offsetBy(dx: dx, dy: 0)
+            let scrolls = geometry.scrolls(pane: pane)
+            host.frame = frame.rect.offsetBy(dx: scrolls ? strip : 0, dy: 0)
             host.alphaValue = frame.alpha.value
+            clipToStrip(host, scrolls: scrolls, uncovered: uncovered)
         }
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
-            view.frame = frame.rect.offsetBy(dx: dx, dy: 0)
+            let scrolls = self.scrolls(kind)
+            view.frame = frame.rect.offsetBy(dx: scrolls ? strip : 0, dy: 0)
             view.alphaValue = frame.alpha.value
+            // A strip divider under a sticky column must not take its clicks.
+            let hidden = scrolls && !geometry.sticky.isEmpty && view.frame.intersection(uncovered).width < 0.5
+            if view.isHidden != hidden { view.isHidden = hidden }
         }
+        updateScrollbar()
         context.overlayNeedsSync()
     }
 
@@ -254,11 +272,13 @@ final class ScreenContentView: NSView {
 
     /// Panes whose displayed frame intersects the viewport.
     func visiblePanes() -> Set<PaneID> {
-        let viewport = bounds
         var result: Set<PaneID> = []
+        let uncovered = uncoveredRect
         for (pane, frame) in paneFrames {
-            let displayed = frame.rect.offsetBy(dx: -scroll.value, dy: 0)
-            let overlap = displayed.intersection(viewport)
+            // A strip pane wholly under a sticky column is hidden.
+            let scrolls = geometry.scrolls(pane: pane)
+            let displayed = frame.rect.offsetBy(dx: scrolls ? stripShift : 0, dy: 0)
+            let overlap = displayed.intersection(scrolls ? uncovered : bounds)
             if !overlap.isNull, overlap.width > 0.5, overlap.height > 0.5, frame.alpha.value > 0.01 {
                 result.insert(pane)
             }
@@ -271,21 +291,29 @@ final class ScreenContentView: NSView {
     /// off-screen columns a short scroll brings in. Their content stays
     /// alive, paused, so scrolling back shows it at once.
     func keepAlivePanes() -> Set<PaneID> {
-        KeepAliveBand.panes(displayed: paneFrames.mapValues { $0.rect.offsetBy(dx: -scroll.value, dy: 0) }, viewport: bounds)
+        KeepAliveBand.panes(displayed: paneFrames.reduce(into: [:]) { $0[$1.key] = displayedRect($1.value.rect, pane: $1.key) },
+                            viewport: bounds)
     }
 
+    /// The pane under `localPoint`: a sticky column's pane above the strip.
     func pane(at localPoint: NSPoint) -> PaneID? {
-        let content = CGPoint(x: localPoint.x + scroll.value, y: localPoint.y)
-        return geometry.panes.first { $0.value.contains(content) }?.key
+        if geometry.sticky.contains(where: { $0.cover.contains(localPoint) }) {
+            return geometry.panes.first { !geometry.scrolls(pane: $0.key) && $0.value.contains(localPoint) }?.key
+        }
+        let content = CGPoint(x: localPoint.x - stripShift, y: localPoint.y)
+        return geometry.panes.first { geometry.scrolls(pane: $0.key) && $0.value.contains(content) }?.key
     }
 
     /// Drop target and its highlight rect in local coordinates.
     func dropTarget(at localPoint: NSPoint) -> (target: DropTarget, highlight: CGRect)? {
-        let content = CGPoint(x: localPoint.x + scroll.value, y: localPoint.y)
-        guard let hit = DropZoneGeometry.target(at: content, screen: screenID, geometry: geometry, style: context.style) else { return nil }
+        guard let hit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
+                                                style: context.style) else { return nil }
         let target = roomAdjusted(hit)
-        guard let rect = DropZoneGeometry.highlightRect(for: target, geometry: geometry, style: context.style) else { return nil }
-        return (target, rect.offsetBy(dx: -scroll.value, dy: 0))
+        guard var rect = DropZoneGeometry.highlightRectInView(for: target, offset: scroll.value, geometry: geometry,
+                                                              style: context.style) else { return nil }
+        // A strip target's highlight never draws over a sticky column.
+        if case let .pane(pane, _) = target, !geometry.scrolls(pane: pane) {} else { rect = rect.intersection(uncoveredRect) }
+        return rect.isNull ? nil : (target, rect)
     }
 
     /// Where splitting `pane` along `axis` goes on this screen right now.
@@ -301,10 +329,12 @@ final class ScreenContentView: NSView {
         case .split:
             return target
         case .newColumn:
-            guard let column = layout.column(containing: pane), let index = layout.columns.firstIndex(of: column) else {
+            // A sticky column never grows a neighbor column: join it instead.
+            guard geometry.scrolls(pane: pane), let column = layout.column(containing: pane),
+                  let index = geometry.columnOrder.firstIndex(of: column.id) else {
                 return .pane(pane, .center)
             }
-            let after = zone == .left ? (index > 0 ? layout.columns[index - 1].id : nil) : column.id
+            let after = zone == .left ? (index > 0 ? geometry.columnOrder[index - 1] : nil) : column.id
             return .newColumn(screen: screenID, after: after)
         case .refused:
             return .pane(pane, .center)
@@ -313,7 +343,7 @@ final class ScreenContentView: NSView {
 
     /// Displayed frame of `pane` in local coordinates.
     func displayedFrame(of pane: PaneID) -> CGRect? {
-        paneFrames[pane].map { $0.rect.offsetBy(dx: -scroll.value, dy: 0) }
+        paneFrames[pane].map { displayedRect($0.rect, pane: pane) }
     }
 
     /// Releases every hosted pane that is not live elsewhere (screen removed).

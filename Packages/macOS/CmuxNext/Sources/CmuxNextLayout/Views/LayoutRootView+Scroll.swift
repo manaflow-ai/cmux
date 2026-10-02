@@ -17,6 +17,9 @@ extension LayoutRootView {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             let point = convert(event.locationInWindow, from: nil)
             guard bounds.contains(point), let active = model.activeScreenID, let view = screenViews[active] else { return event }
+            // The strip scrollbar takes its own clicks.
+            if let scrollbar = view.scrollbar, !scrollbar.isHidden,
+               scrollbar.hitTest(view.convert(event.locationInWindow, from: nil)) != nil { return event }
             if let pane = view.pane(at: view.convert(event.locationInWindow, from: nil)) {
                 model.focus(pane, source: .pointer)
             }
@@ -30,7 +33,8 @@ extension LayoutRootView {
 
     private func activeColumnsView(at locationInWindow: NSPoint) -> ScreenContentView? {
         guard bounds.contains(convert(locationInWindow, from: nil)),
-              let active = model.activeScreenID, let view = screenViews[active], view.acceptsHorizontalScroll else { return nil }
+              let active = model.activeScreenID, let view = screenViews[active],
+              view.acceptsHorizontalScroll(at: view.convert(locationInWindow, from: nil)) else { return nil }
         return view
     }
 
