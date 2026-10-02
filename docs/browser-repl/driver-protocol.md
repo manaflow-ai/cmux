@@ -157,9 +157,20 @@ the user's temporary directory, except files the driver reported through
 `download.finished`, which are readable): `readFile {path}` → base64, `writeFile {path, base64, append?}`,
 `mkdir {path, recursive?}`, `readdir {path}` → `[{ name, type }]`,
 `stat {path}` → `{ size, type: "file"|"directory"|"symlink"|"other", mtimeMs, birthtimeMs }`,
-`rm {path, recursive?, force?}`, `rename {from, to}`, `copyFile {from, to}`,
-`exists {path}` → boolean, `resolve {path}` → absolute path. `rm` refuses
-`cwd` and the temporary directory themselves.
+`lstat {path}` (as `stat`, for the link itself), `rm {path, recursive?, force?}`,
+`rename {from, to}`, `copyFile {from, to}`, `exists {path}` → boolean,
+`resolve {path}` → absolute path. `rm` refuses `cwd` and the temporary
+directory themselves.
+
+Symbolic links follow Node. `rm`, `rename` and `lstat` act on the link itself
+and check only that its parent directory is inside a root, so a link pointing
+outside can be removed, moved or described; `rm` of a link to a directory
+never touches the directory. Every other op reads or writes through the link
+and checks where it points, so such a link is never followed out of the
+roots, and a dangling link is refused for writing. `readdir` reports a link as
+`symlink`. `rename` uses `rename(2)` and `copyFile` copies to a temporary
+file beside the destination before renaming it into place, so an existing
+destination stays intact until the new file is complete.
 
 Entry points the runtime defines, called by the app:
 

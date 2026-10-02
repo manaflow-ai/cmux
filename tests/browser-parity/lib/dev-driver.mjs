@@ -701,27 +701,52 @@ function fsError(code, message) {
 // directory or the temporary directory; downloads the driver reported are
 // readable too (BrowserReplFileSandbox.swift).
 export function createFsOp({ workDir, tmpdir, readable = new Set() }) {
+  // Mirrors BrowserReplFileSystem: reading or writing through a path checks
+  // where its links point; rm, rename and lstat act on a link itself and
+  // check only its parent directories.
   const roots = [fs.realpathSync(workDir), fs.realpathSync(tmpdir)];
+  const lexists = (p) => {
+    try {
+      fs.lstatSync(p);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   const canonical = (p) => {
     let head = path.resolve(p);
     const tail = [];
     while (!fs.existsSync(head) && head !== "/") {
+      // A dangling link: writing through it would create its target,
+      // which may be anywhere. No canonical path.
+      if (lexists(head)) return null;
       tail.unshift(path.basename(head));
       head = path.dirname(head);
     }
     return path.join(fs.realpathSync(head), ...tail);
   };
-  const inside = (p) => roots.some((r) => p === r || p.startsWith(r + "/"));
-  const check = (raw, write) => {
+  const entry = (p) => {
+    const full = path.resolve(p);
+    if (full === "/") return full;
+    const parent = canonical(path.dirname(full));
+    return parent === null ? null : path.join(parent, path.basename(full));
+  };
+  const inside = (p) => p !== null && roots.some((r) => p === r || p.startsWith(r + "/"));
+  const check = (raw, write, followLastLink = true) => {
     if (typeof raw !== "string") throw fsError("EINVAL", "EINVAL: missing path");
-    const p = canonical(path.resolve(workDir, raw));
-    if (inside(p) || (!write && readable.has(p))) return p;
+    const full = path.resolve(workDir, raw);
+    const followed = canonical(full);
+    const candidates = followLastLink ? [followed] : [entry(full), ...(roots.includes(followed) ? [followed] : [])];
+    for (const p of candidates) {
+      if (inside(p) || (p !== null && !write && readable.has(p))) return p;
+    }
     throw fsError("EACCES", `EACCES: permission denied, '${raw}' is outside the REPL's directories`);
   };
   const type = (p) => {
     const st = fs.lstatSync(p);
     return st.isSymbolicLink() ? "symlink" : st.isFile() ? "file" : st.isDirectory() ? "directory" : "other";
   };
+  const statOf = (p, st) => ({ size: st.size, type: type(p), mtimeMs: st.mtimeMs, birthtimeMs: st.birthtimeMs });
   const ops = {
     resolve: (a) => check(a.path, false),
     exists: (a) => {
@@ -748,21 +773,37 @@ export function createFsOp({ workDir, tmpdir, readable = new Set() }) {
       return fs.readdirSync(p).sort().map((name) => ({ name, type: type(path.join(p, name)) }));
     },
     stat: (a) => {
-      const st = fs.statSync(check(a.path, false));
-      return { size: st.size, type: st.isFile() ? "file" : st.isDirectory() ? "directory" : "other", mtimeMs: st.mtimeMs, birthtimeMs: st.birthtimeMs };
+      const p = check(a.path, false);
+      return statOf(p, fs.statSync(p));
+    },
+    lstat: (a) => {
+      const p = check(a.path, false, false);
+      return statOf(p, fs.lstatSync(p));
     },
     rm: (a) => {
-      const p = check(a.path, true);
+      const p = check(a.path, true, false);
       if (roots.includes(p)) throw fsError("EACCES", "EACCES: refusing to remove the REPL working directory");
+      // fs.rmSync acts on a link itself (lstat), never on what it points to.
       fs.rmSync(p, { recursive: !!a.recursive, force: !!a.force });
       return null;
     },
     rename: (a) => {
-      fs.renameSync(check(a.from, true), check(a.to, true));
+      fs.renameSync(check(a.from, true, false), check(a.to, true, false));
       return null;
     },
     copyFile: (a) => {
-      fs.copyFileSync(check(a.from, false), check(a.to, true));
+      const from = check(a.from, false);
+      const to = check(a.to, true);
+      // Copy next to the destination, then swap it in, so a failed copy
+      // leaves an existing destination untouched.
+      const staging = path.join(path.dirname(to), `.${path.basename(to)}.cmux-copy-${crypto.randomUUID()}`);
+      try {
+        fs.copyFileSync(from, staging);
+        fs.renameSync(staging, to);
+      } catch (e) {
+        fs.rmSync(staging, { force: true });
+        throw e;
+      }
       return null;
     },
   };

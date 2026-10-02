@@ -136,7 +136,7 @@
         return entries.map((e) => e.name);
       },
       statSync: (p) => statOf(op("stat", { path: abs(p) })),
-      lstatSync: (p) => statOf(op("stat", { path: abs(p) })),
+      lstatSync: (p) => statOf(op("lstat", { path: abs(p) })),
       existsSync(p) {
         try {
           return !!op("exists", { path: abs(p) });

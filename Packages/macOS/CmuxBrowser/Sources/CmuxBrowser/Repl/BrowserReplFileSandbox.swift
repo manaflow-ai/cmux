@@ -22,7 +22,10 @@ public struct BrowserReplFileSystemError: Error, Equatable, Sendable {
 ///
 /// Relative paths resolve against `root`. Absolute paths and `..` segments
 /// are accepted only when the result, after resolving symbolic links, stays
-/// inside `root`. Files the browser downloaded for this session are also
+/// inside `root`. An operation on a link itself (`rm`, `rename`, `lstat`)
+/// checks only the link's parent directories, so a link that points outside
+/// the root can be removed or moved but never read or written through.
+/// Files the browser downloaded for this session are also
 /// readable (never writable), because `download.path()` hands the script a
 /// path outside the working directory.
 public struct BrowserReplFileSandbox: Sendable {
@@ -54,22 +57,52 @@ public struct BrowserReplFileSandbox: Sendable {
     /// Resolves `path` for `access`.
     /// - Returns: Canonical absolute path.
     /// - Throws: `EINVAL` for an empty path, `EACCES` when the path leaves the root.
+    /// - Parameter followingLastLink: `true` (reading or writing through the
+    ///   path) resolves every symbolic link, so a link inside the root that
+    ///   points outside it is refused. `false` (acting on the entry itself,
+    ///   as `rm`, `rename` and `lstat` do) resolves links in the parent
+    ///   directories only and keeps the last component as named, so the
+    ///   result is the link, wherever it points.
     /// - Parameter additionalRoots: Extra canonical roots that count as inside
     ///   for this call (`fs` also reaches the user's temporary directory).
-    public func resolve(_ path: String, for access: Access, additionalRoots: [String] = []) throws -> String {
+    public func resolve(
+        _ path: String,
+        for access: Access,
+        followingLastLink: Bool = true,
+        additionalRoots: [String] = []
+    ) throws -> String {
         guard !path.isEmpty, !path.contains("\u{0}") else {
             throw BrowserReplFileSystemError(code: "EINVAL", message: "EINVAL: invalid path '\(path)'")
         }
-        let joined = path.hasPrefix("/") ? path : root + "/" + path
-        let canonical = Self.canonicalize(Self.lexicallyNormalized(joined))
-        for candidate in [root] + additionalRoots
-        where canonical == candidate || canonical.hasPrefix(candidate == "/" ? "/" : candidate + "/") {
-            return canonical
+        let roots = [root] + additionalRoots
+        let normalized = Self.lexicallyNormalized(path.hasPrefix("/") ? path : root + "/" + path)
+        let followed = Self.canonicalize(normalized)
+        var candidates = [followed]
+        if !followingLastLink {
+            // The entry itself, under its canonical parent. A root reached
+            // through a link to it (or `.`) still names the root.
+            candidates = [Self.entryPath(normalized)]
+            if roots.contains(followed) { candidates.append(followed) }
         }
-        if access == .read, readableFiles.contains(canonical) {
-            return canonical
+        for canonical in candidates {
+            for candidate in roots
+            where canonical == candidate || canonical.hasPrefix(candidate == "/" ? "/" : candidate + "/") {
+                return canonical
+            }
+            if access == .read, readableFiles.contains(canonical) {
+                return canonical
+            }
         }
         throw BrowserReplFileSystemError.escape(path)
+    }
+
+    /// `path` (absolute, normalized) with symbolic links resolved in its
+    /// parent directories only.
+    static func entryPath(_ path: String) -> String {
+        guard path != "/", let slash = path.lastIndex(of: "/") else { return path }
+        let name = path[path.index(after: slash)...]
+        let parent = canonicalize(slash == path.startIndex ? "/" : String(path[..<slash]))
+        return parent == "/" ? "/" + name : parent + "/" + name
     }
 
     /// Removes `.` and `..` segments and duplicate slashes without touching the disk.
