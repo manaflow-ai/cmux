@@ -34,6 +34,7 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
                 actionsRow(.inline, picker: picker)
                 actionsRow(.overflowMenu, picker: picker)
             }
+            .frame(maxWidth: .infinity)
             .rightSidebarChromeBar()
             .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
             .accessibilityElement(children: .contain)

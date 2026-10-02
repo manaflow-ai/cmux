@@ -10388,6 +10388,11 @@ final class GhosttySurfaceScrollView: NSView {
     /// this state; only user scroll gestures, explicit restores, and
     /// authoritative Ghostty scrollbar packets do.
     private(set) var scrollbackViewportIntent: TerminalScrollbackViewportIntent = .followingOutput
+
+    /// Applies a viewport intent transition owned by the terminal view.
+    func applyScrollbackViewportIntent(_ intent: TerminalScrollbackViewportIntent) {
+        scrollbackViewportIntent = intent
+    }
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -13742,7 +13747,7 @@ final class GhosttySurfaceScrollView: NSView {
         layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
-    private func synchronizeScrollView(
+    func synchronizeScrollView(
         forceViewportSync: Bool? = nil,
         preservedReviewOriginY: CGFloat? = nil
     ) {
