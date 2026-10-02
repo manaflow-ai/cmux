@@ -1,12 +1,12 @@
 //! The launch snapshot (`launch-snapshot-v1`): a small read-only file with
-//! the last settled tree (`list-workspaces`) and the native frontend
-//! projections, next to the session registry, so a frontend can draw the
+//! the last settled tree (`list-workspaces`), the personal state
+//! (`list-personal`) and the native frontend projections, next to the session registry, so a frontend can draw the
 //! last known layout before it connects and then swap to live state. The
 //! daemon never reads it back: it is a cache of the registry and the live
 //! tree, never a second source of truth.
 //!
 //! The writer is event-driven. It sleeps on the event bus until the tree,
-//! the layout or a projection changes (a title change alone does not wake
+//! the layout, the personal state or a projection changes (a title change alone does not wake
 //! it; titles are those of the last write), then writes once changes settle
 //! (`settle` after the last one, `max_delay` after the first at the latest):
 //! one computed deadline per burst and no timer while idle. Each write goes
@@ -195,6 +195,24 @@ pub fn start_launch_snapshot_writer_with(
 fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result<Value> {
     let tree = list_workspaces_reply(mux)?;
     let (registry_id, generation) = mux.registry_identity();
+    // Rooms, pins and personal groups filter and group the sidebar, so a
+    // provisional sidebar drawn without them regroups when live data lands.
+    // Room default env can hold credentials; the sidebar does not need it.
+    let personal = match mux.personal_snapshot() {
+        Ok(personal) => {
+            let mut personal = serde_json::to_value(personal)?;
+            for profile in personal["profiles"].as_array_mut().into_iter().flatten() {
+                if let Some(defaults) = profile["defaults"].as_object_mut() {
+                    defaults.remove("env");
+                }
+            }
+            personal
+        }
+        Err(error) => {
+            eprintln!("cmux-tui: launch snapshot without personal state: {error:#}");
+            Value::Null
+        }
+    };
     let projections = if include_projections {
         serde_json::to_value(mux.launch_snapshot_frontend_projections()?)?
     } else {
@@ -212,6 +230,7 @@ fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result
             .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
             .unwrap_or_default(),
         "tree": tree,
+        "personal": personal,
         "frontend_projections": projections,
     }))
 }
@@ -406,6 +425,52 @@ mod tests {
         assert_eq!(projection["frontend"], "cmux-next");
         assert_eq!(projection["scope"], "personal");
         assert_eq!(projection["projection"]["windows"][0]["id"], "w1");
+
+        drop(writer);
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cmux_next_launch_snapshot_carries_personal_state() {
+        let root = temp_root("personal");
+        let mux =
+            Mux::open_persistent("launch-snapshot-personal", SurfaceOptions::default(), &root)
+                .unwrap();
+        let writer = start_launch_snapshot_writer_with(
+            &mux,
+            LaunchSnapshotTiming {
+                settle: Duration::from_millis(50),
+                max_delay: Duration::from_millis(500),
+            },
+        )
+        .unwrap()
+        .unwrap();
+        wait_for_snapshot(writer.path(), |snapshot| snapshot["personal"].is_object());
+        // A personal change alone (no tree change) rewrites the snapshot.
+        run_command(
+            &mux,
+            json!({"cmd":"create-profile","profile":"prof_work","name":"Work",
+                   "defaults":{"cwd":"/tmp","env":{"TOKEN":"secret"}}}),
+        );
+        let snapshot = wait_for_snapshot(writer.path(), |snapshot| {
+            snapshot["personal"]["profiles"]
+                .as_array()
+                .is_some_and(|profiles| profiles.iter().any(|profile| profile["id"] == "prof_work"))
+        });
+        let work = snapshot["personal"]["profiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|profile| profile["id"] == "prof_work")
+            .unwrap();
+        assert_eq!(work["defaults"]["cwd"], "/tmp");
+        assert!(work["defaults"].get("env").is_none(), "room env stays out of the file");
+        assert_eq!(
+            snapshot["personal"]["personal_revision"],
+            run_command(&mux, json!({"cmd":"list-personal"}))["personal_revision"]
+        );
 
         drop(writer);
         mux.shutdown();
