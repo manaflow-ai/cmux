@@ -5130,6 +5130,48 @@ final class BrowserZoomShortcutActionTests: XCTestCase {
         )
     }
 
+    // Dvorak types "]" and "[" on the US Equal and Minus keys. A focused terminal
+    // must not read Cmd-] or Cmd-[ as a font zoom from the US key positions.
+    func testBracketsOnUSZoomKeyPositionsAreNotZoom() {
+        XCTAssertNil(
+            browserZoomShortcutAction(
+                flags: [.command],
+                chars: "]",
+                keyCode: 24,
+                layoutCharacterProvider: { _ in "]" }
+            )
+        )
+        XCTAssertNil(
+            browserZoomShortcutAction(
+                flags: [.command],
+                chars: "[",
+                keyCode: 27,
+                layoutCharacterProvider: { _ in "[" }
+            )
+        )
+        // JIS types "^" on the US "=" key. It is not a shortcut character, so
+        // the key keeps its US zoom-in role.
+        XCTAssertEqual(
+            browserZoomShortcutAction(
+                flags: [.command],
+                chars: "^",
+                keyCode: 24,
+                layoutCharacterProvider: { _ in "^" }
+            ),
+            .zoomIn
+        )
+        // Without any usable character the US positions still identify zoom keys.
+        XCTAssertEqual(
+            browserZoomShortcutAction(
+                flags: [.command],
+                chars: "",
+                keyCode: 24,
+                layoutCharacterProvider: { _ in nil }
+            ),
+            .zoomIn
+        )
+    }
+
     func testZoomOutSupportsMinusAndUnderscoreVariants() {
         XCTAssertEqual(
             browserZoomShortcutAction(flags: [.command], chars: "-", keyCode: 27),

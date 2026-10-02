@@ -124,7 +124,7 @@ extension FileDropOverlayView {
         sender: any NSDraggingInfo,
         pasteboardTypes: [NSPasteboard.PasteboardType]?
     ) {
-        guard DragOverlayRoutingPolicy.hasFileDropPayload(pasteboardTypes) else {
+        guard DragOverlayRoutingPolicy.hasFileDropBehaviorPayload(pasteboardTypes) else {
             hintPresentation.hideBadge()
             return
         }

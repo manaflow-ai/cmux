@@ -79,6 +79,7 @@ public actor CloudMachineLink {
     public enum LinkError: Error, LocalizedError {
         case clientMissing
         case spawnFailed(String)
+        case failureMessage(String)
         case exited(status: Int32, output: String)
         case timedOut
         case inputTooLarge
@@ -91,6 +92,8 @@ public actor CloudMachineLink {
                 return "No cmux-tui client is bundled with this build (Contents/Resources/bin/cmux-tui) and CMUX_TUI_CLIENT is unset."
             case .spawnFailed(let detail):
                 return "cmux-tui could not be started: \(detail)"
+            case .failureMessage(let detail):
+                return detail
             case .exited(let status, let output):
                 let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
                 return "cmux-tui link exited with status \(status)" + (tail.isEmpty ? "" : ": \(tail)")
@@ -144,6 +147,10 @@ public actor CloudMachineLink {
     private var eventsStabilityTask: Task<Void, Never>?
     private var eventsRecoveryPhase: EventsRecoveryPhase = .healthy
     private var stderrTail: [String] = []
+    /// Stderr belongs to one spawned client. A late line from an exited client
+    /// must never contaminate a retry's diagnostics.
+    private var stderrDrainTask: Task<Void, Never>?
+    private var stderrGeneration: UUID?
     /// Releases this link's claim on the app's WireGuard hub; runs once when the link ends.
     private var releaseHubLease: (@Sendable () async -> Void)?
 
@@ -190,6 +197,11 @@ public actor CloudMachineLink {
             await releaseHubLease?()
             return connected
         }
+        stderrDrainTask?.cancel()
+        stderrDrainTask = nil
+        let stderrGeneration = UUID()
+        self.stderrGeneration = stderrGeneration
+        stderrTail.removeAll(keepingCapacity: true)
         self.releaseHubLease = releaseHubLease
         eventsCursor = nil
         resetEventsRecovery()
@@ -235,7 +247,8 @@ public actor CloudMachineLink {
         }
         self.process = process
         self.processExit = processExit
-        let stderrDrain = drainStderr(stderr.fileHandleForReading)
+        let stderrDrain = drainStderr(stderr.fileHandleForReading, generation: stderrGeneration)
+        stderrDrainTask = stderrDrain
 
         // The first connection-snapshot line names the socket; later lines only update
         // transport topology and are ignored — but stdout keeps draining for the
@@ -312,6 +325,10 @@ public actor CloudMachineLink {
         eventsRecoveryPhase = .healthy
         state = .unavailable
         connected = nil
+        stderrDrainTask?.cancel()
+        stderrDrainTask = nil
+        stderrGeneration = nil
+        stderrTail.removeAll(keepingCapacity: true)
         changesContinuation.finish()
         await cancelEventsStream()
         if let process, let processExit {
@@ -624,16 +641,17 @@ public actor CloudMachineLink {
         eventsRecoveryPhase = .healthy
     }
 
-    private func drainStderr(_ handle: FileHandle) -> Task<Void, Never> {
+    private func drainStderr(_ handle: FileHandle, generation: UUID) -> Task<Void, Never> {
         let lines = CloudLinkPipe.lines(from: handle)
         return Task.detached { [weak self] in
             for await line in lines {
-                await self?.recordStderr(line)
+                await self?.recordStderr(line, generation: generation)
             }
         }
     }
 
-    private func recordStderr(_ line: String) {
+    private func recordStderr(_ line: String, generation: UUID) {
+        guard stderrGeneration == generation else { return }
         stderrTail.append(line)
         if stderrTail.count > 20 { stderrTail.removeFirst(stderrTail.count - 20) }
     }
@@ -651,15 +669,39 @@ public actor CloudMachineLink {
         process = nil
         processExit = nil
         connected = nil
+        let stderrGeneration = self.stderrGeneration
+        let stderrDrain = self.stderrDrainTask
         if state != .unavailable {
             state = status == 0 ? .unavailable : .error
-            lastError = status == 0 ? nil : LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
+            if status == 0 {
+                lastError = nil
+            } else {
+                lastError = LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
+                if let stderrGeneration, let stderrDrain {
+                    // Publish streamEnded and release the lease immediately;
+                    // refine only the diagnostic after the pipe has had a bounded
+                    // chance to deliver its final lines.
+                    Task { [weak self] in
+                        await Self.awaitStderrDrain(stderrDrain)
+                        guard !Task.isCancelled else { return }
+                        await self?.refineExitError(generation: stderrGeneration, status: status)
+                    }
+                }
+            }
         }
         await resourceConnection?.close()
         resourceConnection = nil
         changesContinuation.yield(.streamEnded(reason: "link_exit", cursor: nil))
         changesContinuation.finish()
         await releaseHubLeaseOnce()
+    }
+
+    private func refineExitError(generation: UUID, status: Int32) {
+        guard stderrGeneration == generation, state == .error else { return }
+        lastError = LinkError.exited(
+            status: status,
+            output: stderrTail.joined(separator: "\n")
+        ).errorDescription
     }
 
     /// Foundation aborts if a running `Process` is released. Keep a detached exit

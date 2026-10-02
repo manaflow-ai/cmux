@@ -81,7 +81,8 @@ public struct RemoteRelayCommandPolicy: Sendable {
         }
 
         let params = request["params"] as? [String: Any] ?? [:]
-        if let key = firstKey(in: params, matching: Self.commandKeys) {
+        let commandScanScope = RemoteRelayRoutingSchema().commandKeyScanScope(of: params, method: method)
+        if let key = firstKey(in: commandScanScope, matching: Self.commandKeys) {
             return .deny(reason: "parameter '\(key)' is not permitted through a remote relay")
         }
         if method == "surface.split" {
@@ -91,6 +92,13 @@ public struct RemoteRelayCommandPolicy: Sendable {
             }
             if params["url"] != nil, !(params["url"] is NSNull) {
                 return .deny(reason: "relay browser URLs are not permitted")
+            }
+        }
+        if method == "terminal.paste" {
+            guard params["text"] is String,
+                  let submitKey = params["submit_key"] as? String,
+                  ["none", "return"].contains(submitKey) else {
+                return .deny(reason: "terminal.paste requires text and submit_key none|return")
             }
         }
         if method == "agent.resolve_delivery_target" {

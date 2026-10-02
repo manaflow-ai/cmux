@@ -436,8 +436,12 @@ describe("dashboard billing screen", () => {
     const html = await renderBillingPage({ team: "team-pro" });
 
     expect(html).toContain("6 of 4 used");
-    expect(html).toContain("Team Pro has 6 members and 4 paid seats. Joining still works; add seats to cover everyone.");
+    // Seats follow the member count, so there is nothing for an admin to add
+    // here: the line says the subscription catches up on its own, and no
+    // add-seats link is offered.
+    expect(html).toContain("Team Pro has 6 members and 4 paid seats. Seats follow the member count, so the subscription updates on its own.");
     expect(html).not.toContain("Add seats");
+    expect(html).not.toContain("add seats to cover everyone");
   });
 
   test("shows team members a read-only Team plan without billing actions", async () => {

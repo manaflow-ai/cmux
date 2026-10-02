@@ -60,6 +60,7 @@
         "turndown-plugin-gfm": "^1.0.2",
         "unique-names-generator": "4.7.1",
         "ws": "^8.20.0",
+        "yup": "1.7.1",
         "zod": "^4.3.6",
       },
       "devDependencies": {

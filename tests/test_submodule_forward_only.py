@@ -159,6 +159,32 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
         self.assertEqual(git("rev-parse", "--is-shallow-repository", cwd=shallow), "true")
         self.assertIsNone(submodule_forward_only.local_relation(str(shallow), self.a, tip))
 
+    def shallow_clone(self, name: str, *extra: str) -> Path:
+        clone = self.root / name
+        git("-c", "protocol.file.allow=always", "clone", "-q", "--depth", "1",
+            f"file://{self.subrepo}", str(clone), cwd=self.root)
+        for sha in extra:
+            git("fetch", "-q", "--depth", "1", "origin", sha, cwd=clone)
+        self.assertEqual(git("rev-parse", "--is-shallow-repository", cwd=clone), "true")
+        return clone
+
+    def test_shallow_gap_is_decided_from_fetched_history_when_github_cannot(self) -> None:
+        # The GitHub compare fails whenever the Actions token is out of API
+        # quota. A forward bump whose old pin is deeper than the shallow
+        # clone must then be decided from fetched history, not fail as
+        # undecidable; a backward one must still read as backward.
+        self.commit_sub("middle subject")
+        tip = self.commit_sub("tip subject")
+        forward = self.shallow_clone("shallow-forward", self.a)
+        self.assertIsNone(submodule_forward_only.local_relation(str(forward), self.a, tip))
+        self.assertEqual(submodule_forward_only.deepened_relation(str(forward), self.a, tip), "forward")
+        backward = self.shallow_clone("shallow-backward", self.a)
+        self.assertEqual(submodule_forward_only.deepened_relation(str(backward), tip, self.a), "backward")
+
+    def test_deepening_leaves_a_complete_clone_to_the_local_check(self) -> None:
+        # Only a shallow clone lacks history; a complete one already had its answer.
+        self.assertIsNone(submodule_forward_only.deepened_relation(str(self.subrepo), self.a, self.a))
+
     def test_declared_rollback_passes(self) -> None:
         b = self.commit_sub("intentional rollback")
         self.pointer(b)

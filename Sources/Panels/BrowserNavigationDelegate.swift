@@ -614,7 +614,6 @@ import WebKit
             decisionHandler(.cancel)
             return
         }
-
         if navigationAction.targetFrame == nil,
            browserNavigationShouldFallbackNilTargetToNewTab(
                navigationType: navigationAction.navigationType
@@ -640,7 +639,6 @@ import WebKit
         if navigationAction.targetFrame?.isMainFrame != false {
             if shouldPreserveSSLTrustBypassForErrorPageNavigation(navigationAction) {
 #if DEBUG
-                let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
                 cmuxDebugLog("browser.nav.decidePolicy.action kind=preserveSSLBypassErrorPage url=\(targetURL)")
 #endif
             } else if let url = navigationAction.request.url,
@@ -666,8 +664,8 @@ import WebKit
             // accepted main-frame action while the bounded file probe runs so
             // other navigation policy branches remain synchronous.
             let encodingPolicy = owner.localFileEncodingPolicy
-            Task { @MainActor [weak owner, weak webView, encodingPolicy] in
-                guard let owner, let webView,
+            Task { @MainActor [weak owner, weak webView, weak self, encodingPolicy] in
+                guard let owner, let webView, let self,
                       owner.webView === webView else {
                     decisionHandler(.cancel)
                     return
@@ -684,10 +682,12 @@ import WebKit
                     decisionHandler(.cancel)
                     return
                 }
+                self.recordAllowedNavigationRequest(navigationAction)
                 decisionHandler(.allow)
             }
             return
         }
+        recordAllowedNavigationRequest(navigationAction)
         decisionHandler(.allow)
     }
 
