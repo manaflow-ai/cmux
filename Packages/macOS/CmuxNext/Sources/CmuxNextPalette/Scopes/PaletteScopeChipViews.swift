@@ -88,6 +88,9 @@ final class PaletteScopeChipView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// The icon's square: measured and laid out with the same value.
+    static var iconBox: CGFloat { Metrics.smallIconSize + Metrics.space1 }
+
     var preferredHeight: CGFloat {
         style == .token ? label.intrinsicContentSize.height + Metrics.space2 * 2 : max(label.intrinsicContentSize.height, Metrics.iconSize)
     }
@@ -95,7 +98,7 @@ final class PaletteScopeChipView: NSView {
     var fittingWidth: CGFloat {
         let padding = style == .token ? Metrics.space3 * 2 : 0
         let ruleSpace = rule.isHidden ? 0 : Metrics.space4 + Metrics.dividerThickness
-        return padding + Metrics.smallIconSize + Metrics.space2 + PaletteText.fittingWidth(label) + ruleSpace
+        return padding + Self.iconBox + Metrics.space2 + PaletteText.fittingWidth(label) + ruleSpace
     }
 
     override func mouseDown(with event: NSEvent) { onClick?() }
@@ -118,7 +121,7 @@ final class PaletteScopeChipView: NSView {
             }
         }
         let inset = style == .token ? Metrics.space3 : 0
-        let iconSize = Metrics.smallIconSize + Metrics.space1
+        let iconSize = Self.iconBox
         icon.frame = NSRect(x: inset, y: (bounds.height - iconSize) / 2, width: iconSize, height: iconSize)
         let labelHeight = label.intrinsicContentSize.height
         let ruleSpace = rule.isHidden ? 0 : Metrics.space4 + Metrics.dividerThickness
