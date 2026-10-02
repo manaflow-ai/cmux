@@ -156,11 +156,15 @@ describe("CheckpointClient", () => {
         first = false;
         throw { code: "native.timed_out", origin: "native" };
       }
-      if (method === CHECKPOINT_OPS.get)
-        return { ...checkpoint, revision: "41" };
+      if (method === CHECKPOINT_OPS.get) return { ...checkpoint, revision: "41" };
       return { result: { ...checkpoint, revision: "42" }, revision: "99", replayed: true };
     };
-    const client = new CheckpointClient(request, persistence, () => "create-key", async () => ({ checkpoints: true }));
+    const client = new CheckpointClient(
+      request,
+      persistence,
+      () => "create-key",
+      async () => ({ checkpoints: true }),
+    );
     client.select(target);
     await client.refreshCapabilities();
     await expect(client.create({ include_untracked: ["draft.txt"] })).rejects.toMatchObject({
