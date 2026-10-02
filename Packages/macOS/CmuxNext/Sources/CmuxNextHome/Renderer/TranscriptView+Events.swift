@@ -104,7 +104,7 @@ extension TranscriptView {
         for (key, pending) in pendingFlights {
             pendingFlights[key] = nil
             guard let slot = targets[key], let row = live[key]?.row,
-                  case .bubble(_, let text, let mentions, _, _, _) = row.kind else { continue }
+                  case .bubble(_, let text, let mentions, _, _, _, false) = row.kind else { continue }
             let flight = SendFlight(start: pending.time, ghost: pending.ghost, slot: slot, committer: committer)
             flight.makeLayers(text: text, mentions: mentions, geometry: geometry, colors: colors, scale: scale)
             layer?.addSublayer(flight.container)

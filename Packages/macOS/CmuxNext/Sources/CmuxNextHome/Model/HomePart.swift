@@ -26,6 +26,9 @@ public nonisolated enum HomePart: Hashable, Sendable {
     /// A part this renderer does not draw (attachment, link, poll): a one-line
     /// description shown in a muted bubble (MessagesLab MODEL.md fallback row).
     case fallback(String)
+    /// Text written by someone else (agents, people): rendered as a safe Markdown
+    /// subset. The user's own text is `.text` and stays literal.
+    case markdown(String)
 
     /// Plain text for previews and copy.
     public var plainText: String {
@@ -33,6 +36,7 @@ public nonisolated enum HomePart: Hashable, Sendable {
         case .text(let text, _): text
         case .work(let session, _, let preview): preview.map { "\(session): \($0)" } ?? session
         case .fallback(let text): text
+        case .markdown(let text): text
         }
     }
 }

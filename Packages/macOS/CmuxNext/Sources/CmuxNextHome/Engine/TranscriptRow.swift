@@ -11,7 +11,7 @@ nonisolated enum LabelTone: Hashable, Sendable {
 nonisolated enum TranscriptRowKind: Hashable, Sendable {
     /// Time separator: a bold day and a regular time ("Today 12:06 PM").
     case separator(day: String, time: String)
-    case bubble(outgoing: Bool, text: String, mentions: [HomeMention], tail: Bool, reactions: [String], failed: Bool)
+    case bubble(outgoing: Bool, text: String, mentions: [HomeMention], tail: Bool, reactions: [String], failed: Bool, markdown: Bool)
     case work(outgoing: Bool, session: String, status: HomeWorkStatus, statusText: String, preview: String?, tail: Bool)
     /// A part the renderer does not draw, as a muted one-line bubble.
     case fallback(outgoing: Bool, text: String, tail: Bool)
@@ -46,7 +46,7 @@ nonisolated struct TranscriptRow: Hashable, Sendable {
 
     var isOutgoing: Bool {
         switch kind {
-        case .bubble(let outgoing, _, _, _, _, _), .work(let outgoing, _, _, _, _, _), .label(_, _, let outgoing, _),
+        case .bubble(let outgoing, _, _, _, _, _, _), .work(let outgoing, _, _, _, _, _), .label(_, _, let outgoing, _),
              .fallback(let outgoing, _, _): outgoing
         default: false
         }
@@ -55,7 +55,7 @@ nonisolated struct TranscriptRow: Hashable, Sendable {
     /// The message part a bubble-like row draws (re-measurement).
     var part: HomePart? {
         switch kind {
-        case .bubble(_, let text, let mentions, _, _, _): .text(text, mentions: mentions)
+        case .bubble(_, let text, let mentions, _, _, _, let markdown): markdown ? .markdown(text) : .text(text, mentions: mentions)
         case .work(_, let session, let status, _, let preview, _): .work(session: session, status: status, preview: preview)
         case .fallback(_, let text, _): .fallback(text)
         default: nil

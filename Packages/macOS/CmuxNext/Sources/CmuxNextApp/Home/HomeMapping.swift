@@ -22,8 +22,12 @@ enum HomeMapping {
                         isMe: participant.id == ConversationParticipant.localUserID, isAgent: participant.kind == .agent)
     }
 
-    static func part(_ part: ConversationPart) -> HomePart {
+    /// `mine`: the local user's own text stays literal; everyone else's text is
+    /// rendered as Markdown (agents reply in Markdown).
+    static func part(_ part: ConversationPart, mine: Bool = true) -> HomePart {
         switch part {
+        case .text(let text, _) where !mine:
+            return .markdown(text)
         case .text(let text, let runs):
             return .text(text, mentions: runs.compactMap { run in
                 run.mention.map { HomeMention(start: run.start, length: run.length, participantID: $0) }
@@ -37,7 +41,8 @@ enum HomeMapping {
 
     static func message(_ message: ConversationMessage) -> HomeMessage {
         HomeMessage(id: message.id, seq: Int(message.seq), clientMsgID: message.clientMsgID, authorID: message.author,
-                    parts: message.parts.map(part), replyTo: message.replyTo?.messageID,
+                    parts: message.parts.map { part($0, mine: message.author == ConversationParticipant.localUserID) },
+                    replyTo: message.replyTo?.messageID,
                     createdAt: date(message.createdAt) ?? .distantPast,
                     delivery: message.author == ConversationParticipant.localUserID ? .sent : .none,
                     reactions: message.reactions.map(reaction), editedAt: date(message.editedAt), retractedAt: date(message.retractedAt))
@@ -47,7 +52,7 @@ enum HomeMapping {
         let delivery: HomeDelivery
         if case .failed(let reason) = send.state { delivery = .failed(reason) } else { delivery = .sending }
         return HomeMessage(id: "pending:\(send.clientMsgID)", seq: nil, clientMsgID: send.clientMsgID,
-                           authorID: ConversationParticipant.localUserID, parts: send.parts.map(part),
+                           authorID: ConversationParticipant.localUserID, parts: send.parts.map { part($0) },
                            replyTo: send.replyTo?.messageID, createdAt: send.createdAt, delivery: delivery)
     }
 

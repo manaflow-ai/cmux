@@ -95,6 +95,10 @@ nonisolated final class Measurer: Sendable {
             return CGSize(width: max(height, min(g.maxBubbleWidth, t.width + 2 * g.insetX)), height: height)
         case .fallback(let text):
             return measure(.text(text), geometry: g)
+        case .markdown(let text):
+            let t = TextFormatter.measureMarkdown(text, fontSize: g.fontSize, lineHeight: g.lineHeight, maxWidth: g.maxTextWidth)
+            let height = t.height + 2 * g.insetY
+            return CGSize(width: max(height, min(g.maxBubbleWidth, t.width + 2 * g.insetX)), height: height)
         case .work:
             return CGSize(width: g.workCardWidth, height: g.workCardHeight)
         }
@@ -104,7 +108,7 @@ nonisolated final class Measurer: Sendable {
     static func estimate(_ part: HomePart, geometry g: TranscriptGeometry) -> CGSize {
         let text: String
         switch part {
-        case .text(let value, _), .fallback(let value): text = value
+        case .text(let value, _), .fallback(let value), .markdown(let value): text = value
         case .work: return measure(part, geometry: g)
         }
         let charWidth = g.fontSize * 0.52

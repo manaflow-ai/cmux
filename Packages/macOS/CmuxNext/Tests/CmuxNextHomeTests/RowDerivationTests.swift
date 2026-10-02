@@ -19,7 +19,7 @@ struct RowDerivationTests {
 
     private func tail(_ row: TranscriptRow) -> Bool? {
         switch row.kind {
-        case .bubble(_, _, _, let tail, _, _), .work(_, _, _, _, _, let tail), .fallback(_, _, let tail): tail
+        case .bubble(_, _, _, let tail, _, _, _), .work(_, _, _, _, _, let tail), .fallback(_, _, let tail): tail
         default: nil
         }
     }

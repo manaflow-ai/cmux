@@ -12,6 +12,16 @@ nonisolated enum TextFormatter {
             ?? CTFontCreateWithName("Helvetica" as CFString, size, nil)
     }
 
+    /// A paragraph style with a fixed line height (every line the same height).
+    static func paragraph(lineHeight: CGFloat) -> CTParagraphStyle {
+        var lh = lineHeight
+        let settings = [
+            CTParagraphStyleSetting(spec: .minimumLineHeight, valueSize: MemoryLayout<CGFloat>.size, value: &lh),
+            CTParagraphStyleSetting(spec: .maximumLineHeight, valueSize: MemoryLayout<CGFloat>.size, value: &lh),
+        ]
+        return CTParagraphStyleCreate(settings, settings.count)
+    }
+
     /// The bubble text with mentions in the emphasized face.
     static func attributed(_ text: String, mentions: [HomeMention], fontSize: CGFloat, lineHeight: CGFloat,
                            color: CGColor?) -> NSAttributedString {
@@ -39,7 +49,17 @@ nonisolated enum TextFormatter {
     /// Size of `text` wrapped at `maxWidth` (width of the widest line).
     static func measure(_ text: String, mentions: [HomeMention], fontSize: CGFloat, lineHeight: CGFloat,
                         maxWidth: CGFloat) -> CGSize {
-        let string = attributed(text, mentions: mentions, fontSize: fontSize, lineHeight: lineHeight, color: nil)
+        frameSize(attributed(text, mentions: mentions, fontSize: fontSize, lineHeight: lineHeight, color: nil),
+                  lineHeight: lineHeight, maxWidth: maxWidth)
+    }
+
+    /// Size of the Markdown rendering of `text` (MarkdownFormatter).
+    static func measureMarkdown(_ text: String, fontSize: CGFloat, lineHeight: CGFloat, maxWidth: CGFloat) -> CGSize {
+        frameSize(MarkdownFormatter.attributed(text, fontSize: fontSize, lineHeight: lineHeight, color: nil),
+                  lineHeight: lineHeight, maxWidth: maxWidth)
+    }
+
+    private static func frameSize(_ string: NSAttributedString, lineHeight: CGFloat, maxWidth: CGFloat) -> CGSize {
         let setter = CTFramesetterCreateWithAttributedString(string as CFAttributedString)
         let size = CTFramesetterSuggestFrameSizeWithConstraints(
             setter, CFRange(location: 0, length: 0), nil, CGSize(width: maxWidth, height: .greatestFiniteMagnitude), nil)
@@ -50,7 +70,18 @@ nonisolated enum TextFormatter {
     /// Draws `text` into `rect` (y-up context, origin bottom-left), wrapped at its width.
     static func draw(_ text: String, mentions: [HomeMention], fontSize: CGFloat, lineHeight: CGFloat, color: CGColor,
                      in rect: CGRect, context: CGContext) {
-        let string = attributed(text, mentions: mentions, fontSize: fontSize, lineHeight: lineHeight, color: color)
+        drawFrame(attributed(text, mentions: mentions, fontSize: fontSize, lineHeight: lineHeight, color: color),
+                  in: rect, context: context)
+    }
+
+    /// Draws the Markdown rendering of `text` into `rect` (y-up context).
+    static func drawMarkdown(_ text: String, fontSize: CGFloat, lineHeight: CGFloat, color: CGColor, in rect: CGRect,
+                             context: CGContext) {
+        drawFrame(MarkdownFormatter.attributed(text, fontSize: fontSize, lineHeight: lineHeight, color: color),
+                  in: rect, context: context)
+    }
+
+    private static func drawFrame(_ string: NSAttributedString, in rect: CGRect, context: CGContext) {
         let setter = CTFramesetterCreateWithAttributedString(string as CFAttributedString)
         let path = CGPath(rect: rect.insetBy(dx: 0, dy: -1), transform: nil)
         let frame = CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0), path, nil)

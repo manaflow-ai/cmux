@@ -77,10 +77,11 @@ nonisolated enum RowPainter {
             ctx.addPath(BubbleShape.path(body, outgoing: false, tail: true, radius: g.bubbleRadius))
             ctx.setFillColor(c.incomingFill.cgColor)
             ctx.fillPath()
-        case .bubble(let outgoing, let text, let mentions, let tail, let reactions, let failed):
+        case .bubble(let outgoing, let text, let mentions, let tail, let reactions, let failed, let markdown):
             bubble(body, outgoing: outgoing, tail: tail, g: g, c: c, ctx)
             let color = outgoing ? c.outgoingText : c.textPrimary
-            textBlock(text, mentions: mentions, color: color, in: body.insetBy(dx: g.insetX, dy: g.insetY), g: g, ctx)
+            textBlock(text, mentions: mentions, markdown: markdown, color: color,
+                      in: body.insetBy(dx: g.insetX, dy: g.insetY), g: g, ctx)
             if !reactions.isEmpty { badges(reactions, body: body, outgoing: outgoing, g: g, c: c, ctx) }
             if failed { failedMark(body: body, g: g, c: c, ctx) }
         case .fallback(let outgoing, let text, let tail):
@@ -107,14 +108,20 @@ nonisolated enum RowPainter {
     }
 
     /// Wrapped text in a y-down `rect` (CoreText lays out y-up, so the block is flipped locally).
-    static func textBlock(_ text: String, mentions: [HomeMention], color: RGBA, in rect: CGRect, g: TranscriptGeometry,
-                          _ ctx: CGContext) {
+    static func textBlock(_ text: String, mentions: [HomeMention], markdown: Bool = false, color: RGBA, in rect: CGRect,
+                          g: TranscriptGeometry, _ ctx: CGContext) {
         ctx.saveGState()
         ctx.translateBy(x: 0, y: rect.maxY)
         ctx.scaleBy(x: 1, y: -1)
         ctx.textMatrix = .identity
-        TextFormatter.draw(text, mentions: mentions, fontSize: g.fontSize, lineHeight: g.lineHeight, color: color.cgColor,
-                           in: CGRect(x: rect.minX, y: 0, width: rect.width + 1, height: rect.height), context: ctx)
+        let frame = CGRect(x: rect.minX, y: 0, width: rect.width + 1, height: rect.height)
+        if markdown {
+            TextFormatter.drawMarkdown(text, fontSize: g.fontSize, lineHeight: g.lineHeight, color: color.cgColor, in: frame,
+                                       context: ctx)
+        } else {
+            TextFormatter.draw(text, mentions: mentions, fontSize: g.fontSize, lineHeight: g.lineHeight, color: color.cgColor,
+                               in: frame, context: ctx)
+        }
         ctx.restoreGState()
     }
 

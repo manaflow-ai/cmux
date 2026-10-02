@@ -81,7 +81,11 @@ enum RowDerivation {
             let reactions = m.reactions.filter { $0.partIndex == partIndex }.map(\.kind)
             let kind: TranscriptRowKind = switch part {
             case .text(let text, let mentions):
-                .bubble(outgoing: outgoing, text: text, mentions: mentions, tail: tail, reactions: reactions, failed: failed)
+                .bubble(outgoing: outgoing, text: text, mentions: mentions, tail: tail, reactions: reactions, failed: failed,
+                        markdown: false)
+            case .markdown(let text):
+                .bubble(outgoing: outgoing, text: text, mentions: [], tail: tail, reactions: reactions, failed: failed,
+                        markdown: true)
             case .work(let session, let status, let preview):
                 .work(outgoing: outgoing, session: session, status: status, statusText: c.strings.workStatus(status),
                       preview: preview, tail: tail)
