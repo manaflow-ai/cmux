@@ -198,10 +198,12 @@ native (`BrowserReplBoundary` in the session, and the driver):
   documents, already-loaded ones included) and adds
   `Resources/browser-repl/page-clipboard.js` at document start in the page
   world of every frame. That script supplies a `navigator.clipboard` and
-  `ClipboardItem` whose writes (with transient activation; a promised item
-  once it settles) reach the tab's clipboard through a script message
-  handler, rejects their reads with `NotAllowedError`, and replaces
-  `execCommand` so `copy` and `cut` fire the page's handlers with a
+  `ClipboardItem` whose writes (a promised item once it settles) reach the
+  tab's clipboard through a script message handler; they need no transient
+  activation, since they reach only that tab and WebKit resets the page's
+  activation after each script the driver evaluates, also between an agent
+  click's press and release. It rejects their reads with `NotAllowedError`,
+  and replaces `execCommand` so `copy` and `cut` fire the page's handlers with a
   `DataTransfer` and put what they set, or the selection, on the tab's
   clipboard; WebKit's own command never runs from page script there. The
   guard stays on the web view for its life, also after the session leaves

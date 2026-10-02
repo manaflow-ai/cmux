@@ -11,10 +11,13 @@
 // does not reach has no `navigator.clipboard` at all. What it adds:
 //
 // - `navigator.clipboard`, `Clipboard` and `ClipboardItem` whose writes go to
-//   the tab's clipboard. Writes need transient user activation, as in a
-//   browser; a `ClipboardItem` whose data is a promise is written once the
-//   promise settles. Reads reject with NotAllowedError: the page never reads
-//   the agent's clipboard through script (Meta+V gives it a paste event).
+//   the tab's clipboard; a `ClipboardItem` whose data is a promise is written
+//   once the promise settles. Writes need no transient activation: they
+//   reach only this tab's clipboard, and WebKit resets the page's activation
+//   after each script the driver evaluates, also between an agent click's
+//   press and release, so the click handler of a real agent click has none.
+//   Reads reject with NotAllowedError: the page never reads the agent's
+//   clipboard through script (Meta+V gives it a paste event).
 // - `document.execCommand("copy" | "cut")` fires the page's copy or cut
 //   handlers with a DataTransfer and writes what they set, or the selection,
 //   to the tab's clipboard; WebKit's own command, which writes the system
@@ -53,12 +56,6 @@
       return { type, base64: base64(new Uint8Array(await apply(blobArrayBuffer, data, []))) };
     }
     return { type, base64: base64(encode(String(data))) };
-  }
-
-  // Transient activation, as a browser asks of a clipboard write.
-  function activated(win) {
-    const activation = win && win.navigator && win.navigator.userActivation;
-    return !activation || activation.isActive === true;
   }
 
   // ---- ClipboardItem and Clipboard
@@ -107,11 +104,9 @@
       return Promise.reject(notAllowed("Reading the clipboard is not allowed in this tab"));
     }
     writeText(text) {
-      if (!activated(globalThis)) return Promise.reject(notAllowed("Writing to the clipboard needs a user gesture"));
       return itemFrom("text/plain", String(text)).then((item) => post({ items: [item] })).then(() => undefined);
     }
     write(items) {
-      if (!activated(globalThis)) return Promise.reject(notAllowed("Writing to the clipboard needs a user gesture"));
       const list = Array.from(items || []);
       return (async () => {
         const out = [];
@@ -164,8 +159,7 @@
 
   function copyOrCut(doc, type) {
     const win = doc && doc.defaultView;
-    // WebKit's gesture covers same-origin frames the page scripts from here.
-    if (!win || !(activated(win) || activated(globalThis))) return false;
+    if (!win) return false;
     const target = eventTarget(doc);
     if (!target || !NativeDataTransfer || !NativeClipboardEvent) return false;
     const data = new NativeDataTransfer();
