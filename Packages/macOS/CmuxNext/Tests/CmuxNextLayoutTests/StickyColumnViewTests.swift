@@ -124,7 +124,9 @@ struct StickyColumnViewTests {
         let screen = view.screenViews["s"]!
         #expect(screen.scrollbar?.isShown == false)
         view.model.focus("c")
-        await settle { screen.scroll.target > 0 }
+        // Reproduces the flake: on a starved main actor `settle`'s 5 s
+        // deadline passed before the model observation applied the focus,
+        // so the strip had not scrolled when the frames ran.
         runToRest(view)
         // The `auto` fade waits on makeRoot's manual clock, which never advances,
         // so a loaded runner can't hide the thumb before this check (#16607).
