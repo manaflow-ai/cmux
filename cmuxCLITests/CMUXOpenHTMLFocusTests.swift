@@ -116,6 +116,57 @@ final class CMUXOpenHTMLFocusTests {
         #expect(result.stdout == "OK files=1 surface=surface-id pane=pane-id\n")
     }
 
+    @Test(arguments: [(["--focus", "true"], true), ([], false)] as [([String], Bool)])
+    func testOpenCommandPassesFocusForDirectoryWorkspace(flags: [String], expectedFocus: Bool) throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-dir")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let expectedPath = rootURL.resolvingSymlinksInPath().path
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent())
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "workspace.create",
+                  let cwd = params["cwd"] as? String,
+                  URL(fileURLWithPath: cwd).resolvingSymlinksInPath().path == expectedPath,
+                  params["focus"] as? Bool == expectedFocus,
+                  params["activate"] as? Bool == expectedFocus else {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
+            return Self.v2Response(id: id, ok: true, result: ["workspace_id": "workspace-id"])
+        }
+
+        // stdin is not a terminal here, so without a flag the run counts as
+        // a script's and stays in the background.
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", rootURL.path] + flags,
+            environmentOverrides: ["CMUX_FOCUS_NEW": ""]
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "OK workspaces=1\n")
+    }
+
     private func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: Self.self)
     }

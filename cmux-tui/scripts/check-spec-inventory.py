@@ -568,6 +568,11 @@ def event_names() -> set[str]:
     names.update(assigned_event_names(tokens, constants))
     names.update(serialized_literal_event_names(production))
 
+    # The local conversation owner builds its subscribe-stream events itself.
+    conversations = TUI / "crates/cmux-tui-core/src/conversation_store.rs"
+    if conversations.exists():
+        names.update(function_event_names(conversations.read_text(), "wire_json"))
+
     mux = strip_rust_comments((TUI / "crates/cmux-tui-core/src/mux.rs").read_text())
     delta_impl = mux.split("impl TreeDeltaKind", 1)
     if len(delta_impl) != 2:
