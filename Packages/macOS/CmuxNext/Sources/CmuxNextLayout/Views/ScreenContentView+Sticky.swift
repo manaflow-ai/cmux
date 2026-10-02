@@ -96,7 +96,7 @@ extension ScreenContentView {
     /// 3 for a dock that owns the frame's corners, else 0.
     private func cornerRank(_ entry: StickyColumnFrame?) -> Int {
         guard let entry else { return 0 }
-        return StickyStripGeometry.ownsCorners(entry.sticky.edge, orientation: context.style.frameOrientation) ? 3 : 0
+        return StickyStripGeometry.ownsCorners(entry.sticky.edge, orientation: geometry.frameOrientation) ? 3 : 0
     }
 
     private func dock(containing rect: CGRect) -> StickyColumnFrame? {

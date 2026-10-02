@@ -22,6 +22,11 @@ struct StickyColumnMappingTests {
         #expect(try column(#"{"id":9,"width":0.3,"layout":{"type":"leaf","pane":4},"sticky":null}"#).sticky == nil)
     }
 
+    @Test func topAndBottomDocksHaveNoStickyEncoding() {
+        #expect(LayoutMapping.snapshot(StickyColumn(edge: .top, mode: .docked)) == nil)
+        #expect(LayoutMapping.snapshot(StickyColumn(edge: .bottom, mode: .overlay)) == nil)
+    }
+
     @Test func unknownValuesFallBackToTheDefaults() throws {
         let sticky = try column(#"{"id":9,"width":0.3,"layout":{"type":"leaf","pane":4},"sticky":{"edge":"top","mode":"float"}}"#).sticky
         #expect(sticky == StickySnapshot(edge: .right, mode: .docked))
@@ -33,7 +38,7 @@ struct StickyColumnMappingTests {
         for edge in StickyEdge.allCases where !edge.isBand {
             for mode in StickyMode.allCases {
                 let sticky = StickyColumn(edge: edge, mode: mode)
-                #expect(LayoutMapping.sticky(LayoutMapping.snapshot(sticky)) == sticky)
+                #expect(LayoutMapping.snapshot(sticky).map(LayoutMapping.sticky) == sticky)
             }
         }
     }

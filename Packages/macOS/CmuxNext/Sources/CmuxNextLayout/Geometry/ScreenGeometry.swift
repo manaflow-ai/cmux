@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 public import CoreGraphics
 
 /// Resize handle on a column's trailing edge (columns mode). A sticky
@@ -54,6 +55,8 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     /// Sticky columns at their edges, and what of them never scrolls.
     public var sticky: [StickyColumnFrame] = []
     public var fixedPanes: Set<PaneID> = []
+    /// The orientation the docks were placed with; stacking reads it (F4).
+    public var frameOrientation: FrameOrientation = .columnMajor
     public var fixedSplits: Set<SplitID> = []
 
     public static func compute(_ layout: ScreenLayout, viewport: CGSize, style: LayoutStyle, scale: CGFloat = 2) -> ScreenGeometry {
@@ -92,6 +95,7 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
                                           uncoveredMinY: placement.uncoveredMinY, uncoveredMaxY: placement.uncoveredMaxY,
                                           clipMinX: placement.clipMinX, clipMaxX: placement.clipMaxX,
                                           clipMinY: placement.clipMinY, clipMaxY: placement.clipMaxY, sticky: placement.sticky)
+            geometry.frameOrientation = style.frameOrientation
             let stripY = placement.stripMinY, stripH = placement.stripHeight
             let edgeHit = style.columnEdgeHitThickness
             let dropWidth = max(gap, style.newColumnDropWidth)

@@ -128,6 +128,11 @@ public nonisolated enum StickyStripGeometry {
     public static func place(left: Dock?, right: Dock?, top: Dock?, bottom: Dock?, viewport: CGSize, gap: CGFloat,
                              orientation: FrameOrientation, scale: CGFloat = 2) -> Placement {
         let size = CGRect(origin: .zero, size: viewport)
+        // A dock without a sticky value is not a dock.
+        let left = left?.column.sticky == nil ? nil : left
+        let right = right?.column.sticky == nil ? nil : right
+        let top = top?.column.sticky == nil ? nil : top
+        let bottom = bottom?.column.sticky == nil ? nil : bottom
         let sideShare = left != nil && right != nil ? maxShareBoth : maxShare
         let bandShare = top != nil && bottom != nil ? maxBandShareBoth : maxBandShare
         func extent(_ dock: Dock, along length: CGFloat, share: CGFloat) -> CGFloat {
@@ -209,23 +214,25 @@ public nonisolated enum StickyStripGeometry {
             return StickyColumnFrame(column: dock.column.id, sticky: sticky, frame: frame, cover: cover, glass: glass)
         }
         var frames: [StickyColumnFrame?] = []
+        let sideHeight = max(0, sideMaxY - sideMinY)
+        let bandWidth = max(0, bandMaxX - bandMinX)
         if let left, let leftWidth {
-            let frame = CGRect(x: gap, y: sideMinY, width: leftWidth, height: sideMaxY - sideMinY)
+            let frame = CGRect(x: gap, y: sideMinY, width: leftWidth, height: sideHeight)
             frames.append(entry(left, frame: frame, cover: CGRect(x: 0, y: sideMinY, width: placement.uncoveredMinX, height: frame.height)))
         }
         if let right, let rightWidth {
-            let frame = CGRect(x: viewport.width - gap - rightWidth, y: sideMinY, width: rightWidth, height: sideMaxY - sideMinY)
+            let frame = CGRect(x: viewport.width - gap - rightWidth, y: sideMinY, width: rightWidth, height: sideHeight)
             let coverX = placement.uncoveredMaxX
             frames.append(entry(right, frame: frame, cover: CGRect(x: coverX, y: sideMinY, width: viewport.width - coverX, height: frame.height)))
         }
         let bandCoverMinX = orientation == .columnMajor ? placement.uncoveredMinX : 0
         let bandCoverMaxX = orientation == .columnMajor ? placement.uncoveredMaxX : viewport.width
         if let top, let topHeight {
-            let frame = CGRect(x: bandMinX, y: 0, width: max(1, bandMaxX - bandMinX), height: topHeight)
+            let frame = CGRect(x: bandMinX, y: 0, width: bandWidth, height: topHeight)
             frames.append(entry(top, frame: frame, cover: CGRect(x: bandCoverMinX, y: 0, width: bandCoverMaxX - bandCoverMinX, height: uncoveredMinY)))
         }
         if let bottom, let bottomHeight {
-            let frame = CGRect(x: bandMinX, y: viewport.height - bottomHeight, width: max(1, bandMaxX - bandMinX), height: bottomHeight)
+            let frame = CGRect(x: bandMinX, y: viewport.height - bottomHeight, width: bandWidth, height: bottomHeight)
             frames.append(entry(bottom, frame: frame, cover: CGRect(x: bandCoverMinX, y: uncoveredMaxY, width: bandCoverMaxX - bandCoverMinX,
                                                                     height: viewport.height - uncoveredMaxY)))
         }

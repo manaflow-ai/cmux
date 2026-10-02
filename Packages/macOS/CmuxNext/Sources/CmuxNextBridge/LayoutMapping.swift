@@ -55,11 +55,16 @@ public struct LayoutMapping {
         StickyColumn(edge: snapshot.edge == .left ? .left : .right, mode: snapshot.mode == .overlay ? .overlay : .docked)
     }
 
-    /// The layout's sticky column as the daemon's. Only left and right reach
-    /// here: `StickyColumnHandlers.apply` refuses top and bottom docks until
-    /// the daemon serves `edge-docks-v1` (they will travel in `dock`).
-    public nonisolated static func snapshot(_ sticky: StickyColumn) -> StickySnapshot {
-        StickySnapshot(edge: sticky.edge == .left ? .left : .right, mode: sticky.mode == .overlay ? .overlay : .docked)
+    /// The layout's sticky column as the daemon's `sticky` value. Nil for a
+    /// top or bottom dock: those travel in `dock` (`edge-docks-v1`), never as
+    /// a left or right sticky column.
+    public nonisolated static func snapshot(_ sticky: StickyColumn) -> StickySnapshot? {
+        let mode: StickySnapshot.Mode = sticky.mode == .overlay ? .overlay : .docked
+        switch sticky.edge {
+        case .left: return StickySnapshot(edge: .left, mode: mode)
+        case .right: return StickySnapshot(edge: .right, mode: mode)
+        case .top, .bottom: return nil
+        }
     }
 
     /// Converts one daemon layout node. Nil when nothing in it can be shown.

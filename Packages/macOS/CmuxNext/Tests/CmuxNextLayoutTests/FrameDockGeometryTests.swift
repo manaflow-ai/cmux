@@ -92,6 +92,28 @@ import Testing
         #expect(!StickyStripGeometry.ownsCorners(.right, orientation: .rowMajor))
     }
 
+    @Test func visualOrderKeepsEveryDockReachable() {
+        // Focus, close-focus and column navigation read this order.
+        #expect(layout(band: .top).visualColumns.map(\.id) == ["l", "d", "a", "b"])
+        #expect(layout().visualColumns.map(\.id) == ["l", "a", "b", "d"])
+    }
+
+    @Test func aTinyViewportNeverGivesANegativeSize() {
+        let both: ScreenLayout = .columns([
+            LayoutColumn(id: "l", width: 0.4, root: .leaf("pl"), sticky: StickyColumn(edge: .left, mode: .docked)),
+            LayoutColumn(id: "r", width: 0.4, root: .leaf("pr"), sticky: StickyColumn(edge: .right, mode: .docked)),
+            LayoutColumn(id: "a", width: 0.5, root: .leaf("pa")),
+            LayoutColumn(id: "t", width: 0.4, root: .leaf("pt"), sticky: StickyColumn(edge: .top, mode: .docked)),
+            LayoutColumn(id: "u", width: 0.4, root: .leaf("pu"), sticky: StickyColumn(edge: .bottom, mode: .docked)),
+        ])
+        for orientation in FrameOrientation.allCases {
+            var style = LayoutStyle()
+            style.frameOrientation = orientation
+            let g = ScreenGeometry.compute(both, viewport: CGSize(width: 40, height: 30), style: style, scale: 2)
+            #expect(g.sticky.allSatisfy { $0.frame.width >= 0 && $0.frame.height >= 0 })
+        }
+    }
+
     @Test func aScreenOfOnlyDocksShowsThemInTheStrip() {
         let only: ScreenLayout = .columns([LayoutColumn(id: "t", width: 0.3, root: .leaf("pt"), sticky: StickyColumn(edge: .top, mode: .docked))])
         let g = geometry(only)
