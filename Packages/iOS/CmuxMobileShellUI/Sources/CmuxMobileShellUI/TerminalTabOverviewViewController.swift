@@ -1373,7 +1373,7 @@ private final class TerminalTabOverviewHintView: UIView {
 
         messageLabel.text = L10n.string(
             "mobile.terminal.overview.hint.message",
-            defaultValue: "While viewing a terminal, swipe up from the tab control to quickly view all open tabs."
+            defaultValue: "While viewing a web page, you can swipe up from the search field to quickly view all open tabs."
         )
         messageLabel.font = .systemFont(ofSize: 17, weight: .regular)
         messageLabel.textColor = .secondaryLabel
