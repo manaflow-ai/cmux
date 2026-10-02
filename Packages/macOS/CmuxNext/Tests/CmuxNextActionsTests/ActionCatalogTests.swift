@@ -78,7 +78,7 @@ import Testing
         .browser: 111, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions + Import Passwords from CSV
         .sidebar: 56, // + 26 sidebar section actions (sidebar-sections.md 6)
         .notifications: 18,
-        .agents: 20, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats
+        .agents: 21, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats, Continue In
         .cloud: 31, // + accounts.show, refresh, reauthenticate, connect, remove; + lifecycle and snapshot actions
         .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
         .settings: 55, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only), + Open Debug Settings (DEV and NIGHTLY only), + App Store, Installed Apps, Hide App, Unhide App, + Customize Appearance
