@@ -154,21 +154,29 @@ export class WebSocketDiffTransport extends BaseDiffTransport {
     }
     this.connecting = new Promise<WebSocket>((resolve, reject) => {
       const socket = new WebSocket(this.endpoint);
-      socket.addEventListener("open", () => {
-        this.socket = socket;
-        this.connecting = null;
-        resolve(socket);
-      }, { once: true });
+      socket.addEventListener(
+        "open",
+        () => {
+          this.socket = socket;
+          this.connecting = null;
+          resolve(socket);
+        },
+        { once: true },
+      );
       socket.addEventListener("message", (message) => this.handleMessage(message));
       socket.addEventListener("close", () => {
         this.socket = null;
         this.connecting = null;
         this.rejectPending(new DiffTransportError("closed", "Diff transport closed"));
       });
-      socket.addEventListener("error", () => {
-        this.connecting = null;
-        reject(new DiffTransportError("connectFailed", "Could not connect to diff transport"));
-      }, { once: true });
+      socket.addEventListener(
+        "error",
+        () => {
+          this.connecting = null;
+          reject(new DiffTransportError("connectFailed", "Could not connect to diff transport"));
+        },
+        { once: true },
+      );
     });
     return this.connecting;
   }

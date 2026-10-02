@@ -28,7 +28,7 @@ extension TabStripView {
         setLifted(group, true)
         setHovered(nil)
         setHoveredChip(nil)
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         installEscapeMonitor()
         updateSeparators()
     }

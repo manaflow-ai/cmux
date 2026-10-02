@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  computeFooterCollapse,
-  initialFooterCollapseState,
-  type FooterCollapseItem,
-} from "./footerCollapse";
+import { computeFooterCollapse, initialFooterCollapseState, type FooterCollapseItem } from "./footerCollapse";
 
 const items: FooterCollapseItem[] = [
   {
@@ -33,12 +29,14 @@ const items: FooterCollapseItem[] = [
 ];
 
 test("footer collapse keeps controls expanded when they fit", () => {
-  expect(computeFooterCollapse({
-    availableWidth: 280,
-    gap: 4,
-    items,
-    previousState: initialFooterCollapseState(items),
-  })).toEqual({
+  expect(
+    computeFooterCollapse({
+      availableWidth: 280,
+      gap: 4,
+      items,
+      previousState: initialFooterCollapseState(items),
+    }),
+  ).toEqual({
     "model-provider": { hideControl: false, hideLabel: false },
     intelligence: { hideControl: false, hideLabel: false },
     "ide-context": { hideControl: false, hideLabel: false },
@@ -59,12 +57,14 @@ test("footer collapse hides labels before controls", () => {
     "ide-context": { hideControl: false, hideLabel: false },
   });
 
-  expect(computeFooterCollapse({
-    availableWidth: 230,
-    gap: 4,
-    items,
-    previousState: labelPass,
-  })).toEqual(labelPass);
+  expect(
+    computeFooterCollapse({
+      availableWidth: 230,
+      gap: 4,
+      items,
+      previousState: labelPass,
+    }),
+  ).toEqual(labelPass);
 });
 
 test("footer collapse hides controls in order after compact measurement", () => {
@@ -74,12 +74,14 @@ test("footer collapse hides controls in order after compact measurement", () => 
     items,
     previousState: initialFooterCollapseState(items),
   });
-  expect(computeFooterCollapse({
-    availableWidth: 150,
-    gap: 4,
-    items,
-    previousState,
-  })).toEqual({
+  expect(
+    computeFooterCollapse({
+      availableWidth: 150,
+      gap: 4,
+      items,
+      previousState,
+    }),
+  ).toEqual({
     "model-provider": { hideControl: true, hideLabel: false },
     intelligence: { hideControl: false, hideLabel: true },
     "ide-context": { hideControl: false, hideLabel: true },
@@ -105,10 +107,12 @@ test("footer collapse waits for compact measurement before deciding final contro
   });
   expect(labelPass.intelligence).toEqual({ hideControl: false, hideLabel: true });
 
-  expect(computeFooterCollapse({
-    availableWidth: 80,
-    gap: 4,
-    items: unmeasured,
-    previousState: labelPass,
-  }).intelligence).toEqual({ hideControl: true, hideLabel: true });
+  expect(
+    computeFooterCollapse({
+      availableWidth: 80,
+      gap: 4,
+      items: unmeasured,
+      previousState: labelPass,
+    }).intelligence,
+  ).toEqual({ hideControl: true, hideLabel: true });
 });
