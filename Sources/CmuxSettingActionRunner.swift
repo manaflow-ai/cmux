@@ -63,13 +63,15 @@ enum CmuxSettingActionRunner {
         }
         let alert = confirmationAlert(for: change, title: title)
         if let window = presentingWindow ?? NSApp.keyWindow ?? NSApp.mainWindow {
-            alert.beginSheetModal(for: window) { [weak window] response in
+            let windowIdentifier = ObjectIdentifier(window)
+            alert.beginSheetModal(for: window) { response in
                 guard response == .alertFirstButtonReturn else { return }
+                let liveWindow = NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier }
                 apply(
                     change,
                     globalConfigPath: globalConfigPath,
                     settingPresets: settingPresets,
-                    presentingWindow: window
+                    presentingWindow: liveWindow
                 )
             }
         } else if alert.runModal() == .alertFirstButtonReturn {
