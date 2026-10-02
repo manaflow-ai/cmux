@@ -194,6 +194,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.attemptUpdate",
         ],
         .focusMove: [
+            "home.show",
             "showHideAllWindows", "goToWorkspace", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "selectWorkspaceByNumber", "workspace.selectFirst",
             "workspace.selectLast", "workspace.selectLastUsed", "room.next", "room.previous", "room.selectByNumber",
