@@ -103,12 +103,33 @@ Lawrence: "make sure we support MDM the way most enterprises do it, like if they
 
 | Step | Content | Tests |
 | --- | --- | --- |
-| M1 | Status file written by the config layer after each applied load (atomic write, only on change), conflicts per E2 | Swift: content, no token value, conflict detection, write only on change |
+| M1 | Status file written by the config layer after each applied load (atomic write, only on change), conflicts per E2 | Swift: content, no token value, conflict detection, write only on change; landed in PR 16783 (71a826d67d3) |
 | M2 | `team.device.report_status` (install) and `team.device.compliance` (admins) in TeamDO | reducer + workerd |
-| M3 | Per-vendor guides `docs/mdm/vendors.md` (Jamf Pro, Kandji/Iru, Intune, Workspace ONE, Mosyle, Addigy, Fleet, SimpleMDM, generic), DDM legacy-profile declaration example, osquery/Fleet query examples | generated example parses |
+| M3 | Per-vendor guides `docs/mdm/vendors.md` (Jamf Pro, Kandji/Iru, Intune, Workspace ONE, Mosyle, Addigy, Fleet, SimpleMDM, generic), DDM legacy-profile declaration example, osquery/Fleet query examples | in PR 16783; vendor menu paths and the DDM declaration shape UNVERIFIED against live consoles |
 | M4 | `cmux mdm status --json` in the Rust CLI (reads the status file) | testbox |
 | M5 | Rust config crate reader (`core-foundation`) and `/etc/cmux/policy.json` with the shared precedence vectors | testbox |
 | M6 | iOS managed app config and AppConfig specfile | iOS tests |
 | M7 | App reports status to the backend after enrollment (needs the new-backend client) | |
 
 Strongest objection: "A status file the user can edit is not evidence." Answer: it is for admins' own tooling on machines they manage (root-owned profile, non-admin users); the evidence of record is the backend's `team.device.compliance`, written only by the install's authenticated reports, and the app recomputes it on each load. A tampered local file can mislead only local scripts.
+
+## Review findings (2026-10-02) and fixes
+
+Source: worker review of 6aa4a6e1170, PR 16783 and PR 16774. Failing test committed before each backend fix.
+
+| Finding | Fix | Where |
+| --- | --- | --- |
+| HIGH unreadable cmux.json skipped the merge (MDM forced values not applied) | managed layers always merge, over the last good file or {} | PR 16783 71a826d67d3 |
+| HIGH palette/action.run applied live values before the refused write | handlers refuse first via `managedKey(forPath:)`; failed writes reload | PR 16783 71a826d67d3 (test run red first) |
+| HIGH first TeamPolicy version widened the ConnectionDO integration policy | seed TeamPolicy from ConnectionDO before the first push; push only on slice change | PR 16774 444bb53c0c8 (test) b4bfd1ef4d2 (fix) |
+| MED policy keys read from user-writable non-forced values | forced only | PR 16783 |
+| MED E2 conflict not reported | `managedConflict` diagnostic + status file | PR 16783 |
+| MED backend device keys were not settings | `device.settings` key (cmux.json paths, per-entry mode); feature keys returned as `features` | PR 16774 aceab46e98d / d72fe94f40f |
+| MED team layer could set any path | limited to SettingsSchema ids | PR 16783 |
+| MED members saw full TeamDO state | OwnerDO `subscriberView` / `mayReceive`; TeamDO filters history, tokens, other devices, audit head | PR 16774 9632b58405f / 05b1f0be1b4 |
+| MED U+0000 could stall the outbox | projection replaces U+0000 | PR 16774 3472280dbe5 / cd0f58e1cf5 |
+| MED members and agents could release MDM-enrolled installs | admins only for token-enrolled; agents never | PR 16774 b98349d3a97 / 26aa28a5353 |
+| MED deploy order of 0005 | applied to staging 2026-10-02 (`migrate.ts --env staging`, verified 5/5); production through the `backend:apply-migrations` label before merge | staging done |
+| LOW stale team policy read | `setTeamPolicy` ignores an older version of the same team | PR 16783 |
+| LOW CFPreferencesAppSynchronize without a deadline; settings.get reads the user file | open | |
+| LOW one install in several teams; allowed_domains adds little while acceptance exists | open, by design until DomainDO | |
