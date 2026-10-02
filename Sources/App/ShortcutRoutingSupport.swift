@@ -628,11 +628,17 @@ enum BrowserZoomShortcutAction: Equatable {
     case reset
 }
 
+/// The zoom action for a Command key press, used to route terminal font zoom.
+///
+/// Accepts Command with optional Shift. Keys are matched by character, then by
+/// US key position when the key types no other shortcut character, and by the
+/// keypad zoom keys.
 func browserZoomShortcutAction(
     flags: NSEvent.ModifierFlags,
     chars: String,
     keyCode: UInt16,
-    literalChars: String? = nil
+    literalChars: String? = nil,
+    layoutCharacterProvider: (UInt16) -> String? = { KeyboardLayout.character(forKeyCode: $0) }
 ) -> BrowserZoomShortcutAction? {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
@@ -644,28 +650,37 @@ func browserZoomShortcutAction(
     let keys = browserZoomShortcutKeyCandidates(
         chars: chars,
         literalChars: literalChars,
-        keyCode: keyCode
+        keyCode: keyCode,
+        layoutCharacterProvider: layoutCharacterProvider
     )
 
-    if keys.contains("=") || keys.contains("+") || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
+    // US key positions identify zoom keys unless the key types another shortcut
+    // character. Dvorak types "]" and "[" on the US "=" and "-" keys.
+    let typesOtherShortcutKey = keys.contains { ShortcutStroke.shortcutKey(typedAs: $0) != nil }
+    let isUSKey: (UInt16) -> Bool = { !typesOtherShortcutKey && keyCode == $0 }
+
+    if keys.contains("=") || keys.contains("+") || isUSKey(24) || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
         return .zoomIn
     }
 
-    if keys.contains("-") || keys.contains("_") || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
+    if keys.contains("-") || keys.contains("_") || isUSKey(27) || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
         return .zoomOut
     }
 
-    if keys.contains("0") || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
+    if keys.contains("0") || isUSKey(29) || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
         return .reset
     }
 
     return nil
 }
 
+/// The lowercased characters a zoom key press may stand for: the event's
+/// characters and the layout character for its key code.
 func browserZoomShortcutKeyCandidates(
     chars: String,
     literalChars: String?,
-    keyCode: UInt16
+    keyCode: UInt16,
+    layoutCharacterProvider: (UInt16) -> String? = { KeyboardLayout.character(forKeyCode: $0) }
 ) -> Set<String> {
     var keys: Set<String> = [chars.lowercased()]
 
@@ -673,7 +688,7 @@ func browserZoomShortcutKeyCandidates(
         keys.insert(literalChars.lowercased())
     }
 
-    if let layoutChar = KeyboardLayout.character(forKeyCode: keyCode), !layoutChar.isEmpty {
+    if let layoutChar = layoutCharacterProvider(keyCode), !layoutChar.isEmpty {
         keys.insert(layoutChar)
     }
 
@@ -806,6 +821,7 @@ func cmuxIsWebInspectorObject(_ object: NSObject) -> Bool {
 private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
     case copy
     case cut
+    case paste
     case selectAll
     case italic
 
@@ -828,6 +844,15 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
                 option: false,
                 control: false,
                 keyCode: 7
+            )
+        case .paste:
+            return StoredShortcut(
+                key: "v",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: 9
             )
         case .selectAll:
             return StoredShortcut(
