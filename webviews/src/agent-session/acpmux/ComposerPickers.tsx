@@ -11,7 +11,52 @@ export const PICKER_LABELS = {
   planHint: "Plan reads and proposes without editing; Build makes the changes",
   /// `{percent}` is the share of the context window used.
   context: "{percent}% of context used",
+  recent: "Recent",
+  moreModels: "More models",
+  allModels: "All models",
+  searchModels: "Type to search models",
 };
+
+/// A model and effort the viewer used, kept per viewer so the menu can offer it as one click.
+export type Combo = { harness: string; model: string; effort?: string };
+const RECENTS_KEY = "cmux.acpmux.recentModels";
+/// The model menu offers this many recent combos.
+export const RECENT_ROWS = 4;
+/// A catalog this short lists every model without the recents and the "More models" fold.
+const SHORT_CATALOG = 4;
+
+/// The viewer's recent combos, newest first. Storage can be missing or blocked; then there are none.
+export function loadRecents(): Combo[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(RECENTS_KEY) ?? "[]");
+    return Array.isArray(value)
+      ? value.filter(
+          (combo): combo is Combo =>
+            typeof combo?.harness === "string" &&
+            typeof combo.model === "string" &&
+            (combo.effort === undefined || typeof combo.effort === "string"),
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/// Puts `combo` first, once, and keeps the list short. Saving is best effort.
+export function rememberCombo(recents: Combo[], combo: Combo): Combo[] {
+  const same = (other: Combo) =>
+    other.harness === combo.harness && other.model === combo.model && other.effort === combo.effort;
+  if (recents[0] && same(recents[0])) return recents;
+  const next = [combo, ...recents.filter((other) => !same(other))].slice(0, 12);
+  try {
+    localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+  } catch {
+    // Private windows and blocked storage keep the list for this page only.
+  }
+  return next;
+}
+
+const comboId = (model: string, effort?: string) => `${model}\u0000${effort ?? ""}`;
 
 export type Choice = { id: string; name: string; description?: string; icon?: React.ReactNode; hint?: string };
 
@@ -55,6 +100,36 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
   }));
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
+  // Recents follow what the session actually runs, whichever control changed it.
+  const [recents, setRecents] = useState(loadRecents);
+  const harness = summary?.harness;
+  const current = summary?.model;
+  const currentEffort = effort?.currentValue;
+  useEffect(() => {
+    if (harness && current)
+      setRecents((list) => rememberCombo(list, { harness, model: current, effort: currentEffort }));
+  }, [harness, current, currentEffort]);
+  const [more, setMore] = useState(false);
+  const [query, setQuery] = useState("");
+  const modelSections = modelMenu({
+    models,
+    efforts,
+    recents: recents.filter((combo) => combo.harness === harness),
+    current: current && comboId(current, currentEffort),
+    currentModel: model?.id,
+    more,
+    query,
+    onMore: () => {
+      setMore(true);
+      return "keep";
+    },
+    onCombo: (id) => {
+      const [pickedModel, pickedEffort] = id.split("\u0000");
+      if (pickedModel && pickedModel !== current) onModel(pickedModel);
+      if (effort && pickedEffort && pickedEffort !== currentEffort) onEffort(effort.id, pickedEffort);
+    },
+    onModel,
+  });
   const usage = summary?.usage;
 
   return (
@@ -98,7 +173,13 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
               <ChevronIcon />
             </>
           }
-          sections={[{ choices: models, current: model?.id, onPick: onModel }]}
+          sections={modelSections}
+          search={more ? { query, placeholder: PICKER_LABELS.searchModels, onQuery: setQuery } : undefined}
+          onOpenChange={(open) => {
+            if (open) return;
+            setMore(false);
+            setQuery("");
+          }}
           align="end"
         />
       )}
@@ -120,6 +201,58 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
       {(models.length > 0 || efforts.length > 0 || usage) && <span className="acpmux-separator" aria-hidden="true" />}
     </div>
   );
+}
+
+const MORE = "\u0000more";
+
+/// The model menu: the viewer's recent model and effort combos as one-click rows,
+/// then the rest folded under "More models", which opens a searchable list. A
+/// short catalog, or one with no recents beyond the current combo, lists every model.
+export function modelMenu({
+  models,
+  efforts,
+  recents,
+  current,
+  currentModel,
+  more,
+  query,
+  onMore,
+  onCombo,
+  onModel,
+}: {
+  models: Choice[];
+  efforts: Choice[];
+  recents: Combo[];
+  current?: string;
+  currentModel?: string;
+  more: boolean;
+  query: string;
+  onMore(): "keep";
+  onCombo(id: string): void;
+  onModel(id: string): void;
+}): Section[] {
+  const all: Section = { choices: models, current: currentModel, onPick: onModel };
+  const name = (id: string) => models.find((choice) => choice.id === id)?.name;
+  const combos: Choice[] = recents
+    .filter((combo) => name(combo.model))
+    .slice(0, RECENT_ROWS)
+    .map((combo) => {
+      const effortName = combo.effort && (efforts.find((choice) => choice.id === combo.effort)?.name ?? combo.effort);
+      return {
+        id: comboId(combo.model, combo.effort),
+        name: effortName ? `${name(combo.model)} · ${effortName}` : name(combo.model)!,
+      };
+    });
+  if (models.length <= SHORT_CATALOG || combos.length < 2) return [all];
+  const recent: Section = { title: PICKER_LABELS.recent, choices: combos, current, onPick: onCombo };
+  if (!more)
+    return [
+      recent,
+      { choices: [{ id: MORE, name: PICKER_LABELS.moreModels, icon: <ChevronRightIcon /> }], onPick: onMore },
+    ];
+  const needle = query.trim().toLowerCase();
+  const found = models.filter((choice) => !needle || `${choice.name} ${choice.id}`.toLowerCase().includes(needle));
+  return [recent, { ...all, title: PICKER_LABELS.allModels, choices: found }];
 }
 
 /// Plan modes (Claude's "plan") read and propose without editing; the toggle sits apart from the permission chip.
@@ -167,7 +300,11 @@ export function unrestricted(modeId: string): boolean {
   return /bypass|full|yolo|dangerous|auto[-_ ]?approve/i.test(modeId);
 }
 
-export type Section = { title?: string; choices: Choice[]; current?: string; onPick(id: string): void };
+/// A pick that returns "keep" leaves the menu open (e.g. a row that expands the menu).
+export type Section = { title?: string; choices: Choice[]; current?: string; onPick(id: string): void | "keep" };
+
+/// Type-ahead search for a long menu: typed letters filter it while focus stays on the button.
+export type MenuSearch = { query: string; placeholder: string; onQuery(query: string): void };
 
 /// A button that opens a menu above the composer: a select-only combobox, so
 /// focus stays on the button, which names the active option. Each section is
@@ -181,6 +318,8 @@ export function Picker({
   align,
   warnUnrestricted = false,
   returnFocus = true,
+  search,
+  onOpenChange,
 }: {
   label: string;
   className: string;
@@ -190,8 +329,14 @@ export function Picker({
   warnUnrestricted?: boolean;
   /// An action menu hands focus to whatever its pick focuses, not back to the button.
   returnFocus?: boolean;
+  search?: MenuSearch;
+  onOpenChange?(open: boolean): void;
 }) {
   const [open, setOpen] = useState(false);
+  // Told after each open and close, from an effect so every way of closing reports it.
+  const openChange = useRef(onOpenChange);
+  openChange.current = onOpenChange;
+  useEffect(() => openChange.current?.(open), [open]);
   const [active, setActive] = useState(0);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -228,9 +373,9 @@ export function Picker({
   const pick = (index: number) => {
     const row = rows[index];
     if (!row) return;
+    if (sections[row.section].onPick(row.choice.id) === "keep") return;
     if (returnFocus) close();
     else setOpen(false);
-    sections[row.section].onPick(row.choice.id);
   };
   const keyDown = (event: React.KeyboardEvent) => {
     if (!open) {
@@ -251,13 +396,28 @@ export function Picker({
     } else if (event.key === "Enter") {
       event.preventDefault();
       pick(selected);
+    } else if (search && event.key === "Backspace") {
+      event.preventDefault();
+      search.onQuery(search.query.slice(0, -1));
+    } else if (
+      search &&
+      event.key.length === 1 &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      (event.key !== " " || search.query)
+    ) {
+      // While a query is typed, Space is part of it; Enter picks.
+      event.preventDefault();
+      search.onQuery(search.query + event.key);
+      setActive(0);
     }
     // A button clicks on Space's keyup; pick there and cancel that click, or it would reopen the menu.
     else if (event.key === " ") event.preventDefault();
     else if (event.key === "Tab") setOpen(false);
   };
   const keyUp = (event: React.KeyboardEvent) => {
-    if (open && event.key === " ") {
+    if (open && event.key === " " && !search?.query) {
       event.preventDefault();
       pick(selected);
     }
@@ -293,6 +453,12 @@ export function Picker({
       {open && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         <div className={`acpmux-menu acpmux-menu-${align}`} id={menuId} role="listbox" aria-label={label}>
+          {search && (
+            <div className={`acpmux-menu-search${search.query ? "" : " acpmux-menu-search-empty"}`} aria-live="polite">
+              <SearchIcon />
+              <span>{search.query || search.placeholder}</span>
+            </div>
+          )}
           {sections.map((section, s) => {
             const titled = section.title && sections.length > 1;
             return (
@@ -381,6 +547,17 @@ export const ShieldIcon = () => (
 export const ChevronIcon = () => (
   <Icon size={14}>
     <path d="M4.6 6.3 8 9.6l3.4-3.3" />
+  </Icon>
+);
+const ChevronRightIcon = () => (
+  <Icon>
+    <path d="m6.25 4.25 3.5 3.75-3.5 3.75" />
+  </Icon>
+);
+const SearchIcon = () => (
+  <Icon size={16}>
+    <circle cx="7" cy="7" r="4.25" />
+    <path d="m10.25 10.25 3 3" />
   </Icon>
 );
 export const CheckIcon = () => (

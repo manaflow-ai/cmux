@@ -22,7 +22,7 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
-const { ComposerPickers, isPlan, unrestricted } = await import("./ComposerPickers");
+const { ComposerPickers, isPlan, loadRecents, rememberCombo, unrestricted } = await import("./ComposerPickers");
 
 const doc = dom.window.document;
 const snapshot = (
@@ -168,6 +168,103 @@ describe("acpmux composer pickers", () => {
     expect(up.defaultPrevented).toBe(true);
     expect(calls).toEqual(["effort reasoning_effort medium"]);
     expect(level.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("a long catalog offers recent model and effort combos first, and folds the rest under a searchable More models", async () => {
+    const catalog = [
+      {
+        id: "codex",
+        name: "Codex",
+        models: [
+          { id: "astra", name: "6 Astra" },
+          { id: "sol", name: "6.1 Sol" },
+          { id: "luna", name: "6 Luna" },
+          { id: "mini", name: "6 Mini" },
+          { id: "nano", name: "6 Nano" },
+        ],
+      },
+    ];
+    const long = (summary: Parameters<typeof snapshot>[0]) => ({ ...snapshot(summary), catalog });
+    // The session runs Astra on High, then Sol on Medium: both become recents.
+    await render(long({ configOptions: [effort] }));
+    await act(async () => button("Model")!.click());
+    expect(options()).toEqual(["6 Astra *", "6.1 Sol", "6 Luna", "6 Mini", "6 Nano"]);
+    await act(async () => button("Model")!.click());
+    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    const model = button("Model")!;
+    await act(async () => model.click());
+    expect(doc.querySelector(".acpmux-menu-header")!.textContent).toBe("Recent");
+    expect(options()).toEqual(["6.1 Sol · Medium *", "6 Astra · High", "More models"]);
+    // One click switches the model and the effort together.
+    await act(async () => {
+      doc
+        .querySelectorAll("[role=option]")[1]!
+        .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+    expect(calls).toEqual(["model astra", "effort reasoning_effort high"]);
+    // More models opens the full list in place; typing filters it and Enter picks.
+    await key(model, "ArrowDown");
+    await key(model, "ArrowUp");
+    await key(model, "Enter");
+    expect(model.getAttribute("aria-expanded")).toBe("true");
+    expect(options()).toEqual([
+      "6.1 Sol · Medium *",
+      "6 Astra · High",
+      "6 Astra",
+      "6.1 Sol *",
+      "6 Luna",
+      "6 Mini",
+      "6 Nano",
+    ]);
+    expect(doc.querySelector(".acpmux-menu-search")!.textContent).toBe("Type to search models");
+    await key(model, "l");
+    await key(model, "u");
+    expect(doc.querySelector(".acpmux-menu-search")!.textContent).toBe("lu");
+    expect(options()).toEqual(["6.1 Sol · Medium *", "6 Astra · High", "6 Luna"]);
+    await key(model, "Backspace");
+    expect(options()).toEqual(["6.1 Sol · Medium *", "6 Astra · High", "6.1 Sol *", "6 Luna"]);
+    await key(model, "u");
+    await key(model, "ArrowUp");
+    await key(model, "Enter");
+    expect(calls.at(-1)).toBe("model luna");
+    // Closing folds the list again.
+    await act(async () => model.click());
+    expect(options()).toEqual(["6.1 Sol · Medium *", "6 Astra · High", "More models"]);
+  });
+
+  test("recents persist per viewer, newest first and once each, and survive bad or blocked storage", () => {
+    const globals = globalThis as Record<string, unknown>;
+    const saved = globals.localStorage;
+    const store = new Map<string, string>();
+    globals.localStorage = {
+      getItem: (name: string) => store.get(name) ?? null,
+      setItem: (name: string, value: string) => store.set(name, value),
+    };
+    try {
+      let list = rememberCombo(loadRecents(), { harness: "codex", model: "astra", effort: "high" });
+      list = rememberCombo(list, { harness: "codex", model: "sol" });
+      list = rememberCombo(list, { harness: "codex", model: "astra", effort: "high" });
+      expect(loadRecents()).toEqual([
+        { harness: "codex", model: "astra", effort: "high" },
+        { harness: "codex", model: "sol" },
+      ]);
+      store.set("cmux.acpmux.recentModels", "{not json");
+      expect(loadRecents()).toEqual([]);
+      store.set("cmux.acpmux.recentModels", JSON.stringify([{ harness: "codex" }, { harness: "codex", model: "sol" }]));
+      expect(loadRecents()).toEqual([{ harness: "codex", model: "sol" }]);
+      globals.localStorage = {
+        getItem: () => {
+          throw new Error("blocked");
+        },
+        setItem: () => {
+          throw new Error("blocked");
+        },
+      };
+      expect(loadRecents()).toEqual([]);
+      expect(rememberCombo([], { harness: "codex", model: "sol" })).toEqual([{ harness: "codex", model: "sol" }]);
+    } finally {
+      globals.localStorage = saved;
+    }
   });
 
   test("a model the catalog doesn't list still shows by the id the agent reported", async () => {
