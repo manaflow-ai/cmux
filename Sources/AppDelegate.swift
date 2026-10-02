@@ -698,11 +698,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static let persistedWindowGeometryDefaultsKey = SessionSnapshotPersistenceWriter.persistedWindowGeometryDefaultsKey
 #if DEBUG
     nonisolated static var debugPersistedWindowGeometryDefaultsKey: String { persistedWindowGeometryDefaultsKey }
-
-    private nonisolated static func forgetPersistedWindowGeometryForTestProcess() {
-        UserDefaults.standard.removeObject(forKey: persistedWindowGeometryDefaultsKey)
-        removeLegacyPersistedWindowGeometry()
-    }
 #endif
 
     weak var tabManager: TabManager?

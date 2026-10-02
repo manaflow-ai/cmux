@@ -21,16 +21,14 @@ struct NotificationFeedView: View {
     let projection: NotificationFeedProjection
     let refreshesOnAppear: Bool
     let actions: NotificationFeedActions
-    var isActive = true
-    @Binding var isConfirmingMarkAllRead: Bool
-    let showsNavigationToolbar: Bool
     /// Mark-all-read cannot be undone in one gesture, so the toolbar button
     /// only arms this confirmation instead of mutating directly.
+    @State private var isConfirmingMarkAllRead = false
 
     var body: some View {
         @Bindable var projection = projection
 
-        let feed = VStack(spacing: 0) {
+        VStack(spacing: 0) {
             NotificationFeedList(
                 sections: projection.sections,
                 sourceItemCount: projection.sourceItemCount,
@@ -51,56 +49,82 @@ struct NotificationFeedView: View {
         // No title of its own (the tab names the screen), so collapse the
         // large-title zone or the list opens with a bar-height blank strip.
         .mobileInlineNavigationTitle()
-
-        Group {
-            if showsNavigationToolbar {
-                feed.toolbar {
-                    NotificationFeedToolbarContent(
-                        projection: projection,
-                        requestMarkAllRead: { isConfirmingMarkAllRead = true }
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if projection.sourceUnreadCount > 0 {
+                    Button {
+                        isConfirmingMarkAllRead = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read"),
+                            systemImage: "envelope.open"
+                        )
+                        .labelStyle(.iconOnly)
+                    }
+                    .accessibilityLabel(
+                        L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read")
                     )
+                    .accessibilityIdentifier("MobileNotificationFeedMarkAllRead")
                 }
-            } else {
-                feed
+
+                NotificationFeedFilterMenu(selection: $projection.filter)
             }
         }
-        .task(id: isActive) {
-            guard isActive, refreshesOnAppear else { return }
+        .alert(
+            L10n.string(
+                "mobile.notificationFeed.markAllRead.confirmTitle",
+                defaultValue: "Mark all notifications as read?"
+            ),
+            isPresented: $isConfirmingMarkAllRead
+        ) {
+            Button(
+                L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read"),
+                role: .destructive
+            ) {
+                actions.markAllRead()
+            }
+            .accessibilityIdentifier("MobileNotificationFeedMarkAllReadConfirm")
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+                .accessibilityIdentifier("MobileNotificationFeedMarkAllReadCancel")
+        }
+        .task {
+            guard refreshesOnAppear else { return }
             await actions.refresh()
         }
         .onChange(of: projection.filter) { _, filter in
-            guard isActive else { return }
             actions.filterChanged(filter)
         }
         .accessibilityIdentifier("MobileNotificationFeed")
     }
 }
 
-extension View {
-    /// Presents the feed's destructive confirmation from the one navigation
-    /// host that owns the active notification scope. Individual feed views can
-    /// remain mounted for search and tab navigation without competing to
-    /// present the same alert.
-    func notificationFeedMarkAllReadAlert(
-        isPresented: Binding<Bool>,
-        markAllRead: @escaping @MainActor () -> Void
-    ) -> some View {
-        alert(
-            L10n.string(
-                "mobile.notificationFeed.markAllRead.confirmTitle",
-                defaultValue: "Mark all notifications as read?"
-            ),
-            isPresented: isPresented
-        ) {
-            Button(
-                L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read"),
-                role: .destructive,
-                action: markAllRead
-            )
-            .accessibilityIdentifier("MobileNotificationFeedMarkAllReadConfirm")
-            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
-                .accessibilityIdentifier("MobileNotificationFeedMarkAllReadCancel")
+/// The feed twin of `WorkspaceListFilterMenu`: read state lives in a toolbar
+/// menu instead of a segmented bar above the list, and the icon fills while a
+/// narrowing filter is active, mirroring Mail.
+private struct NotificationFeedFilterMenu: View {
+    @Binding var selection: MobileNotificationFeedFilter
+
+    var body: some View {
+        Menu {
+            Picker(
+                L10n.string("mobile.notificationFeed.filter.label", defaultValue: "Notification filter"),
+                selection: $selection
+            ) {
+                Text(L10n.string(
+                    "mobile.notificationFeed.filter.allNotifications",
+                    defaultValue: "All Notifications"
+                ))
+                .tag(MobileNotificationFeedFilter.all)
+                Text(L10n.string("mobile.notificationFeed.filter.unread", defaultValue: "Unread"))
+                    .tag(MobileNotificationFeedFilter.unread)
+            }
+        } label: {
+            Image(systemName: selection == .unread
+                ? "line.3.horizontal.decrease.circle.fill"
+                : "line.3.horizontal.decrease.circle")
         }
+        .accessibilityLabel(L10n.string("mobile.notificationFeed.filter", defaultValue: "Filter"))
+        .accessibilityIdentifier("MobileNotificationFeedFilterMenu")
     }
 }
 
