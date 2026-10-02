@@ -13,6 +13,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   softText: "--agent-soft",
   accent: "--agent-accent",
   accentSoft: "--agent-accent-soft",
+  accentText: "--agent-accent-text",
   danger: "--agent-danger",
   shadow: "--agent-shadow",
 };
@@ -28,8 +29,10 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   root.classList.toggle("electron-dark", theme.isDark);
   root.classList.toggle("light", !theme.isDark);
   root.style.colorScheme = theme.isDark ? "dark" : "light";
-  for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
-    if (!variable) {
+  for (const [key, variable] of Object.entries(cssVariables) as Array<
+    [keyof AgentSessionTheme, string | null]
+  >) {
+    if (!variable || theme[key] === undefined) {
       continue;
     }
     root.style.setProperty(variable, String(theme[key]));

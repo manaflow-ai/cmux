@@ -108,6 +108,9 @@ extension DaemonStore {
         }
         let failure = await pump.value
         drain()
+        // The connection is gone: no echo or barrier will come for its commands.
+        drainAppliedWaiters = true
+        flushAppliedWaiters()
         if let failure { markFailed(failure) }
         resyncRetry?.cancel()
         resyncRetry = nil

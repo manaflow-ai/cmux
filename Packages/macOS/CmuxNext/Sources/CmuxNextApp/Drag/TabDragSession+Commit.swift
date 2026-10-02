@@ -18,8 +18,18 @@ extension TabDragSession {
         // The tabs leave their workspace for another one: the emptied
         // workspace closes once they landed, and is never repaired meanwhile.
         emptied.map { claimClosing($0) }
+        // A landed move settles once the store holds its result (its echo),
+        // so ending the presentation shows the daemon's placement, never a
+        // stale one.
+        let daemon = drag.source.pane.map { services.machines.daemon(forPane: $0.pane) }
+        commitsInFlight.insert(transaction)
         let settle: @MainActor (Bool) -> Void = { [weak self] ok in
-            lifecycle.settle(transaction, ok: ok)
+            let end: @MainActor () -> Void = { [weak self] in
+                lifecycle.settle(transaction, ok: ok)
+                self?.commitsInFlight.remove(transaction)
+                self?.services.inputMonitor.noteChange()
+            }
+            if ok, let daemon { daemon.whenApplied(transaction, end) } else { end() }
             if let emptied { self?.finishClosing(emptied, moved: ok) }
         }
         let dropWindow = drag.winner?.window ?? drag.source.window

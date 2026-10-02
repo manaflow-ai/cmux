@@ -26,6 +26,8 @@ export type AgentSessionTheme = {
   softText: string;
   accent: string;
   accentSoft: string;
+  /// Labels on the accent; the cmux-next pane sends it, others fall back to white.
+  accentText?: string;
   danger: string;
   shadow: string;
 };
