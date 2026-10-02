@@ -194,6 +194,41 @@ describe("mock transport", () => {
     client.close();
   });
 
+  test("a prompt sent during a turn shows in the queue until it starts", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    (globalThis as any).window ??= globalThis;
+    const waiting: (() => void)[] = [];
+    const client = await AcpmuxDirectClient.connect(
+      mockHost,
+      (snapshot) => snapshots.push(snapshot),
+      undefined,
+      () => new MockAcpmuxSocket(() => new Promise<void>((resolve) => waiting.push(resolve))) as unknown as WebSocket,
+    );
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+    // The seeded session already holds worked turns; count only the two this test sends.
+    const summaries = () => snapshots.at(-1)?.rows.filter((row) => row.kind === "turnSummary").length ?? 0;
+    const users = () =>
+      snapshots
+        .at(-1)
+        ?.rows.filter((row) => row.kind === "user")
+        .map((row) => row.text) ?? [];
+    for (let tries = 0; tries < 20 && snapshots.length === 0; tries += 1) await tick();
+    const before = summaries();
+    const earlier = users();
+    void client.send("first");
+    void client.send("second");
+    for (let tries = 0; tries < 20 && !snapshots.at(-1)?.queue.length; tries += 1) await tick();
+    expect(snapshots.at(-1)?.queue.map((entry) => entry.prompt)).toEqual(["second"]);
+    // Let every step of both turns through.
+    for (let tries = 0; tries < 200 && summaries() !== before + 2; tries += 1) {
+      waiting.splice(0).forEach((resolve) => resolve());
+      await tick();
+    }
+    expect(snapshots.at(-1)?.queue).toEqual([]);
+    expect(users()).toEqual([...earlier, "first", "second"]);
+    client.close();
+  });
+
   test("closing the daemon stops a queued prompt too", async () => {
     let steps = 0;
     const waiting: (() => void)[] = [];
@@ -289,5 +324,78 @@ describe("mock transport", () => {
     expect(rows.find((row) => row.kind === "assistant")!.at - user.at).toBeGreaterThanOrEqual(2_000);
     expect(rows.find((row) => row.kind === "turnSummary")!.at - user.at).toBeGreaterThanOrEqual(15_000);
     client.close();
+  });
+});
+
+describe("mock daemon", () => {
+  /// Drives the daemon over raw JSON-RPC and records every message it sends back.
+  const open = (script?: ConstructorParameters<typeof MockAcpmuxSocket>[1]) => {
+    (globalThis as any).window ??= globalThis;
+    const socket = new MockAcpmuxSocket(() => Promise.resolve(), script);
+    const sent: any[] = [];
+    socket.onmessage = ({ data }) => sent.push(JSON.parse(data));
+    let id = 0;
+    const call = async (method: string, params: Record<string, unknown> = {}) => {
+      const request = ++id;
+      socket.send(JSON.stringify({ jsonrpc: "2.0", id: request, method, params }));
+      for (let tries = 0; tries < 50 && !sent.some((message) => message.id === request); tries += 1)
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      return sent.find((message) => message.id === request)?.result;
+    };
+    return { socket, sent, call };
+  };
+  const toolUpdates = (sent: any[], target: string) =>
+    sent.filter(
+      (message) =>
+        message.method === "_acpmux/event" &&
+        message.params?.sessionId === target &&
+        message.params?.msg?.params?.update?.sessionUpdate === "tool_call_update",
+    );
+
+  test("Stop on a session waiting for permission settles its pending tool as failed", async () => {
+    const { socket, sent, call } = open();
+    await call("_acpmux/attach", { sessionId: "mock-tab-strip" });
+    socket.send(JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: "mock-tab-strip" } }));
+    // The daemon answers a notification on a later tick; a call behind it waits for it.
+    await call("_acpmux/watch");
+    expect(toolUpdates(sent, "mock-tab-strip").map((message) => message.params.msg.params.update.status)).toEqual([
+      "failed",
+    ]);
+  });
+
+  test("answering a permission twice settles its tool once", async () => {
+    const { sent, call } = open();
+    await call("_acpmux/permission_respond", { sessionId: "mock-tab-strip", optionId: "allow_once" });
+    await call("_acpmux/permission_respond", { sessionId: "mock-tab-strip", optionId: "deny" });
+    expect(toolUpdates(sent, "mock-tab-strip").map((message) => message.params.msg.params.update.status)).toEqual([
+      "completed",
+    ]);
+  });
+
+  test("a new chat opens on the machine of the session it was started from", async () => {
+    const { call } = open();
+    await call("_acpmux/attach", { sessionId: "mock-sidebar-flicker" });
+    const { sessionId } = await call("session/new");
+    const { sessions } = await call("_acpmux/watch");
+    const from = sessions.find((entry: any) => entry.sessionId === "mock-sidebar-flicker");
+    const created = sessions.find((entry: any) => entry.sessionId === sessionId);
+    expect([created.host, created.hostKind, created.cwd]).toEqual([from.host, from.hostKind, from.cwd]);
+  });
+
+  test("a new chat in a replayed script uses the script's model", async () => {
+    const { call } = open({ steps: [] });
+    const { sessionId } = await call("session/new");
+    const { sessions } = await call("_acpmux/watch");
+    expect(sessions.find((entry: any) => entry.sessionId === sessionId)?.model).toBe("claude-sonnet");
+  });
+
+  test("each waiting session's pending count matches the permissions it asks for", async () => {
+    const { call } = open();
+    const { sessions } = await call("_acpmux/watch");
+    for (const entry of sessions.filter((session: any) => session.pendingPermissions)) {
+      const { events } = await call("_acpmux/attach", { sessionId: entry.sessionId });
+      const asked = events.filter((event: any) => event.kind === "permission_request").length;
+      expect([entry.sessionId, asked]).toEqual([entry.sessionId, entry.pendingPermissions]);
+    }
   });
 });

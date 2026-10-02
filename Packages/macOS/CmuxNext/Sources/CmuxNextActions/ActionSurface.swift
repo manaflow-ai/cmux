@@ -56,6 +56,9 @@ public nonisolated enum SurfaceExemption: String, CaseIterable, Sendable, Hashab
     /// The App binds it as unavailable in every build today (no handler
     /// yet); offer it when it works.
     case unimplemented
+    /// Works, but is less reliable than the action menus offer instead
+    /// (New WebKit Tab next to New Browser Tab on Chromium): palette only.
+    case experimental
     /// Sign-in, accounts and secrets: a person does it (MCP).
     case credentials
     /// Quits the app the user works in (MCP).
