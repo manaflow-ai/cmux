@@ -10,6 +10,7 @@ import {
   APPLE_GRANTING_STATUSES,
   appleAccessEndsAt,
   appleSweptStatus,
+  isAppleTransactionCopyCurrent,
   planAppleSubscriptionWrite,
   type AppleIapStore,
   type AppleNotificationRow,
@@ -71,6 +72,7 @@ export function memoryAppleStore(): MemoryAppleStore {
     },
     async recordTransaction(row) {
       if (!row.transactionId) return;
+      if (!isAppleTransactionCopyCurrent(row, transactions.get(row.transactionId) ?? null)) return;
       transactions.set(row.transactionId, row);
     },
     async insertNotification(row) {

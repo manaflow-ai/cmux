@@ -5,7 +5,7 @@
 // `appAccountToken` (planAppleSubscriptionWrite).
 
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, sql, type SQL } from "drizzle-orm";
 
 import { cloudDb } from "../../../db/client";
 import {
@@ -280,6 +280,21 @@ async function writeSubscriptionState(
   });
 }
 
+/** Apple `signedDate` of a stored transaction payload; 0 when absent. */
+function transactionSignedDate(payload: SQL | typeof appleTransactions.payload): SQL {
+  return sql`coalesce((${payload}->>'signedDate')::bigint, 0)`;
+}
+
+/** The newer of two copies of one transaction, by Apple `signedDate`; ties take the incoming copy. */
+export function isAppleTransactionCopyCurrent(
+  incoming: Pick<AppleTransactionRow, "payload">,
+  stored: Pick<AppleTransactionRow, "payload"> | null,
+): boolean {
+  const signed = (row: Pick<AppleTransactionRow, "payload">) =>
+    typeof row.payload.signedDate === "number" ? row.payload.signedDate : 0;
+  return !stored || signed(incoming) >= signed(stored);
+}
+
 async function recordTransaction(db: Db, row: AppleTransactionRow): Promise<void> {
   if (!row.transactionId || !row.originalTransactionId) return;
   await db.insert(appleTransactions).values(row).onConflictDoUpdate({
@@ -290,6 +305,10 @@ async function recordTransaction(db: Db, row: AppleTransactionRow): Promise<void
       payload: sql`excluded.payload`,
       planId: sql`coalesce(excluded.plan_id, ${appleTransactions.planId})`,
     },
+    // Apple data never goes back in time: an older signed copy (a cached
+    // client JWS, a retried earlier notification) must not clear a refund
+    // recorded from a newer one. A newer reversal still clears it.
+    setWhere: sql`${transactionSignedDate(sql`excluded.payload`)} >= ${transactionSignedDate(appleTransactions.payload)}`,
   });
 }
 
