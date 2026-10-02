@@ -13,12 +13,26 @@
       async function trashNow(ref) {
         return t.withTab(`https://docs.google.com/${ref.kind}/d/${ref.id}/edit`, async (page) => {
           await t.waitIn(page, () => !!document.querySelector("#docs-file-menu"), undefined, { signIn: [/^https:\/\/accounts\.google\.com\//], name: "googleDrive.trash", what: "the editor's File menu", timeout: 45000 });
-          await page.locator("#docs-file-menu").click();
-          await page.getByRole("menuitem", { name: /Move to trash|Move to bin/ }).first().click();
-          await t.waitIn(page, () => /moved to (the )?(trash|bin)/i.test(document.body.innerText), undefined, { name: "googleDrive.trash", what: "the trash confirmation", timeout: 15000 });
+          await t.sleep(1500);
+          // File > Move to trash (matched by the item's text; retried once if the menu did not open).
+          const item = page.locator('[role="menuitem"]').filter({ hasText: /^(Move to trash|Move to bin)/ }).first();
+          for (let attempt = 0; ; attempt++) {
+            await page.locator("#docs-file-menu").click();
+            if (await item.waitFor({ timeout: 5000 }).then(() => true, () => false)) break;
+            if (attempt) throw new S.SiteError("timeout", "googleDrive.trash: the File menu has no Move to trash item");
+            await page.keyboard.press("Escape").catch(() => {});
+            await t.sleep(1500);
+          }
+          await item.click();
+          await t.waitIn(page, () => /moved to (the )?(trash|bin)|in (the )?(trash|bin)/i.test(document.body.innerText), undefined, { name: "googleDrive.trash", what: "the trash confirmation", timeout: 15000 }).catch(() => {});
           created.delete(ref.id);
-          return { status: "trashed" };
-        });
+        }).then(() =>
+          // A trashed file still opens for its owner, with "File is in trash".
+          t.withTab(`https://docs.google.com/${ref.kind}/d/${ref.id}/edit`, async (page) => {
+            const verified = await t.waitIn(page, () => /\b(is|moved to) (in )?(the )?(trash|bin)\b/i.test(document.body.innerText), undefined, { timeout: 20000, what: "the trash notice" }).then(() => true, () => false);
+            return { status: "trashed", verified };
+          }),
+        );
       }
       // Rows of a Drive list view (Recent, search) in a background tab.
       async function driveRows(name, view, options) {
