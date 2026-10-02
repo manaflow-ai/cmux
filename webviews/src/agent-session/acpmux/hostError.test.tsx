@@ -101,3 +101,106 @@ test("a host that cannot start acpmux shows its error and a retry, and keeps wha
     delete host.cmuxAcpmuxActions;
   }
 });
+
+type Actions = Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+const paneWindow = () => dom.window as unknown as { cmuxAcpmuxActions?: Actions; WebSocket?: unknown };
+/// One short act, so each state React reaches between timers is rendered.
+const tick = (ms = 10) => act(() => new Promise((resolve) => setTimeout(resolve, ms)));
+
+test("the error stays up while a handshake's WebSocket fails to connect", async () => {
+  const pane = paneWindow();
+  const savedSocket = globals.WebSocket;
+  // An endpoint the host handed out that nothing listens on: the socket errors a little later.
+  class RefusedSocket {
+    onopen: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+    onmessage: (() => void) | null = null;
+    readyState = 0;
+    constructor() {
+      setTimeout(() => {
+        this.readyState = 3;
+        this.onerror?.();
+        this.onclose?.();
+      }, 40);
+    }
+    send() {}
+    close() {}
+  }
+  globals.WebSocket = RefusedSocket;
+  pane.WebSocket = RefusedSocket;
+  let readies = 0;
+  pane.cmuxAcpmuxActions = {
+    ready: async () => {
+      readies += 1;
+      if (readies === 1) throw new Error(HOST_ERROR);
+      return { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:9/", token: "t" };
+    },
+  };
+  const document = dom.window.document;
+  const root = createRoot(document.getElementById("root")!);
+  const banner = () => document.querySelector(".acpmux-host-error");
+  try {
+    await act(async () => root.render(createElement(AcpmuxApp)));
+    await settle();
+    expect(banner()).not.toBeNull();
+    await act(async () => banner()!.querySelector("button")!.click());
+    // Through the handshake and the refused socket, the card never goes away.
+    const shown: boolean[] = [];
+    for (let step = 0; step < 10; step += 1) {
+      await tick();
+      shown.push(banner() !== null);
+    }
+    expect(readies).toBe(2);
+    expect(
+      shown.every(Boolean)
+        ? "always shown"
+        : `hidden at steps ${shown
+            .map((on, i) => (on ? "" : i))
+            .join(" ")
+            .trim()}`,
+    ).toBe("always shown");
+  } finally {
+    await act(async () => root.unmount());
+    delete pane.cmuxAcpmuxActions;
+    globals.WebSocket = savedSocket;
+    delete pane.WebSocket;
+  }
+});
+
+test("Retry during an attempt already in flight runs a full attempt when that one ends", async () => {
+  const pane = paneWindow();
+  const calls: Record<string, unknown>[] = [];
+  let finishInFlight: ((error: Error) => void) | undefined;
+  pane.cmuxAcpmuxActions = {
+    ready: (params) => {
+      calls.push(params);
+      // The first attempt fails; the automatic retry hangs until the test ends it.
+      if (calls.length === 2) return new Promise((_, reject) => (finishInFlight = reject));
+      return Promise.reject(new Error(HOST_ERROR));
+    },
+  };
+  const document = dom.window.document;
+  const root = createRoot(document.getElementById("root")!);
+  const retry = () => document.querySelector<HTMLButtonElement>(".acpmux-host-error button");
+  try {
+    await act(async () => root.render(createElement(AcpmuxApp)));
+    await settle();
+    // The automatic retry (250 ms backoff) is now in flight.
+    await tick(300);
+    expect(calls.length).toBe(2);
+    await act(async () => retry()!.click());
+    // The click is not dropped: the pane says it is retrying.
+    expect(retry()?.textContent).toBe("Retrying…");
+    expect(calls.length).toBe(2);
+    await act(async () => finishInFlight!(new Error(HOST_ERROR)));
+    await tick();
+    // The queued retry runs at once, and it may start the daemon (not reconnect-only).
+    expect(calls.length).toBe(3);
+    expect(calls[2]).toEqual({});
+    expect(retry()?.textContent).toBe("Retry");
+  } finally {
+    await act(async () => root.unmount());
+    delete pane.cmuxAcpmuxActions;
+  }
+});
