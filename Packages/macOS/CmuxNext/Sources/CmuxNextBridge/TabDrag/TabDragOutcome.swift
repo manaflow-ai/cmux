@@ -54,10 +54,12 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
     /// group's first tab's) index in its display order; nil for workspace drags.
     public var sourceStripID: UUID?
     public var sourceIndex: Int?
+    /// The tab group the dragged tab is in (nil: none, or a group drag).
+    public var sourceGroupID: String?
 
     public init(sourcePaneID: String, sourcePaneTabCount: Int, sourceWorkspaceID: String,
                 sourceWorkspaceTabCount: Int, draggedTabCount: Int, sourceWindowWorkspaceCount: Int = 1,
-                sourceStripID: UUID? = nil, sourceIndex: Int? = nil) {
+                sourceStripID: UUID? = nil, sourceIndex: Int? = nil, sourceGroupID: String? = nil) {
         self.sourcePaneID = sourcePaneID
         self.sourcePaneTabCount = sourcePaneTabCount
         self.sourceWorkspaceID = sourceWorkspaceID
@@ -66,6 +68,15 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
         self.sourceWindowWorkspaceCount = sourceWindowWorkspaceCount
         self.sourceStripID = sourceStripID
         self.sourceIndex = sourceIndex
+        self.sourceGroupID = sourceGroupID
+    }
+
+    /// Whether a strip drop at final `index` (clamped to the strip without
+    /// the dragged tabs) joining `groupID` leaves the tabs where they are.
+    func isOwnPlace(strip: UUID, index: Int, groupID: String?) -> Bool {
+        guard strip == sourceStripID, let sourceIndex else { return false }
+        let final = min(max(index, 0), max(0, sourcePaneTabCount - draggedTabCount))
+        return final == sourceIndex && groupID == sourceGroupID
     }
 
     /// The drag carries every tab of its pane: the pane closes when they leave.
@@ -119,6 +130,9 @@ public nonisolated enum TabDragResolver {
         guard let proposal, accepts(proposal.kind, context: context) else { return .cancel }
         switch proposal.kind {
         case .strip(let stripID, let index, let groupID):
+            // The tab's own place (its pane's center when it is the last or
+            // only tab, or its own slot): no operation, it springs back.
+            if context.isOwnPlace(strip: stripID, index: index, groupID: groupID) { return .cancel }
             return .strip(stripID: stripID, index: index, groupID: groupID)
         case .newSplit(let pane, let edge):
             return .newSplit(paneID: pane, edge: edge)

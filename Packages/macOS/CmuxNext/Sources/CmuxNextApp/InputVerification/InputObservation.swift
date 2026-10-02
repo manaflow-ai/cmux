@@ -99,6 +99,8 @@ nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, CaseIterab
     case presentationSettles = "W9"
     // Geometry (after settle).
     case chromiumGeometry = "G1"
+    // Tab conservation (after settle, no drag in flight).
+    case stripShowsPaneTabs = "C1"
 
     var summary: String {
         switch self {
@@ -130,6 +132,7 @@ nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, CaseIterab
         case .presentedMatchesSelection: "every shown pane shows its selected tab, and that tab is in the pane"
         case .presentationSettles: "the focused pane presents the targeted tab within a settle"
         case .chromiumGeometry: "every Chromium page window covers its pane in screen coordinates (ChildPageGeometry)"
+        case .stripShowsPaneTabs: "with no tab drag in flight, every tab strip shows exactly its pane's tabs (tab conservation)"
         }
     }
 }

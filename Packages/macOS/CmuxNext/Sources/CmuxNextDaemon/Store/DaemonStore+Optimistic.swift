@@ -77,11 +77,37 @@ extension DaemonStore {
             confirmedTransactions.removeFirst(confirmedTransactions.count - transactionLimit)
         }
         onTransactionConfirmed?(transaction)
+        runAppliedWaiters(transaction)
     }
 
     /// Runs `body` once the store holds the daemon's result of
-    /// `transaction` (stub).
-    public func whenApplied(_ transaction: ClientTransactionID, _ body: @escaping @MainActor () -> Void) {}
+    /// `transaction`: when its echo is applied, at once if it already was,
+    /// when the store applied every event up to `sequence` (a write barrier,
+    /// `DaemonConnection.eventSequence()` taken after the command's reply:
+    /// a command that changed nothing echoes nothing), or at the next
+    /// snapshot (daemon truth replaces the tree).
+    public func whenApplied(_ transaction: ClientTransactionID, reaching sequence: UInt64? = nil,
+                            _ body: @escaping @MainActor () -> Void) {
+        if confirmedTransactions.contains(transaction) { return body() }
+        if let sequence, appliedSequence >= sequence { return body() }
+        appliedWaiters.append(AppliedWaiter(transaction: transaction, sequence: sequence, body: body))
+    }
+
+    /// Runs the waiters that are due: for `transaction`, or every waiter
+    /// whose barrier the applied sequence reached (`transaction` nil), or
+    /// all of them (`all`, after a snapshot).
+    func runAppliedWaiters(_ transaction: ClientTransactionID?, all: Bool = false) {
+        guard !appliedWaiters.isEmpty else { return }
+        let isDue: (AppliedWaiter) -> Bool = { [appliedSequence] waiter in
+            if all { return true }
+            if let transaction { return waiter.transaction == transaction }
+            return waiter.sequence.map { appliedSequence >= $0 } ?? false
+        }
+        let due = appliedWaiters.filter(isDue)
+        guard !due.isEmpty else { return }
+        appliedWaiters.removeAll(where: isDue)
+        for waiter in due { waiter.body() }
+    }
 
     func reapplyPendingPatches() {
         pendingPatches.removeAll { $0.dropAtNextSnapshot }

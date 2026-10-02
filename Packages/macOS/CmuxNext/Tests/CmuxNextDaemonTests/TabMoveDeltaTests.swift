@@ -54,7 +54,7 @@ import Testing
 /// A drag's presentation ends once the store holds the daemon's result of
 /// the drag's transaction (its echo), or a snapshot replaced the tree.
 @MainActor @Suite struct TransactionAppliedTests {
-    private func loadedStore() throws -> DaemonStore {
+    func loadedStore() throws -> DaemonStore {
         let store = DaemonStore()
         store.apply(snapshot: try Fixture.response(DaemonTree.self, "list-workspaces.json"))
         return store
@@ -91,5 +91,21 @@ import Testing
         store.whenApplied("drop-9") { ran = true }
         store.apply(snapshot: try Fixture.response(DaemonTree.self, "list-workspaces.json"))
         #expect(ran)
+    }
+}
+
+extension TransactionAppliedTests {
+    /// A command that changed nothing echoes nothing: the write barrier
+    /// (every event before the reply applied) still ends the wait.
+    @Test func runsWhenTheWriteBarrierIsApplied() throws {
+        let store = try loadedStore()
+        var ran = false
+        store.whenApplied("drop-10", reaching: store.appliedSequence + 5) { ran = true }
+        #expect(!ran)
+        store.advanceAppliedSequence(to: store.appliedSequence + 5)
+        #expect(ran)
+        var now = false
+        store.whenApplied("drop-11", reaching: store.appliedSequence) { now = true }
+        #expect(now)
     }
 }

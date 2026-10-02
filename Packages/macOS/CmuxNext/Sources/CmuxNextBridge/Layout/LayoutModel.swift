@@ -77,7 +77,15 @@ public nonisolated struct LayoutModel: Hashable, Sendable {
         case .cancel, .moveWindow, .moveWorkspaceToNewWindow, .moveWorkspace:
             return model
         case .strip(let stripID, let index, _):
-            guard model.location(strip: stripID) != nil else { return nil }
+            guard let target = model.location(strip: stripID) else { return nil }
+            if let source = model.location(of: tab), source == target {
+                // A reorder inside its own pane never closes the pane.
+                var tabs = model.workspaces[source.workspace].panes[source.pane].tabs
+                tabs.removeAll { $0 == tab }
+                tabs.insert(tab, at: min(max(index, 0), tabs.count))
+                model.workspaces[source.workspace].panes[source.pane].tabs = tabs
+                return model
+            }
             model.remove(tab)
             // The target strip may be the source: look it up after removal.
             guard let (w, p) = model.location(strip: stripID) else { return nil }

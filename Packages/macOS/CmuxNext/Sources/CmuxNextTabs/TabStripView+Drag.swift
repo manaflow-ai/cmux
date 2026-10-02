@@ -223,6 +223,10 @@ extension TabStripView {
         return context.makeImage().map(TabImage.init)
     }
 
+    /// The tabs the strip shows, in order (tab conservation check C1: once
+    /// no drag is in flight this equals the model's tabs).
+    public var presentedTabIDs: [TabID] { displayed.map(\.id) }
+
     /// Restores a tab this strip handed off (drag cancelled). It grows back
     /// into its slot. No-op when `id` is not the detached tab.
     public func restoreDetachedTab(_ id: TabID) {

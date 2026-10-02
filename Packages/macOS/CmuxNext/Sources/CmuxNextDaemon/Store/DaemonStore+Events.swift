@@ -51,7 +51,9 @@ extension DaemonStore {
     }
 
     func advanceAppliedSequence(to sequence: UInt64) {
-        if sequence > appliedSequence { appliedSequence = sequence }
+        guard sequence > appliedSequence else { return }
+        appliedSequence = sequence
+        runAppliedWaiters(nil)
     }
 
     private func isLifecycle(_ event: DaemonEvent) -> Bool {

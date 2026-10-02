@@ -94,6 +94,7 @@ final class InputInvariantMonitor {
         checks += 1
         var result = InputInvariants.world(InputObservationBuilder.observe(services))
         result.violations += Self.pageGeometry(services)
+        result.violations += Self.tabConservation(services)
         lastResult = result
         return result
     }
@@ -108,6 +109,22 @@ final class InputInvariantMonitor {
             let (hosts, pages) = ChildPageGeometry.sample(controller)
             return ChildPageGeometry.mismatches(hosts: hosts, pages: pages).map {
                 InputViolation(invariant: .chromiumGeometry, window: controller.state.id, detail: $0)
+            }
+        }
+    }
+
+    /// C1 (plans/cmux-next/layout-invariants.md): once no tab drag is in
+    /// flight, every strip shows exactly the tabs its pane holds, none
+    /// hidden (a drag's presentation that never ended) and none extra.
+    static func tabConservation(_ services: AppServices) -> [InputViolation] {
+        guard !services.dragSession.hasDragInFlight else { return [] }
+        return services.windows.controllers.flatMap { controller -> [InputViolation] in
+            (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
+                let shown = pane.view.stripView.presentedTabIDs.map(\.rawValue)
+                let held = pane.stripModel.orderedTabs.map(\.id.rawValue)
+                guard Set(shown) != Set(held) || shown.count != held.count else { return nil }
+                return InputViolation(invariant: .stripShowsPaneTabs, window: controller.state.id,
+                                      detail: "pane \(pane.paneKey) shows \(shown) but holds \(held)")
             }
         }
     }

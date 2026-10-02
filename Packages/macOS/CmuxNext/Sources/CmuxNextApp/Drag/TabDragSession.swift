@@ -33,6 +33,11 @@ final class TabDragSession: NSObject {
     }
 
     var isDragging: Bool { drag != nil }
+    /// Commits sent and not yet settled (their presentation is still on).
+    var commitsInFlight: Set<ClientTransactionID> = []
+    /// A drag, its landing flight, or a commit is in flight: strips may
+    /// still hide the dragged tabs (C1 waits).
+    var hasDragInFlight: Bool { drag != nil || landing != nil || !commitsInFlight.isEmpty }
 
     // MARK: Begin
 
@@ -60,7 +65,7 @@ final class TabDragSession: NSObject {
         finishLanding()
 
         let window = sourceWindow ?? services.windows.controllers.first { $0.content === pane?.workspace }
-        var context = pane.map { Self.context(of: $0, draggedCount: draggedCount) } ?? .workspaces(count: draggedCount)
+        var context = pane.map { Self.context(of: $0, item: item, draggedCount: draggedCount) } ?? .workspaces(count: draggedCount)
         if let window { context.sourceWindowWorkspaceCount = max(1, services.windows.registry.members(of: window.state.id).count) }
         let content = pane?.view.bounds ?? window?.content?.layoutView?.bounds ?? .zero
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
@@ -74,15 +79,16 @@ final class TabDragSession: NSObject {
             tabOffset: CGPoint(x: frame.minX - windowFrame.minX, y: windowFrame.maxY - frame.maxY),
             windowSize: windowFrame.size, context: context
         )
-        let lifecycle = TabDragLifecycle { [weak pane] in
+        let lifecycle = TabDragLifecycle(restore: { [weak pane] in
             guard let pane else { return }
-            switch item {
-            case .tab(let id): pane.view.stripView.restoreDetachedTab(StripTabID(id))
-            case .group(let id, _): pane.view.stripView.restoreDetachedGroup(id)
-            case .workspaces: return
-            }
+            Self.endPresentation(item, in: pane)
             pane.resyncStrip()
-        }
+        }, release: { [weak pane] in
+            // Every end, the landed ones too: a move into the tab's own strip
+            // keeps the tab there, and the strip must show it again.
+            guard let pane else { return }
+            Self.endPresentation(item, in: pane)
+        })
         let drag = Drag(source: source, lifecycle: lifecycle, ghost: ghost, motion: motion, point: point)
         drag.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .leftMouseDown, .keyDown]) { [weak self] event in
             self?.handle(event) ?? event
@@ -112,11 +118,30 @@ final class TabDragSession: NSObject {
         }
     }
 
-    static func context(of pane: PaneController, draggedCount: Int) -> TabDragContext {
+    static func context(of pane: PaneController, item: Item, draggedCount: Int) -> TabDragContext {
         let workspaceTabs = pane.workspace?.workspace.screens.flatMap(\.panes).reduce(0) { $0 + $1.tabs.count } ?? pane.pane.tabs.count
+        let ordered = pane.stripModel.orderedTabs
+        let first: String? = switch item {
+        case .tab(let id): id
+        case .group(_, let members): members.first
+        case .workspaces: nil
+        }
+        let index = first.flatMap { id in ordered.firstIndex { $0.id.rawValue == id } }
+        let group: String? = if case .tab = item, let index { ordered[index].groupID?.rawValue } else { nil }
         return TabDragContext(sourcePaneID: pane.layoutPaneID.rawValue, sourcePaneTabCount: pane.pane.tabs.count,
                               sourceWorkspaceID: pane.workspace?.workspace.id ?? "", sourceWorkspaceTabCount: workspaceTabs,
-                              draggedTabCount: draggedCount)
+                              draggedTabCount: draggedCount, sourceStripID: pane.stripModel.stripID, sourceIndex: index,
+                              sourceGroupID: group)
+    }
+
+    /// Ends the drag's presentation in its source strip: the hidden tab (or
+    /// group) shows again wherever the model now has it.
+    static func endPresentation(_ item: Item, in pane: PaneController) {
+        switch item {
+        case .tab(let id): pane.view.stripView.restoreDetachedTab(StripTabID(id))
+        case .group(let id, _): pane.view.stripView.restoreDetachedGroup(id)
+        case .workspaces: return
+        }
     }
 
     // MARK: Events
