@@ -33,7 +33,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspaceGroup.expandAll", "workspace.mergeInto", "pane.moveToNewWorkspace", "newWorkspaceGroup",
         "moveWorkspaceToGroup", "removeWorkspaceFromGroup", "workspaceGroup.setColor", "workspaceGroup.collapse",
         "workspaceGroup.expand", "workspaceGroup.moveUp", "workspaceGroup.moveDown", "workspaceGroup.moveToWindow",
-        "workspaceGroup.closeWorkspaces", "workspaceGroup.moveToNewWindow", "room.new", "room.newWindow",
+        "workspaceGroup.closeWorkspaces", "workspaceGroup.moveToNewWindow", "room.newWindow",
         "room.newWorkspace", "room.rename", "room.setColor", "room.clearColor", "room.setIcon", "room.clearIcon",
         "room.setDefaults", "room.delete", "room.moveLeft", "room.moveRight", "room.move", "room.switch",
         "workspace.moveToRoom", "workspace.duplicateToRoom", "workspaceGroup.moveToRoom", "room.setTheme",
@@ -112,6 +112,10 @@ nonisolated extension ActionSurfaceCatalog {
     /// Why the CLI has no verb for an action (`cmux action run <id>` still runs it).
     static let cliExemption: [ActionID: SurfaceExemption] = byReason(cliExemptionsByReason)
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
+        // `cmux room create` is the daemon's room.create (rooms are personal
+        // state the home session owns); the Rust CLI parses it before the
+        // app fallback, so this verb could never reach room.new.
+        .ownerVerb: ["room.new"],
         .unimplemented: [
             "palette.openDirectoryDiffViewer",
             "openDiffViewer",

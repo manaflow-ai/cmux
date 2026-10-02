@@ -1411,7 +1411,7 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "room create",
       "context_menu" : "offered",
       "context_menus" : [
@@ -1419,7 +1419,7 @@
         "profile"
       ],
       "id" : "room.new",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {

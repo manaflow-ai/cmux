@@ -33,7 +33,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 ## Counts (676 actions)
 
-Palette 674, CLI verbs 382, right-click 377, MCP tools 328.
+Palette 674, CLI verbs 381, right-click 377, MCP tools 327.
 
 ## Menus
 
@@ -80,6 +80,8 @@ Palette 674, CLI verbs 382, right-click 377, MCP tools 328.
 **familyMember** (51): `cycleWorkspaceStatus`, `toggleFocusedWorkspaceGroupCollapsed`, `workspaceGroup.color.grey`, `workspaceGroup.color.blue`, `workspaceGroup.color.red`, `workspaceGroup.color.yellow`, `workspaceGroup.color.green`, `workspaceGroup.color.pink`, `workspaceGroup.color.purple`, `workspaceGroup.color.cyan`, `workspaceGroup.color.orange`, `room.color.grey`, `room.color.blue`, `room.color.red`, `room.color.yellow`, `room.color.green`, `room.color.pink`, `room.color.purple`, `room.color.cyan`, `room.color.orange`, `tabGroup.toggleCollapsed`, `tabGroup.color.grey`, `tabGroup.color.blue`, `tabGroup.color.red`, `tabGroup.color.yellow`, `tabGroup.color.green`, `tabGroup.color.pink`, `tabGroup.color.purple`, `tabGroup.color.cyan`, `tabGroup.color.orange`, `screen.color.grey`, `screen.color.blue`, `screen.color.red`, `screen.color.yellow`, `screen.color.green`, `screen.color.pink`, `screen.color.purple`, `screen.color.cyan`, `screen.color.orange`, `screenGroup.toggleCollapsed`, `screenGroup.color.grey`, `screenGroup.color.blue`, `screenGroup.color.red`, `screenGroup.color.yellow`, `screenGroup.color.green`, `screenGroup.color.pink`, `screenGroup.color.purple`, `screenGroup.color.cyan`, `screenGroup.color.orange`, `resumeCommandEdit`, `palette.attemptUpdate`
 
 **unimplemented** (10): `palette.openFilesPane`, `palette.openFindPane`, `palette.openVaultPane`, `palette.openCloudPane`, `toggleTabAudioMute`, `disconnectRemoteTab`, `palette.enableBrowser`, `palette.disableBrowser`, `openDiffViewer`, `palette.openDirectoryDiffViewer`
+
+**ownerVerb** (1): `room.new`
 
 ## Exemptions: contextMenu
 
