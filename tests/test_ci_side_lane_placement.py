@@ -10,7 +10,9 @@ now, else it keeps the job's fallback.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import sys
 import tempfile
@@ -98,7 +100,8 @@ class Decide(unittest.TestCase):
         shared.assert_called_once()
 
     def test_main_writes_the_outputs(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        # The script's ::warning:: lines stay out of the guard job's log.
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
             output = Path(tmp) / "out"
             fake = mock.Mock()
             fake.runners.return_value = [runner("mini-a-glaeda-3")]
