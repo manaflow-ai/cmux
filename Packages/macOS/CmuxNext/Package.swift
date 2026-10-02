@@ -43,6 +43,8 @@ import PackageDescription
 //   CmuxNextApps -> Design (app platform: manifest model, scene store + native renderer, JavaScriptCore
 //     prototype engine, prototype registry, App Store window; no daemon; the App supplies the
 //     operation sink; plans/cmux-next/app-platform.md)
+//   CmuxNextTasks -> Design (Tasks pane: list, board and inbox prototypes over a mirror + intent
+//     log of the Tasks owner; no daemon; the App supplies the source; plans/cmux-next/tasks.md)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
 
@@ -123,6 +125,7 @@ let package = Package(
                 "CmuxNextBookmarks",
                 "CmuxNextAgentActivity",
                 "CmuxNextApps",
+                "CmuxNextTasks",
             ],
             resources: [
                 .process("Resources"),
@@ -292,6 +295,22 @@ let package = Package(
         .testTarget(
             name: "CmuxNextAppsTests",
             dependencies: ["CmuxNextApps"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Tasks (plans/cmux-next/tasks.md): the pane over the team's Tasks
+        // owner (a Rust service: cmux-tui/crates/cmux-tasks). A projection:
+        // confirmed mirror + intent log; the App supplies the source.
+        .target(
+            name: "CmuxNextTasks",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextTasksTests",
+            dependencies: ["CmuxNextTasks"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
