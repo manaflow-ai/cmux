@@ -48,7 +48,9 @@ struct CloudWorkspaceSidebarPresentation {
         let state = workspace.cloudBindingState
 
         func machineName(for id: String) -> String? {
-            state.machineNames[id] ?? state.machineNames[SurfaceMachineID.cloud(id).rawValue]
+            state.machineNames[id]
+                ?? state.machineNames[SurfaceMachineID.cloud(id).rawValue]
+                ?? SurfaceCatalog.shared.machineInfo(for: .cloud(id))?.name
         }
 
         var cloudMachineIDs = Set(state.projectedResources.values.compactMap { $0.machine.cloudMachineID })
@@ -75,7 +77,7 @@ struct CloudWorkspaceSidebarPresentation {
         guard projectedCloudMachineIDs.allSatisfy({ id in
             guard let name = machineName(for: id)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !name.isEmpty else { return false }
-            return name != id
+            return true
         }) else { return nil }
         // Keep stable IDs in badge help/accessibility; width-dependent rows use
         // them only when friendly names collide across machines.
