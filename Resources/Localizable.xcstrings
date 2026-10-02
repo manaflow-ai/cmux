@@ -1063,6 +1063,40 @@
         }
       }
     },
+    "settings.automation.subrouter.claude.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When enabled, automatically resume your Claude session where you left off as soon as your Claude pool has quota again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にすると、Claudeプールのクォータが再び利用可能になり次第、Claudeセッションを中断した場所から自動的に再開します。"
+          }
+        }
+      }
+    },
+    "settings.automation.subrouter.codex.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When enabled, automatically resume your Codex session where you left off as soon as your Codex pool has quota again. Also resumes after temporary model-capacity issues, with backoff when capacity remains unavailable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にすると、Codexプールのクォータが再び利用可能になり次第、Codexセッションを中断した場所から自動的に再開します。一時的なモデル容量の問題の後にも再開し、容量不足が続く場合は再試行間隔を広げます。"
+          }
+        }
+      }
+    },
     "settings.automation.rules.createFailed.title": {
       "extractionState": "manual",
       "localizations": {

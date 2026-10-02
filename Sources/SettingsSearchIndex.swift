@@ -167,6 +167,8 @@ enum SettingsSearchIndex {
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
+        setting(.automation, "subrouter-claude-recovery", String(localized: "settings.automation.subrouter.claude.title", defaultValue: "Claude Auto-Resume"), "subrouter sr quota recovery continue goal resume"),
+        setting(.automation, "subrouter-codex-recovery", String(localized: "settings.automation.subrouter.codex.title", defaultValue: "Codex Auto-Resume"), "subrouter sr quota provider capacity recovery continue goal resume"),
         setting(.automation, "pi", String(localized: "settings.automation.pi", defaultValue: "Pi Integration"), "pi agent hooks notifications"),
         setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
         setting(

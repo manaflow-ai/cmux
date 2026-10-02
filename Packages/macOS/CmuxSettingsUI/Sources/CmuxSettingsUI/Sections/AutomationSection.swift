@@ -29,6 +29,8 @@ public struct AutomationSection: View {
     @State private var portBaseModel: DefaultsValueModel<Int>
     @State private var portRangeModel: DefaultsValueModel<Int>
     @State private var socketPolicyResolution: SocketControlPolicyResolution
+    @State private var subrouterStatus: SubrouterAutoResumeStatus?
+    @State private var subrouterBusy = false
     @State private var socketPasswordDraft: String = ""
     @State private var socketPasswordStatus: SocketPasswordStatus?
     @State private var showOpenAccessConfirmation: Bool = false
@@ -91,6 +93,7 @@ public struct AutomationSection: View {
             SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation"), section: .automation)
             socketControlCard
             automationRulesCard
+            subrouterCard
             claudeCodeCard
             codexCard
             PiIntegrationCard(isEnabled: piModel.current, setEnabled: { piModel.set($0) })
@@ -144,11 +147,124 @@ public struct AutomationSection: View {
             await refreshAutomationRulesStatus()
         }
         .task {
+            await refreshSubrouterStatus()
+        }
+        .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 socketPolicyResolution = socketPolicyResolver.resolve()
             }
         }
     }
+    /// Subrouter auto-resume. Subrouter owns the on/off state and does the
+    /// resuming; this card shows whether it is installed and changes the
+    /// state through `sr auto-resume`, so it never overrides Subrouter.
+    @ViewBuilder
+    private var subrouterCard: some View {
+        let available = subrouterStatus?.availability == .available
+        SettingsCard {
+            SettingsCardRow(
+                String(localized: "settings.automation.subrouter.title", defaultValue: "Subrouter Auto-Resume"),
+                subtitle: String(
+                    localized: "settings.automation.subrouter.header.subtitle",
+                    defaultValue: "Resume a Claude or Codex session after its Subrouter pool has quota again. Codex also resumes after a temporary model-provider failure."
+                )
+            ) {
+                EmptyView()
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Image(systemName: available ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(available ? .green : .orange)
+                Text(subrouterStatusText)
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.secondary)
+                Button(subrouterBusy
+                    ? String(localized: "settings.automation.subrouter.checking", defaultValue: "Checking…")
+                    : String(localized: "settings.automation.subrouter.refresh", defaultValue: "Refresh")) {
+                    Task { await refreshSubrouterStatus() }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(subrouterBusy)
+                .accessibilityIdentifier("SettingsSubrouterRefreshButton")
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 8)
+            SettingsCardDivider()
+            subrouterAgentRow(
+                .claude,
+                title: String(localized: "settings.automation.subrouter.claude.title", defaultValue: "Claude Auto-Resume"),
+                subtitle: String(localized: "settings.automation.subrouter.claude.subtitle", defaultValue: "When enabled, automatically resume your Claude session where you left off as soon as your Claude pool has quota again."),
+                anchor: "setting:automation:subrouter-claude-recovery",
+                identifier: "SettingsSubrouterClaudeRecoveryToggle"
+            )
+            SettingsCardDivider()
+            subrouterAgentRow(
+                .codex,
+                title: String(localized: "settings.automation.subrouter.codex.title", defaultValue: "Codex Auto-Resume"),
+                subtitle: String(localized: "settings.automation.subrouter.codex.subtitle", defaultValue: "When enabled, automatically resume your Codex session where you left off as soon as your Codex pool has quota again. Also resumes after temporary model-capacity issues, with backoff when capacity remains unavailable."),
+                anchor: "setting:automation:subrouter-codex-recovery",
+                identifier: "SettingsSubrouterCodexRecoveryToggle"
+            )
+            if !available {
+                SettingsCardNote(String(
+                    localized: "settings.automation.subrouter.install",
+                    defaultValue: "Install or update Subrouter so the `sr` command is on PATH, then choose Refresh."
+                ))
+            }
+        }
+    }
+
+    private var subrouterStatusText: String {
+        switch subrouterStatus?.availability {
+        case nil:
+            String(localized: "settings.automation.subrouter.status.checking", defaultValue: "Checking for Subrouter…")
+        case .available:
+            String(localized: "settings.automation.subrouter.status.available", defaultValue: "Subrouter is installed and available.")
+        case .notInstalled:
+            String(localized: "settings.automation.subrouter.status.notInstalled", defaultValue: "Subrouter was not found on this Mac.")
+        case .unsupported:
+            String(localized: "settings.automation.subrouter.status.unsupported", defaultValue: "This Subrouter version has no auto-resume. Update Subrouter.")
+        case .failed(let message):
+            String(localized: "settings.automation.subrouter.status.failed", defaultValue: "Subrouter reported an error: \(message)")
+        }
+    }
+
+    @ViewBuilder
+    private func subrouterAgentRow(
+        _ agent: SubrouterAutoResumeAgent,
+        title: String,
+        subtitle: String,
+        anchor: String,
+        identifier: String
+    ) -> some View {
+        let available = subrouterStatus?.availability == .available
+        SettingsCardRow(searchAnchorID: anchor, title, subtitle: subtitle) {
+            Toggle("", isOn: Binding(
+                get: { subrouterStatus?.isEnabled(agent) ?? false },
+                set: { enabled in Task { await setSubrouterAutoResume(agent, enabled: enabled) } }
+            ))
+            .labelsHidden()
+            .controlSize(.small)
+            .disabled(!available || subrouterBusy)
+            .accessibilityIdentifier(identifier)
+        }
+    }
+
+    private func refreshSubrouterStatus() async {
+        guard !subrouterBusy else { return }
+        subrouterBusy = true
+        subrouterStatus = await hostActions.subrouterAutoResumeStatus()
+        subrouterBusy = false
+    }
+
+    private func setSubrouterAutoResume(_ agent: SubrouterAutoResumeAgent, enabled: Bool) async {
+        guard !subrouterBusy else { return }
+        subrouterBusy = true
+        subrouterStatus = await hostActions.setSubrouterAutoResume(agent, enabled: enabled)
+        subrouterBusy = false
+    }
+
     /// Thin native exposure of the existing JSON-backed automation engine.
     @ViewBuilder
     private var automationRulesCard: some View {
