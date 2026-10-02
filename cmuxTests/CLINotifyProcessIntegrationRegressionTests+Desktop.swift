@@ -45,6 +45,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotEqual(rejected.status, 0, "an unrecognizable --desktop value must be a usage error")
         XCTAssertTrue(rejected.stderr.contains("--desktop must be true|false"), rejected.stderr)
         XCTAssertEqual(createRequestLines(in: state).count, requestsBeforeRejection, "a rejected flag must not post anything")
+
+        let requestsBeforeMissingValue = createRequestLines(in: state).count
+        let missingValue = runNotify(cliPath: cliPath, socketPath: socketPath, home: home, arguments: ["--title", "Missing", "--desktop"])
+        XCTAssertNotEqual(missingValue.status, 0, "a missing --desktop value must be a usage error")
+        XCTAssertEqual(
+            createRequestLines(in: state).count,
+            requestsBeforeMissingValue,
+            "a missing --desktop value must not post anything"
+        )
     }
 
     /// `--desktop` has no effect with `--clear`, so its value is not validated
