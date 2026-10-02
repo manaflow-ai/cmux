@@ -1585,8 +1585,10 @@ impl PtyTerminalRuntime {
     }
 
     /// Applies the OSC 133 marks of the output just written to `term`. With
-    /// `recording` false (the default) marks are dropped and the tracker is
-    /// reset, so nothing is read from the screen.
+    /// `recording` false (the default) marks are dropped, any running command
+    /// is forgotten, and nothing is read from the screen. The command line
+    /// comes from Ghostty's semantic input cells, so a command typed before
+    /// recording turned on is still read whole at `C`.
     fn observe_shell_marks(
         &self,
         term: &mut Terminal,
@@ -1598,11 +1600,11 @@ impl PtyTerminalRuntime {
         }
         let mut tracker = self.command_tracker.lock().unwrap();
         if !recording() {
-            *tracker = crate::shell_history::CommandTracker::default();
+            tracker.reset();
             return Vec::new();
         }
-        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
         let mut screen = crate::shell_history::TerminalCommandScreen(term);
+        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
         marks.into_iter().filter_map(|mark| tracker.apply(mark, now_ms, &mut screen)).collect()
     }
 

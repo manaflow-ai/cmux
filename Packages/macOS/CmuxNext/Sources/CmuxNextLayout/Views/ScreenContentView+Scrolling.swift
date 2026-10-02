@@ -28,10 +28,23 @@ extension ScreenContentView {
     /// niri `center-column`. Returns true if the spring needs frames.
     @discardableResult
     func center(_ pane: PaneID, animated: Bool) -> Bool {
-        apply(scrollState.reduce(.center(pane, animated: animated && !context.reduceMotion)))
+        scrollbarFlash = true
+        return apply(scrollState.reduce(.center(pane, animated: animated && !context.reduceMotion)))
     }
 
     var acceptsHorizontalScroll: Bool { geometry.isColumns && geometry.maxOffset > 0.5 }
+
+    /// A horizontal scroll at `localPoint` scrolls the strip only over its
+    /// uncovered range; over a sticky column it stays with the pane.
+    func acceptsHorizontalScroll(at localPoint: NSPoint) -> Bool {
+        acceptsHorizontalScroll && uncoveredRect.contains(localPoint)
+    }
+
+    /// A scrollbar track click: rest on `offset` (ColumnScrollEvent.page).
+    func page(to offset: CGFloat) {
+        scrollbarFlash = true
+        apply(scrollState.reduce(.page(to: offset, animated: !context.reduceMotion)))
+    }
 
     func beginUserScroll() {
         scrollState.reduce(.gestureBegan)
@@ -39,16 +52,19 @@ extension ScreenContentView {
 
     func userScroll(deltaX: CGFloat, timestamp: TimeInterval) {
         scrollState.reduce(.gestureChanged(deltaX: deltaX, time: timestamp))
+        scrollbarFlash = true
         applyPresentation()
     }
 
     /// Ends a trackpad gesture: projects the fling and springs to a snap point.
     func endUserScroll(timestamp: TimeInterval) {
+        scrollbarFlash = true
         apply(scrollState.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion)))
     }
 
     /// One mouse wheel notch: move to the adjacent snap point.
     func discreteScroll(direction: Int) {
+        scrollbarFlash = true
         apply(scrollState.reduce(.wheel(direction: direction, animated: !context.reduceMotion)))
     }
 

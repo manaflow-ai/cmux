@@ -28,6 +28,9 @@ public final class LayoutModel {
     /// Pins the width of new columns (tests, the demo); nil follows cmux.json
     /// `layout.defaultColumnWidth` (see `defaultColumnWidth`).
     public var defaultColumnWidthOverride: Double?
+    /// Pins the strip scrollbar mode (tests, the demo); nil follows
+    /// cmux.json `layout.stripScrollbar`.
+    public var stripScrollbarOverride: StripScrollbarMode?
     /// niri `center-focused-column`: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
     public var centerFocusedColumn: CenterFocusedColumn {
@@ -313,7 +316,7 @@ public final class LayoutModel {
         }
     }
 
-    private func updateScreens(_ transform: (ScreenLayout) -> ScreenLayout) {
+    func updateScreens(_ transform: (ScreenLayout) -> ScreenLayout) {
         var next = screens
         for index in next.indices {
             next[index].layout = transform(next[index].layout)
@@ -347,7 +350,7 @@ public final class LayoutModel {
         if keepAlivePanes != keepAlive { keepAlivePanes = keepAlive }
     }
 
-    private func emit(_ intent: LayoutIntent) {
+    func emit(_ intent: LayoutIntent) {
         intentHandler?(intent)
     }
 }
