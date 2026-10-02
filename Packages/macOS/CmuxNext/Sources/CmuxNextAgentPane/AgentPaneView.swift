@@ -62,6 +62,14 @@ public final class AgentPaneView: NSView {
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
+        // The page paints its own background with the theme's opacity;
+        // WebKit's opaque backing would hide a translucent window's backdrop.
+        // macOS has no public switch, so this uses WebKit's
+        // `_setDrawsBackground:` SPI through KVC, checked first (as
+        // `WebKitTab` does); without it the pane keeps WebKit's backing.
+        if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
+            webView.setValue(false, forKey: "drawsBackground")
+        }
         #if DEBUG
         // Web Inspector and profiling for the pane (debug.agent_pane).
         webView.isInspectable = true

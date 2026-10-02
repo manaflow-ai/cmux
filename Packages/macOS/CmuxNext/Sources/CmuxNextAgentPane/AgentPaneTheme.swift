@@ -12,12 +12,16 @@ enum AgentPaneTheme {
         let page = tokens.contentBackground
         var opaquePage = page
         opaquePage.alpha = 1
+        // The field sits on the page; it keeps the page's opacity so a
+        // translucent window's backdrop shows through it too.
+        var field = tokens.hoverFill.composited(over: opaquePage)
+        field.alpha = page.alpha
         return [
             "isDark": tokens.isDark,
             "pageBackground": css(page),
             "surfaceBackground": css(page),
             "surfaceElevatedBackground": css(tokens.elevatedBackground),
-            "inputBackground": css(tokens.hoverFill.composited(over: page)),
+            "inputBackground": css(field),
             "border": css(tokens.separator),
             "borderStrong": css(tokens.paneBorder),
             "text": css(tokens.textPrimary),
