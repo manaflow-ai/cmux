@@ -46,6 +46,8 @@ export function DiffPanel({
   onClose,
   source,
   onOpenFile,
+  checkpointAction,
+  checkpointReview,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -53,6 +55,8 @@ export function DiffPanel({
   source?: ChangesSource;
   /// Asks the host to open a changed file; rejects with the host's reason when it can't.
   onOpenFile?: (path: string, where: OpenTarget) => Promise<unknown>;
+  checkpointAction?: React.ReactNode;
+  checkpointReview?: React.ReactNode;
 }) {
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
@@ -229,6 +233,7 @@ export function DiffPanel({
           {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
         </ScopeMenu>
         <div className="acpmux-diff-tools" role="toolbar" aria-label="Changes view">
+          {checkpointAction}
           {tools.map((tool) => (
             <button
               key={tool.id}
@@ -250,6 +255,7 @@ export function DiffPanel({
           {openFailure}
         </div>
       )}
+      {checkpointReview}
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">
           {scopeState ? (

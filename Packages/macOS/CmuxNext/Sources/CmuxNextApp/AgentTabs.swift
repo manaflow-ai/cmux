@@ -45,8 +45,11 @@ final class AgentTabStore {
     /// The app shortcuts every agent page shows, kept current on rebinds.
     private var shortcuts = AgentPaneShortcuts()
     private var shortcutObservation: Task<Void, Never>?
+    private weak var actionRegistry: ActionRegistry?
+    private var checkpointFocusTab: String?
 
     init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment) {
+        actionRegistry = registry
         if environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
             host = MockAgentPaneHost()
         } else {
@@ -133,6 +136,7 @@ final class AgentTabStore {
         guard tabsByPane.values.contains(where: { $0.contains(key) }) else { return nil }
         let model = AgentPaneModel(host: host, sessionId: sessions[key], seed: seeds.removeValue(forKey: key))
         model.onSessionChange = { [weak self] session in self?.sessions[key] = session }
+        model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
         view.shortcuts = shortcuts
@@ -142,6 +146,20 @@ final class AgentTabStore {
     }
 
     func existingView(_ key: String) -> AgentPaneView? { views[key] }
+
+    /// Focus changes and the page's capability mirror update one registry fact.
+    func setCheckpointFocus(_ key: String?) {
+        checkpointFocusTab = key
+        publishCheckpointAvailability()
+    }
+    private func publishCheckpointAvailability() {
+        guard let registry = actionRegistry else { return }
+        let available = checkpointFocusTab.flatMap { views[$0] }?.model.checkpointAvailable == true
+        var next = registry.context
+        if available { next.insert(.checkpointCaptureAvailable) }
+        else { next.remove(.checkpointCaptureAvailable) }
+        if next != registry.context { registry.context = next }
+    }
 
     /// The tab closed: stop its page and forget it.
     func close(_ key: String) {
