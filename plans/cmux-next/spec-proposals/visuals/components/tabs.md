@@ -87,7 +87,7 @@ Resolved for Apple System dark: fade primary `#B0B0B0`, selection `#FFFFFF11`; t
 
 ## Tab hover card
 
-Glass panel, padding 12, thumbnail tabMaxWidth × round(tabMaxWidth·10/16) radius itemCornerRadius on hoverFill, title bodyEmphasized textPrimary, subtitle caption textSecondary. Delay 0.3 s over the narrowest tabs to 0.8 s over full-width tabs; re-show window 0.7 s; slide spring panel; appear 0.12 s; hide 0.08 s (`TabHoverCardView.swift (TabHoverCardView)`, `TabTunables.swift:49-54 (TabTunables.hoverCardMinimumDelay, hoverCardMaximumDelay)`). Material target: the overlay fallbacks in [design-tokens.md](../design-tokens.md#4-materials); the shared panel calls `Glass.makePanel` directly today (code fix in progress in a separate lane). UNVERIFIED screenshot (same reason as the sidebar hover card).
+Glass panel, padding 12, thumbnail tabMaxWidth × round(tabMaxWidth·10/16) radius itemCornerRadius on hoverFill, title bodyEmphasized textPrimary, subtitle caption textSecondary. Delay 0.3 s over the narrowest tabs to 0.8 s over full-width tabs; re-show window 0.7 s; slide spring panel; appear 0.12 s; hide 0.08 s (`TabHoverCardView.swift (TabHoverCardView)`, `TabTunables.swift:49-54 (TabTunables.hoverCardMinimumDelay, hoverCardMaximumDelay)`). Material: the overlay fallbacks in [design-tokens.md](../design-tokens.md#4-materials), through `Glass.makeOverlayPanel`. UNVERIFIED screenshot (same reason as the sidebar hover card).
 
 ## Drag
 

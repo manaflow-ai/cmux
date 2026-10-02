@@ -27,7 +27,7 @@ Width paletteWidth (640/720). Search field height 44/52, search font 16/18 regul
 
 Motion: opens from scale 0.97 (spring appear) with a 0.12 s fade; closes to 0.98 with a 0.08 s fade.
 
-Materials (target): macOS 26+ Liquid Glass; vibrancy (.popover) with the glassTint layer and a 1/scale separator border where Liquid Glass is missing; Reduce Transparency opaque mix(window, textPrimary, 0.14) with an opaque separator border (`CmuxNextDesign/OverlaySurface.swift (OverlayMaterial, OverlaySurfaceView)`). Today the panel, its actions menu and its shortcut recorder call `Glass.makePanel` directly, so Reduce Transparency shows system Liquid Glass instead of the opaque fallback. A code fix is in progress in a separate lane.
+Materials: macOS 26+ Liquid Glass; vibrancy (.popover) with the glassTint layer and a 1/scale separator border where Liquid Glass is missing; Reduce Transparency opaque mix(window, textPrimary, 0.14) with an opaque separator border (`CmuxNextDesign/OverlaySurface.swift (OverlayMaterial, OverlaySurfaceView)`).
 
 UNVERIFIED: palette row hover screenshot (`debug.mouse` targets the main window, not the panel); light palette screenshot (the panel was captured while not on screen, so Liquid Glass sampled no backdrop and rendered gray; the dark capture is also missing real backdrop sampling). Capture both with the window on a visible test screen.
 
