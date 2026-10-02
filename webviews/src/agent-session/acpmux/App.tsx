@@ -1,7 +1,7 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
-import type { Token } from "marked";
+import type { Token, Tokens } from "marked";
 import { applyAgentTheme } from "../shared/theme";
 import { diffRows, layoutConversation, markdownBlocks, placeRows, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
@@ -58,12 +58,18 @@ function renderInline(tokens: Token[] | undefined, fallback: string): React.Reac
   });
 }
 
+/// `listHeight` in model.ts measures the same items: inline text, then any nested list.
+function MarkdownList({ list }: { list: Tokens.List }) {
+  const items = list.items.map((item, index) => <li key={index}>{item.tokens.map((token, tokenIndex) => token.type === "list" ? <MarkdownList key={tokenIndex} list={token as Tokens.List} /> : <React.Fragment key={tokenIndex}>{renderInline([token], "")}</React.Fragment>)}</li>);
+  return list.ordered ? <ol start={typeof list.start === "number" && list.start !== 1 ? list.start : undefined}>{items}</ol> : <ul>{items}</ul>;
+}
+
 function MarkdownBlocks({ source }: { source: string }) {
   return <>{markdownBlocks(source).map((token, index) => {
     if (token.type === "code") return <pre key={index}><code>{token.text}</code></pre>;
     if (token.type === "heading") return <div className={`acpmux-heading acpmux-heading-${token.depth}`} key={index}>{renderInline(token.tokens, token.text)}</div>;
     if (token.type === "paragraph" || token.type === "text") return <p key={index}>{renderInline(token.tokens, token.text)}</p>;
-    if (token.type === "list") return <ul key={index}>{token.items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item.tokens, item.text)}</li>)}</ul>;
+    if (token.type === "list") return <MarkdownList key={index} list={token as Tokens.List} />;
     if (token.type === "blockquote") return <blockquote key={index}>{renderInline(token.tokens, token.text)}</blockquote>;
     if (token.type === "hr") return <hr key={index} />;
     return <p key={index}>{token.raw}</p>;
