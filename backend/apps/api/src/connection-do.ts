@@ -41,6 +41,9 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("base64url")
  * a retry with the same key replays the stored reply, and a key whose call
  * was cut off answers `mutation.indeterminate` instead of calling twice.
  */
+/** An SSO or MDM lock, which TeamPolicy never replaces. */
+const managedBy = (source: string): "sso" | "mdm" | null => (source === "sso" || source === "mdm" ? source : null)
+
 export class ConnectionDO extends OwnerDO<ConnectionsState> {
   /** Provider HTTP. Tests replace it on the live instance. */
   http: Http = (r) => fetch(r)
@@ -182,7 +185,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
    * team_policy, so from then on only TeamDO's pushes change them (review P1-1).
    * Idempotent: a repeated call replays the lock and returns the locked values.
    */
-  async adoptIntegrationPolicy(team: string): Promise<{ ok: true; policy: { allowed_providers: ReadonlyArray<string> | null; github: { scope: string; require_org_admin: boolean; repo_allowlist: ReadonlyArray<string> | null } } } | { ok: false; message: string }> {
+  async adoptIntegrationPolicy(team: string): Promise<{ ok: true; policy: { allowed_providers: ReadonlyArray<string> | null; github: { scope: string; require_org_admin: boolean; repo_allowlist: ReadonlyArray<string> | null } }; managed_by: "sso" | "mdm" | null } | { ok: false; message: string }> {
     const engine = this.bind(team)
     const fields = (p: ReturnType<typeof policyOf>) => ({
       allowed_providers: p.allowed_providers,
@@ -192,7 +195,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const res = this.submitSystem("integration.policy.apply_managed", { source: "team_policy", policy: current, applied_by: "team_policy:adopt" }, `integration-adopt:${team}`)
     const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
     if (rej) return { ok: false, message: rej.message }
-    return { ok: true, policy: fields(policyOf(engine.currentState)) }
+    const held = policyOf(engine.currentState)
+    return { ok: true, policy: fields(held), managed_by: managedBy(held.source) }
   }
 
   /**
@@ -200,11 +204,11 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
    * this projection (spec/enterprise.md 4.6). Idempotent by key; a newer
    * version always carries the full slice.
    */
-  async applyTeamPolicy(team: string, params: { policy: unknown; applied_by: string }, idempotencyKey: string): Promise<{ ok: boolean; message?: string }> {
-    this.bind(team)
+  async applyTeamPolicy(team: string, params: { policy: unknown; applied_by: string }, idempotencyKey: string): Promise<{ ok: boolean; message?: string; managed_by: "sso" | "mdm" | null }> {
+    const engine = this.bind(team)
     const res = this.submitSystem("integration.policy.apply_managed", { source: "team_policy", ...params }, idempotencyKey)
     const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
-    return rej ? { ok: false, message: rej.message } : { ok: true }
+    return rej ? { ok: false, message: rej.message, managed_by: null } : { ok: true, managed_by: managedBy(policyOf(engine.currentState).source) }
   }
 
   async external(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string; redirect_uri?: string; state?: { conn: string; provider: string } }): Promise<ExternalReply> {

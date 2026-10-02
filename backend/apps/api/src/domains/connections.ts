@@ -196,6 +196,10 @@ export const connectionsDomain: Domain<ConnectionsState> = {
       case "integration.policy.apply_managed": {
         const d = decodeParams<{ source: "sso" | "mdm" | "team_policy"; policy: PolicyFields; applied_by: string }>(internalByName.get(op)!, params)
         if (!d.ok) return d
+        // SSO- and MDM-managed locks always win over TeamPolicy (decision, consistent with E2):
+        // a team_policy push or adopt leaves them as they are; TeamDO reports the conflict.
+        const held = policyOf(state)
+        if (d.value.source === "team_policy" && (held.source === "sso" || held.source === "mdm")) return { ok: true, state, value: held, changed: false }
         // A managed policy starts from the default (not from admin edits) and locks.
         const next = merged(DEFAULT_INTEGRATION_POLICY, d.value.policy, d.value.source, d.value.applied_by, ctx.now)
         return { ok: true, state: { ...state, policy: next }, value: next }

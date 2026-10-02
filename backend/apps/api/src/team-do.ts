@@ -33,7 +33,8 @@ export class TeamDO extends OwnerDO<TeamState> {
         if (p.version !== undefined && (typeof p.version !== "number" || !Number.isInteger(p.version))) return { ok: false, code: "validation.invalid", message: "version must be an integer" }
         const policy = policyAt(state, p.version as number | undefined)
         if (!policy) return { ok: false, code: "selector.not_found", message: `policy version ${String(p.version)} is not retained` }
-        return { ok: true, value: { team: state.team?.id, policy }, revision: "" }
+        // integration_managed_by: ConnectionDO holds an SSO or MDM lock that overrides TeamPolicy's integration keys (E2).
+        return { ok: true, value: { team: state.team?.id, policy, integration_managed_by: state.integration_managed_by ?? null }, revision: "" }
       }
       case "team.policy.history": {
         if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may read policy history" }
@@ -86,18 +87,19 @@ export class TeamDO extends OwnerDO<TeamState> {
     const stub = this.env.CONNECTION_DO.get(this.env.CONNECTION_DO.idFromName(team))
     try {
       if (!state.integration_seeded) {
-        const adopted = (await stub.adoptIntegrationPolicy(team)) as { ok: true; policy: IntegrationFields } | { ok: false; message: string }
+        const adopted = (await stub.adoptIntegrationPolicy(team)) as { ok: true; policy: IntegrationFields; managed_by: "sso" | "mdm" | null } | { ok: false; message: string }
         if (!adopted.ok) throw new Error(`adopt refused: ${adopted.message}`)
-        this.requireCommitted(this.submitSystem("team.policy.integration_seed", { policy: adopted.policy }, `integration-seed:v2:${team}`))
+        this.requireCommitted(this.submitSystem("team.policy.integration_seed", { policy: adopted.policy, managed_by: adopted.managed_by }, `integration-seed:v2:${team}`))
         state = this.boundEngine!.currentState
         if (!state.integration_seeded) throw new Error("seed did not commit")
         if (!integrationSyncPending(state)) return this.resetSyncBackoff()
       }
       const policy = currentPolicy(state)
       const slice = integrationSlice(policy.values)
-      const r = (await stub.applyTeamPolicy(team, { policy: slice, applied_by: `team_policy:v${policy.version}` }, `team-policy:v2:${team}:v${policy.version}`)) as { ok: boolean; message?: string }
+      const r = (await stub.applyTeamPolicy(team, { policy: slice, applied_by: `team_policy:v${policy.version}` }, `team-policy:v2:${team}:v${policy.version}`)) as { ok: boolean; message?: string; managed_by: "sso" | "mdm" | null }
       if (!r.ok) throw new Error(r.message ?? "refused")
-      this.requireCommitted(this.submitSystem("team.policy.integration_synced", { version: policy.version, slice_hash: sliceHash(slice) }, `integration-synced:v2:${policy.version}`))
+      // Under an SSO or MDM lock nothing changed in ConnectionDO; the version is still settled (no retry loop) and reported.
+      this.requireCommitted(this.submitSystem("team.policy.integration_synced", { version: policy.version, slice_hash: sliceHash(slice), managed_by: r.managed_by }, `integration-synced:v3:${policy.version}`))
       this.resetSyncBackoff()
     } catch (e) {
       this.syncAttempts += 1

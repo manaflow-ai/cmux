@@ -361,7 +361,10 @@ describe("team policy over the API (workerd)", () => {
     const team = (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.team as string
     const managed = { allowed_providers: null, github: { scope: "linking_user_repos", require_org_admin: true, repo_allowlist: ["acme/api"] } }
     // Nothing writes SSO locks yet: commit one through ConnectionDO's own system op.
-    await runInDurableObject(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team)), async (instance: any) => {
+    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team)) as unknown as DurableObjectStub
+    // Untyped on purpose: the generic signature over ConnectionDO's RPC types is too deep for tsc.
+    const inDO: (stub: DurableObjectStub, fn: (instance: any) => Promise<void>) => Promise<void> = runInDurableObject as any
+    await inDO(connections, async (instance) => {
       instance.bind(team)
       const res = instance.submitSystem("integration.policy.apply_managed", { source: "sso", policy: managed, applied_by: "ssoc_test" }, "sso-lock-1")
       expect(res.frames.some((f: any) => f.t === "reject")).toBe(false)
