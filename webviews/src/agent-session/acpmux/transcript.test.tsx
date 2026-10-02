@@ -1249,6 +1249,106 @@ describe("acpmux turn diff", () => {
     }
   });
 
+  test("an open's failure gives way to a later open or another scope, and a deleted file offers no open", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window & {
+      cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    };
+    const document = dom.window.document;
+    const opens: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = [];
+    host.cmuxAcpmuxActions = {
+      "file.open": () => new Promise((resolve, reject) => opens.push({ resolve, reject })),
+      "git.scope.diff": () =>
+        Promise.resolve({
+          scope: "uncommitted",
+          root: "/repo",
+          files: [
+            { path: "src/main.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+A\n" },
+            { path: "src/old.ts", status: "deleted", additions: 0, deletions: 1, patch: "@@ -1 +0,0 @@\n-gone\n" },
+          ],
+        }),
+    };
+    const diffRow: AcpmuxRow = {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      toolCount: 1,
+      items: [
+        {
+          kind: "tool",
+          text: "Write notes.md",
+          tool: {
+            id: "t2",
+            title: "Write notes.md",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/notes.md", newText: "hello\n" }],
+          },
+        },
+      ],
+    };
+    const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const click = async (node: Element) => {
+      await act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+      await settle();
+    };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow],
+          sessions: [],
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        }),
+      );
+      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
+      const notice = () => panel.querySelector('.acpmux-diff-notice[role="alert"]');
+      const tab = panel.querySelector<HTMLElement>('[aria-label="Open notes.md in a tab"]')!;
+      const editor = panel.querySelector<HTMLElement>('[aria-label="Open notes.md in the editor"]')!;
+      // A slow open that fails after a later one worked says nothing: the file is open.
+      await click(tab);
+      await click(editor);
+      opens[1].resolve(null);
+      await settle();
+      opens[0].reject(new Error("The file could not be opened."));
+      await settle();
+      expect(notice()).toBeNull();
+      // A failure shows until another scope replaces the files it was about.
+      await click(tab);
+      opens[2].reject(new Error("The file could not be opened."));
+      await settle();
+      expect(notice()?.textContent).toBe("The file could not be opened.");
+      await click(panel.querySelector('.acpmux-diff-header [aria-haspopup="menu"]')!);
+      await click(
+        [...panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+          (node) => node.textContent === "Uncommitted",
+        )!,
+      );
+      expect(panel.querySelector('[aria-label="Open src/main.ts in a tab"]')).not.toBeNull();
+      expect(notice()).toBeNull();
+      // A deleted file has nothing on disk to open.
+      expect(panel.querySelector('[aria-label="Open src/old.ts in a tab"]')).toBeNull();
+      expect(panel.querySelector('[aria-label="Open src/old.ts in the editor"]')).toBeNull();
+      await click(panel.querySelector('[aria-label="More actions for src/old.ts"]')!);
+      const items = [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((node) => node.textContent);
+      expect(items).toEqual(["Copy path", "Collapse file"]);
+    } finally {
+      await act(async () => root.unmount());
+      delete host.cmuxAcpmuxActions;
+      delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
+    }
+  });
+
   test("a file header keeps focus as its file folds, the tree opens a folded file, and Escape leaves the filter alone", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const host = dom.window as unknown as Window;
