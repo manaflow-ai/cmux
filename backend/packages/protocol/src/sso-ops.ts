@@ -16,15 +16,22 @@ export const EmailDomain = Schema.String.check(
 
 export const TeamDomain = Schema.Struct({
   domain: EmailDomain,
-  /** lost: TeamDO thought the team owned the domain, but DomainDO refused it on a re-check. */
-  state: Schema.Literals(["pending", "verified", "lost"]),
+  /**
+   * lost: DomainDO refused a re-check (another team owns it). lapsed: the weekly
+   * DNS re-check failed three times; discovery stops and DomainDO frees the
+   * domain, but nobody is unlinked; verifying again restores it.
+   */
+  state: Schema.Literals(["pending", "verified", "lost", "lapsed"]),
   /** The TXT record to publish: name and value. */
   record_name: Schema.String,
   record_value: Schema.String,
   requested_at: Schema.Int,
   /** A pending claim expires; claiming again issues a new value. */
   expires_at: Schema.Int,
-  verified_at: Schema.NullOr(Schema.Int)
+  verified_at: Schema.NullOr(Schema.Int),
+  /** Weekly re-check of a verified domain (spec 3.4). */
+  last_checked_at: Schema.optionalKey(Schema.Int),
+  check_failures: Schema.optionalKey(Schema.Int)
 }).annotate({ identifier: "TeamDomain" })
 
 export const DomainClaim = def({

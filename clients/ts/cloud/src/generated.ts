@@ -404,12 +404,14 @@ export type TargetPolicy = {
 
 export type TeamDomain = {
   readonly domain: EmailDomain
-  readonly state: "pending" | "verified" | "lost"
+  readonly state: "pending" | "verified" | "lost" | "lapsed"
   readonly record_name: string
   readonly record_value: string
   readonly requested_at: number
   readonly expires_at: number
   readonly verified_at: number | null
+  readonly last_checked_at?: number
+  readonly check_failures?: number
 }
 
 /** A team; a personal account is a team of one. */

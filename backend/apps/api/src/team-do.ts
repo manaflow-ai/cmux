@@ -6,7 +6,8 @@ import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { complianceFor, devicePolicyFor, publicToken } from "./domains/team-enrollment.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
-import { domainExternal, type DomainReply, type Http } from "./team-domain-external.ts"
+import { domainExternal, RESOLVERS, txtAnswers, type DomainReply, type Http } from "./team-domain-external.ts"
+import { nextRecheckAt, txtContains } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 
@@ -79,8 +80,10 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6). */
   protected override nextWakeAt(state: TeamState, now: number): number | null {
-    if (!state.team || (!integrationSyncPending(state) && !releasePending(state))) return null
-    return Math.max(now, this.syncRetryAt ?? now)
+    if (!state.team) return null
+    const recheck = nextRecheckAt(state)
+    const sync = integrationSyncPending(state) || releasePending(state) ? Math.max(now, this.syncRetryAt ?? now) : null
+    return sync === null ? recheck : recheck === null ? sync : Math.min(sync, recheck)
   }
 
   /**
@@ -90,6 +93,7 @@ export class TeamDO extends OwnerDO<TeamState> {
    * version, synced by version and hash), so a crash between steps replays.
    */
   protected override async onWake(now: number): Promise<void> {
+    await this.recheckDomains(now)
     const engine = this.boundEngine
     let state = engine?.currentState
     if (!state?.team || (!integrationSyncPending(state) && !releasePending(state))) return
@@ -129,6 +133,25 @@ export class TeamDO extends OwnerDO<TeamState> {
       this.syncAttempts += 1
       this.syncRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.syncAttempts)
       throw e
+    }
+  }
+
+  /**
+   * Weekly DNS re-check of verified domains (spec 3.4). Every attempt records
+   * its time, so a failing resolver cannot spin the alarm. On the third failure
+   * DomainDO frees the domain first (so a new owner can verify), then the
+   * domain becomes lapsed.
+   */
+  private async recheckDomains(now: number) {
+    const state = this.boundEngine?.currentState
+    if (!state?.team) return
+    const team = state.team.id
+    const due = Object.values(state.domains ?? {}).filter((d) => d.state === "verified" && (d.last_checked_at ?? d.verified_at ?? d.requested_at) + 7 * 86_400_000 <= now)
+    for (const d of due.slice(0, 5)) {
+      const results = await Promise.all(RESOLVERS.map((r) => txtAnswers(this.http, r(d.record_name))))
+      const ok = results.every((answers) => txtContains(answers, d.record_value))
+      if (!ok && (d.check_failures ?? 0) + 1 >= 3) await this.env.DOMAIN_DO.get(this.env.DOMAIN_DO.idFromName(d.domain)).release(team)
+      this.submitSystem("domain.rechecked", { domain: d.domain, record_value: d.record_value, ok, at: now }, `domain-recheck:${d.domain}:${now}`)
     }
   }
 

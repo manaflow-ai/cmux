@@ -2,7 +2,7 @@ import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
-import { reduceDomainClaim, reduceDomainLost, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
+import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
 import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduceSecretSet, type SsoState } from "./team-sso.ts"
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
 import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, reduceReleaseDone, reduceReleaseLock, type IntegrationSyncState } from "./team-integration-sync.ts"
@@ -123,6 +123,10 @@ export const teamDomain: Domain<TeamState> = {
       case "sso.connection.activated": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
         return withAudit(op === "sso.connection.secret_set" ? reduceSecretSet(state, params, ctx) : reduceActivated(state, params, ctx), state.team.id, ctx, op)
+      }
+      case "domain.rechecked": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        return withAudit(reduceDomainRechecked(state, params), state.team.id, ctx, op)
       }
       case "domain.mark_verified":
       case "domain.mark_released":

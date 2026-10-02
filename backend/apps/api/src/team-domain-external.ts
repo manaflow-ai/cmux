@@ -26,7 +26,7 @@ export const RESOLVERS = [
 ]
 
 /** TXT strings for `name` from one DNS-over-HTTPS resolver (empty on any failure). */
-const txtAnswers = async (http: Http, request: Request): Promise<Array<string>> => {
+export const txtAnswers = async (http: Http, request: Request): Promise<Array<string>> => {
   try {
     const res = await http(request)
     if (!res.ok) return []
@@ -103,7 +103,7 @@ export const domainExternal = async (
   }
   const owned = await deps.domainStub(domain).claim(domain, deps.team, deps.now)
   if (!owned.ok) return fail("domain.taken", `${domain} is verified by another team`)
-  const reply = commit("domain.mark_verified", { domain, record_value: claim.record_value, verified_at: owned.verified_at, by }, `domain-verified:${domain}:${claim.record_value}`)
+  const reply = commit("domain.mark_verified", { domain, record_value: claim.record_value, verified_at: owned.verified_at, by }, `domain-verified:${domain}:${claim.record_value}:${claim.state}:${claim.last_checked_at ?? 0}`)
   // The claim changed while DNS was checked (released, or re-claimed with a new value): undo DomainDO,
   // so it never owns a domain TeamDO does not claim (review P1-a).
   if (!reply.ok) await deps.domainStub(domain).release(deps.team)

@@ -2361,7 +2361,8 @@
             "values": [
               "pending",
               "verified",
-              "lost"
+              "lost",
+              "lapsed"
             ]
           }
         },
@@ -2401,6 +2402,20 @@
               "kind": "primitive",
               "name": "int64"
             }
+          }
+        },
+        "last_checked_at": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "check_failures": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
           }
         }
       }
@@ -8807,7 +8822,8 @@
                 "enum": [
                   "pending",
                   "verified",
-                  "lost"
+                  "lost",
+                  "lapsed"
                 ]
               },
               "record_name": {
@@ -8831,6 +8847,12 @@
                     "type": "null"
                   }
                 ]
+              },
+              "last_checked_at": {
+                "type": "integer"
+              },
+              "check_failures": {
+                "type": "integer"
               }
             },
             "required": [
@@ -8968,7 +8990,8 @@
                 "enum": [
                   "pending",
                   "verified",
-                  "lost"
+                  "lost",
+                  "lapsed"
                 ]
               },
               "record_name": {
@@ -8992,6 +9015,12 @@
                     "type": "null"
                   }
                 ]
+              },
+              "last_checked_at": {
+                "type": "integer"
+              },
+              "check_failures": {
+                "type": "integer"
               }
             },
             "required": [
@@ -9239,7 +9268,8 @@
                 "enum": [
                   "pending",
                   "verified",
-                  "lost"
+                  "lost",
+                  "lapsed"
                 ]
               },
               "record_name": {
@@ -9263,6 +9293,12 @@
                     "type": "null"
                   }
                 ]
+              },
+              "last_checked_at": {
+                "type": "integer"
+              },
+              "check_failures": {
+                "type": "integer"
               }
             },
             "required": [

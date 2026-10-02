@@ -70,6 +70,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
   ],
+  [
+    "domain.rechecked",
+    {
+      name: "domain.rechecked",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "team",
+      principals: ["system"],
+      params: Schema.Struct({ domain: Schema.String, record_value: Schema.String, ok: Schema.Boolean, at: Schema.Number }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: one weekly DNS re-check of a verified domain.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
   ...(["sso.connection.secret_set", "sso.connection.activated"] as const).map(
     (name) =>
       [
