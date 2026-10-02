@@ -7,8 +7,8 @@
 use std::collections::BTreeMap;
 
 use cmux_server_core::health::{
-    AlertKey, AlertSet, BackupFacts, DiskFacts, Facts, HostId, InhibitFacts, LockFacts, Post, PowerFacts,
-    PowerSource, QuotaUsage, Severity, reduce,
+    AlertKey, AlertSet, BackupFacts, DiskFacts, Facts, HostId, InhibitFacts, LockFacts, Post,
+    PowerFacts, PowerSource, QuotaUsage, Severity, reduce,
 };
 use cmux_server_core::{InstallMode, Platform};
 use proptest::prelude::*;
@@ -125,7 +125,11 @@ fn hid() -> HostId {
 }
 
 fn fresh_backup(now_ms: u64) -> BackupFacts {
-    BackupFacts { cluster_created_at_ms: 0, last_base_backup_at_ms: Some(now_ms), wal_failing_since_ms: None }
+    BackupFacts {
+        cluster_created_at_ms: 0,
+        last_base_backup_at_ms: Some(now_ms),
+        wal_failing_since_ms: None,
+    }
 }
 
 /// Replaces every unknown fact with its healthy known value.
@@ -213,7 +217,9 @@ proptest! {
         let (end, posts) = reduce(&state, &healthy, end_ms);
         apply(&mut open, &posts)?;
         prop_assert!(open.is_empty(), "{:?}", open);
-        prop_assert!(end.is_empty() && end.pending().is_empty() && end.wake_at_ms().is_none());
+        prop_assert!(end.is_empty() && end.pending().is_empty());
+        // The only deadline left is the fresh backup going stale in 48 h.
+        prop_assert_eq!(end.wake_at_ms(), Some(end_ms + 48 * HOUR));
         let all_resolves = posts.iter().all(|p| matches!(p, Post::Resolve { .. }));
         prop_assert!(all_resolves, "{:?}", posts);
     }

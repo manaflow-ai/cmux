@@ -216,7 +216,8 @@ pub struct HostId(String);
 impl HostId {
     pub fn parse(id: &str) -> Option<HostId> {
         let rest = id.strip_prefix("host_").or_else(|| id.strip_prefix("inst_"))?;
-        let ok = !rest.is_empty() && rest.len() <= 64 && rest.bytes().all(|b| b.is_ascii_alphanumeric());
+        let ok =
+            !rest.is_empty() && rest.len() <= 64 && rest.bytes().all(|b| b.is_ascii_alphanumeric());
         ok.then(|| HostId(id.to_owned()))
     }
 

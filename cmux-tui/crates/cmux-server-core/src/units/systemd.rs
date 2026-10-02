@@ -130,7 +130,10 @@ pub fn systemd_update_service_unit(layout: &Layout) -> Result<String, UnitError>
     linux_system(layout)?;
     let exec = exec_path(layout)?;
     let root = layout.root.as_str();
-    if root.chars().any(|c| c.is_control() || c.is_whitespace() || matches!(c, '"' | '\\' | '$' | '%')) {
+    if root
+        .chars()
+        .any(|c| c.is_control() || c.is_whitespace() || matches!(c, '"' | '\\' | '$' | '%'))
+    {
         return Err(UnitError::UnsafePath("root"));
     }
     Ok(format!(
@@ -162,7 +165,10 @@ pub fn systemd_app_server_template(layout: &Layout) -> Result<String, UnitError>
     linux_system(layout)?;
     let exec = exec_path(layout)?;
     let state = layout.state.as_str();
-    if state.chars().any(|c| c.is_control() || c.is_whitespace() || matches!(c, '"' | '\\' | '$' | '%')) {
+    if state
+        .chars()
+        .any(|c| c.is_control() || c.is_whitespace() || matches!(c, '"' | '\\' | '$' | '%'))
+    {
         return Err(UnitError::UnsafePath("state"));
     }
     Ok(format!(

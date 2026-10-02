@@ -1,7 +1,7 @@
 //! Health reducer cases for each check of server.md 9.3, and fix data.
 
 use cmux_server_core::health::{
-    AlertKey, AlertSet, BackupFacts, CheckId, HostId, DiskFacts, FIXES, Facts, FixError, FixValues,
+    AlertKey, AlertSet, BackupFacts, CheckId, DiskFacts, FIXES, Facts, FixError, FixValues, HostId,
     InhibitFacts, LockFacts, Post, PowerFacts, PowerSource, QuotaUsage, Severity, fixes_for,
     reduce, render_argv,
 };
@@ -47,11 +47,11 @@ fn battery_waits_60s_then_escalates_and_resolves() {
     let (s3, p3) = reduce(&s2, &f, 61_000);
     assert_eq!(p3.len(), 1);
     assert_eq!(notify(&p3[0]), ("server:host_1:power.onBattery", Severity::Warning));
-    let Post::Notify { title_key, fixes, check, subject, host, .. } = &p3[0] else {
+    let Post::Notify { title_key, fixes, check, subject, host_id, .. } = &p3[0] else {
         unreachable!()
     };
     assert_eq!(title_key, "server.health.power.onBattery.title");
-    assert_eq!((*check, subject, host.as_str()), (CheckId::PowerOnBattery, &None, "host_1"));
+    assert_eq!((*check, subject, host_id.as_str()), (CheckId::PowerOnBattery, &None, "host_1"));
     assert!(fixes.is_empty(), "plug in: no fix");
 
     f.power = on_battery(19);
@@ -365,7 +365,8 @@ fn fix_descriptors_are_well_formed() {
 
 #[test]
 fn windows_fix_uses_the_system_powercfg() {
-    let fix = fixes_for(CheckId::SleepEnabled, Platform::Windows, InstallMode::System).next().unwrap();
+    let fix =
+        fixes_for(CheckId::SleepEnabled, Platform::Windows, InstallMode::System).next().unwrap();
     assert_eq!(
         render_argv(fix, &FixValues::default()).unwrap()[0],
         r"C:\Windows\System32\powercfg.exe"

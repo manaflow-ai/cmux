@@ -90,7 +90,11 @@ fn posix(path: HostPath, owner: PosixOwner, group: Option<&'static str>, mode: u
     PathAccess { path, access: Access::Posix { owner, group, mode }, no_symlink: true }
 }
 
-fn windows(path: HostPath, owner: WinPrincipal, entries: &[(WinPrincipal, WinRights)]) -> PathAccess {
+fn windows(
+    path: HostPath,
+    owner: WinPrincipal,
+    entries: &[(WinPrincipal, WinRights)],
+) -> PathAccess {
     let entries = entries.iter().map(|&(principal, rights)| Ace { principal, rights }).collect();
     PathAccess { path, access: Access::Windows(WindowsAcl { owner, entries }), no_symlink: true }
 }
@@ -123,11 +127,19 @@ pub fn access_policy(layout: &Layout) -> Vec<PathAccess> {
             vec![posix(root, user, None, 0o700), posix(state, user, None, 0o700)]
         }
         (Platform::Windows, InstallMode::System) => vec![
-            windows(root, Administrators, &[(System, Full), (Administrators, Full), (Users, ReadExecute)]),
+            windows(
+                root,
+                Administrators,
+                &[(System, Full), (Administrators, Full), (Users, ReadExecute)],
+            ),
             windows(
                 state,
                 Administrators,
-                &[(System, Full), (Administrators, Full), (Service(crate::layout::WINDOWS_SERVICE), Modify)],
+                &[
+                    (System, Full),
+                    (Administrators, Full),
+                    (Service(crate::layout::WINDOWS_SERVICE), Modify),
+                ],
             ),
         ],
         (Platform::Windows, InstallMode::User) => vec![
@@ -142,7 +154,8 @@ pub fn access_policy(layout: &Layout) -> Vec<PathAccess> {
 /// world-writable, so both must be real directories owned by the user with
 /// mode 0700. `None` on layouts whose socket directory is not under `/tmp`.
 pub fn socket_dir_check(layout: &Layout, port: u16) -> Option<Vec<PathAccess>> {
-    let (Platform::MacOs, InstallMode::User, Some(uid)) = (layout.platform, layout.mode, layout.uid)
+    let (Platform::MacOs, InstallMode::User, Some(uid)) =
+        (layout.platform, layout.mode, layout.uid)
     else {
         return None;
     };

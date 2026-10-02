@@ -109,9 +109,14 @@ pub enum ManifestError {
     },
     /// The last applied sequence with different bytes: CI never signs two
     /// manifests with one sequence, so this is a key misuse or an attack.
-    SequenceReused { sequence: u64 },
+    SequenceReused {
+        sequence: u64,
+    },
     /// Signed for another channel (a `beta` manifest offered to `stable`).
-    ChannelMismatch { expected: String, got: String },
+    ChannelMismatch {
+        expected: String,
+        got: String,
+    },
 }
 
 /// What the updater recorded after its last successful apply.
@@ -143,7 +148,11 @@ pub struct VerifyContext<'a> {
 /// Verifies `bytes` with `signature`, then parses and checks the manifest:
 /// signature, fields, channel, expiry, then sequence and bytes against the
 /// last applied manifest.
-pub fn verify(bytes: &[u8], signature: &[u8], ctx: &VerifyContext<'_>) -> Result<Verified, ManifestError> {
+pub fn verify(
+    bytes: &[u8],
+    signature: &[u8],
+    ctx: &VerifyContext<'_>,
+) -> Result<Verified, ManifestError> {
     if signature.len() != SIGNATURE_LEN {
         return Err(ManifestError::BadSignature);
     }
@@ -183,7 +192,14 @@ pub fn verify(bytes: &[u8], signature: &[u8], ctx: &VerifyContext<'_>) -> Result
     let running = SemVer::parse(ctx.running_cmux).ok_or_else(|| {
         ManifestError::Invalid(format!("running cmux version {:?}", ctx.running_cmux))
     })?;
-    Ok(Verified { needs_newer_cmux: running < min, manifest, expires_at_ms, key_id, sha256, reapply })
+    Ok(Verified {
+        needs_newer_cmux: running < min,
+        manifest,
+        expires_at_ms,
+        key_id,
+        sha256,
+        reapply,
+    })
 }
 
 /// `<store>/<sha256>`: where a package unpacks (lane 1 store layout).

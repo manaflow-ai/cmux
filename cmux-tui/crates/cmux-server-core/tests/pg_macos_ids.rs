@@ -94,7 +94,18 @@ fn manifest_ids_map_to_app_ids() {
     assert_eq!(&mapped.as_str()[32..], &sha256_prefix(long));
     let other = AppId::from_manifest_id("manaflow-ai/a-very-long-application-name-for-testinG");
     assert_eq!(other, Err(AppIdError::ManifestGrammar));
-    for bad in ["", "tasks", "Cmux/tasks", "cmux/", "/tasks", "cmux/tasks/x", "cmux/ta sks", "-x/y", "cmux/_x", "cmux/a.b"] {
+    for bad in [
+        "",
+        "tasks",
+        "Cmux/tasks",
+        "cmux/",
+        "/tasks",
+        "cmux/tasks/x",
+        "cmux/ta sks",
+        "-x/y",
+        "cmux/_x",
+        "cmux/a.b",
+    ] {
         assert_eq!(AppId::from_manifest_id(bad), Err(AppIdError::ManifestGrammar), "{bad:?}");
         assert!(!valid_manifest_id(bad), "{bad:?}");
     }
@@ -151,7 +162,7 @@ proptest! {
         let id = format!("{publisher}/{name}");
         let mapped = AppId::from_manifest_id(&id).unwrap();
         prop_assert!(mapped.as_str().len() <= 40);
-        prop_assert_eq!(AppId::from_manifest_id(&id).unwrap(), mapped.clone());
+        prop_assert_eq!(&AppId::from_manifest_id(&id).unwrap(), &mapped);
         prop_assert_eq!(AppId::parse(mapped.as_str()), Ok(mapped));
     }
 }

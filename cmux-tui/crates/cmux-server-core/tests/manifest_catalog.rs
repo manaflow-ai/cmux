@@ -9,9 +9,8 @@ use std::collections::BTreeSet;
 use cmux_server_core::catalog::{Mcp, Owner, Risk, SERVER_OPS, find};
 use cmux_server_core::layout::{LayoutEnv, layout};
 use cmux_server_core::manifest::{
-    Applied, SemVer, VerifyContext, Verified,
-    ChannelManifest, ManifestError, TrustedKey, parse_rfc3339_utc_ms, parse_version, store_path,
-    verify,
+    Applied, ChannelManifest, ManifestError, SemVer, TrustedKey, Verified, VerifyContext,
+    parse_rfc3339_utc_ms, parse_version, store_path, verify,
 };
 use cmux_server_core::{InstallMode, Platform};
 use ring::signature::{Ed25519KeyPair, KeyPair};
@@ -61,7 +60,8 @@ fn vf(
     last_applied: Option<Applied>,
     running_cmux: &str,
 ) -> Result<Verified, ManifestError> {
-    let ctx = VerifyContext { keys, now_ms, expected_channel: "stable", last_applied, running_cmux };
+    let ctx =
+        VerifyContext { keys, now_ms, expected_channel: "stable", last_applied, running_cmux };
     verify(bytes, sig, &ctx)
 }
 
@@ -98,7 +98,9 @@ fn channel_and_reused_sequence_are_refused() {
 
 #[test]
 fn running_prerelease_versions_use_semver_precedence() {
-    let needs = |running: &str| vf(MANIFEST, &hex(SIG_1), &keys(), NOW, None, running).map(|v| v.needs_newer_cmux);
+    let needs = |running: &str| {
+        vf(MANIFEST, &hex(SIG_1), &keys(), NOW, None, running).map(|v| v.needs_newer_cmux)
+    };
     // min_cmux_version is 0.70.0.
     assert_eq!(needs("0.70.0-nightly.20261002"), Ok(true), "a prerelease sorts before its release");
     assert_eq!(needs("0.70.0"), Ok(false));
@@ -108,7 +110,16 @@ fn running_prerelease_versions_use_semver_precedence() {
     for bad in ["0.70.0-", "0.70.0-01", "0.70.0-a..b", "0.70.0+", "v0.70.0", "0.70.0-é"] {
         assert!(matches!(needs(bad), Err(ManifestError::Invalid(_))), "{bad}");
     }
-    let order = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0"];
+    let order = [
+        "1.0.0-alpha",
+        "1.0.0-alpha.1",
+        "1.0.0-alpha.beta",
+        "1.0.0-beta",
+        "1.0.0-beta.2",
+        "1.0.0-beta.11",
+        "1.0.0-rc.1",
+        "1.0.0",
+    ];
     for pair in order.windows(2) {
         assert!(SemVer::parse(pair[0]).unwrap() < SemVer::parse(pair[1]).unwrap(), "{pair:?}");
     }
@@ -154,10 +165,7 @@ fn tampered_bytes_or_signature_are_refused() {
     );
     let mut sig = hex(SIG_1);
     sig[10] ^= 0x40;
-    assert_eq!(
-        vf(MANIFEST, &sig, &keys(), NOW, None, "1.0.0"),
-        Err(ManifestError::BadSignature)
-    );
+    assert_eq!(vf(MANIFEST, &sig, &keys(), NOW, None, "1.0.0"), Err(ManifestError::BadSignature));
     assert_eq!(
         vf(MANIFEST, &sig[..63], &keys(), NOW, None, "1.0.0"),
         Err(ManifestError::BadSignature)

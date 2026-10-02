@@ -27,6 +27,8 @@ random_secret() { head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n';
 # verifier). The password never appears in argv (visible in ps):
 #   printf '%s' "$secret" | scram_verifier
 scram_verifier() {
+  # The Python program is single-quoted on purpose: nothing in it expands.
+  # shellcheck disable=SC2016
   python3 -c '
 import base64, hashlib, hmac, os, sys
 pw = sys.stdin.buffer.read()

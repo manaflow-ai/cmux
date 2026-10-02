@@ -110,7 +110,10 @@ fn macos_headless_and_app_layouts() {
     // <state> is too long for the 103-byte socket limit: the socket is in /tmp.
     assert_eq!(l.postgres_socket_dir(17274).as_str(), "/tmp/cmux-501/pg-17274");
     let no_uid = LayoutEnv { home: Some("/Users/ana".to_owned()), ..LayoutEnv::default() };
-    assert_eq!(layout(InstallMode::User, Platform::MacOs, &no_uid), Err(LayoutError::Missing("uid")));
+    assert_eq!(
+        layout(InstallMode::User, Platform::MacOs, &no_uid),
+        Err(LayoutError::Missing("uid"))
+    );
 
     let mut env = unix_env("/Users/ana");
     env.mac_app_bundle = Some("/Applications/cmux.app".to_owned());
@@ -187,7 +190,10 @@ fn access_policy_windows_system_acls() {
     let Access::Windows(bin) = &policy[0].access else { panic!() };
     assert_eq!(policy[0].path.as_str(), r"C:\Program Files\cmux");
     assert_eq!(bin.owner, WinPrincipal::Administrators);
-    assert!(bin.entries.contains(&Ace { principal: WinPrincipal::Users, rights: WinRights::ReadExecute }));
+    assert!(
+        bin.entries
+            .contains(&Ace { principal: WinPrincipal::Users, rights: WinRights::ReadExecute })
+    );
     assert!(!bin.entries.iter().any(|a| a.principal == WinPrincipal::Service("cmux-server")));
     let Access::Windows(state) = &policy[1].access else { panic!() };
     assert_eq!(policy[1].path.as_str(), r"C:\ProgramData\cmux\server");
@@ -207,7 +213,10 @@ fn macos_socket_dir_check_is_owner_only() {
     let paths: Vec<&str> = checks.iter().map(|c| c.path.as_str()).collect();
     assert_eq!(paths, ["/tmp/cmux-501", "/tmp/cmux-501/pg-17274"]);
     for c in &checks {
-        assert_eq!(c.access, Access::Posix { owner: PosixOwner::Uid(501), group: None, mode: 0o700 });
+        assert_eq!(
+            c.access,
+            Access::Posix { owner: PosixOwner::Uid(501), group: None, mode: 0o700 }
+        );
         assert!(c.no_symlink);
     }
     let linux = layout(InstallMode::User, Platform::Linux, &unix_env("/home/ana")).unwrap();
