@@ -5,6 +5,7 @@
 
 use cmux_app_host::ToHost;
 use serde_json::Value;
+use std::time::Instant;
 
 use super::mirror::Origin;
 use super::supervisor::{ApiError, HostKey, HostState, Inner, Out, Responder, Supervisor};
@@ -12,21 +13,27 @@ use super::supervisor::{ApiError, HostKey, HostState, Inner, Out, Responder, Sup
 /// Answered runs kept for replay.
 const RUN_KEYS: usize = 256;
 
+/// One `apps-run` request.
+pub struct RunRequest {
+    pub app: String,
+    pub op: String,
+    pub args: Value,
+    pub idempotency_key: Option<String>,
+    pub origin: Origin,
+    /// The client's token for a user invocation (palette, keybinding).
+    /// Honored only with origin user; the host gets a supervisor-minted token.
+    pub gesture: Option<String>,
+}
+
 pub(super) enum RunKey {
     Pending(Vec<Responder>),
     Done(Result<Value, ApiError>),
 }
 
 impl Supervisor {
-    pub fn run(
-        &self,
-        app: &str,
-        op: &str,
-        args: Value,
-        idempotency_key: Option<String>,
-        origin: Origin,
-        respond: Responder,
-    ) {
+    pub fn run(&self, request: RunRequest, respond: Responder) {
+        let RunRequest { app, op, args, idempotency_key, origin, gesture } = request;
+        let (app, op) = (app.as_str(), op.as_str());
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             let respond = match idempotency_key {
@@ -44,7 +51,13 @@ impl Supervisor {
             };
             match self.prepare_run(&inner, app, op, origin) {
                 Err(error) => vec![Out::Respond(respond, Err(error))],
-                Ok((key, export)) => self.start_run_locked(&mut inner, &key, export, args, respond),
+                Ok((key, export)) => {
+                    let gesture = gesture.filter(|_| origin == Origin::User).and_then(|token| {
+                        inner.gestures.accept_client(app, &token, Instant::now())
+                    });
+                    let message = ToHost::Run { cb: 0, export, args, gesture };
+                    self.start_run_locked(&mut inner, &key, message, respond)
+                }
             }
         };
         self.emit(outs);
@@ -144,8 +157,7 @@ impl Supervisor {
         &self,
         inner: &mut Inner,
         key: &HostKey,
-        export: String,
-        args: Value,
+        mut message: ToHost,
         respond: Responder,
     ) -> Vec<Out> {
         let fresh = !inner.hosts.contains_key(key);
@@ -159,7 +171,12 @@ impl Supervisor {
         let cb = host.next_cb;
         host.next_cb += 1;
         host.runs.insert(cb, respond);
-        let message = ToHost::Run { cb, export, args };
+        if let ToHost::Run { cb: slot, gesture, .. } = &mut message {
+            *slot = cb;
+            if let Some(token) = gesture {
+                host.run_gestures.insert(cb, token.clone());
+            }
+        }
         match (host.state, host.process.clone()) {
             (HostState::Starting | HostState::Running, Some(process)) => process.send(&message),
             (HostState::Stopping, Some(_)) => {

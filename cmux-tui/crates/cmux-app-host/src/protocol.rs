@@ -75,6 +75,10 @@ pub enum ToHost {
         export: String,
         #[serde(default)]
         args: Value,
+        /// A gesture token the supervisor minted for a user invocation
+        /// (palette, keybinding); ambient while the command runs synchronously.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gesture: Option<String>,
     },
     Shutdown,
 }

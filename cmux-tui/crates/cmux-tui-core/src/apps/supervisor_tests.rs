@@ -87,9 +87,15 @@ fn scripted_app_host() {
                     ops: json!([{ "op": "update", "id": "n1", "props": { "result": { "ok": ok, "body": body } } }]),
                 });
             }
-            ToHost::Run { cb, export, .. } => {
+            ToHost::Run { cb, export, gesture, .. } => {
                 if export == "crash" {
                     std::process::exit(70);
+                }
+                if let Some(gesture) = gesture {
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("gesture {gesture}"),
+                    });
                 }
                 send(FromHost::Log { level: "info".into(), message: format!("run {export}") });
                 send(FromHost::Done { cb, ok: true, body: json!({ "value": export }) });
@@ -105,6 +111,23 @@ fn scripted_app_host() {
 }
 
 // MARK: fixtures
+
+fn run_request(
+    app: &str,
+    op: &str,
+    idempotency_key: Option<String>,
+    origin: Origin,
+    gesture: Option<&str>,
+) -> super::runs::RunRequest {
+    super::runs::RunRequest {
+        app: app.into(),
+        op: op.into(),
+        args: json!({}),
+        idempotency_key,
+        origin,
+        gesture: gesture.map(str::to_string),
+    }
+}
 
 /// (app, op, params, idempotency key, origin)
 type RoutedCall = (String, String, Value, Option<String>, Origin);
@@ -501,11 +524,7 @@ fn runs_answer_through_the_responder_and_a_crash_restarts_with_reset() {
     let (tx, rx) = channel();
     let tx2 = tx.clone();
     f.supervisor.run(
-        "cmux/demo",
-        "demo.go",
-        json!({}),
-        None,
-        Origin::User,
+        run_request("cmux/demo", "demo.go", None, Origin::User, None),
         Box::new(move |r| tx.send(r).unwrap()),
     );
     assert_eq!(
@@ -514,11 +533,7 @@ fn runs_answer_through_the_responder_and_a_crash_restarts_with_reset() {
     );
     f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
     f.supervisor.run(
-        "cmux/demo",
-        "demo.crash",
-        json!({}),
-        None,
-        Origin::User,
+        run_request("cmux/demo", "demo.crash", None, Origin::User, None),
         Box::new(move |r| tx2.send(r).unwrap()),
     );
     assert_eq!(rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap_err().code, "apps.host");
@@ -574,11 +589,7 @@ fn keyed_runs_run_once_and_hidden_apps_refuse_hidden_surfaces() {
     for _ in 0..2 {
         let tx = tx.clone();
         f.supervisor.run(
-            "cmux/demo",
-            "demo.go",
-            json!({}),
-            Some("k1".into()),
-            Origin::Cli,
+            run_request("cmux/demo", "demo.go", Some("k1".into()), Origin::Cli, None),
             Box::new(move |r| tx.send(r).unwrap()),
         );
         assert_eq!(
@@ -601,20 +612,12 @@ fn keyed_runs_run_once_and_hidden_apps_refuse_hidden_surfaces() {
     .unwrap();
     let tx2 = tx.clone();
     f.supervisor.run(
-        "cmux/demo",
-        "demo.go",
-        json!({}),
-        None,
-        Origin::Cli,
+        run_request("cmux/demo", "demo.go", None, Origin::Cli, None),
         Box::new(move |r| tx2.send(r).unwrap()),
     );
     assert_eq!(rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap_err().code, "apps.hidden");
     f.supervisor.run(
-        "cmux/demo",
-        "demo.go",
-        json!({}),
-        None,
-        Origin::Mcp,
+        run_request("cmux/demo", "demo.go", None, Origin::Mcp, None),
         Box::new(move |r| tx.send(r).unwrap()),
     );
     assert!(rx.recv_timeout(Duration::from_secs(10)).unwrap().is_ok());
@@ -657,4 +660,34 @@ fn a_disabled_app_cannot_preview_or_mount() {
         .mount(CLIENT, "p", "cmux/demo", "cmux.section/1", json!({ "preview": true }))
         .unwrap_err();
     assert_eq!(preview.code, "apps.disabled");
+}
+
+#[test]
+fn palette_runs_get_one_supervisor_gesture_per_client_token() {
+    let f = fixture();
+    f.install("cmux/demo");
+    let (tx, rx) = channel();
+    for (origin, token) in [
+        (Origin::User, "palette-0001"),
+        (Origin::User, "palette-0001"),
+        (Origin::Cli, "palette-0002"),
+        (Origin::User, "x"),
+    ] {
+        let tx = tx.clone();
+        f.supervisor.run(
+            run_request("cmux/demo", "demo.go", None, origin, Some(token)),
+            Box::new(move |r| tx.send(r).unwrap()),
+        );
+        rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap();
+    }
+    let gestures: Vec<String> = f.supervisor.logs(CLIENT, "cmux/demo", false)["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|l| {
+            l["message"].as_str().and_then(|m| m.strip_prefix("gesture ")).map(str::to_string)
+        })
+        .collect();
+    assert_eq!(gestures.len(), 1, "only the first user invocation of a token: {gestures:?}");
+    assert!(gestures[0].starts_with("g_"), "the host sees a supervisor token, never the client's");
 }

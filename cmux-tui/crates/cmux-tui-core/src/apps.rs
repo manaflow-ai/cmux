@@ -49,6 +49,8 @@ use std::sync::{Arc, OnceLock};
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]
+pub(crate) use runs::RunRequest;
+#[cfg(unix)]
 pub(crate) use supervisor::{ApiError, Supervisor};
 
 /// The capability string; advertised only when the app host binary exists.
