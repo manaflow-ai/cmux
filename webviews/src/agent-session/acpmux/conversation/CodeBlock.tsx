@@ -1,6 +1,6 @@
 // Fenced code inside a transcript, rendered by @pierre/diffs `File` with the pane's
 // syntax theme (a ```diff fence is highlighted as a diff). Ported from
-// manaflow-ai/codex-atlas-clone (src/conversation/CodeBlock.tsx).
+// the agent-pane reference prototype (src/conversation/CodeBlock.tsx).
 import { useLayoutEffect, useRef, useState } from "react";
 import { DIFFS_TAG_NAME, File as PierreFile } from "@pierre/diffs";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentDiffTheme } from "../diffTheme";

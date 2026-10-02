@@ -1,4 +1,4 @@
-// Codex turn rules taken from the codex-atlas-clone port (#16759): N previous messages, one
+// Codex turn rules taken from the reference prototype port (#16759): N previous messages, one
 // edited-files card per turn, and the fold label without a tool-call count.
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";

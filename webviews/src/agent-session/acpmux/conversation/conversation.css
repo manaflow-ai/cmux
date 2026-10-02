@@ -1,4 +1,4 @@
-/* Codex transcript Markdown, ported from manaflow-ai/codex-atlas-clone
+/* Codex transcript Markdown, ported from the agent-pane reference prototype
    (src/conversation/conversation.css), whose metrics were measured on native Codex captures.
 
    No literal colors: Codex's dark palette is its foreground over its background at fixed
@@ -24,7 +24,7 @@
   --cv-check-fill: color-mix(in srgb, var(--cv-fg) 9%, transparent); /* #3a3b34 */
   --cv-check-ring: color-mix(in srgb, var(--cv-fg) 23%, transparent); /* #575852 */
   --cv-link: color-mix(in srgb, var(--cv-fg) 79%, transparent); /* #cccabe */
-  /* Type and column: Codex's type exactly (system-ui at 14px on 22.75px lines, 13px code; atlas
+  /* Type and column: Codex's type exactly (system-ui at 14px on 22.75px lines, 13px code; reference
      shell/tokens.css and conversation.css), in the taste bar's 720px column. */
   --cv-font-size: 14px;
   --cv-line-height: 22.75px;

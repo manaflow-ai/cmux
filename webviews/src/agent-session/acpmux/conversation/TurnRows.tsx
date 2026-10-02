@@ -1,5 +1,5 @@
 // Codex's turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
-// footer under an answer. Markup and metrics from codex-atlas-clone (messages.tsx,
+// footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
 import { useContext, useMemo, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";

@@ -1,4 +1,4 @@
-// Icons used by the conversation transcript, from manaflow-ai/codex-atlas-clone
+// Icons used by the conversation transcript, from the agent-pane reference prototype
 // (src/conversation/icons.tsx). All draw in currentColor in a 16px box
 // unless noted, matching the stroke weight of src/shell/icons.tsx.
 import type { CSSProperties, ReactNode } from "react";

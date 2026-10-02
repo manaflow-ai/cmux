@@ -1,5 +1,5 @@
 // Timestamp lines between turns ("Sun, Sep 13 at 7:55 PM", "Yesterday 8:16 PM"), as Codex
-// derives them. After codex-atlas-clone's src/conversation/timestamps.ts, which mirrors the
+// derives them. After the reference prototype's src/conversation/timestamps.ts, which mirrors the
 // desktop bundle (`timestamps-*.js`):
 //
 // - which turns: each turn contributes its prompt (sent at the turn's start) and, when it has

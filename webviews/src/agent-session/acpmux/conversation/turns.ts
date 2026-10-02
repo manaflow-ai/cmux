@@ -1,7 +1,7 @@
 // The transcript as Codex draws a turn: the prompt, a "Worked for 15s" disclosure that holds
 // the commentary and tool calls, the final answer, the turn's edited files, then a footer.
 // A pure pass over the client's rows (direct.ts keeps them in event order), so the
-// virtualized transcript still lays out one row per entry. After codex-atlas-clone's
+// virtualized transcript still lays out one row per entry. After the reference prototype's
 // derive.ts (`deriveTurn`, `formatDuration`).
 //
 // Stop-gap seam: acpmux owns the turn structure (spec acp-ui.md, OWNERSHIP-PRINCIPLES.md). When

@@ -1,5 +1,5 @@
 // Markdown cases from real Codex replies that the renderer must draw the way the desktop
-// app does. Ported from manaflow-ai/codex-atlas-clone (src/conversation/markdown.test.ts).
+// app does. Ported from the agent-pane reference prototype (src/conversation/markdown.test.ts).
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";

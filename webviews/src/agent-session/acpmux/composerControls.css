@@ -1,4 +1,4 @@
-/* Effort popover (codex-atlas-clone model-menu.png): title, model, and a stepped slider in a
+/* Effort popover (reference prototype model-menu.png): title, model, and a stepped slider in a
    230px track. Theme tokens only; the fill is a quiet mix of the text color, never an accent. */
 .acpmux-effort-pop {
   width: 255px;

@@ -19,7 +19,7 @@ const chatTitle = (session: AcpmuxSessionEntry) => session.displayTitle ?? sessi
 
 type Row = { key: string; label: string; meta?: string; shortcut?: string; run(): void };
 
-/// Cmd-K "Search chats" (codex-atlas-clone search.png): the newest chats filtered by title as
+/// Cmd-K "Search chats" (reference prototype search.png): the newest chats filtered by title as
 /// you type, then quick actions. Arrow keys move the highlight, Enter opens it, Ctrl-1 to
 /// Ctrl-9 open a listed chat, Escape or a click outside closes. Query and highlight are view
 /// state; opening a chat goes through the pane's chat.select action.

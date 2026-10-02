@@ -1,4 +1,4 @@
-// Ported from manaflow-ai/codex-atlas-clone (src/conversation/Markdown.tsx), checked
+// Ported from the agent-pane reference prototype (src/conversation/Markdown.tsx), checked
 // against native Codex captures.
 // A small GFM-subset Markdown renderer for assistant messages. It produces the same
 // DOM shape as the Codex transcript: headings, paragraphs (single newlines are line

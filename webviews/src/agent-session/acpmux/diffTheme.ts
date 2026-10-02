@@ -1,5 +1,5 @@
 // Pierre diff and tree styling for the changes view, after the Codex Changes pane in
-// manaflow-ai/codex-atlas-clone (src/changes/theme.ts, diffStyles.ts, treeStyles.ts).
+// the agent-pane reference prototype (src/changes/theme.ts, diffStyles.ts, treeStyles.ts).
 // Colors come from the pane's theme variables (applyAgentTheme), which inherit into
 // Pierre's shadow roots; the Codex values are the fallbacks.
 import { registerCustomTheme } from "@pierre/diffs";

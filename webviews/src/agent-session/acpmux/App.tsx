@@ -199,7 +199,7 @@ const PermissionRow = memo(
 );
 const EDITED_FILES_SHOWN = 3;
 
-/// "Edited N files", after Codex's card (EditedFilesCard in codex-atlas-clone's
+/// "Edited N files", after Codex's card (EditedFilesCard in the reference prototype's
 /// src/conversation/cards.tsx): totals, View changes, and the first files with their counts;
 /// each file opens the changes at that file. One edited file is named in the title instead.
 const EditedFilesRow = memo(

@@ -1,5 +1,5 @@
 // Line icons for the changes view and the edited-files card, after the Codex glyphs in
-// manaflow-ai/codex-atlas-clone (src/changes/icons.tsx, src/conversation/icons.tsx).
+// the agent-pane reference prototype (src/changes/icons.tsx, src/conversation/icons.tsx).
 // They draw in currentColor, so the pane's theme colors them.
 import React, { useLayoutEffect, type SVGProps } from "react";
 import { createFileTreeIconResolver, getBuiltInSpriteSheet } from "@pierre/trees";
