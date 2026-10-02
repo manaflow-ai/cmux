@@ -52,3 +52,7 @@ Buggy counterexample: (1) initial state, pane 1 = [1, 2], pane 2 = [3]; (2) clie
 Mutation checks on the fixed config: settling an intent before the mirror reaches the settle sequence (no write barrier) fails `ConcurrentSerializable` at depth 5; removing the owner's replay dedup fails `IdempotentReplay` at depth 5. Reusing pane ids is not caught by any property (a stale op that names a removed pane would land in a new pane with that id), so id freshness is an assumption of the model, not a checked result.
 
 Not covered: two faults in one behavior (`MaxFaults = 2`), a replay record that is lost on restart, a snapshot that arrives out of order with later batches, columns and groups. The fixed run is too slow for every push at this load; a CI job should run `run-tlc.sh` on a dedicated runner or nightly.
+
+## Companion: `OwnershipConvergence.tla`
+
+The generic op protocol under every single-writer entity (`../ownership.md` section 6): owner commit before publish (a restart loses only the staged op), `request-settled` with a sequence, client replies held in memory until the mirror covers that sequence, snapshots carrying the requester's decided keys, resend of every intent on reconnect, and client-owned records written only by the connection's identity. Run `./run-ownership-tlc.sh` (default config), `./run-ownership-tlc.sh OwnershipConvergence-live.cfg` (liveness) or `./run-ownership-tlc.sh --mutants` (seven broken variants that must each fail).
