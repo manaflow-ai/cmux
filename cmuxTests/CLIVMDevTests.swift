@@ -449,6 +449,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(try String(contentsOf: count).split(separator: "\n").count, 2)
     }
 
+    func testVMDevSetupReplayPreservesApostrophesInRecipeCommands() throws {
+        let fixture = try vmDevFixture("apostrophe", files: [
+            ".cmux/cloud.json": #"{"setup":["echo \"it's ready\" >> \"$COUNT\""],"checks":[]}"#,
+            "package.json": #"{"scripts":{"dev":"true"}}"#,
+            "package-lock.json": "lock-v1",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let count = fixture.root.appendingPathComponent("count")
+        let plan = try vmDevDryRunPlan("apostrophe", project: fixture.project, home: fixture.home, extra: ["--command", ":"])
+        let command = try XCTUnwrap(plan["command"] as? String)
+        let result = runGeneratedVMDevCommand(command, cwd: fixture.project, home: fixture.home, extraEnvironment: ["COUNT": count.path])
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(try String(contentsOf: count), "it's ready\n")
+    }
+
     func testVMDevSetupFailureReleasesLockForRetryAndEmptySetupIsValid() throws {
         let fixture = try vmDevFixture("retry", files: [
             ".cmux/cloud.json": #"{"setup":["if [ ! -f \"$FAIL_FLAG\" ]; then : > \"$FAIL_FLAG\"; false; else echo retry >> \"$COUNT\"; fi"]}"#,
