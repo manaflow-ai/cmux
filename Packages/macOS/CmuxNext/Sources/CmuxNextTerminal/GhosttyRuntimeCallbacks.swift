@@ -55,7 +55,7 @@ nonisolated func ghosttyReadClipboard(_ userdata: UnsafeMutableRawPointer?, _ cl
     let pointer = UncheckedPointer(raw: state)
     return MainActor.assumeIsolated {
         guard let view = bridge.view else { return false }
-        return view.completeClipboardRead(location: location, state: pointer)
+        return view.clipboardRequests.completeRead(location: location, state: pointer)
     }
 }
 
@@ -74,7 +74,7 @@ nonisolated func ghosttyConfirmReadClipboard(
     }
     let pointer = UncheckedPointer(raw: state)
     let run: @MainActor @Sendable () -> Void = {
-        bridge.view?.confirmClipboardRequest(contents: contents, kind: kind, state: pointer)
+        bridge.view?.clipboardRequests.confirm(contents: contents, kind: kind, state: pointer)
     }
     if Thread.isMainThread {
         MainActor.assumeIsolated(run)
@@ -103,7 +103,7 @@ nonisolated func ghosttyWriteClipboard(
     let bridge = SurfaceBridge.from(userdata)
     let run: @MainActor @Sendable () -> Void = {
         if confirm, let view = bridge?.view {
-            view.confirmClipboardWrite(items: items, location: location)
+            view.clipboardRequests.confirmWrite(items: items, location: location)
         } else {
             TerminalPasteboard.write(items, to: location)
         }

@@ -17,7 +17,9 @@ public struct TabItemMapping {
             isPinned: tab.pinned,
             isUnread: tab.hasUnread,
             isBusy: tab.agent?.state == .working,
-            status: status(tab)
+            status: status(tab),
+            // The strip's location field: web pages only (`TabLocation`).
+            location: isBrowser ? TabLocation(address: tab.url) : nil
         )
     }
 

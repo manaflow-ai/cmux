@@ -11,24 +11,13 @@ use crate::resource::{
 };
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ViewportColumn {
-    Base,
-    Split(SplitId),
-}
+mod layout_columns;
 
-/// One stable horizontal column in a scrollable screen.
-///
-/// `Screen::root` remains the compatibility projection consumed by existing
-/// split-tree clients. While columns are active, these records own the real
-/// per-column trees and Zellij auto-layout order.
-#[derive(Debug, Clone)]
-pub(crate) struct LayoutColumn {
-    pub(crate) id: SplitId,
-    pub(crate) width: f32,
-    pub(crate) root: Node,
-    pub(crate) zellij_auto_layout: Option<Vec<PaneId>>,
-}
+pub use layout_columns::{ColumnSticky, StickyEdge, StickyMode, ViewportColumn};
+pub(crate) use layout_columns::{
+    LayoutColumn, LayoutMutationKey, LayoutResizeOwner, normalize_sticky_columns,
+    sticky_columns_are_consistent, sticky_flags_are_consistent,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ScreenLayoutSnapshot {
@@ -39,17 +28,6 @@ pub(crate) struct ScreenLayoutSnapshot {
     pub viewport_splits: BTreeMap<SplitId, f32>,
     pub viewport_base_width: Option<f32>,
     pub layout_columns: Vec<LayoutColumn>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LayoutResizeOwner {
-    InProcess(u64),
-    ControlClient(u64),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LayoutMutationKey {
-    Resize { owner: LayoutResizeOwner, transaction: u64 },
 }
 
 #[derive(Debug, Clone)]
@@ -544,6 +522,7 @@ mod tests {
                     width: 1.0,
                     root: Node::Leaf(pane),
                     zellij_auto_layout: None,
+                    sticky: None,
                 })
                 .collect(),
             layout_revision: 0,
@@ -773,6 +752,7 @@ impl Screen {
                 width: self.viewport_base_width.unwrap_or(1.0),
                 root,
                 zellij_auto_layout: self.zellij_auto_layout.take(),
+                sticky: None,
             });
         }
         let Some(index) =
@@ -786,6 +766,7 @@ impl Screen {
     }
 
     pub(crate) fn sync_layout_column_projection(&mut self) {
+        normalize_sticky_columns(&mut self.layout_columns);
         let Some(first) = self.layout_columns.first() else {
             self.viewport_splits.clear();
             self.viewport_base_width = None;
@@ -814,6 +795,7 @@ impl Screen {
         }
         self.root = root;
         debug_assert!(self.layout_column_projection_is_consistent());
+        debug_assert!(sticky_columns_are_consistent(&self.layout_columns));
     }
 
     pub(crate) fn collapse_single_layout_column(&mut self) {

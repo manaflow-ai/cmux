@@ -36,10 +36,23 @@ public final class DesignSettings {
     public var stripScrollbar: StripScrollbarMode = .auto
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
     public var defaultColumnWidth: Double = 0.5
+    /// `layout.newColumnWidth`: how a new column's width is chosen.
+    public var newColumnWidth: NewColumnWidthMode = .matchCurrent
+    /// `layout.splitSizing`: what a split does to its column.
+    public var splitSizing: SplitSizing = .even
+    /// `layout.stickyColumnEdge`, `layout.stickyColumnMode`.
+    public var stickyColumnEdge: StickyDefaultEdge = .right
+    public var stickyColumnMode: StickyDefaultMode = .docked
+    /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
+    /// content area a pane keeps below its chrome, in points.
+    public var minimumPaneContentSize = CGSize(width: 200, height: 64)
     /// `focusRing.*`: the focused pane's ring or glow.
     public var focusRing = FocusRingSettings()
     /// `notifications.attention.*`: the unread pane's attention ring.
     public var attention = AttentionSettings()
+    /// `appearance.borders`: default, or none (no border, hairline or
+    /// separator anywhere; `Borders`).
+    public var borders: BorderMode = .default
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
 

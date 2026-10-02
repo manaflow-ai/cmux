@@ -20,7 +20,9 @@ use crate::workspace_registry::{
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
 mod batch_close;
+mod layout_projection;
 pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget};
+use layout_projection::sync_layout_column_projection;
 
 #[derive(Clone, Copy)]
 struct LayoutMutationContext<'a> {
@@ -4979,6 +4981,7 @@ impl Mux {
                             width,
                             root: Node::Leaf(pane_id),
                             zellij_auto_layout: Some(vec![pane_id]),
+                            sticky: None,
                         },
                     ),
                     "target pane disappeared from its layout"
@@ -5522,7 +5525,14 @@ fn parse_resource_layout_document(
                     &mut seen_tabs,
                     &mut tab_orders,
                 )?;
-                parsed.push(LayoutColumn { id, width, root, zellij_auto_layout: None });
+                // The layout document has no sticky field; a column that
+                // keeps its id keeps its flag.
+                let sticky = current
+                    .layout_columns
+                    .iter()
+                    .find(|column| column.id == id)
+                    .and_then(|column| column.sticky);
+                parsed.push(LayoutColumn { id, width, root, zellij_auto_layout: None, sticky });
             }
             anyhow::ensure!(
                 parsed.first().is_some_and(|column| column.width == base_width),
@@ -6698,6 +6708,7 @@ fn registry_screen_from_layout(
                             .collect::<anyhow::Result<Vec<_>>>()
                     })
                     .transpose()?,
+                sticky: column.sticky,
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -6867,32 +6878,6 @@ fn overwrite_layout_snapshot(screen: &mut Screen, layout: ScreenLayoutSnapshot) 
     screen.viewport_splits = layout.viewport_splits;
     screen.viewport_base_width = layout.viewport_base_width;
     screen.layout_columns = layout.layout_columns;
-}
-
-fn sync_layout_column_projection(layout: &mut ScreenLayoutSnapshot) {
-    let Some(first) = layout.layout_columns.first() else {
-        layout.viewport_splits.clear();
-        layout.viewport_base_width = None;
-        return;
-    };
-    layout.viewport_splits.clear();
-    layout.viewport_base_width = Some(first.width);
-    layout.zellij_auto_layout = None;
-    let mut root = first.root.clone();
-    let mut width_before = first.width;
-    for column in layout.layout_columns.iter().skip(1) {
-        let ratio = width_before / (width_before + column.width);
-        root = Node::Split {
-            id: column.id,
-            dir: SplitDir::Right,
-            ratio,
-            a: Box::new(root),
-            b: Box::new(column.root.clone()),
-        };
-        layout.viewport_splits.insert(column.id, column.width);
-        width_before += column.width;
-    }
-    layout.root = root;
 }
 
 fn sync_layout_column_widths(layout: &mut ScreenLayoutSnapshot) {

@@ -11,7 +11,16 @@ export type AcpmuxHostConfig = {
   sessionId?: string;
   /** A pane opened as a new chat: do not fall back to the most recent session; the first prompt creates one. */
   newSession?: boolean;
+  /** A new chat's working directory, inherited from the tab it was opened from. */
+  cwd?: string;
+  /** Text the composer starts with. Shown, never sent by itself. */
+  draft?: string;
 };
+
+/** `session/new` params: the host's cwd when it gave one, else acpmux's default. */
+export function newSessionParams(host: Pick<AcpmuxHostConfig, "cwd">, harness?: string): Record<string, unknown> {
+  return { ...(host.cwd ? { cwd: host.cwd } : {}), mcpServers: [], _meta: { acpmux: { harness } } };
+}
 
 export type EventRecord = {
   sessionId?: string;
@@ -174,6 +183,9 @@ export class AcpmuxDirectClient {
   private sessions: Session[] = [];
   /// Sidebar entries by acpmux session object. A changed session arrives as a new object, so unchanged rows keep their entry and skip rendering.
   private sessionEntries = new WeakMap<Session, AcpmuxSessionEntry>();
+  /// Sessions whose turn ended while another was selected. acpmux does not track what the
+  /// user has seen, so the pane keeps this until the session is selected.
+  private unseen = new Set<string>();
   private selectedSessionId?: string;
   private summary: Record<string, any> | undefined;
   private queue: { id: string; prompt: string }[] = [];
@@ -195,7 +207,7 @@ export class AcpmuxDirectClient {
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
   private readonly listener: Listener;
-  private readonly host: AcpmuxHostConfig;
+  private host: AcpmuxHostConfig;
   private reconnectTimer?: number;
   private reconnectDelay = 250;
   /// Called once when an established connection drops. The host then asks Swift
@@ -274,13 +286,14 @@ export class AcpmuxDirectClient {
         clientCapabilities: {},
       });
       const watched = await this.request("_acpmux/watch", { enabled: true });
-      this.sessions = (watched?.sessions ?? []).filter((session: Session) => session.sessionId);
+      this.sessions = this.reread(watched?.sessions);
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
         this.selectedSessionId = this.sessions[0]?.sessionId;
         this.selectionGeneration += 1;
         this.resetSessionState();
       }
       this.selectedSessionId = initialSession(this.selectedSessionId, this.sessions, this.host.newSession);
+      if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
       // A reconnect to the same session keeps its transcript; the attach page holds only the newest events.
       const resumeAfter = this.lastSeq;
       const sessionId = this.selectedSessionId;
@@ -410,7 +423,7 @@ export class AcpmuxDirectClient {
   private async refreshSessions(): Promise<void> {
     const generation = this.selectionGeneration;
     const watched = await this.request("_acpmux/watch", { enabled: true });
-    this.sessions = (watched?.sessions ?? []).filter((session: Session) => session.sessionId);
+    this.sessions = this.reread(watched?.sessions);
     const missing =
       this.selectedSessionId !== undefined &&
       !this.sessions.some((session) => session.sessionId === this.selectedSessionId);
@@ -421,10 +434,41 @@ export class AcpmuxDirectClient {
   /// The selected session is gone: show the most recent remaining one, or none.
   private selectFallbackSession(reason: string): void {
     this.selectedSessionId = this.sessions[0]?.sessionId;
+    if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
     const generation = ++this.selectionGeneration;
     this.resetSessionState();
     this.emit(reason);
     if (this.selectedSessionId) void this.attach(this.selectedSessionId, generation).catch(() => undefined);
+  }
+
+  /// A full session list from `_acpmux/watch`. A turn whose end the reread is the first to show
+  /// (its notice lost to a lag or a reconnect) counts as unseen too; sessions gone from the list
+  /// leave the set.
+  private reread(sessions: Session[] | undefined): Session[] {
+    const next = (sessions ?? []).filter((session) => session.sessionId);
+    const ids = new Set(next.map((session) => session.sessionId));
+    const running = new Set(this.sessions.filter((session) => session.status === "running").map((s) => s.sessionId));
+    for (const id of this.unseen) if (!ids.has(id)) this.unseen.delete(id);
+    for (const session of next)
+      if (
+        running.has(session.sessionId) &&
+        session.status !== "running" &&
+        session.sessionId !== this.selectedSessionId
+      )
+        this.unseen.add(session.sessionId);
+    return next.map(this.withUnseen);
+  }
+
+  /// The session with its unseen flag; a new object, so its sidebar entry is rebuilt.
+  private withUnseen = (session: Session): Session =>
+    this.unseen.has(session.sessionId) && session.unread !== true ? { ...session, unread: true } : session;
+
+  /// Selecting a session is seeing it, including an unread flag acpmux sent.
+  private markSeen(sessionId: string): void {
+    this.unseen.delete(sessionId);
+    this.sessions = this.sessions.map((session) =>
+      session.sessionId === sessionId && session.unread === true ? { ...session, unread: false } : session,
+    );
   }
 
   private request(method: string, params: Record<string, unknown>): Promise<any> {
@@ -487,18 +531,25 @@ export class AcpmuxDirectClient {
     const session = params?.session;
     if (params?.kind === "purged" && session?.sessionId) {
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
+      this.unseen.delete(session.sessionId);
       if (session.sessionId === this.selectedSessionId) this.selectFallbackSession("session purged");
       else this.emit("session purged");
       return;
     }
     if (!session?.sessionId) return;
-    this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
+    const before = this.sessions.find((item) => item.sessionId === session.sessionId);
+    // A turn that ends in the background is news the user hasn't seen.
+    if (session.sessionId !== this.selectedSessionId && before?.status === "running" && session.status !== "running")
+      this.unseen.add(session.sessionId);
+    this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), this.withUnseen(session)];
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
-      this.queue = (session.queue ?? this.queue).map((entry: any) => ({
-        id: String(entry.promptId),
-        prompt: String(entry.prompt ?? entry.preview ?? ""),
-      }));
+      // A change that doesn't carry the queue keeps the one already mapped.
+      if (session.queue)
+        this.queue = session.queue.map((entry: any) => ({
+          id: String(entry.promptId),
+          prompt: String(entry.prompt ?? entry.preview ?? ""),
+        }));
     }
     // The picker lists every session, so a change elsewhere still needs a snapshot.
     this.emit("session changed");
@@ -832,13 +883,16 @@ export class AcpmuxDirectClient {
     const previousSessionId = this.selectedSessionId;
     const generation = ++this.selectionGeneration;
     this.selectedSessionId = sessionId;
+    this.markSeen(sessionId);
     this.resetSessionState();
     if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
     await this.attach(sessionId, generation);
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
   async create(harness?: string): Promise<string | undefined> {
-    const result = await this.request("session/new", { mcpServers: [], _meta: { acpmux: { harness } } });
+    const result = await this.request("session/new", newSessionParams(this.host, harness));
+    // The inherited cwd is the first chat's; later new chats start where acpmux defaults.
+    if (result?.sessionId) this.host = { ...this.host, cwd: undefined };
     if (result?.sessionId) return this.select(String(result.sessionId));
     return undefined;
   }
