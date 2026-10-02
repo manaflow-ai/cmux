@@ -73,6 +73,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         claimGeometry: Bool,
         clientName: String = "cmux-next-terminal"
     ) async throws -> TerminalAttachment {
+        DaemonLaunchTimings.shared.mark("terminal.attach_start")
         let transport = try LineTransport(path: endpoint.socketPath)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
         do {
@@ -148,6 +149,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 SetClientSizingRequest(surface: self.surface, enabled: true, exclusive: true), on: transport)
         }
         queue.arm()
+        DaemonLaunchTimings.shared.mark("terminal.attach_end")
     }
 
     // MARK: TerminalByteChannel

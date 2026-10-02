@@ -6,6 +6,7 @@ import CmuxNextMallocZone
 public struct CmuxNextApp {
     public static let shared = Self()
     public func main() {
+        DebugTimings.markLaunch("main_start")
         // First, while the process has one thread: install the delegating
         // default malloc zone Chromium expects (Chrome's
         // EarlyMallocZoneRegistration). The Chromium framework is mapped

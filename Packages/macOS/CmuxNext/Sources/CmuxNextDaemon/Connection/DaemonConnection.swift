@@ -209,6 +209,8 @@ public actor DaemonConnection {
     /// `list-workspaces` plus the sequence of the last event it supersedes.
     public func snapshot() async throws -> (tree: DaemonTree, barrier: UInt64) {
         guard case .ready(let transport, let serial) = phase else { throw DaemonError.notConnected }
+        DaemonLaunchTimings.shared.mark("daemon.snapshot_start")
+        defer { DaemonLaunchTimings.shared.mark("daemon.snapshot_end") }
         let response = try await transport.request(cmd: ListWorkspacesRequest.command, timeout: configuration.snapshotTimeout) { id in
             try WireCoding.encodeRequest(ListWorkspacesRequest(), id: id)
         }
@@ -244,7 +246,9 @@ public actor DaemonConnection {
         let serial = serial
         do {
             let endpoint = try await endpointProvider()
+            DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
             let transport = try LineTransport(path: endpoint.socketPath)
+            DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let continuation = continuation
             transport.start(
@@ -290,6 +294,7 @@ public actor DaemonConnection {
 
     private func handshake(_ transport: LineTransport) async throws -> DaemonIdentity {
         let identity = try await Self.perform(IdentifyRequest(), on: transport, timeout: configuration.requestTimeout)
+        DaemonLaunchTimings.shared.mark("daemon.identify_end")
         guard identity.app == "cmux-tui" else {
             transport.close()
             throw DaemonError.wrongApp(identity.app)

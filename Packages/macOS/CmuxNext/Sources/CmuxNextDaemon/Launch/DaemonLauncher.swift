@@ -92,6 +92,7 @@ public struct DaemonLauncher: Sendable {
     ) throws -> DaemonLauncher {
         let tag = tag.flatMap { $0.isEmpty ? nil : $0 }
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
+        DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
         let session = try sessionName(tag: tag)
         let stateDirectory = tag.map { tagStateDirectory(tag: $0) }
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory)
