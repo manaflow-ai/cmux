@@ -204,6 +204,8 @@ import Testing
         #expect(store.tab(surface: 3)?.cwd == "/Users/me/code/web-app")
         store.noteTerminalDirectory("file://host/Users/me/code/api%20server", surface: 3)
         #expect(store.tab(surface: 3)?.cwd == "/Users/me/code/api server")
+        store.noteTerminalDirectory("kitty-shell-cwd://host/Users/me/100% done", surface: 3)
+        #expect(store.tab(surface: 3)?.cwd == "/Users/me/100% done")
 
         tab.cwd = "/srv"
         _ = store.apply(.tabChanged(TabDelta(workspace: 1, screen: 5, pane: 4, surface: 3, index: 0, entity: tab)))
