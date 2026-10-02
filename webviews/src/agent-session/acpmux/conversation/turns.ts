@@ -44,11 +44,19 @@ export function turnView(rows: readonly AcpmuxRow[], expanded: ReadonlySet<strin
   while (index < rows.length) {
     const user = rows[index++]!;
     const turn: AcpmuxRow[] = [];
-    while (index < rows.length && rows[index]!.kind !== "user") turn.push(rows[index++]!);
-    out.push(user, ...shapeTurn(user, turn, expanded));
+    // A prompt not yet accepted (sent while this turn runs, or refused) sorts among this turn's
+    // rows by its send time; it neither ends the turn nor folds into it, and draws after it.
+    const held: AcpmuxRow[] = [];
+    while (index < rows.length && (rows[index]!.kind !== "user" || isUnsent(rows[index]!))) {
+      const row = rows[index++]!;
+      (row.kind === "user" ? held : turn).push(row);
+    }
+    out.push(user, ...shapeTurn(user, turn, expanded), ...held);
   }
   return out;
 }
+
+const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
 
 function shapeTurn(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<string>): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
@@ -65,19 +73,26 @@ function shapeTurn(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<str
   const edits = work.filter(isEdit);
   const rest = final >= 0 ? body.slice(final + 1) : [];
   const shaped: AcpmuxRow[] = [];
+  // A derived row's version must change whenever what it draws does: the memoized rows and the
+  // height cache compare versions only. Answer versions stay far below VERSION_SPAN.
+  const version = summary.version * VERSION_SPAN + (answer?.version ?? 0);
   if (work.length) {
     const id = `${WORKED}-${user.id}`;
     const open = expanded.has(id);
-    shaped.push({ id, version: open ? 2 : 1, at: user.at, kind: WORKED, status: summary.status, toolCount: summary.toolCount, durationMs: answer ? Math.max(0, answer.at - user.at) : summary.durationMs ?? Math.max(0, summary.at - user.at) });
+    shaped.push({ id, version: version * 2 + (open ? 1 : 0), at: user.at, kind: WORKED, status: summary.status, toolCount: summary.toolCount, durationMs: answer ? Math.max(0, answer.at - user.at) : summary.durationMs ?? Math.max(0, summary.at - user.at) });
     if (open) shaped.push(...work.map((row) => isEdit(row) ? { ...row, id: `${row.id}${FOLDED}` } : row));
   }
   if (answer) shaped.push(answer);
   shaped.push(...rest, ...edits);
   // The footer copies the answer, so it carries the answer's text.
-  const footer = { ...summary, folded: work.length > 0 };
-  shaped.push(answer ? { ...footer, text: answer.text, version: summary.version + answer.version } : footer);
+  shaped.push({ ...summary, folded: work.length > 0, text: answer?.text ?? summary.text, version });
+  // Anything after the summary (late tool updates, or a turn the agent started on its own)
+  // draws as it came.
+  shaped.push(...turn.slice(end + 1));
   return shaped;
 }
+
+const VERSION_SPAN = 1_000_000;
 
 /// A folded copy of an activity row is drawn as tool rows, never as the edited-files card.
 export const isFoldedCopy = (row: AcpmuxRow) => row.id.endsWith(FOLDED);

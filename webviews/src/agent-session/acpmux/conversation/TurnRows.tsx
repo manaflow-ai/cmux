@@ -85,7 +85,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     <div className="cv-turn-actions">
       {!row.folded && <span className="cv-turn-summary">{workedLabel(row)}</span>}
       {text && (
-        <button type="button" className="cv-iconbtn" aria-label={copied ? "Copied" : "Copy"} title={copied ? "Copied" : "Copy"} onClick={() => void copyText(text).then(() => setCopied(true))}>
+        <button type="button" className="cv-iconbtn" aria-label={copied ? "Copied" : "Copy"} title={copied ? "Copied" : "Copy"} onClick={() => void copyText(text).then(() => setCopied(true), () => setCopied(false))}>
           <Copy />
         </button>
       )}

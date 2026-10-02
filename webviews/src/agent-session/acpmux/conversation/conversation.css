@@ -476,8 +476,9 @@
 .cv-worked:focus-visible,
 .cv-tool.is-toggle:focus-visible,
 .cv-iconbtn:focus-visible {
-  outline: 2px solid var(--agent-accent-soft);
-  outline-offset: 2px;
+  /* Inset: the transcript row clips paint (`contain: paint`), so an outset ring would be cut. */
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: -1.5px;
   border-radius: 4px;
 }
 /* One right chevron, turned a quarter when open; on settled rows it shows on hover. */
