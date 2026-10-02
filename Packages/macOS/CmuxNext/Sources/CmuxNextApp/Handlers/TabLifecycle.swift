@@ -14,7 +14,7 @@ enum TabLifecycle {
         let cwd = invocation["cwd"]?.stringValue
         // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
         let keep = invocation["keep"]?.boolValue == true ? true : nil
-        if let controller = ctx.services.paneController(for: pane) { return controller.newTerminalTab(cwd: cwd, keep: keep) }
+        if let controller = ctx.services.paneController(for: pane) { return controller.newTerminalTab(cwd: cwd, keep: keep, fromSelectedTab: true) }
         let handle = pane.handle
         let start = cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
@@ -81,7 +81,10 @@ enum TabLifecycle {
         }
         guard let pane = ctx.daemonPane(invocation) else { return }
         let engine = invocation["engine"]?.stringValue
-        if let controller = ctx.services.paneController(for: pane) { return controller.newBrowserTab(url: url, engine: engine) }
+        if let controller = ctx.services.paneController(for: pane) {
+            // No URL given: what the selected tab works on (#16620).
+            return url == nil ? controller.newBrowserTabFromSelectedTab(engine: engine) : controller.newBrowserTab(url: url, engine: engine)
+        }
         let browserTabs = ctx.services.cache.browserTabs!
         guard browserTabs.isAvailable() else { return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs)) }
         let choice: BrowserEngineChoice
