@@ -10,7 +10,7 @@ import Observation
 final class PaneContentView: NSView, PaneContentChrome {
     let stripView: TabStripView
     /// Vibrancy under the strip, a shade darker than the content.
-    private let stripBackdrop = ChromeBackdropView(material: .headerView) { Palette.stripBackground }
+    private let stripBackdrop = ChromeBackdropView(material: .headerView, tint: PaneContentView.stripTint)
     private let contentHost = NSView()
     private(set) weak var content: NSView?
     private var tokenObservation: Task<Void, Never>?
@@ -41,6 +41,10 @@ final class PaneContentView: NSView, PaneContentChrome {
     isolated deinit {
         tokenObservation?.cancel()
     }
+
+    /// The strip backdrop's tint. theme-scoped: ChromeBackdropView calls it
+    /// inside its performWithTheme.
+    private static func stripTint() -> NSColor { Palette.stripBackground }
 
     override var isFlipped: Bool { true }
 
