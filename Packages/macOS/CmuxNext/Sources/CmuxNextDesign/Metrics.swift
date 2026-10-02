@@ -127,8 +127,12 @@ public struct Metrics {
     public static var densityPaneCornerRadius: CGFloat { MetricTunables.densityPaneCornerRadius.value }
     /// Pane border (`layout.paneBorder`). The line is one device pixel wide.
     public static var paneBorder: PaneBorderStyle {
-        DesignSettings.shared.paneChrome.border ?? .subtle
+        Borders.drawsLines ? DesignSettings.shared.paneChrome.border ?? .subtle : .none
     }
+
+    /// A border, hairline or stroke of `width` points: 0 under
+    /// `appearance.borders` none (`Borders`).
+    public static func lineWidth(_ width: CGFloat) -> CGFloat { Borders.width(width) }
     /// Pane border width in points (`layout.paneBorderWidth`); nil is one
     /// device pixel.
     public static var paneBorderWidth: CGFloat? { DesignSettings.shared.paneChrome.borderWidth }

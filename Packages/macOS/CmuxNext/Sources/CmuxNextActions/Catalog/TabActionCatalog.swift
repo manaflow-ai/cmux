@@ -13,7 +13,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "newSurface",
                 title: String(localized: "action.newSurface", defaultValue: "New Terminal Tab", bundle: .module),
-                keywords: ["tab", "terminal", "create"],
+                keywords: ["tab", "terminal", "create"], defaultShortcut: Shortcut("t", modifiers: [.control, .shift, .command]),
                 category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.tab], cliName: "tab new-terminal", startsTerminal: true
             ),
@@ -26,14 +26,14 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "openBrowser.webkit",
-                title: String(localized: "action.openBrowser.webkit", defaultValue: "New WebKit Tab", bundle: .module),
+                title: String(localized: "action.openBrowser.webkit", defaultValue: "New WebKit Tab (experimental)", bundle: .module),
                 keywords: ["tab", "web", "browser", "safari", "webkit", "create"],
                 category: .tab, symbol: "safari", surfaces: [.palette, .contextMenu],
                 arguments: [CatalogArgument.urlString], targets: [.tab], cliName: "tab new-webkit"
             ),
             ActionDescriptor(
                 id: "openBrowser.chromium",
-                title: String(localized: "action.openBrowser.chromium", defaultValue: "New Chromium Tab", bundle: .module),
+                title: String(localized: "action.openBrowser.chromium", defaultValue: "New Browser Tab", bundle: .module),
                 keywords: ["tab", "web", "browser", "chrome", "chromium", "cef", "extensions", "create"],
                 category: .tab, symbol: "circle.circle", surfaces: [.palette, .contextMenu],
                 arguments: [CatalogArgument.urlString], targets: [.tab], cliName: "tab new-chromium"

@@ -18,7 +18,7 @@ import Testing
         let resolved = TabBarButtonResolver.resolve(SurfaceTabBarConfig.defaultButtons, registry: registry)
         #expect(resolved.buttons.map(\.id) == ["cmux.newTerminal", "cmux.splitRight", "cmux.splitDown"])
         #expect(resolved.actions == ["cmux.newTerminal": "newSurface", "cmux.splitRight": "splitRight", "cmux.splitDown": "splitDown"])
-        #expect(resolved.buttons.map(\.toolTip) == ["New Terminal Tab", "Split Right (⌘D)", "Split Down (⇧⌘D)"])
+        #expect(resolved.buttons.map(\.toolTip) == ["New Terminal Tab (⌃⇧⌘T)", "Split Right (⌘D)", "Split Down (⇧⌘D)"])
         #expect(resolved.buttons.map(\.accessibilityLabel) == ["New Terminal Tab", "Split Right", "Split Down"])
         #expect(resolved.buttons[1].icon == .symbol("square.split.2x1"))
     }

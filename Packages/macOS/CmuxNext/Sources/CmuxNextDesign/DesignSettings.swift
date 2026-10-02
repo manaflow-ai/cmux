@@ -50,6 +50,9 @@ public final class DesignSettings {
     public var focusRing = FocusRingSettings()
     /// `notifications.attention.*`: the unread pane's attention ring.
     public var attention = AttentionSettings()
+    /// `appearance.borders`: default, or none (no border, hairline or
+    /// separator anywhere; `Borders`).
+    public var borders: BorderMode = .default
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
     /// `window.rail`: the window's icon rail, off by default.

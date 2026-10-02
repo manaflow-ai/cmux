@@ -83,6 +83,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var focusRing = FocusRingSettings()
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()
+    /// `appearance.borders`; "default" when unset or invalid.
+    public var borders: BorderMode = BordersSetting.fallback
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `window.rail`; "off" when unset or invalid.
@@ -148,6 +150,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         ColumnLayoutSettings.parse(root, into: &snapshot)
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
+        let (borders, bordersDiagnostic) = BordersSetting.parse(root)
+        snapshot.borders = borders
+        if let bordersDiagnostic { snapshot.diagnostics.append(bordersDiagnostic) }
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }

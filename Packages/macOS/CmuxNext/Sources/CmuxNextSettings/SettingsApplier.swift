@@ -49,6 +49,7 @@ public final class SettingsApplier {
         if design.attention != snapshot.attention { design.attention = snapshot.attention }
         if design.titlebar != snapshot.titlebar { design.titlebar = snapshot.titlebar }
         if design.rail != snapshot.rail { design.rail = snapshot.rail }
+        if design.borders != snapshot.borders { design.borders = snapshot.borders }
         for key in MetricKey.allCases {
             let value = snapshot.metrics[key.rawValue].map { CGFloat($0) }
             let range = DesignSettings.allowedRange(key)
