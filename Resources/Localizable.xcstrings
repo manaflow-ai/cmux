@@ -271373,6 +271373,48 @@
             "state": "translated",
             "value": "1"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1"
+          }
         }
       }
     },
@@ -271392,6 +271434,42 @@
           }
         },
         "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50"
+          }
+        },
+        "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "50"
