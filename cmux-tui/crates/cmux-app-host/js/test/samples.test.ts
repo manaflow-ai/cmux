@@ -8,8 +8,8 @@ const load = (name: string) => readFileSync(join(samples, name, "dist/main.js"),
 const texts = (host: FakeHost, mount: string) => [...host.tree(mount).nodes.values()].map((n) => n.props.title ?? n.props.text).filter(Boolean)
 
 const agents = [
-  { id: "agent_1", session_id: "s", terminal_id: "term_1", state: "working", source: "hook", updated_at_ms: String(Date.now()), source_session: "claude" },
-  { id: "agent_2", session_id: "s", terminal_id: "term_2", state: "blocked", source: "hook", updated_at_ms: String(Date.now()), source_session: "codex" }
+  { id: "agent_1", session_id: "s", terminal_id: "term_1", state: "working", source: "hook", updated_at_ms: String(Date.now()), source_session: "agent-a" },
+  { id: "agent_2", session_id: "s", terminal_id: "term_2", state: "blocked", source: "hook", updated_at_ms: String(Date.now()), source_session: "agent-b" }
 ]
 
 describe("samples", () => {
@@ -20,8 +20,8 @@ describe("samples", () => {
     host.handlers["tab.focus"] = () => ({ ok: true, body: { value: null } })
     expect(host.mount("m", "renderAgents", { contribution: "cmux/running-agents#agents", surface: "sidebarSection" })).toBe("")
     await host.settle()
-    expect(texts(host, "m")).toEqual(expect.arrayContaining(["Waiting for you", "Working", "claude", "codex"]))
-    const row = host.findNode("m", (n) => n.type === "Row" && n.props.title === "codex")!
+    expect(texts(host, "m")).toEqual(expect.arrayContaining(["Waiting for you", "Working", "agent-a", "agent-b"]))
+    const row = host.findNode("m", (n) => n.type === "Row" && n.props.title === "agent-b")!
     host.dispatch("m", row, "tap")
     await host.settle()
     expect(host.calls.find((c) => c.name === "tab.focus")!.params).toEqual({ tab: "tab_9" })
