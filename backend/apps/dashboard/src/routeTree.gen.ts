@@ -10,12 +10,23 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AutomationsRouteImport } from './routes/automations'
 import { Route as DevicesRouteImport } from './routes/devices'
+import { Route as PolicyRouteImport } from './routes/policy'
 import { Route as TeamRouteImport } from './routes/team'
+import { Route as ICodeRouteImport } from './routes/i.$code'
+import { Route as IntegrationsIndexRouteImport } from './routes/integrations/index'
+import { Route as IntegrationsCallbackRouteImport } from './routes/integrations/callback'
+import { Route as OgInviteCodeRouteImport } from './routes/og.invite.$code'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AutomationsRoute = AutomationsRouteImport.update({
+  id: '/automations',
+  path: '/automations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DevicesRoute = DevicesRouteImport.update({
@@ -23,40 +34,117 @@ const DevicesRoute = DevicesRouteImport.update({
   path: '/devices',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PolicyRoute = PolicyRouteImport.update({
+  id: '/policy',
+  path: '/policy',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TeamRoute = TeamRouteImport.update({
   id: '/team',
   path: '/team',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ICodeRoute = ICodeRouteImport.update({
+  id: '/i/$code',
+  path: '/i/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IntegrationsIndexRoute = IntegrationsIndexRouteImport.update({
+  id: '/integrations/',
+  path: '/integrations/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IntegrationsCallbackRoute = IntegrationsCallbackRouteImport.update({
+  id: '/integrations/callback',
+  path: '/integrations/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OgInviteCodeRoute = OgInviteCodeRouteImport.update({
+  id: '/og/invite/$code',
+  path: '/og/invite/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/automations': typeof AutomationsRoute
   '/devices': typeof DevicesRoute
+  '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
+  '/i/$code': typeof ICodeRoute
+  '/integrations/callback': typeof IntegrationsCallbackRoute
+  '/integrations/': typeof IntegrationsIndexRoute
+  '/og/invite/$code': typeof OgInviteCodeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/automations': typeof AutomationsRoute
   '/devices': typeof DevicesRoute
+  '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
+  '/i/$code': typeof ICodeRoute
+  '/integrations/callback': typeof IntegrationsCallbackRoute
+  '/integrations': typeof IntegrationsIndexRoute
+  '/og/invite/$code': typeof OgInviteCodeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/automations': typeof AutomationsRoute
   '/devices': typeof DevicesRoute
+  '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
+  '/i/$code': typeof ICodeRoute
+  '/integrations/callback': typeof IntegrationsCallbackRoute
+  '/integrations/': typeof IntegrationsIndexRoute
+  '/og/invite/$code': typeof OgInviteCodeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/devices' | '/team'
+  fullPaths:
+    | '/'
+    | '/automations'
+    | '/devices'
+    | '/policy'
+    | '/team'
+    | '/i/$code'
+    | '/integrations/callback'
+    | '/integrations/'
+    | '/og/invite/$code'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/devices' | '/team'
-  id: '__root__' | '/' | '/devices' | '/team'
+  to:
+    | '/'
+    | '/automations'
+    | '/devices'
+    | '/policy'
+    | '/team'
+    | '/i/$code'
+    | '/integrations/callback'
+    | '/integrations'
+    | '/og/invite/$code'
+  id:
+    | '__root__'
+    | '/'
+    | '/automations'
+    | '/devices'
+    | '/policy'
+    | '/team'
+    | '/i/$code'
+    | '/integrations/callback'
+    | '/integrations/'
+    | '/og/invite/$code'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AutomationsRoute: typeof AutomationsRoute
   DevicesRoute: typeof DevicesRoute
+  PolicyRoute: typeof PolicyRoute
   TeamRoute: typeof TeamRoute
+  ICodeRoute: typeof ICodeRoute
+  IntegrationsCallbackRoute: typeof IntegrationsCallbackRoute
+  IntegrationsIndexRoute: typeof IntegrationsIndexRoute
+  OgInviteCodeRoute: typeof OgInviteCodeRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -68,11 +156,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/automations': {
+      id: '/automations'
+      path: '/automations'
+      fullPath: '/automations'
+      preLoaderRoute: typeof AutomationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/devices': {
       id: '/devices'
       path: '/devices'
       fullPath: '/devices'
       preLoaderRoute: typeof DevicesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/policy': {
+      id: '/policy'
+      path: '/policy'
+      fullPath: '/policy'
+      preLoaderRoute: typeof PolicyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/team': {
@@ -82,13 +184,47 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/i/$code': {
+      id: '/i/$code'
+      path: '/i/$code'
+      fullPath: '/i/$code'
+      preLoaderRoute: typeof ICodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/integrations/': {
+      id: '/integrations/'
+      path: '/integrations'
+      fullPath: '/integrations/'
+      preLoaderRoute: typeof IntegrationsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/integrations/callback': {
+      id: '/integrations/callback'
+      path: '/integrations/callback'
+      fullPath: '/integrations/callback'
+      preLoaderRoute: typeof IntegrationsCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/og/invite/$code': {
+      id: '/og/invite/$code'
+      path: '/og/invite/$code'
+      fullPath: '/og/invite/$code'
+      preLoaderRoute: typeof OgInviteCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AutomationsRoute: AutomationsRoute,
   DevicesRoute: DevicesRoute,
+  PolicyRoute: PolicyRoute,
   TeamRoute: TeamRoute,
+  ICodeRoute: ICodeRoute,
+  IntegrationsCallbackRoute: IntegrationsCallbackRoute,
+  IntegrationsIndexRoute: IntegrationsIndexRoute,
+  OgInviteCodeRoute: OgInviteCodeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

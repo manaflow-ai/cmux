@@ -9,7 +9,8 @@ import CmuxNextDesign
 final class PaletteShortcutRecorderView: NSView {
     var onChoose: ((PaletteShortcutOption) -> Void)?
 
-    private let glass = Glass.makePanel(cornerRadius: PaletteLayout.cornerRadius)
+    /// The panel's material: glass, or opaque under Reduce Transparency.
+    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)
     private let content = FlippedView()
     private let title = PaletteText.label(Typography.header, tone: .secondary)
     private let action = PaletteText.label(Typography.bodyEmphasized)
@@ -22,7 +23,7 @@ final class PaletteShortcutRecorderView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         glass.translatesAutoresizingMaskIntoConstraints = true
-        glass.contentView = content
+        glass.contentView.addSubview(content)
         message.font = Typography.body
         message.maximumNumberOfLines = 4
         title.stringValue = PaletteStrings.recorderTitle
@@ -47,7 +48,7 @@ final class PaletteShortcutRecorderView: NSView {
 
     private func applyColors() {
         performWithTheme {
-            glass.tintColor = Palette.glassTint
+            glass.applyTheme()
             message.textColor = Palette.textSecondary
         }
     }
@@ -103,7 +104,7 @@ final class PaletteShortcutRecorderView: NSView {
     override func layout() {
         super.layout()
         glass.frame = bounds
-        content.frame = glass.bounds
+        content.frame = CGRect(origin: .zero, size: glass.bounds.size)
         let padding = PaletteLayout.horizontalPadding
         let width = bounds.width - 2 * padding
         var y = Metrics.space4

@@ -235,8 +235,8 @@ extension DaemonStore {
             tabsBySurface[status.surface]?.setAgent(status)
             return .none
 
-        case .bookmarksChanged(let profile, _):
-            onBookmarksChanged?(profile)
+        case .bookmarksChanged, .conversationChanged, .conversationTyping:
+            sideEvents.deliver(event)
             return .none
 
         case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client, .unknown:

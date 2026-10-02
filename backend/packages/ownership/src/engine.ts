@@ -1,5 +1,9 @@
 import { createHash, createHmac } from "node:crypto"
 import { idFactory } from "./ids.ts"
+import { channelOf, Outbox, type OutboxRow } from "./outbox.ts"
+import { checkWrites, EMPTY_ROWS, readOnly, SqlRows, type RowWrite } from "./rows.ts"
+import { migrate, tablesFor, type Tables } from "./schema.ts"
+import type { SqlStore } from "./sql.ts"
 import type {
   DecidedKey,
   Domain,
@@ -15,15 +19,8 @@ import type {
   SnapshotFrame
 } from "./types.ts"
 
-/**
- * Synchronous SQL, shaped like Durable Object `ctx.storage.sql` so the same
- * engine runs in a DO and in node:sqlite tests.
- */
-export interface SqlStore {
-  exec<T = Record<string, unknown>>(query: string, ...params: Array<unknown>): Array<T>
-  /** Runs `fn` atomically. A throw rolls back every write. */
-  transaction<T>(fn: () => T): T
-}
+export type { SqlStore } from "./sql.ts"
+export type { OutboxRow } from "./outbox.ts"
 
 /** Where committed frames go. `"all"` = every subscriber of the stream. */
 export type Deliver = (target: "all" | string, frame: OwnerFrame) => void
@@ -40,51 +37,49 @@ export interface EngineMutants {
 
 export interface EngineOptions {
   readonly stream: string
+  /** Table prefix (default `own_`); one per stream when an object hosts several (E2). */
+  readonly prefix?: string
+  /**
+   * Row mode (E1): events carry their effects (head state and row writes) and snapshots
+   * carry the newest rows of `snapshotTable`, so mirrors never need hidden rows.
+   */
+  readonly rowMode?: { readonly snapshotTable: string; readonly snapshotTail: number }
   readonly now?: () => number
   readonly mutants?: EngineMutants
   /** Test hook: called inside the commit transaction; a throw models a crash before commit. */
   readonly beforeCommit?: () => void
+  /**
+   * Row mode only: what subscribers may see of an op's params, the head state and rows, for
+   * fields that must stay with the owner (for example an invite's token hash). Applied to
+   * events, effects and snapshots; the owner keeps the full values. Not allowed without
+   * rowMode, because a JSON domain's mirror replays params and state.
+   */
+  readonly redact?: {
+    readonly params?: (op: string, params: unknown) => unknown
+    readonly state?: (state: unknown) => unknown
+    readonly row?: (table: string, row: unknown) => unknown
+  }
   /** What subscribers see of the actor in events. Default: the full principal. */
   readonly eventActor?: (p: Principal) => Principal
 }
 
-const SCHEMA_VERSION = 1
-const ORIGINS = new Set(["user", "cli", "mcp", "script", "remote"])
+/**
+ * Replay window of the request ledger (7 days). Decided keys older than this
+ * are pruned (`pruneLedger`); a request with a pruned key applies again. Safe
+ * because clients never resend a key older than INTENT_TTL_MS (24 h,
+ * client.ts) and owners derive their own system keys from state checks.
+ */
+export const LEDGER_RETENTION_MS = 7 * 24 * 3600_000
 
-const MIGRATIONS: ReadonlyArray<string> = [
-  `CREATE TABLE IF NOT EXISTS own_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS own_state (id INTEGER PRIMARY KEY CHECK (id = 1), seq INTEGER NOT NULL, json TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS own_ledger (
-     identity TEXT NOT NULL,
-     idempotency_key TEXT NOT NULL,
-     tx TEXT NOT NULL,
-     op TEXT NOT NULL,
-     params_hash TEXT NOT NULL,
-     ok INTEGER NOT NULL,
-     reply TEXT NOT NULL,
-     sequence INTEGER NOT NULL,
-     revision TEXT NOT NULL,
-     actor TEXT NOT NULL,
-     origin TEXT NOT NULL,
-     created_at INTEGER NOT NULL,
-     PRIMARY KEY (identity, idempotency_key))`,
-  `CREATE TABLE IF NOT EXISTS own_events (
-     seq INTEGER PRIMARY KEY,
-     tx TEXT NOT NULL,
-     op TEXT NOT NULL,
-     params TEXT NOT NULL,
-     actor TEXT NOT NULL,
-     origin TEXT NOT NULL,
-     at INTEGER NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS own_outbox (
-     id INTEGER PRIMARY KEY AUTOINCREMENT,
-     seq INTEGER NOT NULL,
-     kind TEXT NOT NULL,
-     entity TEXT NOT NULL,
-     payload TEXT NOT NULL,
-     created_at INTEGER NOT NULL,
-     sent_at INTEGER)`
-]
+/**
+ * Event log retention (E3): events older than 30 days go, but the newest
+ * EVENT_KEEP_LAST always stay. A resume from before the oldest kept event gets
+ * a snapshot instead of a replay (`canReplayFrom`).
+ */
+export const EVENT_RETENTION_MS = 30 * 24 * 3600_000
+export const EVENT_KEEP_LAST = 10_000
+
+const ORIGINS = new Set(["user", "cli", "mcp", "script", "remote"])
 
 /** Canonical JSON (sorted keys) so equal params hash equally. */
 export const canonicalJson = (value: unknown): string =>
@@ -105,22 +100,22 @@ interface LedgerRow {
   revision: string
 }
 
-export interface OutboxRow {
-  readonly id: number
-  readonly seq: number
-  readonly kind: string
-  readonly entity: string
-  readonly payload: unknown
-}
+
+type Decision<S> =
+  | { ok: true; state: S; value: unknown; changed: boolean; outbox: ReadonlyArray<OutboxItem>; writes: ReadonlyArray<RowWrite> }
+  | { ok: false; frame: RejectFrame }
 
 /**
  * The single writer of one entity (spec/sync-and-transport.md section 7):
  * ledger check, authorization, pure reducer, one transaction for state +
- * ledger + events + outbox, and only then publish events, result and
+ * rows + ledger + events + outbox, and only then publish events, result and
  * `request-settled` (commit before publish).
  */
 export class OwnerEngine<S, P = unknown> {
   readonly stream: string
+  readonly rows: SqlRows
+  readonly outbox: Outbox
+  private readonly t: Tables
   private state: S
   private seq: number
   private readonly secret: string
@@ -133,17 +128,20 @@ export class OwnerEngine<S, P = unknown> {
   ) {
     this.stream = options.stream
     this.now = options.now ?? Date.now
+    if (options.redact && !options.rowMode) throw new Error(`redact needs rowMode (stream ${options.stream})`)
+    this.t = tablesFor(options.prefix)
+    const t = this.t
     sql.transaction(() => {
-      for (const m of MIGRATIONS) sql.exec(m)
-      const version = sql.exec<{ value: string }>(`SELECT value FROM own_meta WHERE key = 'schema_version'`)[0]
-      if (!version) sql.exec(`INSERT INTO own_meta (key, value) VALUES ('schema_version', ?)`, String(SCHEMA_VERSION))
+      migrate(sql, t)
       // Per-object secret for transaction tags: other subscribers see the tag
       // but cannot derive the client's key (ownership.md mutation-echo-v1).
-      const secret = sql.exec<{ value: string }>(`SELECT value FROM own_meta WHERE key = 'tx_secret'`)[0]
-      if (!secret) sql.exec(`INSERT INTO own_meta (key, value) VALUES ('tx_secret', ?)`, createHash("sha256").update(`${crypto.randomUUID()}${crypto.randomUUID()}`).digest("base64url"))
+      const secret = sql.exec<{ value: string }>(`SELECT value FROM ${t.meta} WHERE key = 'tx_secret'`)[0]
+      if (!secret) sql.exec(`INSERT INTO ${t.meta} (key, value) VALUES ('tx_secret', ?)`, createHash("sha256").update(`${crypto.randomUUID()}${crypto.randomUUID()}`).digest("base64url"))
     })
-    this.secret = sql.exec<{ value: string }>(`SELECT value FROM own_meta WHERE key = 'tx_secret'`)[0]!.value
-    const row = sql.exec<{ seq: number; json: string }>(`SELECT seq, json FROM own_state WHERE id = 1`)[0]
+    this.secret = sql.exec<{ value: string }>(`SELECT value FROM ${t.meta} WHERE key = 'tx_secret'`)[0]!.value
+    this.rows = new SqlRows(sql, t.rows)
+    this.outbox = new Outbox(sql, t)
+    const row = sql.exec<{ seq: number; json: string }>(`SELECT seq, json FROM ${t.state} WHERE id = 1`)[0]
     this.state = row ? (JSON.parse(row.json) as S) : domain.initial()
     this.seq = row ? Number(row.seq) : 0
   }
@@ -162,9 +160,7 @@ export class OwnerEngine<S, P = unknown> {
 
   /** Handles one op from an authenticated connection. Frames go out through `deliver`. */
   submit(principalIn: Principal, frame: OpFrame, deliver: Deliver): void {
-    const principal = this.options.mutants?.trustClaimedIdentity
-      ? claimedPrincipal(principalIn, frame.params)
-      : principalIn
+    const principal = this.options.mutants?.trustClaimedIdentity ? claimedPrincipal(principalIn, frame.params) : principalIn
     const identity = principal.identity
     const key = frame.idempotency_key
     if (typeof key !== "string" || key.length === 0 || key.length > 128) {
@@ -173,6 +169,7 @@ export class OwnerEngine<S, P = unknown> {
       deliver(identity, settled(this.stream, "", bad, 0, false))
       return
     }
+    const t = this.t
     const origin: Origin = ORIGINS.has(frame.origin as string) ? (frame.origin as Origin) : "cli"
     const tx = this.txTag(identity, key)
     const paramsHash = sha256(canonicalJson({ op: frame.op, params: frame.params }))
@@ -195,15 +192,9 @@ export class OwnerEngine<S, P = unknown> {
 
     // 1. Ledger: a decided key answers from the ledger with its original sequence.
     if (!this.options.mutants?.noLedger) {
-      const prior = this.sql.exec<LedgerRow>(
-        `SELECT tx, params_hash, ok, reply, sequence, revision FROM own_ledger WHERE identity = ? AND idempotency_key = ?`,
-        identity,
-        key
-      )[0]
+      const prior = this.sql.exec<LedgerRow>(`SELECT tx, params_hash, ok, reply, sequence, revision FROM ${t.ledger} WHERE identity = ? AND idempotency_key = ?`, identity, key)[0]
       if (prior) {
-        if (prior.params_hash !== paramsHash) {
-          return reply(reject("idempotency.conflict", "idempotency key reused with different params"), 0)
-        }
+        if (prior.params_hash !== paramsHash) return reply(reject("idempotency.conflict", "idempotency key reused with different params"), 0)
         const stored = JSON.parse(prior.reply) as ResultFrame | RejectFrame
         return reply({ ...stored, replayed: true }, Number(prior.sequence))
       }
@@ -213,37 +204,44 @@ export class OwnerEngine<S, P = unknown> {
     const denied = this.domain.authorize?.(this.state, frame.op, frame.params as P, principal)
     if (denied) return reply(reject(denied.code, denied.message, denied), 0)
 
-    // 3. Decide: revision precondition, then the pure reducer.
-    let decision: { ok: true; state: S; value: unknown; changed: boolean; outbox: ReadonlyArray<OutboxItem> } | { ok: false; frame: RejectFrame }
+    // 3. Decide: revision precondition, then the pure reducer (rows read-only).
+    let decision: Decision<S>
     if (frame.expected_revision !== undefined && frame.expected_revision !== String(this.seq)) {
-      decision = {
-        ok: false,
-        frame: reject("revision.conflict", "expected_revision does not match", {
-          details: { expected: frame.expected_revision, actual: String(this.seq) }
-        })
-      }
+      decision = { ok: false, frame: reject("revision.conflict", "expected_revision does not match", { details: { expected: frame.expected_revision, actual: String(this.seq) } }) }
     } else {
-      const r = this.domain.reduce(this.state, frame.op, frame.params as P, {
-        principal,
-        now: at,
-        tx,
-        newId: idFactory(tx)
-      })
+      // Only row-mode owners have rows: a JSON domain's mirror replays the reducer, so it must
+      // never read or write rows the mirror cannot see.
+      const rows = this.options.rowMode ? readOnly(this.rows) : EMPTY_ROWS
+      const r = this.domain.reduce(this.state, frame.op, frame.params as P, { principal, origin, now: at, tx, newId: idFactory(tx), rows, idempotencyKey: key })
+      if (r.ok && (r.writes?.length ?? 0) > 0) {
+        if (!this.options.rowMode) throw new Error(`${frame.op}: row writes need rowMode on stream ${this.stream}`)
+        checkWrites(r.writes!)
+      }
       decision = r.ok
-        ? { ok: true, state: r.state, value: r.value, changed: r.changed ?? true, outbox: r.outbox ?? [] }
+        ? { ok: true, state: r.state, value: r.value, changed: r.changed ?? true, outbox: r.outbox ?? [], writes: r.writes ?? [] }
         : { ok: false, frame: reject(r.code, r.message, r) }
     }
 
-    // 4. Commit (state, ledger, events, outbox) in one transaction, then publish.
-    const nextSeq = decision.ok && decision.changed ? this.seq + 1 : this.seq
-    const event: EventFrame | undefined =
-      decision.ok && decision.changed
-        ? { t: "event", stream: this.stream, seq: nextSeq, tx, op: frame.op, params: frame.params, actor: this.options.eventActor?.(principal) ?? principal, origin, at }
-        : undefined
+    // 4. Commit (state, rows, ledger, events, outbox) in one transaction, then publish.
+    const changed = decision.ok && decision.changed
+    const nextSeq = changed ? this.seq + 1 : this.seq
+    const effects = changed && decision.ok && this.options.rowMode ? { state: this.redactState(decision.state), writes: decision.writes.map((w) => this.redactWrite(w)) } : undefined
+    const event: EventFrame | undefined = changed
+      ? {
+          t: "event",
+          stream: this.stream,
+          seq: nextSeq,
+          tx,
+          op: frame.op,
+          params: this.options.redact?.params ? this.options.redact.params(frame.op, frame.params) : frame.params,
+          actor: this.options.eventActor?.(principal) ?? principal,
+          origin,
+          at,
+          ...(effects ? { effects } : {})
+        }
+      : undefined
     const sequence = event ? event.seq : 0
-    const out: ResultFrame | RejectFrame = decision.ok
-      ? { t: "result", tx, idempotency_key: key, value: decision.value, revision: String(nextSeq), replayed: false }
-      : decision.frame
+    const out: ResultFrame | RejectFrame = decision.ok ? { t: "result", tx, idempotency_key: key, value: decision.value, revision: String(nextSeq), replayed: false } : decision.frame
 
     const publish = () => {
       if (event) deliver("all", event)
@@ -252,37 +250,39 @@ export class OwnerEngine<S, P = unknown> {
 
     if (this.options.mutants?.publishBeforeCommit) publish()
     this.sql.transaction(() => {
-      if (decision.ok && decision.changed) {
+      if (changed && decision.ok) {
+        this.sql.exec(`INSERT INTO ${t.state} (id, seq, json) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET seq = excluded.seq, json = excluded.json`, nextSeq, JSON.stringify(decision.state))
+        this.rows.apply(decision.writes)
         this.sql.exec(
-          `INSERT INTO own_state (id, seq, json) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET seq = excluded.seq, json = excluded.json`,
-          nextSeq,
-          JSON.stringify(decision.state)
-        )
-        this.sql.exec(
-          `INSERT INTO own_events (seq, tx, op, params, actor, origin, at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO ${t.events} (seq, tx, op, params, actor, origin, at, effects) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           nextSeq,
           tx,
           frame.op,
-          JSON.stringify(frame.params ?? null),
+          JSON.stringify(event!.params ?? null),
           JSON.stringify(event!.actor),
           origin,
-          at
+          at,
+          effects ? JSON.stringify(effects) : null
         )
         for (const item of decision.outbox) {
           this.sql.exec(
-            `INSERT INTO own_outbox (seq, kind, entity, payload, created_at) VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO ${t.outbox} (seq, kind, entity, payload, created_at, target, channel) VALUES (?, ?, ?, ?, ?, ?, ?)`,
             nextSeq,
             item.kind,
             item.entity,
             JSON.stringify(item.payload),
-            at
+            at,
+            item.target ? JSON.stringify(item.target) : null,
+            channelOf(item.target ?? null)
           )
         }
       }
-      if (!this.options.mutants?.noLedger) {
+      // A retryable reject (rate limit, full) is not decided: like an authorization failure it is not
+      // recorded, so a retry with the same key is evaluated again instead of replaying the reject.
+      const retryableReject = !decision.ok && decision.frame.retryable
+      if (!this.options.mutants?.noLedger && !retryableReject) {
         this.sql.exec(
-          `INSERT INTO own_ledger (identity, idempotency_key, tx, op, params_hash, ok, reply, sequence, revision, actor, origin, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO ${t.ledger} (identity, idempotency_key, tx, op, params_hash, ok, reply, sequence, revision, actor, origin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           identity,
           key,
           tx,
@@ -299,7 +299,7 @@ export class OwnerEngine<S, P = unknown> {
       }
       this.options.beforeCommit?.()
     })
-    if (decision.ok && decision.changed) {
+    if (changed && decision.ok) {
       this.state = decision.state
       this.seq = nextSeq
     }
@@ -308,22 +308,44 @@ export class OwnerEngine<S, P = unknown> {
 
   /** Snapshot for one identity; `pending` narrows `decided` to the keys the client still holds. */
   snapshot(identity: string, pending?: ReadonlyArray<string>): SnapshotFrame<S> {
-    const rows = this.sql.exec<{ idempotency_key: string; ok: number; sequence: number }>(
-      `SELECT idempotency_key, ok, sequence FROM own_ledger WHERE identity = ? ORDER BY created_at`,
-      identity
-    )
-    const want = pending ? new Set(pending) : undefined
-    const decided: Array<DecidedKey> = rows
-      .filter((r) => !want || want.has(r.idempotency_key))
-      .map((r) => ({ idempotency_key: r.idempotency_key, ok: Number(r.ok) === 1, sequence: Number(r.sequence) }))
-    return { t: "snapshot", stream: this.stream, seq: this.seq, state: this.state, decided }
+    // No pending intents (want = []): no decided keys to report, so no ledger scan.
+    const want = pending ? [...new Set(pending)].slice(0, 500) : undefined
+    const rows = want
+      ? want.length === 0
+        ? []
+        : this.sql.exec<{ idempotency_key: string; ok: number; sequence: number }>(
+            `SELECT idempotency_key, ok, sequence FROM ${this.t.ledger} WHERE identity = ? AND idempotency_key IN (${want.map(() => "?").join(",")})`,
+            identity,
+            ...want
+          )
+      : this.sql.exec<{ idempotency_key: string; ok: number; sequence: number }>(`SELECT idempotency_key, ok, sequence FROM ${this.t.ledger} WHERE identity = ? ORDER BY created_at`, identity)
+    const decided: Array<DecidedKey> = rows.map((r) => ({ idempotency_key: r.idempotency_key, ok: Number(r.ok) === 1, sequence: Number(r.sequence) }))
+    const mode = this.options.rowMode
+    const tail = mode
+      ? {
+          table: mode.snapshotTable,
+          rows: this.rows
+            .range(mode.snapshotTable, { limit: mode.snapshotTail, desc: true })
+            .reverse()
+            .map((r) => (this.options.redact?.row ? { ...r, row: this.options.redact.row(mode.snapshotTable, r.row) } : r))
+        }
+      : undefined
+    return { t: "snapshot", stream: this.stream, seq: this.seq, state: this.redactState(this.state) as S, decided, ...(tail ? { rows: tail } : {}) }
   }
 
-  /** Committed events after `seq`, for resume. */
+  private redactState(state: S): unknown {
+    return this.options.redact?.state ? this.options.redact.state(state) : state
+  }
+
+  private redactWrite(w: RowWrite): RowWrite {
+    return w.op === "upsert" && this.options.redact?.row ? { ...w, row: this.options.redact.row(w.table, w.row) } : w
+  }
+
+  /** Committed events after `seq`, for resume. Check `canReplayFrom` first. */
   eventsAfter(seq: number, limit = 1000): Array<EventFrame> {
     return this.sql
-      .exec<{ seq: number; tx: string; op: string; params: string; actor: string; origin: string; at: number }>(
-        `SELECT seq, tx, op, params, actor, origin, at FROM own_events WHERE seq > ? ORDER BY seq LIMIT ?`,
+      .exec<{ seq: number; tx: string; op: string; params: string; actor: string; origin: string; at: number; effects: string | null }>(
+        `SELECT seq, tx, op, params, actor, origin, at, effects FROM ${this.t.events} WHERE seq > ? ORDER BY seq LIMIT ?`,
         seq,
         limit
       )
@@ -336,25 +358,81 @@ export class OwnerEngine<S, P = unknown> {
         params: JSON.parse(r.params) as unknown,
         actor: JSON.parse(r.actor) as Principal,
         origin: r.origin as Origin,
-        at: Number(r.at)
+        at: Number(r.at),
+        ...(r.effects ? { effects: JSON.parse(r.effects) as EventFrame["effects"] } : {})
       }))
   }
 
+  /** True when every event after `seq` is still stored (otherwise send a snapshot). */
+  canReplayFrom(seq: number): boolean {
+    if (seq >= this.seq) return true
+    if (seq < 0) return false
+    const n = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${this.t.events} WHERE seq > ?`, seq)[0]?.n ?? 0
+    return Number(n) === this.seq - seq
+  }
+
+  /** When the oldest kept event was committed (ms), or null. */
+  oldestEventAt(): number | null {
+    const r = this.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM ${this.t.events}`)[0]
+    return r?.at === null || r?.at === undefined ? null : Number(r.at)
+  }
+
+  /**
+   * When the next event prune is due: the oldest event beyond the newest `keepLast`, plus the
+   * retention; null when nothing can be pruned (so a quiet object never wakes for it).
+   */
+  nextEventPruneAt(retentionMs = EVENT_RETENTION_MS, keepLast = EVENT_KEEP_LAST): number | null {
+    const floor = this.seq - keepLast
+    if (floor <= 0) return null
+    const r = this.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM ${this.t.events} WHERE seq <= ?`, floor)[0]
+    return r?.at === null || r?.at === undefined ? null : Number(r.at) + retentionMs
+  }
+
+  /**
+   * Deletes a contiguous prefix of the log: events before the first one committed at or after
+   * `before`, never one of the newest `keepLast` (so a clock step back cannot leave a hole).
+   * Bounded per call.
+   */
+  pruneEvents(before: number, keepLast = EVENT_KEEP_LAST, limit = 1000): number {
+    const floor = this.seq - keepLast
+    if (floor <= 0) return 0
+    return this.sql.transaction(() => {
+      const firstKept = this.sql.exec<{ s: number | null }>(`SELECT MIN(seq) AS s FROM ${this.t.events} WHERE at >= ?`, before)[0]?.s
+      const cut = Math.min(firstKept === null || firstKept === undefined ? floor + 1 : Number(firstKept), floor + 1)
+      const oldest = this.sql.exec<{ s: number | null }>(`SELECT MIN(seq) AS s FROM ${this.t.events}`)[0]?.s
+      if (oldest === null || oldest === undefined || Number(oldest) >= cut) return 0
+      const upto = Math.min(cut - 1, Number(oldest) + limit - 1)
+      this.sql.exec(`DELETE FROM ${this.t.events} WHERE seq <= ?`, upto)
+      return upto - Number(oldest) + 1
+    })
+  }
+
+  /** When the oldest decided key was recorded (ms), or null for an empty ledger. */
+  oldestLedgerAt(): number | null {
+    const row = this.sql.exec<{ at: number | null }>(`SELECT MIN(created_at) AS at FROM ${this.t.ledger}`)[0]
+    return row?.at === null || row?.at === undefined ? null : Number(row.at)
+  }
+
+  /**
+   * Forgets decided keys recorded before `before` (the replay window): a retry
+   * with such a key applies again, and snapshots stop listing it. Bounded per
+   * call; returns how many rows went.
+   */
+  pruneLedger(before: number, limit = 1000): number {
+    return this.sql.transaction(() => {
+      const rows = this.sql.exec<{ identity: string; idempotency_key: string }>(`SELECT identity, idempotency_key FROM ${this.t.ledger} WHERE created_at < ? ORDER BY created_at LIMIT ?`, before, limit)
+      for (const r of rows) this.sql.exec(`DELETE FROM ${this.t.ledger} WHERE identity = ? AND idempotency_key = ?`, r.identity, r.idempotency_key)
+      return rows.length
+    })
+  }
+
+  /** Every pending outbox item, oldest first (debug, tests). Delivery uses `outbox` per channel. */
   outboxPending(limit = 100): Array<OutboxRow> {
-    return this.sql
-      .exec<{ id: number; seq: number; kind: string; entity: string; payload: string }>(
-        `SELECT id, seq, kind, entity, payload FROM own_outbox WHERE sent_at IS NULL ORDER BY id LIMIT ?`,
-        limit
-      )
-      .map((r) => ({ id: Number(r.id), seq: Number(r.seq), kind: r.kind, entity: r.entity, payload: JSON.parse(r.payload) as unknown }))
+    return this.outbox.allPending(limit)
   }
 
   outboxMarkSent(ids: ReadonlyArray<number>): void {
-    if (ids.length === 0) return
-    const at = this.now()
-    this.sql.transaction(() => {
-      for (const id of ids) this.sql.exec(`UPDATE own_outbox SET sent_at = ? WHERE id = ?`, at, id)
-    })
+    this.outbox.markSent(ids, this.now())
   }
 
   /** Admin dump for `debug.desync`. */
@@ -363,21 +441,15 @@ export class OwnerEngine<S, P = unknown> {
       stream: this.stream,
       seq: this.seq,
       state: this.state,
-      ledger: this.sql.exec(`SELECT identity, idempotency_key, tx, op, ok, sequence, origin, created_at FROM own_ledger ORDER BY created_at DESC LIMIT ?`, tail),
+      ledger: this.sql.exec(`SELECT identity, idempotency_key, tx, op, ok, sequence, origin, created_at FROM ${this.t.ledger} ORDER BY created_at DESC LIMIT ?`, tail),
       events: this.eventsAfter(Math.max(0, this.seq - tail)),
-      outbox_pending: this.outboxPending(tail).length
+      outbox_pending: this.outboxPending(tail).length,
+      outbox_dead: this.outbox.deadCount()
     }
   }
 }
 
-const settled = (stream: string, tx: string, key: string, sequence: number, ok: boolean): SettledFrame => ({
-  t: "request-settled",
-  tx,
-  idempotency_key: key,
-  stream,
-  sequence,
-  ok
-})
+const settled = (stream: string, tx: string, key: string, sequence: number, ok: boolean): SettledFrame => ({ t: "request-settled", tx, idempotency_key: key, stream, sequence, ok })
 
 /** The TrustClaimedOwner mutant: identity taken from the request body. */
 const claimedPrincipal = (p: Principal, params: unknown): Principal => {

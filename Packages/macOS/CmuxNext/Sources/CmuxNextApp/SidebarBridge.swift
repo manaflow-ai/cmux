@@ -178,10 +178,10 @@ final class SidebarBridge {
             return registry.makeContextMenu(for: .sidebarBackground)
         case .profile(let id):
             return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue))
-        case .layoutItem, .layoutSection:
-            // Section and item menus arrive with the sidebar section
-            // actions (plans/cmux-next/sidebar-sections.md 6).
-            return registry.makeContextMenu(for: .sidebarBackground)
+        case .layoutItem(let id):
+            return layoutItemMenu(id)
+        case .layoutSection(let id):
+            return registry.makeContextMenu(for: .sidebarSection, target: ActionTargetRef(kind: .sidebarSection, id: id.rawValue))
         }
     }
 

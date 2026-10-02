@@ -1,0 +1,84 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "cmux/search",
+  "name": { "en": "Search", "ja": "検索" },
+  "version": "0.1.0",
+  "description": "Find anything in cmux and open it: workspaces, terminals and their text, browser tabs and history, items from other apps, and files.",
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": ["sidebar", "productivity"],
+  "keywords": ["search", "find", "grep", "scrollback", "history"],
+  "engines": { "cmux": "^1.0" },
+  "main": "dist/main.js",
+  "scopes": {
+    "session:read": "Find workspaces, tabs, terminals and browser tabs by name.",
+    "terminal:read": "Search the text of your terminals.",
+    "workspace:write": "Show the workspace or tab of a result when you open it.",
+    "actions:run": "Open pages, files and app items when you pick them.",
+    "mcp:expose": "Offer the search command to your agents as a tool."
+  },
+  "optionalScopes": {
+    "browser_history:read": "Search your browsing history.",
+    "fs:read": "Search file names and contents in the folders you allow.",
+    "search:read": "Include results that your other apps offer."
+  },
+  "contributes": {
+    "sidebarSections": [
+      { "id": "sidebar", "title": { "en": "Search", "ja": "検索" }, "symbol": "magnifyingglass", "defaultRegion": "top", "render": "renderSection", "maxRows": 24 }
+    ],
+    "paneKinds": [
+      { "id": "pane", "title": { "en": "Search", "ja": "検索" }, "symbol": "magnifyingglass", "render": "renderPane" }
+    ],
+    "commands": [
+      {
+        "id": "search",
+        "title": { "en": "Search Everything", "ja": "すべてを検索" },
+        "symbol": "magnifyingglass",
+        "run": "search",
+        "keywords": ["find", "grep", "scrollback", "history", "files"],
+        "contexts": ["palette", "sidebarSection:sidebar"],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string", "description": "Text to find. Prefixes t: f: b: w: a: narrow sources; /regex/ is a regular expression; in:here or in:all sets the scope." },
+            "sources": { "type": "array", "items": { "enum": ["workspaces", "terminals", "browser", "apps", "files"] }, "description": "Only these sources (default: every enabled source)." },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 20, "description": "Most results to return." },
+            "scope": { "enum": ["workspace", "all"], "description": "The current workspace or everything (default: the defaultScope setting)." },
+            "regex": { "type": "boolean", "default": false, "description": "Treat the query as a regular expression." }
+          },
+          "required": ["query"]
+        }
+      },
+      { "id": "clearRecent", "title": { "en": "Clear Recent Searches", "ja": "最近の検索を消去" }, "run": "clearRecent", "contexts": ["palette", "sidebarSection:sidebar"] },
+      { "id": "cycleVariant", "title": { "en": "Next Search Variant", "ja": "次の検索バリアント" }, "run": "cycleVariant", "contexts": ["palette"] }
+    ],
+    "mcpServers": [{ "id": "tools", "tools": "commands" }],
+    "settings": {
+      "type": "object",
+      "properties": {
+        "variant": {
+          "type": "string",
+          "title": "Design variant",
+          "enum": ["grouped", "preview", "palette"],
+          "default": "grouped",
+          "x-cmux-devOnly": true,
+          "description": "grouped: native rows grouped by source. preview: source chips and a preview of the selected result. palette: one ranked list drawn like a palette page."
+        },
+        "defaultScope": { "type": "string", "title": "Search in", "enum": ["all", "workspace"], "default": "all", "description": "all: everything. workspace: only the current workspace (type in:all to widen one search)." },
+        "rememberRecent": { "type": "boolean", "title": "Remember recent searches", "default": true },
+        "sources": {
+          "type": "array",
+          "title": "Sources",
+          "items": { "enum": ["workspaces", "terminals", "browser", "apps", "files"] },
+          "default": ["workspaces", "terminals", "browser", "apps", "files"],
+          "description": "What Search looks through."
+        }
+      }
+    }
+  },
+  "activation": ["onSidebarSection:sidebar", "onPane:pane", "onCommand:search", "onCommand:clearRecent", "onCommand:cycleVariant"],
+  "files": ["dist/", "assets/"]
+}

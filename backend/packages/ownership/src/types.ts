@@ -1,3 +1,4 @@
+import type { RowReader, RowWrite, StoredRow } from "./rows.ts"
 /**
  * Wire shapes of the ownership protocol (spec/sync-and-transport.md section 3,
  * ownership.md section 3). Plain data: these cross the network as JSON.
@@ -12,11 +13,23 @@ export interface Principal {
   readonly install?: string
   readonly agent?: string
   readonly grant?: string
-  /** How the connection authenticated: a human session or an install token. */
-  readonly kind?: "session" | "install" | "agent"
+  /**
+   * How the connection authenticated: a human session or an install token.
+   * `system` is built only inside a Durable Object for its own internal ops
+   * (alarms, Workflow reports); the Worker never builds one from a request.
+   */
+  readonly kind?: "session" | "install" | "agent" | "system"
   readonly stack_user_id?: string
   readonly email?: string | null
+  /**
+   * True only when the identity provider asserted the email as verified (Stack claim
+   * `email_verified === true`). Owners must check it before trusting `email` for binding or
+   * access decisions (invite binding, unsuppress, email-domain rules).
+   */
+  readonly email_verified?: boolean
   readonly display_name?: string
+  /** The install's registered kind (mac, ios, web, cli, daemon, vm), resolved by UserDO with the grant. */
+  readonly install_kind?: string
   /** Op classes of the principal's grant, resolved by the grant's owner (UserDO) for other owners. */
   readonly grant_classes?: ReadonlyArray<string>
   /** Token expiry (ms); long-lived connections close at this time. */
@@ -46,6 +59,12 @@ export interface EventFrame {
   readonly actor: Principal
   readonly origin: Origin
   readonly at: number
+  /**
+   * Row-mode owners (row-backed domains) send the op's effects: the new head state and
+   * the row writes. A mirror applies them instead of replaying the reducer, so it needs
+   * no rows it was never sent (the delta form of OwnershipConvergence.tla Apply).
+   */
+  readonly effects?: { readonly state: unknown; readonly writes: ReadonlyArray<RowWrite> }
 }
 
 /** Owner to requester. `replayed` is true when the key was already decided. */
@@ -96,6 +115,8 @@ export interface SnapshotFrame<S = unknown> {
   readonly seq: number
   readonly state: S
   readonly decided: ReadonlyArray<DecidedKey>
+  /** Row-mode owners: the newest rows of the snapshot table (for example the message tail). */
+  readonly rows?: { readonly table: string; readonly rows: ReadonlyArray<StoredRow> }
 }
 
 export type OwnerFrame = EventFrame | ResultFrame | RejectFrame | SettledFrame | SnapshotFrame
@@ -113,14 +134,42 @@ export interface OutboxItem {
   /** Entity key in PlanetScale, for example the install id. */
   readonly entity: string
   readonly payload: unknown
+  /**
+   * DO-to-DO item (E4): drained by RPC to this object, at least once, as the op `kind` with
+   * params `payload` and idempotency key `entity`. Absent = a PlanetScale projection row.
+   */
+  readonly target?: {
+    readonly class: string
+    readonly name: string
+    /**
+     * Items with the same coalesce key and target collapse to the newest in one drain (for
+     * example one inbox bump per conversation). Only for max-merge ops whose newest item
+     * subsumes the older ones; the kept item may be delivered after other items of the batch.
+     */
+    readonly coalesce?: string
+  }
 }
 
 export interface ReduceContext {
   readonly principal: Principal
+  /** The request's channel (view-state rules, and owners that accept some ops only from a person). */
+  readonly origin?: Origin
   readonly now: number
   readonly tx: string
   /** Deterministic id from the transaction, so mirror replay reproduces it. */
   readonly newId: (prefix: string) => string
+  /**
+   * Read-only rows of a row-backed domain. The engine and mirrors always pass it (empty for
+   * JSON-only domains); hand-built test contexts for JSON domains may omit it.
+   */
+  readonly rows?: RowReader
+  /**
+   * The request's idempotency key: present on the owner and in a client's preview of its own
+   * intent; absent when a mirror replays a committed event (events hide keys behind `tx`).
+   * A reducer may require it (for example message.send needs client_msg_id === key) only
+   * when it is present.
+   */
+  readonly idempotencyKey?: string
 }
 
 export type ReduceResult<S> =
@@ -131,6 +180,8 @@ export type ReduceResult<S> =
       /** False for a valid op that changes nothing: no event, sequence 0. */
       readonly changed?: boolean
       readonly outbox?: ReadonlyArray<OutboxItem>
+      /** Row writes, committed with the op (row-backed domains). */
+      readonly writes?: ReadonlyArray<RowWrite>
     }
   | ({ readonly ok: false } & Reject)
 

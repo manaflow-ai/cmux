@@ -1,0 +1,26 @@
+{
+  "name": "@cmux/home-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./conversation": "./src/conversation/index.ts",
+    "./inbox": "./src/inbox/index.ts",
+    "./mux": "./src/mux/index.ts",
+    "./address": "./src/address/index.ts",
+    "./invites": "./src/invites/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.2",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  },
+  "dependencies": {
+    "@cmux/ownership": "workspace:*"
+  }
+}

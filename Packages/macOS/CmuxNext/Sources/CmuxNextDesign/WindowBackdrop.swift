@@ -5,7 +5,7 @@ public import CoreGraphics
 /// (ghostty/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift
 /// `syncAppearance`): the window is non-opaque for a translucent background
 /// or a macOS glass style; its own background is white at alpha 0.001 (not
-/// clear, as in Terminal.app), and non-glass styles get the CGS blur radius
+/// clear), and non-glass styles get the CGS blur radius
 /// (`ghostty_set_window_background_blur`, a no-op while opaque).
 public struct WindowBackdrop: Equatable, Sendable {
     public var isOpaque: Bool

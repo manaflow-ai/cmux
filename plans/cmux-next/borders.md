@@ -30,7 +30,7 @@ on a change, so open windows repaint live. `Borders` is a value (`Borders(mode:)
 | Source | Under `none` |
 | --- | --- |
 | Pane content border (`layout.paneBorder`) | `Metrics.paneBorder` is `.none` |
-| Focus ring and glow | off; the focus cue is the unfocused panes' dim (`inactivePaneDimming`, 0.14), on even when `dimsInactive` is off |
+| Focus ring and glow | off; the focus cue is the unfocused panes' subtler tabs (`appearance.focusIndicator` tabs or both, the default), or their dim (`inactivePaneDimming`, 0.14) when the indicator is `border` |
 | Pane unread (attention) ring | width 0; the sidebar unread badge stays |
 | Split divider idle lines | hidden (`showsDividerLine`); the hover and drag line stays as resize feedback |
 | Tab separators, sidebar and titlebar lines, palette rules, browser toolbar separator, page info and popup separators, onboarding hairlines | `Palette.separator` clear |

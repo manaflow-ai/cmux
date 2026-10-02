@@ -1,5 +1,5 @@
-// What the changes view shows beyond one turn: a git scope of the session's repository, after
-// the Codex Changes pane in manaflow-ai/codex-atlas-clone (src/changes/model.ts). The session
+// What the changes view shows beyond one turn: a git scope of the session's repository, ported
+// from the changes pane in the agent-pane reference prototype (src/changes/model.ts). The session
 // host answers `git.diff {scope, include_patch}` and `git.status` in the shapes of cmux-tui's
 // resource catalog (GitDiffResult, GitStatusResult); the mock daemon answers both from its
 // fixture. The wire is snake_case; the view's types are not.

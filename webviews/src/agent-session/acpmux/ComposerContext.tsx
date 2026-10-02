@@ -15,8 +15,8 @@ export const CONTEXT_LABELS = {
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
 /// Where the session runs, on the tray behind the composer: the project, the
-/// machine and the branch as filled pills (Claude's Local / Projects chips),
-/// and at the right whether the session works in its own git worktree (Codex).
+/// machine and the branch as filled pills, and at the right whether the
+/// session works in its own git worktree.
 /// Each pill shows only when the daemon reports it.
 export function ComposerContext({ summary }: { summary?: Summary }) {
   const project = projectName(summary?.cwd);
@@ -62,7 +62,7 @@ export function ComposerContext({ summary }: { summary?: Summary }) {
   );
 }
 
-// Codex's tray glyphs (16px box, stroke in currentColor), at the composer's icon weight.
+// Tray glyphs (16px box, stroke in currentColor), at the composer's icon weight.
 function Icon({ children }: { children: React.ReactNode }) {
   return (
     <svg

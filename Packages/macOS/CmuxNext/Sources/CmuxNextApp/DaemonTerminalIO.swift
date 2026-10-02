@@ -22,7 +22,7 @@ import os
 ///   the old link and reattaches for a fresh replay.
 /// - Closing during an attach ends the view at once and detaches the link
 ///   the attach returns, with its lease, as soon as it completes.
-/// - Geometry follows tmux "window-size latest" (`TerminalAttachMachine`):
+/// - Geometry follows the latest active client (`TerminalAttachMachine`):
 ///   a visible view claims on each settled resize and, after another client
 ///   sized the terminal, on its next key press or focus.
 /// - Grid reports go through `ResizeCoordinator` and reach the daemon only

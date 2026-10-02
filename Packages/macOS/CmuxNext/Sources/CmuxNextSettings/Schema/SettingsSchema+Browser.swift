@@ -43,7 +43,7 @@ extension SettingsSchema {
             SettingDescriptor(
                 ["browser", "hibernationExclusions"], section: .browser, group: memory,
                 title: SettingsText.text("settings.browser.hibernationExclusions", "Never Hibernate"),
-                help: SettingsText.text("settings.browser.hibernationExclusions.help", "Hosts such as mail.google.com or *.figma.com."),
+                help: SettingsText.text("settings.browser.hibernationExclusions.help", "Hosts such as mail.google.com or *.example.com."),
                 kind: .hostList, default: .array([])
             ),
             SettingDescriptor(

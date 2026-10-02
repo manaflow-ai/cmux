@@ -1,6 +1,6 @@
 import Foundation
 
-/// Which permission rows Page Info lists, in Chrome's order
+/// Which permission rows Page Info lists, in Chromium's order
 /// (`PageInfo::ShouldShowPermission`): a permission shows when the user
 /// changed it from the default, when the page requested or is using it
 /// during this page load, or when it changed since the page loaded (so a

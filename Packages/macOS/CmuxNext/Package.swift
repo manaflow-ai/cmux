@@ -28,6 +28,8 @@ import PackageDescription
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
+//   CmuxNextHome -> Design, Wakeups (Home conversations: virtualized CALayer transcript, list, composer;
+//     no daemon; the App maps the conversation mirror and intent log into HomeTranscriptSource)
 //   CmuxNextHistory -> Design (history model, SQLite visit log, cmux://history page; no daemon)
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
@@ -40,6 +42,16 @@ import PackageDescription
 //     handshake; the page talks to acpmux itself; no daemon)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
+//   CmuxNextApps -> Design (app platform: manifest model, scene store + native renderer, JavaScriptCore
+//     prototype engine, prototype registry, App Store window; no daemon; the App supplies the
+//     operation sink; plans/cmux-next/app-platform.md)
+//   CmuxNextTasks -> Design (Tasks pane: list, board and inbox prototypes over a mirror + intent
+//     log of the Tasks owner; no daemon; the App supplies the source; plans/cmux-next/tasks.md)
+//   CmuxNextFeed -> Design (feed panel: list, inbox and menu bar prototypes over a mirror + intent
+//     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
+//   CmuxNextServer -> Design (server menubar panel, pairing, approver sheet and health prototypes
+//     over a projection of `server.status`; no daemon; the App supplies the source;
+//     plans/cmux-next/server.md)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
 
@@ -91,6 +103,7 @@ let package = Package(
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextMallocZone",
+                "CmuxNextHome",
                 "CmuxNextWakeups",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
@@ -119,6 +132,9 @@ let package = Package(
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
                 "CmuxNextAgentActivity",
+                "CmuxNextApps",
+                "CmuxNextTasks",
+                "CmuxNextServer",
             ],
             resources: [
                 .process("Resources"),
@@ -217,6 +233,23 @@ let package = Package(
         ),
         // Chromium's EarlyMallocZoneRegistration, run first thing in main.
         .target(name: "CmuxNextMallocZone"),
+        // Home (plans/cmux-next/home.md section 3): the native conversation
+        // renderer (paged window, prefix-sum layout, background raster,
+        // render-server send motion), the conversation list and composer.
+        .target(
+            name: "CmuxNextHome",
+            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings,
+            linkerSettings: [.linkedLibrary("sqlite3")]
+        ),
+        .testTarget(
+            name: "CmuxNextHomeTests",
+            dependencies: ["CmuxNextHome", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
         // Resource usage for hover cards and `resources` (CPU and memory per
         // tab, per workspace, shared processes apart). Pure aggregation and a
         // sampler that runs only while a card is open.
@@ -259,7 +292,7 @@ let package = Package(
         // owns every session; the App supplies the source.
         .target(
             name: "CmuxNextAgentActivity",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -268,6 +301,91 @@ let package = Package(
         .testTarget(
             name: "CmuxNextAgentActivityTests",
             dependencies: ["CmuxNextAgentActivity"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // App platform (plans/cmux-next/app-platform.md): the cmux-app.json
+        // model, the scene store and native renderer, the JavaScriptCore
+        // prototype engine (DEV) that runs the engine-neutral runtime synced
+        // from cmux-tui/crates/cmux-app-host by
+        // scripts/cmux-next/sync-app-runtime.sh, the prototype app registry
+        // and the App Store window. The App supplies the operation sink.
+        .target(
+            name: "CmuxNextApps",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources/Localizable.xcstrings"),
+                .copy("Resources/AppPlatform"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAppsTests",
+            dependencies: ["CmuxNextApps"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):
+        // tiers, sandbox profiles, grants and the pure policy, plus the consent
+        // sheet, Settings > Apps > Permissions and first-use prompt prototypes.
+        // No daemon; the App supplies the data source and the style setting.
+        .target(
+            name: "CmuxNextAppPermissions",
+            dependencies: ["CmuxNextApps", "CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAppPermissionsTests",
+            dependencies: ["CmuxNextAppPermissions", "CmuxNextApps"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Tasks (plans/cmux-next/tasks.md): the pane over the team's Tasks
+        // owner (a Rust service: cmux-tui/crates/cmux-tasks). A projection:
+        // confirmed mirror + intent log; the App supplies the source.
+        .target(
+            name: "CmuxNextTasks",
+            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextTasksTests",
+            dependencies: ["CmuxNextTasks"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Feed panel (plans/cmux-next/feed.md section 12): list, inbox and
+        // menu bar prototypes over a confirmed mirror + intent log of the
+        // feed owner; the App supplies the source.
+        .target(
+            name: "CmuxNextFeed",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextFeedTests",
+            dependencies: ["CmuxNextFeed"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // cmux server (plans/cmux-next/server.md sections 6, 9, 13, 14): the
+        // menubar panel, pairing, approver sheet and health prototypes over a
+        // projection of `server.status`. The App supplies the source.
+        .target(
+            name: "CmuxNextServer",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextServerTests",
+            dependencies: ["CmuxNextServer"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -381,6 +499,7 @@ let package = Package(
             name: "CmuxNextActions",
             resources: [
                 .process("AccountsActions.xcstrings"),
+                .process("AppStoreActions.xcstrings"),
                 .process("BookmarkActions.xcstrings"),
                 .process("BrowserProfileActions.xcstrings"),
                 .process("Extensions.xcstrings"),
@@ -393,6 +512,7 @@ let package = Package(
                 .process("RemoteActions.xcstrings"),
                 .process("ScreenActions.xcstrings"),
                 .process("SettingsActions.xcstrings"),
+                .process("SidebarSectionActions.xcstrings"),
                 .process("ShortcutRecorder.xcstrings"),
                 .process("ThemeActions.xcstrings"),
                 .process("WorkspaceActions.xcstrings"),

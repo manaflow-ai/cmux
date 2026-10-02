@@ -117,7 +117,9 @@ final class PaneHostView: NSView {
     }
 
     func setChrome(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,
-                   border: PaneOverlayView.Border, attention: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
+                   tabEmphasis: ChromeEmphasis = .full, border: PaneOverlayView.Border, attention: AttentionMark?,
+                   attentionSettings: AttentionSettings, animated: Bool) {
+        reporter?.setChromeEmphasis(tabEmphasis, animated: animated)
         chrome.update(showsRing: showsRing, dim: dim, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
                       attention: attention, attentionSettings: attentionSettings, animated: animated)
     }

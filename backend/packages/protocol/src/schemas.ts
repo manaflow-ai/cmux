@@ -64,6 +64,8 @@ export const UserProfile = Schema.Struct({
   id: UserId,
   stack_user_id: Schema.String,
   email: Schema.NullOr(Schema.String),
+  /** The identity provider verified `email` (absent on profiles stored before this field). */
+  email_verified: Schema.optionalKey(Schema.Boolean),
   display_name: Schema.String,
   personal_team: TeamId
 }).annotate({ identifier: "UserProfile" })
@@ -93,5 +95,8 @@ export const ErrorCode = Schema.Literals([
   "auth.unauthenticated",
   "auth.forbidden",
   "owner.unreachable",
-  "mutation.indeterminate"
+  "mutation.indeterminate",
+  "policy.invalid",
+  "domain.not_verified",
+  "domain.taken"
 ]).annotate({ identifier: "ErrorCode" })

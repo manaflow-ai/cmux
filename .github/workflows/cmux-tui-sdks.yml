@@ -310,6 +310,9 @@ jobs:
             --all-targets \
             --locked \
             -- -D warnings
+          # Embedders such as Chromium build without sha2 (socket-path-hash).
+          cargo test -p cmux-sdk --all-targets --locked --no-default-features
+          cargo clippy -p cmux-sdk --all-targets --locked --no-default-features -- -D warnings
           RUSTDOCFLAGS="-D warnings" \
             cargo doc \
               -p cmux-sdk \
@@ -654,3 +657,11 @@ jobs:
           python3 cmux-tui/bindings/conformance/runner.py \
             --require python,typescript,rust,go,java,cpp,zig \
             --cmux-tui-bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
+
+      # cmux::raw::ByteAttachment against the exact headless daemon built above.
+      - name: Test Rust SDK byte attachment against the live daemon
+        if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
+        working-directory: cmux-tui
+        env:
+          CMUX_SDK_LIVE_TUI_BIN: ${{ github.workspace }}/cmux-tui/target/debug/cmux-tui
+        run: cargo test -p cmux-sdk --locked --test byte_attachment_live -- --nocapture

@@ -128,7 +128,7 @@ const backends = {
 // host-headless (headless Chromium over the CDP pipe), host-cef (in-app CEF
 // tabs relayed by a tagged no-activate app), host-webkit (in-app WebKit tabs
 // through the app's driver). Same scenarios and goldens on every engine; a
-// deliberate engine difference goes into capabilities.json with a reason.
+// deliberate engine difference is recorded in the golden with a reason.
 //
 // PARITY_HOST_CLI=cmux (default once the Rust CLI verb exists) runs
 //   cmux browser repl --engine E [--session S] --eval -

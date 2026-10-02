@@ -29,7 +29,7 @@ public final class SidebarView: NSView {
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
     private var edgeFade: ScrollEdgeFadeView!
-    /// No rubber band while every row fits (Finder's sidebar).
+    /// No rubber band while every row fits.
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
     /// Item sections above and below the workspace list
@@ -39,6 +39,9 @@ public final class SidebarView: NSView {
     let belowRegion = SidebarRegionView(region: .bottom)
     let aboveScroll = NSScrollView()
     let belowScroll = NSScrollView()
+    /// Fade the bands' rows out at an edge while more are hidden there.
+    var aboveFade: ScrollEdgeFadeView!
+    var belowFade: ScrollEdgeFadeView!
     /// Hairlines between the sticky bands and the list (quiet look).
     let aboveLine = CALayer()
     let belowLine = CALayer()
@@ -317,6 +320,7 @@ public final class SidebarView: NSView {
         var collapsedSections: Set<LayoutSectionID>
         var look: SectionsLookVariant
         var drawsLines: Bool
+        var preferences: SidebarSectionsPreferences
         /// Design tokens (density, overrides, chrome font size). Reading them
         /// inside the tracked closure makes a settings change re-render.
         var metrics: SidebarLayoutMetrics
@@ -340,6 +344,7 @@ public final class SidebarView: NSView {
                     collapsedSections: model.collapsedLayoutSections,
                     look: SidebarSectionTunables.currentLook,
                     drawsLines: Borders.drawsLines,
+                    preferences: DesignSettings.shared.sidebarSections,
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight
@@ -358,7 +363,7 @@ public final class SidebarView: NSView {
         let profilesChanged = lastState?.profiles != state.profiles || lastState?.activeProfile != state.activeProfile
             || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo
             || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
-            || lastState?.drawsLines != state.drawsLines
+            || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences
         let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
             || lastState?.active != state.active || lastState?.filter != state.filter || chromeChanged
         lastState = state

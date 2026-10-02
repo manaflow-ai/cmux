@@ -6,6 +6,11 @@ import Testing
 @Suite struct ProfileBarTests {
     private let a = ProfileKey("default"), b = ProfileKey("prof_b"), c = ProfileKey("prof_c")
 
+    @Test func dotsStayCenteredAndThePlusTrailsThem() {
+        #expect(ProfileBarLogic.slotXs(count: 2, slot: 10, width: 100) == [40, 50, 60])
+        #expect(ProfileBarLogic.slotXs(count: 3, slot: 10, width: 100) == [35, 45, 55, 65])
+    }
+
     @Test func hiddenWithOneRoom() {
         #expect(!ProfileBarLogic.isVisible(profileCount: 0))
         #expect(!ProfileBarLogic.isVisible(profileCount: 1))

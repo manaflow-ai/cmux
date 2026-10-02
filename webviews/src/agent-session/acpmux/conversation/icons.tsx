@@ -1,4 +1,4 @@
-// Icons used by the conversation transcript, from manaflow-ai/codex-atlas-clone
+// Icons used by the conversation transcript, from the agent-pane reference prototype
 // (src/conversation/icons.tsx). All draw in currentColor in a 16px box
 // unless noted, matching the stroke weight of src/shell/icons.tsx.
 import type { CSSProperties, ReactNode } from "react";
@@ -259,7 +259,7 @@ export const TurnCopy = () => <TurnStrip slot={0} />;
 export const TurnFork = () => <TurnStrip slot={1} />;
 export const TurnAnchor = () => <TurnStrip slot={2} />;
 
-/** arXiv favicon as Codex shows it before "Paper" citation links. */
+/** arXiv favicon shown before "Paper" citation links. */
 export const ArxivMark = ({ size = 16, className, style }: CvIconProps) => (
   <svg className={className} style={style} width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
     <path d="M3.2 2.2 12.8 13.8" stroke="#b31b1b" strokeWidth="2.2" strokeLinecap="round" />

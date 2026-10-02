@@ -102,14 +102,7 @@ final class LocationTrailService {
     /// Shows the tab: its window comes forward, its workspace and tab are
     /// selected and its pane takes focus.
     private func focus(_ location: HistoryLocation) -> Bool {
-        guard let (_, paneModel) = services.locateTab(location.key.tab),
-              let workspace = services.daemon(for: paneModel).store.workspace(containing: paneModel.handle),
-              let window = services.windows.reveal(workspaceID: workspace.id) else { return false }
-        window.state.selection.select(location.key.tab, in: paneModel.id)
-        window.focus.send(.selectTab(pane: paneModel.id, tab: location.key.tab, workspace: workspace.id, source: .intent))
-        services.paneController(for: paneModel)?.select(StripTabID(location.key.tab))
-        if let nsWindow = window.window { WindowActivation.show(nsWindow, .raise) }
-        return true
+        services.revealTab(location.key.tab)
     }
 
     // MARK: Clearing

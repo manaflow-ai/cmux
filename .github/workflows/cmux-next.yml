@@ -325,12 +325,12 @@ jobs:
         timeout-minutes: 5
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
-      - name: Run package tests (excluding control deadline tests)
+      - name: Run package tests (excluding control deadline and WebKit driver tests)
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests
 
       - name: Run control package tests
         timeout-minutes: 20
@@ -338,6 +338,17 @@ jobs:
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests
+
+      # The WebKit driver tests drive real WKWebViews against wall-clock load
+      # deadlines through main-actor navigation callbacks. They run last, in a
+      # process of their own: the package's other main-actor tests do not delay
+      # those callbacks, and a WebKit failure does not skip the control tests.
+      - name: Run WebKit driver package tests
+        timeout-minutes: 10
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "420"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextBrowserAutomationTests
 
   release-compile:
     needs: macos-placement

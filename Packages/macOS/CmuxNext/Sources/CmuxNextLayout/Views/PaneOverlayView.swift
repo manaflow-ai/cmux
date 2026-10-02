@@ -107,6 +107,8 @@ final class PaneOverlayView: NSView {
     var ringFrame: CGRect { ring.frame }
     /// The color the focus ring strokes with (for tests).
     var ringColor: CGColor? { ring.borderColor }
+    /// The inactive dim's opacity (for tests).
+    var dimOpacity: Float { dimLayer.opacity }
     /// The border's line width in points and color override (for tests).
     var borderWidth: CGFloat { border.borderWidth }
     var borderColor: ThemeRGB? { borderStyle.color }

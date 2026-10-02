@@ -20,8 +20,8 @@ actor MobileCompatTerminalStream {
     private(set) var nextSeq: UInt64
     private var pump: Task<Void, Never>?
     private var ended = false
-    /// The phone's grid, and whether the phone still holds geometry (tmux
-    /// "window-size latest"): false once the stream announced another
+    /// The phone's grid, and whether the phone still holds geometry (the latest
+    /// active client holds it): false once the stream announced another
     /// client's grid.
     private var viewport: CellSize?
     private var holdsGeometry = false

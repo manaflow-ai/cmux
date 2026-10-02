@@ -5,6 +5,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { readChangeSet } from "./changes/model";
 import { GROUP_ROWS, sessionMark, sidebarSections } from "./sessionList";
 import { workedTurn } from "./mockFixture";
+import { turnView } from "./conversation/turns";
 
 describe("mock transport", () => {
   const connectMock = async (
@@ -135,6 +136,17 @@ describe("mock transport", () => {
     // Its turn is still running on a cloud machine.
     expect(snapshot.isWorking).toBe(true);
     expect(snapshot.summary).toMatchObject({ host: "hearty-beige-elk", hostKind: "cloud" });
+    // It is in the middle of a call, so the pane shows it working over that call.
+    const tools = snapshot.rows.flatMap((row) => row.items ?? []).flatMap((item) => (item.tool ? [item.tool] : []));
+    expect(tools.map(({ title, status }) => ({ title, status }))).toEqual([
+      { title: "Run bun test Sources/Sidebar", status: "in_progress" },
+    ]);
+    expect(turnView(snapshot.rows, new Set(), { working: true }).map((row) => row.kind)).toEqual([
+      "user",
+      "working",
+      "assistant",
+      "activity",
+    ]);
     client.close();
   });
 
@@ -147,6 +159,12 @@ describe("mock transport", () => {
     await until(() => snapshots.at(-1)?.isWorking === false);
     expect(snapshots.at(-1)?.isWorking).toBe(false);
     expect(snapshots.at(-1)?.rows.find((row) => row.kind === "turnSummary")?.status).toBe("cancelled");
+    // The call it was running settles with the turn.
+    const tool = snapshots
+      .at(-1)!
+      .rows.flatMap((row) => row.items ?? [])
+      .find((item) => item.tool)?.tool;
+    expect(tool?.status).toBe("failed");
     expect(snapshots.at(-1)?.sessions.find((entry) => entry.sessionId === "mock-sidebar-flicker")?.status).toBe("idle");
     client.close();
   });

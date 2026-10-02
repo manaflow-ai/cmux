@@ -1,7 +1,7 @@
 import CmuxNextTabs
 
-/// What a browser tab shows where its icon goes, as Chrome's `TabIcon`
-/// does: the throbber while the page loads, else the page's favicon, else
+/// What a browser tab shows where its icon goes (Chromium's `TabIcon`
+/// rule): the throbber while the page loads, else the page's favicon, else
 /// a globe (no favicon yet, none, or its fetch failed). Pure.
 enum BrowserTabIconState: Equatable {
     case throbber

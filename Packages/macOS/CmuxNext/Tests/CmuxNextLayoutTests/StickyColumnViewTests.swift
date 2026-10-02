@@ -6,8 +6,9 @@ import Testing
 /// The live layout with a sticky column (sticky-column.md, V1 to V4, B5):
 /// fixed frames above the strip, docked clipping, the overlay backdrop,
 /// pointer and drop routing, the inner-edge resize and the scrollbar.
-/// 1000 x 600 window, pinned style (gap 6, no padding).
-@MainActor
+/// 1000 x 600 window, pinned style (gap 6, no padding). Serialized: cases
+/// pin the process-wide `Motion.reduceMotionOverride` across awaits.
+@MainActor @Suite(.serialized)
 struct StickyColumnViewTests {
     private func screens(_ sticky: StickyColumn) -> [LayoutScreen] {
         let columns = [("a", 0.5), ("b", 0.5), ("c", 0.5), ("d", 0.3)].map { id, width in
@@ -118,8 +119,12 @@ struct StickyColumnViewTests {
         #expect(abs((widths.first ?? 0) - 398.0 / 994.0) < 0.002)
     }
 
-    // Quarantined: fails on every run since #16649; the root-cause fix re-enables it.
-    @Test(.disabled("flaky, #16607")) func theScrollbarShowsOnScrollAndHidesWhenOff() async {
+    /// Runs with Reduce Motion off and on: with it on (as on the Blacksmith
+    /// macOS 26 runners) the focus reveal snaps instead of springing, and
+    /// the `auto` thumb must show either way (#16607).
+    @Test(arguments: [false, true]) func theScrollbarShowsOnScrollAndHidesWhenOff(reduceMotion: Bool) async {
+        Motion.reduceMotionOverride = reduceMotion
+        defer { Motion.reduceMotionOverride = nil }
         let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked), scrollbar: .auto)
         defer { window.close() }
         let screen = view.screenViews["s"]!
@@ -127,8 +132,7 @@ struct StickyColumnViewTests {
         view.model.focus("c")
         await settle { screen.scroll.target > 0 }
         runToRest(view)
-        // The `auto` fade waits on makeRoot's manual clock, which never advances,
-        // so a loaded runner can't hide the thumb before this check (#16607).
+        // The `auto` fade waits on makeRoot's manual clock, which never advances.
         #expect(screen.scrollbar?.isShown == true)
         let report = screen.scrollbarReport
         // The track spans the strip's uncovered range only.
@@ -137,6 +141,53 @@ struct StickyColumnViewTests {
         view.model.stripScrollbarOverride = .off
         await settle { screen.scrollbar?.isHidden == true }
         #expect(screen.scrollbar?.isHidden == true)
+    }
+
+    /// A sync that leaves the offset where it is, and a window resize, keep
+    /// the `auto` thumb hidden.
+    @Test(arguments: [false, true]) func aSyncThatKeepsTheOffsetDoesNotShowTheScrollbar(reduceMotion: Bool) {
+        Motion.reduceMotionOverride = reduceMotion
+        defer { Motion.reduceMotionOverride = nil }
+        let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked), scrollbar: .auto)
+        defer { window.close() }
+        let screen = view.screenViews["s"]!
+        screen.syncScroll(focused: "a", source: .programmatic, mode: .never, animated: !reduceMotion, showsScrollbarOnSnap: true)
+        runToRest(view)
+        #expect(screen.scroll.value == 0)
+        #expect(screen.scrollbar?.isShown == false)
+        window.setContentSize(NSSize(width: 900, height: 600))
+        view.layoutSubtreeIfNeeded()
+        runToRest(view)
+        #expect(screen.scrollbar?.isShown == false)
+    }
+
+    /// Snaps that do not stand in for a Reduce Motion spring keep the `auto`
+    /// thumb hidden: launching focused on an off-screen column, and a focus
+    /// change while the view is out of its window.
+    @Test func snapsWithoutAWindowDoNotShowTheScrollbar() async {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let launched = LayoutModel(screens: screens(StickyColumn(edge: .right, mode: .docked)), activeScreenID: "s", focusedPane: "c")
+        launched.followsDesignMetrics = false
+        launched.stripScrollbarOverride = .auto
+        let launchView = LayoutRootView(model: launched, contentProvider: StickyStubProvider.shared, scrollbarClock: ManualClock())
+        launchView.frame = CGRect(x: 0, y: 0, width: 1000, height: 600)
+        launchView.layoutSubtreeIfNeeded()
+        let launchScreen = launchView.screenViews["s"]!
+        #expect(launchScreen.scroll.value > 0)
+        #expect(launchScreen.scrollbar?.isShown != true)
+
+        let model = LayoutModel(screens: screens(StickyColumn(edge: .right, mode: .docked)), activeScreenID: "s", focusedPane: "a")
+        model.followsDesignMetrics = false
+        model.stripScrollbarOverride = .auto
+        let view = LayoutRootView(model: model, contentProvider: StickyStubProvider.shared, scrollbarClock: ManualClock())
+        view.frame = CGRect(x: 0, y: 0, width: 1000, height: 600)
+        view.layoutSubtreeIfNeeded()
+        let screen = view.screenViews["s"]!
+        model.focus("c")
+        await settle { screen.scroll.target > 0 }
+        #expect(screen.scroll.value > 0)
+        #expect(screen.scrollbar?.isShown != true)
     }
 
     @Test func noScrollbarWhenTheColumnsFit() {

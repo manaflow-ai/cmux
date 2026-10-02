@@ -1,4 +1,4 @@
-// The changes view's scope pill and menu, after Codex's: Last turn, then the working tree
+// The changes view's scope pill and menu: Last turn, then the working tree
 // (Uncommitted, Unstaged, Staged), then history (Committed, Branch), the chosen one checked.
 // It is a menu button: it opens (from a press or an arrow key) on the chosen scope, arrows move through the scopes, Enter or
 // Space picks one, and Escape, Tab or a press elsewhere closes it.

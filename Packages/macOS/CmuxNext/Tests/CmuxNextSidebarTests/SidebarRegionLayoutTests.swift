@@ -21,7 +21,7 @@ import Testing
 
     @Test func defaultBandsAreHomeAboveSettingsAndAccountBelow() {
         let bands = defaults.bands(room: nil)
-        #expect(bands.above.flatMap(\.items).map(\.ref) == [.builtIn(.home)])
+        #expect(bands.above.flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore)])
         #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
     }
 
@@ -88,6 +88,38 @@ import Testing
         #expect(layout.rows.allSatisfy { if case .item = $0.kind { true } else { false } })
     }
 
+    @Test func linesLooksDrawNoHeadersAndALineBetweenSections() {
+        let sections = [section("a", title: "A", items: 1), section("b", title: "B", items: 2)]
+        for look in [SectionsLookVariant.lines, .linesIcons] {
+            let layout = SidebarRegionLayout.make(sections: sections, width: 240, look: look, collapsed: [], metrics: m)
+            #expect(!layout.rows.contains { if case .header = $0.kind { true } else { false } })
+            #expect(layout.separators.count == 1)
+            #expect(layout.separators[0].width == 240 && layout.separators[0].height == 1)
+            #expect(layout.sectionFrames.count == 2)
+            #expect(layout.separators[0].minY > layout.sectionFrames[0].maxY && layout.separators[0].maxY < layout.sectionFrames[1].minY)
+        }
+        // Quiet keeps headers and no section lines.
+        let quiet = SidebarRegionLayout.make(sections: sections, width: 240, look: .quiet, collapsed: [], metrics: m)
+        #expect(quiet.separators.isEmpty)
+    }
+
+    @Test func linesIconsShowsBuiltInSectionsAsFixedIconButtons() {
+        let layout = SidebarRegionLayout.make(sections: [section("a", items: 3), section("b", look: .list, items: 1)], width: 240,
+                                              look: .linesIcons, collapsed: [], metrics: m)
+        let tiles = layout.rows.filter { if case .tile = $0.kind { true } else { false } }
+        #expect(tiles.count == 3)
+        #expect(tiles.allSatisfy { $0.frame.width == 28 && $0.frame.height == 28 })
+        #expect(Set(tiles.map(\.frame.minY)).count == 1)
+        #expect(layout.rows.contains { if case .item = $0.kind { true } else { false } })
+    }
+
+    @Test func hiddenTitlesDrawNoHeaderAndCannotCollapse() {
+        var hidden = section("a", title: "A", items: 2)
+        hidden.showsTitle = false
+        let layout = SidebarRegionLayout.make(sections: [hidden], width: 240, look: .quiet, collapsed: [hidden.id], metrics: m)
+        #expect(layout.rows.count == 2)
+    }
+
     // MARK: Caps
 
     @Test func maxRowsCapsTheStickyHeight() {
@@ -126,9 +158,9 @@ import Testing
         #expect(home.info.title == SidebarBuiltIn.home.title)
         #expect(view.aboveRegion.layoutResult.height > 0)
         #expect(view.belowRegion.itemView(LayoutItemID("itm_settings")) != nil)
-        let aboveTop = try #require(view.aboveRegion.enclosingScrollView).frame.minY
-        let aboveBottom = try #require(view.aboveRegion.enclosingScrollView).frame.maxY
-        let belowTop = try #require(view.belowRegion.enclosingScrollView).frame.minY
+        let aboveTop = try #require(view.aboveRegion.enclosingScrollView?.superview).frame.minY
+        let aboveBottom = try #require(view.aboveRegion.enclosingScrollView?.superview).frame.maxY
+        let belowTop = try #require(view.belowRegion.enclosingScrollView?.superview).frame.minY
         let list = try #require(view.list.enclosingScrollView?.superview).frame
         #expect(list.minY == aboveBottom && list.maxY == belowTop)
 

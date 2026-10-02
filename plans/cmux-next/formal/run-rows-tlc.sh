@@ -47,10 +47,12 @@ if [ "$mode" = main ] || [ "$mode" = all ]; then
   run LayoutRows.cfg || { echo "FAIL: LayoutRows.cfg violated a property"; status=1; }
   run LayoutRows_2clients.cfg || { echo "FAIL: LayoutRows_2clients.cfg violated a property"; status=1; }
   run LayoutRows_sticky3.cfg || { echo "FAIL: LayoutRows_sticky3.cfg violated a property"; status=1; }
+  run LayoutRows_frame.cfg || { echo "FAIL: LayoutRows_frame.cfg violated a property"; status=1; }
 fi
 if [ "$mode" = mutants ] || [ "$mode" = all ]; then
   for bug in keepEmptyRow sticky3_noStickyNormalize ownPlaceRowOnly noDedup noFocusRepair \
-             focusColumnFirst respawnDropsTab; do
+             focusColumnFirst respawnDropsTab frame_dockAllowsRows frame_pinRowNoCascade \
+             frame_orientTouchesPins; do
     if run "LayoutRows_$bug.cfg"; then echo "FAIL: mutant $bug passed (expected a counterexample)"; status=1
     else echo "OK: mutant $bug produced a counterexample"; fi
   done

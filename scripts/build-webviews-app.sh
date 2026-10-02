@@ -14,13 +14,13 @@ write_agent_session_html() {
   fi
   {
     printf '<!doctype html>\n'
-    printf '<html lang="en" data-cmux-webview-kind="agent-session" data-codex-window-type="electron" data-window-type="electron" data-codex-os="darwin">\n'
+    printf '<html lang="en" data-cmux-webview-kind="agent-session" data-agent-window-type="electron" data-window-type="electron" data-agent-os="darwin">\n'
     printf '  <head>\n'
     printf '    <meta charset="UTF-8" />\n'
     printf '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n'
     printf '    <title>cmux Agent Session</title>\n'
     printf '  </head>\n'
-    printf '  <body data-cmux-webview-kind="agent-session" data-codex-window-type="electron">\n'
+    printf '  <body data-cmux-webview-kind="agent-session" data-agent-window-type="electron">\n'
     printf '    <main id="root"></main>\n'
     printf '    <script>\n'
     /usr/bin/perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$MARKED_JS"
