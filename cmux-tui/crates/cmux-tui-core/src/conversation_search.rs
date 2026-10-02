@@ -31,10 +31,15 @@ const ROW_TEXT: &str = "(SELECT group_concat(json_extract(p.value, '$.text'), ch
      WHERE json_extract(p.value, '$.type') = 'text')";
 
 /// Replace the index row of message `NEW` (an insert or an update).
+/// No `OR IGNORE`: an upsert's conflict policy overrides the policy of a
+/// statement in its trigger, so the row mapping checks for itself.
 fn reindex_statements() -> String {
     format!(
-        "INSERT OR IGNORE INTO message_search_row(conversation, seq)
-           VALUES(NEW.conversation, NEW.seq);
+        "INSERT INTO message_search_row(conversation, seq)
+           SELECT NEW.conversation, NEW.seq
+           WHERE NOT EXISTS (
+             SELECT 1 FROM message_search_row
+             WHERE conversation = NEW.conversation AND seq = NEW.seq);
          DELETE FROM message_search WHERE rowid = (
            SELECT row FROM message_search_row
            WHERE conversation = NEW.conversation AND seq = NEW.seq);
