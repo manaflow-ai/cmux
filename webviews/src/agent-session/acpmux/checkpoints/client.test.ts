@@ -68,6 +68,31 @@ function harness() {
 }
 
 describe("CheckpointClient", () => {
+  test("sends only cwd and contract parameters to the native Git owner", async () => {
+    const h = harness();
+    const client = new CheckpointClient(h.request, new MemoryPersistence(), () => "wire-key", async () => ({
+      checkpoints: true,
+    }));
+    await client.refreshCapabilities();
+    client.select({ ...target, hostKind: "local" });
+    await client.list({ include_candidates: true });
+    await client.get({ checkpoint_id: "cp-1" });
+    await client.pin({ checkpoint_id: "cp-1", pin_id: "user:keep", reason: "Keep" });
+    await client.unpin({ checkpoint_id: "cp-1", pin_id: "user:keep" });
+    expect(h.calls).toEqual([
+      { method: CHECKPOINT_OPS.list, params: { cwd: "/repo", include_candidates: true } },
+      { method: CHECKPOINT_OPS.get, params: { cwd: "/repo", checkpoint_id: "cp-1" } },
+      {
+        method: CHECKPOINT_OPS.pin,
+        params: { cwd: "/repo", checkpoint_id: "cp-1", pin_id: "user:keep", reason: "Keep", idempotency_key: "wire-key" },
+      },
+      {
+        method: CHECKPOINT_OPS.unpin,
+        params: { cwd: "/repo", checkpoint_id: "cp-1", pin_id: "user:keep", idempotency_key: "wire-key" },
+      },
+    ]);
+  });
+
   test("lists candidates through the selected cwd and drops a stale reply after switching", async () => {
     const gate = Promise.withResolvers<CheckpointList>();
     const persistence = new MemoryPersistence();
