@@ -81,6 +81,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var newColumnWidth: NewColumnWidthMode = ColumnLayoutSettings.newColumnWidthFallback
     public var stickyColumnEdge: StickyDefaultEdge = ColumnLayoutSettings.stickyEdgeFallback
     public var stickyColumnMode: StickyDefaultMode = ColumnLayoutSettings.stickyModeFallback
+    /// `layout.frameOrientation`: which docks own the frame's corners.
+    public var frameOrientation: FrameOrientation = ColumnLayoutSettings.frameOrientationFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.

@@ -26,8 +26,17 @@ public nonisolated enum PaneResize {
             let clamped = min(max(ratio + delta, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
             return clamped == ratio ? nil : .splitRatio(split, clamped)
         }
-        guard axis == .horizontal, let column = layout.column(containing: pane) else { return nil }
+        guard let column = layout.column(containing: pane) else { return nil }
         let range = ColumnWidthPreset.widthRange
+        // A top or bottom dock's extent is its height: up and down move its
+        // inner edge (down grows a top dock, up grows a bottom dock).
+        if let edge = column.sticky?.edge, edge.isBand {
+            guard axis == .vertical else { return nil }
+            let grow = edge == .top ? delta : -delta
+            let extent = min(max(column.width + grow, range.lowerBound), range.upperBound)
+            return extent == column.width ? nil : .columnWidth(column.id, extent)
+        }
+        guard axis == .horizontal else { return nil }
         let width = min(max(column.width + delta, range.lowerBound), range.upperBound)
         return width == column.width ? nil : .columnWidth(column.id, width)
     }
