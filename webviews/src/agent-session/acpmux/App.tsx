@@ -1304,23 +1304,23 @@ function AcpmuxPane() {
                   />
                 )}
               </div>
-          {snapshot.permissionGroups?.supported && (
-            <PermissionPanel
-              state={snapshot.permissionGroups}
-              onRespond={(groupId, revision, decision) => {
-                void callNative("chat.permission_group.respond", { groupId, revision, decision });
-              }}
-              onRetry={() => {
-                void callNative("chat.permission_group.retry", {});
-              }}
-              onRevoke={() => {
-                void callNative("chat.permission_chat.revoke", {});
-              }}
-              onRefresh={() => {
-                void callNative("chat.permission_groups.refresh", {});
-              }}
-            />
-          )}
+              {snapshot.permissionGroups?.supported && (
+                <PermissionPanel
+                  state={snapshot.permissionGroups}
+                  onRespond={(groupId, revision, decision) => {
+                    void callNative("chat.permission_group.respond", { groupId, revision, decision });
+                  }}
+                  onRetry={() => {
+                    void callNative("chat.permission_group.retry", {});
+                  }}
+                  onRevoke={() => {
+                    void callNative("chat.permission_chat.revoke", {});
+                  }}
+                  onRefresh={() => {
+                    void callNative("chat.permission_groups.refresh", {});
+                  }}
+                />
+              )}
               {(individualPermission || trustAsk.ask) && (
                 <div className="acpmux-permission">
                   {trustAsk.ask && (

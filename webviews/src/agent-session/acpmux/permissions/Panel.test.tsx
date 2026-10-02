@@ -55,9 +55,25 @@ describe("grouped tool permission panel", () => {
     expect(html).not.toContain("<script>bad()");
   });
   test("tool content stays reviewable when raw input is absent", () => {
-    const html = render({ groups: [{ ...group, items: [{ ...group.items[0]!, request: {
-      toolCall: { title: "Write app.ts", kind: "edit", content: [{ type: "content", content: { type: "text", text: "Keep the existing lockfile" } }] },
-    } }] }] });
+    const html = render({
+      groups: [
+        {
+          ...group,
+          items: [
+            {
+              ...group.items[0]!,
+              request: {
+                toolCall: {
+                  title: "Write app.ts",
+                  kind: "edit",
+                  content: [{ type: "content", content: { type: "text", text: "Keep the existing lockfile" } }],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
     expect(html).toContain("Keep the existing lockfile");
     expect(html).not.toContain("No additional input was provided");
   });
