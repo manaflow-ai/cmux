@@ -32,9 +32,10 @@ test("the sidebar groups sessions by folder, marks them, and selects on click", 
   expect(container.querySelector(".acpmux-session-row")?.getAttribute("aria-label")).toBe("Fix the checkout page, Needs input");
   expect(container.querySelector(".is-selected")?.textContent).toBe("Port the sidebar");
 
-  // The app group has nine sessions: six rows and a "Show 3 more".
+  // The app group has nine sessions: six rows and "Show more", which names the hidden count.
   const more = container.querySelector<HTMLButtonElement>(".acpmux-sidebar-more")!;
-  expect(more.textContent).toBe("Show 3 more");
+  expect(more.textContent).toBe("Show more");
+  expect(more.getAttribute("aria-label")).toBe("Show 3 more");
   expect(container.querySelectorAll(".acpmux-session-row").length).toBe(7);
   await act(async () => more.click());
   expect(container.querySelectorAll(".acpmux-session-row").length).toBe(10);
