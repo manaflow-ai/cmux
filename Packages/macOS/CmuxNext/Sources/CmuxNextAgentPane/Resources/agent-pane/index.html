@@ -2874,13 +2874,19 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 @media not all and (min-width:640px){.acpmux-changes-banner{flex-wrap:wrap}.acpmux-changes-banner-divider{display:none}}
 /* Hover pass. Timing mirrors CmuxNextDesign's Motion `hover` token (plans/cmux-next/motion.md):
    0.08 s ease-out for fills and colors; color fades stay under 0.1 s with Reduce Motion too.
-   Tonal steps over the pane's text color: rest, hover 10%, pressed 16%; an on toggle sits at
-   8% and hovers at 12%. */
-:root{--acpmux-motion-hover:80ms;--acpmux-motion-ease:ease-out;--acpmux-step-pressed:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-step-on-hover:color-mix(in srgb,var(--agent-text) 12%,transparent)}
-.acpmux-diff-back,.acpmux-diff-tool,button.acpmux-diff-scope,.acpmux-fh-btn,.acpmux-file-menu-item,.acpmux-changes-retry,.acpmux-changes-banner-action,.acpmux-changes-banner-refresh,.acpmux-review-changes,button.acpmux-edited-file,.acpmux-edited-more,.acpmux-diff-filter{transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease),border-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+   Tonal steps over the pane's text color, pressed one step past each control's hover on the same
+   base: clear controls hover at 10% and press at 16% (an on toggle rests at 8%, hovers at 12%);
+   filled controls hover at 14% over the page and press at 18% over it; transcript rows hover at
+   4% and press at 9%. */
+:root{--acpmux-motion-hover:80ms;--acpmux-motion-ease:ease-out;--acpmux-step-pressed:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-step-on-hover:color-mix(in srgb,var(--agent-text) 12%,transparent);--acpmux-step-pressed-on-page:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg))}
+.acpmux-diff-back,.acpmux-diff-tool,button.acpmux-diff-scope,.acpmux-fh-btn,.acpmux-fh-name,.acpmux-file-menu-item,.acpmux-changes-retry,.acpmux-changes-banner-action,.acpmux-changes-banner-refresh,.acpmux-review-changes,button.acpmux-edited-file,.acpmux-edited-more,.acpmux-diff-filter{transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease),border-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-diff-tool[aria-pressed=true]:hover{background:var(--acpmux-step-on-hover)}
-.acpmux-diff-back:active,.acpmux-diff-tool:active,button.acpmux-diff-scope:active,.acpmux-fh-btn:active,.acpmux-changes-retry:active,.acpmux-changes-banner-action:active,.acpmux-changes-banner-refresh:active,.acpmux-review-changes:active{background:var(--acpmux-step-pressed);color:var(--agent-text)}
-.acpmux-file-menu-item:active,button.acpmux-edited-file:active,.acpmux-edited-more:active{background:var(--acpmux-step-pressed)}
+.acpmux-diff-back:active,.acpmux-diff-tool:active,.acpmux-fh-btn:active,.acpmux-changes-banner-refresh:active{background:var(--acpmux-step-pressed);color:var(--agent-text)}
+/* The on toggle's hover rule outranks :active, so its press is its own rule. */
+.acpmux-diff-tool[aria-pressed=true]:active{background:var(--acpmux-step-pressed)}
+button.acpmux-diff-scope:active,.acpmux-changes-retry:active,.acpmux-changes-banner-action:active,.acpmux-review-changes:active,.acpmux-edited-more:active{background:var(--acpmux-step-pressed-on-page);color:var(--agent-text)}
+.acpmux-file-menu-item:active{background:var(--acpmux-step-pressed)}
+button.acpmux-edited-file:active{background:color-mix(in srgb,var(--agent-text) 9%,transparent)}
 .acpmux-file-menu-item[aria-disabled="true"]:active{background:none}
 .acpmux-edited-more:hover{background:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg))}
 button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:-1.5px}
@@ -2890,7 +2896,10 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 /* A file's chevron keeps its place and fades in, so the badges after the name never move. */
 .acpmux-fh-chevron{display:block;opacity:0;transition:opacity var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-file-header:hover .acpmux-fh-chevron,.acpmux-fh-name:focus-visible .acpmux-fh-chevron,.acpmux-fh-name[aria-expanded=false] .acpmux-fh-chevron{opacity:1}
-.acpmux-fh-name:hover .acpmux-fh-dir{color:var(--agent-text)}
+/* The name collapses its file: hover brings the folder up to the name's color, press dims both. */
+.acpmux-fh-name:hover,.acpmux-fh-name:hover .acpmux-fh-dir{color:var(--agent-text)}
+.acpmux-fh-name:active,.acpmux-fh-name:active .acpmux-fh-dir{color:var(--agent-muted)}
+.acpmux-fh-dir{transition:color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 /* Effort popover (reference prototype model-menu.png): title, model, and a stepped slider in a
    230px track. Theme tokens only; the fill is a quiet mix of the text color, never an accent. */
 .acpmux-effort-pop {
@@ -3711,7 +3720,7 @@ ${t}`,a=e.startsWith(t)?0:rU(e,n,0);if(a===-1)return[e];let i=[];a>0&&i.push(e.s
   --trees-fg-override: ${Qt.fg};
   --trees-fg-muted-override: ${Qt.muted};
   --trees-selected-fg-override: ${Qt.fg};
-  --trees-selected-bg-override: ${Qt.selected};
+  --trees-selected-bg-override: color-mix(in srgb, ${Qt.fg} 10%, transparent);
   --trees-bg-muted-override: color-mix(in srgb, ${Qt.fg} 5%, transparent);
   --trees-padding-inline-override: 8px;
   --trees-item-margin-x-override: 0px;
