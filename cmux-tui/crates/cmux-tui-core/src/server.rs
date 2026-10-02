@@ -5890,8 +5890,13 @@ fn handle_connection_with_permit(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
         render_service,
     );
+    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
+        mux.surface_operation_admission.clone(),
+        connection_permit.clone(),
+    ));
     let writer_outbound = outbound;
     let writer_close = writer.clone();
+    let writer_scheduler = surface_scheduler.clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
             loop {
@@ -5917,17 +5922,17 @@ fn handle_connection_with_permit(
                 }
             }
             writer_close.close();
+            // Wake a reader that is blocked admitting a one-way input request.
+            // It may not get another read result from the disconnected peer.
+            writer_scheduler.close();
             let _ = write_half.shutdown(Shutdown::Both);
         })
     else {
         writer.close();
+        surface_scheduler.close();
         return;
     };
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
-        mux.surface_operation_admission.clone(),
-        connection_permit.clone(),
-    ));
     let mut reader = BufReader::new(stream);
     let mut drain_accepted = true;
     loop {
