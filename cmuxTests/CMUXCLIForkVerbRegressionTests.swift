@@ -298,7 +298,7 @@ struct CMUXCLIForkVerbRegressionTests {
     func cliForkVerbSeedsClaudeTranscriptBeforeLaunching() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-fork-claude-wire-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-fork-claude-wire-\(UUID().uuidString)", isDirectory: true)
         let config = root.appendingPathComponent("claude-config", isDirectory: true)
         let source = root.appendingPathComponent("source", isDirectory: true)
         let destination = root.appendingPathComponent("destination", isDirectory: true)
@@ -338,7 +338,7 @@ struct CMUXCLIForkVerbRegressionTests {
                 ]
             ]
         ])
-        let socketPath = "/tmp/cmux-fork-claude-wire-(UUID().uuidString.prefix(8)).sock"
+        let socketPath = "/tmp/cmux-fork-claude-wire-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(path: socketPath, response: String(decoding: responseData, as: UTF8.self))
         defer { responder.stop() }
         let home = try isolatedCLIHome()
