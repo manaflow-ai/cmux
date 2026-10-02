@@ -70490,122 +70490,122 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "一度許可"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "السماح مرة واحدة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "Dozvoli jednom"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "Tillad én gang"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "Einmal zulassen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "Permitir una vez"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "Autoriser une fois"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "Consenti una volta"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "អនុញ្ញាតម្ដង"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "한 번 허용"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "Tillat én gang"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "Zezwól raz"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "Permitir uma vez"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "Разрешить один раз"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "อนุญาตครั้งเดียว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "Bir kez izin ver"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "Дозволити один раз"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "Cho phép một lần"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "允许一次"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow once"
+            "state": "translated",
+            "value": "允許一次"
           }
         }
       }
@@ -70621,122 +70621,122 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "このチャットで許可"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "السماح في هذه المحادثة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "Dozvoli u ovom razgovoru"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "Tillad i denne chat"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "Für diesen Chat zulassen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "Permitir para este chat"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "Autoriser pour cette discussion"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "Consenti per questa chat"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "អនុញ្ញាតសម្រាប់ការជជែកនេះ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "이 채팅에서 허용"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "Tillat for denne chatten"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "Zezwól w tym czacie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "Permitir para este chat"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "Разрешить для этого чата"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "อนุญาตสำหรับแชทนี้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "Bu sohbet için izin ver"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "Дозволити в цьому чаті"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "Cho phép trong cuộc trò chuyện này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "允许在此聊天中"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow for this chat"
+            "state": "translated",
+            "value": "允許在此聊天中"
           }
         }
       }
@@ -70752,122 +70752,122 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "拒否"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "رفض"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "Odbij"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "Afvis"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "Ablehnen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "Denegar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "Refuser"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "Rifiuta"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "បដិសេធ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "거부"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "Avslå"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "Odrzuć"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "Negar"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "Запретить"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "ปฏิเสธ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "Reddet"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "Відхилити"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "Từ chối"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "拒绝"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deny"
+            "state": "translated",
+            "value": "拒絕"
           }
         }
       }
@@ -70883,122 +70883,122 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "権限の詳細を展開"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "توسيع تفاصيل الأذونات"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "Proširi detalje dozvole"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "Udvid tilladelsesoplysninger"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "Berechtigungsdetails einblenden"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "Expandir detalles del permiso"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "Développer les détails de l’autorisation"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "Espandi i dettagli dell’autorizzazione"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "ពង្រីកព័ត៌មានលម្អិតអំពីការអនុញ្ញាត"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "권한 세부 정보 펼치기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "Utvid tillatelsesdetaljer"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "Rozwiń szczegóły uprawnień"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "Expandir detalhes da permissão"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "Развернуть сведения о разрешении"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "ขยายรายละเอียดการอนุญาต"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "İzin ayrıntılarını genişlet"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "Розгорнути відомості про дозвіл"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "Mở rộng chi tiết về quyền"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "展开权限详情"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Expand permission details"
+            "state": "translated",
+            "value": "展開權限詳細資料"
           }
         }
       }
@@ -71014,122 +71014,122 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "権限を確認して再試行"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "التحقق من الإذن وإعادة المحاولة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "Provjeri dozvolu i pokušaj ponovo"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "Kontrollér tilladelse og prøv igen"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "Berechtigung prüfen und erneut versuchen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "Comprobar el permiso y reintentar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "Vérifier l’autorisation et réessayer"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "Verifica autorizzazione e riprova"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "ពិនិត្យការអនុញ្ញាត ហើយព្យាយាមម្ដងទៀត"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "권한 확인 후 다시 시도"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "Kontroller tillatelsen og prøv igjen"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "Sprawdź uprawnienie i spróbuj ponownie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "Verificar a permissão e tentar novamente"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "Проверить разрешение и повторить"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "ตรวจสอบสิทธิ์และลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "İzni kontrol edip yeniden dene"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "Перевірити дозвіл і повторити"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "Kiểm tra quyền và thử lại"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "检查权限并重试"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Check and retry permission"
+            "state": "translated",
+            "value": "檢查權限並重試"
           }
         }
       }
@@ -71145,122 +71145,122 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "チャットの権限を取り消す"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "إلغاء إذن المحادثة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "Opozovi dozvolu razgovora"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "Tilbagekald chattilladelse"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "Chat-Berechtigung widerrufen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "Revocar el permiso del chat"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "Révoquer l’autorisation de la discussion"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "Revoca l’autorizzazione della chat"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "ដកហូតការអនុញ្ញាតសម្រាប់ការជជែក"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "채팅 권한 철회"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "Opphev tillatelsen for chatten"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "Cofnij uprawnienia czatu"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "Revogar permissão do chat"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "Отозвать разрешение чата"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "เพิกถอนสิทธิ์แชท"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "Sohbet iznini iptal et"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "Відкликати дозвіл чату"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "Thu hồi quyền trò chuyện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "撤销聊天权限"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Revoke chat permission"
+            "state": "translated",
+            "value": "撤銷聊天權限"
           }
         }
       }
@@ -71276,122 +71276,122 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "権限を更新"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "تحديث الأذونات"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "Osvježi dozvole"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "Opdater tilladelser"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "Berechtigungen aktualisieren"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "Actualizar permisos"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "Actualiser les autorisations"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "Aggiorna autorizzazioni"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "ផ្ទុកការអនុញ្ញាតឡើងវិញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "권한 새로 고침"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "Oppdater tillatelser"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "Odśwież uprawnienia"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "Atualizar permissões"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "Обновить разрешения"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "รีเฟรชสิทธิ์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "İzinleri yenile"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "Оновити дозволи"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "Làm mới quyền"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "刷新权限"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Refresh permissions"
+            "state": "translated",
+            "value": "重新整理權限"
           }
         }
       }
@@ -71541,8 +71541,7 @@
             "state": "needs_review",
             "value": "List Cloud Files…"
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -71673,8 +71672,7 @@
             "state": "needs_review",
             "value": "Read Cloud File…"
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -71805,8 +71803,7 @@
             "state": "needs_review",
             "value": "Write Cloud File…"
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -71937,8 +71934,7 @@
             "state": "needs_review",
             "value": "Create Cloud Directory…"
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -72069,8 +72065,7 @@
             "state": "needs_review",
             "value": "Remove Cloud File…"
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -72201,8 +72196,7 @@
             "state": "needs_review",
             "value": "Cloud File Details…"
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -72333,8 +72327,7 @@
             "state": "needs_review",
             "value": "Prepare Cloud File Transfer…"
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -72465,8 +72458,7 @@
             "state": "needs_review",
             "value": "Path"
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -72597,8 +72589,7 @@
             "state": "needs_review",
             "value": "Contents"
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -72729,8 +72720,7 @@
             "state": "needs_review",
             "value": "SSH Public Key"
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",

@@ -49,13 +49,13 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard],
                 requires: [.agentPaneFocused], targets: [.pane]
             ),
-            permissionAction("allowOnce", title: "Allow once", symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
-            permissionAction("allowChat", title: "Allow for this chat", symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
-            permissionAction("deny", title: "Deny", symbol: "xmark", shortcut: Shortcut("3", modifiers: [.command, .option])),
-            permissionAction("expand", title: "Expand permission details", symbol: "arrow.down.right.and.arrow.up.left", shortcut: Shortcut("4", modifiers: [.command, .option])),
-            permissionAction("retry", title: "Check and retry permission", symbol: "arrow.clockwise"),
-            permissionAction("revoke", title: "Revoke chat permission", symbol: "hand.raised"),
-            permissionAction("refresh", title: "Refresh permissions", symbol: "arrow.clockwise.circle"),
+            permissionAction("allowOnce", title: String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow once", bundle: .module), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
+            permissionAction("allowChat", title: String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for this chat", bundle: .module), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
+            permissionAction("deny", title: String(localized: "action.agentPane.permission.deny", defaultValue: "Deny", bundle: .module), symbol: "xmark", shortcut: Shortcut("3", modifiers: [.command, .option])),
+            permissionAction("expand", title: String(localized: "action.agentPane.permission.expand", defaultValue: "Expand permission details", bundle: .module), symbol: "arrow.down.right.and.arrow.up.left", shortcut: Shortcut("4", modifiers: [.command, .option])),
+            permissionAction("retry", title: String(localized: "action.agentPane.permission.retry", defaultValue: "Check and retry permission", bundle: .module), symbol: "arrow.clockwise"),
+            permissionAction("revoke", title: String(localized: "action.agentPane.permission.revoke", defaultValue: "Revoke chat permission", bundle: .module), symbol: "hand.raised"),
+            permissionAction("refresh", title: String(localized: "action.agentPane.permission.refresh", defaultValue: "Refresh permissions", bundle: .module), symbol: "arrow.clockwise.circle"),
             ActionDescriptor(
                 id: "palette.openTerminalChatView",
                 title: String(localized: "action.palette.openTerminalChatView", defaultValue: "Open Terminal as Chat", bundle: .module),
@@ -163,11 +163,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
 
     private static func permissionAction(_ name: String, title: String, symbol: String,
                                          shortcut: Shortcut? = nil) -> ActionDescriptor {
-        ActionDescriptor(
+        var action = ActionDescriptor(
             id: "agentPane.permission.\(name)",
-            title: String(
-                localized: "action.agentPane.permission.\(name)", defaultValue: title, bundle: .module
-            ),
+            title: title,
             keywords: ["agent", "permission", "tool", name], defaultShortcut: shortcut,
             category: .agents, symbol: symbol, surfaces: [.keyboard],
             requires: [.agentPaneFocused], targets: [.pane],
@@ -175,5 +173,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly
             )
         )
+        // GUI-only permission controls must not let a socket caller approve
+        // its own request, including one claiming a user origin.
+        action.isPersonOnly = true
+        return action
     }
 }
