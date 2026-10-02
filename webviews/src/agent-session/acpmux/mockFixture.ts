@@ -45,20 +45,38 @@ export const codexModels = [
   { id: "gpt-6-mini", name: "GPT-6 mini" },
 ];
 
+// As the agents' ACP adapters report them: @agentclientprotocol/claude-agent-acp 0.85
+// (session-mode.js) and Codex's built-in approval presets (codex-rs approval-presets).
 const claudeModes = {
   availableModes: [
-    { id: "default", name: "Ask before edits" },
-    { id: "acceptEdits", name: "Accept edits" },
-    { id: "plan", name: "Plan" },
-    { id: "bypassPermissions", name: "Full access" },
+    { id: "default", name: "Manual", description: "Always ask before making changes" },
+    { id: "acceptEdits", name: "Accept edits", description: "Automatically accept all file edits" },
+    { id: "plan", name: "Plan", description: "Create a plan before making changes" },
+    { id: "auto", name: "Auto", description: "Claude handles permission decisions" },
+    { id: "bypassPermissions", name: "Bypass permissions", description: "Accepts all permissions" },
   ],
   currentModeId: "bypassPermissions",
 };
 const codexModes = {
   availableModes: [
-    { id: "read-only", name: "Read only" },
-    { id: "auto", name: "Auto" },
-    { id: "full-access", name: "Full access" },
+    {
+      id: "read-only",
+      name: "Read Only",
+      description:
+        "Codex can read files in the current workspace. Approval is required to edit files or access the internet.",
+    },
+    {
+      id: "auto",
+      name: "Default",
+      description:
+        "Codex can read and edit files in the current workspace, and run commands. Approval is required to access the internet or edit other files. (Identical to Agent mode)",
+    },
+    {
+      id: "full-access",
+      name: "Full Access",
+      description:
+        "Codex can edit files outside this workspace and access the internet without asking for approval. Exercise caution when using.",
+    },
   ],
   currentModeId: "auto",
 };

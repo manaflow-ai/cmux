@@ -91,6 +91,16 @@
 .acpmux-on{color:var(--agent-text)}
 
 .acpmux-menu-item .acpmux-icon:first-child{color:var(--agent-muted)}
+/* The approval menu (Codex's): a question over the modes with "Learn more", an icon per level, and each mode's description under its name. */
+.acpmux-menu-heading{display:flex;align-items:center;gap:12px;min-height:28px;padding:0 8px;color:var(--acpmux-composer-dim);font-size:13px}
+.acpmux-menu-heading>span{flex:1;min-width:0}
+.acpmux-menu-heading a{flex:none;color:inherit;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.acpmux-menu-heading a:hover{color:var(--agent-text)}
+.acpmux-menu-heading a:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px;border-radius:2px}
+.acpmux-mode .acpmux-menu{max-width:min(460px,100%)}
+.acpmux-menu-item:has(.acpmux-menu-description){align-items:flex-start}
+.acpmux-menu-item:has(.acpmux-menu-description)>.acpmux-icon{margin-top:1px}
+.acpmux-menu-item.acpmux-unrestricted .acpmux-icon:first-child{color:inherit}
 .acpmux-menu-search{display:flex;align-items:center;gap:8px;min-height:30px;margin-bottom:4px;padding:0 8px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-text)}
 .acpmux-menu-search .acpmux-icon{color:var(--agent-muted)}
 .acpmux-menu-search-empty{color:var(--acpmux-composer-dim)}

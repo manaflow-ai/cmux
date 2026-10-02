@@ -23,6 +23,7 @@ const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
 const { ComposerPickers, isPlan, loadRecents, rememberCombo, unrestricted } = await import("./ComposerPickers");
+const { approvalDocs, approvalLevel } = await import("./approvalModes");
 
 const doc = dom.window.document;
 const snapshot = (
@@ -366,6 +367,65 @@ describe("acpmux composer pickers", () => {
     await render(snapshot({ modes: { ...modes, currentModeId: "bypassPermissions" } }));
     expect(doc.querySelector(".acpmux-mode.acpmux-unrestricted")).not.toBeNull();
     expect(unrestricted("default")).toBe(false);
+  });
+
+  test("the approval menu asks how the agent's actions are approved, links its docs, and marks each mode's level", async () => {
+    const codexModes = {
+      currentModeId: "auto",
+      availableModes: [
+        { id: "read-only", name: "Read Only", description: "Approval is required to edit files" },
+        { id: "auto", name: "Default", description: "Approval is required to access the internet" },
+        { id: "full-access", name: "Full Access", description: "Without asking for approval" },
+      ],
+    };
+    await render(snapshot({ modes: codexModes }));
+    await act(async () => button("Mode")!.click());
+    const heading = doc.querySelector(".acpmux-menu-heading")!;
+    expect(heading.querySelector("span")!.textContent).toBe("How should Codex actions be approved?");
+    expect(heading.querySelector("a")!.getAttribute("href")).toBe(
+      "https://developers.openai.com/codex/agent-approvals-security",
+    );
+    expect(heading.querySelector("a")!.textContent).toBe("Learn more");
+    // The question describes the listbox, which holds only the modes.
+    expect(doc.querySelector("[role=listbox]")!.getAttribute("aria-describedby")).toBe(heading.id);
+    // Hand, approve badge, warning shield: each glyph's first stroke tells them apart.
+    const glyph = (d: string) =>
+      d.startsWith("M5.4 8.6")
+        ? "hand"
+        : d.startsWith("M8 1.9 13.3")
+          ? "approve"
+          : d.startsWith("M8 1.9 13 3.7")
+            ? "shield"
+            : d;
+    expect(
+      [...doc.querySelectorAll("[role=option]")].map((option) =>
+        glyph(option.querySelector("svg path")!.getAttribute("d")!),
+      ),
+    ).toEqual(["hand", "approve", "shield"]);
+    expect(doc.querySelector(".acpmux-menu-item.acpmux-unrestricted")!.textContent).toBe(
+      "Full AccessWithout asking for approval",
+    );
+    // An agent without a known docs page gets the question alone.
+    await act(async () => button("Mode")!.click());
+    await render(snapshot({ harness: "gemini", modes: codexModes }));
+    await act(async () => button("Mode")!.click());
+    expect(doc.querySelector(".acpmux-menu-heading span")!.textContent).toBe(
+      "How should Gemini CLI actions be approved?",
+    );
+    expect(doc.querySelector(".acpmux-menu-heading a")).toBeNull();
+  });
+
+  test("approval levels follow each agent's mode ids, and docs follow the agent a variant belongs to", () => {
+    expect(["default", "acceptEdits", "auto", "bypassPermissions"].map(approvalLevel)).toEqual([
+      "ask",
+      "auto",
+      "auto",
+      "full",
+    ]);
+    expect(["read-only", "auto", "full-access"].map(approvalLevel)).toEqual(["ask", "auto", "full"]);
+    expect(approvalDocs("claude-sr")).toBe("https://code.claude.com/docs/en/permission-modes");
+    expect(approvalDocs("constructor")).toBeUndefined();
+    expect(approvalDocs(undefined)).toBeUndefined();
   });
 
   test("Plan is a toggle apart from the permission chip, and leaving it restores the permission mode", async () => {

@@ -1,5 +1,8 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
+import { agentName } from "./agents";
+import { ApproveIcon, HandIcon } from "./approvalIcons";
+import { approvalDocs, approvalLevel, type ApprovalLevel } from "./approvalModes";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -15,7 +18,16 @@ export const PICKER_LABELS = {
   moreModels: "More models",
   allModels: "All models",
   searchModels: "Type to search models",
+  /// `{agent}` is the agent's name.
+  approvalQuestion: "How should {agent} actions be approved?",
+  learnMore: "Learn more",
 };
+
+/// Each approval level's glyph: ask first, approve what is safe, or full access (the chip's shield).
+function approvalIcon(level: ApprovalLevel): React.JSX.Element {
+  if (level === "ask") return <HandIcon />;
+  return level === "auto" ? <ApproveIcon /> : <ShieldIcon />;
+}
 
 /// A model and effort the viewer used, kept per viewer so the menu can offer it as one click.
 export type Combo = { harness: string; model: string; effort?: string; effortName?: string };
@@ -82,11 +94,14 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
   const models: Choice[] = (snapshot.catalog.find((harness) => harness.id === summary?.harness)?.models ?? []).map(
     (model) => ({ id: model.id, name: model.name || model.id }),
   );
-  const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
-    id: mode.id,
-    name: mode.name || mode.id,
-    description: mode.description,
-  }));
+  const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => {
+    return {
+      id: mode.id,
+      name: mode.name || mode.id,
+      description: mode.description,
+      icon: approvalIcon(approvalLevel(mode.id)),
+    };
+  });
   const plan = allModes.find((choice) => isPlan(choice.id));
   const modes = allModes.filter((choice) => choice !== plan);
   const currentId = summary?.modes?.currentModeId;
@@ -197,6 +212,15 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
             </>
           }
           sections={[{ choices: modes, current: mode?.id, onPick: onMode }]}
+          heading={{
+            label: PICKER_LABELS.approvalQuestion.replace(
+              "{agent}",
+              summary?.harness
+                ? agentName(summary.harness, snapshot.catalog.find((entry) => entry.id === summary.harness)?.name)
+                : "agent",
+            ),
+            link: approvalDocs(summary?.harness),
+          }}
           align="start"
         />
       )}
@@ -354,7 +378,7 @@ export function ContextRing({ used, size }: { used: number; size: number }) {
 
 /// Modes that skip approvals draw in the theme's warning color, as Codex draws "Full access".
 export function unrestricted(modeId: string): boolean {
-  return /bypass|full|yolo|dangerous|auto[-_ ]?approve/i.test(modeId);
+  return approvalLevel(modeId) === "full";
 }
 
 /// A pick that returns "keep" leaves the menu open (e.g. a row that expands the menu).
@@ -376,6 +400,7 @@ export function Picker({
   warnUnrestricted = false,
   returnFocus = true,
   search,
+  heading,
   onOpenChange,
 }: {
   label: string;
@@ -387,6 +412,8 @@ export function Picker({
   /// An action menu hands focus to whatever its pick focuses, not back to the button.
   returnFocus?: boolean;
   search?: MenuSearch;
+  /// A muted line over the menu, with an optional "Learn more" link that opens outside the pane.
+  heading?: { label: string; link?: string };
   onOpenChange?(open: boolean): void;
 }) {
   const [open, setOpen] = useState(false);
@@ -509,15 +536,30 @@ export function Picker({
       {/* A native select cannot hold descriptions, sections or the Codex look. */}
       {open && (
         <div className={`acpmux-menu acpmux-menu-${align}`}>
-          {/* The query sits beside the listbox, which may hold only options and groups. */}
+          {/* The heading and the query sit beside the listbox, which may hold only options and groups. */}
+          {heading && (
+            <div className="acpmux-menu-heading" id={`${menuId}-heading`}>
+              <span>{heading.label}</span>
+              {heading.link && (
+                <a href={heading.link} rel="noreferrer" onMouseDown={(event) => event.preventDefault()}>
+                  {PICKER_LABELS.learnMore}
+                </a>
+              )}
+            </div>
+          )}
           {search && (
             <div className={`acpmux-menu-search${search.query ? "" : " acpmux-menu-search-empty"}`} aria-live="polite">
               <SearchIcon />
               <span>{search.query || search.placeholder}</span>
             </div>
           )}
-          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-          <div id={menuId} role="listbox" aria-label={label}>
+          <div
+            id={menuId}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+            role="listbox"
+            aria-label={label}
+            aria-describedby={heading ? `${menuId}-heading` : undefined}
+          >
             {sections.map((section, s) => {
               const titled = section.title && sections.length > 1;
               return (
