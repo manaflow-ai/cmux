@@ -20,11 +20,11 @@ The first slice intentionally does not add an MCP server or a second SDK. It mea
 
 ## Execute slice
 
-The next slice should expose the existing generated TypeScript client through one runtime entry point:
+The execute prototype in the follow-up branch exposes the existing generated TypeScript client through one runtime entry point:
 
-- `cmux run <script.ts>` reads a bounded script from stdin or a named file and executes it with the generated client.
-- The MCP surface is exactly `cmux_docs` and `cmux_exec`; docs returns catalog excerpts, and exec runs the same script contract.
-- The runtime should be a pinned, embedded QuickJS or workerd isolate with no filesystem or network capability. The only host capability is the authenticated cmux socket, and every operation still passes the catalog's existing class, selector and mutation gating. The CLI and MCP paths must share the same permission check.
+- `cmux run <script.ts>` dispatches through `cmux-code-mode-runner`. The prototype runs Bun in a Linux `bwrap` namespace with no host network, no host home, read-only runtime and source mounts, a tmpfs for transient writes, and one explicitly bound cmux Unix socket. It fails closed when bwrap is unavailable; a macOS sandbox profile is a follow-up before shipping the command in the app bundle.
+- The MCP surface is exactly `cmux_docs` and `cmux_exec`; docs returns catalog excerpts, and exec writes a bounded temporary script then invokes the same sandbox runner. Both paths use the generated TypeScript Node client and the same authenticated socket.
+- The runtime has no ambient host filesystem or network capability. Every operation still passes the catalog's existing class, selector and mutation gating. The CLI and MCP paths share the runner and permission boundary.
 - Prefer the existing generated TypeScript SDK as the only public API. Regenerate its operation methods and declarations from the catalog rather than hand-writing a second client. The SDK and catalog permission contract are shared with `automations-runtime.md`; the interactive `cmux run` executor may use the same pinned workerd runtime or a smaller QuickJS host only if that host implements the exact same capability boundary and reviewable policy.
 
 A first runtime prototype should prefer the pinned workerd path already being evaluated by `automations-runtime.md`; use QuickJS only if the existing build and embedding path can keep the binary and policy surface smaller while preserving TypeScript support. Do not allow ambient `fs`, `net`, child processes or dynamic imports.
