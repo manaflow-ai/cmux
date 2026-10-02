@@ -29,23 +29,24 @@ struct CloudTreeHeaderActionsTests {
         let title = try Self.display(in: header)
         let restingTitleFrame = title.frame
 
-        #expect(!menu.isHidden)
+        #expect(menu.isHidden)
         #expect(menu.alphaValue == 0)
-        // Invisible is not unreachable: the ⋯ keeps its hit area and its place
-        // in the accessibility tree, so a click or VoiceOver press still opens it.
+        // Idle controls are hidden so the row keeps the click target. Hovering
+        // reveals the control and gives it the hit target.
         let hit = try tree.hit(atCenterOf: menu)
-        #expect(hit.isDescendant(of: menu))
+        #expect(!hit.isDescendant(of: menu))
         #expect(tree.outline.validateProposedFirstResponder(hit, for: nil))
 
         header.setHovered(true)
         header.layoutSubtreeIfNeeded()
+        #expect(!menu.isHidden)
         #expect(menu.alphaValue == 1)
         #expect(title.frame == restingTitleFrame)
 
         header.setHovered(false)
         header.layoutSubtreeIfNeeded()
         #expect(menu.alphaValue == 0)
-        #expect(!menu.isHidden)
+        #expect(menu.isHidden)
         #expect(title.frame == restingTitleFrame)
     }
 
@@ -81,14 +82,15 @@ struct CloudTreeHeaderActionsTests {
         let title = try Self.display(in: header)
         let restingTitleFrame = title.frame
 
-        #expect(!plus.isHidden)
+        #expect(plus.isHidden)
         #expect(plus.alphaValue == 0)
         let hit = try tree.hit(atCenterOf: plus)
-        #expect(hit.isDescendant(of: plus))
+        #expect(!hit.isDescendant(of: plus))
         #expect(tree.outline.validateProposedFirstResponder(hit, for: nil))
 
         // Hover follows the pointer from one header to the other and off the list.
         tree.move(to: tree.cloudSection)
+        #expect(!plus.isHidden)
         #expect(plus.alphaValue == 1)
         #expect(title.frame == restingTitleFrame)
         let menu = try Self.controls(in: tree.cell(for: tree.devicesSection))
@@ -116,9 +118,8 @@ struct CloudTreeHeaderActionsTests {
         #expect(controls?.isHidden ?? true)
     }
 
-    /// Fading is visual only: VoiceOver still finds both controls at rest,
-    /// with their roles and labels.
-    @Test("Faded header actions stay in the accessibility tree with their labels")
+    /// Hovered header actions stay in the accessibility tree with their roles.
+    @Test("Hovered header actions stay in the accessibility tree with their labels")
     func fadedHeaderActionsStayAccessible() async throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
@@ -127,13 +128,15 @@ struct CloudTreeHeaderActionsTests {
         let devicesHeader = try tree.cell(for: tree.devicesSection)
         let plusHost = try #require(try Self.controls(in: cloudHeader) as? CloudTreeRowControlsHostingView)
         let menuHost = try #require(try Self.controls(in: devicesHeader) as? CloudTreeRowControlsHostingView)
+        cloudHeader.setHovered(true)
+        devicesHeader.setHovered(true)
         // An in-process test has no assistive client to turn on SwiftUI's
         // accessibility output for these hosted controls.
         for host in [plusHost, menuHost] {
             host.rootView = AnyView(host.rootView.environment(\.accessibilityEnabled, true))
         }
-        #expect(plusHost.alphaValue == 0)
-        #expect(menuHost.alphaValue == 0)
+        #expect(plusHost.alphaValue == 1)
+        #expect(menuHost.alphaValue == 1)
 
         var plus: NSObject?
         var menu: NSObject?
@@ -151,8 +154,8 @@ struct CloudTreeHeaderActionsTests {
         #expect(Self.accessibilityAttribute(.role, getter: "accessibilityRole", of: plusElement) as? String == NSAccessibility.Role.button.rawValue)
         #expect(Self.accessibilityAttribute(.description, getter: "accessibilityLabel", of: plusElement) as? String == "New Machine")
         #expect(Self.accessibilityAttribute(.description, getter: "accessibilityLabel", of: menuElement) as? String == "Manage My Devices")
-        #expect(plusHost.alphaValue == 0)
-        #expect(menuHost.alphaValue == 0)
+        #expect(plusHost.alphaValue == 1)
+        #expect(menuHost.alphaValue == 1)
     }
 
     @Test("Both header actions share one trailing slot: same size, trailing edge, and vertical center", arguments: [220.0, 380.0])
@@ -171,7 +174,12 @@ struct CloudTreeHeaderActionsTests {
         #expect(plusFrame.maxX == menuFrame.maxX)
         let cloudRow = tree.outline.rect(ofRow: tree.outline.row(forItem: tree.cloudSection))
         let devicesRow = tree.outline.rect(ofRow: tree.outline.row(forItem: tree.devicesSection))
-        #expect(plusFrame.midY - cloudRow.midY == menuFrame.midY - devicesRow.midY)
+        let verticalOffsetDelta = (plusFrame.midY - cloudRow.midY)
+            - (menuFrame.midY - devicesRow.midY)
+        #expect(
+            abs(verticalOffsetDelta) < 0.001,
+            "AppKit frame conversion may differ by floating-point rounding"
+        )
     }
 
     /// The row-level controls used to reserve two lines for "Change these
@@ -192,10 +200,8 @@ struct CloudTreeHeaderActionsTests {
         let controls = try #require(tree.devicesSection.children.first {
             if case .devicesEmpty = $0.kind { true } else { false }
         })
-        // "No other Macs yet", then one row per opt-in that is still off.
-        let inlineRows = (listedMacs == 0 ? 1 : 0)
-            + (section.discoveryEnabled ? 0 : 1)
-            + (section.incomingAccessEnabled ? 0 : 1)
+        // "No other Macs yet", then both independent actions in every state.
+        let inlineRows = (listedMacs == 0 ? 1 : 0) + 2
         let style = tree.outline.treeStyle
         // Each inline row plus the 2 pt top and bottom inset, nothing more.
         let expected = GlobalFontMagnification.scaledSize(CGFloat(inlineRows) * style.rowHeight + 4)
@@ -230,7 +236,8 @@ struct CloudTreeHeaderActionsTests {
 
         NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
         tree.move(to: tree.devicesSection)
-        #expect(try Self.controls(in: tree.cell(for: machineNode)).alphaValue == 0)
+        // Machine rows keep their buttons at rest, dimmed until hovered.
+        #expect(try Self.controls(in: tree.cell(for: machineNode)).alphaValue == CloudTreeCellView.restingButtonsAlpha)
         #expect(try Self.controls(in: tree.cell(for: tree.devicesSection)).alphaValue == 1)
     }
 

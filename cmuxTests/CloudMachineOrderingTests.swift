@@ -13,9 +13,19 @@ import Testing
 @MainActor
 @Suite("Cloud machine ordering", .serialized)
 struct CloudMachineOrderingTests {
-    /// The Cloud sidebar draws no drag hints (#15123), including for machine headers.
+    /// Machine reorder destinations show an insertion line; unrelated sidebar and file drops remain hint-free.
+    private func expectReorderIndicator(_ outline: NSOutlineView, atY expectedY: CGFloat? = nil) {
+        let indicator = outline.subviews.first {
+            $0 is SidebarReorderIndicatorView && !$0.isHidden
+        }
+        #expect(indicator != nil)
+        if let indicator, let expectedY {
+            #expect(abs(indicator.frame.minY - expectedY) < 0.5)
+        }
+    }
+
     private func expectNoReorderIndicator(_ outline: NSOutlineView) {
-        #expect(!outline.subviews.contains { $0.identifier?.rawValue == "sidebarReorderIndicator" })
+        #expect(!outline.subviews.contains { $0 is SidebarReorderIndicatorView && !$0.isHidden })
     }
 
     @Test("Header edges move whole machines and retain selection and expansion",
@@ -38,8 +48,20 @@ struct CloudMachineOrderingTests {
         let before = fixture.base.defaults.data(forKey: CloudMachinePinStore.defaultsKey)
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,
             proposedItem: target, proposedChildIndex: NSOutlineViewDropOnItemIndex) == .move)
+        let expectedY: CGFloat
+        if after {
+            var lastRow = outline.row(forItem: target)
+            let targetLevel = outline.level(forRow: lastRow)
+            while lastRow + 1 < outline.numberOfRows,
+                  outline.level(forRow: lastRow + 1) > targetLevel {
+                lastRow += 1
+            }
+            expectedY = outline.rect(ofRow: lastRow).maxY - SidebarReorderIndicatorView.thickness
+        } else {
+            expectedY = rect.minY
+        }
+        expectReorderIndicator(outline, atY: expectedY)
         #expect(fixture.base.defaults.data(forKey: CloudMachinePinStore.defaultsKey) == before)
-        expectNoReorderIndicator(outline)
         #expect(coordinator.outlineView(outline, acceptDrop: drag.info, item: nil, childIndex: after ? 5 : 1))
         #expect(fixture.order == (after ? ["b", "c", "d", "a"] : ["d", "a", "b", "c"]))
         expectNoReorderIndicator(outline)
@@ -66,7 +88,7 @@ struct CloudMachineOrderingTests {
         let drag = try fixture.begin(pinnedSource ? "a" : "d")
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,
             proposedItem: nil, proposedChildIndex: pinnedSource ? 5 : 0) == .move)
-        expectNoReorderIndicator(outline)
+        expectReorderIndicator(outline)
         #expect(coordinator.outlineView(outline, acceptDrop: drag.info, item: nil, childIndex: 3))
         #expect(fixture.order == (pinnedSource ? ["b", "a", "c", "d"] : ["a", "b", "d", "c"]))
         #expect(fixture.store.pinnedMachineIDs == ["a", "b"])
@@ -83,6 +105,8 @@ struct CloudMachineOrderingTests {
         let target = try fixture.root("b")
         let terminal = try #require(CloudTreeNodeBuilder.flattened([target]).first { $0.isDragSource })
         let contents = CloudTreeNodeBuilder.flattened([target]).map(\.id)
+        // Cloud workspaces start collapsed; open the machine's rows so the terminal has one.
+        outline.expandItem(target, expandChildren: true)
         outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: terminal)), byExtendingSelection: false)
         let drag = try fixture.begin("a")
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,

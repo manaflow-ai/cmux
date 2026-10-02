@@ -5,6 +5,8 @@ import Testing
 // so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
 // the settings symbols this file needs.
 import struct CmuxSettings.AppCatalogSection
+import struct CmuxFoundation.CmuxAccentColor
+import enum CmuxFoundation.CmuxAccentColorMode
 import struct CmuxSettings.QuitConfirmationStore
 import enum CmuxSettings.ConfirmQuitMode
 import enum CmuxSettings.BrowserSearchEngine
@@ -104,6 +106,72 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             KeyboardShortcutSettings.Action.openBrowser.normalizedSettingsFileShortcut(shortcut),
             shortcut
         )
+    }
+
+    func testHexAccentColorSelectsCustomModeWithNormalizedColor() throws {
+        let defaults = UserDefaults.standard
+        let keys = [
+            CmuxAccentColorMode.userDefaultsKey,
+            CmuxAccentColorMode.customHexUserDefaultsKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]
+        let previous = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, value) in zip(keys, previous) {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+        for key in keys {
+            defaults.removeObject(forKey: key)
+        }
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "accentColor": "#ff6a00"
+              }
+            }
+            """,
+            to: settingsURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.string(forKey: CmuxAccentColorMode.userDefaultsKey), CmuxAccentColorMode.custom.rawValue)
+        XCTAssertEqual(defaults.string(forKey: CmuxAccentColorMode.customHexUserDefaultsKey), "#FF6A00")
+        XCTAssertEqual(CmuxAccentColor.stored(in: defaults).customHex, "#FF6A00")
+
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "accentColor": "custom"
+              }
+            }
+            """,
+            to: settingsURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNotEqual(defaults.string(forKey: CmuxAccentColorMode.userDefaultsKey), CmuxAccentColorMode.custom.rawValue)
     }
 
     func testSettingsFileStoreRestoresAbsentAppIconBackupDuringStartupWithoutTouchingAppKit() throws {
@@ -1717,7 +1785,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         // value includes registered fallbacks (e.g. BrowserPanel's browser
         // defaults registration), and the restore below would persist such a
         // fallback for a key that was never actually written.
-        let domainName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let domainName = ProcessDefaultsDomain.name ?? ProcessInfo.processInfo.processName
         let persisted = defaults.persistentDomain(forName: domainName) ?? [:]
         let previousValues = keys.map { key in
             (key: key, value: persisted[key])
@@ -1799,7 +1867,7 @@ struct FileEditorSettingsFileParsingTests {
         defaults: UserDefaults,
         _ body: () throws -> Void
     ) rethrows {
-        let domainName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let domainName = ProcessDefaultsDomain.name ?? ProcessInfo.processInfo.processName
         let persisted = defaults.persistentDomain(forName: domainName) ?? [:]
         let previous = keys.map { ($0, persisted[$0]) }
         defer {

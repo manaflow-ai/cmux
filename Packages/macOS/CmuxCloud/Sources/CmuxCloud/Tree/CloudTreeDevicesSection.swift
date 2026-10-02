@@ -7,13 +7,15 @@ public struct CloudTreeDevicesSection: Equatable, Sendable {
         discoveryEnabled: Bool = true,
         incomingAccessEnabled: Bool = false,
         discoveryManaged: Bool = false,
-        incomingAccessManaged: Bool = false
+        incomingAccessManaged: Bool = false,
+        available: Bool = true
     ) {
         self.count = count
         self.discoveryEnabled = discoveryEnabled
         self.incomingAccessEnabled = incomingAccessEnabled
         self.discoveryManaged = discoveryManaged
         self.incomingAccessManaged = incomingAccessManaged
+        self.available = available
     }
 
     public var count: Int = 0
@@ -21,11 +23,12 @@ public struct CloudTreeDevicesSection: Equatable, Sendable {
     public var incomingAccessEnabled: Bool = false
     public var discoveryManaged: Bool = false
     public var incomingAccessManaged: Bool = false
+    /// Whether Cloud/Beta availability permits either device preference.
+    public var available: Bool = true
 
-    /// Rows the section's inline controls show: "No other Macs yet" while no
-    /// other Mac is listed, then one action per opt-in that is still off.
-    /// Zero means the controls row has nothing to show and is omitted.
+    /// Both independent actions stay visible below the devices, preceded by
+    /// "No other Macs yet" when the list is empty.
     public var inlineRowCount: Int {
-        (count == 0 ? 1 : 0) + (discoveryEnabled ? 0 : 1) + (incomingAccessEnabled ? 0 : 1)
+        (count == 0 ? 1 : 0) + 2
     }
 }

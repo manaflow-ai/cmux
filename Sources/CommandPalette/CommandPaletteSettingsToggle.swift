@@ -430,6 +430,28 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: NotificationPaneFlashSettings.enabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "paneFlashDoubleBlink",
+                settingsKey: "notifications.paneFlashDoubleBlink",
+                title: {
+                    String(localized: "settings.notifications.paneFlashDoubleBlink.title", defaultValue: "Double Blink")
+                },
+                sectionTitle: app,
+                keywords: ["notifications.paneFlashDoubleBlink", "pane", "flash", "double", "blink", "pulse"],
+                defaultValue: NotificationPaneFlashSettings.defaultDoubleBlink,
+                defaultsKey: NotificationPaneFlashSettings.doubleBlinkKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "paneFlashOnTyping",
+                settingsKey: "notifications.paneFlashOnTyping",
+                title: {
+                    String(localized: "settings.notifications.paneFlashOnTyping.title", defaultValue: "Flash While Typing")
+                },
+                sectionTitle: app,
+                keywords: ["notifications.paneFlashOnTyping", "pane", "flash", "typing", "notification"],
+                defaultValue: NotificationPaneFlashSettings.defaultOnTyping,
+                defaultsKey: NotificationPaneFlashSettings.onTypingKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "sendAnonymousTelemetry",
                 settingsKey: "app.sendAnonymousTelemetry",
                 title: {
@@ -822,20 +844,6 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "rightSidebarDock",
-                settingsKey: "betaFeatures.dock",
-                title: {
-                    String(localized: "settings.betaFeatures.dock", defaultValue: "Dock")
-                },
-                sectionTitle: beta,
-                keywords: ["betaFeatures.dock", "dock", "right", "sidebar", "beta", "terminal", "controls"],
-                defaultValue: RightSidebarBetaFeatureSettings.defaultDockEnabled,
-                defaultsKey: RightSidebarBetaFeatureSettings.dockEnabledKey,
-                didSet: { _, _, notificationCenter in
-                    notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
-                }
-            ),
-            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",
                 settingsKey: "automation.claudeCodeIntegration",
                 title: {
@@ -869,6 +877,17 @@ enum CommandPaletteSettingsToggleCommands {
                 ],
                 defaultValue: IntegrationsCatalogSection().suppressSubagentNotifications.defaultValue,
                 defaultsKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "agentAutoResume",
+                settingsKey: "automation.agentAutoResume",
+                title: {
+                    String(localized: "settings.automation.agentAutoResume", defaultValue: "Auto-Resume Agents After Errors")
+                },
+                sectionTitle: automation,
+                keywords: ["automation.agentAutoResume", "auto", "resume", "continue", "retry", "capacity", "overloaded", "agent", "error"],
+                defaultValue: AutomationCatalogSection().agentAutoResume.defaultValue,
+                defaultsKey: AutomationCatalogSection().agentAutoResume.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "cursorIntegration",
@@ -1005,7 +1024,7 @@ enum CommandPaletteSettingsToggleCommands {
                     SystemWideHotkeySettings.setEnabled(newValue, defaults: defaults)
                 }
             ),
-        ]
+        ] + [sidebarAgentUsageDescriptor(sectionTitle: sidebar, isAvailable: sidebarDetailsAvailable)]
     }()
 }
 

@@ -380,7 +380,7 @@ struct FeedEventClassifier {
     /// Tools that mutate state and deserve a user-visible approve/
     /// deny prompt in Feed. Keyed on the canonical tool names Claude,
     /// Codex, and similar agents emit. Read-only tools (Read, Grep,
-    /// Glob, Task, WebFetch, WebSearch, LS, TodoWrite, …) are
+    /// Glob, Task/Agent, WebFetch, WebSearch, LS, TodoWrite, …) are
     /// intentionally excluded.
     private static let sideEffectingTools: Set<String> = [
         "Bash",

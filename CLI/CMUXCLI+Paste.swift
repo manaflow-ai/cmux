@@ -9,6 +9,8 @@ extension CMUXCLI {
         var surface: String?
         var window: String?
         var submit = false
+        /// `--force`: skip the draft and dialog check.
+        var force = false
         /// Positional text, or nil when the text comes from stdin (no positional
         /// text, or a lone `-` before any `--` separator).
         var text: String?
@@ -32,6 +34,8 @@ extension CMUXCLI {
                 pastTerminator = true
             case "--submit":
                 parsed.submit = true
+            case "--force":
+                parsed.force = true
             case "-":
                 readsStandardInput = true
             default:
@@ -98,6 +102,7 @@ extension CMUXCLI {
             surface: parsed.surface,
             windowRaw: parsed.window ?? windowOverride,
             submit: parsed.submit,
+            force: parsed.force,
             client: client,
             jsonOutput: jsonOutput,
             idFormat: idFormat
@@ -107,7 +112,8 @@ extension CMUXCLI {
     /// Sends `text` unchanged through `terminal.paste` and prints the result.
     /// Shared by `cmux paste` and `cmux send --paste`, so both resolve their
     /// targets and report delivery the same way. `command` names the caller
-    /// in the size-limit error.
+    /// in the size-limit error. Unless `force` is set, refuses to paste over
+    /// a draft or into an open dialog (see ``ensureAgentPromptIsFree``).
     func deliverTerminalPaste(
         text: String,
         command: String,
@@ -115,6 +121,7 @@ extension CMUXCLI {
         surface: String?,
         windowRaw: String?,
         submit: Bool,
+        force: Bool,
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
@@ -140,6 +147,9 @@ extension CMUXCLI {
         if let wsId { params["workspace_id"] = wsId }
         let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
         if let sfId { params["surface_id"] = sfId }
+        if !force {
+            try ensureAgentPromptIsFree(for: .text, command: command, target: params, client: client)
+        }
 
         let payload = try client.sendV2(method: "terminal.paste", params: params)
         if submit, (payload["submitted"] as? Bool) != true {
@@ -273,19 +283,107 @@ extension CMUXCLI {
         ))
     }
 
-    // MARK: - cmux send --paste
+    // MARK: - Draft and dialog guard
 
-    /// Removes the leading `--paste` flags from `cmux send`'s text arguments.
-    /// Only flags before the text count, so `cmux send echo --paste` and
-    /// `cmux send -- --paste` still type `--paste` as text, as before.
-    static func splitSendPasteFlag(_ args: [String]) -> (usesPaste: Bool, textArgs: [String]) {
+    /// What a guarded command is about to write into a terminal.
+    enum TerminalInputWriteKind {
+        /// Typed or pasted text: refused over a draft or into a dialog.
+        case text
+        /// A single key: refused only into a dialog, because
+        /// `cmux send "text"` followed by `cmux send-key enter` is the usual
+        /// way to submit, and that leaves the sent text as a draft.
+        case key
+    }
+
+    /// The guard for typed text: text that only presses Enter submits what
+    /// is already in the prompt, like `cmux send-key enter`, so it is checked
+    /// as a key.
+    static func terminalInputWriteKind(forTypedText text: String) -> TerminalInputWriteKind {
+        text.unicodeScalars.allSatisfy { $0 == "\r" || $0 == "\n" } ? .key : .text
+    }
+
+    /// Removes leading `--force` flags from a command's remaining arguments.
+    /// Only flags before the text or key count, so `cmux send echo --force`
+    /// still types `--force` as text.
+    static func splitLeadingForceFlag(_ args: [String]) -> (force: Bool, rest: [String]) {
         var rest = args[...]
-        var usesPaste = false
-        while rest.first == "--paste" {
-            usesPaste = true
+        var force = false
+        while rest.first == "--force" {
+            force = true
             rest = rest.dropFirst()
         }
-        return (usesPaste, Array(rest))
+        return (force, Array(rest))
+    }
+
+    /// Throws instead of letting `command` write into an agent prompt that
+    /// holds a draft someone is typing, or into an open question or
+    /// permission dialog. `target` carries the resolved `window_id`,
+    /// `workspace_id` and `surface_id` of the write.
+    ///
+    /// An app that can't answer `surface.input_state` (an older build, or a
+    /// remote relay that doesn't forward it) keeps the previous behavior.
+    func ensureAgentPromptIsFree(
+        for kind: TerminalInputWriteKind,
+        command: String,
+        target: [String: Any],
+        client: SocketClient
+    ) throws {
+        var params: [String: Any] = [:]
+        for key in ["window_id", "workspace_id", "surface_id"] {
+            if let value = target[key] { params[key] = value }
+        }
+        let state: [String: Any]
+        do {
+            state = try client.sendV2(method: "surface.input_state", params: params)
+        } catch {
+            return
+        }
+        let dialog = state["state"] as? String == "dialog" && (state["agent"] as? Bool) == true
+        let blocks: Bool
+        switch kind {
+        case .text:
+            blocks = (state["blocks_typing"] as? Bool) == true
+        case .key:
+            blocks = dialog
+        }
+        guard blocks else { return }
+
+        let surface = (target["surface_id"] as? String) ?? (state["surface_id"] as? String) ?? "?"
+        if dialog {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.send.error.dialogOpen",
+                    defaultValue: "%1$@: %2$@ is waiting on a question or dialog, so nothing was sent. Retry once it is answered, or pass --force to send anyway."
+                ),
+                command,
+                surface
+            ))
+        }
+        throw CLIError(message: String(
+            format: String(
+                localized: "cli.send.error.draftPresent",
+                defaultValue: "%1$@: the agent prompt in %2$@ holds text someone is typing, so nothing was sent. Retry when the prompt is clear, or pass --force to send anyway."
+            ),
+            command,
+            surface
+        ))
+    }
+
+    // MARK: - cmux send --paste
+
+    /// Removes the leading `--paste` and `--force` flags from `cmux send`'s
+    /// text arguments. Only flags before the text count, so
+    /// `cmux send echo --paste` and `cmux send -- --paste` still type
+    /// `--paste` as text, as before.
+    static func splitSendPasteFlag(_ args: [String]) -> (usesPaste: Bool, force: Bool, textArgs: [String]) {
+        var rest = args[...]
+        var usesPaste = false
+        var force = false
+        while let flag = rest.first, flag == "--paste" || flag == "--force" {
+            if flag == "--paste" { usesPaste = true } else { force = true }
+            rest = rest.dropFirst()
+        }
+        return (usesPaste, force, Array(rest))
     }
 
     /// `cmux send` without `--paste` suggests the paste path when the text is
@@ -323,11 +421,14 @@ extension CMUXCLI {
 
         With --paste, the text goes through the same paste path as cmux paste and Cmd+V, unchanged: escape sequences such as \\n are not interpreted, and control characters such as Esc and Ctrl-C are replaced with spaces. --paste must come before the text.
 
+        If an agent prompt in the target holds text someone is typing, or a question or permission dialog is open, nothing is sent and the command fails. --force sends anyway.
+
         Flags:
           --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
           --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
           --window <id|ref|index>      Window context for workspace/surface refs and indexes
           --paste                      Paste the text instead of typing it
+          --force                      Send even over a draft or into an open dialog
 
         Example:
           cmux send "echo hello"
@@ -342,11 +443,14 @@ extension CMUXCLI {
 
         Paste text into a terminal surface through the same paste path as Cmd+V. If the running program has turned on bracketed paste, the text arrives as one paste and newlines stay inside it; otherwise each newline is sent as Enter. As with Cmd+V, control characters such as Esc, Backspace, Ctrl-C and Ctrl-U are replaced with spaces. Escape sequences such as \\n are not interpreted. With no text argument, or with - before --, the text is read from stdin. Text over 15 MiB after JSON escaping is rejected.
 
+        If an agent prompt in the target holds text someone is typing, or a question or permission dialog is open, nothing is sent and the command fails. --force sends anyway.
+
         Flags:
           --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
           --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
           --window <id|ref|index>      Window context for workspace/surface refs and indexes
           --submit                     Press the agent's submit key after the paste
+          --force                      Send even over a draft or into an open dialog
 
         Example:
           git diff | cmux paste --surface surface:2

@@ -18,6 +18,9 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let isAnchorActive: Bool
     let isMultiSelected: Bool
     let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
+    /// Hairline painted while this header is anchor-active; nil when subtle
+    /// selection is off.
+    var anchorActiveEdgeColor: NSColor? = nil
     let memberCount: Int
     let anchorUnreadCount: Int
     let canMarkRead: Bool
@@ -25,6 +28,9 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let hasLatestNotifications: Bool
     let canMarkAllRead: Bool
     let canMarkAllUnread: Bool
+    let statusGlyph: SidebarCompactStatusGlyph?
+    /// Whether `sidebar.compactAgentStatus` is on; see the AppKit row model.
+    var compactsAgentStatus = false
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool

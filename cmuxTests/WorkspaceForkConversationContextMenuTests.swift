@@ -1524,12 +1524,12 @@ struct WorkspaceForkConversationContextMenuTests {
             workingDirectory: root.path,
             executablePath: executable.path
         )
-        let loaderStarted = OSAllocatedUnfairLock(initialState: false)
+        let (loaderStartedEvents, loaderStartedContinuation) = AsyncStream<Void>.makeStream()
         let releaseLoader = OSAllocatedUnfairLock(initialState: false)
         let probedSessionIds = OSAllocatedUnfairLock(initialState: [String]())
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
-                loaderStarted.withLock { $0 = true }
+                loaderStartedContinuation.yield(())
                 while !releaseLoader.withLock({ $0 }) {
                     Thread.sleep(forTimeInterval: 0.005)
                 }
@@ -1565,10 +1565,8 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         sharedIndex.scheduleRefreshIfStale(validating: panelKey)
-        for _ in 0..<1000 where !loaderStarted.withLock({ $0 }) {
-            await Task.yield()
-        }
-        #expect(loaderStarted.withLock { $0 })
+        var loaderStartedIterator = loaderStartedEvents.makeAsyncIterator()
+        #expect(await loaderStartedIterator.next() != nil)
 
         await sharedIndex.refreshForkAvailabilityNow(
             workspaceId: workspaceId,
@@ -4461,7 +4459,7 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         #expect(await AgentForkSupport.supportsFork(snapshot: snapshot))
-        try expectProcessExited(pidFile: childPIDFile)
+        try await expectProcessExited(pidFile: childPIDFile)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -4499,8 +4497,12 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
 
-        #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
-        try expectProcessExited(pidFile: childPIDFile)
+        // The probe only ends at its output timeout here, so shorten it.
+        #expect(!(await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            probeOutputTimeoutNanoseconds: 2_000_000_000
+        )))
+        try await expectProcessExited(pidFile: childPIDFile)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -4539,8 +4541,12 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
 
-        #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
-        try expectProcessExited(pidFile: childPIDFile)
+        // The probe only ends at its output timeout here, so shorten it.
+        #expect(!(await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            probeOutputTimeoutNanoseconds: 2_000_000_000
+        )))
+        try await expectProcessExited(pidFile: childPIDFile)
     }
 
     @Test
@@ -5184,10 +5190,26 @@ struct WorkspaceForkConversationContextMenuTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
     }
 
-    private func expectProcessExited(pidFile: URL) throws {
+    private func expectProcessExited(pidFile: URL) async throws {
         let rawPID = try String(contentsOf: pidFile, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let pid = try #require(pid_t(rawPID))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        var exited = processExited(pid)
+        while !exited, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+            exited = processExited(pid)
+        }
+        if !exited {
+            _ = Darwin.kill(pid, SIGKILL)
+        }
+        #expect(
+            exited,
+            "The timed-out fork probe must terminate descendant process \(pid)."
+        )
+    }
+
+    private func processExited(_ pid: pid_t) -> Bool {
         errno = 0
         let result = Darwin.kill(pid, 0)
         let processError = errno
@@ -5204,16 +5226,9 @@ struct WorkspaceForkConversationContextMenuTests {
         // kill(pid, 0) can still succeed after the BSD process has exited while
         // its kernel task is being torn down. A zombie is also terminated;
         // orphan reaping belongs to launchd, not to the probe runner.
-        let exited = (result == -1 && processError == ESRCH)
+        return (result == -1 && processError == ESRCH)
             || (processInfoSize == 0 && processInfoError == ESRCH)
             || (processInfoSize == MemoryLayout<proc_bsdinfo>.size && processInfo.pbi_status == UInt32(SZOMB))
-        if !exited {
-            _ = Darwin.kill(pid, SIGKILL)
-        }
-        #expect(
-            exited,
-            "The timed-out fork probe must terminate descendant process \(pid)."
-        )
     }
 
     private func makeForkableClaudeSnapshot(

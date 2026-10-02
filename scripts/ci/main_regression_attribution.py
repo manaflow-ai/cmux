@@ -97,6 +97,8 @@ INCOMPLETE_MARKERS = (
     "No typed xcresult test JSON found",
     "is not ratchetable",
     "selector matched zero built tests",
+    "inventory lists no built tests",
+    "no selectors: nothing was selected to run",
     "nonterminal or unknown result",
 )
 # app_host_result_accounting.py opens a restarted batch's verdicts with this.

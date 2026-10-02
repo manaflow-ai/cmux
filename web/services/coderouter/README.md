@@ -58,6 +58,8 @@ A crash carries a safe structured cause (`errorCause.ts`), never the message: Dr
 
 Upstream model calls are bounded to headers (`upstreamFetch.ts`, `CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS`, default 10 minutes). A hung provider fails over to the next account like a connection error instead of holding the function for the full 30 minute `maxDuration`. The body stream is never bounded.
 
+On capacity errors (429, 5xx/529, overloaded SSE events, transport failures before any output) the proxies hold the request and replay the same model instead of failing fast (`capacityHold.ts`, `CODEROUTER_CAPACITY_HOLD_MS`, default 20 minutes). Waits back off with jitter and honor the soonest account cooldown; a request fails at once when no account recovers within the budget. `route_events.held_ms` and `hold_count` record the wait.
+
 Investigating one failure: take the `x-coderouter-request-id`, query ClickHouse `SELECT * FROM coderouter.route_events WHERE request_id = '<id>'`, then use Axiom for the route span and PostHog Error Tracking for the operational issue.
 
 Scoping a crash: `SELECT failure_stage, provider, count(), uniqExact(team_id), uniqExact(vm_id), min(event_time), max(event_time) FROM coderouter.route_events WHERE outcome = 'route_crash' AND event_time > now() - INTERVAL 1 DAY GROUP BY failure_stage, provider`. Many rows from one `vm_id` is one looping client; many teams and VMs is an outage.
@@ -130,9 +132,23 @@ constraints; custom pool management UI is not part of this change.
 session and the selected team. Account administration requires Stack's
 `$manage_api_keys` permission, or the user's own personal scope. A private
 account additionally belongs to its importer. The dashboard exposes **Share
-with team** and **Make private**. A VM token cannot administer accounts or mint
-an organization session. The organization catalog returned to a VM contains
-only its own team and `fixed: true`.
+with team** and **Make private**. A VM token cannot change sharing or mint an
+organization session. The organization catalog returned to a VM contains only
+its own team and `fixed: true`.
+
+A VM-bound route token (`resolveCoderouterControlContext`) does manage provider
+accounts, so `cmux coderouter` inside a managed machine can add and remove
+them: it may list, import (`POST /api/coderouter/accounts`, `POST
+/api/coderouter/claude-upstream`), update (`PATCH
+/api/coderouter/claude-upstream/:id`) and remove (`DELETE` on the same routes)
+accounts. Its scope is fixed by the token: the VM's own team (it cannot choose
+another), only accounts its VM pool grants (`accountAccessPredicate`, `vm`
+access; an organization VM never reaches its creator's private accounts), and
+only while the machine is live. A chatmux machine token cannot manage
+accounts, and a token without a VM id is refused (`vm_bound_token_required`).
+Anything running in the machine can therefore remove or replace the pool's
+accounts; treat a VM token like a team member's account-management
+credential for that pool.
 
 Inside a managed machine, `cmux coderouter accounts --json` returns native and
 Claude account metadata under one team id, and `cmux coderouter org current

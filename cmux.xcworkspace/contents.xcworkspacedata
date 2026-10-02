@@ -50,7 +50,13 @@
          location = "group:CmuxSyntaxHighlighting">
       </FileRef>
       <FileRef
+         location = "group:CmuxTerminalClient">
+      </FileRef>
+      <FileRef
          location = "group:CmuxTerminalPrediction">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalSizing">
       </FileRef>
       <FileRef
          location = "group:CmuxWorkspacePresence">
@@ -69,6 +75,9 @@
          location = "group:CmuxMobileAnalytics">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileBilling">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileBrowser">
       </FileRef>
       <FileRef
@@ -79,6 +88,15 @@
       </FileRef>
       <FileRef
          location = "group:CmuxMobileChanges">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileCloud">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileCloudBridge">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileCloudUI">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileCrashReporting">
@@ -105,6 +123,9 @@
          location = "group:CmuxMobileSimulatorStream">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileSSH">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileSupport">
       </FileRef>
       <FileRef
@@ -118,6 +139,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxMobileTransport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileTunnel">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileWorkspace">
@@ -272,6 +296,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalImport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalSharing">
       </FileRef>
       <FileRef
          location = "group:CmuxTestSupport">

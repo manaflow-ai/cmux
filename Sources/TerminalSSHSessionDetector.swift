@@ -17,6 +17,49 @@ struct DetectedSSHSession: Equatable, Sendable {
     let forwardAgent: Bool
     let compressionEnabled: Bool
     let sshOptions: [String]
+    let remotePastePolicy: RemotePasteFileTransferPolicy
+
+    static func == (lhs: DetectedSSHSession, rhs: DetectedSSHSession) -> Bool {
+        lhs.destination == rhs.destination &&
+            lhs.port == rhs.port &&
+            lhs.identityFile == rhs.identityFile &&
+            lhs.configFile == rhs.configFile &&
+            lhs.jumpHost == rhs.jumpHost &&
+            lhs.controlPath == rhs.controlPath &&
+            lhs.useIPv4 == rhs.useIPv4 &&
+            lhs.useIPv6 == rhs.useIPv6 &&
+            lhs.forwardAgent == rhs.forwardAgent &&
+            lhs.compressionEnabled == rhs.compressionEnabled &&
+            lhs.sshOptions == rhs.sshOptions
+    }
+
+    init(
+        destination: String,
+        port: Int?,
+        identityFile: String?,
+        configFile: String?,
+        jumpHost: String?,
+        controlPath: String?,
+        useIPv4: Bool,
+        useIPv6: Bool,
+        forwardAgent: Bool,
+        compressionEnabled: Bool,
+        sshOptions: [String],
+        remotePastePolicy: RemotePasteFileTransferPolicy = RemotePasteFileTransferPolicy()
+    ) {
+        self.destination = destination
+        self.port = port
+        self.identityFile = identityFile
+        self.configFile = configFile
+        self.jumpHost = jumpHost
+        self.controlPath = controlPath
+        self.useIPv4 = useIPv4
+        self.useIPv6 = useIPv6
+        self.forwardAgent = forwardAgent
+        self.compressionEnabled = compressionEnabled
+        self.sshOptions = sshOptions
+        self.remotePastePolicy = remotePastePolicy
+    }
 
     func uploadDroppedFiles(
         _ fileURLs: [URL],
@@ -99,6 +142,8 @@ struct DetectedSSHSession: Equatable, Sendable {
 
         var uploadedRemotePaths: [String] = []
         do {
+            try operation.throwIfCancelled()
+            try prepareRemotePasteDirectory()
             for localURL in fileURLs {
                 try operation.throwIfCancelled()
                 let normalizedLocalURL = localURL.standardizedFileURL
@@ -111,7 +156,8 @@ struct DetectedSSHSession: Equatable, Sendable {
                     ])
                 }
 
-                let remotePath = RemoteSessionCoordinator.remoteDropPath(for: normalizedLocalURL)
+                let remotePath = remotePastePolicy.remotePath(for: normalizedLocalURL)
+                uploadedRemotePaths.append(remotePath)
                 let result = try Self.runProcess(
                     executable: "/usr/bin/scp",
                     arguments: scpArguments(localPath: normalizedLocalURL.path, remotePath: remotePath),
@@ -146,13 +192,65 @@ struct DetectedSSHSession: Equatable, Sendable {
                     ])
                 }
 
-                uploadedRemotePaths.append(remotePath)
+                try finalizeRemotePasteFile(remotePath)
             }
 
             return uploadedRemotePaths
         } catch {
             cleanupUploadedRemotePaths(uploadedRemotePaths)
             throw error
+        }
+    }
+
+    private func prepareRemotePasteDirectory() throws {
+        let result = try Self.runProcess(
+            executable: "/usr/bin/ssh",
+            arguments: sshArguments(command: "sh -c \(Self.shellSingleQuoted(remotePastePolicy.maintenanceScript()))"),
+            timeout: 12
+        )
+        guard result.status == 0 else {
+            let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = detail.isEmpty
+                ? String(
+                    localized: "detectedSSH.fileDrop.error.uploadFailed",
+                    defaultValue: "Couldn't upload the file to the remote session. Check that the remote host is reachable, then try again."
+                )
+                : String.localizedStringWithFormat(
+                    String(
+                        localized: "detectedSSH.fileDrop.error.uploadFailedWithDetail",
+                        defaultValue: "Couldn't upload the file to the remote session: %@"
+                    ),
+                    detail
+                )
+            throw NSError(domain: "cmux.detected-ssh.drop", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
+        }
+    }
+
+    private func finalizeRemotePasteFile(_ remotePath: String) throws {
+        let result = try Self.runProcess(
+            executable: "/usr/bin/ssh",
+            arguments: sshArguments(command: "sh -c \(Self.shellSingleQuoted(remotePastePolicy.finalizeScript(for: remotePath)))"),
+            timeout: 8
+        )
+        guard result.status == 0 else {
+            let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = detail.isEmpty
+                ? String(
+                    localized: "detectedSSH.fileDrop.error.uploadFailed",
+                    defaultValue: "Couldn't upload the file to the remote session. Check that the remote host is reachable, then try again."
+                )
+                : String.localizedStringWithFormat(
+                    String(
+                        localized: "detectedSSH.fileDrop.error.uploadFailedWithDetail",
+                        defaultValue: "Couldn't upload the file to the remote session: %@"
+                    ),
+                    detail
+                )
+            throw NSError(domain: "cmux.detected-ssh.drop", code: 4, userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
         }
     }
 
@@ -165,14 +263,15 @@ struct DetectedSSHSession: Equatable, Sendable {
             "-o", "BatchMode=yes",
             "-o", "ControlMaster=no",
         ]
+        // Uploads and their cleanup run beside the user's session and never
+        // become its master, so they forward nothing even when that session
+        // used `-A`. Ahead of the user's options: OpenSSH keeps the first value.
+        args += SSHBackgroundForwarding.allOff.optionArguments
 
         if useIPv4 {
             args.append("-4")
         } else if useIPv6 {
             args.append("-6")
-        }
-        if forwardAgent {
-            args.append("-A")
         }
         if compressionEnabled {
             args.append("-C")
@@ -204,7 +303,7 @@ struct DetectedSSHSession: Equatable, Sendable {
             args += ["-o", option]
         }
 
-        args += [localPath, "\(Self.scpRemoteDestination(destination)):\(remotePath)"]
+        args += ["--", localPath, "\(Self.scpRemoteDestination(destination)):\(remotePath)"]
         return args
     }
 
@@ -217,14 +316,15 @@ struct DetectedSSHSession: Equatable, Sendable {
             "-o", "BatchMode=yes",
             "-o", "ControlMaster=no",
         ]
+        // Uploads and their cleanup run beside the user's session and never
+        // become its master, so they forward nothing even when that session
+        // used `-A`. Ahead of the user's options: OpenSSH keeps the first value.
+        args += SSHBackgroundForwarding.allOff.optionArguments
 
         if useIPv4 {
             args.append("-4")
         } else if useIPv6 {
             args.append("-6")
-        }
-        if forwardAgent {
-            args.append("-A")
         }
         if compressionEnabled {
             args.append("-C")
@@ -253,13 +353,13 @@ struct DetectedSSHSession: Equatable, Sendable {
             args += ["-o", option]
         }
 
-        args += [destination, command]
+        args += ["--", destination, command]
         return args
     }
 
     private func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
         guard !remotePaths.isEmpty else { return }
-        let cleanupScript = "rm -f -- " + remotePaths.map(Self.shellSingleQuoted).joined(separator: " ")
+        let cleanupScript = remotePastePolicy.cleanupScript(for: remotePaths)
         let cleanupCommand = "sh -c \(Self.shellSingleQuoted(cleanupScript))"
         _ = try? Self.runProcess(
             executable: "/usr/bin/ssh",
@@ -539,7 +639,7 @@ enum TerminalSSHSessionDetector {
         )
     }
 
-    private static func normalizeTTYName(_ ttyName: String) -> String {
+    static func normalizeTTYName(_ ttyName: String) -> String {
         let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         if let lastComponent = trimmed.split(separator: "/").last {
@@ -548,7 +648,7 @@ enum TerminalSSHSessionDetector {
         return trimmed
     }
 
-    private static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
+    static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
         normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
             RemoteShellTransport(executableName: process.executableName) != nil &&
             process.pgid > 0 &&

@@ -54,7 +54,14 @@ enum DeviceLinkError: Error, LocalizedError, Equatable {
 final class DeviceLink {
     typealias Phase = DeviceLinkReconnectPolicy.Phase
 
-    static let eventTopics: Set<String> = ["mobile.sync.delta", "workspace.updated", "terminal.bytes", "terminal.updated", DeviceTerminalGridPublisher.eventTopic, DeviceWorkspaceLayoutHost.eventTopic]
+    /// The host's notification history moved; `notification.feed.list` has the rows.
+    static let notificationFeedTopic = "notification.feed.changed"
+    static let eventTopics: Set<String> = [
+        "mobile.sync.delta", "workspace.updated", "terminal.bytes", "terminal.updated", notificationFeedTopic,
+        DeviceTerminalGridPublisher.eventTopic, DeviceWorkspaceLayoutHost.eventTopic,
+        // Shared sizing: this Mac is a participant of the host's terminals.
+        DeviceTerminalEvent.sizeStateTopic, DeviceTerminalEvent.detachedTopic,
+    ]
 
     let instance: SurfaceDeviceInstanceID
     private(set) var record: DeviceDirectoryRecord
@@ -71,6 +78,9 @@ final class DeviceLink {
     /// Fires after any change a provider should publish (phase, mirror, record).
     var onChange: (@MainActor () -> Void)?
     var onLayoutChange: (@MainActor (DeviceWorkspaceLayoutSnapshot) -> Void)?
+    /// Fires when the host's notification feed changed, and after every
+    /// (re)connect, since changes while the link was down sent no event.
+    var onNotificationFeedChange: (@MainActor () -> Void)?
 
     private let runtime: DeviceLinkRuntime
     private let authorization: any DeviceLinkAuthorizationSource
@@ -288,14 +298,15 @@ final class DeviceLink {
                 guard !Task.isCancelled, generation == self.generation, self.phase == .connected else { return }
                 self.terminalEvents.broadcast(.linkReconnected)
                 self.onChange?()
-            } catch is CancellationError {
-                return
+                self.onNotificationFeedChange?()
             } catch {
                 guard !Task.isCancelled, generation == self.generation else { return }
                 let classified = DeviceLinkFailure.classify(error, hostName: record.deviceName)
                 self.lastFailure = classified
                 deviceLinkLog.error("device link connect failed \(self.instance.wireValue, privacy: .private(mask: .hash)) attempt=\(attempt): \(classified.code, privacy: .public)")
-                self.transition(self.applyPolicy(.connectFailed(classified)))
+                let event: DeviceLinkReconnectPolicy.Event = error is CancellationError
+                    ? .connectInterrupted : .connectFailed(classified)
+                self.transition(self.applyPolicy(event))
                 self.onChange?()
             }
         }
@@ -419,10 +430,13 @@ final class DeviceLink {
     }
 
     /// Route one host event: layout snapshots to `onLayoutChange`, sync
-    /// deltas to the mirror, and every other topic to the terminal fan-out,
-    /// which drops the topics it does not decode.
+    /// deltas to the mirror, feed changes to `onNotificationFeedChange`, and
+    /// every other topic to the terminal fan-out, which drops the topics it
+    /// does not decode.
     func handle(_ envelope: MobileEventEnvelope) {
         switch envelope.topic {
+        case Self.notificationFeedTopic:
+            onNotificationFeedChange?()
         case DeviceWorkspaceLayoutHost.eventTopic:
             guard let payload = envelope.payloadJSON,
                   let snapshot = try? JSONDecoder().decode(DeviceWorkspaceLayoutSnapshot.self, from: payload),

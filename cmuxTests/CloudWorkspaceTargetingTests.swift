@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloud
 import CmuxCloudMachines
 import Testing
 
@@ -33,6 +34,39 @@ struct CloudWorkspaceTargetingTests {
         #expect(fixture.requests.map(\.machineID) == ["a", "b"])
         #expect(fixture.requests.allSatisfy { $0.windowID == fixture.windowID })
         #expect(manager.selectedTabId == local.id)
+    }
+
+    /// #16189: the sidebar offers New Workspace only while an unlocked machine
+    /// exists, so the Cmd-N resolver behind it must never land on a locked one,
+    /// even when the locked machine is first in the fleet or was used last.
+    @Test("A locked machine is never a New Workspace target, first or remembered")
+    func lockedMachinesAreNotTargets() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let nowMs = Int64(now.timeIntervalSince1970 * 1000)
+        func vm(_ id: String, createdAt: Int64 = 0, expiresAt: Int64? = nil) -> VMSummary {
+            VMSummary(id: id, provider: "test", status: "running", image: "test", createdAt: createdAt, freeAccessExpiresAt: expiresAt)
+        }
+        let page = VMListPage(
+            vms: [
+                vm("expired-by-server", expiresAt: nowMs - 1),
+                // No server expiry: the plan's 7-day window decides, as it does for the row.
+                vm("expired-by-window", createdAt: nowMs - 8 * 86_400_000),
+                vm("deleting"),
+                vm("open-window", createdAt: nowMs - 86_400_000),
+                vm("paid", expiresAt: nowMs + 86_400_000)
+            ],
+            limits: VMPlanLimits(planId: "free", freeAccessWindowDays: 7)
+        )
+        let targets = cmuxApp.cloudWorkspaceTargetMachineIDs(page: page, deleting: ["deleting"], now: now)
+        #expect(targets == ["open-window", "paid"])
+
+        let resolver = CloudWorkspaceTargetResolver()
+        #expect(resolver.resolve(lastSelection: nil, currentScopeID: "scope", sidebarMachineIDs: targets) == "open-window")
+        let rememberedLocked = CloudWorkspaceSelection(workspaceID: UUID(), scopeID: "scope", machineID: "expired-by-server")
+        #expect(resolver.resolve(lastSelection: rememberedLocked, currentScopeID: "scope", sidebarMachineIDs: targets) == "open-window")
+
+        let allLocked = VMListPage(vms: [vm("expired-by-server", expiresAt: nowMs - 1)], limits: nil)
+        #expect(cmuxApp.cloudWorkspaceTargetMachineIDs(page: allLocked, deleting: [], now: now).isEmpty)
     }
 
     @Test("Deleting the remembered workspace invalidates it while another window keeps its own memory")
@@ -85,12 +119,12 @@ struct CloudWorkspaceTargetingTests {
         let original = owner.selectedTabId
         let otherIDs = other.tabs.map(\.id)
         let host = SurfaceCatalog.NewWorkspaceHost(tabManager: owner)
-        let created = try host.create("Cloud workspace")
+        let created = try host.create("Cloud workspace", false)
         #expect(owner.workspacesById[created.workspaceID] != nil)
         #expect(owner.selectedTabId == original)
         #expect(other.tabs.map(\.id) == otherIDs)
         owner.finalizeAllWorkspacesForWindowClose()
-        #expect(throws: CancellationError.self) { try host.create("Late workspace") }
+        #expect(throws: CancellationError.self) { try host.create("Late workspace", false) }
     }
 
     @Test("A Cloud binding arriving after initial selection is remembered when switching to local")

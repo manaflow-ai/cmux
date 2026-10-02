@@ -1,3 +1,4 @@
+import type { NetworkRulePlan } from "./networkPolicy";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -31,6 +32,7 @@ import {
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
   type VmCapabilities,
+  type EnsureProviderNetworkOptions,
   vmCapabilitiesFor,
 } from "./drivers";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
@@ -100,6 +102,11 @@ export type VmProviderGatewayShape = {
     vmId: string,
     options: VMResizeOptions,
   ) => Effect.Effect<void, VmProviderOperationError | VmOperationUnsupportedError>;
+  readonly applyNetworkPolicy?: (
+    provider: ProviderId,
+    vmId: string,
+    plan: NetworkRulePlan,
+  ) => Effect.Effect<void, VmProviderOperationError | VmOperationUnsupportedError>;
   /** Session transports the provider serves; undefined = legacy websocket/ssh. */
   readonly attachTransports?: (provider: ProviderId) => readonly AttachTransport[] | undefined;
   readonly openAttach: (
@@ -136,7 +143,7 @@ export type VmProviderGatewayShape = {
   readonly supportsPrivateNetworking?: (provider: ProviderId) => boolean;
   readonly ensureNetwork?: (
     provider: ProviderId,
-    options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean },
+    options: EnsureProviderNetworkOptions,
   ) => Effect.Effect<ProviderNetwork, VmProviderOperationError>;
   /** Read a provider network by id or slug without creating or repairing it. */
   readonly getNetwork?: (
@@ -209,8 +216,12 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   deleteHomeVolume: (provider, volumeName) =>
     providerEffect(provider, "deleteHomeVolume", async () => {
       const impl = getProvider(provider);
-      // Providers without persistent volumes have nothing to delete.
-      if (!impl.deleteHomeVolume) return;
+      // A caller only reaches this seam with an explicitly owned volume. Do
+      // not report success when the current driver cannot delete legacy
+      // storage: durable cleanup must remain pending for retry/operator work.
+      if (!impl.deleteHomeVolume) {
+        throw new VmOperationUnsupportedError({ provider, operation: "deleteHomeVolume" });
+      }
       await impl.deleteHomeVolume(volumeName);
     }),
   listVolumes: (provider, options) =>
@@ -296,6 +307,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     const impl = getProvider(provider);
     if (!impl.resize) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "resize" }));
     return providerEffect(provider, "resize", () => impl.resize!(vmId, options));
+  },
+  applyNetworkPolicy: (provider, vmId, plan) => {
+    const impl = getProvider(provider);
+    if (!impl.applyNetworkPolicy) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "applyNetworkPolicy" }));
+    return providerEffect(provider, "applyNetworkPolicy", () => impl.applyNetworkPolicy!(vmId, plan));
   },
   attachTransports: (provider) => getProvider(provider).attachTransports,
   openAttach: (provider, vmId, options) =>

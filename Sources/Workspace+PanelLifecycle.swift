@@ -191,6 +191,7 @@ extension Workspace {
         agentPIDs[key] = pid
         agentPIDProcessIdentitiesByKey[key] = processIdentity
         if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
+        if let panelId { noteAgentWakeAgentReported(panelId: panelId, statusKey: agentStatusKey(forAgentPIDKey: key)) }
         if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
@@ -435,35 +436,14 @@ extension Workspace {
         }
     }
 
-    /// Records the end of the recoverable agent sessions this panel carries,
-    /// so crash recovery never reopens a terminal the user closed. Runs before
-    /// the panel's bindings and restore state are discarded. Skipped while the
-    /// app quits: those sessions end with the app, and startup restore owns them.
-    func journalClosedAgentSessions(panelId: UUID) {
-        guard AppDelegate.shared?.isTerminatingApp != true else { return }
-        let recoverable = Set(AgentSessionRecovery.recoverableKinds.map(\.rawValue))
-        var sessions: [(kind: String, sessionID: String)] = []
-        if let binding = surfaceResumeBindingsByPanelId[panelId],
-           binding.isAgentHookBinding,
-           let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-           recoverable.contains(kind),
-           let sessionID = binding.checkpointId {
-            sessions.append((kind, sessionID))
+    /// Starts the restored terminals held for this workspace's first visit.
+    func admitStartupRestoresAwaitingFirstVisit() {
+        guard !startupRestorePanelIdsAwaitingFirstVisit.isEmpty else { return }
+        let panelIds = startupRestorePanelIdsAwaitingFirstVisit
+        startupRestorePanelIdsAwaitingFirstVisit.removeAll()
+        for panelId in panelIds {
+            terminalPanel(for: panelId)?.surface.admitStartupRestoreRuntime()
         }
-        let restoredAgents = [
-            restoredAgentSnapshotsByPanelId[panelId],
-            deferredAgentResumeRestoresByPanelId[panelId]?.restorableAgent,
-        ]
-        for agent in restoredAgents.compactMap({ $0 }) where recoverable.contains(agent.kind.rawValue) {
-            sessions.append((agent.kind.rawValue, agent.sessionId))
-        }
-        guard !sessions.isEmpty else { return }
-        // A session another panel still carries (a restore that lost to a live
-        // owner, or a stale snapshot resumed elsewhere) did not end here.
-        let carriedElsewhere = AppDelegate.shared?.openAgentSessionIdsForRecovery(excludingPanelId: panelId) ?? []
-        sessions.removeAll { carriedElsewhere.contains($0.sessionID) }
-        guard !sessions.isEmpty else { return }
-        agentSessionCloseJournal.recordClosed(sessions: sessions, workspaceID: id, surfaceID: panelId)
     }
 
     /// Discard every Workspace-owned contribution for a surface whose tab,
@@ -566,6 +546,7 @@ extension Workspace {
         panelDirectories.removeValue(forKey: panelId)
         panelDirectoryDisplayLabels.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
+        panelPrompts.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
@@ -578,6 +559,10 @@ extension Workspace {
         agentStatusEntriesByPanelId.removeValue(forKey: panelId)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
+        discardAgentWakeVerification(
+            panelId: panelId,
+            panel: (removedPanel ?? panel) as? TerminalPanel
+        )
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)

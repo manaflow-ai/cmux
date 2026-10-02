@@ -1,4 +1,5 @@
 public import CMUXAuthCore
+import Foundation
 
 public extension AuthCoordinator {
     /// Persist a team selection on Stack Auth before changing the local
@@ -7,8 +8,25 @@ public extension AuthCoordinator {
     /// request is bounded by the coordinator's network timeout.
     /// - Parameter id: A team id from ``availableTeams``.
     func selectTeam(id: String?) async throws {
+        guard !isCreatingTeam else {
+            throw AuthTeamChangeInProgressError()
+        }
         if let id, !availableTeams.contains(where: { $0.id == id }) {
             throw AuthClientError.teamNotAvailable
+        }
+        try await persistTeamSelection(id: id)
+    }
+
+    /// Persists a selection that is already owned by a higher-level team
+    /// mutation. ``createTeam(displayName:)`` uses this after it has created
+    /// and listed the new team while retaining the create's exclusion claim.
+    private func persistTeamSelection(id: String?) async throws {
+        let requestID = UUID()
+        activeTeamSwitches.insert(requestID)
+        isSelectingTeam = true
+        defer {
+            activeTeamSwitches.remove(requestID)
+            isSelectingTeam = !activeTeamSwitches.isEmpty
         }
         teamMutationGeneration &+= 1
         let mutationGeneration = teamMutationGeneration
@@ -32,16 +50,26 @@ public extension AuthCoordinator {
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw AuthClientError.invalidTeamName }
         guard isAuthenticated else { throw AuthError.unauthorized }
+        guard !isSelectingTeam, !isCreatingTeam else {
+            throw AuthTeamChangeInProgressError()
+        }
+        isCreatingTeam = true
+        defer { isCreatingTeam = false }
         teamMutationGeneration &+= 1
         let mutationGeneration = teamMutationGeneration
         let generation = sessionGeneration
-        let created = try await client.createTeam(displayName: trimmed)
+        let client = self.client
+        let created = try await runPhase(.teamSelection, timeout: timeouts.network) {
+            try await client.createTeam(displayName: trimmed)
+        }
         guard generation == sessionGeneration,
               mutationGeneration == teamMutationGeneration,
               isAuthenticated else {
             throw AuthError.unauthorized
         }
-        var refreshed = try await client.listTeams()
+        var refreshed = try await runPhase(.listTeams, timeout: timeouts.network) {
+            try await client.listTeams()
+        }
         guard generation == sessionGeneration,
               mutationGeneration == teamMutationGeneration,
               isAuthenticated else {
@@ -51,7 +79,16 @@ public extension AuthCoordinator {
             refreshed.append(created)
         }
         availableTeams = refreshed
-        try await selectTeam(id: created.id)
+        try await persistTeamSelection(id: created.id)
         return created
+    }
+
+    /// Re-reads team membership from Stack Auth after a membership change made
+    /// outside the selection path (leaving a team, an invitation accepted in
+    /// the browser). Keeps the current selection when it is still a member
+    /// team and falls back like sign-in does otherwise.
+    func refreshTeams() async {
+        guard isAuthenticated else { return }
+        await refreshTeams(generation: sessionGeneration)
     }
 }

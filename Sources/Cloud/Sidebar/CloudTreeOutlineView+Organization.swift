@@ -8,9 +8,9 @@ extension CloudTreeOutlineView.Coordinator {
         guard node.canOrganize,
               let parent = CloudSidebarOrganizationTree(nodes: organizationNodes).parent(of: node.id) else { return [] }
         let state = organization.state
-        let pinned = state.isPinned(node.id, parent: parent.id)
-        let peers = state.ordered(parent.children.filter(\.canOrganize).map(\.id), parent: parent.id)
-            .filter { state.isPinned($0, parent: parent.id) == pinned }
+        let pinned = state.isPinned(node.id, parent: parent.organizationGroupID)
+        let peers = state.ordered(parent.children.filter(\.canOrganize).map(\.id), parent: parent.organizationGroupID)
+            .filter { state.isPinned($0, parent: parent.organizationGroupID) == pinned }
         let index = peers.firstIndex(of: node.id)
         func item(_ title: String, _ action: CloudSidebarOrganizationAction, enabled: Bool = true) -> NSMenuItem {
             let item = CloudTreeMenuItem(title: title) { [weak self] in
@@ -44,15 +44,24 @@ extension CloudTreeOutlineView.Coordinator {
         // The tree is a navigation/source surface. Pane destinations own the
         // ownership warning and announcement; the tree draws no drag hints.
         guard ownershipRejection(info: info, item: item) == nil else {
-            (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber)
+            if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+                cloudOutline.clearDragDestination(sequence: info.draggingSequenceNumber)
+                cloudOutline.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            }
             return []
         }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else {
-            (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber)
+            if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+                cloudOutline.clearDragDestination(sequence: info.draggingSequenceNumber)
+                cloudOutline.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            }
             return []
         }
         outlineView.setDropItem(drop.parent, dropChildIndex: drop.childIndex)
-        (outlineView as? CloudTreeNSOutlineView)?.trackDragDestination(sequenceNumber: info.draggingSequenceNumber)
+        if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+            cloudOutline.trackDragDestination(sequenceNumber: info.draggingSequenceNumber)
+            cloudOutline.reorderPresentation.show(drop, sequence: info.draggingSequenceNumber)
+        }
         return .move
     }
 
@@ -82,7 +91,8 @@ extension CloudTreeOutlineView.Coordinator {
         case .surfaceResources(let group):
             return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: policy)
         case .surface:
-            return policy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
+            guard let app = AppDelegate.shared else { return policy.rejection(for: nil) }
+            return app.ownershipRejection(forBonsplitTab: transfer.tabId, policy: policy)
         case .vaultSession, .filePreview, .rightSidebarTool:
             return policy.rejection(for: .local)
         }
