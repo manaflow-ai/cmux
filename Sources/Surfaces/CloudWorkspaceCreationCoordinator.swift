@@ -170,14 +170,10 @@ final class CloudWorkspaceCreationCoordinator {
                 title: String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM"),
                 machine: operation.machine,
                 receipt: reservationReceipt,
-                // Keep the provisional workspace out of view while its full
-                // remote graph is materialized. Selecting it here exposes the
-                // starter pane before the layout transaction below can run.
-                focus: false,
-                // Input ownership is independent from visible workspace
-                // selection. Start the reserved manual runtime immediately
-                // when the caller requested focus, even though selection waits
-                // until the layout transaction completes.
+                // Show the admitted workspace immediately while its remote
+                // graph is materialized. The reservation owns the temporary
+                // pane, so selection is safe and keeps the open optimistic.
+                focus: focus,
                 startInput: focus,
                 remoteView: firstTerminal?.view
             )
