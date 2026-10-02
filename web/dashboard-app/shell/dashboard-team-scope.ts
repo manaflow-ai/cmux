@@ -182,7 +182,10 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
       persistCoderouterOrganizationScope(userId, confirmed.cookieScope ?? team.id);
       url.replaceSearch(new URLSearchParams(confirmed.search));
       activeSwitchId.current = 0;
-      await url.refresh();
+      // The picker and URL already reflect the confirmed team. Reconcile the
+      // server-rendered dashboard in the background so a slow page dependency
+      // cannot keep the completed switch in its pending state.
+      void url.refresh().catch(() => undefined);
     }
     finish();
   };
