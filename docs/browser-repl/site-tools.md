@@ -149,7 +149,7 @@ the file back to verify.
 | `googleSheets.read(url, { gid, sheet, range })` | CSV export: values | read |
 | `googleSheets.cells(url, { sheet, gid, range })` | xlsx export unzipped in a docs.google.com page (`DecompressionStream`): `{ cell, value, formula }` | read |
 | `googleSheets.find(url, text)` | the same, every tab | read |
-| `googleSheets.write(url, range, rows)` | name box selects the top-left cell, TSV pasted from cmux's per-tab clipboard (Meta+V, real input; `=` makes a formula), verified through the xlsx export | write |
+| `googleSheets.write(url, range, rows)` | name box selects the top-left cell, each value typed with real keys (Tab between cells, Enter after a row; `=` makes a formula), verified through the xlsx export. Live, Sheets' cell editor ignored cmux's paste and inserted text | write |
 | `googleSheets.append(url, rows)` | the same after the last non-empty row | write |
 | `googleSheets.clear(url, range)` | name box selects the range, Delete, verified | write |
 | `googleDocs.structure(url)` | HTML export parsed in a blank tab: headings with levels, paragraphs, lists, tables | read |
@@ -157,6 +157,7 @@ the file back to verify.
 | `googleDocs.insertAfter(url, anchor, text)` | the same with `anchor` -> `anchor + text`; the anchor must occur exactly once | write |
 | `googleDocs.append(url, text)` | end of document (Meta+ArrowDown), Enter, typed text, verified | write |
 | `googleSlides.slides(url)` | pptx export: `{ index, title, text, notes }` per slide | read |
+| `googleSlides.setNotes(url, slide, text)` | the slide's filmstrip thumbnail (`g#filmstrip-slide-<n>-<page>`), the speaker notes box, old notes selected (Meta+ArrowUp, Meta+Shift+ArrowDown) and deleted, new notes typed; verified through the pptx export | write |
 | `googleSlides.replace(url, find, replacement)` | Find and replace, verified through the pptx export | write |
 | `googleDrive.create(kind, title)` | `docs.google.com/<kind>/create`, then the title field | creates a private file |
 | `googleDrive.trash(url)` | the editor's File > Move to trash | delete |
