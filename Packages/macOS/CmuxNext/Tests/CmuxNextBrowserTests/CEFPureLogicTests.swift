@@ -149,3 +149,34 @@ import Testing
         #expect(sequence.phase == .readyToShutdown)
     }
 }
+
+/// Imported passwords are never stored under Chromium's mock Keychain key
+/// (a public constant): development bundles cannot import them.
+@MainActor @Suite struct PasswordImportKeyTests {
+    @Test func mockKeychainBuildsRefusePasswordImport() {
+        #expect(PasswordImportKey.storesUnderMockKey(bundleIdentifier: "com.cmuxterm.app.debug.tag", environment: [:]))
+        #expect(PasswordImportKey.storesUnderMockKey(bundleIdentifier: "com.cmuxterm.app", environment: ["CMUX_MOCK_KEYCHAIN": "1"]))
+        #expect(!PasswordImportKey.storesUnderMockKey(bundleIdentifier: "com.cmuxterm.app", environment: [:]))
+        #if DEBUG
+        #expect(!PasswordImportKey.storesUnderMockKey(bundleIdentifier: "com.cmuxterm.app.debug.tag",
+                                               environment: ["CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY": "throwaway"]),
+                "throwaway test data only")
+        #endif
+    }
+}
+
+/// The caller's passwords are zeroed once, as soon as the shim has copied the rows.
+@Suite struct PasswordRowsCopyTests {
+    @Test func copiedRunsTheZeroingOnce() {
+        final class Count: @unchecked Sendable { var value = 0 }
+        let count = Count()
+        let secret: [UInt8] = Array("hunter2".utf8)
+        secret.withUnsafeBytes { bytes in
+            let rows = ChromiumPasswordRows([(url: "https://example.com/", signonRealm: "https://example.com/", username: "u", password: bytes, created: nil)],
+                                            afterCopy: { count.value += 1 })
+            rows.copied()
+            rows.copied()
+        }
+        #expect(count.value == 1)
+    }
+}

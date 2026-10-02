@@ -112,8 +112,8 @@ public nonisolated enum LayoutTunables {
         "panes.minimumContentHeight", .panes, "Minimum pane height", help: "Smallest content height a pane keeps below its tab strip (about 4 rows).",
         default: 64, range: 16...400, step: 2, unit: .points, code: "LayoutTunables.minimumContentHeight")
     public static let focusRingAlpha = Tunable<CGFloat>.number(
-        "focus.ringAlpha", .focus, "Focus ring alpha", help: "Alpha of the theme focus color for the ring (when focusRing.color is unset).",
-        default: 0.55, range: 0...1, step: 0.01, unit: .fraction, code: "LayoutTunables.focusRingAlpha")
+        "focus.ringAlpha", .focus, "Focus ring alpha", help: "Alpha of the theme focus color for the ring (when focusRing.color is unset). Overrides focusRing.contrast: subtle 0.2, standard 0.55, strong 0.85.",
+        default: 0.2, range: 0...1, step: 0.01, unit: .fraction, code: "LayoutTunables.focusRingAlpha")
     public static let focusGlowAlpha = Tunable<CGFloat>.number(
         "focus.glowAlpha", .focus, "Focus glow edge alpha", help: "Glow style: the edge line's alpha relative to the ring color.",
         default: 0.6, range: 0...1, step: 0.01, unit: .fraction, code: "LayoutTunables.focusGlowAlpha")

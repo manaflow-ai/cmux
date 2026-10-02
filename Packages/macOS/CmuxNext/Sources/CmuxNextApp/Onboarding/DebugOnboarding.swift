@@ -25,6 +25,8 @@ enum DebugOnboarding {
         }
         if let result = gallery(action, params, onboarding) { return result }
         guard let model = onboarding.controller?.model else { return state(onboarding) }
+        // Only a person passes the password consent screen.
+        if case .confirmingPasswords = model.importer.phase, action == "next" || action == "import" { return state(onboarding) }
         switch action {
         case "next": model.next()
         case "back": model.back()
@@ -39,6 +41,12 @@ enum DebugOnboarding {
         case "toggle_kind": if let kind = params["kind"]?.stringValue.flatMap(ImportDataKind.init(rawValue:)) { model.importer.toggle(kind) }
         case "import": model.importer.start()
         case "cancel_import": model.importer.cancel()
+        case "toggle_consent":
+            if let id = params["id"]?.stringValue, let profile = model.importer.passwordProfiles.first(where: { $0.id == id }) {
+                model.importer.toggleConsent(profile)
+            }
+        case "skip_passwords": model.importer.skipPasswords()
+        case "consent_back": model.importer.backFromConsent()
         case "claim": if let claim = params["claim"]?.stringValue.flatMap(DefaultHandlerClaim.init(rawValue:)) { model.defaults.request(claim) }
         default: break
         }
@@ -67,7 +75,11 @@ enum DebugOnboarding {
         if case .finished(let summary) = model.importer.phase {
             let counts = summary.counts
             result["counts"] = .object(["bookmarks": JSONValue(counts.bookmarks), "history": JSONValue(counts.history),
-                                        "cookies": JSONValue(counts.cookies)])
+                                        "cookies": JSONValue(counts.cookies), "passwords": JSONValue(counts.passwords)])
+            // Counts and reasons only: never a site, a username or a value.
+            result["password_issues"] = .object(Dictionary(uniqueKeysWithValues: summary.batches.compactMap { batch in
+                batch.passwordError.map { (batch.source.sourceKey, JSONValue.string(String(describing: $0))) }
+            }))
             result["cookie_issues"] = .object(Dictionary(uniqueKeysWithValues: summary.batches.compactMap { batch in
                 batch.cookieError.map { (batch.source.sourceKey, JSONValue.string(String(describing: $0))) }
             }))
@@ -105,6 +117,7 @@ enum DebugOnboarding {
         case .idle: "idle"
         case .detecting: "detecting"
         case .ready: "ready"
+        case .confirmingPasswords: "confirming_passwords"
         case .importing: "importing"
         case .finished: "finished"
         case .cancelled: "cancelled"
