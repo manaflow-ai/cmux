@@ -233,6 +233,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:terminal:background-blur",
         "setting:terminal:option-as-alt",
         "setting:terminal:scrollback-limit",
+        "setting:terminal:middle-click-paste",
         "setting:settingsJSON:open-file",
         "setting:settingsJSON:documentation",
         "setting:reset:reset-all",
