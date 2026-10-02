@@ -7,9 +7,10 @@
 //
 // Authorization happens in the worker before anything reaches this object
 // (same trust model as TeamPresence): the worker verifies the Stack bearer
-// token and resolves the account. Control-plane sockets are intentionally
-// long-lived; the DO uses ONLY the connecting client's own bearer token for
-// upstream calls, stored per-socket and deleted on close.
+// token, resolves the account, and forwards the verified account id plus a
+// socket deadline (token expiry capped at MAX_CONTROL_SOCKET_AGE_MS). The DO
+// uses ONLY the connecting client's own bearer token for upstream calls,
+// stored per-socket and deleted on close or at that deadline.
 
 import { DurableObject } from "cloudflare:workers";
 import { bearerToken } from "./auth";
@@ -18,6 +19,7 @@ import {
   ControlPlaneCore,
   MAX_CONTROL_SUBSCRIBERS_PER_ACCOUNT,
   parseRevocationRequest,
+  resolveControlSocketDeadline,
   type CtlAttachment,
   type CtlSocket,
   type CtlStorage,
@@ -54,7 +56,7 @@ function wrapSocket(ws: WebSocket): CtlSocket {
       try {
         const attachment = ws.deserializeAttachment() as CtlAttachment | null;
         return attachment && typeof attachment.sessionId === "string"
-          && (attachment.expiresAt === undefined || typeof attachment.expiresAt === "number")
+          && typeof attachment.expiresAt === "number"
           ? attachment
           : null;
       } catch {
@@ -179,6 +181,15 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     // Verified by the worker; never client input.
     const accountId = request.headers.get("x-control-account-id")?.trim();
     if (!accountId) return json({ error: "account_required" }, 403);
+    const now = Date.now();
+    // Deadline computed by the worker from the verified token; never client
+    // input. A missing or already-past deadline rejects rather than minting a
+    // fresh window for a token that expired in transit.
+    const expiresAt = resolveControlSocketDeadline(
+      request.headers.get("x-control-expires-at"),
+      now,
+    );
+    if (expiresAt === null) return json({ error: "subscription_expired" }, 401);
     // The DO keeps the connection's own bearer for its upstream proxy calls.
     const bearer = bearerToken(request);
     if (!bearer) return json({ error: "unauthorized" }, 401);
@@ -189,7 +200,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
 
     const connected = this.ctx.getWebSockets().filter((ws) => {
       const attachment = wrapSocket(ws).getAttachment();
-      return attachment !== null;
+      return attachment !== null && attachment.expiresAt > now;
     }).length;
     if (connected >= MAX_CONTROL_SUBSCRIBERS_PER_ACCOUNT) {
       return rateLimitedJson({ error: "too_many_subscribers" });
@@ -202,6 +213,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     this.ctx.acceptWebSocket(server);
     await this.core.handleConnect(wrapSocket(server), {
       sessionId: crypto.randomUUID(),
+      expiresAt,
       bearer,
       ...(refresh ? { refresh } : {}),
       ...(namespace ? { namespace } : {}),

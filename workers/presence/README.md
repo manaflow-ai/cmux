@@ -70,7 +70,8 @@ then `snapshot_complete` carrying the account route revision. A `hello` whose
 (`resumedFromRev`). While sockets are connected a 60s alarm re-fetches
 discovery and broadcasts `hint_update`/`directory` deltas; `publish_hint` is
 an instant-propagation announcement fanned out to the account's other sockets
-and confirmed against broker truth a few seconds later (phase A never writes
+(accepted only from a helloed socket, for its own endpoint, naming a managed
+relay) and confirmed against broker truth a few seconds later (phase A never writes
 hints upstream — hint registration stays the Mac's own signed HTTPS flow).
 Upstream failures produce `error` frames with `retryable`, never a dropped
 socket; cached facts keep serving. The DO holds no credentials of its own:
