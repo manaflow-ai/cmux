@@ -1,4 +1,4 @@
-// Rooms and the mini window, on the sidebar prototype (#16688). A room
+// Spaces and the mini window, on the sidebar prototype (#16688). A space
 // (plans/cmux-next/data-model.md 3-7) is a switchable set of workspaces with a color and a default
 // browser profile, switched by the dots at the bottom of the sidebar. In the mini window, a link
 // opened from a terminal, an agent or another app shows in a small window first,
@@ -15,11 +15,11 @@ import {
   type Workspace,
 } from "./workspaces";
 
-export type BrowserProfile = { id: string; name: string; color: RoomColor };
+export type BrowserProfile = { id: string; name: string; color: SpaceColor };
 /** Catppuccin accent names; the page maps each to a `--proto-<name>` token. */
-export type RoomColor = "mauve" | "peach" | "green" | "sky" | "overlay";
-export type Room = { id: string; name: string; color?: RoomColor; browserProfile: string; stack: Stack };
-export type Rooms = { rooms: Room[]; activeId: string };
+export type SpaceColor = "mauve" | "peach" | "green" | "sky" | "overlay";
+export type Space = { id: string; name: string; color?: SpaceColor; browserProfile: string; stack: Stack };
+export type Spaces = { spaces: Space[]; activeId: string };
 
 export const browserProfiles: BrowserProfile[] = [
   { id: "default", name: "Default", color: "overlay" },
@@ -29,13 +29,13 @@ export const browserProfiles: BrowserProfile[] = [
 ];
 export const browserProfileById = new Map(browserProfiles.map((profile) => [profile.id, profile]));
 
-/** Four rooms over the #16642 fixture: the cmux stack from #16695 plus a client, billing and home. */
-export const seedRooms: Rooms = {
-  activeId: "room-cmux",
-  rooms: [
-    { id: "room-cmux", name: "cmux", color: "mauve", browserProfile: "work", stack: seedStack },
+/** Four spaces over the #16642 fixture: the cmux stack from #16695 plus a client, billing and home. */
+export const seedSpaces: Spaces = {
+  activeId: "space-cmux",
+  spaces: [
+    { id: "space-cmux", name: "cmux", color: "mauve", browserProfile: "work", stack: seedStack },
     {
-      id: "room-atlas",
+      id: "space-atlas",
       name: "Atlas",
       color: "peach",
       browserProfile: "atlas",
@@ -58,7 +58,7 @@ export const seedRooms: Rooms = {
       },
     },
     {
-      id: "room-billing",
+      id: "space-billing",
       name: "Billing",
       color: "green",
       browserProfile: "work",
@@ -79,7 +79,7 @@ export const seedRooms: Rooms = {
       },
     },
     {
-      id: "room-home",
+      id: "space-home",
       name: "Home",
       browserProfile: "personal",
       stack: {
@@ -94,39 +94,42 @@ export const seedRooms: Rooms = {
   ],
 };
 
-export const activeRoom = (rooms: Rooms) => rooms.rooms.find((room) => room.id === rooms.activeId)!;
+export const activeSpace = (spaces: Spaces) => spaces.spaces.find((space) => space.id === spaces.activeId)!;
 
-export function switchRoom(rooms: Rooms, roomId: string): Rooms {
-  return rooms.rooms.some((room) => room.id === roomId) ? { ...rooms, activeId: roomId } : rooms;
+export function switchSpace(spaces: Spaces, spaceId: string): Spaces {
+  return spaces.spaces.some((space) => space.id === spaceId) ? { ...spaces, activeId: spaceId } : spaces;
 }
 
-/** Next or previous room, wrapping (Cmd-Opt-] and Cmd-Opt-[). */
-export function stepRoom(rooms: Rooms, step: 1 | -1): Rooms {
-  const index = rooms.rooms.findIndex((room) => room.id === rooms.activeId);
-  const next = rooms.rooms[(index + step + rooms.rooms.length) % rooms.rooms.length]!;
-  return { ...rooms, activeId: next.id };
+/** Next or previous space, wrapping (Cmd-Opt-] and Cmd-Opt-[). */
+export function stepSpace(spaces: Spaces, step: 1 | -1): Spaces {
+  const index = spaces.spaces.findIndex((space) => space.id === spaces.activeId);
+  const next = spaces.spaces[(index + step + spaces.spaces.length) % spaces.spaces.length]!;
+  return { ...spaces, activeId: next.id };
 }
 
-/** Replaces the active room's stack. */
-export function withStack(rooms: Rooms, stack: Stack): Rooms {
-  return { ...rooms, rooms: rooms.rooms.map((room) => (room.id === rooms.activeId ? { ...room, stack } : room)) };
+/** Replaces the active space's stack. */
+export function withStack(spaces: Spaces, stack: Stack): Spaces {
+  return {
+    ...spaces,
+    spaces: spaces.spaces.map((space) => (space.id === spaces.activeId ? { ...space, stack } : space)),
+  };
 }
 
-/** Opening a history row: a session open in any room jumps there, switching rooms; else it is restored in the current room. */
-export function openFromHistoryInRooms(
-  rooms: Rooms,
+/** Opening a history row: a session open in any space jumps there, switching spaces; else it is restored in the current space. */
+export function openFromHistoryInSpaces(
+  spaces: Spaces,
   session: { sessionId: string; displayTitle?: string },
-): { rooms: Rooms; jumped: boolean } {
-  const holder = rooms.rooms.find((room) => findOpen(room.stack, session.sessionId));
-  const target = holder ?? activeRoom(rooms);
+): { spaces: Spaces; jumped: boolean } {
+  const holder = spaces.spaces.find((space) => findOpen(space.stack, session.sessionId));
+  const target = holder ?? activeSpace(spaces);
   const result = openFromHistory(target.stack, session);
-  const switched = { ...rooms, activeId: target.id };
-  return { jumped: result.jumped, rooms: withStack(switched, result.stack) };
+  const switched = { ...spaces, activeId: target.id };
+  return { jumped: result.jumped, spaces: withStack(switched, result.stack) };
 }
 
-/** A new browser tab's profile: the workspace's own, else its room's (data-model.md 5). */
-export const effectiveBrowserProfile = (room: Room, workspace: Workspace) =>
-  workspace.browserProfile ?? room.browserProfile;
+/** A new browser tab's profile: the workspace's own, else its space's (data-model.md 5). */
+export const effectiveBrowserProfile = (space: Space, workspace: Workspace) =>
+  workspace.browserProfile ?? space.browserProfile;
 
 export type LinkSource = { kind: "terminal" | "agent" | "app"; label: string };
 /** A link shown in the mini window: where it came from, which workspace it promotes into, and its profile. */
@@ -134,49 +137,49 @@ export type MiniWindow = {
   url: string;
   title: string;
   source: LinkSource;
-  roomId: string;
+  spaceId: string;
   workspaceId: string;
   browserProfile: string;
 };
 
 /** Opens a link in the mini window. It belongs to the workspace the link came from (another app's link: the current one). */
 export function openMini(
-  rooms: Rooms,
+  spaces: Spaces,
   link: { url: string; title: string },
   source: LinkSource,
-  from?: { roomId: string; workspaceId: string },
+  from?: { spaceId: string; workspaceId: string },
 ): MiniWindow {
-  const room = rooms.rooms.find((candidate) => candidate.id === from?.roomId) ?? activeRoom(rooms);
+  const space = spaces.spaces.find((candidate) => candidate.id === from?.spaceId) ?? activeSpace(spaces);
   const target =
-    room.stack.workspaces.find((candidate) => candidate.id === from?.workspaceId) ??
-    room.stack.workspaces.find((candidate) => candidate.id === room.stack.activeId)!;
+    space.stack.workspaces.find((candidate) => candidate.id === from?.workspaceId) ??
+    space.stack.workspaces.find((candidate) => candidate.id === space.stack.activeId)!;
   return {
     ...link,
     source,
-    roomId: room.id,
+    spaceId: space.id,
     workspaceId: target.id,
-    browserProfile: effectiveBrowserProfile(room, target),
+    browserProfile: effectiveBrowserProfile(space, target),
   };
 }
 
 let promoted = 0;
 
 /** Promotes the mini window (Cmd-O): a browser tab after the active tab of its workspace, keeping its profile, shown at once. */
-export function promoteMini(rooms: Rooms, mini: MiniWindow): { rooms: Rooms; tabId: string } {
+export function promoteMini(spaces: Spaces, mini: MiniWindow): { spaces: Spaces; tabId: string } {
   const tabId = `b-promoted-${++promoted}`;
   const tab = { ...browser(tabId, mini.title, mini.url), browserProfile: mini.browserProfile };
   return {
     tabId,
-    rooms: {
-      activeId: mini.roomId,
-      rooms: rooms.rooms.map((room) =>
-        room.id !== mini.roomId
-          ? room
+    spaces: {
+      activeId: mini.spaceId,
+      spaces: spaces.spaces.map((space) =>
+        space.id !== mini.spaceId
+          ? space
           : {
-              ...room,
+              ...space,
               stack: {
                 activeId: mini.workspaceId,
-                workspaces: room.stack.workspaces.map((candidate) => {
+                workspaces: space.stack.workspaces.map((candidate) => {
                   if (candidate.id !== mini.workspaceId) return candidate;
                   const after = candidate.tabs.findIndex((existing) => existing.id === candidate.activeTabId) + 1;
                   const tabs = [...candidate.tabs.slice(0, after), tab, ...candidate.tabs.slice(after)];

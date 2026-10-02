@@ -39,7 +39,9 @@ extension ControlRouter {
         default: throw ControlError.invalidParams(ControlStrings.text("control.error.argsShape", "args must be an object of name: value"))
         }
         let schema = Dictionary(action.arguments.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
-        for (name, raw) in rawArguments {
+        for (given, raw) in rawArguments {
+            // Rooms became Spaces: `--room` still names the `space` argument.
+            let name = schema[given] == nil ? Self.renamedArguments[given].flatMap { schema[$0] == nil ? nil : $0 } ?? given : given
             guard let argument = schema[name] else {
                 throw ControlError.invalidParams(
                     ControlStrings.format("control.error.noSuchArgument", "%1$@ has no argument '%2$@'", action.id, name),
@@ -58,6 +60,9 @@ extension ControlRouter {
         }
         return request
     }
+
+    /// Old argument names and the ones that replaced them (data-model.md 3.4).
+    static let renamedArguments = ["room": "space"]
 
     static func value(_ raw: JSONValue, for argument: ControlArgumentInfo, action: String, knownKinds: [String]) throws -> ControlValue {
         func fail(_ expected: String) -> ControlError {
