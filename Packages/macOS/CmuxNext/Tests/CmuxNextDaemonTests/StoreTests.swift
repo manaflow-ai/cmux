@@ -187,4 +187,49 @@ import Testing
         #expect(store.tab(surface: 3)?.pinned == true)
         #expect(store.tab(surface: 3)?.gitBranch == "main")
     }
+
+    /// Regression: Ghostty's zsh integration reports `kitty-shell-cwd://` URLs, which
+    /// the pinned daemon reads as no directory, so it clears the tab's cwd at the
+    /// first prompt. The folder the shell reported to this app's own surface keeps
+    /// the tab's cwd, so ⌘T and the new tab page start in it; a daemon cwd wins.
+    @Test func theShellsReportedFolderKeepsTheTabCwdWhenTheDaemonClearsIt() throws {
+        let store = try loadedStore()
+        var tab = try #require(store.tab(surface: 3)).snapshot
+        tab.cwd = nil
+        let cleared = TabDelta(workspace: 1, screen: 5, pane: 4, surface: 3, index: 0, entity: tab)
+        _ = store.apply(.tabChanged(cleared))
+        store.noteTerminalDirectory("/Users/me/code/web-app", surface: 3)
+        #expect(store.tab(surface: 3)?.cwd == "/Users/me/code/web-app")
+        _ = store.apply(.tabChanged(cleared))
+        #expect(store.tab(surface: 3)?.cwd == "/Users/me/code/web-app")
+        store.noteTerminalDirectory("file://host/Users/me/code/api%20server", surface: 3)
+        #expect(store.tab(surface: 3)?.cwd == "/Users/me/code/api server")
+        store.noteTerminalDirectory("kitty-shell-cwd://host/Users/me/100% done", surface: 3)
+        #expect(store.tab(surface: 3)?.cwd == "/Users/me/100% done")
+
+        // A relative or `~` report is not a folder to start in.
+        store.noteTerminalDirectory("~/code", surface: 3)
+        #expect(store.tab(surface: 3)?.cwd == nil)
+        store.noteTerminalDirectory("/Users/me/code/web-app", surface: 3)
+
+        // A resync rebuilds the tab; the folder stays with its surface.
+        store.apply(snapshot: try Fixture.response(DaemonTree.self, "list-workspaces.json"))
+        _ = store.apply(.tabChanged(cleared))
+        #expect(store.tab(surface: 3)?.cwd == "/Users/me/code/web-app")
+
+        tab.cwd = "/srv"
+        _ = store.apply(.tabChanged(TabDelta(workspace: 1, screen: 5, pane: 4, surface: 3, index: 0, entity: tab)))
+        #expect(store.tab(surface: 3)?.cwd == "/srv")
+    }
+
+    /// A remote terminal's shell reports a folder on another machine.
+    @Test func aRemoteTerminalsReportedFolderIsNotALocalCwd() throws {
+        let store = try loadedStore()
+        var tab = try #require(store.tab(surface: 3)).snapshot
+        tab.kind = .remoteTerminal
+        tab.cwd = nil
+        _ = store.apply(.tabChanged(TabDelta(workspace: 1, screen: 5, pane: 4, surface: 3, index: 0, entity: tab)))
+        store.noteTerminalDirectory("/home/dev/api", surface: 3)
+        #expect(store.tab(surface: 3)?.cwd == nil)
+    }
 }

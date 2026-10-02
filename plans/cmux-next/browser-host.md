@@ -1,14 +1,16 @@
 # cmux next: browser host (agent browser use, WebKit and Chromium)
 
-Design note, 2026-10-01. Owner: the cmux-next browser-use lead. Binding inputs: cmux-next-spec `spec/browser-use.md` (draft 2), `decisions.md` D12 and D20, `references/browser-use.md`, `references/browser-repl-inventory.md`; OWNERSHIP-PRINCIPLES.md; browser.md (CEF fork, shim, R2). Base implementation: PR https://github.com/manaflow-ai/cmux/pull/15570 (`cmux browser repl`, owner session feat-browser-repl-parity-8c, called "the REPL session" below). Its `docs/browser-repl/driver-protocol.md` is the contract this note builds on; its `tests/browser-parity` is the conformance suite. This note does not change either; changes to them go to the REPL session through the coordinator.
+Design note, 2026-10-01. Owner: the cmux-next browser-use lead. Binding inputs: cmux-next-spec `spec/browser-use.md` (draft 2), `decisions.md` D12 and D20, `references/browser-use.md`, `references/browser-repl-inventory.md`; OWNERSHIP-PRINCIPLES.md; browser.md (CEF fork, shim, R2). Base implementation: PR https://github.com/manaflow-ai/cmux/pull/15570 (`cmux browser repl`, owner session feat-browser-repl-parity-8c, called "the REPL session" below). Its driver protocol ([browser-repl/driver-protocol.md](browser-repl/driver-protocol.md), moved from `docs/browser-repl`) is the contract this note builds on; its `tests/browser-parity` is the conformance suite. This note does not change either; changes to them go to the REPL session through the coordinator.
 
-## Decisions for Lawrence
+## Decisions (Lawrence, 2026-10-01, via the coordinator)
 
-1. **Who starts the host, and how the app reaches it.** Recommended: the local daemon (cmux-tui) supervises one `cmux browser host` per machine, and the Mac app dials the host as an *engine provider* over a dedicated authenticated connection. The WebKit driver calls and the CEF CDP relay run on that connection. Nothing is added to the app control socket, so other same-uid automation clients cannot call the WebKit driver or inject CDP and skip host policy. Sessions survive an app restart (the provider reconnects and re-announces its tabs). Alternative: the app spawns the host as a child with an inherited socketpair (simpler, but sessions die with the app and Linux needs a second launcher). The spec text "relay CDP through the app's authenticated control socket" becomes "through the app's provider connection to the host" under the recommendation.
-2. **Who ports the Swift WebKit driver onto `CmuxNextBrowser`.** Recommended: the REPL session ports `WebKitBrowserReplDriver` and `CmuxBrowser/Repl` (it owns that code) into a new `CmuxNextBrowserAutomation` module that implements the driver protocol against `BrowserTab`; the browser-use lead owns the provider bridge (`CmuxNextBrowserHost` module: connection, framing, lease badge, CEF relay) and the Rust host. Alternative: the browser-use lead ports the driver too, with the REPL session reviewing.
-3. **Agent-supplied secrets.** `secrets.set(name, value)` from agent code puts the value into the JS VM, because the agent already has it. Recommended: allowed, but marked `agent_known` (masking only, never shown as "protected"); secrets the user supplies (`cmux browser secrets load`, Keychain) never enter the VM and are typed by the host from a handle. Alternative: refuse `secrets.set` from agent code entirely. Passwords are not secrets in this sense (coordinator, 2026-10-01, Leo's cc-next-browser lane owns import and passwords): agents never see a password; they use the Secure sign-in sheet (#15570 `docs/browser-repl/site-tools.md`, `sites.browserAuth.request`) and get only a status.
-4. **Conformance suite home.** The suite must run against the Rust host before #15570 lands on feat-cmux-next. Recommended: the REPL session re-targets #15570 (runtime, docs, suite) onto feat-cmux-next first, without the legacy Swift; the host consumes `Resources/browser-repl` from there. Until then the host's runner points at a read-only checkout of the suite (`--suite <path>`); nothing is copied.
-5. **Default for `cmux browser repl` once the host exists.** Recommended: DEV and NIGHTLY switch `CMUX_BROWSER_REPL_BACKEND=host|inapp` (default `host` in DEV, `inapp` in NIGHTLY until the conformance and perf gates below pass on both engines), then delete the in-app JSContext runtime.
+1. **Daemon-supervised host, app as engine provider (decided).** It must just work: the host starts on demand with no setup, restarts after a crash, the app's provider reconnects by itself, sessions survive an app restart, and the UI shows a clear state when an engine is unavailable (section 1, "Lifecycle and user-visible state").
+2. **#15570 port: the coordinator's mover agent** moves the runtime JS, docs, `tests/browser-parity` and the WebKit driver onto feat-cmux-next (paths agreed with the browser-use lead: JS in `cmux-tui/crates/cmux-browser-host/js/`, docs in `plans/cmux-next/browser-repl/`, suite at `tests/browser-parity/`).
+3. **Agent-supplied secrets: allowed, masking only (decided).** Passwords are never secrets: agents use the Secure sign-in sheet and get a status (coordinator, Leo's cc-next-browser lane owns import and passwords).
+4. See 2.
+5. **No host|inapp switch (decided).** cmux-next uses only the Rust host for Chromium and WebKit.
+
+Open for Lawrence: the WebKit driver language (section 2a). Recommended: Swift now, behind the driver protocol, so a Rust replacement later does not change the host or the bridge.
 
 ## 1. Process model
 
@@ -38,6 +40,14 @@ page agent JS + Playwright injected script: installed per frame in an isolated w
 - Crash isolation: a runaway session (15570 measured 7 GB once) hits the per-VM QuickJS memory limit and interrupt deadline and fails alone; a host crash loses sessions and refs but no tab, page or layout state (owned by the app and the store).
 - Cost: one local IPC hop per driver call. 15570 already batches frame reads (`frame.contentFrames`); the host keeps that and adds `batch` frames (several driver calls in one message) where the runtime issues independent calls.
 
+### Lifecycle and user-visible state
+
+- Start: the first `browser.*` op (CLI, MCP, mux) or the first provider connect makes the daemon start the host. No setup step, no flag.
+- Crash: the daemon restarts the host with `Backoff`. Sessions are lost (their VM state is in memory); the next `browser.repl.eval` on a lost session answers `session_lost` with the session id, and `browser.repl.open` with the same id creates it again. Tabs, pages and layout are untouched.
+- App restart: the provider connection drops; the host keeps sessions and marks their tabs `provider_gone`. Calls on those tabs wait up to their deadline for the provider to come back and re-announce the tab (same `targetId` from the store's tab record), else fail `closed`. When the app comes back it reconnects without user action.
+- Engine unavailable (no CEF framework in the bundle, Chromium binary missing on Linux, WebKit provider absent): `browser.repl.open {engine}` and every call fail with `engine_unavailable {engine, reason}` (the reason text comes from `CEFUnavailableReason` on the Mac). The app shows the same reason on the lease badge and the browser pane notice; the CLI and MCP print it.
+- Chromium on Linux: an optional Chrome for Testing bundle next to cmux-tui (`cmux browser install-chromium`, sha256-pinned), always baked into Freestyle snapshots; the host finds it before any system Chrome.
+
 ### Provider connection (app ↔ host)
 
 Framing: length-prefixed JSON (u32 big-endian length, then UTF-8 JSON), one frame per message, both directions, max 64 MiB (screenshots). Frames:
@@ -45,6 +55,7 @@ Framing: length-prefixed JSON (u32 big-endian length, then UTF-8 JSON), one fram
 | Frame | Direction | Meaning |
 | --- | --- | --- |
 | `hello {version, provider_id, install_id, engines: ["webkit","cef"], tabs: [TabAnnounce]}` | app → host | first frame; `TabAnnounce = {targetId, engine, workspace, profile, url, title, visible}` |
+| `hello.ack {agent_bundle, agent_bundle_sha}` | host → app | the page agent bundle (manifest `agent` list, embedded in the host); the app installs it as document-start user scripts in the agent world of every driven tab, so there is one copy |
 | `call {id, method, params}` / `result {id, result? , error?}` | host → app / app → host | driver protocol method on a WebKit tab (methods, params and errors exactly as driver-protocol.md) |
 | `event {name, payload}` | app → host | driver protocol event (`tab.created`, `dialog.opened`, …) and provider events (`tab.announced`, `tab.gone`) |
 | `cdp.attach {targetId}` / `cdp.detach {targetId}` | host → app | start or stop relaying a CEF tab's DevTools session |
@@ -54,7 +65,7 @@ Framing: length-prefixed JSON (u32 big-endian length, then UTF-8 JSON), one fram
 
 Authentication: the daemon mints a per-launch provider secret when it starts the host and hands it to the app over the app's existing trusted daemon connection; the app proves it in `hello` and the host also checks peer credentials (same uid). A provider connection is never accepted from the agent listener. The host refuses a second provider with the same `install_id` (one app per install) and replaces it only after the first disconnects.
 
-CEF relay: the shim gains `cmux_shim_devtools_send(browser_id, message_json)` (`CefBrowserHost::SendDevToolsMessage`, raw JSON with its own `id` and optional `sessionId`) and forwards every `CefDevToolsMessageObserver::OnDevToolsMessage` for attached browsers as a new shim event. Raw messages keep flat sessions, so out-of-process iframes work through `Target.setAutoAttach {flatten: true}`. The existing `cmux_shim_devtools_call` path stays for the app's own uses (previews, occlusion snapshots). Header edit changes the shim ABI identity (browser.md "CEF shim ABI identity"); the relay needs no fork change.
+CEF relay: the shim gains `cmux_shim_devtools_send(browser_id, message_json)` (`CefBrowserHost::SendDevToolsMessage`, raw JSON with its own `id` and optional `sessionId`) and forwards every `CefDevToolsMessageObserver::OnDevToolsMessage` for attached browsers as a new shim event. Raw messages keep flat sessions, so out-of-process iframes work through `Target.setAutoAttach {flatten: true}`. Every CEF tab under an agent lease gets `cmux_tab_set_password_fill` (CEF fork API 15) set by the provider when the lease starts and restored when it ends, so Chromium's own password filling follows the same rule as the sign-in sheet (exact semantics confirmed with the fork owner before wiring). The existing `cmux_shim_devtools_call` path stays for the app's own uses (previews, occlusion snapshots). Header edit changes the shim ABI identity (browser.md "CEF shim ABI identity"); the relay needs no fork change.
 
 ### Agent protocol (host listener)
 
@@ -88,6 +99,20 @@ Catalog ops behind them: `browser.repl.open {session?, profile?, label?}` (creat
 | CEF DevTools relay, lease badge, user-input pause signal | Swift in the app (`CmuxNextBrowserHost`) | the app owns the browser runtime |
 
 `__cmuxNative` keeps version 1 (driver-protocol.md "Native host contract") with two changes made in Rust: `driverCall` goes through the policy gate, and secret-bearing calls take handles (section 4). The VM stays swappable (V8 through `deno_core` if QuickJS-ng misses the perf gate).
+
+### 2a. WebKit driver: Swift or Rust (evaluation)
+
+Lawrence asked whether the WebKit driver can be Rust too: a Rust library linked into the app (objc2, objc2-web-kit), on the main thread, with Swift only hosting the view.
+
+Feasible parts: objc2-web-kit binds `WKWebView`, `WKContentWorld`, `WKUserScript`, `callAsyncJavaScript:arguments:inFrame:inContentWorld:`, `takeSnapshotWithConfiguration:`, `createPDFWithConfiguration:`, and delegate protocols (`define_class!` implements `WKNavigationDelegate`/`WKUIDelegate`). SPI (`_simulateMouseMove:`, `_frames:`, `_setResourceLoadDelegate:`, `_doAfterProcessingAllPendingMouseEvents:`, `_WKContentWorldConfiguration`) is plain `msg_send!` behind `respondsToSelector:` checks, the same as Swift's dynamic calls. Native input (`NSEvent` construction, `sendEvent:` to the web view's window) works through objc2-app-kit. Threading: driver calls arrive off main; `MainThreadMarker` plus a main-queue hop (dispatch2) serializes them, as Swift's `@MainActor` does.
+
+Costs that decide it:
+- Delegate ownership: `WebKitTab` (Swift, `CmuxNextBrowser`) already owns the navigation, UI and download delegates for normal browsing. Dialogs, file choosers, popups and downloads must reach the driver, so a Rust driver needs either Swift to forward every delegate callback over FFI or Rust proxy delegates that forward to Swift. Both put a second owner on the same delegate surface.
+- AppKit state the driver changes: the off-screen key render window, first responder, occlusion, the native drag session, and the virtual pasteboard swap are AppKit lifecycle code that the Swift app owns (focus.md, OWNERSHIP-PRINCIPLES "client owns the view"). Driving them from Rust crosses that boundary on every call.
+- Build: a second Rust static library in the Xcode build (precedent: the CEF shim and diff sidecar), Swift 6.2 Release compile interplay, and an FFI ABI identity like the shim's.
+- What moves: only engine-bound glue. Everything engine-neutral is already Rust in the host, so "Rust for both Chrome and WebKit" holds at the host level either way.
+
+Recommendation: Swift WebKit driver now (`CmuxNextBrowserAutomation`, ported from the 1,620-line driver that passes the suite), exposed only through the driver protocol (`DriverCallHandler`). If Lawrence still wants Rust there, a bounded spike first: a Rust objc2 crate in the app that does `frame.evaluate` in a content world, `_simulateMouseMove:` hover and a trusted click on one tab, timed against the Swift path; decide on its numbers and on the delegate forwarding cost.
 
 ### CDP mapping (summary; the driver is done when the goldens pass)
 
@@ -139,9 +164,9 @@ Tests (failing first): a VM call to `__cmuxNative.driverCall("tab.navigate", {ur
 
 ## 5. Conformance and performance gates
 
-Backends added to `tests/browser-parity` (through the REPL session): `host-headless` (Rust host + headless Chromium over the pipe, runs in hosted Linux CI and on the Mac), `host-cef` and `host-webkit` (tagged no-activate app with the host). All use the existing `cmux` backend path (`cmux browser repl --eval -` per cell) with `CMUX_BROWSER_REPL_BACKEND=host`, so the suite gains a backend switch, not a fork. Same goldens on every engine; a deliberate engine difference goes into `capabilities.json` with a reason, never a per-engine golden.
+Backends added to `tests/browser-parity` (through the REPL session): `host-headless` (Rust host + headless Chromium over the pipe, runs in hosted Linux CI and on the Mac), `host-cef` and `host-webkit` (tagged no-activate app with the host). All use `cmux browser repl --eval -` per cell (until the Rust CLI verb exists: `cmux-browser-host eval --session NAME [--engine E] -`) with the engine from `browser.repl.open {engine}` or `CMUX_BROWSER_HOST_ENGINE`, so the suite gains backends, not a fork. Same goldens on every engine; a deliberate engine difference goes into `capabilities.json` with a reason, never a per-engine golden.
 
-Gate for flipping the NIGHTLY default (decision 5): `gate.sh` green on `host-webkit` and `host-cef` twice in a row and on `host-headless` in CI; 0 cmux-worse in the differential cases; perf within 15% of 15570's in-app numbers (p50/p95 ms, real app: 50k elements 419/522, 200k elements 2224, 300 iframes 179/686, 10k-row table 392, live GitHub PR files 225) on WebKit, and reported separately for CEF; idle host near 0% CPU and 0 wakeups/s (`bench-idle.sh`).
+Gate for shipping the host in NIGHTLY (the in-app runtime is not ported): `gate.sh` green on `host-webkit` and `host-cef` twice in a row and on `host-headless` in CI; 0 cmux-worse in the differential cases; perf within 15% of 15570's in-app numbers (p50/p95 ms, real app: 50k elements 419/522, 200k elements 2224, 300 iframes 179/686, 10k-row table 392, live GitHub PR files 225) on WebKit, and reported separately for CEF; idle host near 0% CPU and 0 wakeups/s (`bench-idle.sh`).
 
 ## 6. Steps (each lands on feat-cmux-next with failing tests first)
 
@@ -157,7 +182,6 @@ Order change (binding surfaces above): the REPL session ops (`browser.repl.open/
 
 ## 7. Prototype switches (DEV and NIGHTLY)
 
-- `CMUX_BROWSER_REPL_BACKEND=host|inapp`: the host versus 15570's in-app JSContext runtime, same CLI.
 - `CMUX_BROWSER_SNAPSHOT_CORE=js|rust`: snapshot.js in the VM versus the Rust port; both must print byte-identical goldens.
 - `CMUX_BROWSER_HOST_VM=quickjs|v8` (only if QuickJS misses the perf gate).
 
