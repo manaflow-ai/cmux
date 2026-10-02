@@ -53,6 +53,32 @@
       ],
       "clipboard": "after cut: false",
       "value": "ask first"
+    },
+    "late-copy": {
+      "late": {
+        "code": "timeout",
+        "endedWebContent": true
+      },
+      "crashed": true,
+      "clipboard": "before the late copy",
+      "reloaded": ""
+    },
+    "user-tab-clipboard": {
+      "shortcuts": [
+        [
+          "unsupported",
+          true
+        ],
+        [
+          "unsupported",
+          true
+        ],
+        [
+          "unsupported",
+          true
+        ]
+      ],
+      "value": "the user's text"
     }
   }
 }
