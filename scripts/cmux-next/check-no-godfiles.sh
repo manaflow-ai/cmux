@@ -38,6 +38,8 @@ rust_file_limit=1000
 rust_fn_limit=60
 rust_test_file_limit=1500
 rust_test_fn_limit=120
+# A Rust function declaration line (free fn, method, trait item).
+rust_fn_re='^[[:space:]]*(pub(\([a-z:_ ]+\))? +)?(default +)?(const +)?(async +)?(unsafe +)?(extern +"[A-Za-z]+" +)?fn +[A-Za-z_]'
 
 status=0
 
@@ -103,7 +105,7 @@ fi
 while IFS= read -r rel; do
   [[ -f "$repo/$rel" ]] || continue
   lines=$(wc -l < "$repo/$rel" | tr -d ' ')
-  fns=$(grep -cE '^[[:space:]]*(pub(\([a-z:_ ]+\))? +)?(default +)?(const +)?(async +)?(unsafe +)?(extern +"[A-Za-z]+" +)?fn +[A-Za-z_]' "$repo/$rel" || true)
+  fns=$(grep -cE "$rust_fn_re" "$repo/$rel" || true)
   if [[ "$rel" =~ /(tests|benches|examples)/ || "$rel" =~ (^|/|_)tests\.rs$ ]]; then
     printf 'rust-file\t%s\t%d\t%d\t%d\t%d\n' "$rel" "$lines" "$fns" "$rust_test_file_limit" "$rust_test_fn_limit"
   else
@@ -148,14 +150,45 @@ report="$(awk -F'\t' -v update="$update" '
   }
 ' "$baseline" "$measurements")"
 
-# Each failure names the commit that last changed the file, so an agent can
-# tell a failure it caused from one already on the branch.
+# Each Rust failure names the commit that pushed the file over its allowance
+# (the oldest commit of the newest run of over-budget versions), so an agent
+# can tell a failure it caused from one already on the branch. Everything is
+# measured in this checkout's tree; history needs a non-shallow clone.
+allowance() { # kind key -> "lines fns" from the baseline, else the budget
+  local found
+  found="$(awk -F'\t' -v k="$1" -v p="$2" '$1==k && $2==p {print $3, $4; exit}' "$baseline")"
+  if [[ -n "$found" ]]; then echo "$found"
+  elif [[ "$2" =~ /(tests|benches|examples)/ || "$2" =~ (^|/|_)tests\.rs$ ]]; then echo "$rust_test_file_limit $rust_test_fn_limit"
+  else echo "$rust_file_limit $rust_fn_limit"; fi
+}
+grower() { # key allowed_lines allowed_fns
+  local key="$1" allow_lines="$2" allow_fns="$3" commit lines fns culprit=""
+  if [[ "$(git -C "$repo" rev-parse --is-shallow-repository 2>/dev/null)" == true ]]; then
+    echo "unknown in a shallow checkout; run the check in a full clone"
+    return
+  fi
+  lines=$(git -C "$repo" show "HEAD:$key" 2>/dev/null | wc -l | tr -d ' ')
+  fns=$(git -C "$repo" show "HEAD:$key" 2>/dev/null | grep -cE "$rust_fn_re" || true)
+  if (( lines <= allow_lines && fns <= allow_fns )); then
+    echo "uncommitted changes in this checkout"
+    return
+  fi
+  while IFS= read -r commit; do
+    lines=$(git -C "$repo" show "$commit:$key" 2>/dev/null | wc -l | tr -d ' ')
+    fns=$(git -C "$repo" show "$commit:$key" 2>/dev/null | grep -cE "$rust_fn_re" || true)
+    if (( lines > allow_lines || fns > allow_fns )); then culprit="$commit"; else break; fi
+  done < <(git -C "$repo" log --format=%H -n 40 HEAD -- "$key")
+  if [[ -n "$culprit" ]]; then
+    git -C "$repo" log -1 --format='%h %an %ad: %s' --date=short "$culprit"
+  else
+    echo "unknown"
+  fi
+}
 if grep -q '^FAIL' <<<"$report"; then
   while IFS=$'\t' read -r _ kind key message; do
     if [[ "$kind" == rust-file ]]; then
-      last="$(git -C "$repo" log -1 --format='%h %an: %s' -- "$key" 2>/dev/null || true)"
-      [[ -n "$(git -C "$repo" status --porcelain -- "$key" 2>/dev/null)" ]] && last="uncommitted changes in this checkout"
-      echo "$message [last change: ${last:-unknown}]"
+      read -r allow_lines allow_fns <<<"$(allowance "$kind" "$key")"
+      echo "$message [grown past it by: $(grower "$key" "$allow_lines" "$allow_fns")]"
     else
       echo "$message"
     fi
