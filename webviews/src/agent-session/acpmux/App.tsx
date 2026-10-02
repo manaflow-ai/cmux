@@ -810,6 +810,8 @@ function AcpmuxPane() {
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
+  /// A Retry the user asked for that waits on the attempt in flight.
+  const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
   const retryHost = useRef<(() => void) | undefined>(undefined);
   // The pane keeps the last client's catalog until the next client's arrives;
@@ -885,6 +887,8 @@ function AcpmuxPane() {
     const RECONNECT_MAX_DELAY_MS = 2_000;
     let reconnect = false;
     let connecting = false;
+    /// The user asked to retry while an attempt was in flight; run a full one when it ends.
+    let retryPending = false;
     const connectHost = async () => {
       if (connecting) return;
       connecting = true;
@@ -901,7 +905,6 @@ function AcpmuxPane() {
           account?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
-        setHostError(undefined);
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
@@ -909,7 +912,11 @@ function AcpmuxPane() {
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
         setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
-        if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) return;
+        if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) {
+          // A host with no daemon to reach has nothing left to fail.
+          setHostError(undefined);
+          return;
+        }
         const client = await AcpmuxDirectClient.connect(
           mock ? mockHost : (host as AcpmuxHostConfig),
           (next) => {
@@ -933,6 +940,8 @@ function AcpmuxPane() {
           return;
         }
         directClient.current = client;
+        // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
+        setHostError(undefined);
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
         retryDelay = 250;
@@ -972,16 +981,29 @@ function AcpmuxPane() {
         }
       } finally {
         connecting = false;
+        if (retryPending) {
+          retryPending = false;
+          setRetryQueued(false);
+          // The attempt in flight may have connected; then there is nothing left to retry.
+          if (!cancelled && !directClient.current) retryNow();
+        }
       }
     };
     // The user asked: try now, and let the host start a daemon even after one was lost.
-    retryHost.current = () => {
-      if (cancelled || connecting) return;
+    const retryNow = () => {
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       retryTimer = undefined;
       reconnect = false;
       retryDelay = 250;
       void connectHost();
+    };
+    retryHost.current = () => {
+      if (cancelled) return;
+      if (!connecting) return retryNow();
+      // An attempt is in flight (perhaps a reconnect that may not start the daemon): run the
+      // user's full attempt once it ends.
+      retryPending = true;
+      setRetryQueued(true);
     };
     void connectHost();
     return () => {
@@ -1073,7 +1095,7 @@ function AcpmuxPane() {
             <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
           </div>
         )}
-        {hostError && <HostError message={hostError} onRetry={() => retryHost.current?.()} />}
+        {hostError && <HostError message={hostError} retrying={retryQueued} onRetry={() => retryHost.current?.()} />}
         <Composer
           snapshot={composerSnapshot}
           chips={ComposerChips}

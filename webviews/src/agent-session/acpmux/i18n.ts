@@ -17,6 +17,7 @@ const en = {
   "approval.title": "How should the agent's actions be approved?",
   "effort.title": "Effort",
   "host.retry": "Retry",
+  "host.retryQueued": "Retrying…",
   "host.retrying": "cmux tries again on its own. Your prompt stays here until acpmux connects.",
 } as const;
 
@@ -37,6 +38,7 @@ const ja: Record<StringKey, string> = {
   "approval.title": "エージェントの操作をどのように承認しますか？",
   "effort.title": "推論の強さ",
   "host.retry": "再試行",
+  "host.retryQueued": "再試行中…",
   "host.retrying": "cmux は自動で再試行します。acpmux に接続するまで、プロンプトはここに残ります。",
 };
 
