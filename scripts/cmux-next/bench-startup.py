@@ -130,7 +130,7 @@ def stop(pids, timeout=10):
 class Launch:
     """One app process whose launch marks arrive on a pipe."""
 
-    def __init__(self, tag, scratch):
+    def __init__(self, tag, scratch, extra_env=None):
         read_fd, write_fd = os.pipe()
         env = {
             "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
@@ -139,6 +139,7 @@ class Launch:
             "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
             "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
             "CMUX_NEXT_LAUNCH_MARKS_FD": str(write_fd),
+            **(extra_env or {}),
         }
         self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
                                         stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))
