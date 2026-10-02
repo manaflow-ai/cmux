@@ -1,8 +1,9 @@
 import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
+import { reducePolicyRollback, reducePolicyUpdate, type PolicyState } from "./team-policy.ts"
 
-export interface TeamState {
+export interface TeamState extends PolicyState {
   readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
   readonly members: Readonly<Record<string, typeof TeamMember.Type>>
   readonly hosts: Readonly<Record<string, typeof Host.Type>>
@@ -77,6 +78,15 @@ export const teamDomain: Domain<TeamState> = {
           value: { host: host.id },
           outbox: [{ kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }]
         }
+      }
+      case "team.policy.update":
+      case "team.policy.rollback": {
+        if (!state.team) return reject("validation.invalid", "team not initialized")
+        // Muxes change policy only through an approval flow (identity spec 4a), which does not exist yet.
+        if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot change team policy")
+        const role = p.user ? state.members[p.user]?.role : undefined
+        if (role !== "owner" && role !== "admin") return reject("auth.forbidden", "only team owners and admins may change team policy")
+        return op === "team.policy.update" ? reducePolicyUpdate(state, params, ctx) : reducePolicyRollback(state, params, ctx)
       }
       default:
         return reject("validation.invalid", `unknown op ${op}`)

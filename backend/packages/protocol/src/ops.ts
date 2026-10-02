@@ -17,6 +17,7 @@ import {
 import { automationOps } from "./automation-ops.ts"
 import { integrationOps } from "./integrations.ts"
 import { feedOps } from "./feed.ts"
+import { policyOps } from "./policy-ops.ts"
 
 export { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
@@ -160,7 +161,8 @@ export const cloudOps = [
   HostRemove,
   ...automationOps,
   ...integrationOps,
-  ...feedOps
+  ...feedOps,
+  ...policyOps
 ] as const
 
 export type CloudOpName = (typeof cloudOps)[number]["name"]

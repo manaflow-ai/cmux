@@ -2,6 +2,7 @@ import type { Principal } from "@cmux/ownership"
 import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
+import { policyAt } from "./domains/team-policy.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export class TeamDO extends OwnerDO<TeamState> {
@@ -18,10 +19,27 @@ export class TeamDO extends OwnerDO<TeamState> {
     }))
   }
 
-  protected read(state: TeamState, op: string, _params: unknown, principal: Principal): ReadResult {
-    if (!principal.user || !state.members[principal.user]) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
-    if (op !== "team.directory") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
-    return { ok: true, value: { team: state.team?.id, members: Object.values(state.members), hosts: Object.values(state.hosts) }, revision: "" }
+  protected read(state: TeamState, op: string, params: unknown, principal: Principal): ReadResult {
+    const member = principal.user ? state.members[principal.user] : undefined
+    if (!member) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
+    const p = (params ?? {}) as { version?: unknown; limit?: unknown }
+    switch (op) {
+      case "team.directory":
+        return { ok: true, value: { team: state.team?.id, members: Object.values(state.members), hosts: Object.values(state.hosts) }, revision: "" }
+      case "team.policy.get": {
+        if (p.version !== undefined && (typeof p.version !== "number" || !Number.isInteger(p.version))) return { ok: false, code: "validation.invalid", message: "version must be an integer" }
+        const policy = policyAt(state, p.version as number | undefined)
+        if (!policy) return { ok: false, code: "selector.not_found", message: `policy version ${String(p.version)} is not retained` }
+        return { ok: true, value: { team: state.team?.id, policy }, revision: "" }
+      }
+      case "team.policy.history": {
+        if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may read policy history" }
+        const limit = typeof p.limit === "number" && Number.isInteger(p.limit) ? Math.min(Math.max(p.limit, 1), 100) : 20
+        return { ok: true, value: { team: state.team?.id, versions: (state.policy_history ?? []).slice(0, limit) }, revision: "" }
+      }
+      default:
+        return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
+    }
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {
