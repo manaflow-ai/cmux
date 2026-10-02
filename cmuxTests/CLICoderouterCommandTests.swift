@@ -666,16 +666,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testProviderFirstAgentAliasAddsTheCanonicalSeparator() {
         XCTAssertEqual(
-            CMUXCLI.vmAgentAliasArgs(["claude", "--machine", "vm-agent-test", "reply exactly pong"]),
+            CmuxTuiRemoteRouting.vmAgentAliasArgs(["claude", "--machine", "vm-agent-test", "reply exactly pong"]),
             ["--agent", "claude", "--machine", "vm-agent-test", "--", "reply exactly pong"]
         )
         XCTAssertEqual(
-            CMUXCLI.vmAgentAliasArgs(["codex", "--", "exec", "summarize"]),
+            CmuxTuiRemoteRouting.vmAgentAliasArgs(["codex", "--", "exec", "summarize"]),
             ["--agent", "codex", "--", "exec", "summarize"]
         )
         // Focus flags belong to `vm agent`, not to the agent's prompt.
         XCTAssertEqual(
-            CMUXCLI.vmAgentAliasArgs(["claude", "--no-focus", "reply exactly pong"]),
+            CmuxTuiRemoteRouting.vmAgentAliasArgs(["claude", "--no-focus", "reply exactly pong"]),
             ["--agent", "claude", "--no-focus", "--", "reply exactly pong"]
         )
     }
