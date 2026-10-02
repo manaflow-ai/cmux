@@ -242,19 +242,13 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         onAuthorized: @escaping () -> Bool
     ) -> Bool {
-        let descriptor = CmuxActionTrustDescriptor(
+        let descriptor = textTrustDescriptor(
+            payload,
             actionID: actionID,
-            // Saved permission for inserting text must not also authorize Enter.
-            kind: payload.submit ? "terminalTextSubmit" : "terminalText",
-            command: payload.text,
-            target: CmuxConfigTerminalCommandTarget.currentTerminal.rawValue,
-            workspaceCommand: nil,
-            configPath: configSourcePath.map(canonicalPath),
-            projectRoot: configSourcePath.map { canonicalPath(CmuxButtonIcon.projectRoot(forConfigPath: $0)) },
-            iconFingerprint: icon?.projectLocalImageFingerprint(
-                configSourcePath: iconSourcePath ?? configSourcePath,
-                globalConfigPath: globalConfigPath
-            )
+            configSourcePath: configSourcePath,
+            icon: icon,
+            iconSourcePath: iconSourcePath,
+            globalConfigPath: globalConfigPath
         )
         var delivered = true
         let authorized = authorizeProjectActionIfNeeded(
@@ -269,6 +263,31 @@ struct CmuxConfigExecutor {
             delivered = onAuthorized()
         }
         return authorized && delivered
+    }
+
+    /// Shares saved permission between text delivery and its tab-bar icon.
+    private static func textTrustDescriptor(
+        _ payload: CmuxTextActionPayload,
+        actionID: String,
+        configSourcePath: String?,
+        icon: CmuxButtonIcon?,
+        iconSourcePath: String?,
+        globalConfigPath: String
+    ) -> CmuxActionTrustDescriptor {
+        CmuxActionTrustDescriptor(
+            actionID: actionID,
+            // Saved permission for inserting text must not also authorize Enter.
+            kind: payload.submit ? "terminalTextSubmit" : "terminalText",
+            command: payload.text,
+            target: CmuxConfigTerminalCommandTarget.currentTerminal.rawValue,
+            workspaceCommand: nil,
+            configPath: configSourcePath.map(canonicalPath),
+            projectRoot: configSourcePath.map { canonicalPath(CmuxButtonIcon.projectRoot(forConfigPath: $0)) },
+            iconFingerprint: icon?.projectLocalImageFingerprint(
+                configSourcePath: iconSourcePath ?? configSourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        )
     }
 
     /// Realises a text payload on a terminal panel: bracketed paste of the
@@ -615,6 +634,17 @@ struct CmuxConfigExecutor {
         if let inlineWorkspaceCommand = button.inlineWorkspaceSyntheticCommand {
             return workspaceTrustDescriptor(
                 command: inlineWorkspaceCommand,
+                actionID: button.id,
+                configSourcePath: configSourcePath,
+                icon: resolvedIcon,
+                iconSourcePath: iconSourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        }
+
+        if let payload = button.action.textPayload {
+            return textTrustDescriptor(
+                payload,
                 actionID: button.id,
                 configSourcePath: configSourcePath,
                 icon: resolvedIcon,
