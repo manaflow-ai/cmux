@@ -569,8 +569,8 @@ final class TerminalTabOverviewViewController: UIViewController {
     private func close(id: MobileTerminalPreview.ID) {
         guard !isTransitioning, !isPrivateMode, let card = cards[id] else { return }
         guard visibleItems.count > 1 else { return }
+        isTransitioning = true
         removedIDs.insert(id)
-        onClose(id)
         UIView.animate(
             withDuration: 0.26,
             delay: 0,
@@ -584,6 +584,11 @@ final class TerminalTabOverviewViewController: UIViewController {
                 card.removeFromSuperview()
                 self.cards[id] = nil
                 self.reconcileCards(animated: true)
+                self.isTransitioning = false
+                // Let the local shrink and reflow finish before SwiftUI updates
+                // the source collection. Calling this earlier can cause
+                // update() to remove the card before its close animation runs.
+                self.onClose(id)
             }
         )
     }
