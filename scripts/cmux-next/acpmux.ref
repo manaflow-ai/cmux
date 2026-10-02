@@ -1,5 +1,5 @@
 # acpmux source commit used by the cmux-next app bundle.
 # Refresh after the acpmux branch advances; when the crate lands in this
 # branch, the build helper will switch to the in-tree workspace package.
-commit=c055bc1cd1e922f0c3c23fa8b128596d6a07475b
+commit=617aba23a5f05dbd0bd9d1f053be05ab8fba811c
 repository=https://github.com/manaflow-ai/cmux.git
