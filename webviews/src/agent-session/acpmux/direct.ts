@@ -153,13 +153,19 @@ export function mergeToolItem(
   };
 }
 
-/// The command line a shell call ran: Codex and Claude both send `rawInput.command`, as a
-/// string or an argv array.
+/// The command line a shell call ran, from `rawInput.command`: a string, or an argv array. An
+/// argv that runs a script through a shell (`zsh -lc "cd x && bun test"`) shows the script;
+/// otherwise a part with spaces or quotes is single-quoted, so the line reads as typed.
 export function shellCommand(rawInput: any): string | undefined {
   const command = rawInput?.command;
   if (typeof command === "string") return command;
-  if (Array.isArray(command) && command.every((part) => typeof part === "string")) return command.join(" ");
-  return undefined;
+  if (!Array.isArray(command) || !command.every((part) => typeof part === "string") || !command.length)
+    return undefined;
+  const [program, flag, script] = command as string[];
+  if (command.length === 3 && /(^|\/)(ba|z|da|fi)?sh$/.test(program!) && /^-l?c$/.test(flag!)) return script;
+  return (command as string[])
+    .map((part) => (/^[\w@%+=:,./-]+$/.test(part) ? part : `'${part.replace(/'/g, "'\\''")}'`))
+    .join(" ");
 }
 
 function exitCode(rawOutput: any): number | undefined {
@@ -169,7 +175,7 @@ function exitCode(rawOutput: any): number | undefined {
 
 /// Codex reports a shell call's output in `rawOutput` when the call carries no content.
 function formattedOutput(rawOutput: any): string {
-  const text = rawOutput?.formatted_output ?? rawOutput?.stdout;
+  const text = rawOutput?.formatted_output;
   return typeof text === "string" ? text : "";
 }
 

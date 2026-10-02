@@ -52,7 +52,8 @@ function ToolRow({ item }: { item: AcpmuxActivity }) {
   const running = tool.status === "pending" || tool.status === "in_progress";
   const failed = tool.status === "failed";
   const body = tool.output?.replace(/\n$/, "");
-  const shell = tool.kind === "execute" && Boolean(tool.command || body);
+  // Only a call with a command line is a shell; an MCP call can also say "execute".
+  const shell = tool.kind === "execute" && Boolean(tool.command);
   const content = (
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>

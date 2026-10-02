@@ -8,6 +8,12 @@ describe("shell calls", () => {
   test("the command comes from rawInput, as a string or an argv array", () => {
     expect(shellCommand({ command: "bun test Sources/Fleet", cwd: "~/code/cmux" })).toBe("bun test Sources/Fleet");
     expect(shellCommand({ command: ["git", "status", "--short"] })).toBe("git status --short");
+    // A script run through a shell shows as the script; other parts keep their quoting.
+    expect(shellCommand({ command: ["/bin/zsh", "-lc", "cd x && bun test"] })).toBe("cd x && bun test");
+    expect(shellCommand({ command: ["bash", "-c", "ls"] })).toBe("ls");
+    expect(shellCommand({ command: ["rg", "-n", "keep 3|newest", "tools"] })).toBe("rg -n 'keep 3|newest' tools");
+    expect(shellCommand({ command: ["echo", "it's"] })).toBe("echo 'it'\\''s'");
+    expect(shellCommand({ command: [] })).toBeUndefined();
     expect(shellCommand({ arguments: { code: "await cua.getState()" } })).toBeUndefined();
     expect(shellCommand(undefined)).toBeUndefined();
   });
