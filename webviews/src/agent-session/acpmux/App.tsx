@@ -6,7 +6,7 @@ import { applyAgentTheme } from "../shared/theme";
 import { diffRows, layoutConversation, markdownBlocks, placeRows, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
-import { startMockHost } from "./mock";
+import { MockAcpmuxSocket, mockHost } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
@@ -349,12 +349,10 @@ function AcpmuxPane() {
       try {
         const host = await callNative<{ protocolVersion: number; transport?: string; endpoint?: string; token?: string; sessionId?: string; newSession?: boolean }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
-        if (host.transport === "mock") {
-          window.cmuxAcpmuxActions = startMockHost((next) => { rowsRef.current = new Map(next.rows.map((row) => [row.id, row])); setSnapshot(next); });
-          return;
-        }
-        if (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token) return;
-        const client = await AcpmuxDirectClient.connect(host as AcpmuxHostConfig, (next) => {
+        // Mock mode runs this same client against an in-page daemon.
+        const mock = host.transport === "mock";
+        if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) return;
+        const client = await AcpmuxDirectClient.connect(mock ? mockHost : host as AcpmuxHostConfig, (next) => {
           rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
           setSnapshot(next);
         }, () => {
@@ -365,13 +363,14 @@ function AcpmuxPane() {
           delete window.cmuxAcpmuxActions;
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
           retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
-        });
+        }, mock ? () => new MockAcpmuxSocket() as unknown as WebSocket : undefined);
         if (cancelled) { client.close(); return; }
         directClient.current = client;
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
         retryDelay = 250;
-        const persistSession = (sessionId?: string) => sessionId ? callNative("chat.persistSession", { sessionId }).catch(() => undefined) : Promise.resolve();
+        // A mock session is not one the host can reopen.
+        const persistSession = (sessionId?: string) => sessionId && !mock ? callNative("chat.persistSession", { sessionId }).catch(() => undefined) : Promise.resolve();
         window.cmuxAcpmuxActions = {
           "chat.send": async ({ text }) => { const sessionId = await client.ensureSession(); await persistSession(sessionId); return client.send(String(text ?? "")); },
           "chat.cancel": () => client.cancel(),

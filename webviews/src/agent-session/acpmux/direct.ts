@@ -109,6 +109,9 @@ function sessionUpdate(event: EventRecord): any | undefined {
   return event.dir === "in" && event.msg.method === "session/update" ? event.msg.params?.update : undefined;
 }
 
+/// Opens the client's socket; mock mode passes an in-page daemon (mock.ts).
+export type OpenSocket = (url: URL) => WebSocket;
+
 /** Direct browser client for the authenticated acpmux WebSocket protocol. */
 export class AcpmuxDirectClient {
   private socket?: WebSocket;
@@ -146,15 +149,15 @@ export class AcpmuxDirectClient {
   private attachedGeneration = -1;
   private historyExhausted = false;
 
-  private constructor(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void) {
+  private constructor(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void, private readonly openSocket: OpenSocket = (url) => new WebSocket(url)) {
     this.host = host;
     this.listener = listener;
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
   }
 
-  static async connect(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void): Promise<AcpmuxDirectClient> {
-    const client = new AcpmuxDirectClient(host, listener, onLost);
+  static async connect(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void, openSocket?: OpenSocket): Promise<AcpmuxDirectClient> {
+    const client = new AcpmuxDirectClient(host, listener, onLost, openSocket);
     await client.open();
     return client;
   }
@@ -165,7 +168,7 @@ export class AcpmuxDirectClient {
     const url = new URL(this.host.endpoint);
     url.searchParams.set("token", this.host.token);
     await new Promise<void>((resolve, reject) => {
-      const socket = new WebSocket(url);
+      const socket = this.openSocket(url);
       this.socket = socket;
       let opened = false;
       socket.onopen = () => { opened = true; resolve(); };
