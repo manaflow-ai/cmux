@@ -27,21 +27,10 @@ extension View {
     /// nothing). The band's fade is instead screen-anchored chrome in
     /// `GhosttySurfaceHostView`.
     ///
-    /// On iOS 27 the native opt-out is applied as well once an Xcode 27
-    /// toolchain builds this target.
     @ViewBuilder
     func mobilePinnedNavigationBar() -> some View {
         #if canImport(UIKit)
-        #if compiler(>=6.4)
-        if #available(iOS 27.0, *) {
-            background(PinnedNavigationBarApplier())
-                .toolbarMinimizeBehavior(.never, for: .navigationBar)
-        } else {
-            background(PinnedNavigationBarApplier())
-        }
-        #else
         background(PinnedNavigationBarApplier())
-        #endif
         #else
         self
         #endif

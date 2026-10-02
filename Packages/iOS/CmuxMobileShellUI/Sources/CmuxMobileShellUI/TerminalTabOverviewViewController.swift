@@ -46,7 +46,7 @@ private func configureLiquidGlassMaterial(
 ) {
     if #available(iOS 26.0, *) {
         let glass = UIGlassEffect(style: .regular)
-        glass.interactive = true
+        glass.isInteractive = true
         view.effect = glass
     } else {
         view.effect = UIBlurEffect(style: fallback)
@@ -1430,7 +1430,7 @@ private final class TerminalTabOverviewCardView: UIControl {
     override func layoutSubviews() {
         super.layoutSubviews()
         let inset: CGFloat = bounds.width > 220 ? 9 : 7
-        let surfaceHeight = bounds.height > 300 ? 178 : 146
+        let surfaceHeight: CGFloat = bounds.height > 300 ? 178 : 146
         surface.frame = CGRect(
             x: inset,
             y: inset,
