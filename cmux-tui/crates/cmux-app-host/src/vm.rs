@@ -27,6 +27,15 @@ pub const RUNTIME_JS: &str = include_str!("../js/dist/cmux-app-runtime.js");
 
 /// Longest log message kept; longer ones are cut.
 const MAX_LOG_CHARS: usize = 4096;
+/// Bytes of messages one entry point may produce; more kills the VM (the
+/// outbox lives outside the counted engine heap).
+const MAX_OUTBOX_BYTES: usize = 8 * 1024 * 1024;
+/// Armed timers and live subscriptions per VM; more kills the VM.
+const MAX_TIMERS: usize = 256;
+const MAX_SUBSCRIPTIONS: usize = 256;
+/// One-shot timers fire no sooner than this, so a self-rearming timer cannot
+/// spin the host.
+const MIN_TIMER: Duration = Duration::from_millis(50);
 
 /// Per-VM limits (plans/cmux-next/app-platform.md section 13.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,12 +93,26 @@ struct Shared {
     /// Calls refused by the pending-call cap; answered after the entry.
     overflow: Vec<u64>,
     max_pending_calls: usize,
+    subscriptions: BTreeSet<u64>,
+    outbox_bytes: usize,
+    /// The VM produced more messages, timers or subscriptions than allowed.
+    flooded: bool,
 }
 
 impl Shared {
+    fn push(&mut self, message: FromHost, bytes: usize) {
+        self.outbox_bytes = self.outbox_bytes.saturating_add(bytes);
+        if self.outbox_bytes > MAX_OUTBOX_BYTES {
+            self.flooded = true;
+            return;
+        }
+        self.outbox.push(message);
+    }
+
     fn log(&mut self, level: &str, message: &str) {
         let message: String = message.chars().take(MAX_LOG_CHARS).collect();
-        self.outbox.push(FromHost::Log { level: level.to_string(), message });
+        let bytes = message.len();
+        self.push(FromHost::Log { level: level.to_string(), message }, bytes);
     }
 }
 
@@ -375,7 +398,9 @@ impl AppVm {
 
     /// Messages produced since the last call, in order.
     pub fn take_outbox(&mut self) -> Vec<FromHost> {
-        std::mem::take(&mut self.shared.borrow_mut().outbox)
+        let mut shared = self.shared.borrow_mut();
+        shared.outbox_bytes = 0;
+        std::mem::take(&mut shared.outbox)
     }
 
     /// Calls forwarded and not answered yet.
@@ -483,11 +508,14 @@ impl AppVm {
     }
 
     fn limit_hit(&self) -> bool {
-        self.interrupted.load(Ordering::Relaxed) || self.memory_exceeded.load(Ordering::Relaxed)
+        self.interrupted.load(Ordering::Relaxed)
+            || self.memory_exceeded.load(Ordering::Relaxed)
+            || self.shared.borrow().flooded
     }
 
     fn check_limits(&mut self, entry: &str) -> Result<(), VmError> {
-        let reason = if self.memory_exceeded.load(Ordering::Relaxed) {
+        let reason = if self.memory_exceeded.load(Ordering::Relaxed) || self.shared.borrow().flooded
+        {
             FatalReason::Memory
         } else if self.interrupted.load(Ordering::Relaxed) {
             FatalReason::Interrupt
@@ -527,17 +555,21 @@ fn install_native<'js>(ctx: &Ctx<'js>, shared: &Rc<RefCell<Shared>>) -> rquickjs
             move |name: String, params: String, options: String, cb: f64| {
                 let cb = cb as u64;
                 let mut shared = s.borrow_mut();
+                // A repeated id (app code calling the native function itself)
+                // never counts twice toward the cap or reaches the supervisor.
+                if shared.pending_calls.contains(&cb) {
+                    return;
+                }
                 if shared.pending_calls.len() >= shared.max_pending_calls {
                     shared.overflow.push(cb);
                     return;
                 }
                 shared.pending_calls.insert(cb);
-                shared.outbox.push(FromHost::Call {
-                    cb,
-                    name,
-                    params: parse(&params),
-                    options: parse(&options),
-                });
+                let bytes = name.len() + params.len() + options.len();
+                shared.push(
+                    FromHost::Call { cb, name, params: parse(&params), options: parse(&options) },
+                    bytes,
+                );
             },
         )?,
     )?;
@@ -548,7 +580,13 @@ fn install_native<'js>(ctx: &Ctx<'js>, shared: &Rc<RefCell<Shared>>) -> rquickjs
             let mut shared = s.borrow_mut();
             let sub = shared.next_sub;
             shared.next_sub += 1;
-            shared.outbox.push(FromHost::Subscribe { sub, stream, filter: parse(&filter) });
+            if shared.subscriptions.len() >= MAX_SUBSCRIPTIONS {
+                shared.flooded = true;
+                return sub as f64;
+            }
+            shared.subscriptions.insert(sub);
+            let bytes = stream.len() + filter.len();
+            shared.push(FromHost::Subscribe { sub, stream, filter: parse(&filter) }, bytes);
             sub as f64
         })?,
     )?;
@@ -556,14 +594,18 @@ fn install_native<'js>(ctx: &Ctx<'js>, shared: &Rc<RefCell<Shared>>) -> rquickjs
     native.set(
         "unsubscribe",
         Function::new(ctx.clone(), move |sub: f64| {
-            s.borrow_mut().outbox.push(FromHost::Unsubscribe { sub: sub as u64 });
+            let mut shared = s.borrow_mut();
+            if shared.subscriptions.remove(&(sub as u64)) {
+                shared.push(FromHost::Unsubscribe { sub: sub as u64 }, 16);
+            }
         })?,
     )?;
     let s = shared.clone();
     native.set(
         "scene",
         Function::new(ctx.clone(), move |mount: String, ops: String| {
-            s.borrow_mut().outbox.push(FromHost::Scene { mount, ops: parse(&ops) });
+            let bytes = mount.len() + ops.len();
+            s.borrow_mut().push(FromHost::Scene { mount, ops: parse(&ops) }, bytes);
         })?,
     )?;
     let s = shared.clone();
@@ -573,15 +615,17 @@ fn install_native<'js>(ctx: &Ctx<'js>, shared: &Rc<RefCell<Shared>>) -> rquickjs
             let mut shared = s.borrow_mut();
             let id = shared.next_timer;
             shared.next_timer += 1;
+            if shared.timers.len() >= MAX_TIMERS {
+                shared.flooded = true;
+                return id as f64;
+            }
             let every =
                 Duration::from_millis(if ms.is_finite() && ms > 0.0 { ms as u64 } else { 0 });
-            shared.timers.insert(
-                id,
-                Timer {
-                    due: Instant::now() + every,
-                    repeat: repeat.then_some(every.max(Duration::from_millis(1000))),
-                },
-            );
+            let every =
+                if repeat { every.max(Duration::from_millis(1000)) } else { every.max(MIN_TIMER) };
+            shared
+                .timers
+                .insert(id, Timer { due: Instant::now() + every, repeat: repeat.then_some(every) });
             id as f64
         })?,
     )?;
@@ -607,7 +651,8 @@ fn install_native<'js>(ctx: &Ctx<'js>, shared: &Rc<RefCell<Shared>>) -> rquickjs
     native.set(
         "commandDone",
         Function::new(ctx.clone(), move |cb: f64, ok: bool, json: String| {
-            s.borrow_mut().outbox.push(FromHost::Done { cb: cb as u64, ok, body: parse(&json) });
+            let bytes = json.len();
+            s.borrow_mut().push(FromHost::Done { cb: cb as u64, ok, body: parse(&json) }, bytes);
         })?,
     )?;
     ctx.globals().set("__cmuxAppNative", native)?;

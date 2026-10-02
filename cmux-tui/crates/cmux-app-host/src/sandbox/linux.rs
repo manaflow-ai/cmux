@@ -27,6 +27,12 @@ struct RulesetAttr {
 const BPF_LD_W_ABS: u16 = 0x20;
 const BPF_JMP_JEQ_K: u16 = 0x15;
 const BPF_RET_K: u16 = 0x06;
+// BPF_JMP | BPF_JGE | BPF_K.
+const BPF_JMP_JGE_K: u16 = 0x35;
+/// x32 syscalls share the x86_64 audit arch with this bit set in the number;
+/// every such number is killed so the denylist cannot be sidestepped.
+#[cfg(target_arch = "x86_64")]
+const X32_SYSCALL_BIT: u32 = 0x4000_0000;
 const SECCOMP_RET_KILL_PROCESS: u32 = 0x8000_0000;
 const SECCOMP_RET_ERRNO: u32 = 0x0005_0000;
 const SECCOMP_RET_ALLOW: u32 = 0x7fff_0000;
@@ -89,6 +95,36 @@ fn denied_syscalls() -> Vec<libc::c_long> {
         libc::SYS_finit_module,
         libc::SYS_delete_module,
         libc::SYS_kexec_load,
+        // Other processes (the daemon's fds, signals).
+        libc::SYS_pidfd_open,
+        libc::SYS_pidfd_getfd,
+        libc::SYS_pidfd_send_signal,
+        libc::SYS_kill,
+        libc::SYS_tkill,
+        libc::SYS_tgkill,
+        libc::SYS_rt_sigqueueinfo,
+        libc::SYS_rt_tgsigqueueinfo,
+        libc::SYS_process_madvise,
+        libc::SYS_kcmp,
+        // File metadata Landlock does not cover.
+        libc::SYS_fchmod,
+        libc::SYS_fchown,
+        libc::SYS_utimensat,
+        libc::SYS_setxattr,
+        libc::SYS_lsetxattr,
+        libc::SYS_fsetxattr,
+        libc::SYS_removexattr,
+        libc::SYS_lremovexattr,
+        libc::SYS_fremovexattr,
+        libc::SYS_userfaultfd,
+        libc::SYS_fanotify_init,
+        libc::SYS_inotify_init1,
+        libc::SYS_quotactl,
+        libc::SYS_swapon,
+        libc::SYS_swapoff,
+        libc::SYS_reboot,
+        libc::SYS_setdomainname,
+        libc::SYS_sethostname,
     ];
     #[cfg(target_arch = "x86_64")]
     list.extend([
@@ -107,6 +143,10 @@ fn denied_syscalls() -> Vec<libc::c_long> {
         libc::SYS_chown,
         libc::SYS_lchown,
         libc::SYS_uselib,
+        libc::SYS_utime,
+        libc::SYS_utimes,
+        libc::SYS_futimesat,
+        libc::SYS_inotify_init,
     ]);
     list
 }
@@ -178,6 +218,11 @@ fn seccomp() -> Result<(), String> {
         stmt(BPF_RET_K, SECCOMP_RET_KILL_PROCESS),
         stmt(BPF_LD_W_ABS, OFFSET_NR),
     ];
+    #[cfg(target_arch = "x86_64")]
+    program.extend([
+        libc::sock_filter { code: BPF_JMP_JGE_K, jt: 0, jf: 1, k: X32_SYSCALL_BIT },
+        stmt(BPF_RET_K, SECCOMP_RET_KILL_PROCESS),
+    ]);
     for nr in denied_syscalls() {
         program.push(jump(nr as u32, 0, 1));
         program.push(stmt(BPF_RET_K, SECCOMP_RET_ERRNO | libc::EPERM as u32));
