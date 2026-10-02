@@ -144,7 +144,7 @@ struct WindowBackgroundOverrideTests {
         let backdrop = WindowBackdrop(backgroundOpacity: 0.7, backgroundBlur: 20)
         view.apply(backdrop, tint: .black)
         #expect(view.material == .frosted)
-        #expect(backdrop.setsWindowBlurRadius)
+        #expect(backdrop.windowBlurRadius == 20)
         #expect(materialViews(in: view).isEmpty)
         #expect(view.materialView == nil)
         let tint = try #require(view.tintColor)

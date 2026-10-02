@@ -46,10 +46,10 @@ final class WindowRootView: NSView {
     /// - Parameter reduceTransparency: The user's Reduce Transparency
     ///   setting, read on every theme and display-options change.
     /// - Parameter applyWindowBlur: Sets the window's behind-window blur
-    ///   radius from the Ghostty config.
+    ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
     init(sidebar: SidebarContainerView, rail: WindowRailView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
-         applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { window, _ in GhosttyRuntime.shared.applyBackgroundBlur(to: window) }) {
+         applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { WindowBlurRadius.set($1, on: $0) }) {
         self.sidebar = sidebar
         self.rail = rail
         self.reduceTransparency = reduceTransparency
@@ -280,6 +280,6 @@ final class WindowRootView: NSView {
             : NSColor.white.withAlphaComponent(backdrop.windowBackgroundAlpha)
         if window.isOpaque != backdrop.isOpaque { window.isOpaque = backdrop.isOpaque }
         if window.backgroundColor != color { window.backgroundColor = color }
-        if backdrop.setsWindowBlurRadius { applyWindowBlur(window, backdrop.windowBlurRadius) }
+        applyWindowBlur(window, backdrop.windowBlurRadius)
     }
 }

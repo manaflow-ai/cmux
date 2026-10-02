@@ -75,7 +75,7 @@ struct WindowRootMaterialTests {
     func aFrostedRootHostsOnlyTheTint(opacity: Double, blur: Int) throws {
         let (root, room) = makeRoot(input(opacity: opacity, blur: blur))
         #expect(root.backdrop.material == .frosted)
-        #expect(root.backdrop.setsWindowBlurRadius)
+        #expect(root.backdrop.windowBlurRadius == blur)
         #expect(rootMaterialViews(root).isEmpty)
         #expect(root.layer?.backgroundColor == nil)
         let tint = try #require(root.backdropView.tintColor)
