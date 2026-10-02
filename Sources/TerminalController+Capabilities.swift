@@ -316,6 +316,7 @@ extension TerminalController {
             "agent.message.ack",
             "agent.message.mark_read",
             "agent.message.poll",
+            "agent.message.settings",
             "debug.terminals",
             "surface.send_text",
             "surface.send_key",
