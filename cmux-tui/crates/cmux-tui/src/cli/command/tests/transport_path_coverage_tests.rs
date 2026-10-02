@@ -102,8 +102,14 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(seen, expected, "safe CLI operation coverage drifted from the catalog");
     // Fields only the app that hosts a browser page writes (its record's
-    // owner and history list); the CLI never sets them.
-    let app_owned = [("tab.update", "owner"), ("tab.update", "back"), ("tab.update", "forward")];
+    // owner and history list), and a connection's own capability set; the
+    // CLI never sets them.
+    let app_owned = [
+        ("tab.update", "owner"),
+        ("tab.update", "back"),
+        ("tab.update", "forward"),
+        ("client.metadata.update", "capabilities"),
+    ];
     for operation in &expected {
         let catalog_fields = catalog["operations"][operation]["params"]["fields"]
             .as_object()
