@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "68f320c61aea43c8086b6eb581a5d4f6411714c3749b5177b44c3806a2e34d87";
+pub const ir_sha256 = "bde47abe8ff2614238a6745a2f306ff5814abf6c271a9dca0a0ae41c9995f03f";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -4488,6 +4488,7 @@ pub const NewConversationTabRequest = struct {
     owner: []const u8,
     pane: wire.Field(Id) = .absent,
     rows: wire.Field(u16) = .absent,
+    workspace: wire.Field(Id) = .absent,
 };
 
 pub const NewConversationTabResult = JsonValue;

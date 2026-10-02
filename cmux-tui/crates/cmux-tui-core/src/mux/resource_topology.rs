@@ -735,7 +735,7 @@ impl Mux {
         Ok(commit)
     }
 
-    pub(super) fn emit_resource_topology_legacy_events(
+    pub(crate) fn emit_resource_topology_legacy_events(
         &self,
         operation: ResourceOperation,
         commit: &ResourcePatchCommit,

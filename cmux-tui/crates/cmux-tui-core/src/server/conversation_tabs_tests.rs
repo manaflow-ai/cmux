@@ -186,3 +186,30 @@ fn conversation_tab_is_not_listed_or_updated_as_a_browser() {
     assert!(error.to_string().contains("conversation tab"), "{error}");
     mux.shutdown();
 }
+
+/// The home workspace starts empty; a conversation tab sent to it by
+/// workspace gets the workspace's first pane, and a keyed retry replays.
+#[test]
+fn conversation_tab_fills_the_empty_home_workspace() {
+    let mux = test_mux_for_conversation_tabs();
+    let _ = pane_with_terminal(&mux);
+    let home = mux.state_ensure_home().unwrap().workspace_id;
+    let workspace = mux.with_state(|state| {
+        state.workspaces.iter().find(|item| item.public_id.as_str() == home).unwrap().id
+    });
+    let request = json!({"cmd":"new-conversation-tab","workspace":workspace,
+                         "conversation":"conv_01CHIEF","owner":"local",
+                         "origin":"cmux-next-home","mutation_id":"home-chief-tab"});
+    let created = run(&mux, request.clone()).unwrap();
+    let surface = created["surface"].as_u64().unwrap();
+    let in_home = mux.with_state(|state| {
+        let pane = state.pane_of(surface).unwrap();
+        state.screen_of(pane).map(|(index, _)| state.workspaces[index].id) == Some(workspace)
+    });
+    assert!(in_home, "the conversation tab is not in the home workspace");
+    assert_eq!(run(&mux, request).unwrap()["replayed"], true);
+    let both = json!({"cmd":"new-conversation-tab","workspace":workspace,"pane":1,
+                      "conversation":"conv_01CHIEF","owner":"local"});
+    assert!(run(&mux, both).is_err());
+    mux.shutdown();
+}
