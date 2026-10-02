@@ -5,7 +5,10 @@
 //! whose target leaves the package root, writing through any symlink
 //! (every parent is checked without following links, and files are created
 //! with `O_EXCL`), duplicate entries, more than `max_entries` entries or
-//! more than `max_bytes` unpacked bytes.
+//! more than `max_bytes` unpacked bytes. After unpack every symlink is
+//! resolved and must stay inside the canonical package root (a chain of
+//! links can pass each lexical check and still escape), and every file and
+//! directory is fsynced.
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufReader, Read};
@@ -48,15 +51,32 @@ fn clean_relative(path: &Path) -> Result<Option<PathBuf>> {
     Ok((!out.as_os_str().is_empty()).then_some(out))
 }
 
-/// A symlink at `rel` (relative to the package root) with `target` must
-/// stay inside the root when resolved lexically.
-fn check_link_target(rel: &Path, target: &Path) -> Result<()> {
+/// A symlink at `rel` (relative to the package root `root`) with `target`
+/// must stay inside the root when resolved lexically, and may not use `..`
+/// after a component that is already a symlink on disk (`a/b/up/..`
+/// resolves through the link, not lexically). [`check_tree`] then
+/// resolves every link for real, which also catches links created later.
+fn check_link_target(root: &Path, rel: &Path, target: &Path) -> Result<()> {
     let mut depth = rel.components().count() as i64 - 1;
+    let mut at = rel.parent().map(|p| root.join(p)).unwrap_or_else(|| root.to_path_buf());
+    let mut through_link = false;
     for component in target.components() {
         match component {
-            Component::Normal(_) => depth += 1,
+            Component::Normal(part) => {
+                depth += 1;
+                at.push(part);
+                through_link |= fs::symlink_metadata(&at).is_ok_and(|m| m.file_type().is_symlink());
+            }
             Component::CurDir => {}
             Component::ParentDir => {
+                if through_link {
+                    return Err(unsafe_entry(format!(
+                        "symlink {} -> {} uses .. after a symlink",
+                        rel.display(),
+                        target.display()
+                    )));
+                }
+                at.pop();
                 depth -= 1;
                 if depth < 0 {
                     return Err(unsafe_entry(format!(
@@ -141,7 +161,7 @@ pub fn unpack(archive: &Path, dest: &Path, limits: Limits) -> Result<()> {
                 Err(_) => fs::create_dir(&path).ctx(path.display())?,
             },
             EntryType::Regular | EntryType::Continuous => {
-                let size = entry.header().size().map_err(corrupt)?;
+                let size = entry.size();
                 bytes = bytes.saturating_add(size);
                 if bytes > limits.max_bytes {
                     return Err(unsafe_entry(format!("more than {} bytes", limits.max_bytes)));
@@ -157,7 +177,7 @@ pub fn unpack(archive: &Path, dest: &Path, limits: Limits) -> Result<()> {
                         unsafe_entry(format!("symlink {} has no target", rel.display()))
                     })?
                     .into_owned();
-                check_link_target(&rel, &target)?;
+                check_link_target(dest, &rel, &target)?;
                 make_symlink(&target, &path, &rel)?;
             }
             other => {
@@ -165,7 +185,36 @@ pub fn unpack(archive: &Path, dest: &Path, limits: Limits) -> Result<()> {
             }
         }
     }
-    Ok(())
+    let root = fs::canonicalize(dest).ctx(dest.display())?;
+    check_tree(&root, dest)
+}
+
+/// Resolves every symlink under `dir` and refuses one that is dangling or
+/// leaves the canonical package `root` (chains of links that each pass the
+/// lexical check). Fsyncs every directory, so the entries are durable
+/// before the package directory is renamed into the store.
+fn check_tree(root: &Path, dir: &Path) -> Result<()> {
+    for entry in fs::read_dir(dir).ctx(dir.display())? {
+        let path = entry.ctx(dir.display())?.path();
+        let meta = fs::symlink_metadata(&path).ctx(path.display())?;
+        if meta.file_type().is_symlink() {
+            let shown = path.strip_prefix(dir).unwrap_or(&path).display().to_string();
+            match fs::canonicalize(&path) {
+                Ok(real) if real.starts_with(root) => {}
+                Ok(_) => {
+                    return Err(unsafe_entry(format!(
+                        "symlink {shown} resolves outside the package"
+                    )));
+                }
+                Err(_) => {
+                    return Err(unsafe_entry(format!("symlink {shown} is dangling or loops")));
+                }
+            }
+        } else if meta.is_dir() {
+            check_tree(root, &path)?;
+        }
+    }
+    crate::sys::fsync_dir(dir).ctx(dir.display())
 }
 
 fn write_file(
@@ -191,7 +240,7 @@ fn write_file(
     if copied != size {
         return Err(Error::verification(format!("truncated entry {}", rel.display())));
     }
-    Ok(())
+    file.sync_all().ctx(path.display())
 }
 
 fn make_symlink(target: &Path, path: &Path, rel: &Path) -> Result<()> {

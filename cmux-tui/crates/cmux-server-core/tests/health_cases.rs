@@ -395,3 +395,11 @@ fn windows_fix_uses_the_system_powercfg() {
         r"C:\Windows\System32\powercfg.exe"
     );
 }
+
+#[test]
+fn disk_warning_line_is_the_smaller_threshold() {
+    let s = cmux_server_core::health::HealthSettings::default();
+    assert_eq!(s.disk_warning_line(1000 * GIB), 10 * GIB, "bytes bind on a large disk");
+    assert_eq!(s.disk_warning_line(50 * GIB), 5 * GIB, "percent binds on a small disk");
+    assert_eq!(s.disk_warning_line(0), 0);
+}

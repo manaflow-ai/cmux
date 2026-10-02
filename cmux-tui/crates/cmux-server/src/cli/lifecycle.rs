@@ -1,7 +1,7 @@
 //! `install`, `uninstall`, `status`, `upgrade`, `rollback`, `pin`
 //! (server.md 4.4).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use cmux_server_core::InstallMode;
 use cmux_server_core::access::access_policy;
@@ -42,21 +42,40 @@ pub(super) fn pg_options(args: &Args) -> PgOptions {
     PgOptions { pg_bin: args.value("pg-bin").map(PathBuf::from), cmux_bin: None }
 }
 
-/// Refuses `--system` without root and user mode as root; never escalates.
+/// Refuses system mode without root and user mode as root; never
+/// escalates. Every verb that changes the install calls it with the
+/// resolved mode.
 fn check_privilege(mode: InstallMode) -> Result<()> {
     match (mode, sys::is_root()) {
         (InstallMode::System, false) => Err(Error::rejected(
-            "--system needs root; this command never escalates. Run: sudo <this cmux> server install --system",
+            "system mode needs root; this command never escalates. Run it with sudo",
         )),
-        (InstallMode::User, true) => {
-            Err(Error::rejected("refusing to install a user-mode server as root; use --system"))
-        }
+        (InstallMode::User, true) => Err(Error::rejected(
+            "refusing to change a user-mode server as root; use --system or CMUX_SERVER_MODE=system",
+        )),
         _ => Ok(()),
     }
 }
 
+/// The layout for a verb that changes the install, after the privilege
+/// check.
+pub(super) fn mutating_layout(ctx: &Context<'_>, system_flag: bool) -> Result<Layout> {
+    let mode = host::resolve_mode(system_flag);
+    check_privilege(mode)?;
+    host::layout_for(mode, &ctx.env)
+}
+
+/// A channel name: `[a-z][a-z0-9-]{0,31}` (the manifest's channel rule).
+fn valid_channel(channel: &str) -> bool {
+    let b = channel.as_bytes();
+    !b.is_empty()
+        && b.len() <= 32
+        && b[0].is_ascii_lowercase()
+        && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
+}
+
 fn manifest_url(base: &str, channel: &str, version: Option<&str>) -> Result<String> {
-    if !channel.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') {
+    if !valid_channel(channel) {
         return Err(Error::usage(format!("invalid channel {channel:?}")));
     }
     let base = base.trim_end_matches('/');
@@ -136,11 +155,15 @@ fn report_json(report: &ApplyReport) -> Value {
 }
 
 pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
-    let mode = host::resolve_mode(args.has("system"));
-    check_privilege(mode)?;
-    let layout = host::layout_for(mode, &ctx.env)?;
+    let layout = mutating_layout(ctx, args.has("system"))?;
+    let mode = layout.mode;
     if ctx.keys.is_empty() {
         return Err(no_keys());
+    }
+    if let Some(channel) = args.value("channel")
+        && !valid_channel(channel)
+    {
+        return Err(Error::usage(format!("invalid channel {channel:?}")));
     }
     access::ensure(&access_policy(&layout), ctx.runner)?;
     let mut cfg = config(&layout)?;
@@ -156,7 +179,9 @@ pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     let mut warnings = Vec::new();
     ensure_shim(&layout, &mut warnings)?;
     let svc = services(ctx, &layout)?;
-    let service = svc.install(report.changed && report.from.is_some())?;
+    // The service restarts for a new generation here, and for a changed
+    // unit inside `install`.
+    let service = svc.install(report.changed)?;
     warnings.extend(service.warnings.iter().cloned());
     let changed = report.changed || service.changed;
     let json = json!({
@@ -190,11 +215,54 @@ fn final_backup(ctx: &Context<'_>, args: &Args, layout: &Layout) -> Result<Optio
             format!("cannot take the final backup ({e}); pass --no-backup to skip it"),
         )
     })?;
-    pg.ensure_cluster()?;
     let cwd = std::env::current_dir().map_err(|e| Error::io("current directory", e))?;
-    let dest = cwd.join(format!("cmux-server-final-backup-{}", utc_stamp(ctx.now_ms)));
+    let dest = final_backup_dest(&cwd, &fsx::local(&layout.state), ctx.now_ms)?;
+    pg.ensure_cluster()?;
     let path = pg.basebackup(&dest, WalMethod::Stream)?;
     Ok(Some(path))
+}
+
+/// `<cwd>/cmux-server-final-backup-<stamp>`, refused when `cwd` is inside
+/// the state directory that `--purge` is about to delete.
+pub(super) fn final_backup_dest(cwd: &Path, state: &Path, now_ms: u64) -> Result<PathBuf> {
+    let real = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    if real(cwd).starts_with(real(state)) {
+        return Err(Error::rejected(format!(
+            "the final backup would land in {}, which --purge deletes; run from another directory",
+            cwd.display()
+        )));
+    }
+    Ok(cwd.join(format!("cmux-server-final-backup-{}", utc_stamp(now_ms))))
+}
+
+/// The pid in `postmaster.pid` when that process is alive.
+fn live_postmaster(layout: &Layout) -> Option<u32> {
+    let text =
+        std::fs::read_to_string(fsx::local(&layout.postgres_data()).join("postmaster.pid")).ok()?;
+    let pid: u32 = text.lines().next()?.trim().parse().ok()?;
+    sys::process_alive(pid).then_some(pid)
+}
+
+/// Runs before anything is removed. A live postmaster that this command
+/// cannot stop (no Postgres binaries, or system mode) blocks `--purge`,
+/// which would delete its data directory under it; without `--purge` it is
+/// left running and reported.
+fn postgres_guard(
+    ctx: &Context<'_>,
+    args: &Args,
+    layout: &Layout,
+    purge: bool,
+) -> Result<Option<String>> {
+    let Some(pid) = live_postmaster(layout) else { return Ok(None) };
+    let mut cfg = config(layout)?;
+    let Err(e) = Postgres::open(layout, ctx.runner, &mut cfg, &pg_options(args)) else {
+        return Ok(None);
+    };
+    let message = format!("Postgres (pid {pid}) is running and this command cannot stop it ({e})");
+    if purge {
+        return Err(Error::rejected(format!("{message}; stop it first or pass --pg-bin <dir>")));
+    }
+    Ok(Some(format!("{message}; it is left running")))
 }
 
 fn stop_postgres(ctx: &Context<'_>, args: &Args, layout: &Layout) -> Result<()> {
@@ -204,16 +272,16 @@ fn stop_postgres(ctx: &Context<'_>, args: &Args, layout: &Layout) -> Result<()> 
     let mut cfg = config(layout)?;
     match Postgres::open(layout, ctx.runner, &mut cfg, &pg_options(args)) {
         Ok(pg) => pg.stop().map(|_| ()),
-        // No binaries left to stop it with: the cluster cannot be running
-        // from this install's store either way.
-        Err(e) if e.kind == crate::error::ExitKind::NotFound => Ok(()),
-        Err(e) => Err(e),
+        // `postgres_guard` already refused or reported a live cluster that
+        // this command cannot stop.
+        Err(_) => Ok(()),
     }
 }
 
 pub fn uninstall(ctx: &Context<'_>, args: &Args) -> Result<Output> {
-    let layout = layout(ctx, false)?;
+    let layout = mutating_layout(ctx, false)?;
     let purge = args.has("purge");
+    let warning = postgres_guard(ctx, args, &layout, purge)?;
     let backup =
         if purge && !args.has("no-backup") { final_backup(ctx, args, &layout)? } else { None };
     let svc = services(ctx, &layout)?;
@@ -236,8 +304,12 @@ pub fn uninstall(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     } else {
         Some(state)
     };
-    let json = json!({"removed": removed, "kept_state": kept_state, "backup": backup});
+    let warnings: Vec<String> = warning.into_iter().collect();
+    let json = json!({"removed": removed, "kept_state": kept_state, "backup": backup, "warnings": warnings});
     let mut human = String::from("cmux server: uninstalled\n");
+    for w in &warnings {
+        human.push_str(&format!("warning: {w}\n"));
+    }
     if let Some(path) = &kept_state {
         human.push_str(&format!("kept state: {}\n", path.display()));
     }
@@ -305,7 +377,7 @@ fn restart_if(ctx: &Context<'_>, layout: &Layout, changed: bool) -> Result<Vec<S
 }
 
 pub fn upgrade(ctx: &Context<'_>, args: &Args) -> Result<Output> {
-    let layout = layout(ctx, false)?;
+    let layout = mutating_layout(ctx, false)?;
     if args.has("generation") && args.has("version") {
         return Err(Error::usage("pass --version or --generation, not both"));
     }
@@ -330,7 +402,7 @@ pub fn upgrade(ctx: &Context<'_>, args: &Args) -> Result<Output> {
 }
 
 pub fn rollback(ctx: &Context<'_>, args: &Args) -> Result<Output> {
-    let layout = layout(ctx, false)?;
+    let layout = mutating_layout(ctx, false)?;
     let flip = Store::new(&layout).rollback(args.number("generation")?)?;
     restart_if(ctx, &layout, flip.from != Some(flip.to))?;
     let json = json!({"from": flip.from, "to": flip.to});
@@ -343,7 +415,7 @@ pub fn rollback(ctx: &Context<'_>, args: &Args) -> Result<Output> {
 }
 
 pub fn pin(ctx: &Context<'_>, args: &Args) -> Result<Output> {
-    let layout = layout(ctx, false)?;
+    let layout = mutating_layout(ctx, false)?;
     let mut cfg = config(&layout)?;
     let pinned = match (args.positionals.first(), args.has("clear")) {
         (Some(_), true) | (None, false) => {
@@ -363,4 +435,28 @@ pub fn pin(ctx: &Context<'_>, args: &Args) -> Result<Output> {
         None => "cmux server: pin cleared\n".to_owned(),
     };
     Ok(Output::new(json!({"pinned": pinned}), human))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn final_backup_never_lands_in_the_state_it_purges() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = tmp.path().join("state");
+        std::fs::create_dir_all(state.join("sub")).unwrap();
+        assert!(final_backup_dest(&state, &state, 0).is_err());
+        assert!(final_backup_dest(&state.join("sub"), &state, 0).is_err());
+        let ok = final_backup_dest(tmp.path(), &state, 0).unwrap();
+        assert_eq!(ok, tmp.path().join("cmux-server-final-backup-19700101T000000Z"));
+    }
+
+    #[test]
+    fn channel_names_follow_the_manifest_rule() {
+        assert!(valid_channel("stable") && valid_channel("beta-2"));
+        for bad in ["", "Beta", "2beta", "a b", "../x", &"a".repeat(33)] {
+            assert!(!valid_channel(bad), "{bad:?}");
+        }
+    }
 }

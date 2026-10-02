@@ -81,6 +81,18 @@ mod imp {
     pub fn fsync_dir(path: &Path) -> io::Result<()> {
         std::fs::File::open(path)?.sync_all()
     }
+
+    pub fn process_alive(pid: u32) -> bool {
+        let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+        if pid <= 0 {
+            return false;
+        }
+        // SAFETY: signal 0 only checks that the process exists.
+        if unsafe { libc::kill(pid, 0) } == 0 {
+            return true;
+        }
+        io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
 }
 
 #[cfg(not(unix))]
@@ -118,6 +130,10 @@ mod imp {
 
     pub fn fsync_dir(_path: &Path) -> io::Result<()> {
         Ok(())
+    }
+
+    pub fn process_alive(_pid: u32) -> bool {
+        false
     }
 }
 
@@ -159,4 +175,10 @@ pub fn statvfs(path: &Path) -> io::Result<(u64, u64)> {
 /// Makes a rename or a new entry in `path` durable.
 pub fn fsync_dir(path: &Path) -> io::Result<()> {
     imp::fsync_dir(path)
+}
+
+/// True when a process with this pid exists (`kill(pid, 0)`; `EPERM`
+/// means it exists under another user).
+pub fn process_alive(pid: u32) -> bool {
+    imp::process_alive(pid)
 }

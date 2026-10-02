@@ -254,6 +254,26 @@ fn unpack_refuses_traversal_absolute_and_escaping_links() {
             "duplicate file",
             raw_tar(&[raw_entry(b"a", Regular, b"", b"1"), raw_entry(b"a", Regular, b"", b"2")]),
         ),
+        (
+            // Each link passes the lexical check; x resolves to the
+            // package's parent through a/b/up.
+            "symlink chain, .. after a symlink",
+            raw_tar(&[
+                raw_entry(b"a/b/up", Symlink, b"../..", b""),
+                raw_entry(b"x", Symlink, b"a/b/up/..", b""),
+            ]),
+        ),
+        (
+            // The link that x walks through is created after x, so only
+            // the resolution after unpack can see the escape.
+            "symlink chain created out of order",
+            raw_tar(&[
+                raw_entry(b"a/b/keep", Regular, b"", b"k"),
+                raw_entry(b"x", Symlink, b"a/b/c/..", b""),
+                raw_entry(b"a/b/c", Symlink, b"../..", b""),
+            ]),
+        ),
+        ("dangling symlink", raw_tar(&[raw_entry(b"bin/x", Symlink, b"missing", b"")])),
     ];
     for (name, tar) in cases {
         let err = try_unpack(&tar).err().unwrap_or_else(|| panic!("{name} was accepted"));
@@ -302,4 +322,26 @@ fn remove_all_keeps_state() {
     assert!(f.store.record.is_file(), "the updater record stays with the state");
     // A reinstall still refuses an older manifest.
     assert_eq!(f.apply(&f.release(0, "v0")).unwrap_err().kind, ExitKind::Verification);
+}
+
+#[cfg(unix)]
+#[test]
+fn apply_never_changes_the_store_root_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture();
+    fs::create_dir_all(&f.store.root).unwrap();
+    fs::set_permissions(&f.store.root, fs::Permissions::from_mode(0o755)).unwrap();
+    f.apply(&f.release(1, "v1")).unwrap();
+    f.store.rollback(Some(1)).unwrap();
+    let mode = fs::metadata(&f.store.root).unwrap().permissions().mode() & 0o7777;
+    assert_eq!(mode, 0o755, "the root keeps the mode core's access policy gave it");
+}
+
+#[test]
+fn http_status_maps_to_exit_codes() {
+    use cmux_server::store::fetch::status_error;
+    assert_eq!(status_error("u", 404).kind, ExitKind::NotFound);
+    assert_eq!(status_error("u", 410).kind, ExitKind::NotFound);
+    assert_eq!(status_error("u", 403).kind, ExitKind::Rejected);
+    assert_eq!(status_error("u", 503).kind, ExitKind::Unreachable);
 }

@@ -55,13 +55,6 @@ pub fn collect(layout: &Layout, host_id: HostId, runner: &dyn Runner, input: &Pr
 const MIN_RECHECK_MS: u64 = 60_000;
 const MAX_RECHECK_MS: u64 = 30 * 60_000;
 
-/// Free bytes under which `disk.low` (warning) raises: under the percent
-/// AND under the byte threshold, so the smaller of the two.
-pub fn disk_warning_line(settings: &HealthSettings, total_bytes: u64) -> u64 {
-    let pct = (u128::from(total_bytes) * u128::from(settings.disk_warning_percent) / 100) as u64;
-    pct.min(settings.disk_warning_bytes)
-}
-
 /// The delay until the next disk re-check (server.md 9.2): headroom to the
 /// warning line divided by the observed write rate, clamped to 1 to 30
 /// minutes; 30 minutes when free space is not shrinking.
@@ -77,7 +70,7 @@ pub fn disk_recheck_ms(
     if elapsed == 0 || used == 0 {
         return MAX_RECHECK_MS;
     }
-    let line = disk_warning_line(settings, disk.total_bytes);
+    let line = settings.disk_warning_line(disk.total_bytes);
     let headroom = disk.free_bytes.saturating_sub(line);
     let delay = u128::from(headroom) * u128::from(elapsed) / u128::from(used);
     (delay.min(u128::from(MAX_RECHECK_MS)) as u64).max(MIN_RECHECK_MS)

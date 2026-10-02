@@ -67,8 +67,22 @@ pub struct StoreLock {
 impl StoreLock {
     /// Takes the lock without waiting. Another holder is
     /// `ExitKind::Unreachable` ("another apply is running").
+    ///
+    /// It never changes the mode of `root`: the root's owner and mode come
+    /// from `cmux_server_core::access` (`/opt/cmux` stays root 0755 in
+    /// system mode). A missing root is created with the default mode only.
     pub fn acquire(root: &Path) -> Result<StoreLock> {
-        fsx::ensure_dir(root, 0o700)?;
+        std::fs::create_dir_all(root).ctx(root.display())?;
+        StoreLock::acquire_existing(root)
+    }
+
+    /// Like [`StoreLock::acquire`] for verbs that need an install
+    /// (rollback, switch, GC): a missing root is "nothing is installed"
+    /// and is not created.
+    pub fn acquire_existing(root: &Path) -> Result<StoreLock> {
+        if !root.is_dir() {
+            return Err(Error::not_found(format!("nothing is installed at {}", root.display())));
+        }
         let path = root.join(".lock");
         let file = OpenOptions::new()
             .create(true)

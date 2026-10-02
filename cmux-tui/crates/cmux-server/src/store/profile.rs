@@ -116,6 +116,8 @@ fn fill(store: &Path, staging: &Path, input: &ProfileInput<'_>) -> Result<()> {
             link(&up.join(&entry.sha256).join("bin").join(&name), &at)?;
         }
     }
+    crate::sys::fsync_dir(&bin).ctx(bin.display())?;
+    crate::sys::fsync_dir(&pkgs).ctx(pkgs.display())?;
     let json =
         serde_json::to_vec_pretty(input.entries).map_err(|e| Error::internal(e.to_string()))?;
     fsx::atomic_write(&staging.join("packages.json"), &json, 0o644)?;

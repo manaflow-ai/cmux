@@ -28,6 +28,7 @@ fn systemd_user_install_writes_core_unit_and_starts_it() {
     let layout = layout_at(tmp.path(), Platform::Linux);
     let runner = RecordingRunner::new();
     runner.answer("loginctl show-user ana", yes());
+    runner.answer("is-active", Output { code: Some(3), ..Output::default() });
     let report = services(&layout, &runner).install(false).unwrap();
     let unit = tmp.path().join(".config/systemd/user/cmux-server.service");
     assert_eq!(report.unit, unit);
@@ -41,6 +42,7 @@ fn systemd_user_install_writes_core_unit_and_starts_it() {
         [
             "systemctl --user daemon-reload",
             "systemctl --user enable cmux-server.service",
+            "systemctl --user is-active --quiet cmux-server.service",
             "systemctl --user start cmux-server.service"
         ]
     );
@@ -55,6 +57,31 @@ fn systemd_user_install_writes_core_unit_and_starts_it() {
     let lines = runner.lines();
     assert!(!lines.iter().any(|l| l.contains("daemon-reload")), "{lines:?}");
     assert!(lines.iter().any(|l| l == "systemctl --user restart cmux-server.service"), "{lines:?}");
+
+    // A changed unit restarts a running server even without a new
+    // generation (daemon-reload alone does not apply it).
+    fs::write(&unit, "stale").unwrap();
+    let runner = RecordingRunner::new();
+    let report = services(&layout, &runner).install(false).unwrap();
+    assert!(report.changed && report.restarted);
+    assert_eq!(fs::read_to_string(&unit).unwrap(), systemd_user_unit(&layout).unwrap());
+}
+
+#[test]
+fn system_uninstall_stops_app_servers_without_prompting() {
+    use cmux_server_core::InstallMode;
+    use cmux_server_core::layout::layout;
+    let system = layout(InstallMode::System, Platform::Linux, &Default::default()).unwrap();
+    let runner = RecordingRunner::new();
+    services(&system, &runner).uninstall().unwrap();
+    let lines = runner.lines();
+    let stop = lines
+        .iter()
+        .position(|l| l == "systemctl --no-ask-password stop cmux-app-server@*.service")
+        .unwrap_or_else(|| panic!("{lines:?}"));
+    let reload = lines.iter().position(|l| l.ends_with("daemon-reload")).unwrap();
+    assert!(stop < reload, "{lines:?}");
+    assert!(lines.iter().all(|l| l.starts_with("systemctl --no-ask-password")), "{lines:?}");
 }
 
 #[test]

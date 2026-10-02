@@ -275,7 +275,11 @@ impl Store {
 
     /// Points `current` at an installed generation (`upgrade --generation`).
     pub fn switch_to(&self, generation: u64) -> Result<Flip> {
-        let _lock = StoreLock::acquire(&self.root)?;
+        let _lock = StoreLock::acquire_existing(&self.root)?;
+        self.switch_locked(generation)
+    }
+
+    fn switch_locked(&self, generation: u64) -> Result<Flip> {
         if !self.generations().contains(&generation) {
             return Err(Error::not_found(format!("generation {generation} is not installed")));
         }
@@ -287,8 +291,10 @@ impl Store {
     }
 
     /// Flips back to `generation`, or to the newest generation older than
-    /// the current one.
+    /// the current one. The target is chosen under the lock, so a
+    /// concurrent apply cannot move `current` in between.
     pub fn rollback(&self, generation: Option<u64>) -> Result<Flip> {
+        let _lock = StoreLock::acquire_existing(&self.root)?;
         let target = match generation {
             Some(g) => g,
             None => {
@@ -302,12 +308,12 @@ impl Store {
                     .ok_or_else(|| Error::not_found("no earlier generation to roll back to"))?
             }
         };
-        self.switch_to(target)
+        self.switch_locked(target)
     }
 
     /// Removes old profiles and unreferenced packages.
     pub fn gc(&self, keep: usize) -> Result<(Vec<u64>, Vec<String>)> {
-        let _lock = StoreLock::acquire(&self.root)?;
+        let _lock = StoreLock::acquire_existing(&self.root)?;
         self.gc_locked(keep)
     }
 
@@ -351,6 +357,9 @@ impl Store {
     /// Uninstall: removes `current`, the profiles, the store, the lock and
     /// the root when it is then empty. State is elsewhere and stays.
     pub fn remove_all(&self) -> Result<()> {
+        if !self.root.is_dir() {
+            return Ok(());
+        }
         {
             let _lock = StoreLock::acquire(&self.root)?;
             fsx::remove_tree(&self.current)?;

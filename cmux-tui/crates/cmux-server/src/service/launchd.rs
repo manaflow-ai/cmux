@@ -48,6 +48,7 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
     if was_loaded && changed {
         // A changed plist is read only at bootstrap.
         let _ = s.runner.run(&launchctl().args(["bootout", &target(s)]));
+        report.restarted = true;
     }
     if !was_loaded || changed {
         s.runner.check(&launchctl().args(["bootstrap", &domain(s)]).arg(&plist))?;
