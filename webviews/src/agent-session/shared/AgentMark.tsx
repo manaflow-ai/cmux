@@ -162,7 +162,7 @@ function subscribe(listener: () => void) {
     }
   };
 }
-/// Whether the shared root observer is live; for tests.
+/// Whether the shared root observer is live. @internal, for tests.
 export const agentMarkObserving = () => observer !== undefined;
 // The pane is dark, in brand color, until told otherwise.
 const appearance = () => {

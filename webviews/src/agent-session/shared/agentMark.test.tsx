@@ -137,6 +137,13 @@ test("the mono style fills every mark white on Mocha and black on Latte", async 
     });
     expect(fills().map(([, fill]) => fill)).toEqual(["#D97757", "#000", "#3186FF"]);
     expect(doc.querySelectorAll("linearGradient").length).toBe(3);
+    // onDark wins over the theme in mono too.
+    await act(async () => root.render(createElement(AgentMark, { agent: "codex", onDark: true })));
+    await act(async () => {
+      setAgentMarkStyle("mono");
+      await settle();
+    });
+    expect(fills()).toEqual([["codex", "#fff"]]);
   } finally {
     setAgentMarkStyle("brand");
     delete doc.documentElement.dataset.theme;
@@ -155,6 +162,32 @@ test("before any theme arrives marks assume the dark default; onDark overrides i
   }
 });
 
+test("each Gemini mark's highlights point at its own gradients", async () => {
+  const root = await renderMarks(["gemini"]);
+  try {
+    await act(async () =>
+      root.render(
+        createElement(
+          "div",
+          null,
+          createElement(AgentMark, { agent: "gemini" }),
+          createElement(AgentMark, { agent: "gemini" }),
+        ),
+      ),
+    );
+    const ids = [...doc.querySelectorAll("linearGradient")].map((gradient) => gradient.id);
+    expect(ids.length).toBe(6);
+    expect(new Set(ids).size).toBe(6);
+    const refs = [...doc.querySelectorAll("path[fill^='url(']")].map(
+      (path) => /^url\(#(.+)\)$/.exec(path.getAttribute("fill")!)![1]!,
+    );
+    expect(refs.length).toBeGreaterThan(0);
+    for (const id of refs) expect(doc.getElementById(id)?.tagName).toBe("linearGradient");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("a two-tone mark keeps both tones in brand color and lightens the inner one in mono", async () => {
   applyAgentTheme(latte);
   const root = await renderMarks(["opencode"]);
@@ -165,6 +198,15 @@ test("a two-tone mark keeps both tones in brand color and lightens the inner one
     expect(paths()).toEqual([
       [null, null],
       ["#CFCECD", null],
+    ]);
+    await act(async () => {
+      applyAgentTheme(mocha);
+      await settle();
+    });
+    expect(fills()).toEqual([["opencode", "#F1ECEC"]]);
+    expect(paths()).toEqual([
+      [null, null],
+      ["#4B4646", null],
     ]);
     await act(async () => {
       setAgentMarkStyle("mono");
