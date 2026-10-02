@@ -41,8 +41,9 @@ extension AppActions {
 
     /// New workspace with one terminal (`WorkspaceSpawn` arguments), shown
     /// in the active window unless `focus` is false (the CLI's default).
-    /// An explicit `focus: true` (`cmux open <dir>` run interactively) also
-    /// brings that window forward and activates the app.
+    /// With `activate: true` as well (`cmux open <dir>` run by a person) it
+    /// also brings that window forward and activates the app
+    /// (`NewWorkspaceFocus`).
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         let spawn = WorkspaceSpawn(invocation)
         let focus = NewWorkspaceFocus(invocation)

@@ -145,7 +145,8 @@ final class CMUXOpenHTMLFocusTests {
             guard method == "workspace.create",
                   let cwd = params["cwd"] as? String,
                   URL(fileURLWithPath: cwd).resolvingSymlinksInPath().path == expectedPath,
-                  params["focus"] as? Bool == expectedFocus else {
+                  params["focus"] as? Bool == expectedFocus,
+                  params["activate"] as? Bool == expectedFocus else {
                 return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
             }
             return Self.v2Response(id: id, ok: true, result: ["workspace_id": "workspace-id"])
