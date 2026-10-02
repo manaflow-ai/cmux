@@ -55,11 +55,12 @@ import Testing
             configuration: .init(binary: binary, session: "s", stateDirectory: directory.appendingPathComponent("state"),
                                  rememberedSocket: server.path),
             environment: { [:] })
-        let provider = launcher.endpointProvider
-        #expect(try await provider().socketPath == server.path)
+        #expect(try await launcher.endpointProvider().socketPath == server.path)
         #expect(!FileManager.default.fileExists(atPath: log.path), "server status ran although the remembered socket answered")
-        // A reconnect asks the daemon's owner again (it restarts a crashed one).
-        #expect(try await provider().socketPath == "/tmp/s.sock")
+        // Every later request (a retry's new connection, or a reconnect)
+        // asks the daemon's owner: a hung daemon behind a live socket must
+        // not keep the startup loop away from `ensure`.
+        #expect(try await launcher.endpointProvider().socketPath == "/tmp/s.sock")
         #expect(try String(contentsOf: log, encoding: .utf8).split(separator: "\n") == ["status"])
     }
 

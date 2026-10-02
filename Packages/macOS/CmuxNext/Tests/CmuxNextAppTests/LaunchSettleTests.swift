@@ -1,3 +1,4 @@
+import CmuxNextTerminal
 import Testing
 @testable import CmuxNextApp
 
@@ -22,6 +23,7 @@ import Testing
         daemon.startupDeadline = .zero
         let settle = LaunchSettle()
         settle.install(daemon: daemon)
+        defer { TerminalTimings.onContentApplied = nil }
         await withCheckedContinuation { continuation in
             settle.whenSettled { continuation.resume() }
             daemon.noteStartupFailure(.binaryNotFound(searched: []))

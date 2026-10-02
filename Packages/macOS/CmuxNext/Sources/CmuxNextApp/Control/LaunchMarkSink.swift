@@ -15,6 +15,9 @@ nonisolated struct LaunchMarkSink: Sendable {
     private let fd: Int32?
 
     init(environment: [String: String]) {
+        // Children (the daemon, terminals) must not inherit the variable:
+        // its descriptor number means nothing to them.
+        unsetenv(Self.environmentKey)
         guard let text = environment[Self.environmentKey], let fd = Int32(text), fd > 2,
               fcntl(fd, F_GETFD) != -1 else {
             self.fd = nil

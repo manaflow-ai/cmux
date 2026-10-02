@@ -71,6 +71,11 @@ public struct DaemonLauncher: Sendable {
     public static let binaryOverrideKey = "CMUX_NEXT_TUI_BIN"
 
     public let configuration: Configuration
+    /// `configuration.rememberedSocket` until the first endpoint request of
+    /// any provider of this launcher takes it: the startup loop's retries
+    /// and every reconnect then ask the owner (`ensure`), so a hung daemon
+    /// behind a live socket cannot keep a retry loop away from `ensure`.
+    private let rememberedSocket: RememberedSocket
     private let clock: any Clock<Duration>
     private let ensureTimeout: Duration
     private let environmentProvider: @Sendable () async -> [String: String]
@@ -82,6 +87,7 @@ public struct DaemonLauncher: Sendable {
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.configuration = configuration
+        rememberedSocket = RememberedSocket(configuration.rememberedSocket)
         self.environmentProvider = environment
         self.ensureTimeout = ensureTimeout
         self.clock = clock
@@ -259,9 +265,9 @@ public struct DaemonLauncher: Sendable {
     /// Endpoint provider for `DaemonConnection`: every (re)connect re-runs
     /// `ensure`, which restarts a crashed daemon.
     public var endpointProvider: DaemonConnection.EndpointProvider {
-        let remembered = Mutex(configuration.rememberedSocket)
+        let remembered = rememberedSocket
         return {
-            if let path = remembered.withLock({ $0.take() }) {
+            if let path = remembered.take() {
                 if DaemonSocketMemory.acceptsConnections(path) {
                     DaemonLaunchTimings.shared.mark("daemon.remembered_socket")
                     return DaemonEndpoint(socketPath: path)
@@ -298,6 +304,13 @@ public struct DaemonLauncher: Sendable {
         _ = try await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
         return try await ensure()
     }
+}
+
+/// A remembered socket path that is handed out once.
+final class RememberedSocket: Sendable {
+    private let path: Mutex<String?>
+    init(_ path: String?) { self.path = Mutex(path) }
+    func take() -> String? { path.withLock { $0.take() } }
 }
 
 /// Captures the login env once per app launch; concurrent callers share it.

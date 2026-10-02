@@ -104,4 +104,62 @@ import Testing
         #expect(held.order == ["identify", "set-client-info"])
         await attachment.detach()
     }
+
+    @Test func aGroupPastItsDeadlineFailsEveryRequestAndALateReplyIsDropped() async throws {
+        let held = Mutex<[Int]>([])
+        let server = try FakeDaemonServer { request in
+            let id = request["id"]?.intValue ?? 0
+            switch request["cmd"]?.stringValue {
+            case "identify", "subscribe":
+                held.withLock { $0.append(id) }
+                return []
+            case "ping":
+                // Answers the held group late, then this request.
+                return held.withLock { $0 }.map { #"{"id":\#($0),"ok":true,"data":{}}"# } + [#"{"id":\#(id),"ok":true,"data":{"pong":true}}"#]
+            default: return []
+            }
+        }
+        defer { server.stop() }
+        let transport = try LineTransport(path: server.path)
+        transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
+        defer { transport.close() }
+        let results = await transport.pipeline([PipelinedLine(IdentifyRequest()), PipelinedLine(SubscribeRequest(treeEvents: .deltas))],
+                                               timeout: .milliseconds(200))
+        for result in results {
+            #expect(throws: DaemonError.self) { try result.get() }
+        }
+        let reply = try await transport.request(cmd: "ping", timeout: .seconds(5)) { id in Data(#"{"id":\#(id),"cmd":"ping"}"#.utf8) }
+        #expect(String(decoding: reply.line, as: UTF8.self).contains("pong"))
+    }
+
+    @Test func aConnectionLostMidGroupFailsEveryRequest() async throws {
+        let box = Mutex<FakeDaemonServer?>(nil)
+        let server = try FakeDaemonServer { request in
+            if request["cmd"]?.stringValue == "subscribe" { box.withLock { $0 }?.disconnectClient() }
+            return []
+        }
+        box.withLock { $0 = server }
+        defer { server.stop() }
+        let transport = try LineTransport(path: server.path)
+        transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
+        let results = await transport.pipeline([PipelinedLine(IdentifyRequest()), PipelinedLine(SubscribeRequest(treeEvents: .deltas))],
+                                               timeout: .seconds(30))
+        #expect(results.count == 2)
+        for result in results {
+            #expect(throws: DaemonError.self) { try result.get() }
+        }
+    }
+
+    @Test func aWrongAppIsRejectedAfterTheGroupWasSent() async throws {
+        let server = try FakeDaemonServer { request in
+            let id = request["id"]?.intValue ?? 0
+            let body = request["cmd"]?.stringValue == "identify"
+                ? ConnectionTests.identify.replacingOccurrences(of: #""app":"cmux-tui""#, with: #""app":"other""#) : "{}"
+            return [#"{"id":\#(id),"ok":true,"data":\#(body)}"#]
+        }
+        defer { server.stop() }
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path), configuration: Self.quick)
+        await #expect(throws: DaemonError.wrongApp("other")) { try await connection.start() }
+        #expect(await !connection.isReady)
+    }
 }

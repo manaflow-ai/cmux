@@ -103,7 +103,12 @@ final class DaemonService {
             retryWake: retryWake,
             terminalEnvironment: terminalEnvironmentProvider)
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
-        if let prestart { first = { @Sendable in await prestart.outcome() } }
+        if let prestart {
+            // Cancelling the startup (shutdown) cancels the attempt too.
+            first = { @Sendable in
+                await withTaskCancellationHandler { await prestart.outcome() } onCancel: { prestart.cancel() }
+            }
+        }
         start(first: first) { DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider) }
     }
 

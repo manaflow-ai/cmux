@@ -183,6 +183,9 @@ class Launch:
         self.process.wait()
 
 
+RUN_TAGS = []
+
+
 def one_run(tag, mode, timeout):
     scratch = tempfile.mkdtemp(prefix=f"bench-startup-{tag}-")
     with open(os.path.join(scratch, "cmux.json"), "w") as out:
@@ -190,7 +193,9 @@ def one_run(tag, mode, timeout):
     if app_pids(tag):
         raise SystemExit(f"tag {tag} has an app running; quit it first (this bench only stops what it starts)")
     if mode == "cold":
-        stop(tag_pids(tag))
+        # Builds of one tag (a before and an after copy) share its daemon.
+        for other in RUN_TAGS or [tag]:
+            stop(tag_pids(other))
         if tag_pids(tag):
             raise SystemExit(f"tag {tag}: daemon processes did not exit")
     elif mode == "restart":
@@ -286,6 +291,7 @@ def main():
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds per launch to reach the first frame")
     parser.add_argument("--json", help="write every run's marks here")
     args = parser.parse_args()
+    RUN_TAGS.extend(args.tag)
     modes = args.mode or ["cold", "warm"]
     if "daemon" in modes:
         modes.remove("daemon")
