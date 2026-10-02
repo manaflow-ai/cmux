@@ -85,6 +85,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var attention = AttentionSettings()
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
+    /// `window.rail`; "off" when unset or invalid.
+    public var rail: WindowRailPlacement = WindowRailSetting.fallback
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `history.terminalCommands` (opt-in terminal command history).
@@ -149,6 +151,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
+        let (rail, railDiagnostic) = WindowRailSetting.parse(root)
+        snapshot.rail = rail
+        if let railDiagnostic { snapshot.diagnostics.append(railDiagnostic) }
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }

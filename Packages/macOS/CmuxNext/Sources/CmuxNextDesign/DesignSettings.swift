@@ -52,6 +52,8 @@ public final class DesignSettings {
     public var attention = AttentionSettings()
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
+    /// `window.rail`: the window's icon rail, off by default.
+    public var rail: WindowRailPlacement = .off
 
     public init() {}
 

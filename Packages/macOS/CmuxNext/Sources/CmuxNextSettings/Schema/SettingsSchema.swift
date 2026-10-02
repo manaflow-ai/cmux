@@ -66,6 +66,19 @@ public nonisolated enum SettingsSchema {
                 default: .string(WindowTitlebarSetting.fallback.rawValue), keywords: ["traffic lights", "title"]
             ),
             SettingDescriptor(
+                WindowRailSetting.configPath, section: .general, group: window,
+                title: SettingsText.text("settings.window.rail", "Action Rail"),
+                help: SettingsText.text("settings.window.rail.help",
+                                        "A column of buttons for new tabs, agent chats, notifications, history and accounts."),
+                kind: .choice([
+                    SettingChoice(WindowRailPlacement.off.rawValue, SettingsText.text("settings.choice.off", "Off")),
+                    SettingChoice(WindowRailPlacement.leading.rawValue, SettingsText.text("settings.choice.railLeading", "Window Edge")),
+                    SettingChoice(WindowRailPlacement.afterSidebar.rawValue,
+                                  SettingsText.text("settings.choice.railAfterSidebar", "After Sidebar")),
+                ]),
+                default: .string(WindowRailSetting.fallback.rawValue), keywords: ["rail", "toolbar", "buttons", "inbox", "accounts"]
+            ),
+            SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.text("settings.app.quitBehavior", "When Quitting"),
                 help: SettingsText.text("settings.app.quitBehavior.help",
