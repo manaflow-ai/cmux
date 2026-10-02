@@ -265,6 +265,11 @@
     "policy-subresources": [
       "loaded",
       "blocked"
-    ]
+    ],
+    "secret-screenshot": {
+      "maskedLikeAnySecret": true,
+      "textHidden": true,
+      "restored": true
+    }
   }
 }

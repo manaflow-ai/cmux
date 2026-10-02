@@ -78,7 +78,6 @@ emitCmux("secret-console", (await page.consoleMessages()).map(String).filter((t)
 emitCmux("secret-value", [String(secret("key")), JSON.stringify({ k: secret("key") }), secrets.list()]);
 emitCmux("secret-frame-refused", await page.frameLocator("#peer-frame").locator("#frame-field").fill(secret("key")).catch((e) => e.message));
 emitCmux("secret-keyboard-refused", await page.keyboard.type(secret("key")).catch((e) => e.message));
-emitCmux("secret-needs-domains", (() => { try { secrets.set("x", "y"); } catch (e) { return e.message; } })());
 // ---- cell session=bu capture
 // Printing masks a value the agent writes itself; errors are checked in
 // unit/agent-tools.test.mjs (a recorded scenario may not throw).
@@ -112,3 +111,21 @@ emitCmux("policy-ip", await page.goto(`${PEER}/aria.html`).then(() => "loaded", 
 session.blockIPAddresses(false);
 session.allowedDomains(["http://localhost"], { lock: true });
 emitCmux("policy-locked", (() => { try { session.allowedDomains(null); } catch (e) { return e.message; } })());
+// ---- cell session=bu
+// A secret typed into a plain text field never shows in a capture: the
+// field's pixels are the same for any secret of that length, and differ
+// from the same field showing that text unregistered.
+await page.goto(`${PRIMARY}/agent-tools.html`);
+const keyField = page.locator("#apikey");
+await keyField.fill(secret("key"));
+await keyField.evaluate((e) => e.blur());
+const shotSecret = (await keyField.screenshot()).toString("base64");
+await keyField.fill("xx-xxxx-xxxx");
+await keyField.evaluate((e) => e.blur());
+const shotText = (await keyField.screenshot()).toString("base64");
+secrets.set("decoy", "xx-xxxx-xxxx", { domains: ["localhost"] });
+const shotDecoy = (await keyField.screenshot()).toString("base64");
+secrets.delete("decoy");
+const shotAfter = (await keyField.screenshot()).toString("base64");
+emitCmux("secret-screenshot", { maskedLikeAnySecret: shotSecret === shotDecoy, textHidden: shotSecret !== shotText, restored: shotAfter === shotText });
+emitCmux("secret-needs-domains", (() => { try { secrets.set("x", "y"); } catch (e) { return e.message; } })());
