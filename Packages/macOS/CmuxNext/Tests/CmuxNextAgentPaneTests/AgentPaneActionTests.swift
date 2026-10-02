@@ -24,4 +24,12 @@ import Testing
         #expect(descriptor.targets == [.pane])
         #expect(ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .newTab)).contains(.newAgentChat))
     }
+
+    /// The changed files' open is the catalog's `file.open`, so the page, the
+    /// palette and `cmux file open` share one action.
+    @Test func fileOpenIsACatalogAction() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == .fileOpen })
+        #expect(descriptor.cliName == "file open")
+        #expect(descriptor.arguments.map(\.name) == ["path", "where"])
+    }
 }

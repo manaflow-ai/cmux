@@ -2307,6 +2307,17 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "file open",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "file.open",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "tab new",
       "context_menu" : "offered",
       "context_menus" : [

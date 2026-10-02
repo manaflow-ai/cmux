@@ -162,6 +162,18 @@ nonisolated enum CatalogArgument {
                        kind: .enumeration([choice("webkit"), choice("cef")]), isRequired: false)
     }
 
+    /// An absolute file path (`file.open`).
+    static var pathString: ActionArgument {
+        ActionArgument(name: "path", title: String(localized: "argument.path", defaultValue: "Path", bundle: .module), kind: .string)
+    }
+
+    /// Where `file.open` opens a file: a tab in the pane, or the text editor.
+    /// Without it, a tab.
+    static var whereChoice: ActionArgument {
+        ActionArgument(name: "where", title: String(localized: "argument.where", defaultValue: "Open In", bundle: .module),
+                       kind: .enumeration([choice("tab"), choice("editor")]), isRequired: false)
+    }
+
     /// Optional `confirm` flag every destructive action takes.
     static var confirmBool: ActionArgument {
         ActionArgument(name: ActionArgument.confirmName, title: String(localized: "argument.confirm", defaultValue: "Confirm", bundle: .module),
@@ -206,6 +218,8 @@ nonisolated enum CatalogArgument {
         case "down": String(localized: "argument.value.down", defaultValue: "Down", bundle: .module)
         case "left": String(localized: "argument.value.left", defaultValue: "Left", bundle: .module)
         case "up": String(localized: "argument.value.up", defaultValue: "Up", bundle: .module)
+        case "tab": String(localized: "argument.value.tab", defaultValue: "Tab", bundle: .module)
+        case "editor": String(localized: "argument.value.editor", defaultValue: "Editor", bundle: .module)
         default: value
         }
     }

@@ -39,7 +39,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.moveToRoom", "workspace.duplicateToRoom", "workspaceGroup.moveToRoom", "room.setTheme",
         "room.clearTheme", "workspace.setTheme", "workspace.clearTheme", "terminal.setTheme", "terminal.clearTheme",
         "splitRight", "newColumn", "splitDown", "newPaneAutoLayout", "equalizeSplits", "triggerFlash",
-        "palette.swapWithSession", "toggleCanvasLayout", "canvasTidy", "palette.newSimulatorPane",
+        "palette.swapWithSession", "toggleCanvasLayout", "canvasTidy", "palette.newSimulatorPane", "file.open",
         
         "newTab.sameKind", "newSurface", "openBrowser", "openBrowser.webkit", "openBrowser.chromium", "closeTab",
         "closeOtherTabsInPane", "closeTabsToLeft", "closeTabsToRight", "renameTab", "palette.clearTabName",

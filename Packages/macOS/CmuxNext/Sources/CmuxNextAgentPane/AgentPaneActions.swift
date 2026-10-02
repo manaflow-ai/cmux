@@ -8,6 +8,9 @@ public import CmuxNextActions
 extension ActionID {
     /// New Agent Chat: opens an agent tab.
     public static let newAgentChat: ActionID = "palette.newAgentChat"
+    /// Open File: a file in a tab of the pane or in the text editor
+    /// (`AgentPaneFileOpening`).
+    public static let fileOpen: ActionID = "file.open"
 }
 
 extension ActionRegistry {
