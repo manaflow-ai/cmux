@@ -173,6 +173,26 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
     private let failingKinds: Set<CmxAttachTransportKind>
     private let lock = NSLock()
     private var kinds: [CmxAttachTransportKind] = []
+    private var authorizationModes: [CmxTransportAuthorizationMode] = []
+    private var hangingKinds: Set<CmxAttachTransportKind> = []
+    private var hangingTransports: [HangingConnectTransport] = []
+
+    /// Route kinds whose transports park forever in `connect()` from now on.
+    /// Models an Iroh dial that neither completes nor fails (relay DNS churn,
+    /// hole-punch stall) so tests can prove recovery attempts stay bounded.
+    func setHangingKinds(_ kinds: Set<CmxAttachTransportKind>) {
+        lock.withLock { hangingKinds = kinds }
+    }
+
+    /// Resolves every parked dial (models the network finally answering),
+    /// letting abandoned attempts unwind instead of retaining state forever.
+    func releaseHangingTransports() async {
+        let parked = lock.withLock { hangingTransports }
+        for transport in parked {
+            await transport.close()
+        }
+        lock.withLock { hangingTransports = [] }
+    }
 
     init(
         router: LivenessHostRouter,
@@ -186,8 +206,29 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         lock.withLock { kinds.append(route.kind) }
+        return try makeRecordedTransport(for: route)
+    }
+
+    func makeTransport(
+        for request: CmxByteTransportRequest
+    ) throws -> any CmxByteTransport {
+        lock.withLock {
+            kinds.append(request.route.kind)
+            authorizationModes.append(request.authorizationMode)
+        }
+        return try makeRecordedTransport(for: request.route)
+    }
+
+    private func makeRecordedTransport(
+        for route: CmxAttachRoute
+    ) throws -> any CmxByteTransport {
         if failingKinds.contains(route.kind) {
             throw RouteRecordingTransportError.routeFailed
+        }
+        if lock.withLock({ hangingKinds.contains(route.kind) }) {
+            let transport = HangingConnectTransport()
+            lock.withLock { hangingTransports.append(transport) }
+            return transport
         }
         let transport = LivenessTransport(router: router)
         box.set(transport)
@@ -196,5 +237,36 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
 
     func attemptedKinds() -> [CmxAttachTransportKind] {
         lock.withLock { kinds }
+    }
+
+    func attemptedAuthorizationModes() -> [CmxTransportAuthorizationMode] {
+        lock.withLock { authorizationModes }
+    }
+}
+
+/// A transport whose `connect()` parks forever, ignoring cancellation the way
+/// a wedged FFI dial does. Reads/sends are unreachable because connect never
+/// returns.
+actor HangingConnectTransport: CmxByteTransport {
+    private var parked: [CheckedContinuation<Void, Never>] = []
+
+    func connect() async throws {
+        await withCheckedContinuation { continuation in
+            parked.append(continuation)
+        }
+    }
+
+    func receive() async throws -> Data? { nil }
+
+    func send(_ data: Data) async throws {
+        throw MobileShellConnectionError.connectionClosed
+    }
+
+    func close() async {
+        let waiters = parked
+        parked = []
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }

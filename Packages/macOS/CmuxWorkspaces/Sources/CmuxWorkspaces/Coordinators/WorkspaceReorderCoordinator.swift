@@ -302,6 +302,273 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         )
     }
 
+    /// Reorders a sidebar workspace block at one stable drop gap.
+    ///
+    /// The block preserves live workspace order and splits mixed pin states
+    /// into their legal tiers. Workspace blocks apply one destination group
+    /// membership, while anchor blocks move whole group sections without
+    /// changing membership. A single live id delegates to
+    /// ``reorderSidebarWorkspace(tabId:toIndex:isDragOperation:usesTopLevelRows:explicitGroupId:)``.
+    ///
+    /// - Parameters:
+    ///   - tabIds: Workspace ids represented by the drag.
+    ///   - draggedTabId: The workspace whose row started the drag. The plan's
+    ///     `targetIndex` is removal-adjusted for this row alone
+    ///     (`SidebarDropPlanner.resolvedTargetIndex`), so the drop gap can
+    ///     only be recovered relative to the row space without it.
+    ///   - targetIndex: The accepted plan's target index in its row space.
+    ///   - isDragOperation: Whether drag-specific group inference applies.
+    ///   - usesTopLevelRows: Whether `targetIndex` addresses top-level rows.
+    ///   - explicitGroupId: The group explicitly targeted by the drop.
+    /// - Returns: Whether the reorder was handled, including an accepted no-op.
+    @discardableResult
+    public func reorderSidebarWorkspaces(
+        tabIds: [UUID],
+        draggedTabId: UUID,
+        toIndex targetIndex: Int,
+        isDragOperation: Bool = false,
+        usesTopLevelRows: Bool = false,
+        explicitGroupId: UUID? = nil
+    ) -> Bool {
+        let requestedIds = Set(tabIds)
+        var movingTabs = model.tabs.filter { requestedIds.contains($0.id) }
+        guard !movingTabs.isEmpty else { return false }
+        if movingTabs.count == 1, let workspaceId = movingTabs.first?.id {
+            return reorderSidebarWorkspace(
+                tabId: workspaceId,
+                toIndex: targetIndex,
+                isDragOperation: isDragOperation,
+                usesTopLevelRows: usesTopLevelRows,
+                explicitGroupId: explicitGroupId
+            )
+        }
+        let anchorIds = Set(model.workspaceGroups.map(\.anchorWorkspaceId))
+        let containsAnchor = movingTabs.contains { anchorIds.contains($0.id) }
+        let containsWorkspace = movingTabs.contains { !anchorIds.contains($0.id) }
+        if containsAnchor, containsWorkspace {
+            let draggedIsAnchor = anchorIds.contains(draggedTabId)
+            movingTabs = movingTabs.filter {
+                anchorIds.contains($0.id) == draggedIsAnchor
+            }
+        }
+        guard !movingTabs.isEmpty else { return false }
+        if movingTabs.count == 1, let workspaceId = movingTabs.first?.id {
+            return reorderSidebarWorkspace(
+                tabId: workspaceId,
+                toIndex: targetIndex,
+                isDragOperation: isDragOperation,
+                usesTopLevelRows: usesTopLevelRows,
+                explicitGroupId: explicitGroupId
+            )
+        }
+        let movingIds = movingTabs.map(\.id)
+        if movingIds.allSatisfy(anchorIds.contains) {
+            return reorderTopLevelWorkspaceBlock(
+                movingAnchorIds: movingIds,
+                draggedTabId: draggedTabId,
+                toIndex: targetIndex
+            )
+        }
+        if let explicitGroupId,
+           !model.workspaceGroups.contains(where: { $0.id == explicitGroupId }) {
+            return false
+        }
+
+        let previousOrder = model.tabs.map(\.id)
+        let previousGroupIds = Dictionary(uniqueKeysWithValues: movingTabs.map { ($0.id, $0.groupId) })
+        let movingIdSet = Set(movingIds)
+        // `targetIndex` is the dragged row's final index in the row space
+        // WITHOUT that row. Resolving the reference against the full order
+        // instead lands the block one row early whenever the grab row sits
+        // above the drop gap, and can never express the bottom gap.
+        let referenceRowSpaceIds = (usesTopLevelRows
+            ? model.sidebarTopLevelWorkspaceIds(promotingWorkspaceId: draggedTabId)
+            : previousOrder
+        ).filter { $0 != draggedTabId }
+        let referenceWorkspaceId = sidebarBlockReferenceWorkspaceId(
+            targetIndex: targetIndex,
+            rowSpaceIds: referenceRowSpaceIds,
+            movingIds: movingIdSet
+        )
+        let remainingIds = previousOrder.filter { !movingIdSet.contains($0) }
+
+        let desiredIds = sidebarBlockDesiredWorkspaceIds(
+            movingIds: movingIds,
+            remainingIds: remainingIds,
+            referenceWorkspaceId: referenceWorkspaceId,
+            pinnedWorkspaceIds: Set(model.tabs.filter(\.isPinned).map(\.id))
+        )
+        guard case .success = workspaceBatchReorderPlan(
+            orderedWorkspaceIds: desiredIds
+        ) else {
+            return false
+        }
+
+        if isDragOperation {
+            let resolution: SidebarBlockMembershipResolution
+            if let explicitGroupId {
+                resolution = .assign(explicitGroupId)
+            } else if usesTopLevelRows {
+                resolution = .assign(nil)
+            } else {
+                resolution = sidebarBlockMembershipResolution(
+                    referenceWorkspaceId: referenceWorkspaceId,
+                    remainingIds: remainingIds
+                )
+            }
+            if case .assign(let destinationGroupId) = resolution {
+                // Anchors never change membership via drag (their group
+                // identity owns them) — same guard as the single-drag path.
+                let anchorIds = Set(model.workspaceGroups.map(\.anchorWorkspaceId))
+                for workspaceId in movingIds where !anchorIds.contains(workspaceId) {
+                    model.assignGroup(workspaceId: workspaceId, groupId: destinationGroupId)
+                }
+            }
+        }
+
+        applyWorkspaceBatchReorder(orderedWorkspaceIds: desiredIds)
+
+        let orderChanged = model.tabs.map(\.id) != previousOrder
+        let membershipChanged = movingTabs.contains {
+            previousGroupIds[$0.id] != $0.groupId
+        }
+        if orderChanged || membershipChanged {
+            host?.workspaceOrderDidChange(movedWorkspaceIds: movingIds)
+        }
+        // A drop that resolved to the block's own position (common inside a
+        // group section, where the painted gap can be the block's boundary)
+        // is a handled no-op, not a refusal: reporting false here makes the
+        // AppKit table animate a snap-back. Mirrors the single-drag path,
+        // which returns true for from == to.
+        return true
+    }
+
+    private func sidebarBlockReferenceWorkspaceId(
+        targetIndex: Int,
+        rowSpaceIds: [UUID],
+        movingIds: Set<UUID>
+    ) -> UUID? {
+        // A past-the-end target is the planner's bottom gap ("append"); a nil
+        // reference preserves that instead of anchoring to the last row.
+        let clampedIndex = max(0, targetIndex)
+        guard clampedIndex < rowSpaceIds.count else { return nil }
+        return rowSpaceIds[clampedIndex...].first { !movingIds.contains($0) }
+    }
+
+    /// How a block drop resolves group membership for its members.
+    private enum SidebarBlockMembershipResolution {
+        case assign(UUID?)
+        case preserve
+    }
+
+    private func sidebarBlockMembershipResolution(
+        referenceWorkspaceId: UUID?,
+        remainingIds: [UUID]
+    ) -> SidebarBlockMembershipResolution {
+        let insertionIndex = referenceWorkspaceId
+            .flatMap(remainingIds.firstIndex)
+            ?? remainingIds.count
+        let workspacesById = Dictionary(uniqueKeysWithValues: model.tabs.map { ($0.id, $0) })
+        let beforeGroupId = insertionIndex > 0
+            ? workspacesById[remainingIds[insertionIndex - 1]]?.groupId
+            : nil
+        let afterGroupId = insertionIndex < remainingIds.count
+            ? workspacesById[remainingIds[insertionIndex]]?.groupId
+            : nil
+        // Mirrors the single-drag neighbor inference
+        // (`applyDragInferredGroupMembership`): matching neighbors decide the
+        // membership; an ambiguous boundary preserves each member's current
+        // group (normalization keeps grouped members in their section)
+        // instead of stripping everyone to top-level.
+        guard beforeGroupId == afterGroupId else { return .preserve }
+        return .assign(beforeGroupId)
+    }
+
+    private func sidebarBlockDesiredWorkspaceIds(
+        movingIds: [UUID],
+        remainingIds: [UUID],
+        referenceWorkspaceId: UUID?,
+        pinnedWorkspaceIds: Set<UUID>
+    ) -> [UUID] {
+        var desiredIds = remainingIds
+        for isPinned in [true, false] {
+            let tierIds = movingIds.filter {
+                pinnedWorkspaceIds.contains($0) == isPinned
+            }
+            guard !tierIds.isEmpty else { continue }
+            let referenceIndex = referenceWorkspaceId
+                .flatMap(desiredIds.firstIndex)
+                ?? desiredIds.count
+            let pinnedCount = desiredIds.reduce(into: 0) { count, workspaceId in
+                if pinnedWorkspaceIds.contains(workspaceId) {
+                    count += 1
+                }
+            }
+            let insertionIndex = isPinned
+                ? min(referenceIndex, pinnedCount)
+                : max(referenceIndex, pinnedCount)
+            desiredIds.insert(
+                contentsOf: tierIds,
+                at: min(insertionIndex, desiredIds.count)
+            )
+        }
+        return desiredIds
+    }
+
+    /// Reorders selected group sections in the removal-adjusted top-level row space.
+    @discardableResult
+    private func reorderTopLevelWorkspaceBlock(
+        movingAnchorIds: [UUID],
+        draggedTabId: UUID,
+        toIndex targetIndex: Int
+    ) -> Bool {
+        let topLevelIds = model.sidebarTopLevelWorkspaceIds(
+            promotingWorkspaceId: nil
+        )
+        let pinnedTopLevelIds = model.sidebarTopLevelPinnedWorkspaceIds(
+            promotingWorkspaceId: nil
+        )
+        let movingIdSet = Set(movingAnchorIds)
+        let referenceRowSpaceIds = topLevelIds.filter { $0 != draggedTabId }
+        let referenceWorkspaceId = sidebarBlockReferenceWorkspaceId(
+            targetIndex: targetIndex,
+            rowSpaceIds: referenceRowSpaceIds,
+            movingIds: movingIdSet
+        )
+        let remainingTopLevelIds = topLevelIds.filter {
+            !movingIdSet.contains($0)
+        }
+        let desiredTopLevelIds = sidebarBlockDesiredWorkspaceIds(
+            movingIds: movingAnchorIds,
+            remainingIds: remainingTopLevelIds,
+            referenceWorkspaceId: referenceWorkspaceId,
+            pinnedWorkspaceIds: pinnedTopLevelIds
+        )
+        guard desiredTopLevelIds != topLevelIds else {
+            return true
+        }
+
+        let movedGroupIds = Set(model.workspaceGroups.compactMap { group in
+            movingIdSet.contains(group.anchorWorkspaceId) ? group.id : nil
+        })
+        model.normalizeWorkspaceGroupRunsPreservingOrder(desiredTopLevelIds)
+        model.syncWorkspaceGroupsOrderToAnchorOrder()
+        guard model.sidebarTopLevelWorkspaceIds(
+            promotingWorkspaceId: nil
+        ) != topLevelIds else {
+            return true
+        }
+        let movedWorkspaceIds: [UUID] = model.tabs.compactMap { workspace -> UUID? in
+            guard let groupId = workspace.groupId,
+                  movedGroupIds.contains(groupId) else {
+                return nil
+            }
+            return workspace.id
+        }
+        host?.workspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
+        return true
+    }
+
     @discardableResult
     private func reorderTopLevelWorkspaceItem(
         tabId: UUID,
@@ -485,6 +752,14 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             .map(\.workspaceId)
         guard !movedWorkspaceIds.isEmpty else { return result }
 
+        applyWorkspaceBatchReorder(orderedWorkspaceIds: orderedWorkspaceIds)
+        host?.workspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
+        return result
+    }
+
+    private func applyWorkspaceBatchReorder(
+        orderedWorkspaceIds: [UUID]
+    ) {
         let workspacesById = Dictionary(uniqueKeysWithValues: model.tabs.map { ($0.id, $0) })
         let finalIds = batchWorkspaceReorderFinalIds(orderedWorkspaceIds: orderedWorkspaceIds)
         model.tabs = finalIds.compactMap { workspacesById[$0] }
@@ -500,8 +775,6 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             model.syncWorkspaceGroupsOrderToAnchorOrder()
             model.normalizeWorkspaceGroupContiguity()
         }
-        host?.workspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
-        return result
     }
 
     private func batchWorkspaceReorderFinalIds(orderedWorkspaceIds: [UUID]) -> [UUID] {

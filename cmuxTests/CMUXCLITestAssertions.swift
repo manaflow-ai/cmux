@@ -1,6 +1,18 @@
 import Foundation
 import Testing
 
+/// How long a spawned CLI may run before the suite calls it a hang.
+///
+/// Most of these tests check what the CLI printed and which socket it talked to, never
+/// how fast it got there, so a tight per-test budget can only invent failures on a busy
+/// machine. This budget is the default for those runs: long enough that only a stuck
+/// process reaches it, and short enough that a stuck process still fails the test
+/// instead of stalling the suite forever. A test that genuinely measures how long the
+/// CLI waits passes its own, tighter budget instead.
+enum CMUXCLITestHangGuard {
+    static let seconds: TimeInterval = 60
+}
+
 extension CMUXCLIErrorOutputRegressionTests {
     func XCTAssertFalse(
         _ expression: @autoclosure () throws -> Bool,

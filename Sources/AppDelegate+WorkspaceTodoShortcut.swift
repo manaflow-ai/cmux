@@ -9,6 +9,7 @@ extension AppDelegate {
     ///
     /// - Returns: Whether the event was consumed (a workspace was resolved).
     func handleMarkWorkspaceDoneShortcut(preferredWindow: NSWindow? = nil) -> Bool {
+        guard WorkspaceTodoFeature.isEnabled else { return false }
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let resolvedTabManager = contextForMainWindow(targetWindow)?.tabManager ?? tabManager
         guard let workspace = resolvedTabManager?.selectedWorkspace else { return false }
@@ -24,6 +25,7 @@ extension AppDelegate {
     ///
     /// - Returns: Whether the event was consumed (a workspace was resolved).
     func handleCycleWorkspaceStatusShortcut(preferredWindow: NSWindow? = nil) -> Bool {
+        guard WorkspaceTodoFeature.isEnabled else { return false }
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let resolvedTabManager = contextForMainWindow(targetWindow)?.tabManager ?? tabManager
         guard let workspace = resolvedTabManager?.selectedWorkspace else { return false }

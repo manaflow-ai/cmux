@@ -62,6 +62,7 @@ extension Workspace {
             }
             guard remoteSessionCleanupControllers[controllerID]?.controller === owner.controller else { continue }
             if succeeded {
+                nativeSSHConnectionBroker.releaseWorkspace(owner.configuration)
                 if owner.configuration.persistentDaemonSlot == nil {
                     remoteSessionCleanupControllers.removeValue(forKey: controllerID)
                 } else if case .persistentSlot = cleanupScope {
@@ -85,6 +86,8 @@ extension Workspace {
             return
         }
         guard !blockingCleanupFailed else {
+            remoteControllerConnectionState = .error
+            remoteControllerConnectionDetail = remoteConnectionDetail
             remoteConnectionState = .error
             applyBrowserRemoteWorkspaceStatusToPanels()
             postRemoteConnectionPresentationDidChange()
@@ -108,12 +111,16 @@ extension Workspace {
             host: WorkspaceRemoteSessionHostAdapter(workspace: self, controllerID: controllerID),
             configuration: configuration,
             proxyBroker: TerminalController.shared.remoteProxyBroker,
+            connectionBroker: nativeSSHConnectionBroker,
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.homeDirectoryForCurrentUser
             ),
             processRunner: processRunner,
             reachabilityProbe: RemoteHostReachabilityProbe(),
-            relayCommandRewriter: WorkspaceRemoteRelayCommandRewriter(),
+            relayCommandRewriter: WorkspaceRemoteRelayCommandRewriter(
+                remoteWorkspaceID: id,
+                remoteRelayTokenHex: configuration.relayToken ?? ""
+            ),
             buildInfo: WorkspaceRemoteSessionBuildInfo(),
             daemonStrings: RemoteDaemonStrings.appLocalized,
             strings: RemoteSessionStrings.appLocalized
@@ -193,17 +200,70 @@ extension Workspace {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    func notifyRemoteForegroundAuthenticationReady(token: String? = nil) {
-        guard let foregroundAuthToken = Self.normalizedForegroundAuthToken(token) else { return }
+    @discardableResult
+    func notifyRemoteForegroundAuthenticationReady(
+        token: String? = nil,
+        resolvedControlPath: String? = nil
+    ) -> Bool {
+        guard let foregroundAuthToken =
+            Self.normalizedForegroundAuthToken(token) else {
+            return false
+        }
+        let normalizedControlPath = resolvedControlPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let controlMasterAdoption:
+            NativeSSHControlMasterAdoptionHandoff?
+        if let normalizedControlPath,
+           !normalizedControlPath.isEmpty {
+            guard let adoption =
+                nativeSSHConnectionBroker.beginControlMasterAdoption(
+                    controlPath: normalizedControlPath,
+                    ownerWorkspaceID: id
+                ) else {
+                return false
+            }
+            controlMasterAdoption = adoption
+        } else {
+            controlMasterAdoption = nil
+        }
         guard let remoteConfiguration else {
-            remoteForegroundAuthenticationPhase = .readyBeforeConfiguration(token: foregroundAuthToken)
-            return
+            cancelPendingRemoteControlMasterAdoption()
+            remoteForegroundAuthenticationPhase =
+                .readyBeforeConfiguration(
+                    token: foregroundAuthToken,
+                    controlMasterAdoption: controlMasterAdoption
+                )
+            return true
         }
         guard Self.normalizedForegroundAuthToken(remoteConfiguration.foregroundAuthToken) == foregroundAuthToken,
               remoteForegroundAuthenticationPhase == .authenticating(token: foregroundAuthToken) else {
-            return
+            if let controlMasterAdoption {
+                nativeSSHConnectionBroker.cancelControlMasterAdoption(
+                    controlMasterAdoption
+                )
+            }
+            return true
+        }
+        remoteForegroundAuthenticationPhase =
+            .readyBeforeConfiguration(
+                token: foregroundAuthToken,
+                controlMasterAdoption: controlMasterAdoption
+            )
+        return configureRemoteConnection(
+            remoteConfiguration,
+            autoConnect: true
+        )
+    }
+
+    func cancelPendingRemoteControlMasterAdoption() {
+        if case .readyBeforeConfiguration(
+            _,
+            let controlMasterAdoption?
+        ) = remoteForegroundAuthenticationPhase {
+            nativeSSHConnectionBroker.cancelControlMasterAdoption(
+                controlMasterAdoption
+            )
         }
         remoteForegroundAuthenticationPhase = nil
-        configureRemoteConnection(remoteConfiguration, autoConnect: true)
     }
 }

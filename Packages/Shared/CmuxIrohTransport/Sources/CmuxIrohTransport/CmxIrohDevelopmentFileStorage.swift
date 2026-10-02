@@ -32,6 +32,19 @@ public final class CmxIrohDevelopmentFileIdentityStore:
         )
     }
 
+    /// Whether ANY identity record file exists, without reading or creating
+    /// one. Development-build counterpart of
+    /// ``CmxIrohKeychainIdentityStore/containsAnyRecord()``; file storage lives
+    /// in the app container (which CAN travel in a backup), an accepted
+    /// dev-only weakening of the continuity signal.
+    public func containsAnyRecord() -> Bool {
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        return !entries.isEmpty
+    }
+
     public func delete(account: String) throws {
         try CmxIrohDevelopmentFileStorage.delete(
             account: account,

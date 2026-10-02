@@ -1,8 +1,81 @@
 import CmuxBrowser
+import CmuxFoundation
 import Foundation
 import WebKit
 
 extension TerminalController {
+    nonisolated func v2AwaitBrowserAutomationNavigation(
+        _ ticket: BrowserAutomationNavigationTicket,
+        browserPanel: BrowserPanel
+    ) -> BrowserAutomationNavigationOutcome? {
+        var navigationTask: Task<Void, Never>?
+        let outcome: BrowserAutomationNavigationOutcome? = socketAwaitCallback(timeout: 17.5) { finish in
+            navigationTask = Task { @MainActor in
+                finish(await browserPanel.finishAutomationNavigation(ticket))
+            }
+        }
+        if outcome == nil {
+            navigationTask?.cancel()
+        }
+        return outcome
+    }
+
+    nonisolated func v2BrowserNavigationFailureResult(
+        _ outcome: BrowserAutomationNavigationOutcome?,
+        targetURL: URL
+    ) -> V2CallResult? {
+        let data: [String: Any] = ["url": targetURL.absoluteString]
+        switch outcome {
+        case .committed, .downloaded:
+            return nil
+        case .failed:
+            return .err(
+                code: "navigation_failed",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: data
+            )
+        case .cancelled:
+            return .err(
+                code: "navigation_cancelled",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: data
+            )
+        case .superseded:
+            return .err(
+                code: "stale_state",
+                message: String(
+                    localized: "browser.automation.error.superseded",
+                    defaultValue: "The browser surface was already recovered. Retry the command."
+                ),
+                data: data
+            )
+        case .notStarted:
+            return .err(
+                code: "navigation_failed",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: data
+            )
+        case .timedOut, nil:
+            return .err(
+                code: "navigation_timeout",
+                message: String(
+                    localized: "browser.automation.error.documentReadinessTimedOut",
+                    defaultValue: "Timed out waiting for the browser document to become ready"
+                ),
+                data: data
+            )
+        }
+    }
+
     nonisolated func v2CaptureBrowserAutomationSnapshot(
         _ browserPanel: BrowserPanel,
         timeout: TimeInterval
@@ -14,18 +87,18 @@ extension TerminalController {
                     switch result {
                     case .success(let image):
                         guard let data = self.v2PNGData(from: image) else {
-                            finish((webViewIdentifier, .failure(BrowserScreenshotError.invalidImageRepresentation.localizedDescription)))
+                            finish((
+                                webViewIdentifier,
+                                .failure(
+                                    code: "internal_error",
+                                    message: BrowserScreenshotError.invalidImageRepresentation.localizedDescription
+                                )
+                            ))
                             return
                         }
                         finish((webViewIdentifier, .success(data)))
-                    case .failure(let error as BrowserScreenshotError):
-                        if case .automationTimedOut = error {
-                            finish((webViewIdentifier, .timedOut))
-                        } else {
-                            finish((webViewIdentifier, .failure(error.localizedDescription)))
-                        }
                     case .failure(let error):
-                        finish((webViewIdentifier, .failure(error.localizedDescription)))
+                        finish((webViewIdentifier, .captureFailure(error)))
                     }
                 }
             }
@@ -62,10 +135,14 @@ extension TerminalController {
         browserPanel: BrowserPanel,
         surfaceId: UUID,
         expectedWebViewIdentifier: ObjectIdentifier,
-        channel: BrowserAutomationProbeChannel
+        channel: BrowserAutomationProbeChannel,
+        livenessTimeout: TimeInterval =
+            BrowserScreenshotTimingBudget().livenessProbeAllowance
     ) -> String {
         var recoveryTask: Task<Void, Never>?
-        let outcome: BrowserAutomationRecoveryOutcome? = socketAwaitCallback(timeout: 2.5) { finish in
+        let outcome: BrowserAutomationRecoveryOutcome? = socketAwaitCallback(
+            timeout: livenessTimeout
+        ) { finish in
             recoveryTask = Task { @MainActor in
                 guard !Task.isCancelled else {
                     finish(.cancelled)

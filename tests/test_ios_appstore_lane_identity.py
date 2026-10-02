@@ -320,6 +320,8 @@ if "archive" in args:
             "CMUXCrashReportingEnabled": crash_reporting_enabled,
         }},
     )
+    # upload-testflight.sh refuses archives without dSYM bundles.
+    (archive / "dSYMs" / "cmux.app.dSYM" / "Contents").mkdir(parents=True, exist_ok=True)
     sys.exit(0)
 
 if "-exportArchive" in args:
@@ -343,10 +345,16 @@ if "-exportArchive" in args:
         )
     profile_marker = "beta profile" if bundle_id == BETA_BUNDLE_ID else "fake profile"
     (app / "embedded.mobileprovision").write_text(profile_marker, encoding="utf-8")
+    # upload-testflight.sh refuses IPAs without Symbols/*.symbols.
+    symbols_root = export_path / "Symbols"
+    symbols_root.mkdir(parents=True, exist_ok=True)
+    (symbols_root / "cmux.symbols").write_text("fake symbols", encoding="utf-8")
     ipa = export_path / "cmux.ipa"
     ipa.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(ipa, "w") as zf:
         for item in payload_root.rglob("*"):
+            zf.write(item, item.relative_to(export_path))
+        for item in symbols_root.rglob("*"):
             zf.write(item, item.relative_to(export_path))
     sys.exit(0)
 
@@ -517,6 +525,8 @@ def _write_fake_archive(path: Path, *, bundle_id: str, build_number: str, market
     }
     (path).mkdir(parents=True, exist_ok=True)
     app.mkdir(parents=True, exist_ok=True)
+    # upload-testflight.sh refuses archives without dSYM bundles.
+    (path / "dSYMs" / "cmux.app.dSYM" / "Contents").mkdir(parents=True, exist_ok=True)
     (path / "Info.plist").write_bytes(
         _plist_bytes(
             {
@@ -758,6 +768,48 @@ def test_upload_beta_auto_version_uses_checked_in_beta_floor(tmp: Path, fakebin:
     _check(
         _version_tuple(stamped_version) > _version_tuple(BETA_MARKETING_VERSION),
         "beta auto-version does not decrease below the checked-in beta version",
+    )
+
+
+def test_external_beta_upload_fails_without_group_assignment_credentials(
+    tmp: Path,
+    fakebin: Path,
+) -> None:
+    env = _base_env(tmp, fakebin)
+    for key in (
+        "ASC_APP_ID",
+        "ASC_API_KEY_ID",
+        "ASC_API_ISSUER_ID",
+        "ASC_API_KEY_PATH",
+        "ASC_API_KEY_P8_BASE64",
+    ):
+        env.pop(key, None)
+    env["APPLE_ID"] = "release@example.invalid"
+    env["APPLE_APP_SPECIFIC_PASSWORD"] = "test-password"
+    env["APPLE_PROVIDER_PUBLIC_ID"] = "test-provider"
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-testflight.sh"),
+            "--lane",
+            "beta",
+            "--external",
+            "--skip-notes",
+            "--signing",
+            "manual",
+        ],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+
+    _check(result.returncode != 0, "external beta upload fails when group assignment cannot run")
+    _check(
+        "external TestFlight distribution requires configured App Store Connect credentials"
+        in result.stderr,
+        "external beta upload explains the missing distribution credentials",
     )
 
 
@@ -1319,6 +1371,9 @@ def main() -> None:
         )
         test_upload_beta_archive_path_accepts_marketing_version_override(tmp / "beta-archive-override-test", fakebin)
         test_upload_beta_auto_version_uses_checked_in_beta_floor(tmp / "beta-auto-version-test", fakebin)
+        test_external_beta_upload_fails_without_group_assignment_credentials(
+            tmp / "beta-external-credentials-test", fakebin
+        )
         test_bump_ios_version_accepts_trailing_appstore_lane(tmp / "version-bump-test", fakebin)
         test_upload_appstore_lane_uses_production_bundle_id(tmp / "upload-test", fakebin)
         test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)

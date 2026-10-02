@@ -44,8 +44,15 @@ struct WindowKeyDownReplayGuardTests {
 
     private final class TerminalCommandEquivalentProbeView: GhosttyNSView {
         private(set) var afterMenuMissEvents: [NSEvent] = []
+        private(set) var unavailableCopyMenuEvents: [NSEvent] = []
         private(set) var keyDownEvents: [NSEvent] = []
         var performAfterMenuMissResult = true
+        var consumeUnavailableCopyResult = false
+
+        override func consumeUnavailableCopyMenuAction(_ event: NSEvent) -> Bool {
+            unavailableCopyMenuEvents.append(event)
+            return consumeUnavailableCopyResult
+        }
 
         override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
             afterMenuMissEvents.append(event)
@@ -80,6 +87,9 @@ struct WindowKeyDownReplayGuardTests {
             backing: .buffered,
             defer: false
         )
+        // AppKit defaults to isReleasedWhenClosed, so the callers' close() would release a
+        // window ARC still owns and the over-release lands in a later autorelease pool drain.
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -96,6 +106,9 @@ struct WindowKeyDownReplayGuardTests {
             backing: .buffered,
             defer: false
         )
+        // AppKit defaults to isReleasedWhenClosed, so the callers' close() would release a
+        // window ARC still owns and the over-release lands in a later autorelease pool drain.
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -113,6 +126,9 @@ struct WindowKeyDownReplayGuardTests {
             backing: .buffered,
             defer: false
         )
+        // AppKit defaults to isReleasedWhenClosed, so the callers' close() would release a
+        // window ARC still owns and the over-release lands in a later autorelease pool drain.
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -142,6 +158,30 @@ struct WindowKeyDownReplayGuardTests {
             isARepeat: false,
             keyCode: UInt16(kVK_ANSI_Z)
         )
+    }
+
+    private func makeCommandCKeyDownEvent(windowNumber: Int) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: windowNumber,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_C)
+        )
+    }
+
+    private func installMenuWithoutCopy() -> NSMenu? {
+        let previousMenu = NSApp.mainMenu
+        // A disabled synthetic key equivalent is still reported as handled by
+        // NSMenu in the headless test host. An absent item reliably models the
+        // menu miss that this window-routing branch receives in production.
+        NSApp.mainMenu = NSMenu(title: "Main")
+        return previousMenu
     }
 
     private func installUndoMenu(probe: MenuActionProbe) -> NSMenu? {
@@ -272,6 +312,74 @@ struct WindowKeyDownReplayGuardTests {
         #expect(window.performKeyEquivalent(with: event))
         #expect(window.performKeyEquivalent(with: event))
         #expect(responder.keyDownEvents.count == 2)
+    }
+
+    @Test
+    func terminalUnavailableCopyDoesNotReplayIntoGhostty() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let (window, terminal) = makeWindowWithTerminalResponder()
+        terminal.consumeUnavailableCopyResult = true
+        let previousMenu = installMenuWithoutCopy()
+        defer {
+            NSApp.mainMenu = previousMenu
+            window.orderOut(nil)
+            window.close()
+        }
+
+        guard let event = makeCommandCKeyDownEvent(windowNumber: window.windowNumber) else {
+            Issue.record("Failed to construct Copy key event")
+            return
+        }
+
+        #expect(window.performKeyEquivalent(with: event))
+        #expect(terminal.unavailableCopyMenuEvents.count == 1)
+        #expect(
+            terminal.afterMenuMissEvents.isEmpty,
+            Comment(rawValue: "Unavailable terminal Copy must remain a native no-op instead of replaying Cmd+C into Ghostty's terminal-input path")
+        )
+        #expect(terminal.keyDownEvents.isEmpty)
+    }
+
+    @Test
+    func terminalConfiguredCopyBindingFlowsThroughGhosttyAfterMenuMiss() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let (window, terminal) = makeWindowWithTerminalResponder()
+        let previousMenu = installMenuWithoutCopy()
+        defer {
+            NSApp.mainMenu = previousMenu
+            window.orderOut(nil)
+            window.close()
+        }
+
+        guard let event = makeCommandCKeyDownEvent(windowNumber: window.windowNumber) else {
+            Issue.record("Failed to construct Copy key event")
+            return
+        }
+
+        #expect(window.performKeyEquivalent(with: event))
+        #expect(terminal.unavailableCopyMenuEvents.count == 1)
+        #expect(
+            terminal.afterMenuMissEvents.count == 1,
+            Comment(rawValue: "A configured Cmd+C binding rejected by Ghostty's menu transaction must continue through normal binding processing")
+        )
+    }
+
+    @Test
+    func unavailableCopyWithoutSurfaceDoesNotAssumeMenuOwnership() {
+        let terminal = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 64, height: 32))
+        guard let event = makeCommandCKeyDownEvent(windowNumber: 0) else {
+            Issue.record("Failed to construct Copy key event")
+            return
+        }
+
+        #expect(
+            !terminal.consumeUnavailableCopyMenuAction(event),
+            Comment(rawValue: "A transient missing surface must fall through so Ghostty can recover it and resolve the live binding")
+        )
     }
 
     @Test

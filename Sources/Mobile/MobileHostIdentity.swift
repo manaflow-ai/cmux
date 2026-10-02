@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxSettings
 import Foundation
 
@@ -27,7 +28,7 @@ enum MobileHostIdentity {
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) -> String {
         if let id = readSharedDeviceID(from: sharedIDURL) {
-            defaults.set(id, forKey: deviceIDKey)
+            persistDeviceIDIfNeeded(id, defaults: defaults)
             return id
         }
 
@@ -40,7 +41,7 @@ enum MobileHostIdentity {
             return settleSharedDeviceID(id, defaults: defaults, sharedIDURL: sharedIDURL)
         }
 
-        let generated = UUID().uuidString
+        let generated = cmxCanonicalDeviceID(UUID().uuidString)
         return settleSharedDeviceID(generated, defaults: defaults, sharedIDURL: sharedIDURL)
     }
 
@@ -70,8 +71,8 @@ enum MobileHostIdentity {
 
     private static func normalizedID(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard let uuid = UUID(uuidString: trimmed) else { return nil }
-        return uuid.uuidString
+        guard UUID(uuidString: trimmed) != nil else { return nil }
+        return cmxCanonicalDeviceID(trimmed)
     }
 
     private static func readSharedDeviceID(from url: URL?) -> String? {
@@ -82,9 +83,16 @@ enum MobileHostIdentity {
         return normalizedID(existing)
     }
 
+    private static func persistDeviceIDIfNeeded(_ id: String, defaults: UserDefaults) {
+        let stored = normalizedID(defaults.string(forKey: deviceIDKey))
+        guard stored != id else { return }
+        defaults.set(id, forKey: deviceIDKey)
+    }
+
     private static func settleSharedDeviceID(_ candidate: String, defaults: UserDefaults, sharedIDURL: URL?) -> String {
+        let candidate = cmxCanonicalDeviceID(candidate)
         guard let sharedIDURL else {
-            defaults.set(candidate, forKey: deviceIDKey)
+            persistDeviceIDIfNeeded(candidate, defaults: defaults)
             return candidate
         }
         try? FileManager.default.createDirectory(
@@ -94,13 +102,13 @@ enum MobileHostIdentity {
         let data = Data(candidate.utf8)
         if !FileManager.default.createFile(atPath: sharedIDURL.path, contents: data) {
             if let winner = readSharedDeviceID(from: sharedIDURL) {
-                defaults.set(winner, forKey: deviceIDKey)
+                persistDeviceIDIfNeeded(winner, defaults: defaults)
                 return winner
             }
             try? data.write(to: sharedIDURL, options: .atomic)
         }
         let settled = readSharedDeviceID(from: sharedIDURL) ?? candidate
-        defaults.set(settled, forKey: deviceIDKey)
+        persistDeviceIDIfNeeded(settled, defaults: defaults)
         return settled
     }
 
@@ -178,9 +186,52 @@ enum MobileHostIdentity {
     }
 
     /// Canonical app-instance tag used by registry and presence. This is the
-    /// same launch tag that owns the tagged socket and bundle identity.
+    /// same launch tag or release channel that owns the socket and bundle
+    /// identity.
     static func instanceTag() -> String {
-        SocketControlSettings.launchTag() ?? "default"
+        instanceTag(
+            environment: ProcessInfo.processInfo.environment,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )
+    }
+
+    /// Resolves the app-instance tag from explicit launch metadata first, then
+    /// from the bundle channel. Stable keeps the historical `"default"` tag;
+    /// Nightly and Staging must be distinct now that every app bundle on one
+    /// Mac intentionally shares the same physical device identifier.
+    static func instanceTag(
+        environment: [String: String],
+        bundleIdentifier: String?
+    ) -> String {
+        if let launchTag = SocketControlSettings.launchTag(environment: environment) {
+            return launchTag
+        }
+
+        let normalizedBundleID = bundleIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        let releaseCandidateBundleID = stableBundleIdentifier + ".rc"
+        if normalizedBundleID == releaseCandidateBundleID {
+            return "rc"
+        }
+        if normalizedBundleID.hasPrefix(releaseCandidateBundleID + ".") {
+            let suffix = String(normalizedBundleID.dropFirst(releaseCandidateBundleID.count + 1))
+            return SocketPathMarkerFiles.sanitizeSocketSlug(suffix) ?? "rc"
+        }
+
+        switch SocketPathMarkerFiles.variant(
+            bundleIdentifier: normalizedBundleID,
+            environment: environment
+        ) {
+        case .stable:
+            return "default"
+        case .nightly(let slug):
+            return slug ?? "nightly"
+        case .staging(let slug):
+            return slug ?? "staging"
+        case .dev(let slug):
+            return slug ?? "dev"
+        }
     }
 
     /// Returns the longest whole-character prefix that fits a UTF-16 wire limit.

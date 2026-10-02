@@ -10,10 +10,11 @@ internal import Foundation
 /// the type is intentionally not thread-safe. The reader never closes the
 /// descriptor — connection ownership stays with the handler.
 ///
-/// Framing contract (all legacy behavior, pinned by tests):
+/// Framing contract (pinned by tests):
 /// - Reads up to `bufferSize - 1` bytes per `read(2)` call.
-/// - A chunk that is not valid UTF-8 is dropped wholesale (the legacy
-///   `String(bytes:encoding:) ?? ""` coalesce).
+/// - Raw bytes are assembled across reads before decoding, so UTF-8 scalars may
+///   span arbitrary transport chunk boundaries. A completed line that is not
+///   valid UTF-8 is dropped without discarding any following lines.
 /// - Lines are split on bare `\n` only. To preserve legacy framing, `\r\n`
 ///   does not terminate a line (clients must frame with bare `\n`). Returned
 ///   lines may be empty or whitespace-only.
@@ -26,7 +27,7 @@ internal import Foundation
 /// - EOF, a read error, or a `false` poll ends the stream (`nil`); buffered
 ///   bytes without a trailing newline are discarded, as before.
 /// - While `initialLimits` remain active, raw bytes are counted cumulatively
-///   before UTF-8 decoding, including invalid chunks and line delimiters, and
+///   before UTF-8 decoding, including invalid lines and line delimiters, and
 ///   the absolute deadline is checked before buffered lines are returned.
 public final class ControlClientLineReader {
     private let socket: Int32
@@ -120,14 +121,15 @@ public final class ControlClientLineReader {
             guard deadlineHasNotExpired else { return nil }
 
             if let newlineIndex = nextBareNewlineIndex() {
-                let line = String(
+                let decodedLine = String(
                     bytes: pendingBytes[pendingStartIndex..<newlineIndex],
                     encoding: .utf8
-                ) ?? ""
+                )
                 pendingStartIndex = newlineIndex + 1
                 newlineSearchIndex = pendingStartIndex
                 compactPendingBytesIfNeeded()
-                return line
+                guard let decodedLine else { continue }
+                return decodedLine
             }
 
             if !startedReadWait {
@@ -147,8 +149,7 @@ public final class ControlClientLineReader {
                 limitedBytesRead = totalBytesRead
             }
 
-            let chunk = String(bytes: buffer[0..<bytesRead], encoding: .utf8) ?? ""
-            pendingBytes.append(contentsOf: chunk.utf8)
+            pendingBytes.append(contentsOf: buffer[0..<bytesRead])
         }
     }
 

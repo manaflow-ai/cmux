@@ -1,0 +1,413 @@
+name: sdk bootstrap pypi
+
+on:
+  repository_dispatch:
+    types: [sdk-bootstrap-pypi]
+
+permissions: {}
+
+env:
+  BOOTSTRAP_VERSION: "0.0.0a0"
+
+concurrency:
+  group: sdk-bootstrap-pypi
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_sha256: ${{ steps.package.outputs.artifact_sha256 }}
+    steps:
+      - name: Require explicit bootstrap confirmation
+        if: github.event.client_payload.confirm_bootstrap != true
+        run: |
+          echo "Refusing to reserve cmux-sdk without confirm_bootstrap=true." >&2
+          exit 1
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require current protected main
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "Dispatch sdk-bootstrap-pypi.yml from main." >&2
+            exit 1
+          }
+          git fetch --force origin main
+          main_sha="$(git rev-parse origin/main)"
+          [[ "$GITHUB_SHA" == "$main_sha" ]] || {
+            echo "workflow commit is not current main" >&2
+            exit 1
+          }
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12.8"
+
+      - name: Install pinned packaging tools
+        run: |
+          python3 -m pip install \
+            --disable-pip-version-check \
+            "build==1.3.0" \
+            "setuptools==80.9.0" \
+            "wheel==0.45.1"
+
+      - name: Prepare the prerelease source tree
+        env:
+          CMUX_BOOTSTRAP_VERSION: ${{ env.BOOTSTRAP_VERSION }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import shutil
+
+          source = Path("cmux-tui/bindings/python")
+          target = Path(os.environ["RUNNER_TEMP"]) / "cmux-python-bootstrap"
+          shutil.copytree(source, target)
+          manifest = target / "pyproject.toml"
+          contents = manifest.read_text(encoding="utf-8")
+          contents, count = re.subn(
+              r'(?m)^version = "[^"]+"$',
+              f'version = "{os.environ["CMUX_BOOTSTRAP_VERSION"]}"',
+              contents,
+          )
+          if count != 1:
+              raise SystemExit("expected one static project version")
+          manifest.write_text(contents, encoding="utf-8")
+          PY
+
+      - name: Test the prerelease source tree
+        run: |
+          cd "$RUNNER_TEMP/cmux-python-bootstrap"
+          PYTHONPATH=. python3 -m unittest discover -s tests -v
+
+      - name: Build deterministic bootstrap distributions
+        run: |
+          export SOURCE_DATE_EPOCH
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
+          python3 -m build --no-isolation --sdist --wheel \
+            --outdir "$GITHUB_WORKSPACE/bootstrap-dist" \
+            "$RUNNER_TEMP/cmux-python-bootstrap"
+          python3 cmux-tui/bindings/normalize_python_sdist.py \
+            --archive bootstrap-dist/*.tar.gz \
+            --epoch "$SOURCE_DATE_EPOCH"
+
+      - name: Test the exact bootstrap distributions
+        env:
+          CMUX_PYTHON_DIST_DIR: ${{ github.workspace }}/bootstrap-dist
+        run: |
+          cd "$RUNNER_TEMP/cmux-python-bootstrap"
+          PYTHONPATH=. python3 -m unittest tests.test_package_consumer -v
+
+      - name: Fingerprint the bootstrap distributions
+        id: package
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(bootstrap-dist/*.whl)
+          sdists=(bootstrap-dist/*.tar.gz)
+          [[ "${#wheels[@]}" == 1 && "${#sdists[@]}" == 1 ]] || {
+            echo "expected one bootstrap wheel and one source distribution" >&2
+            exit 1
+          }
+          artifact_sha256="$(
+            cd bootstrap-dist
+            sha256sum *.whl *.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1
+          )"
+          [[ "$artifact_sha256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-python-bootstrap-dist-${{ github.run_attempt }}
+          path: bootstrap-dist/*
+          if-no-files-found: error
+
+  preflight:
+    needs: build
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    outputs:
+      need_publish: ${{ steps.decision.outputs.need_publish }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: bootstrap-dist
+
+      - name: Check whether the PyPI project exists
+        id: project
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
+
+          request = Request(
+              "https://pypi.org/pypi/cmux-sdk/json",
+              headers={"Accept": "application/json"},
+          )
+          try:
+              with urlopen(request, timeout=20) as response:
+                  metadata = json.loads(response.read())
+          except HTTPError as error:
+              if error.code != 404:
+                  raise SystemExit("PyPI project lookup failed") from error
+              status = "missing"
+          except (OSError, URLError, json.JSONDecodeError) as error:
+              raise SystemExit("PyPI project lookup failed") from error
+          else:
+              if not isinstance(metadata, dict) or not isinstance(
+                  metadata.get("info"), dict
+              ):
+                  raise SystemExit("PyPI project metadata is malformed")
+              status = "exists"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"status={status}\n")
+          PY
+
+      - name: Check the existing bootstrap wheel
+        if: steps.project.outputs.status == 'exists'
+        id: wheel_state
+        run: |
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry pypi \
+            --package cmux-sdk \
+            --version "$BOOTSTRAP_VERSION" \
+            --artifact bootstrap-dist/*.whl \
+            --allowed-artifact bootstrap-dist/*.whl \
+            --allowed-artifact bootstrap-dist/*.tar.gz \
+            --write-github-output
+
+      - name: Check the existing bootstrap source distribution
+        if: steps.project.outputs.status == 'exists'
+        id: sdist_state
+        run: |
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry pypi \
+            --package cmux-sdk \
+            --version "$BOOTSTRAP_VERSION" \
+            --artifact bootstrap-dist/*.tar.gz \
+            --allowed-artifact bootstrap-dist/*.whl \
+            --allowed-artifact bootstrap-dist/*.tar.gz \
+            --write-github-output
+
+      - name: Decide whether publishing is required
+        id: decision
+        env:
+          PROJECT_STATUS: ${{ steps.project.outputs.status }}
+          WHEEL_STATUS: ${{ steps.wheel_state.outputs.status }}
+          SDIST_STATUS: ${{ steps.sdist_state.outputs.status }}
+        run: |
+          set -euo pipefail
+          if [[ "$PROJECT_STATUS" == "missing" ]]; then
+            need_publish=true
+          elif [[ "$WHEEL_STATUS" == "match" && "$SDIST_STATUS" == "match" ]]; then
+            need_publish=false
+          elif [[ "$WHEEL_STATUS" == "missing" && "$SDIST_STATUS" == "missing" ]]; then
+            echo "cmux-sdk exists without the expected bootstrap release" >&2
+            exit 1
+          elif { [[ "$WHEEL_STATUS" == "match" && "$SDIST_STATUS" == "missing" ]] ||
+                 [[ "$WHEEL_STATUS" == "missing" && "$SDIST_STATUS" == "match" ]]; }; then
+            need_publish=true
+          else
+            echo "unexpected bootstrap registry state" >&2
+            exit 1
+          fi
+          echo "need_publish=$need_publish" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        if: steps.project.outputs.status == 'exists'
+        with:
+          python-version: "3.12.8"
+
+      - name: Install the pinned provenance verifier
+        if: steps.project.outputs.status == 'exists'
+        run: |
+          python3 -m pip install \
+            --disable-pip-version-check \
+            "pypi-attestations==0.0.29"
+
+      - name: Verify existing bootstrap with pypi-attestations verify pypi
+        if: steps.project.outputs.status == 'exists'
+        env:
+          WHEEL_STATUS: ${{ steps.wheel_state.outputs.status }}
+          SDIST_STATUS: ${{ steps.sdist_state.outputs.status }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          filenames=()
+          if [[ "$WHEEL_STATUS" == "match" ]]; then
+            wheels=(bootstrap-dist/*.whl)
+            filenames+=(--filename "$(basename "${wheels[0]}")")
+          fi
+          if [[ "$SDIST_STATUS" == "match" ]]; then
+            sdists=(bootstrap-dist/*.tar.gz)
+            filenames+=(--filename "$(basename "${sdists[0]}")")
+          fi
+          python3 cmux-tui/bindings/verify_pypi_provenance.py \
+            --package cmux-sdk \
+            --version "$BOOTSTRAP_VERSION" \
+            --repository https://github.com/manaflow-ai/cmux \
+            --owner lawrencecchen \
+            --workflow sdk-bootstrap-pypi.yml \
+            --environment pypi-bootstrap \
+            "${filenames[@]}"
+
+  publish:
+    needs:
+      - build
+      - preflight
+    if: needs.preflight.outputs.need_publish == 'true'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      id-token: write
+    environment:
+      name: pypi-bootstrap
+      url: https://pypi.org/p/cmux-sdk
+    outputs:
+      outcome: ${{ steps.publish.outcome }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: bootstrap-dist
+
+      - name: Verify the immutable bootstrap distributions
+        env:
+          EXPECTED_ARTIFACT_SHA256: ${{ needs.build.outputs.artifact_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          actual_sha256="$(
+            cd bootstrap-dist
+            sha256sum *.whl *.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1
+          )"
+          [[ "$actual_sha256" == "$EXPECTED_ARTIFACT_SHA256" ]] || {
+            echo "downloaded Python bootstrap artifact digest mismatch" >&2
+            exit 1
+          }
+
+      - name: Revalidate protected source before bootstrap publication
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "manaflow-ai/cmux" ]] || {
+            echo "bootstrap repository must be manaflow-ai/cmux" >&2
+            exit 1
+          }
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "bootstrap credential job must run from main" >&2
+            exit 1
+          }
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "bootstrap commit is malformed" >&2
+            exit 1
+          }
+          main_sha="$(
+            git ls-remote \
+              https://github.com/manaflow-ai/cmux.git \
+              refs/heads/main |
+              awk 'NR == 1 { print $1 }'
+          )"
+          [[ "$main_sha" == "$GITHUB_SHA" ]] || {
+            echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
+            exit 1
+          }
+
+      - name: Publish the attested bootstrap distributions
+        id: publish
+        continue-on-error: true
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: bootstrap-dist
+          attestations: true
+          skip-existing: true
+
+  verify:
+    needs:
+      - build
+      - preflight
+      - publish
+    if: >-
+      always() &&
+      needs.build.result == 'success' &&
+      needs.preflight.result == 'success' &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12.8"
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: bootstrap-dist
+
+      - name: Install the pinned provenance verifier
+        run: |
+          python3 -m pip install \
+            --disable-pip-version-check \
+            "pypi-attestations==0.0.29"
+
+      - name: Reconcile exact bootstrap distributions
+        run: |
+          set -euo pipefail
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry pypi \
+            --package cmux-sdk \
+            --version "$BOOTSTRAP_VERSION" \
+            --artifact bootstrap-dist/*.whl \
+            --allowed-artifact bootstrap-dist/*.whl \
+            --allowed-artifact bootstrap-dist/*.tar.gz \
+            --wait-seconds 300 \
+            --require-match
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry pypi \
+            --package cmux-sdk \
+            --version "$BOOTSTRAP_VERSION" \
+            --artifact bootstrap-dist/*.tar.gz \
+            --allowed-artifact bootstrap-dist/*.whl \
+            --allowed-artifact bootstrap-dist/*.tar.gz \
+            --wait-seconds 300 \
+            --require-match
+
+      - name: Verify trusted-publisher provenance with pypi-attestations verify pypi
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(bootstrap-dist/*.whl)
+          sdists=(bootstrap-dist/*.tar.gz)
+          python3 cmux-tui/bindings/verify_pypi_provenance.py \
+            --package cmux-sdk \
+            --version "$BOOTSTRAP_VERSION" \
+            --filename "$(basename "${wheels[0]}")" \
+            --filename "$(basename "${sdists[0]}")" \
+            --repository https://github.com/manaflow-ai/cmux \
+            --owner lawrencecchen \
+            --workflow sdk-bootstrap-pypi.yml \
+            --environment pypi-bootstrap

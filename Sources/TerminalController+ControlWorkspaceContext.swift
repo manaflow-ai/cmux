@@ -1,8 +1,36 @@
 import CmuxControlSocket
 import CmuxCore
 import CmuxPanes
+import CmuxRemoteWorkspace
+import CmuxRemoteSession
 import CmuxWorkspaces
 import Foundation
+
+extension RemotePTYLifecycleCommitLease: @retroactive ControlRemotePTYLifecycleCommitLease {
+    public func beginReadinessDelivery() -> ControlRemotePTYReadinessDeliveryAdmission {
+        switch beginReadinessDeliveryAdmission() {
+        case .acquired:
+            .acquired
+        case .inFlight:
+            .inFlight
+        case .alreadyCompleted:
+            .alreadyCompleted
+        case .stale:
+            .stale
+        }
+    }
+
+    public func finishReadinessDelivery(succeeded: Bool) {
+        finishReadinessDeliveryAdmission(succeeded: succeeded)
+    }
+
+    @MainActor
+    public func commitIfCurrent(
+        _ operation: @MainActor @Sendable () -> Bool
+    ) -> Bool {
+        withCurrentCommit(operation) ?? false
+    }
+}
 
 /// The workspace-domain witnesses for the stage-3c ``ControlCommandCoordinator``:
 /// the byte-faithful bodies of the former non-group `v2Workspace*` dispatchers,
@@ -436,13 +464,24 @@ extension TerminalController: ControlWorkspaceContext {
 
     func controlWorkspaceRemoteForegroundAuthReady(
         workspaceID: UUID,
-        foregroundAuthToken: String?
+        foregroundAuthToken: String?,
+        resolvedControlPath: String?
     ) -> ControlWorkspaceRemoteResolution {
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
-        workspace.notifyRemoteForegroundAuthenticationReady(token: foregroundAuthToken)
+        guard workspace.notifyRemoteForegroundAuthenticationReady(
+            token: foregroundAuthToken,
+            resolvedControlPath: resolvedControlPath
+        ) else {
+            return .unavailable(
+                workspaceID: workspaceID,
+                message:
+                    RemoteSessionStrings.appLocalized
+                    .controlMasterOwnershipUnavailable
+            )
+        }
         notifyRemotePTYControllerAvailabilityChanged()
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
@@ -498,13 +537,15 @@ extension TerminalController: ControlWorkspaceContext {
             }
             localProxyPort = parsedLocalProxyPort
         }
-
         let identityFile = v2RawString(params, "identity_file")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let sshOptions = v2StringArray(params, "ssh_options") ?? []
-        let transportRaw = v2RawString(params, "transport")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let transport = WorkspaceRemoteTransport(rawValue: transportRaw ?? "") ?? .ssh
+        let remoteTransports = remoteTransportConfiguration(params)
+        if let error = remoteTransports.error { return error }
+        let remoteTerminalProfile = remoteTerminalProfileConfiguration(params)
+        if let error = remoteTerminalProfile.error { return error }
+        let (transport, terminalTransport, skipDaemonBootstrap) =
+            (remoteTransports.management, remoteTransports.terminal, remoteTransports.skipDaemonBootstrap)
+        let terminalProfile = remoteTerminalProfile.profile
         let autoConnect = v2Bool(params, "auto_connect") ?? true
         var relayPort: Int?
         if v2HasNonNullParam(params, "relay_port") {
@@ -524,6 +565,8 @@ extension TerminalController: ControlWorkspaceContext {
         let agentSocketPath = v2RawString(params, "ssh_auth_sock")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let configuredRemoteCommand = v2RawString(params, "configured_remote_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let managedCloudVMID = v2RawString(params, "managed_cloud_vm_id")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -582,7 +625,6 @@ extension TerminalController: ControlWorkspaceContext {
                 data: nil
             )
         }
-        let skipDaemonBootstrap = v2Bool(params, "skip_daemon_bootstrap") ?? false
         if persistentDaemonSlot != nil, !preserveAfterTerminalExit {
             return .err(
                 code: "invalid_params",
@@ -610,7 +652,8 @@ extension TerminalController: ControlWorkspaceContext {
 #if DEBUG
         cmuxDebugLog(
             "workspace.remote.configure.request workspace=\(workspaceId.uuidString.prefix(8)) " +
-            "target=\(destination) transport=\(transport.rawValue) port=\(sshPort.map(String.init) ?? "nil") " +
+            "target=\(destination) transport=\(transport.rawValue) terminalTransport=\(terminalTransport.rawValue) " +
+            "port=\(sshPort.map(String.init) ?? "nil") " +
             "autoConnect=\(autoConnect ? 1 : 0) relayPort=\(relayPort.map(String.init) ?? "nil") " +
             "localSocket=\(localSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? localSocketPath! : "nil") " +
             "sshAuthSock=\(agentSocketPath?.isEmpty == false ? 1 : 0) " +
@@ -628,6 +671,8 @@ extension TerminalController: ControlWorkspaceContext {
 
         let config = WorkspaceRemoteConfiguration(
             transport: transport,
+            terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
             destination: destination,
             port: sshPort,
             identityFile: identityFile?.isEmpty == true ? nil : identityFile,
@@ -639,6 +684,7 @@ extension TerminalController: ControlWorkspaceContext {
             localSocketPath: localSocketPath,
             managedCloudVMID: managedCloudVMID?.isEmpty == true ? nil : managedCloudVMID,
             terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
+            configuredRemoteCommand: configuredRemoteCommand?.isEmpty == true ? nil : configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
                 sshOptions: sshOptions,
@@ -650,7 +696,18 @@ extension TerminalController: ControlWorkspaceContext {
             persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
             skipDaemonBootstrap: skipDaemonBootstrap
         )
-        workspace.configureRemoteConnection(config, autoConnect: autoConnect)
+        guard workspace.configureRemoteConnection(
+            config,
+            autoConnect: autoConnect
+        ) else {
+            return .err(
+                code: "unavailable",
+                message:
+                    RemoteSessionStrings.appLocalized
+                    .controlMasterOwnershipUnavailable,
+                data: nil
+            )
+        }
         notifyRemotePTYControllerAvailabilityChanged()
 
         let windowId = AppDelegate.shared?.windowId(for: owner)
@@ -684,26 +741,368 @@ extension TerminalController: ControlWorkspaceContext {
         )
     }
 
+    private func controlRemoteTerminalDockOwner(
+        app: AppDelegate,
+        dock: DockSplitStore,
+        requestedWorkspaceID: UUID
+    ) -> (tabManager: TabManager, workspace: Workspace?)? {
+        guard let tabManager = app.dockReferenceTabManager(for: dock) else { return nil }
+        // Presentation follows the launch workspace carried by the callback,
+        // while the result window follows the Dock that now owns the surface.
+        let workspace = app.tabManagerFor(tabId: requestedWorkspaceID)?
+            .workspacesById[requestedWorkspaceID]
+        return (tabManager, workspace)
+    }
+
+    nonisolated func controlCurrentRemotePTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> ControlRemotePTYLifecycleOwner? {
+        remoteProxyBroker.currentPTYLifecycleOwner(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        ).map {
+            ControlRemotePTYLifecycleOwner(
+                transportKey: $0.transportKey,
+                attachmentID: $0.attachmentID,
+                commitLease: $0.commitLease
+            )
+        }
+    }
+
+    func controlWorkspaceRemoteTerminalSessionLaunching(
+        workspaceID workspaceId: UUID,
+        surfaceID surfaceId: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
+        let app = AppDelegate.shared
+        let fallbackOwner = app?.tabManagerFor(tabId: workspaceId)
+        let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
+        if let dock = DockSplitStore.liveStore(containingPanel: surfaceId) {
+            guard let app,
+                  let dockOwner = controlRemoteTerminalDockOwner(
+                      app: app,
+                      dock: dock,
+                      requestedWorkspaceID: workspaceId
+                  ) else {
+                return .notFound
+            }
+            let didLaunch: Bool
+            if let workspace = dockOwner.workspace {
+                didLaunch = workspace.markDockRemoteTerminalSessionLaunching(
+                    surfaceId: surfaceId,
+                    terminalLifecycleID: terminalLifecycleID,
+                    attemptID: attemptID,
+                    dock: dock
+                )
+            } else {
+                didLaunch =
+                    dock.ownsRemoteTerminalTransfer(
+                        panelId: surfaceId,
+                        presentationWorkspaceID: workspaceId
+                    ) &&
+                    dock.markRemoteTerminalSessionLaunching(
+                        panelId: surfaceId,
+                        terminalLifecycleID: terminalLifecycleID,
+                        attemptID: attemptID
+                    )
+            }
+            guard didLaunch else { return .notFound }
+            let windowId = app.windowId(for: dockOwner.tabManager)
+            return .resolved(
+                windowID: windowId,
+                workspaceID: dockOwner.workspace?.id,
+                remoteStatus: dockOwner.workspace.flatMap {
+                    JSONValue(foundationObject: $0.remoteStatusPayload())
+                } ?? .object([:])
+            )
+        }
+        let located = app?.workspaceContainingPanel(
+            panelId: surfaceId,
+            preferredWorkspaceId: workspaceId
+        )
+        guard let owner = located?.tabManager ?? fallbackOwner,
+              let workspace = located?.workspace ?? fallbackWorkspace,
+              workspace.markRemoteTerminalSessionLaunching(
+                  surfaceId: surfaceId,
+                  terminalLifecycleID: terminalLifecycleID,
+                  attemptID: attemptID
+              ) else {
+            return .notFound
+        }
+        let windowId = AppDelegate.shared?.windowId(for: owner)
+        return .resolved(
+            windowID: windowId,
+            workspaceID: workspace.id,
+            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+        )
+    }
+
+    func controlWorkspaceRemoteTerminalSessionConnected(
+        workspaceID workspaceId: UUID,
+        surfaceID surfaceId: UUID,
+        authority: ControlWorkspaceRemoteTerminalAuthority,
+        attemptID: UUID,
+        commitLease: (any ControlRemotePTYLifecycleCommitLease)? = nil
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
+        let (terminalAuthority, terminalLifecycleID) = switch authority {
+        case .relayPort(let relayPort, let terminalLifecycleID):
+            (
+                WorkspaceRemoteTerminalAuthority.relayPort(relayPort),
+                Optional(terminalLifecycleID)
+            )
+        case .persistentTransport(let transportKey, let terminalLifecycleID):
+            (
+                WorkspaceRemoteTerminalAuthority.persistentTransport(transportKey),
+                Optional(terminalLifecycleID)
+            )
+        }
+
+        let app = AppDelegate.shared
+        let fallbackOwner = app?.tabManagerFor(tabId: workspaceId)
+        let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
+        if let dock = DockSplitStore.liveStore(containingPanel: surfaceId) {
+            guard let app,
+                  let dockOwner = controlRemoteTerminalDockOwner(
+                      app: app,
+                      dock: dock,
+                      requestedWorkspaceID: workspaceId
+                  ) else {
+                return .notFound
+            }
+            var didConnect = false
+            if let workspace = dockOwner.workspace {
+                didConnect = workspace.markDockRemoteTerminalSessionConnected(
+                    surfaceId: surfaceId,
+                    authority: terminalAuthority,
+                    terminalLifecycleID: terminalLifecycleID,
+                    attemptID: attemptID,
+                    commitLease: commitLease,
+                    dock: dock
+                )
+            } else {
+                if let commitLease {
+                    didConnect = commitLease.commitIfCurrent {
+                        dock.markRemoteTerminalSessionConnected(
+                            panelId: surfaceId,
+                            authority: terminalAuthority,
+                            presentationWorkspaceID: workspaceId,
+                            terminalLifecycleID: terminalLifecycleID,
+                            attemptID: attemptID
+                        )
+                    }
+                } else {
+                    didConnect = dock.markRemoteTerminalSessionConnected(
+                        panelId: surfaceId,
+                        authority: terminalAuthority,
+                        presentationWorkspaceID: workspaceId,
+                        terminalLifecycleID: terminalLifecycleID,
+                        attemptID: attemptID
+                    )
+                }
+            }
+            guard didConnect else { return .notFound }
+            let windowId = app.windowId(for: dockOwner.tabManager)
+            return .resolved(
+                windowID: windowId,
+                workspaceID: dockOwner.workspace?.id,
+                remoteStatus: dockOwner.workspace.flatMap {
+                    JSONValue(foundationObject: $0.remoteStatusPayload())
+                } ?? .object([:])
+            )
+        }
+        let located = app?.workspaceContainingPanel(
+            panelId: surfaceId,
+            preferredWorkspaceId: workspaceId
+        )
+        guard let owner = located?.tabManager ?? fallbackOwner,
+              let workspace = located?.workspace ?? fallbackWorkspace,
+              workspace.markRemoteTerminalSessionConnected(
+                  surfaceId: surfaceId,
+                  authority: terminalAuthority,
+                  terminalLifecycleID: terminalLifecycleID,
+                  attemptID: attemptID,
+                  commitLease: commitLease
+              ) else {
+            return .notFound
+        }
+        let windowId = AppDelegate.shared?.windowId(for: owner)
+        return .resolved(
+            windowID: windowId,
+            workspaceID: workspace.id,
+            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+        )
+    }
+
+    private func controlClaimRemoteTerminalSessionEnd(
+        relayPort: Int?,
+        terminalLifecycleID: UUID?,
+        sessionID: String?,
+        lifecycleID: String?,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner?
+    ) -> (
+        generationIsCurrent: Bool,
+        authority: WorkspaceRemoteTerminalAuthority?
+    ) {
+        switch (sessionID, lifecycleID) {
+        case let (.some(sessionID), .some(lifecycleID)):
+            guard let expectedOwner else { return (false, nil) }
+            let claim = remoteProxyBroker.claimPTYLifecycleAfterWrapperEnd(
+                sessionID: sessionID,
+                lifecycleID: lifecycleID,
+                expectedOwner: expectedOwner
+            )
+            return (
+                claim?.wasCurrent == true,
+                claim.map {
+                    WorkspaceRemoteTerminalAuthority.persistentTransport(
+                        $0.transportKey
+                    )
+                }
+            )
+        case (nil, nil):
+            return (
+                terminalLifecycleID != nil,
+                relayPort.map(WorkspaceRemoteTerminalAuthority.relayPort)
+            )
+        case (.some, nil), (nil, .some):
+            return (false, nil)
+        }
+    }
+
+    /// Retires exact broker ownership after its UI presentation has disappeared.
+    private func controlRetireOrphanedRemoteTerminalSessionEnd(
+        relayPort: Int?,
+        terminalLifecycleID: UUID?,
+        sessionID: String?,
+        lifecycleID: String?,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner?
+    ) {
+        _ = controlClaimRemoteTerminalSessionEnd(
+            relayPort: relayPort,
+            terminalLifecycleID: terminalLifecycleID,
+            sessionID: sessionID,
+            lifecycleID: lifecycleID,
+            expectedOwner: expectedOwner
+        )
+    }
+
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
         relayPort: Int?,
+        terminalLifecycleID: UUID?,
         sessionID: String?,
         lifecycleID: String?,
         lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
-        let generationIsCurrent = switch (sessionID, lifecycleID) {
+        let lifecycleOwner: RemotePTYLifecycleWrapperEndOwner? = switch (sessionID, lifecycleID) {
         case let (.some(sessionID), .some(lifecycleID)):
-            remoteProxyBroker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: sessionID, lifecycleID: lifecycleID)
-        case (nil, nil): true
-        default: false
+            remoteProxyBroker.ptyLifecycleOwnerForWrapperEnd(
+                sessionID: sessionID,
+                lifecycleID: lifecycleID
+            )
+        case (nil, nil), (.some, nil), (nil, .some):
+            nil
         }
-        guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
-              let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+        if let lifecycleOwner,
+           UUID(uuidString: lifecycleOwner.attachmentID) != surfaceId {
             return .notFound
         }
-        if !lifecycleOnly, generationIsCurrent {
-            workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
+        let app = AppDelegate.shared
+        let fallbackOwner = app?.tabManagerFor(tabId: workspaceId)
+        let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
+        if let dock = DockSplitStore.liveStore(containingPanel: surfaceId) {
+            guard dock.ownsRemoteTerminalTransfer(
+                panelId: surfaceId,
+                presentationWorkspaceID: workspaceId
+            ) else {
+                return .notFound
+            }
+            guard let app,
+                  let dockOwner = controlRemoteTerminalDockOwner(
+                      app: app,
+                      dock: dock,
+                      requestedWorkspaceID: workspaceId
+                  ) else {
+                controlRetireOrphanedRemoteTerminalSessionEnd(
+                    relayPort: relayPort,
+                    terminalLifecycleID: terminalLifecycleID,
+                    sessionID: sessionID,
+                    lifecycleID: lifecycleID,
+                    expectedOwner: lifecycleOwner
+                )
+                return .notFound
+            }
+            let lifecycleResolution = controlClaimRemoteTerminalSessionEnd(
+                relayPort: relayPort,
+                terminalLifecycleID: terminalLifecycleID,
+                sessionID: sessionID,
+                lifecycleID: lifecycleID,
+                expectedOwner: lifecycleOwner
+            )
+            if !lifecycleOnly, lifecycleResolution.generationIsCurrent {
+                guard let terminalAuthority = lifecycleResolution.authority else {
+                    return .notFound
+                }
+                let didEnd: Bool
+                if let workspace = dockOwner.workspace {
+                    didEnd = workspace.markDockRemoteTerminalSessionEnded(
+                        surfaceId: surfaceId,
+                        authority: terminalAuthority,
+                        relayPort: relayPort,
+                        terminalLifecycleID: terminalLifecycleID,
+                        dock: dock
+                    )
+                } else {
+                    didEnd = dock.markRemoteTerminalSessionEnded(
+                        panelId: surfaceId,
+                        authority: terminalAuthority,
+                        terminalLifecycleID: terminalLifecycleID
+                    )
+                }
+                guard didEnd else { return .notFound }
+            }
+            let windowId = app.windowId(for: dockOwner.tabManager)
+            return .resolved(
+                windowID: windowId,
+                workspaceID: dockOwner.workspace?.id,
+                remoteStatus: dockOwner.workspace.flatMap {
+                    JSONValue(foundationObject: $0.remoteStatusPayload())
+                } ?? .object([:])
+            )
+        }
+        let located = app?.workspaceContainingPanel(
+            panelId: surfaceId,
+            preferredWorkspaceId: workspaceId
+        )
+        guard let owner = located?.tabManager ?? fallbackOwner,
+              let workspace = located?.workspace ?? fallbackWorkspace else {
+            controlRetireOrphanedRemoteTerminalSessionEnd(
+                relayPort: relayPort,
+                terminalLifecycleID: terminalLifecycleID,
+                sessionID: sessionID,
+                lifecycleID: lifecycleID,
+                expectedOwner: lifecycleOwner
+            )
+            return .notFound
+        }
+        let lifecycleResolution = controlClaimRemoteTerminalSessionEnd(
+            relayPort: relayPort,
+            terminalLifecycleID: terminalLifecycleID,
+            sessionID: sessionID,
+            lifecycleID: lifecycleID,
+            expectedOwner: lifecycleOwner
+        )
+        if !lifecycleOnly, lifecycleResolution.generationIsCurrent {
+            guard workspace.markRemoteTerminalSessionEnded(
+                surfaceId: surfaceId,
+                relayPort: relayPort,
+                terminalLifecycleID: terminalLifecycleID
+            ) else {
+                return .notFound
+            }
         }
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(

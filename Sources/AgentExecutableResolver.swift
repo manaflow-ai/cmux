@@ -38,7 +38,13 @@ struct AgentExecutableResolver {
                 .appendingPathComponent(executableName, isDirectory: false)
                 .standardizedFileURL
             let candidatePath = candidateURL.path
-            guard fileManager.isExecutableFile(atPath: candidatePath) else { continue }
+            // `isExecutableFile(atPath:)` is true for directories, so a directory named
+            // like the provider binary earlier on PATH would shadow the real executable
+            // and fail at launch (#8743).
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: candidatePath, isDirectory: &isDirectory),
+                  !isDirectory.boolValue,
+                  fileManager.isExecutableFile(atPath: candidatePath) else { continue }
             guard !isBundledProviderExecutable(candidateURL) else { continue }
             guard !isKnownCmuxClaudeCommandShim(candidateURL, provider: provider) else { continue }
             guard !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else { continue }

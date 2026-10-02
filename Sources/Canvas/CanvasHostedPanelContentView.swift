@@ -9,10 +9,10 @@ import CmuxAppKitSupportUI
 /// known v1 caveat is that window-portal content inside these views clips by
 /// resizing at the viewport edge instead of cropping.
 struct CanvasHostedPanelContentView: View {
+    @Bindable var presentation: CanvasHostedPanelPresentation
     let panel: any Panel
     let workspaceId: UUID
     let paneId: PaneID
-    let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
     let appearance: PanelAppearance
@@ -25,9 +25,11 @@ struct CanvasHostedPanelContentView: View {
             panel: panel,
             workspaceId: workspaceId,
             paneId: paneId,
-            isFocused: isFocused,
+            isFocused: presentation.isFocused,
             isSelectedInPane: true,
             isVisibleInUI: isVisibleInUI,
+            allowsPointerInput: presentation.allowsPointerInput,
+            pointerEntryEventFilter: presentation.acceptsPointerEntryEvent,
             portalPriority: portalPriority,
             isSplit: false,
             appearance: appearance,

@@ -46,6 +46,7 @@ extension TerminalController {
         "debug.window.screenshot",
         "debug.terminal.simulate_file_drop",
         "debug.sidebar.simulate_drag",
+        "debug.mobile.transport.disconnect",
         "mobile.dev_stack_auth.configure",
     ]
 }

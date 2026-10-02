@@ -32,25 +32,25 @@ import Testing
         [
             .idle,
             .permissionRequest(.init(request: SPUUpdatePermissionRequest(systemProfile: []), reply: { _ in })),
+            .preparingCheck(.init(cancel: {})),
             .checking(.init(cancel: {})),
             updateAvailable(),
             .notFound(.init(acknowledgement: {})),
             .error(.init(error: NSError(domain: "t", code: 1), retry: {}, dismiss: {})),
+            .startingDownload,
             .downloading(.init(cancel: {}, expectedLength: 100, progress: 10)),
             .extracting(.init(progress: 0.5)),
             .installing(.init(retryTerminatingApplication: {}, dismiss: {})),
         ]
     }
 
-    /// The watchdog reports a stall for the states an armed deadline can legitimately catch the
-    /// flow in with nothing downloading: mid-check, an unacted "Update Available" (the states the
-    /// double-idle bug got stuck in), and `.idle` (the pre-check stall where the delayed re-check
-    /// was dropped — every benign idle disarms before the deadline can fire).
+    /// The watchdog reports a stall for every accepted-install phase that has not reached download
+    /// progress, plus unattributed idle (every causal user cancellation disarms first).
     @Test func stalledForNonProgressingStates() {
         for state in everyState {
             let stalled = watchdog.installAttemptStalled(state)
             switch state {
-            case .checking, .updateAvailable, .idle:
+            case .preparingCheck, .checking, .updateAvailable, .startingDownload, .idle:
                 #expect(stalled, "\(state) should count as stalled")
             default:
                 #expect(!stalled, "\(state) should NOT count as stalled")
@@ -59,7 +59,7 @@ import Testing
     }
 
     /// Download/extract/install progress and clearly-communicated terminals (notFound/error)
-    /// disarm the watchdog; idle/permissionRequest/checking/updateAvailable do not.
+    /// disarm the watchdog; idle/permissionRequest/preparing/checking/starting do not.
     @Test func resolvedForProgressAndVisibleTerminals() {
         for state in everyState {
             let resolved = watchdog.installAttemptResolved(state)
@@ -85,7 +85,7 @@ import Testing
     /// watch too. Only an actual install hand-off — or the coordinator still being mid-flow —
     /// keeps the deadline armed.
     @Test func attemptEndedWithoutInstallTruthTable() {
-        let actions: [AttemptUpdateCoordinator.Action] = [.none, .startFreshCheck, .confirmInstall]
+        let actions: [AttemptUpdateCoordinator.Action] = [.none, .startFreshCheck, .confirmInstall, .installFailed]
         for action in actions {
             // While the coordinator is still monitoring, the attempt is alive regardless of action.
             #expect(!watchdog.attemptEndedWithoutInstall(action: action, isCoordinatorMonitoring: true))
@@ -101,8 +101,10 @@ import Testing
     @Test func cancelledFreshCheckEndsTheWatchdogsWatch() {
         var coordinator = AttemptUpdateCoordinator()
         #expect(coordinator.requestInstallLatest(currentState: updateAvailable()) == .startFreshCheck)
+        coordinator.didStartFreshCheck()
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
-        let action = coordinator.handleStateChange(.idle)
+        coordinator.cancel()
+        let action = AttemptUpdateCoordinator.Action.none
         #expect(action == .none)
         #expect(watchdog.attemptEndedWithoutInstall(
             action: action,
@@ -116,6 +118,7 @@ import Testing
     @Test func confirmInstallHandOffKeepsWatchdogArmed() {
         var coordinator = AttemptUpdateCoordinator()
         #expect(coordinator.requestInstallLatest(currentState: .idle) == .startFreshCheck)
+        coordinator.didStartFreshCheck()
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
         let action = coordinator.handleStateChange(updateAvailable())
         #expect(action == .confirmInstall)

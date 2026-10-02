@@ -104,6 +104,7 @@ private struct BrowserPanelReplacementHarness: View {
             isFocused: true,
             isSelectedInPane: true,
             isVisibleInUI: true,
+            allowsPointerInput: true,
             portalPriority: 1,
             isSplit: false,
             appearance: PanelAppearance(

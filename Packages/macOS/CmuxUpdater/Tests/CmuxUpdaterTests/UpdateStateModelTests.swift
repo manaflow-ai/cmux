@@ -1,9 +1,55 @@
 import Foundation
 import Testing
+@preconcurrency import Sparkle
 @testable import CmuxUpdater
 
 @MainActor
 @Suite struct UpdateStateModelTests {
+    private func makeItem(_ version: String) -> SUAppcastItem {
+        SUAppcastItem(dictionary: [
+            "title": "cmux \(version)",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "enclosure": [
+                "url": "https://example.com/cmux.zip",
+                "length": "1024",
+                "sparkle:version": version,
+                "sparkle:shortVersionString": version,
+            ],
+        ]) ?? SUAppcastItem.empty()
+    }
+
+    /// Regression for #8368: `updaterDidNotFindUpdate` is shared by background probes and
+    /// foreground checks. Clearing passive detection must never answer or remove an unrelated
+    /// foreground prompt.
+    @Test func clearingDetectedUpdateDoesNotDismissForegroundPrompt() {
+        let model = UpdateStateModel()
+        let detected = makeItem("0.64.15")
+        let foreground = makeItem("0.64.16")
+        let reply = ChoiceBox()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+
+        model.recordDetectedUpdate(detected)
+        model.setState(.updateAvailable(.init(appcastItem: foreground, reply: { choice in
+            MainActor.assumeIsolated { reply.choice = choice }
+        })))
+
+        driver.handleDidNotFindUpdate(NSError(domain: SUSparkleErrorDomain, code: 1001))
+
+        #expect(model.detectedUpdateItem == nil)
+        #expect(model.detectedUpdateVersion == nil)
+        #expect(reply.choice == nil)
+        guard case .updateAvailable(let available) = model.state else {
+            Issue.record("background no-update result dismissed foreground state: \(model.state)")
+            return
+        }
+        #expect(available.appcastItem.displayVersionString == "0.64.16")
+    }
+
     @Test func setStateEmitsOnStateChangesStream() async {
         let model = UpdateStateModel()
         var iterator = model.stateChanges().makeAsyncIterator()

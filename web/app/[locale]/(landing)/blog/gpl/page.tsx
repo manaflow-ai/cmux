@@ -5,6 +5,7 @@ import { blogPostSeoCopy } from "@/i18n/audited-seo";
 import { englishFallbackContentLocales } from "@/i18n/locale-availability";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
+import { BlogPostMeta } from "@/app/[locale]/components/blog-author";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -49,9 +50,7 @@ export default function GplPage() {
       </div>
 
       <h1>{t("title")}</h1>
-      <time dateTime="2026-03-30" className="text-sm text-muted">
-        {t("date")}
-      </time>
+      <BlogPostMeta date={t("date")} dateTime="2026-03-30" />
 
       <p className="mt-6">{t("p1")}</p>
     </>

@@ -993,7 +993,9 @@ html { scroll-behavior: smooth; }
   // calls these methods with the *legacy* positional signature
   // (text, level, raw / code, lang, escaped / href, title, text)
   // — NOT a single token object. Inline children are already
-  // rendered to HTML and passed in as `text`.
+  // rendered to HTML and passed in as `text`. Codespan text is the
+  // exception below: processAllTokens replaces marked's pre-escaped
+  // text with normalized raw source before the renderer escapes it once.
   var headingSlugCounts = Object.create(null);
   function uniqueHeadingSlug(raw) {
     var base = String(raw || '').toLowerCase()
@@ -1006,14 +1008,90 @@ html { scroll-behavior: smooth; }
     return count === 0 ? base : base + '-' + count;
   }
 
+  function normalizedCodespanText(token) {
+    // Invalid boundaries mean marked's token contract changed. Never fall back
+    // to token.text here: a future version may supply either raw or pre-escaped
+    // text. A diagnostic sentinel keeps the failure visible and span-local; the
+    // renderer still escapes it before inserting it into HTML.
+    if (!token || typeof token.raw !== 'string') {
+      return '\uFFFD';
+    }
+    var openingDelimiter = token.raw.match(/^`+/);
+    if (!openingDelimiter) {
+      return '\uFFFD';
+    }
+    var delimiter = openingDelimiter[0];
+    if (
+      token.raw.length < delimiter.length * 2 ||
+      token.raw.slice(-delimiter.length) !== delimiter
+    ) {
+      return '\uFFFD';
+    }
+
+    // Own codespan normalization here instead of relying on marked's token.text,
+    // which marked 13.0.3 has already HTML-escaped. This mirrors CommonMark's
+    // newline and single outer-space normalization before our renderer performs
+    // the one and only HTML escape.
+    var text = token.raw.slice(delimiter.length, -delimiter.length)
+      .replace(/\n/g, ' ');
+    if (/[^ ]/.test(text) && /^ /.test(text) && / $/.test(text)) {
+      text = text.slice(1, -1);
+    }
+    return text;
+  }
+
+  function normalizeCodespanTokens(tokens) {
+    // marked's public walkTokens helper accumulates callback results with
+    // repeated Array.concat calls, making a registered walkTokens hook
+    // quadratic in the number of tokens. Traverse the token tree directly so
+    // normalization remains linear for large, untrusted markdown documents.
+    var pendingArrays = [tokens];
+    var visitedArrays = new WeakSet();
+    while (pendingArrays.length > 0) {
+      var siblings = pendingArrays.pop();
+      if (!Array.isArray(siblings) || visitedArrays.has(siblings)) {
+        continue;
+      }
+      visitedArrays.add(siblings);
+
+      for (var i = siblings.length - 1; i >= 0; i--) {
+        var token = siblings[i];
+        if (Array.isArray(token)) {
+          pendingArrays.push(token);
+          continue;
+        }
+        if (!token || typeof token !== 'object') {
+          continue;
+        }
+        if (token.type === 'codespan') {
+          token.text = normalizedCodespanText(token);
+        }
+
+        var keys = Object.keys(token);
+        for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+          var child = token[keys[keyIndex]];
+          if (Array.isArray(child)) {
+            pendingArrays.push(child);
+          }
+        }
+      }
+    }
+    return tokens;
+  }
+
   marked.use({
     gfm: true,
     breaks: false,
     pedantic: false,
+    hooks: {
+      processAllTokens: function(tokens) {
+        return normalizeCodespanTokens(tokens);
+      }
+    },
     renderer: {
       codespan(code) {
-        var raw = code || '';
-        return '<code>' + escapeHtml(raw) + '</code>';
+        var text = code || '';
+        return '<code>' + escapeHtml(text) + '</code>';
       },
       code(code, infostring, escaped) {
         var raw = code || '';
@@ -1183,6 +1261,11 @@ html { scroll-behavior: smooth; }
 
   var mermaidInitialized = false;
   var cmuxMarkdownZoom = 1;
+  // Whether this engine's pageZoom scales the whole CSS viewport (newer WebKit,
+  // where fixed-px SVG bounds already track the prose) or only text metrics
+  // (older WebKit, where Mermaid SVGs need manual compensation). Unknown until
+  // the first non-default zoom supplies both host and CSS viewport widths.
+  var cmuxEngineScalesSVG = null;
   var mermaidResizeObserver = null;
   var mermaidObservedWidth = 0;
 
@@ -1274,16 +1357,17 @@ html { scroll-behavior: smooth; }
     return { width: width, height: height };
   }
 
-  function mermaidCurrentBaseSize(svg, natural) {
+  function mermaidCurrentBaseSize(svg, natural, containerScale) {
     var container = svg.closest ? svg.closest('.cmux-mermaid') : svg.parentElement;
     var rect = container && container.getBoundingClientRect ? container.getBoundingClientRect() : null;
     var containerWidth = rect ? rect.width : NaN;
     if (!Number.isFinite(containerWidth) || containerWidth <= 0) {
       containerWidth = container ? container.clientWidth : NaN;
     }
+    var scale = Number.isFinite(containerScale) && containerScale > 0 ? containerScale : 1;
     var width = natural.width;
     if (Number.isFinite(containerWidth) && containerWidth > 0) {
-      width = Math.min(containerWidth, natural.width);
+      width = Math.min(containerWidth * scale, natural.width);
     }
     return { width: width, height: width * (natural.height / natural.width) };
   }
@@ -1323,10 +1407,24 @@ html { scroll-behavior: smooth; }
       svg.setAttribute('data-cmux-mermaid-zoom', '1');
       return;
     }
-    var base = mermaidCurrentBaseSize(svg, natural);
-    // WKWebView pageZoom scales markdown text metrics here, but Mermaid SVG bounds stay fixed.
-    var width = Math.max(1, base.width * cmuxMarkdownZoom);
-    var height = Math.max(1, base.height * cmuxMarkdownZoom);
+    var width;
+    var height;
+    if (cmuxEngineScalesSVG === true) {
+      // This engine's pageZoom scales the whole viewport: the container's CSS
+      // width is already divided by the zoom, and the engine multiplies any
+      // CSS size we set. Pin the zoom-1 fitted size (letting a wide diagram
+      // overflow and scroll at its enlarged size) and let the engine scale it;
+      // multiplying here as well renders the diagram zoom-squared.
+      var pinned = mermaidCurrentBaseSize(svg, natural, cmuxMarkdownZoom);
+      width = Math.max(1, pinned.width);
+      height = Math.max(1, pinned.height);
+    } else {
+      // Older WKWebView pageZoom scales markdown text metrics but leaves fixed
+      // px SVG bounds alone, so the shell must size the diagram up itself.
+      var base = mermaidCurrentBaseSize(svg, natural, 1);
+      width = Math.max(1, base.width * cmuxMarkdownZoom);
+      height = Math.max(1, base.height * cmuxMarkdownZoom);
+    }
     svg.style.maxWidth = '';
     svg.setAttribute('data-cmux-mermaid-scaled', '1');
     svg.style.width = width + 'px';
@@ -1341,8 +1439,34 @@ html { scroll-behavior: smooth; }
     Array.prototype.forEach.call(scope.querySelectorAll('.cmux-mermaid svg'), applyMermaidZoomToSVG);
   }
 
-  window.__cmuxSetMarkdownZoom = function(zoom) {
+  function detectPageZoomViewportScaling(zoom, hostViewportWidth) {
+    var hostWidth = Number(hostViewportWidth);
+    var cssWidth = window.innerWidth;
+    if (
+      !Number.isFinite(hostWidth) ||
+      hostWidth <= 0 ||
+      !Number.isFinite(cssWidth) ||
+      cssWidth <= 0 ||
+      Math.abs(zoom - 1) <= 0.0001
+    ) {
+      return null;
+    }
+    var expectedViewportWidth = hostWidth / zoom;
+    var viewportDistance = Math.abs(cssWidth - expectedViewportWidth);
+    var legacyDistance = Math.abs(cssWidth - hostWidth);
+    var tolerance = Math.max(2, Math.max(hostWidth, expectedViewportWidth) * 0.02);
+    if (Math.min(viewportDistance, legacyDistance) > tolerance) { return null; }
+    return viewportDistance < legacyDistance;
+  }
+
+  window.__cmuxSetMarkdownZoom = function(zoom, hostViewportWidth) {
     cmuxMarkdownZoom = normalizedMarkdownZoom(zoom);
+    // Native supplies the current WKWebView width after setting pageZoom. A
+    // single contemporaneous sample distinguishes the engine generations:
+    // newer WebKit reports hostWidth / zoom, while older WebKit reports the
+    // unscaled hostWidth. No resize-sensitive historical baseline is needed.
+    var detectedScaling = detectPageZoomViewportScaling(cmuxMarkdownZoom, hostViewportWidth);
+    if (detectedScaling !== null) { cmuxEngineScalesSVG = detectedScaling; }
     mermaidObservedWidth = mermaidContentWidth(null);
     applyMermaidZoom(contentEl);
   };

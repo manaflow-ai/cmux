@@ -111,6 +111,7 @@ extension AppDelegate {
         guard let destinationWorkspace = targetManager.addWorkspace(
             fromDetachedSurface: detached,
             title: destinationTitle,
+            titleSource: hasExplicitTitle ? .user : .auto,
             select: false,
             placementOverride: placementOverride,
             insertionIndexOverride: insertionIndexOverride,

@@ -24,9 +24,9 @@ const catalog: RelayCatalog = {
 describe("relay workflows", () => {
   test("issues the current signed catalog when an account selection is stale", async () => {
     const { privateKey } = generateKeyPairSync("ed25519");
-    let acceptedSequence: number | undefined;
+    let acceptedInput: unknown;
     const repository: RelayRepositoryShape = {
-      acceptCatalog: ({ sequence }) => Effect.sync(() => { acceptedSequence = sequence; }),
+      acceptCatalog: (input) => Effect.sync(() => { acceptedInput = input; }),
       getPreference: () => Effect.succeed({
         preference: {
           mode: "managed",
@@ -47,7 +47,10 @@ describe("relay workflows", () => {
       }).pipe(Effect.provide(Layer.succeed(RelayRepository, repository))),
     );
 
-    expect(acceptedSequence).toBe(8);
+    expect(acceptedInput).toEqual({
+      catalog,
+      nowSeconds: 1_700_000_000,
+    });
     expect(result.payload.relays).toEqual(catalog.relays);
     expect(result.preference).toEqual({
       mode: "managed",

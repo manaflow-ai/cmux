@@ -1,36 +1,17 @@
+internal import CMUXMobileCore
+internal import Foundation
+
 extension CmxIrohClientRuntime {
     func startSupervisorObservation(revision: UInt64) async {
         supervisorEventTask?.cancel()
-        let events = await supervisor.events()
+        let events = await connectivityEngine.networkChanges()
         supervisorEventTask = Task { [weak self] in
             guard let self else { return }
-            for await event in events {
+            for await _ in events {
                 guard !Task.isCancelled else { return }
-                switch event {
-                case .networkChanged:
-                    await self.handleSupervisorNetworkChange(revision: revision)
-                case let .recovered(_, newGeneration):
-                    await self.handleSupervisorRecovery(
-                        revision: revision,
-                        runtimeGeneration: newGeneration
-                    )
-                case .snapshot:
-                    break
-                }
+                await self.handleSupervisorNetworkChange(revision: revision)
             }
         }
-    }
-
-    func handleSupervisorRecovery(
-        revision: UInt64,
-        runtimeGeneration: UInt64
-    ) async {
-        guard lifecycleRevision == revision,
-              lifecyclePhase.ownsNetworkOperation else { return }
-        if lifecyclePhase == .active {
-            await sessionPool.activate(runtimeGeneration: runtimeGeneration)
-        }
-        handleSupervisorNetworkChange(revision: revision)
     }
 
     func handleSupervisorNetworkChange(revision: UInt64) {
@@ -51,19 +32,26 @@ extension CmxIrohClientRuntime {
             return
         }
         registrationRefreshPending = false
+        let refreshID = UUID()
+        registrationRefreshTaskID = refreshID
         registrationRefreshTask = Task { [weak self] in
-            do {
-                try await self?.refreshRegistration(revision: revision)
-            } catch {
-                // Terminal errors already revoke local policy and stop networking.
-            }
+            guard let self else { return .failed(.superseded) }
+            return try await self.refreshRegistration(
+                revision: revision,
+                refreshID: refreshID
+            )
         }
     }
 
-    func refreshRegistration(revision: UInt64) async throws {
+    func refreshRegistration(
+        revision: UInt64,
+        refreshID: UUID
+    ) async throws -> CmxIrohLiveDiscoveryRefreshOutcome {
         defer {
-            if lifecycleRevision == revision {
+            if lifecycleRevision == revision,
+               registrationRefreshTaskID == refreshID {
                 registrationRefreshTask = nil
+                registrationRefreshTaskID = nil
                 if registrationRefreshEnabled,
                    registrationRefreshPending,
                    lifecyclePhase == .active {
@@ -72,11 +60,14 @@ extension CmxIrohClientRuntime {
             }
         }
         guard lifecyclePhase == .active,
-              lifecycleRevision == revision,
-              let previousBinding = localBinding else { return }
+              lifecycleRevision == revision else {
+            return .failed(.superseded)
+        }
+        guard let previousBinding = localBinding else {
+            return .failed(.endpointUnavailable)
+        }
         do {
-            let endpoint = try await supervisor.activeEndpoint()
-            let endpointID = await endpoint.identity()
+            let endpointID = try await connectivityEngine.localEndpointIdentity()
             let policy = try await resolvePolicy(
                 expectedEndpointID: endpointID,
                 revision: revision
@@ -91,12 +82,24 @@ extension CmxIrohClientRuntime {
                 endpointID: endpointID,
                 bindingID: policy.binding.bindingID
             )
-            if let registration = policy.registration,
+            if policy.registration != nil,
                let discovery = policy.discovery {
-                await handleBinding(registration, discovery)
+                let published = await handleBinding(policy.binding, discovery)
+                try requireCurrent(revision)
+                guard published else { return .failed(.superseded) }
+                if let routeRevision = discovery.revision {
+                    await connectivityEngine.didInstallRouteRevision(
+                        routeRevision,
+                        routes: discovery
+                    )
+                }
+                liveDiscoveryGeneration &+= 1
+                return .refreshed
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
+                return .failed(.offline)
             }
+            return .failed(.policyUnavailable)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -108,7 +111,7 @@ extension CmxIrohClientRuntime {
                 .preservesVerifiedPolicyDuringRefresh(error) else {
                 // Keep the last exact verified binding while broker availability
                 // prevents a refresh.
-                return
+                return .failed(DiagnosticFailureKind.classify(error))
             }
             lifecyclePhase = .stopping
             lifecycleRevision &+= 1

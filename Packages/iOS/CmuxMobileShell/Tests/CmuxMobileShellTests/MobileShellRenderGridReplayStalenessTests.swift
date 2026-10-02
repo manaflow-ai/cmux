@@ -12,6 +12,136 @@ import Testing
 // Shared fixtures live in MobileShellRenderGridLivenessTestSupport.swift.
 
 @MainActor
+@Test(arguments: [UInt64(0), UInt64(3)])
+func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    try await router.enqueueReplayRenderGrid(
+        renderGridFrame(
+            surfaceID: "live-terminal",
+            seq: 10,
+            text: "replay-baseline-\(historyRows)",
+            anchor: .screen,
+            historyRows: historyRows
+        )
+    )
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let replayDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("replay-baseline-\(historyRows)") }
+    }
+    #expect(replayDelivered, "the replay response must establish the visible baseline")
+    let replaySettled = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID["live-terminal"] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains("live-terminal")
+    }
+    #expect(replaySettled, "the replay barrier must clear before the live delta arrives")
+    let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 11,
+        text: "live-delta-\(historyRows)",
+        full: false,
+        anchor: .screen,
+        historyRows: historyRows,
+        deltaBaseHistoryRows: historyRows
+    ))
+
+    let deltaDelivered = try await pollUntil(attempts: 50) {
+        collector.lines.contains { $0.contains("live-delta-\(historyRows)") }
+    }
+    #expect(
+        deltaDelivered,
+        "a live screen-anchored delta linked to the replay history must be delivered"
+    )
+    let replayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 1,
+        timeoutNanoseconds: 500_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(
+        !replayRequested,
+        "a linked live delta must not request another replay"
+    )
+    collector.unmount()
+}
+
+@MainActor
+@Test func screenAnchoredFrameWithoutHistoryBreaksReplayContinuity() async throws {
+    let historyRows = UInt64(3)
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    try await router.enqueueReplayRenderGrid(
+        renderGridFrame(
+            surfaceID: "live-terminal",
+            seq: 10,
+            text: "replay-baseline",
+            anchor: .screen,
+            historyRows: historyRows
+        )
+    )
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let replayDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("replay-baseline") }
+    }
+    #expect(replayDelivered, "the replay response must establish history continuity")
+    let replaySettled = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID["live-terminal"] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains("live-terminal")
+    }
+    #expect(replaySettled, "the replay barrier must clear before live frames arrive")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 11,
+        text: "full-without-history",
+        anchor: .screen
+    ))
+    let fullFrameDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("full-without-history") }
+    }
+    #expect(fullFrameDelivered, "the full live frame must replace the replay baseline")
+    let replayCountBeforeDelta = await router.count(of: "mobile.terminal.replay")
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 12,
+        text: "stale-linked-delta",
+        full: false,
+        anchor: .screen,
+        historyRows: historyRows,
+        deltaBaseHistoryRows: historyRows
+    ))
+
+    let replayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountBeforeDelta + 1
+    )
+    #expect(
+        replayRequested,
+        "a delta must request replay after a delivered frame loses history continuity"
+    )
+    #expect(
+        !collector.lines.contains { $0.contains("stale-linked-delta") },
+        "a delta linked to stale history must not be delivered"
+    )
+    collector.unmount()
+}
+
+@MainActor
 @Test func renderGridReplayAtSameSeqDoesNotOverwriteNewerLiveGrid() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()

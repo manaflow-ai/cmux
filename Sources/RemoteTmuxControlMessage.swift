@@ -29,6 +29,9 @@ enum RemoteTmuxControlMessage: Sendable, Equatable {
     /// `%sessions-changed` — the set of sessions changed (re-list to refresh).
     case sessionsChanged
 
+    /// `%client-detached <client>` — another client detached from the server.
+    case clientDetached(client: String)
+
     /// `%window-add @<id>` — a window was added to the attached session.
     case windowAdd(windowId: Int)
 

@@ -53,10 +53,16 @@ extension RemoteSessionCoordinator {
         return shouldReconnect
     }
 
-    private func resetTransportForReconnectLocked() {
+    func resetTransportForReconnectLocked(
+        preservePersistentRelayMetadata: Bool = false
+    ) {
         cancelTransportDependentWorkLocked()
         cancelReverseRelayRestartLocked()
-        stopReverseRelayLocked()
+        if preservePersistentRelayMetadata {
+            invalidateReverseRelayAfterControlMasterReapLocked()
+        } else {
+            stopReverseRelayLocked()
+        }
         failPendingPTYBridgeStartsLocked("remote daemon is not ready")
         releaseProxyLeaseLocked()
         proxyEndpoint = nil

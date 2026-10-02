@@ -36,4 +36,27 @@ public struct SSHHostConfiguredRemoteCommand: Sendable {
     public var overrideArguments: [String] { ["-o", overrideOption] }
 
     public init() {}
+
+    /// Parses the effective `RemoteCommand` from `ssh -G` output.
+    ///
+    /// OpenSSH expands supported percent tokens before its `config_test`
+    /// (`-G`) dump, so the returned value is already the command that SSH
+    /// would send and must not be expanded a second time.
+    ///
+    /// - Parameter output: Standard output from `ssh -G <destination>`.
+    /// - Returns: The configured command, or `nil` when OpenSSH reports `none`.
+    public func configuredCommand(fromSSHConfigOutput output: String) -> String? {
+        for line in output.split(whereSeparator: \.isNewline) {
+            let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+            guard parts.count == 2, parts[0].lowercased() == "remotecommand" else {
+                continue
+            }
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty, value.caseInsensitiveCompare("none") != .orderedSame else {
+                return nil
+            }
+            return value
+        }
+        return nil
+    }
 }

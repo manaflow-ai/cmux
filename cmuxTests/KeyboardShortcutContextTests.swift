@@ -18,6 +18,22 @@ private typealias StoredShortcut = cmux.StoredShortcut
 private typealias ShortcutStroke = CmuxSettings.ShortcutStroke
 
 final class KeyboardShortcutContextTests: XCTestCase {
+    func testSimulatorShortcutsYieldToTextEditors() {
+        let textView = NSTextView()
+        textView.isEditable = true
+        XCTAssertTrue(shortcutResponderAcceptsTextEditing(textView))
+
+        let fieldEditor = NSTextView()
+        fieldEditor.isFieldEditor = true
+        XCTAssertTrue(shortcutResponderAcceptsTextEditing(fieldEditor))
+
+        let textField = NSTextField()
+        textField.isEditable = true
+        XCTAssertTrue(shortcutResponderAcceptsTextEditing(textField))
+
+        XCTAssertFalse(shortcutResponderAcceptsTextEditing(NSView()))
+    }
+
     func testRenameTabAndBrowserReloadCanShareDefaultChordAcrossContexts() {
         let renameTabShortcut = KeyboardShortcutSettings.Action.renameTab.defaultShortcut
 

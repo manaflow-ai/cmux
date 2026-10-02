@@ -74,15 +74,15 @@ enum FileExplorerTerminalPathInsertion {
     private static func targetTerminalPanel(for window: NSWindow?) -> TerminalPanel? {
         guard let appDelegate = AppDelegate.shared else { return nil }
         if let window,
-           let terminalPanel = appDelegate.contextForMainTerminalWindow(window)?.tabManager.selectedWorkspace?.focusedTerminalPanel {
+           let terminalPanel = appDelegate.contextForMainTerminalWindow(window)?.tabManager.selectedWorkspace?.focusedTerminalInputTarget()?.panel {
             return terminalPanel
         }
         if let window,
            let windowId = appDelegate.mainWindowId(from: window),
-           let terminalPanel = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace?.focusedTerminalPanel {
+           let terminalPanel = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace?.focusedTerminalInputTarget()?.panel {
             return terminalPanel
         }
-        return appDelegate.tabManager?.selectedWorkspace?.focusedTerminalPanel
+        return appDelegate.tabManager?.selectedWorkspace?.focusedTerminalInputTarget()?.panel
     }
 }
 

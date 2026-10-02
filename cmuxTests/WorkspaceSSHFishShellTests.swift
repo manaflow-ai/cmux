@@ -10,7 +10,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
     }
 
     @MainActor
-    func testSSHBootstrapStartupCommandPassesRemoteInstallScriptAsSingleSSHCommand() throws {
+    func testMultiplexedSSHForegroundAuthDoesNotDependOnLocalCommand() throws {
         let cliPath = try bundledCLIPath()
         let python3Path = try requireExecutable(["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"], name: "python3")
         let fishExecutable = try requireExecutable(["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish", "/bin/fish"], name: "fish")
@@ -20,6 +20,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let workspaceRef = "workspace:8"
         let windowID = "22222222-2222-2222-2222-222222222222"
+        let surfaceID = "33333333-3333-3333-3333-333333333333"
 
         defer {
             Darwin.close(listenerFD)
@@ -46,6 +47,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
                     result: [
                         "workspace_id": workspaceID,
                         "window_id": windowID,
+                        "surface_id": surfaceID,
                     ]
                 )
             case "workspace.rename":
@@ -88,6 +90,8 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
                 "--name", "SSH Workspace",
                 "--port", "2222",
                 "--identity", "/Users/test/.ssh/id_ed25519",
+                "--ssh-option", "ControlMaster=auto",
+                "--ssh-option", "ControlPersist=600",
                 "--ssh-option", "ControlPath=/tmp/cmux-ssh-%C",
                 "--ssh-option", "StrictHostKeyChecking=accept-new",
                 "cmux-macmini",
@@ -113,6 +117,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("cmux-ssh-bootstrap-\(UUID().uuidString)")
         let fakeBin = tempRoot.appendingPathComponent("bin")
         let fakeSSHLog = tempRoot.appendingPathComponent("fake-ssh.jsonl")
+        let fakeSSHMasterMarker = tempRoot.appendingPathComponent("fake-ssh-master")
         let fakeSSH = fakeBin.appendingPathComponent("ssh")
 
         try fileManager.createDirectory(at: fakeBin, withIntermediateDirectories: true)
@@ -136,7 +141,9 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
                 local_command = args[index + 1].split("=", 1)[1]
                 break
 
-        if local_command:
+        master_marker = os.environ["CMUX_FAKE_SSH_MASTER_MARKER"]
+        if local_command and not os.path.exists(master_marker):
+            open(master_marker, "a", encoding="utf-8").close()
             local_command = local_command.replace("%%", "%")
             subprocess.run([os.environ["CMUX_TEST_LOCAL_SHELL"], "-c", local_command], check=False, env=os.environ.copy())
         PY
@@ -150,6 +157,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         startupEnvironment["HOME"] = tempRoot.path
         startupEnvironment["PATH"] = "\(fakeBin.path):/usr/bin:/bin:/usr/sbin:/sbin"
         startupEnvironment["CMUX_FAKE_SSH_LOG"] = fakeSSHLog.path
+        startupEnvironment["CMUX_FAKE_SSH_MASTER_MARKER"] = fakeSSHMasterMarker.path
         startupEnvironment["CMUX_TEST_PYTHON3"] = python3Path
         startupEnvironment["CMUX_TEST_LOCAL_SHELL"] = fishExecutable
         startupEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -158,7 +166,11 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         startupEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let foregroundAuthState = MockSocketServerState()
-        let foregroundAuthHandled = startMockServer(listenerFD: listenerFD, state: foregroundAuthState) { line in
+        let foregroundAuthHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: foregroundAuthState,
+            connectionCount: 2
+        ) { line in
             guard let data = line.data(using: .utf8),
                   let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                   let id = payload["id"] as? String,
@@ -185,117 +197,52 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             )
         }
 
-        let startupResult = runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", initialCommand],
-            environment: startupEnvironment,
-            timeout: 5
-        )
+        let startupResults = (0..<2).map { _ in
+            runProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", initialCommand],
+                environment: startupEnvironment,
+                timeout: 5
+            )
+        }
 
         wait(for: [foregroundAuthHandled], timeout: 5)
-        XCTAssertFalse(startupResult.timedOut, startupResult.stderr)
-        XCTAssertEqual(startupResult.status, 0, startupResult.stderr)
+        for startupResult in startupResults {
+            XCTAssertFalse(startupResult.timedOut, startupResult.stderr)
+            XCTAssertEqual(startupResult.status, 0, startupResult.stderr)
+        }
 
         let logLines = try String(contentsOf: fakeSSHLog, encoding: .utf8)
             .split(separator: "\n")
             .map(String.init)
-        XCTAssertGreaterThanOrEqual(logLines.count, 2)
-
-        let firstInvocationData = try XCTUnwrap(logLines.first?.data(using: .utf8))
-        let firstInvocation = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: firstInvocationData, options: []) as? [String]
-        )
-        let localCommandArgument = try XCTUnwrap(
-            firstInvocation.first(where: { $0.hasPrefix("LocalCommand=") })
-        )
-        let localCommand = String(localCommandArgument.dropFirst("LocalCommand=".count))
-        XCTAssertTrue(
-            firstInvocation.contains(where: { $0.contains("LocalCommand=") && $0.contains("workspace.remote.foreground_auth_ready") }),
-            "Expected the bootstrap install SSH hop to signal foreground auth readiness via LocalCommand, saw \(firstInvocation)"
-        )
-        XCTAssertTrue(
-            localCommand.hasPrefix("/bin/sh -c "),
-            "Expected LocalCommand to force a POSIX shell so non-POSIX login shells such as fish can execute it, saw \(localCommand)"
-        )
-        XCTAssertTrue(
-            localCommand.contains("%%s\\n"),
-            "Expected LocalCommand to percent-escape literal percent signs for OpenSSH, saw \(localCommand)"
-        )
-        let localCommandSyntaxCheck = runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-n", "-c", localCommand],
-            environment: ProcessInfo.processInfo.environment,
-            timeout: 5
-        )
-        XCTAssertEqual(
-            localCommandSyntaxCheck.status,
-            0,
-            "Expected LocalCommand shell snippet to parse cleanly, stderr: \(localCommandSyntaxCheck.stderr)"
-        )
-        let fishLocalCommandCheck = runProcess(
-            executablePath: fishExecutable,
-            arguments: ["-n", "-c", localCommand],
-            environment: ProcessInfo.processInfo.environment,
-            timeout: 5
-        )
-        XCTAssertEqual(
-            fishLocalCommandCheck.status,
-            0,
-            "Expected LocalCommand wrapper to parse cleanly when the user's login shell is fish, stderr: \(fishLocalCommandCheck.stderr)"
-        )
-        let destinationIndex = try XCTUnwrap(firstInvocation.lastIndex(of: "cmux-macmini"))
-        let remoteCommandArgs = Array(firstInvocation.suffix(from: firstInvocation.index(after: destinationIndex)))
-
-        XCTAssertEqual(
-            remoteCommandArgs.count,
-            1,
-            "Expected the staged bootstrap installer to be passed as one SSH remote command, saw \(firstInvocation)"
-        )
-        XCTAssertTrue(remoteCommandArgs[0].contains("/bin/sh -c"), "Expected a POSIX shell wrapper in \(remoteCommandArgs)")
-        XCTAssertTrue(remoteCommandArgs[0].contains("set -eu"), "Expected installer command body in \(remoteCommandArgs)")
-        XCTAssertFalse(remoteCommandArgs.contains("sh"))
-        XCTAssertFalse(remoteCommandArgs.contains("-c"))
-        let secondInvocationData = try XCTUnwrap(logLines.dropFirst().first?.data(using: .utf8))
-        let secondInvocation = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: secondInvocationData, options: []) as? [String]
-        )
+        let invocations = try logLines.map { line in
+            let data = try XCTUnwrap(line.data(using: .utf8))
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String])
+        }
+        let foregroundAuthInvocations = invocations.filter { $0.last == "true" }
+        XCTAssertEqual(foregroundAuthInvocations.count, 2)
         XCTAssertFalse(
-            secondInvocation.contains(where: { $0.contains("LocalCommand=") }),
-            "Expected only the bootstrap install hop to trigger LocalCommand, saw \(secondInvocation)"
-        )
-        let secondRemoteCommandOption = try XCTUnwrap(
-            secondInvocation.first(where: { $0.hasPrefix("RemoteCommand=") })
-        )
-        let secondRemoteCommand = String(secondRemoteCommandOption.dropFirst("RemoteCommand=".count))
-        XCTAssertTrue(
-            secondRemoteCommand.contains("/bin/sh -c"),
-            "Expected the interactive remote command to force a POSIX shell so fish login shells can execute it, saw \(secondInvocation)"
-        )
-        XCTAssertTrue(
-            secondRemoteCommand.contains("cmux_bootstrap_tty=") || secondRemoteCommand.contains("cmux_bootstrap_tty\\\""),
-            "Expected staged remote bootstrap command body in \(secondRemoteCommand)"
-        )
-        let remoteFishCommandCheck = runProcess(
-            executablePath: fishExecutable,
-            arguments: ["-n", "-c", secondRemoteCommand],
-            environment: ProcessInfo.processInfo.environment,
-            timeout: 5
-        )
-        XCTAssertEqual(
-            remoteFishCommandCheck.status,
-            0,
-            "Expected staged remote command wrapper to parse cleanly when the remote login shell is fish, stderr: \(remoteFishCommandCheck.stderr)"
+            invocations.contains(where: { invocation in
+                invocation.contains(where: { $0.hasPrefix("LocalCommand=") })
+            }),
+            "Foreground auth must not depend on LocalCommand because OpenSSH suppresses it for multiplex followers: \(invocations)"
         )
 
-        XCTAssertEqual(foregroundAuthState.commands.count, 1)
-        let foregroundAuthPayloadData = try XCTUnwrap(foregroundAuthState.commands.first?.data(using: .utf8))
-        let foregroundAuthPayload = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: foregroundAuthPayloadData, options: []) as? [String: Any]
+        XCTAssertEqual(
+            foregroundAuthState.commands.count,
+            2,
+            "Every workspace startup must report foreground auth even when a shared ControlMaster suppresses follower LocalCommand callbacks."
         )
-        XCTAssertEqual(foregroundAuthPayload["method"] as? String, "workspace.remote.foreground_auth_ready")
-        let foregroundAuthParams = try XCTUnwrap(foregroundAuthPayload["params"] as? [String: Any])
-        XCTAssertEqual(foregroundAuthParams["workspace_id"] as? String, workspaceID)
-        XCTAssertEqual(foregroundAuthParams["foreground_auth_token"] as? String, foregroundAuthToken)
+        for command in foregroundAuthState.commands {
+            let foregroundAuthPayloadData = try XCTUnwrap(command.data(using: .utf8))
+            let foregroundAuthPayload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: foregroundAuthPayloadData, options: []) as? [String: Any]
+            )
+            XCTAssertEqual(foregroundAuthPayload["method"] as? String, "workspace.remote.foreground_auth_ready")
+            let foregroundAuthParams = try XCTUnwrap(foregroundAuthPayload["params"] as? [String: Any])
+            XCTAssertEqual(foregroundAuthParams["workspace_id"] as? String, workspaceID)
+            XCTAssertEqual(foregroundAuthParams["foreground_auth_token"] as? String, foregroundAuthToken)
+        }
     }
 
     private func makeSocketPath(_ name: String) -> String {
@@ -413,46 +360,50 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
     private func startMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
+        connectionCount: Int = 1,
         handler: @escaping @Sendable (String) -> String
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli mock socket handled")
-        DispatchQueue.global(qos: .userInitiated).async {
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+        handled.expectedFulfillmentCount = max(1, connectionCount)
+        for _ in 0..<max(1, connectionCount) {
+            DispatchQueue.global(qos: .userInitiated).async {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
                 }
-            }
-            guard clientFD >= 0 else {
-                handled.fulfill()
-                return
-            }
-            defer {
-                Darwin.close(clientFD)
-                handled.fulfill()
-            }
-
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-
-            while true {
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count < 0 {
-                    if errno == EINTR { continue }
+                guard clientFD >= 0 else {
+                    handled.fulfill()
                     return
                 }
-                if count == 0 { return }
-                pending.append(buffer, count: count)
+                defer {
+                    Darwin.close(clientFD)
+                    handled.fulfill()
+                }
 
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                    state.append(line)
-                    let response = handler(line) + "\n"
-                    _ = response.withCString { ptr in
-                        Darwin.write(clientFD, ptr, strlen(ptr))
+                var pending = Data()
+                var buffer = [UInt8](repeating: 0, count: 4096)
+
+                while true {
+                    let count = Darwin.read(clientFD, &buffer, buffer.count)
+                    if count < 0 {
+                        if errno == EINTR { continue }
+                        return
+                    }
+                    if count == 0 { return }
+                    pending.append(buffer, count: count)
+
+                    while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                        let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                        pending.removeSubrange(0...newlineRange.lowerBound)
+                        guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                        state.append(line)
+                        let response = handler(line) + "\n"
+                        _ = response.withCString { ptr in
+                            Darwin.write(clientFD, ptr, strlen(ptr))
+                        }
                     }
                 }
             }

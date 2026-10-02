@@ -64,7 +64,7 @@ echo "Building GhosttyKit..."
 rm -rf GhosttyKit.xcframework ghostty/macos/GhosttyKit.xcframework
 (
   cd ghostty
-  zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+  zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Dsentry=false -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 )
 cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 

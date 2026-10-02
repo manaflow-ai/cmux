@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -350,11 +351,12 @@ struct CmuxConfigActionSaverTests {
     }
 
     @Test func commandLineStripsNativeCodexCmuxHooksWithoutRewritingExecutable() {
-        let nativeCommand = TerminalForegroundCommandCapture.commandLine(fromArgv: [
-            "/usr/local/bin/codex", "--enable", "hooks", "--dangerously-bypass-hook-trust",
-            "-c", "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
-            "--model", "gpt-5.5",
-        ])
+        let nativeCommand = TerminalForegroundCommandCapture.commandLine(
+            fromArgv:
+            ["/usr/local/bin/codex"] + currentCodexHookArguments() + [
+                "--model", "gpt-5.5",
+            ]
+        )
         #expect(nativeCommand?.hasPrefix("/usr/local/bin/codex ") == true)
         #expect(nativeCommand?.contains("cmux-codex-hook-stop.sh") == false)
         #expect(nativeCommand?.contains("--model gpt-5.5") == true)
@@ -364,16 +366,13 @@ struct CmuxConfigActionSaverTests {
                 "/usr/local/bin/codex", "--model", "gpt-5.5",
             ]) == "/usr/local/bin/codex --model gpt-5.5"
         )
-        let explicitPinnedCommand = TerminalForegroundCommandCapture.commandLine(fromArgv: [
-            "/opt/pinned/bin/codex",
-            "--enable",
-            "hooks",
-            "--dangerously-bypass-hook-trust",
-            "-c",
-            "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
-            "--model",
-            "gpt-5.5",
-        ])
+        let explicitPinnedCommand = TerminalForegroundCommandCapture.commandLine(
+            fromArgv:
+            ["/opt/pinned/bin/codex"] + currentCodexHookArguments() + [
+                "--model",
+                "gpt-5.5",
+            ]
+        )
         #expect(explicitPinnedCommand?.hasPrefix("/opt/pinned/bin/codex ") == true)
         #expect(explicitPinnedCommand?.contains("cmux-codex-hook-stop.sh") == false)
         #expect(explicitPinnedCommand?.hasPrefix("codex ") == false)
@@ -493,5 +492,16 @@ struct CmuxConfigActionSaverTests {
             "-c",
             "model_reasoning_effort=xhigh",
         ]
+    }
+
+    private func currentCodexHookArguments() -> [String] {
+        var arguments = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
+        for event in CodexHookInjectionSchema.current.events {
+            arguments.append("-c")
+            arguments.append(
+                "hooks.\(event.agentEvent)=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-\(event.cmuxSubcommand).sh''',timeout=\(event.timeoutMs)}]}]"
+            )
+        }
+        return arguments
     }
 }

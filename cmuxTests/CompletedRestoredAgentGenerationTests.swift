@@ -233,9 +233,15 @@ struct CompletedRestoredAgentGenerationTests {
             snapshot: snapshot,
             lifecycle: .running,
             updatedAt: updatedAt,
+            processLiveness: .running,
             processIDs: [Int(identity.pid)],
+            processIdentities: [Int(identity.pid): identity],
             agentProcessIDs: [Int(identity.pid)],
-            agentProcessIdentities: [Int(identity.pid): identity]
+            agentProcessIdentities: [Int(identity.pid): identity],
+            hibernationPanelProcessIDs: [Int(identity.pid)],
+            terminationProcessIDs: [Int(identity.pid)],
+            terminationProcessIdentities: [Int(identity.pid): identity],
+            containsUnrelatedProcess: false
         )
     }
 

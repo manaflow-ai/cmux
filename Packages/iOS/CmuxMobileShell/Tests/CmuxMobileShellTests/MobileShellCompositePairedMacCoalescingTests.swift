@@ -101,12 +101,23 @@ import Testing
         #expect(customizedDuplicateRows.first { $0.macDeviceID == "mac-old" }?.customName == "Old custom")
         #expect(customizedDuplicateRows.first { $0.macDeviceID == "mac-fresh" }?.customName == "Desk setup")
 
-        await store.forgetMac(macDeviceID: "mac-fresh")
+        let representative = try #require(store.displayPairedMacs.first)
+        await store.hideStoredPairedMacEntries(
+            representativeID: representative.id,
+            aliasIDs: store.pairedMacAliasIDs(
+                for: representative.macDeviceID,
+                instanceTag: representative.instanceTag
+            )
+        )
 
         #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-other"])
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-other"])
         #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue).isEmpty)
-        #expect(try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a").map(\.macDeviceID) == ["mac-other"])
+        #expect(try await pairedStore.loadAll(
+            stackUserID: "user-1",
+            teamID: "team-a"
+        ).map(\.macDeviceID) == ["mac-old", "mac-fresh", "mac-other"])
+        #expect(Set(store.hiddenComputers.map(\.macDeviceID)) == Set(["mac-old", "mac-fresh"]))
     }
 
     @Test func presenceRoutesForHiddenDuplicateRefreshOnlyTheEmittingRow() async throws {
@@ -223,7 +234,7 @@ import Testing
         #expect(restoreTarget?.macDeviceID == "mac-live")
     }
 
-    @Test func presenceRouteWriteFinishingAfterForgetDoesNotReviveDeletedMac() async throws {
+    @Test func presenceRouteWriteFinishingAfterHideKeepsRowFreshAndHidden() async throws {
         let oldRoute = try CmxAttachRoute(
             id: "old",
             kind: .tailscale,
@@ -270,13 +281,18 @@ import Testing
             scope: MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
         )
         await pairedStore.waitUntilUpsertStarted(macDeviceID: "mac-a")
-        await store.forgetMac(macDeviceID: "mac-a")
+        await store.hideMac(macDeviceID: "mac-a")
         await pairedStore.releaseUpsert(macDeviceID: "mac-a")
         await store.pushedRouteSyncTask?.value
 
-        #expect(try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a").isEmpty)
+        let retained = try #require(try await pairedStore.loadAll(
+            stackUserID: "user-1",
+            teamID: "team-a"
+        ).first)
+        #expect(retained.routes == [freshRoute])
         #expect(store.pairedMacs.isEmpty)
         #expect(store.displayPairedMacs.isEmpty)
+        #expect(store.hiddenComputers.map(\.macDeviceID) == ["mac-a"])
     }
 
     @Test func presenceRoutesDoNotFanOutWhenLogicalDuplicatesBothAdvertiseRoutes() async throws {
@@ -410,7 +426,44 @@ import Testing
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-a", "mac-b"])
     }
 
-    @Test func destructiveActionsDoNothingWithoutSignedInScope() async throws {
+    @Test
+    func physicalAliasIndexJoinsRenamedRowsByIrohAuthority() throws {
+        let identity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "b", count: 64)
+        )
+        let route = try CmxAttachRoute(
+            id: "shared-iroh-authority",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+        let oldAlias = try Self.pairedMac(
+            id: "mac-old",
+            displayName: "Old Name",
+            host: "unused",
+            lastSeenAt: .distantPast,
+            isActive: false,
+            routes: [route]
+        )
+        let representative = try Self.pairedMac(
+            id: "mac-new",
+            displayName: "New Name",
+            host: "unused",
+            lastSeenAt: Date(),
+            isActive: false,
+            routes: [route]
+        )
+
+        let aliases = physicalMacAliasCanonicalIDsByCanonicalID(
+            in: [oldAlias, representative],
+            supportedKinds: [.iroh],
+            preferNonLoopback: true
+        )
+
+        #expect(aliases["mac-old"] == ["mac-old", "mac-new"])
+        #expect(aliases["mac-new"] == ["mac-old", "mac-new"])
+    }
+
+    @Test func scopedActionsDoNothingWithoutSignedInScope() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
                 "team-a": [
@@ -432,7 +485,7 @@ import Testing
             teamIDProvider: { "team-a" }
         )
 
-        await store.forgetMac(macDeviceID: "mac-a")
+        await store.hideMac(macDeviceID: "mac-a")
         await store.updateMacCustomization(
             macDeviceID: "mac-a",
             customName: "Should not write",

@@ -51,3 +51,19 @@ public struct SidebarDragFailsafePolicy {
         eventType == .leftMouseUp
     }
 }
+
+/// Decides whether a native sidebar drag whose transient state was cleared
+/// may be recovered from the workspace id still carried by AppKit's active
+/// pasteboard session.
+public struct SidebarWorkspaceDragActivationPolicy: Sendable {
+    public init() {}
+
+    /// Group anchors cannot move across windows because moving only the anchor
+    /// would dissolve the source group and strand its members.
+    public func shouldRejectRecovery(
+        isLocalWorkspace: Bool,
+        isSourceGroupAnchor: Bool
+    ) -> Bool {
+        !isLocalWorkspace && isSourceGroupAnchor
+    }
+}

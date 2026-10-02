@@ -9,6 +9,8 @@ import Foundation
 public protocol ChatEventSource: Sendable {
     /// Whether this source supports Mac-hosted artifact preview RPCs.
     var supportsArtifacts: Bool { get }
+    /// Whether this source supports recursive artifact folder browsing.
+    var supportsArtifactFolders: Bool { get }
 
     /// Fetches a page of transcript history for a session.
     ///
@@ -82,6 +84,22 @@ public protocol ChatEventSource: Sendable {
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
     ) async throws -> Data
 
+    /// Streams raw chunks for a referenced artifact path.
+    ///
+    /// Implementations call `onChunk` in byte-offset order and await it before
+    /// requesting the next chunk, so cancellation and consumer backpressure
+    /// remain part of the fetch task.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The session whose transcript referenced the path.
+    ///   - path: Absolute Mac host path.
+    ///   - onChunk: Structured callback for each fetched chunk.
+    func artifactFetch(
+        sessionID: String,
+        path: String,
+        onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
+    ) async throws
+
     /// Fetches a JPEG thumbnail for a referenced image artifact.
     ///
     /// - Parameters:
@@ -108,6 +126,9 @@ public extension ChatEventSource {
     /// Unsupported-by-default artifact capability for fixtures and previews.
     var supportsArtifacts: Bool { false }
 
+    /// Unsupported-by-default recursive artifact folder capability.
+    var supportsArtifactFolders: Bool { false }
+
     /// Unsupported-by-default artifact stat implementation.
     func artifactStat(sessionID: String, path: String) async throws -> ChatArtifactStat {
         throw ChatArtifactError.unsupported
@@ -120,6 +141,24 @@ public extension ChatEventSource {
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)? = nil
     ) async throws -> Data {
         throw ChatArtifactError.unsupported
+    }
+
+    /// Whole-file fallback for sources that have not adopted chunk streaming.
+    func artifactFetch(
+        sessionID: String,
+        path: String,
+        onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
+    ) async throws {
+        let data = try await artifactFetch(sessionID: sessionID, path: path, progress: nil)
+        try Task.checkCancellation()
+        try await onChunk(
+            ChatArtifactChunk(
+                data: data,
+                offset: 0,
+                totalSize: Int64(data.count),
+                eof: true
+            )
+        )
     }
 
     /// Unsupported-by-default artifact thumbnail implementation.

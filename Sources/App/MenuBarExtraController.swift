@@ -270,7 +270,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     }
 
     @objc private func globalSearchAction() {
-        toggleGlobalSearchPalette()
+        AppDelegate.shared?.toggleGlobalSearchPalette()
     }
 
     @objc private func showMainWindowAction() {

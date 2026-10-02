@@ -307,15 +307,15 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.stackBranchDirectory"),
                 String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"),
-                subtitle: stackBranchDir.current
+                subtitle: SidebarCatalogSection.stacksBranchAndDirectory(vertical: branchVerticalLayout.current, explicit: stackBranchDir.current)
                     ? String(localized: "settings.app.stackBranchDirectory.subtitleOn", defaultValue: "Branch and directory render on separate lines.")
                     : String(localized: "settings.app.stackBranchDirectory.subtitleOff", defaultValue: "Branch and directory share a single line.")
             ) {
-                Toggle("", isOn: Binding(get: { stackBranchDir.current }, set: { stackBranchDir.set($0) }))
+                Toggle("", isOn: Binding(get: { SidebarCatalogSection.stacksBranchAndDirectory(vertical: branchVerticalLayout.current, explicit: stackBranchDir.current) }, set: { stackBranchDir.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }
-            .disabled(hideAll.current)
+            .disabled(hideAll.current || branchVerticalLayout.current)
             SettingsCardDivider()
 
             SettingsCardRow(

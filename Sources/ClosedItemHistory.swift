@@ -22,6 +22,13 @@ struct ClosedPanelHistoryEntry: Codable {
     let tabIndex: Int
     let snapshot: SessionPanelSnapshot
     let fallbackSplitPlacement: ClosedPanelSplitPlacement?
+    /// Live workspace that owns a transferred Dock panel's restore machinery.
+    /// Dock history is not persisted, so this identity is valid only for the
+    /// current process.
+    let sourceWorkspaceId: UUID?
+    /// Workspace identity encoded into the panel snapshot. This can differ
+    /// from `sourceWorkspaceId` after a session restore.
+    let sourceSnapshotWorkspaceId: UUID?
 
     init(
         workspaceId: UUID,
@@ -30,7 +37,9 @@ struct ClosedPanelHistoryEntry: Codable {
         restoreInOriginalPane: Bool = true,
         tabIndex: Int,
         snapshot: SessionPanelSnapshot,
-        fallbackSplitPlacement: ClosedPanelSplitPlacement? = nil
+        fallbackSplitPlacement: ClosedPanelSplitPlacement? = nil,
+        sourceWorkspaceId: UUID? = nil,
+        sourceSnapshotWorkspaceId: UUID? = nil
     ) {
         self.workspaceId = workspaceId
         self.paneId = paneId
@@ -39,6 +48,8 @@ struct ClosedPanelHistoryEntry: Codable {
         self.tabIndex = tabIndex
         self.snapshot = snapshot
         self.fallbackSplitPlacement = fallbackSplitPlacement
+        self.sourceWorkspaceId = sourceWorkspaceId
+        self.sourceSnapshotWorkspaceId = sourceSnapshotWorkspaceId
     }
 }
 
@@ -126,14 +137,15 @@ enum ClosedWindowRestoreValidation {
 
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
+    static let defaultWorkspaceCapacity = 100
     static let shared = ClosedItemHistoryStore(
-        capacity: nil,
+        workspaceCapacity: defaultWorkspaceCapacity,
         fileURL: defaultHistoryFileURL()
     )
 
     @Published private(set) var revision: UInt64 = 0
     @Published private var records: [ClosedItemHistoryRecord] = []
-    private let capacity: Int?
+    private let capacityPolicy: ClosedItemHistoryCapacityPolicy
     private let fileURL: URL?
     private let persistsRecordsSynchronously: Bool
     private var didFinishPersistedRecordsLoad: Bool
@@ -154,20 +166,25 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     init(
         capacity: Int? = nil,
+        workspaceCapacity: Int? = nil,
         fileURL: URL? = nil,
         loadPersisted: Bool = true,
         loadsPersistedRecordsSynchronously: Bool = false,
         persistsRecordsSynchronously: Bool = false
     ) {
-        self.capacity = capacity.map { max(1, $0) }
+        self.capacityPolicy = ClosedItemHistoryCapacityPolicy(
+            totalCapacity: capacity,
+            workspaceCapacity: workspaceCapacity
+        )
         self.fileURL = fileURL
         self.persistsRecordsSynchronously = persistsRecordsSynchronously
         self.didFinishPersistedRecordsLoad = !loadPersisted || fileURL == nil
         if loadPersisted, let fileURL {
             if loadsPersistedRecordsSynchronously {
                 records = Self.loadRecords(fileURL: fileURL)
-                trimToCapacityIfNeeded()
+                let didTrimPersistedRecords = trimToCapacityIfNeeded()
                 didFinishPersistedRecordsLoad = true
+                if didTrimPersistedRecords { persistRecords() }
             } else {
                 loadPersistedRecordsAsync(from: fileURL)
             }
@@ -184,7 +201,7 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func push(_ record: ClosedItemHistoryRecord) {
         records.append(record)
-        trimToCapacityIfNeeded()
+        if capacityPolicy.shouldTrim(afterInserting: record, totalCount: records.count) { trimToCapacityIfNeeded() }
         revision &+= 1
         persistRecords()
     }
@@ -198,12 +215,14 @@ final class ClosedItemHistoryStore: ObservableObject {
     func restoreFirstRestorable(
         newerThan cutoff: Date?,
         excluding excludedRecordIds: Set<UUID> = [],
+        matching isCandidate: (ClosedItemHistoryEntry) -> Bool = { _ in true },
         onFailure: ((UUID) -> Void)? = nil,
         using restore: (ClosedItemHistoryEntry) -> Bool
     ) -> Bool {
         let candidates = records.enumerated()
             .filter { _, record in
                 guard !excludedRecordIds.contains(record.id) else { return false }
+                guard isCandidate(record.entry) else { return false }
                 guard let cutoff else { return true }
                 return record.closedAt >= cutoff
             }
@@ -241,25 +260,13 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func insert(_ record: ClosedItemHistoryRecord, at index: Int) {
         records.insert(record, at: min(max(0, index), records.count))
-        if let capacity, records.count > capacity {
-            let protectedRecordId = record.id
-            let overflow = records.count - capacity
-            for _ in 0..<overflow {
-                guard let removalIndex = records.firstIndex(where: { $0.id != protectedRecordId }) else {
-                    records.removeFirst()
-                    continue
-                }
-                records.remove(at: removalIndex)
-            }
-        }
+        if capacityPolicy.shouldTrim(afterInserting: record, totalCount: records.count) { records = capacityPolicy.trimming(records, preserving: record.id) }
         revision &+= 1
         persistRecords()
     }
 
     func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
-        // Build items only for the records the menu will show — this runs in
-        // the App commands body on every menu rebuild, and `records` is
-        // unbounded persisted history.
+        // Build only visible rows; this runs on every menu rebuild and persisted history can be larger.
         if let maxItemCount, maxItemCount >= 0, records.count > maxItemCount {
             return ClosedItemHistoryMenuSnapshot(
                 items: records.suffix(maxItemCount).reversed().map(Self.menuItem(for:)),
@@ -348,11 +355,11 @@ final class ClosedItemHistoryStore: ObservableObject {
         persistRecords()
     }
 
-    private func trimToCapacityIfNeeded() {
-        guard let capacity, records.count > capacity else { return }
-        records.removeFirst(records.count - capacity)
+    @discardableResult private func trimToCapacityIfNeeded() -> Bool {
+        let previousCount = records.count
+        records = capacityPolicy.trimming(records)
+        return records.count != previousCount
     }
-
     private func persistRecords() {
         guard let fileURL else { return }
         guard didFinishPersistedRecordsLoad else {
@@ -496,7 +503,10 @@ final class ClosedItemHistoryStore: ObservableObject {
                 restoreInOriginalPane: false,
                 tabIndex: panelEntry.tabIndex,
                 snapshot: panelEntry.snapshot,
-                fallbackSplitPlacement: fallbackSplitPlacement
+                fallbackSplitPlacement: fallbackSplitPlacement,
+                sourceWorkspaceId: panelEntry.sourceWorkspaceId,
+                sourceSnapshotWorkspaceId:
+                    panelEntry.sourceSnapshotWorkspaceId
             )))
         }
         return (remappedRecords, didUpdate)
@@ -534,7 +544,10 @@ final class ClosedItemHistoryStore: ObservableObject {
                 restoreInOriginalPane: panelEntry.restoreInOriginalPane,
                 tabIndex: panelEntry.tabIndex,
                 snapshot: panelEntry.snapshot,
-                fallbackSplitPlacement: fallbackSplitPlacement
+                fallbackSplitPlacement: fallbackSplitPlacement,
+                sourceWorkspaceId: panelEntry.sourceWorkspaceId,
+                sourceSnapshotWorkspaceId:
+                    panelEntry.sourceSnapshotWorkspaceId
             )))
         }
         return (remappedRecords, didUpdate)
@@ -583,7 +596,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             guard !missingLoadedRecords.isEmpty else { return }
             records = missingLoadedRecords + records
         }
-        trimToCapacityIfNeeded()
+        if trimToCapacityIfNeeded() { needsPersistenceAfterPersistedRecordsLoad = true }
         revision &+= 1
     }
 
@@ -688,51 +701,6 @@ final class ClosedItemHistoryStore: ObservableObject {
             )
         }
     }
-    private static func title(for snapshot: SessionPanelSnapshot) -> String {
-        let candidates = [
-            snapshot.customTitle,
-            snapshot.title,
-            // String-only path math — NOT URL(fileURLWithPath:), which lstat()s
-            // the path to infer directory-ness. These snapshots can hold REMOTE
-            // working directories (closed remote-tmux tabs); stat'ing one on the
-            // main thread blocks on the autofs automounter (e.g. /home/…) for
-            // hundreds of ms per record, and this runs inside the App commands
-            // body on every menu rebuild.
-            snapshot.directory.map { ($0 as NSString).lastPathComponent }
-        ]
-        if let title = candidates.compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) })
-            .first(where: { !$0.isEmpty }) {
-            return title
-        }
-        switch snapshot.type {
-        case .terminal:
-            return String(localized: "menu.history.recentlyClosed.panel.terminal", defaultValue: "Terminal")
-        case .browser:
-            return String(localized: "menu.history.recentlyClosed.panel.browser", defaultValue: "Browser")
-        case .markdown:
-            return String(localized: "menu.history.recentlyClosed.panel.markdown", defaultValue: "Markdown")
-        case .filePreview:
-            return String(localized: "menu.history.recentlyClosed.panel.filePreview", defaultValue: "File Preview")
-        case .rightSidebarTool:
-            if let mode = snapshot.rightSidebarTool?.mode {
-                return mode.label
-            }
-            return String(localized: "menu.history.recentlyClosed.panel.tool", defaultValue: "Tool")
-        case .customSidebar:
-            return String(localized: "menu.history.recentlyClosed.panel.customSidebar", defaultValue: "Custom Sidebar")
-        case .agentSession:
-            return String(localized: "menu.history.recentlyClosed.panel.agentSession", defaultValue: "Agent")
-        case .project:
-            return String(localized: "menu.history.recentlyClosed.panel.project", defaultValue: "Project")
-        case .extensionBrowser:
-            return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
-        case .workspaceTodo:
-            return String(localized: "workspaceTodoPane.title", defaultValue: "Todos")
-        case .cloudVMLoading:
-            return String(localized: "menu.history.recentlyClosed.panel.cloudVM", defaultValue: "Cloud VM")
-        }
-    }
-
     private static func title(for snapshot: SessionWorkspaceSnapshot) -> String {
         let candidates = [
             snapshot.customTitle,

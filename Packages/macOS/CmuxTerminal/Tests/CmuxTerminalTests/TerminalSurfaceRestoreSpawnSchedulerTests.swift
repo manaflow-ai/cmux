@@ -189,6 +189,55 @@ import CmuxTerminalCore
         #expect(surface.runtimeSurfacePointer == nil)
     }
 
+    @Test func configurationReloadDefersAndPromotesRuntimeCreation() {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost =
+            FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let engine = FakeTerminalEngine()
+        engine
+            .shouldDeferRuntimeSurfaceCreationForConfigurationReload =
+            true
+        let surface = makeSurface(
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost,
+            engine: engine
+        )
+        surface.claudeCommandShimInstallCompleted = true
+
+        surface.createSurface(for: nativeView)
+        surface.createSurface(
+            for: nativeView,
+            source: .inputDemand
+        )
+
+        #expect(
+            engine.deferredRuntimeSurfaceCreationActions.count == 1
+        )
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
+        #expect(
+            surface
+                .debugRuntimeSurfaceCreateAttemptCountForTesting()
+                == 0
+        )
+
+        engine
+            .shouldDeferRuntimeSurfaceCreationForConfigurationReload =
+            false
+        engine.runNextDeferredRuntimeSurfaceCreation()
+
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
+        #expect(
+            surface
+                .debugRuntimeSurfaceCreateAttemptCountForTesting()
+                == 1
+        )
+        #expect(surface.runtimeSurfacePointer == nil)
+    }
+
     @Test func inputDemandForRestorePacedTerminalBypassesPendingRestoreQueue() {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
@@ -352,6 +401,7 @@ import CmuxTerminalCore
         scheduler: RecordingRestoreSpawnScheduler,
         nativeView: FakeTerminalSurfaceNativeView,
         paneHost: FakeTerminalSurfacePaneHost,
+        engine: FakeTerminalEngine = FakeTerminalEngine(),
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem = TerminalSurfaceRuntimeFilesystem(
             claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
             installClaudeCommandShim: { _, _, _ in nil },
@@ -365,7 +415,7 @@ import CmuxTerminalCore
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             dependencies: TerminalSurfaceRuntimeDependencies(
                 registry: FakeSurfaceRegistry(),
-                engine: FakeTerminalEngine(),
+                engine: engine,
                 viewProvider: FakeTerminalSurfaceViewProvider(surfaceView: nativeView, paneHost: paneHost),
                 spawnPolicy: FakeSpawnPolicyProvider(),
                 byteTee: FakeTerminalByteTee(),

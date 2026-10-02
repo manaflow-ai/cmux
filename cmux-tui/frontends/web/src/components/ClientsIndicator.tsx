@@ -1,5 +1,5 @@
 import { useReducer, useRef, type MouseEvent } from "react";
-import type { ClientInfo, Id } from "cmux/browser";
+import type { ClientInfo, Id } from "cmux/raw";
 import { t } from "../i18n";
 import { contextMenuReducer } from "../lib/contextMenu";
 import { MenuPopover } from "./ContextMenu";

@@ -56,7 +56,8 @@ struct HostSettingsShortcutNotificationTests {
             forName: KeyboardShortcutSettings.didChangeNotification,
             object: nil,
             queue: nil
-        ) { _ in
+        ) { notification in
+            guard notification.object as? URL == settingsFileURL else { return }
             counter.increment()
         }
         defer { NotificationCenter.default.removeObserver(observer) }

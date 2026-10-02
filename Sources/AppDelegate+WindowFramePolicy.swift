@@ -1,30 +1,6 @@
 import AppKit
 
 extension AppDelegate {
-    /// Exact restoration is safe only while the saved size still fits its
-    /// display. Interactive sizing cannot create an oversized frame, so one
-    /// indicates programmatic growth and must not be resurrected at launch.
-    nonisolated static func preservingOrClampingExactFrame(
-        _ frame: CGRect,
-        targetDisplay: SessionDisplayGeometry,
-        availableDisplays: [SessionDisplayGeometry],
-        minWidth: CGFloat,
-        minHeight: CGFloat
-    ) -> CGRect {
-        let displayUnion = availableDisplays.map(\.frame).reduce(CGRect.null) { $0.union($1) }
-        let maximumFrame = displayUnion.isNull ? targetDisplay.frame : displayUnion
-        guard frame.width > maximumFrame.width + 1
-                || frame.height > maximumFrame.height + 1 else {
-            return frame
-        }
-        return clampFrame(
-            frame,
-            within: targetDisplay.visibleFrame,
-            minWidth: minWidth,
-            minHeight: minHeight
-        )
-    }
-
     nonisolated static func shouldPreserveAccessibleFrame(
         frame: CGRect,
         targetDisplay: SessionDisplayGeometry

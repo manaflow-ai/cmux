@@ -26,20 +26,20 @@ extension UpdateController {
 
     private func fireInstallWatchdogIfStalled() {
         installWatchdog.disarm()
-        let attemptWasMonitoring = attemptCoordinator.isMonitoring
-        // The attempt is over regardless of what shows below: a coordinator left monitoring past
-        // its deadline would silently auto-confirm an install off a later, unrelated check.
-        attemptCoordinator.cancel()
         guard installWatchdog.installAttemptStalled(model.state) else { return }
-        log.append("install watchdog fired: update did not start within \(Int(installWatchdog.timeoutSeconds))s")
-        if attemptWasMonitoring {
-            // Resolve the in-flight Sparkle session (reply .dismiss to a pending "Update
-            // Available" prompt / cancel a running check) before replacing the state, so Sparkle
-            // is not left waiting on a dropped callback. Skipped post-confirm: that prompt's
-            // reply was already consumed by `.install`. The driver ignores Sparkle's follow-up
-            // dismiss callback while an error is visible, so the error state set below survives.
-            model.cancelActiveStateForNewCheck()
-        }
+        setInstallDidNotStartError(
+            diagnostic: "install watchdog fired after \(Int(installWatchdog.timeoutSeconds))s (state=\(model.state))"
+        )
+    }
+
+    /// Ends the accepted-install lifecycle with an actionable retry instead of an empty pill.
+    func setInstallDidNotStartError(diagnostic: String) {
+        installWatchdog.disarm()
+        cancelReadinessRetry()
+        attemptCoordinator.cancel()
+        pendingCheckIntent = nil
+        activeCheckIntent = nil
+        log.append("accepted update did not start: \(diagnostic)")
         let error = NSError(
             domain: UpdateStateModel.updateErrorDomain,
             code: UpdateStateModel.installDidNotStartCode,
@@ -48,7 +48,7 @@ extension UpdateController {
                 defaultValue: "cmux couldn’t start the update. Check your internet connection and try again."
             )]
         )
-        model.setState(.error(.init(
+        let errorState = UpdateState.error(.init(
             error: error,
             retry: { [weak self] in
                 self?.model.setState(.idle)
@@ -60,7 +60,12 @@ extension UpdateController {
                 defaultValue: "Install attempt stalled without reaching download."
             ),
             feedURLString: driver.resolvedFeedURLString()
-        )))
+        ))
+        // Publish the actionable terminal before ending whichever Sparkle callback it replaces.
+        // Sparkle may synchronously emit its identity-free dismissal while the reply/cancellation
+        // runs; because the error is already visible and that callback is diagnostic-only, there
+        // is no empty-pill window and no unresolved session left behind.
+        model.replaceActiveState(with: errorState)
     }
 
     func performAttemptAction(_ action: AttemptUpdateCoordinator.Action) {
@@ -68,21 +73,35 @@ extension UpdateController {
         case .none:
             break
         case .startFreshCheck:
-            checkForUpdates()
+            requestUpdateCheck(.installLatest)
         case .confirmInstall:
             // Reactions process drained snapshots, so the live state can have moved past the
             // snapshot that produced this action. Confirm only a live "Update Available" prompt
             // (its reply is unconsumed; a snapshot's may already have been answered). If the
             // prompt vanished in the meantime (e.g. the user dismissed it mid-drain), the
-            // attempt is over — disarm the watchdog so the leftover deadline can't fire a
-            // spurious "Update Didn't Start" over whatever the user does next.
+            // causal source distinguishes that explicit choice from an un-attributed loss.
             if case .updateAvailable(let available) = model.state, !available.reply.isConsumed {
-                log.append("attemptUpdate installing freshly resolved update")
-                model.state.confirm()
-            } else {
-                log.append("attemptUpdate hand-off skipped (prompt no longer showing)")
+                log.append(
+                    "attemptUpdate accepted freshly resolved update (version=\(available.appcastItem.displayVersionString), prompt=\(available.reply.id))"
+                )
+                // Publish ownership before invoking Sparkle because its callbacks may be
+                // synchronous. The pill stays visible until download or a retryable error.
+                model.setState(.startingDownload)
+                available.reply.consume(.install, source: .installAttempt)
+            } else if case .updateAvailable(let available) = model.state,
+                      available.reply.consumedSource == .user {
+                log.append("attemptUpdate hand-off cancelled by explicit user prompt choice")
+                attemptCoordinator.cancel()
                 installWatchdog.disarm()
+            } else {
+                setInstallDidNotStartError(
+                    diagnostic: "fresh prompt disappeared before install reply (state=\(model.state))"
+                )
             }
+        case .installFailed:
+            setInstallDidNotStartError(
+                diagnostic: "accepted install reached unexpected terminal state (state=\(model.state))"
+            )
         }
     }
 }

@@ -200,9 +200,7 @@ struct WorkspaceChatPane: View {
         guard let terminalID = session.terminalID,
               let data = text.data(using: .utf8)
         else { return }
-        Task {
-            await store.submitTerminalRawInput(data, surfaceID: terminalID)
-        }
+        store.sendTerminalRawInput(data, surfaceID: terminalID)
     }
 
     private func validSymbolName(_ symbolName: String?) -> String? {

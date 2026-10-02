@@ -77,7 +77,7 @@ struct ForkParentFallbackGeneralizationTests {
         #expect(paneSnapshot.sessionId == "oc-session")
     }
 
-    @Test func piForkFlagDemotesDetectedParentAndDoesNotEvictParentPane() throws {
+    @Test func piForkFlagDoesNotExposeParentAsCurrentSession() throws {
         let fixture = try Fixture.make()
         defer { fixture.cleanup() }
         try writeStore(root: fixture.root, filename: "pi-hook-sessions.json", sessions: [
@@ -88,17 +88,172 @@ struct ForkParentFallbackGeneralizationTests {
         let detected = detectedSnapshots(
             fixture: fixture,
             registry: registry,
+            argv: ["/usr/local/bin/pi", "--fork", fixture.parentPiPath],
+            launchKind: "pi",
+            processName: "pi",
+            processPath: "/usr/local/bin/pi"
+        )
+        #expect(detected[fixture.forkKey] == nil)
+
+        let index = loadIndex(fixture: fixture, registry: registry, detectedSnapshots: detected)
+        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId)?.sessionId == fixture.parentPiPath)
+        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId) == nil)
+    }
+
+    @Test func piEqualsForkFlagDoesNotExposeParentAsCurrentSession() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+
+        let registry = CmuxVaultAgentRegistry(registrations: [.builtInPi])
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            registry: registry,
+            argv: ["/usr/local/bin/pi", "--fork=\(fixture.parentPiPath)"],
+            launchKind: "pi",
+            processName: "pi",
+            processPath: "/usr/local/bin/pi"
+        )
+
+        #expect(detected[fixture.forkKey] == nil)
+    }
+
+    @Test func piForkFlagKeepsParentHiddenWhileLatestSessionFileIsParent() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+        let sessionDirectory = try piSessionDirectory(fixture: fixture)
+        let parentPath = sessionDirectory.appendingPathComponent("parent-pi.jsonl").path
+        try writeSessionFile(URL(fileURLWithPath: parentPath), modifiedAt: 20)
+
+        let registry = CmuxVaultAgentRegistry(registrations: [.builtInPi])
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            registry: registry,
+            argv: ["/usr/local/bin/pi", "--session-dir", fixture.root.path, "--fork", parentPath],
+            launchKind: "pi",
+            processName: "pi",
+            processPath: "/usr/local/bin/pi"
+        )
+
+        #expect(detected[fixture.forkKey] == nil)
+    }
+
+    @Test func piForkFlagDoesNotInferSingleChildThatNamesParentSession() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+        let sessionDirectory = try piSessionDirectory(fixture: fixture)
+        let parentPath = sessionDirectory.appendingPathComponent("parent-pi.jsonl").path
+        let childPath = sessionDirectory.appendingPathComponent("child-pi.jsonl").path
+        try writeSessionFile(URL(fileURLWithPath: parentPath), modifiedAt: 20)
+        try writeSessionFile(URL(fileURLWithPath: childPath), modifiedAt: 30, parentSessionId: parentPath)
+
+        let registry = CmuxVaultAgentRegistry(registrations: [.builtInPi])
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            registry: registry,
+            argv: ["/usr/local/bin/pi", "--session-dir", fixture.root.path, "--fork", parentPath],
+            launchKind: "pi",
+            processName: "pi",
+            processPath: "/usr/local/bin/pi"
+        )
+
+        #expect(detected[fixture.forkKey] == nil)
+    }
+
+    @Test func piForkFlagFailsClosedWhenMultipleChildrenNameParentSession() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+        let sessionDirectory = try piSessionDirectory(fixture: fixture)
+        let parentPath = sessionDirectory.appendingPathComponent("parent-pi.jsonl").path
+        let firstChildPath = sessionDirectory.appendingPathComponent("child-one-pi.jsonl").path
+        let secondChildPath = sessionDirectory.appendingPathComponent("child-two-pi.jsonl").path
+        try writeSessionFile(URL(fileURLWithPath: parentPath), modifiedAt: 20)
+        try writeSessionFile(URL(fileURLWithPath: firstChildPath), modifiedAt: 30, parentSessionId: parentPath)
+        try writeSessionFile(URL(fileURLWithPath: secondChildPath), modifiedAt: 40, parentSessionId: parentPath)
+
+        let registry = CmuxVaultAgentRegistry(registrations: [.builtInPi])
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            registry: registry,
+            argv: ["/usr/local/bin/pi", "--session-dir", fixture.root.path, "--fork", parentPath],
+            launchKind: "pi",
+            processName: "pi",
+            processPath: "/usr/local/bin/pi"
+        )
+
+        #expect(detected[fixture.forkKey] == nil)
+    }
+
+    @Test func legacyPiSessionForkFlagStaysParentFallback() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+
+        let registry = CmuxVaultAgentRegistry(registrations: [.builtInPi])
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            registry: registry,
             argv: ["/usr/local/bin/pi", "--session", fixture.parentPiPath, "--fork"],
             launchKind: "pi",
             processName: "pi",
             processPath: "/usr/local/bin/pi"
         )
-        let entry = try #require(detected[fixture.forkKey])
-        #expect(entry.sessionIDSource == .forkParentFallback)
 
-        let index = loadIndex(fixture: fixture, registry: registry, detectedSnapshots: detected)
-        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId)?.sessionId == fixture.parentPiPath)
-        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId)?.sessionId == fixture.parentPiPath)
+        #expect(detected[fixture.forkKey]?.sessionIDSource == .forkParentFallback)
+    }
+
+    @Test func ompForkFlagDoesNotExposeParentAsCurrentSession() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+
+        let registry = CmuxVaultAgentRegistry(registrations: [.builtInOmp])
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            registry: registry,
+            argv: ["/usr/local/bin/omp", "--fork", fixture.parentPiPath],
+            launchKind: "omp",
+            processName: "omp",
+            processPath: "/usr/local/bin/omp"
+        )
+
+        #expect(detected[fixture.forkKey] == nil)
+    }
+
+    @Test func ompForkFlagDoesNotInferSingleChildThatNamesParentSession() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+        let sessionDirectory = try piSessionDirectory(fixture: fixture)
+        let parentPath = sessionDirectory.appendingPathComponent("parent-omp.jsonl").path
+        let childPath = sessionDirectory.appendingPathComponent("child-omp.jsonl").path
+        try writeSessionFile(URL(fileURLWithPath: parentPath), modifiedAt: 20)
+        try writeSessionFile(URL(fileURLWithPath: childPath), modifiedAt: 30, parentSessionId: parentPath)
+
+        let registry = CmuxVaultAgentRegistry(registrations: [.builtInOmp])
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            registry: registry,
+            argv: ["/usr/local/bin/omp", "--session-dir", fixture.root.path, "--fork", parentPath],
+            launchKind: "omp",
+            processName: "omp",
+            processPath: "/usr/local/bin/omp"
+        )
+
+        #expect(detected[fixture.forkKey] == nil)
+    }
+
+    @Test func legacyOmpSessionForkFlagStaysParentFallback() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+
+        let registry = CmuxVaultAgentRegistry(registrations: [.builtInOmp])
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            registry: registry,
+            argv: ["/usr/local/bin/omp", "--session", fixture.parentPiPath, "--fork"],
+            launchKind: "omp",
+            processName: "omp",
+            processPath: "/usr/local/bin/omp"
+        )
+
+        #expect(detected[fixture.forkKey]?.sessionIDSource == .forkParentFallback)
     }
 
     @Test func piPaneHookIdentityWinsAfterForkMintsOwnSession() throws {
@@ -113,7 +268,7 @@ struct ForkParentFallbackGeneralizationTests {
         let detected = detectedSnapshots(
             fixture: fixture,
             registry: registry,
-            argv: ["/usr/local/bin/pi", "--session", fixture.parentPiPath, "--fork"],
+            argv: ["/usr/local/bin/pi", "--fork", fixture.parentPiPath],
             launchKind: "pi",
             processName: "pi",
             processPath: "/usr/local/bin/pi"
@@ -160,6 +315,24 @@ struct ForkParentFallbackGeneralizationTests {
         )
 
         #expect(detected[fixture.forkKey]?.sessionIDSource == .forkParentFallback)
+    }
+
+    @Test func customBooleanForkMarkerEqualsFalseStaysExplicit() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+        let registration = customForkerRegistration()
+        let registry = CmuxVaultAgentRegistry(registrations: [registration])
+
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            registry: registry,
+            argv: ["/usr/local/bin/custom-forker", "--thread", fixture.parentCodexId, "--fork=false"],
+            launchKind: "custom-forker",
+            processName: "custom-forker",
+            processPath: "/usr/local/bin/custom-forker"
+        )
+
+        #expect(detected[fixture.forkKey]?.sessionIDSource == .explicit)
     }
 
     @Test func customRegistryForkTemplateWithoutConstantMarkerStaysExplicit() throws {
@@ -393,6 +566,38 @@ struct ForkParentFallbackGeneralizationTests {
                 "source": "test",
             ],
         ]
+    }
+
+    private func piSessionDirectory(fixture: Fixture) throws -> URL {
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: fixture.cwd.path))
+        let directory = fixture.root.appendingPathComponent(projectDirectory, isDirectory: true)
+        try fixture.fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func writeSessionFile(
+        _ url: URL,
+        modifiedAt: TimeInterval,
+        parentSessionId: String? = nil
+    ) throws {
+        var object: [String: Any] = [
+            "createdAt": modifiedAt,
+            "id": url.deletingPathExtension().lastPathComponent,
+            "type": "session",
+        ]
+        if let parentSessionId {
+            object["parentSession"] = parentSessionId
+        }
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        let line = try #require(String(data: data, encoding: .utf8))
+        try "\(line)\n".write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [
+                .creationDate: Date(timeIntervalSince1970: modifiedAt),
+                .modificationDate: Date(timeIntervalSince1970: modifiedAt),
+            ],
+            ofItemAtPath: url.path
+        )
     }
 
     private func customForkerRegistration() -> CmuxVaultAgentRegistration {

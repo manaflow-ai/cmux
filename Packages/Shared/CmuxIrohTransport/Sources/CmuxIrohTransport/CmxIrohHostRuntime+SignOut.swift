@@ -73,8 +73,8 @@ extension CmxIrohHostRuntime {
         notify: Bool,
         preserveBinding: Bool = false
     ) async {
-        supervisorEventTask?.cancel()
-        supervisorEventTask = nil
+        connectivityEventTask?.cancel()
+        connectivityEventTask = nil
         registrationRefreshTask?.cancel()
         registrationRefreshTask = nil
         registrationRenewalTask?.cancel()
@@ -82,6 +82,11 @@ extension CmxIrohHostRuntime {
         registrationRefreshPending = false
         registrationRefreshEnabled = false
         registrationRefreshFailureCount = 0
+        relayActivationTask?.cancel()
+        relayActivationTask = nil
+        lanPublicationGeneration &+= 1
+        lanPublicationTask?.cancel()
+        lanPublicationTask = nil
         await endpointServer?.stop()
         endpointServer = nil
         activePathConnections.removeAll(keepingCapacity: false)
@@ -102,8 +107,9 @@ extension CmxIrohHostRuntime {
         }
         endpointAttestation = nil
         lanRendezvous = nil
-        await supervisor?.deactivate()
-        supervisor = nil
+        authoritativeDiscovery = nil
+        await connectivityEngine?.stop()
+        connectivityEngine = nil
         if notify { await handleDeactivation(bindingID) }
     }
 }

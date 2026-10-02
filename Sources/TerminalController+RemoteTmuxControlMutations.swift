@@ -6,6 +6,10 @@ import Foundation
 
 @MainActor
 extension TerminalController {
+    func remoteTmuxSplitFocusIntent(requested: Bool) -> RemoteTmuxSplitFocusIntent {
+        v2FocusAllowed(requested: requested) ? .focusCreatedPane : .preserveActivePane
+    }
+
     /// Pre-mutation validation shared by remote tmux create/split commands.
     func mirrorRoutedUnsupportedOptions(
         insertFirst: Bool = false,
@@ -128,11 +132,57 @@ extension TerminalController {
             remotePTYSessionID: inputs.remotePTYSessionID
         ) + inputs.clientUnsupportedRemoteTmuxOptions
         guard unsupported.isEmpty else { return .mirrorUnsupportedOptions(unsupported) }
-        guard location.requestSplit(vertical: direction.orientation == .vertical) else {
+        let focusIntent = remoteTmuxSplitFocusIntent(requested: inputs.requestedFocus)
+        guard location.requestSplit(
+            vertical: direction.orientation == .vertical,
+            focusIntent: focusIntent
+        ) else {
             return .createFailed
         }
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: workspace)
+        return .routedToRemote(
+            windowID: v2ResolveWindowId(tabManager: tabManager),
+            workspaceID: workspace.id,
+            typeRawValue: panelType.rawValue
+        )
+    }
+
+    /// Interprets a projected pane handle according to the mirror topology:
+    /// surface tabs are tmux windows, anchored after the target pane's window.
+    func controlRemoteTmuxSurfaceCreate(
+        workspace: Workspace,
+        tabManager: TabManager,
+        inputs: ControlSurfaceCreateInputs,
+        panelType: PanelType
+    ) -> ControlSurfaceCreateResolution? {
+        guard let paneID = inputs.requestedPaneID,
+              let location = workspace.remoteTmuxControlPane(paneID: paneID) else {
+            return nil
+        }
+        guard panelType == .terminal else {
+            return .mirrorPaneTargetUnsupportedType(
+                typeRawValue: panelType.rawValue,
+                message: String(
+                    localized: "socket.surface.create.remoteTmuxPaneUnsupportedType",
+                    defaultValue: "Only terminal surfaces can target a remote tmux pane; the terminal is created as a new tmux window after the pane's window."
+                )
+            )
+        }
+        let unsupported = mirrorRoutedUnsupportedOptions(
+            workingDirectory: inputs.workingDirectory,
+            initialCommand: inputs.initialCommand,
+            tmuxStartCommand: inputs.tmuxStartCommand,
+            startupEnvironment: inputs.startupEnvironment,
+            remotePTYSessionID: inputs.remotePTYSessionID
+        )
+        guard unsupported.isEmpty else { return .mirrorUnsupportedOptions(unsupported) }
+        let routed = AppDelegate.shared?.remoteTmuxController.handleMirrorNewTabRequested(
+            workspaceId: workspace.id,
+            targetPaneId: location.pane.tmuxPaneID,
+            focus: v2FocusAllowed(requested: inputs.requestedFocus)
+        ) ?? false
+        guard routed else { return .createFailed }
         return .routedToRemote(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: workspace.id,

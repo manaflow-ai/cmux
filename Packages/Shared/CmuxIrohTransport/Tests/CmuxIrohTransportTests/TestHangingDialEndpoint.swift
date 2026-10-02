@@ -32,10 +32,10 @@ actor TestHangingDialEndpoint: CmxIrohEndpoint {
         to _: CmxIrohEndpointAddress,
         alpn _: Data
     ) async throws -> any CmxIrohConnection {
-        startedContinuation.yield()
         return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
                 pendingConnect = continuation
+                startedContinuation.yield()
             }
         }, onCancel: { [cancelledContinuation] in
             cancelledContinuation.yield()

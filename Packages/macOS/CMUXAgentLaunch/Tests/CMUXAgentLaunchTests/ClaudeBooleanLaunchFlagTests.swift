@@ -41,6 +41,17 @@ struct ClaudeBooleanLaunchFlagTests {
         )
     }
 
+    @Test("Forward subagent text does not swallow a one-word prompt bounded by a later flag")
+    func forwardSubagentTextDoesNotSwallowBoundedOneWordPrompt() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["claude", "--forward-subagent-text", "review", "--model", "opus"],
+                launcher: "claude",
+                fallbackKind: "claude"
+            ) == ["claude", "--forward-subagent-text", "--model", "opus"]
+        )
+    }
+
     @Test("Resume argv keeps bypass without replaying a one-word prompt")
     func resumeArgvKeepsBypassWithoutReplayingOneWordPrompt() {
         #expect(

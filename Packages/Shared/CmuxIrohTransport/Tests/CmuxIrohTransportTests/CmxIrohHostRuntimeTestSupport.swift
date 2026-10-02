@@ -52,7 +52,8 @@ struct HostRuntimeFixture {
     func configuration(
         cachedHostPolicy: CmxIrohCachedHostPolicy? = nil,
         bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral,
-        endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil
+        endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil,
+        managedRelayURLs: Set<String>? = nil
     ) -> CmxIrohHostRuntimeConfiguration {
         CmxIrohHostRuntimeConfiguration(
             accountID: configuration.accountID,
@@ -64,7 +65,7 @@ struct HostRuntimeFixture {
             pairingEnabled: binding.pairingEnabled,
             capabilities: binding.capabilities,
             bindPolicy: bindPolicy,
-            managedRelayURLs: managedRelays,
+            managedRelayURLs: managedRelayURLs ?? managedRelays,
             endpointRelayProfile: endpointRelayProfile,
             cachedHostPolicy: cachedHostPolicy
         )
@@ -115,13 +116,14 @@ struct HostRuntimeFixture {
         relays: [String],
         overrideDeviceID: String? = nil,
         routeContractVersion: Int = 1,
-        lanGeneration: Int = 1
+        lanGeneration: Int = 1,
+        revision: UInt64? = nil
     ) throws -> CmxIrohDiscoveryResponse {
         var bindingObject = try JSONSerialization.jsonObject(
             with: JSONEncoder().encode(binding)
         ) as? [String: Any] ?? [:]
         bindingObject["device_id"] = overrideDeviceID ?? binding.deviceID
-        let object: [String: Any] = [
+        var object: [String: Any] = [
             "route_contract_version": routeContractVersion,
             "bindings": [bindingObject],
             "relay_fleet": relays,
@@ -139,6 +141,9 @@ struct HostRuntimeFixture {
                 ]],
             ],
         ]
+        if let revision {
+            object["revision"] = revision
+        }
         return try JSONDecoder().decode(
             CmxIrohDiscoveryResponse.self,
             from: JSONSerialization.data(withJSONObject: object)

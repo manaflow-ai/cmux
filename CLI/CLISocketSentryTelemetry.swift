@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSentryReporting
 import Darwin
 import Foundation
 
@@ -47,6 +48,7 @@ final class CLISocketSentryTelemetry {
     private let surfaceId: String?
     private let disabledByEnv: Bool
     private let noiseFilter: SentryNoiseFilter
+    private let sentryPolicy: CLISocketSentryPolicy
     private var pendingBreadcrumbs: [PendingBreadcrumb] = []
 
 #if canImport(Sentry)
@@ -117,6 +119,7 @@ final class CLISocketSentryTelemetry {
             processEnv["CMUX_CLI_SENTRY_DISABLED"] == "1" ||
             processEnv["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] == "1"
         self.noiseFilter = SentryNoiseFilter()
+        self.sentryPolicy = CLISocketSentryPolicy(environment: processEnv)
     }
 
     func breadcrumb(_ message: String, data: [String: Any] = [:]) {
@@ -132,7 +135,8 @@ final class CLISocketSentryTelemetry {
         guard !noiseFilter.isExpectedCLISocketTransportFailure(
             stage: stage,
             message: errorDescription,
-            dataKeys: Set(data.keys)
+            dataKeys: Set(data.keys),
+            allowSandboxPolicyDenial: sentryPolicy.allowsSandboxPolicyDenial
         ) else {
             return
         }

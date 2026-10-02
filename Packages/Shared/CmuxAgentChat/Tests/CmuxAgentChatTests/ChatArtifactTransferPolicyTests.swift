@@ -8,6 +8,8 @@ struct ChatArtifactTransferPolicyTests {
     func defaultChunkFitsFrame() {
         let policy = ChatArtifactTransferPolicy.defaultPolicy
         #expect(policy.maxRawChunkBytes == 3 * 1024 * 1024)
+        #expect(policy.maxPreviewBytes == 64 * 1024 * 1024)
+        #expect(policy.maxMediaPreviewBytes == 512 * 1024 * 1024)
         #expect(policy.estimatedEnvelopeByteCount(rawByteCount: policy.maxRawChunkBytes) < policy.mobileSyncFrameLimitBytes)
         #expect(policy.clampedChunkLength(10 * 1024 * 1024) == policy.maxRawChunkBytes)
     }

@@ -66,11 +66,12 @@ struct CmxIrohPersistenceLifecycleRaceTests {
         }
         await store.waitUntilWriteIsSuspended()
         await store.suspendNextDeleteAll()
+        let now = fixture.now
 
         let deactivate = Task { try await cache.deactivate() }
         #expect(
             await waitsForLifecycleCancellation {
-                _ = try await cache.load(for: expectation, now: fixture.now)
+                _ = try await cache.load(for: expectation, now: now)
             }
         )
         await store.resumeSuspendedWrite()

@@ -196,9 +196,9 @@ extension AppDelegate {
             window.setFrame(corrected, display: true)
         }
         if visibleFrameFitTopologyChanged {
-            MainWindowVisibleFrameFitRescue().performFitIfNeeded(
-                displays: displays.available,
-                windows: mainWindows
+            fitRestoredMainWindowFramesIfNeeded(
+                windows: mainWindows,
+                displays: displays.available
             )
         }
     }

@@ -1,4 +1,4 @@
-nonisolated enum BrowserWebViewLifecycleState: String {
+enum BrowserWebViewLifecycleState: String {
     case newTab = "new_tab"
     case deferredURL = "deferred_url"
     case liveVisible = "live_visible"

@@ -2,6 +2,27 @@ internal import CMUXMobileCore
 import Foundation
 
 extension MobileCoreRPCSession {
+    /// Negotiates the optional event lane at most once for a subscription ID.
+    /// Re-assertions are control-channel liveness probes, so they only reuse an
+    /// already-active reader and never spend their deadline reopening a sidecar.
+    func prepareIndependentServerEvents(
+        forSubscriptionStreamID streamID: String,
+        timeoutNanoseconds: UInt64
+    ) async -> Bool {
+        let normalizedStreamID = streamID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedStreamID.isEmpty,
+           independentEventSubscriptionStreamIDs.contains(normalizedStreamID) {
+            return independentEventReader != nil
+        }
+        let prepared = await prepareIndependentServerEvents(
+            timeoutNanoseconds: timeoutNanoseconds
+        )
+        if !normalizedStreamID.isEmpty {
+            independentEventSubscriptionStreamIDs.insert(normalizedStreamID)
+        }
+        return prepared
+    }
+
     /// Prepares one independently framed server-event reader when the active
     /// route supports it. Concurrent callers coalesce onto the same provider.
     func prepareIndependentServerEvents(
@@ -108,14 +129,19 @@ extension MobileCoreRPCSession {
             return
         }
         guard let id = envelope["id"] as? String,
-              let cont = pending.removeValue(forKey: id) else { return }
-        requestTimeoutTasks.removeValue(forKey: id)?.cancel()
+              pending[id] != nil || pipelinedPending[id] != nil else { return }
         if (envelope["ok"] as? Bool) == true {
             let result = envelope["result"] ?? [:]
             if let data = try? JSONSerialization.data(withJSONObject: result) {
-                cont.resume(returning: .success(data))
+                settlePendingRequest(
+                    requestID: id,
+                    settlement: .response(.success(data))
+                )
             } else {
-                cont.resume(returning: .failure(.invalidResponse))
+                settlePendingRequest(
+                    requestID: id,
+                    settlement: .response(.failure(.invalidResponse))
+                )
             }
             return
         }
@@ -124,11 +150,20 @@ extension MobileCoreRPCSession {
         let code = errorPayload?["code"] as? String
         switch code {
         case "unauthorized":
-            cont.resume(returning: .failure(.authorizationFailed(message)))
+            settlePendingRequest(
+                requestID: id,
+                settlement: .response(.failure(.authorizationFailed(message)))
+            )
         case "account_mismatch":
-            cont.resume(returning: .failure(.accountMismatch(message)))
+            settlePendingRequest(
+                requestID: id,
+                settlement: .response(.failure(.accountMismatch(message)))
+            )
         default:
-            cont.resume(returning: .failure(.rpcError(code, message)))
+            settlePendingRequest(
+                requestID: id,
+                settlement: .response(.failure(.rpcError(code, message)))
+            )
         }
     }
 }

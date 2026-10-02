@@ -13,10 +13,7 @@ import Testing
 struct MobilePairingConnectionTransitionTests {
     private func makeReady() -> MobilePairingModel.Ready {
         MobilePairingModel.Ready(
-            attachURL: "cmux-ios://attach?ticket=abc",
-            legacyAttachURL: "cmux-ios://attach?v=2&r=100.64.0.1:7777",
-            primaryTransport: .iroh,
-            macName: "Test Mac",
+            attachURL: "cmux-ios://attach?v=2&r=100.64.0.1:7777",
             tailscaleLines: ["100.64.0.1:7777"],
             manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777)
         )
@@ -106,27 +103,30 @@ struct MobilePairingConnectionTransitionTests {
         #expect(next == .signedOut)
     }
 
-    @Test("Iroh is the default and Tailscale remains a compatibility code")
-    func irohRouteWinsWithLegacyCompatibility() throws {
+    @Test("Tailscale is the only Mac pairing QR when Iroh is also available")
+    func tailscaleRouteWinsWhenIrohIsAvailable() throws {
         let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
             try irohRoute(),
-            try tailscaleRoute(),
+            try tailscaleRoute()
         ]))
 
-        #expect(plan.primaryDisclosureMode == .irohIdentityOnly)
-        #expect(plan.primaryTransport == .iroh)
-        #expect(plan.offersLegacyCode)
+        #expect(plan.disclosureMode == .legacyPrivateNetworkCompatibility)
     }
 
     @Test("Tailscale remains usable when Iroh is unavailable")
     func tailscaleOnlyPlanRetainsReleasedClientSupport() throws {
         let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
-            try tailscaleRoute(),
+            try tailscaleRoute()
         ]))
 
-        #expect(plan.primaryDisclosureMode == .legacyPrivateNetworkCompatibility)
-        #expect(plan.primaryTransport == .tailscaleCompatibility)
-        #expect(!plan.offersLegacyCode)
+        #expect(plan.disclosureMode == .legacyPrivateNetworkCompatibility)
+    }
+
+    @Test("Iroh alone does not produce a Mac pairing QR")
+    func irohOnlyPlanIsUnavailable() throws {
+        #expect(MobilePairingModel.PairingRoutePlan.make(routes: [
+            try irohRoute()
+        ]) == nil)
     }
 
     @Test("Loopback alone never produces a physical-device QR")

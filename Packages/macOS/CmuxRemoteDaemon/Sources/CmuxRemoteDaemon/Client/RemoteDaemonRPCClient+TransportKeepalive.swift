@@ -41,25 +41,23 @@ extension RemoteDaemonRPCClient {
         guard !transportKeepaliveInFlight else { return }
 
         transportKeepaliveInFlight = true
-        let timeoutWorkItem = DispatchWorkItem { [weak self] in
-            guard let self, !self.isClosed, self.transportKeepaliveInFlight else { return }
-            self.handleTransportKeepaliveFailureLocked("daemon transport keepalive timed out")
-        }
-        transportKeepaliveTimeoutWorkItem?.cancel()
-        transportKeepaliveTimeoutWorkItem = timeoutWorkItem
-        stateQueue.asyncAfter(deadline: .now() + keepaliveTimeout, execute: timeoutWorkItem)
-
-        // The blocking probe runs off stateQueue. If the watchdog above fires
-        // first, handleTransportKeepaliveFailureLocked closes the transport
-        // handles, which makes this in-flight call fail shortly afterwards;
-        // its late completion lands on stateQueue behind the teardown and is
-        // dropped by the isClosed guards below. The keepalive queue thread is
-        // expected to drain on its own that way — nothing waits on it, and it
-        // must not acquire resources beyond the call itself.
         transportKeepaliveQueue.async { [weak self] in
             guard let self else { return }
             do {
-                _ = try self.call(method: "hello", params: [:], timeout: self.keepaliveTimeout)
+                let response = try self.callIfIdle(
+                    method: "hello",
+                    params: [:],
+                    timeout: self.keepaliveTimeout
+                ) {
+                    self.armTransportKeepaliveTimeout()
+                }
+                guard response != nil else {
+                    self.stateQueue.async {
+                        guard !self.isClosed else { return }
+                        self.finishTransportKeepaliveLocked()
+                    }
+                    return
+                }
             } catch {
                 self.stateQueue.async {
                     guard !self.isClosed else { return }
@@ -69,11 +67,31 @@ extension RemoteDaemonRPCClient {
             }
             self.stateQueue.async {
                 guard !self.isClosed else { return }
-                self.transportKeepaliveTimeoutWorkItem?.cancel()
-                self.transportKeepaliveTimeoutWorkItem = nil
-                self.transportKeepaliveInFlight = false
+                self.finishTransportKeepaliveLocked()
             }
         }
+    }
+
+    /// Arms the watchdog only after the probe has atomically reserved an idle
+    /// write slot. A busy transport therefore remains governed by the timeout
+    /// of its real RPC instead of a competing heartbeat deadline.
+    func armTransportKeepaliveTimeout() {
+        stateQueue.sync {
+            guard !isClosed, transportKeepaliveInFlight else { return }
+            let timeoutWorkItem = DispatchWorkItem { [weak self] in
+                guard let self, !self.isClosed, self.transportKeepaliveInFlight else { return }
+                self.handleTransportKeepaliveFailureLocked("daemon transport keepalive timed out")
+            }
+            transportKeepaliveTimeoutWorkItem?.cancel()
+            transportKeepaliveTimeoutWorkItem = timeoutWorkItem
+            stateQueue.asyncAfter(deadline: .now() + keepaliveTimeout, execute: timeoutWorkItem)
+        }
+    }
+
+    func finishTransportKeepaliveLocked() {
+        transportKeepaliveTimeoutWorkItem?.cancel()
+        transportKeepaliveTimeoutWorkItem = nil
+        transportKeepaliveInFlight = false
     }
 
     func handleTransportKeepaliveFailureLocked(_ detail: String) {

@@ -24,6 +24,10 @@ public struct ControlSurfaceResumeBinding: Sendable, Equatable {
     /// The environment overrides, if any (the legacy payload wrote the whole map
     /// or `null`).
     public let environment: [String: String]?
+    /// Structured launch data persisted additively with the legacy command.
+    public let launchCommand: ControlAgentLaunchCommand?
+    /// Last provider permission mode captured by an agent hook.
+    public let permissionMode: String?
     /// Whether the binding allows automatic resume
     /// (`effectiveBinding.allowsAutomaticResume`).
     public let autoResume: Bool
@@ -31,6 +35,14 @@ public struct ControlSurfaceResumeBinding: Sendable, Equatable {
     public let approvalPolicyRawValue: String?
     /// The approval record identifier, if any.
     public let approvalRecordID: String?
+    /// Where the saved command is allowed to execute (`local` or `remote_ssh`).
+    public let executionLocationRawValue: String
+    /// The owning remote workspace for a remote binding.
+    public let remoteWorkspaceID: UUID?
+    /// The owning remote surface for a remote binding.
+    public let remoteSurfaceID: UUID?
+    /// The persistent remote PTY session for a remote binding.
+    public let remotePTYSessionID: String?
     /// The last-updated timestamp (seconds since the epoch).
     public let updatedAt: Double
 
@@ -47,6 +59,10 @@ public struct ControlSurfaceResumeBinding: Sendable, Equatable {
     ///   - autoResume: Whether automatic resume is allowed.
     ///   - approvalPolicyRawValue: The approval policy's raw value.
     ///   - approvalRecordID: The approval record identifier.
+    ///   - executionLocationRawValue: Where the command is allowed to execute.
+    ///   - remoteWorkspaceID: The owning remote workspace.
+    ///   - remoteSurfaceID: The owning remote surface.
+    ///   - remotePTYSessionID: The persistent remote PTY session.
     ///   - updatedAt: The last-updated timestamp.
     public init(
         name: String?,
@@ -56,9 +72,15 @@ public struct ControlSurfaceResumeBinding: Sendable, Equatable {
         checkpointID: String?,
         source: String?,
         environment: [String: String]?,
+        launchCommand: ControlAgentLaunchCommand?,
+        permissionMode: String?,
         autoResume: Bool,
         approvalPolicyRawValue: String?,
         approvalRecordID: String?,
+        executionLocationRawValue: String,
+        remoteWorkspaceID: UUID?,
+        remoteSurfaceID: UUID?,
+        remotePTYSessionID: String?,
         updatedAt: Double
     ) {
         self.name = name
@@ -68,9 +90,15 @@ public struct ControlSurfaceResumeBinding: Sendable, Equatable {
         self.checkpointID = checkpointID
         self.source = source
         self.environment = environment
+        self.launchCommand = launchCommand
+        self.permissionMode = permissionMode
         self.autoResume = autoResume
         self.approvalPolicyRawValue = approvalPolicyRawValue
         self.approvalRecordID = approvalRecordID
+        self.executionLocationRawValue = executionLocationRawValue
+        self.remoteWorkspaceID = remoteWorkspaceID
+        self.remoteSurfaceID = remoteSurfaceID
+        self.remotePTYSessionID = remotePTYSessionID
         self.updatedAt = updatedAt
     }
 }

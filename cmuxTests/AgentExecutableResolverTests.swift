@@ -87,6 +87,36 @@ struct AgentExecutableResolverTests {
         expectFalse(plan.executableURL.path.contains("/Contents/Resources/bin/"))
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/8743 — `isExecutableFile(atPath:)`
+    /// is true for directories, so a directory named like the provider binary earlier
+    /// on PATH used to shadow the real executable and fail at launch.
+    @Test
+    func testSkipsDirectoryNamedLikeExecutableOnSearchPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let shadowBin = root.appendingPathComponent("shadow", isDirectory: true)
+        let realBin = root.appendingPathComponent("real", isDirectory: true)
+        let shadowDirectory = shadowBin.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: shadowDirectory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: shadowDirectory.path)
+        try FileManager.default.createDirectory(at: realBin, withIntermediateDirectories: true)
+        let executable = realBin.appendingPathComponent("codex")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": "\(shadowBin.path):\(realBin.path)", "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false
+        )
+
+        let plan = try resolver.resolve(.codex)
+        expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+    }
+
     @Test
     func testReturnsMissingForAbsentExecutable() throws {
         let root = FileManager.default.temporaryDirectory

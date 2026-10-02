@@ -58,10 +58,12 @@ struct SidebarWorkspaceSnapshotBuilder {
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
         // Workspace todo status/checklist; taskStatus is nil when the
-        // workspace opted out of status display. Drives only the done-row
-        // dim — sidebar rows draw no status glyph (issue: status circles
-        // must not appear on workspace rows).
+        // workspace opted out of status display or the remote todo-controls
+        // flag is off. Manual status draws a compact row indicator, while
+        // automatic status still only drives the done-row dim.
         let taskStatus: WorkspaceTaskStatus?
+        let todoStatusMenuModel: SidebarWorkspaceCompactStatusMenuModel?
+        let hasManualTaskStatus: Bool
         let checklistItems: [WorkspaceChecklistItem]
         let checklistCompletedCount: Int
         let checklistTotalCount: Int

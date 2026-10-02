@@ -115,6 +115,21 @@ struct CmxIrohLibEndpointTests {
     }
 
     @Test
+    func directOnlyReplaysAddressObservedBeforeHealthSubscription() async throws {
+        let (endpoint, observedAddress) = try await makeUnmonitoredEndpoint(
+            transportVerificationMode: .directOnly
+        )
+
+        await endpoint.recordAddressSnapshot(observedAddress)
+
+        let events = await endpoint.healthEvents()
+        #expect(
+            await firstHealthEvent(in: events, timeout: .seconds(1)) == .networkChanged
+        )
+        await endpoint.close()
+    }
+
+    @Test
     func onlineStateReplaysToLateHealthObservers() async throws {
         let endpoint = try await makeEndpoint(managedRelayURLs: [])
         let concrete = try #require(endpoint as? CmxIrohLibEndpoint)
@@ -403,5 +418,31 @@ struct CmxIrohLibEndpointTests {
         return try await CmxIrohLibEndpointFactory(
             transportVerificationMode: transportVerificationMode
         ).bind(configuration: configuration)
+    }
+
+    private func makeUnmonitoredEndpoint(
+        transportVerificationMode: CmxIrohTransportVerificationMode
+    ) async throws -> (endpoint: CmxIrohLibEndpoint, observedAddress: EndpointAddr) {
+        let configuration = try CmxIrohEndpointConfiguration(
+            secretKey: CmxIrohSecretKey(bytes: Data((0 ..< 32).map(UInt8.init))),
+            alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+            managedRelayURLs: [],
+            relays: []
+        )
+        let driver = try await Endpoint.bind(
+            options: CmxIrohLibEndpointFactory.endpointOptions(
+                configuration: configuration,
+                socketAddress: nil,
+                relayMap: RelayMap.empty(),
+                transportVerificationMode: transportVerificationMode
+            )
+        )
+        let endpoint = CmxIrohLibEndpoint(
+            driver: driver,
+            identity: try CmxIrohLibIdentity.peerIdentity(driver.id()),
+            configuration: configuration,
+            transportVerificationMode: transportVerificationMode
+        )
+        return (endpoint, driver.addr())
     }
 }

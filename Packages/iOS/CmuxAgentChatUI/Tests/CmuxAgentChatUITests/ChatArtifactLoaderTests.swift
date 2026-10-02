@@ -5,6 +5,20 @@ import Testing
 @testable import CmuxAgentChatUI
 
 struct ChatArtifactLoaderTests {
+    @Test func directoryRoutingRequiresTheNewFolderCapability() {
+        let directory = ChatArtifactStat(
+            exists: true,
+            isDirectory: true,
+            size: 0,
+            modifiedAt: Date(timeIntervalSince1970: 0),
+            kind: .directory,
+            mimeType: nil
+        )
+
+        #expect(directory.showsFolder(supportsDirectoryBrowsing: true))
+        #expect(!directory.showsFolder(supportsDirectoryBrowsing: false))
+    }
+
     @Test func thumbnailCacheReusesSamePathAndDimension() async throws {
         let source = CountingArtifactSource()
         let loader = ChatArtifactLoader(
@@ -44,6 +58,9 @@ struct ChatArtifactLoaderTests {
             },
             thumbnail: { path, maxDimension in
                 try await terminalSource.thumbnail(path: path, maxDimension: maxDimension)
+            },
+            list: { path in
+                try await terminalSource.list(path: path)
             }
         )
 
@@ -54,6 +71,45 @@ struct ChatArtifactLoaderTests {
         #expect(await chatSource.thumbnailRequestCount() == 1)
         #expect(await terminalSource.thumbnailRequestCount() == 1)
         #expect(try await terminalLoader.stat(path: "/tmp/image.png").kind == .image)
+    }
+
+    @Test func terminalListCapabilityRoutesAndFailsClosedWithoutCallingHandler() async throws {
+        let source = CountingTerminalArtifactSource()
+        let supported = ChatArtifactLoader(
+            terminalWorkspaceID: "workspace-1",
+            terminalSurfaceID: "surface-1",
+            supportsArtifacts: true,
+            supportsDirectoryBrowsing: true,
+            stat: { path in try await source.stat(path: path) },
+            fetch: { path, progress in try await source.fetch(path: path, progress: progress) },
+            thumbnail: { path, dimension in
+                try await source.thumbnail(path: path, maxDimension: dimension)
+            },
+            list: { path in try await source.list(path: path) }
+        )
+        let unsupported = ChatArtifactLoader(
+            terminalWorkspaceID: "workspace-1",
+            terminalSurfaceID: "surface-1",
+            supportsArtifacts: true,
+            stat: { path in try await source.stat(path: path) },
+            fetch: { path, progress in try await source.fetch(path: path, progress: progress) },
+            thumbnail: { path, dimension in
+                try await source.thumbnail(path: path, maxDimension: dimension)
+            },
+            list: { path in try await source.list(path: path) }
+        )
+
+        #expect(try await supported.list(path: "/tmp/folder").entries.first?.name == "child.txt")
+        #expect(await source.listRequestCount() == 1)
+        do {
+            _ = try await unsupported.list(path: "/tmp/folder")
+            Issue.record("unsupported loader should not issue a list request")
+        } catch let error as ChatArtifactError {
+            #expect(error == .unsupported)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+        #expect(await source.listRequestCount() == 1)
     }
 }
 
@@ -115,9 +171,14 @@ private actor CountingArtifactSource: ChatEventSource {
 
 private actor CountingTerminalArtifactSource {
     private var thumbnails = 0
+    private var lists = 0
 
     func thumbnailRequestCount() -> Int {
         thumbnails
+    }
+
+    func listRequestCount() -> Int {
+        lists
     }
 
     func stat(path: String) async throws -> ChatArtifactStat {
@@ -141,5 +202,12 @@ private actor CountingTerminalArtifactSource {
     func thumbnail(path: String, maxDimension: Int) async throws -> ChatArtifactThumbnail {
         thumbnails += 1
         return ChatArtifactThumbnail(data: Data([7, 8, 9]), pixelWidth: maxDimension, pixelHeight: maxDimension)
+    }
+
+    func list(path: String) async throws -> ChatArtifactDirectoryListing {
+        lists += 1
+        return ChatArtifactDirectoryListing(entries: [
+            ChatArtifactDirectoryEntry(name: "child.txt", isDirectory: false, size: 1, kind: .text),
+        ])
     }
 }

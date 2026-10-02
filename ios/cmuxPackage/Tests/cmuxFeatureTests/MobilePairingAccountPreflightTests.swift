@@ -10,7 +10,7 @@ import Testing
 /// "make sure both devices are signed in with the same email" copy even though
 /// the emails matched. The preflight must report that case as
 /// ``MobilePairingFailureCategory/authEnvironmentMismatch`` (truthful cause +
-/// the --prod-auth remedy), keyed on the Mac's DECLARED channel (the pairing
+/// the compatible-build remedy), keyed on the Mac's DECLARED channel (the pairing
 /// URL scheme, #6038) plus the phone's resolved auth environment — never
 /// inferred from the phone alone — while leaving the production↔production
 /// and dev↔dev bindings exactly as strict as before.
@@ -51,7 +51,8 @@ import Testing
         #expect(message.contains("development auth environment"))
         #expect(message != MobilePairingFailureCategory.authFailed.message)
         #expect(!message.contains("Make sure both devices are signed in"))
-        #expect(category?.guidance?.contains("--prod-auth") == true)
+        #expect(category?.guidance?.contains("BETA") == true)
+        #expect(category?.guidance?.contains("same DEV tag") == true)
         #expect(category?.analyticsReason == "auth_environment_mismatch")
         // Re-authenticating cannot move the account to another Stack project,
         // so this must not drive the Sign Out re-auth prompt.
@@ -59,8 +60,8 @@ import Testing
     }
 
     @Test func prodPhoneScanningDevMacQRNamesTheAuthEnvironmentToo() throws {
-        // The reverse direction: a production-auth phone (TestFlight, or a
-        // --prod-auth dev build) scanning a dev Mac's QR (scheme cmux-ios-dev)
+        // The reverse direction: a production-auth phone scanning a dev Mac's
+        // QR (scheme cmux-ios-dev)
         // hits the same per-project impossibility and must get the truthful
         // channel copy — not the "same email" advice.
         let category = MobilePairingAccountPreflight(

@@ -65,10 +65,20 @@ extension MobileShellComposite {
 
     private func notificationDismissClient(for macDeviceID: String?) -> MobileCoreRPCClient? {
         guard let macDeviceID, !macDeviceID.isEmpty else { return remoteClient }
-        if foregroundMacDeviceID == macDeviceID {
+        // Dismiss records are device-scoped (push payloads carry no instance
+        // tag). Route only when the owning build is unambiguous ACROSS STORED
+        // pairings: the emitting build may be offline while a sibling is the
+        // sole live client, and Mac-local ids can collide across builds.
+        let storedSiblings = pairedMacsForIdentityMatching.filter {
+            $0.macDeviceID == macDeviceID
+        }
+        guard storedSiblings.count <= 1 else { return nil }
+        if foregroundMacDeviceID == macDeviceID, let remoteClient {
             return remoteClient
         }
-        return secondaryMacSubscriptions[macDeviceID]?.client
+        return secondaryMacSubscriptions
+            .first { $0.value.macDeviceID == macDeviceID }?
+            .value.client
     }
 
     func flushPendingNotificationDismisses(macDeviceID: String? = nil) async {
@@ -101,15 +111,25 @@ extension MobileShellComposite {
     }
 
     func scheduleNotificationReconcile(client: MobileCoreRPCClient) {
-        Task { [weak self] in
-            await self?.flushPendingNotificationDismisses()
-            await self?.reconcileNotificationsWithMac(client: client)
+        notificationReconcileTask?.cancel()
+        notificationReconcileTask = Task { @MainActor [weak self, weak client] in
+            guard let self, let client,
+                  !Task.isCancelled,
+                  self.remoteClient === client,
+                  self.connectionState == .connected else { return }
+            await self.flushPendingNotificationDismisses()
+            guard !Task.isCancelled,
+                  self.remoteClient === client,
+                  self.connectionState == .connected else { return }
+            await self.reconcileNotificationsWithMac(client: client)
         }
     }
 
     func reconcileNotificationsWithMac(client: MobileCoreRPCClient) async {
         let deliveredIDs = await deliveredNotificationClearer.deliveredIdentifiers()
-        guard remoteClient === client, connectionState == .connected else { return }
+        guard !Task.isCancelled,
+              remoteClient === client,
+              connectionState == .connected else { return }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.reconcile",

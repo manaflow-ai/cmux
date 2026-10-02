@@ -70,6 +70,31 @@ struct RemoteSessionProcessRunnerTests {
         #expect(result.stdout == "hello-stdin")
     }
 
+    @Test("Streams a local file through stdin")
+    func streamsFileStdin() throws {
+        let fileManager = FileManager.default
+        let fileURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-process-stdin-\(UUID().uuidString)",
+            isDirectory: false
+        )
+        try Data("hello-file-stdin".utf8).write(to: fileURL)
+        defer { try? fileManager.removeItem(at: fileURL) }
+
+        let runner = RemoteSessionProcessRunner()
+        let result = try runner.run(
+            RemoteProcessRequest(
+                executable: "/bin/cat",
+                arguments: [],
+                stdinFile: fileURL,
+                timeout: 5
+            ),
+            operation: nil
+        )
+
+        #expect(result.status == 0)
+        #expect(result.stdout == "hello-file-stdin")
+    }
+
     @Test("Launch failure throws the pinned cmux.remote.process code 1")
     func launchFailurePinsErrorCode() {
         let runner = RemoteSessionProcessRunner()

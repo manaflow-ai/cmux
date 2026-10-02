@@ -63,7 +63,7 @@ export async function POST(request: Request) {
         return jsonError("Feedback endpoint is not configured", 503);
       }
 
-      if (process.env.VERCEL === "1") {
+      if (process.env.VERCEL === "1" && feedbackConfig.rateLimitId) {
         const { error, rateLimited } = await checkRateLimit(
           feedbackConfig.rateLimitId,
           { request },
@@ -75,11 +75,12 @@ export async function POST(request: Request) {
         }
 
         if (error === "not-found") {
-          console.error(
-            "feedback.route.rate_limit_not_found",
+          // The rule was deleted; treat as "no limit" instead of taking the
+          // endpoint down.
+          console.warn(
+            "feedback.route.rate_limit_not_found; failing open",
             feedbackConfig.rateLimitId,
           );
-          return jsonError("service_unavailable", 503);
         } else if (error) {
           console.error("feedback.route.rate_limit_error", error);
           return jsonError("service_unavailable", 503);
@@ -204,9 +205,10 @@ export async function POST(request: Request) {
 function resolveFeedbackConfig() {
   const resendApiKey = env.RESEND_API_KEY;
   const fromEmail = env.CMUX_FEEDBACK_FROM_EMAIL;
+  // rateLimitId is optional: unset means the route runs without rate limiting.
   const rateLimitId = env.CMUX_FEEDBACK_RATE_LIMIT_ID;
 
-  if (!resendApiKey || !fromEmail || !rateLimitId) {
+  if (!resendApiKey || !fromEmail) {
     return null;
   }
 

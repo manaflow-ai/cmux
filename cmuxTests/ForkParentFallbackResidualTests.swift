@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Darwin
 import Foundation
 import SQLite3
@@ -157,7 +158,12 @@ struct ForkParentFallbackResidualTests {
                 .snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)
         )
         #expect(snapshot.workingDirectory == fixture.cwd.path)
-        #expect(snapshot.resumeStartupInput()?.contains("cd -- '\(fixture.cwd.path)'") == true)
+        let resumeInput = try #require(snapshot.resumeStartupInput())
+        #expect(
+            resumeInput
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex \(sessionId)\n"
+        )
+        #expect(snapshot.resumeCommand?.contains("cd -- '\(fixture.cwd.path)'") == true)
         #expect(snapshot.forkStartupInput()?.contains("cd -- '\(fixture.cwd.path)'") == true)
 
         let cwdless = SessionRestorableAgentSnapshot(

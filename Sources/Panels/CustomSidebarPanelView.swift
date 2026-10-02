@@ -1,4 +1,5 @@
 import CmuxAppKitSupportUI
+import CmuxNotifications
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebar

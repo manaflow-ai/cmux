@@ -61,17 +61,17 @@ export const POST = makeAnalyticsEventsHandler();
 
 export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependencies = defaultDependencies) {
   return async function POST(request: Request): Promise<Response> {
-    if (process.env.VERCEL === "1") {
-      const rateLimitId = process.env.CMUX_ANALYTICS_RATE_LIMIT_ID?.trim();
-      if (!rateLimitId) {
-        console.error("analytics.events.rate_limit_not_configured");
-        return jsonResponse({ error: "analytics_unavailable" }, 503);
-      }
+    // An unset rule id means no rate limiting; a deleted rule (not-found)
+    // fails open. Only genuine check failures reject the event.
+    const rateLimitId = process.env.CMUX_ANALYTICS_RATE_LIMIT_ID?.trim();
+    if (process.env.VERCEL === "1" && rateLimitId) {
       const { error, rateLimited } = await dependencies.checkRateLimit(rateLimitId, { request });
       if (rateLimited || error === "blocked") {
         return jsonResponse({ error: "rate_limited" }, 429);
       }
-      if (error) {
+      if (error === "not-found") {
+        console.warn("analytics.events.rate_limit_not_found; failing open", rateLimitId);
+      } else if (error) {
         console.error("analytics.events.rate_limit_error", error);
         return jsonResponse({ error: "analytics_unavailable" }, 503);
       }

@@ -4,13 +4,22 @@ enum WorkspaceActiveSurface: Equatable {
     case terminal
     case chat
     case browser
+    case browserStream
 
-    static func derive(isChatMode: Bool, hasChosenChatSession: Bool, hasActiveBrowser: Bool) -> Self {
+    static func derive(
+        isChatMode: Bool,
+        hasChosenChatSession: Bool,
+        hasActiveBrowser: Bool,
+        hasActiveBrowserStream: Bool = false
+    ) -> Self {
         if isChatMode, hasChosenChatSession {
             return .chat
         }
         if hasActiveBrowser {
             return .browser
+        }
+        if hasActiveBrowserStream {
+            return .browserStream
         }
         return .terminal
     }

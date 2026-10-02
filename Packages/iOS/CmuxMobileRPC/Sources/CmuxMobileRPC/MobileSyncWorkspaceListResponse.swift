@@ -13,6 +13,12 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let windowID: String?
         /// User-facing workspace title.
         public let title: String
+        /// Custom workspace description, when reported by the Mac.
+        public let customDescription: String?
+        /// Whether `customDescription` is a bounded projection of a longer Mac value.
+        public let customDescriptionIsTruncated: Bool?
+        /// Custom workspace accent color as `#RRGGBB`, when reported by the Mac.
+        public let customColorHex: String?
         /// The workspace's current working directory, if reported.
         public let currentDirectory: String?
         /// Whether the Mac currently has this workspace selected.
@@ -46,6 +52,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case id
             case windowID = "window_id"
             case title
+            case customDescription = "description"
+            case customDescriptionIsTruncated = "description_truncated"
+            case customColorHex = "custom_color"
             case currentDirectory = "current_directory"
             case isSelected = "is_selected"
             case isPinned = "is_pinned"
@@ -56,10 +65,47 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case hasUnread = "has_unread"
             case terminals
         }
+
+        /// Memberwise construction for callers that assemble a row from an
+        /// already-synced local source (mobile state sync v2 projects its
+        /// record mirror through the same apply path as the wire response).
+        public init(
+            id: String,
+            windowID: String?,
+            title: String,
+            customDescription: String? = nil,
+            customDescriptionIsTruncated: Bool? = nil,
+            customColorHex: String? = nil,
+            currentDirectory: String?,
+            isSelected: Bool,
+            isPinned: Bool?,
+            groupID: String?,
+            preview: String?,
+            previewAt: Double?,
+            lastActivityAt: Double?,
+            hasUnread: Bool?,
+            terminals: [Terminal]
+        ) {
+            self.id = id
+            self.windowID = windowID
+            self.title = title
+            self.customDescription = customDescription
+            self.customDescriptionIsTruncated = customDescriptionIsTruncated
+            self.customColorHex = customColorHex
+            self.currentDirectory = currentDirectory
+            self.isSelected = isSelected
+            self.isPinned = isPinned
+            self.groupID = groupID
+            self.preview = preview
+            self.previewAt = previewAt
+            self.lastActivityAt = lastActivityAt
+            self.hasUnread = hasUnread
+            self.terminals = terminals
+        }
     }
 
     /// A workspace group section in the list response. Mirrors the iOS-facing
-    /// subset the Mac emits (no v2 handle refs, color, or icon). Members are
+    /// subset the Mac emits (no v2 handle refs or color). Members are
     /// listed in the Mac's spatial (`tabs`) order. Absent on Macs old enough not
     /// to emit groups.
     public struct Group: Decodable, Sendable {
@@ -71,6 +117,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let isCollapsed: Bool
         /// Whether the group is pinned on the Mac.
         public let isPinned: Bool
+        /// SF Symbol rendered by the corresponding group row on the Mac.
+        public let iconSymbol: String?
         /// The anchor workspace that owns this group. It is represented by the
         /// group header and never rendered as a separate row.
         public let anchorWorkspaceID: String
@@ -84,7 +132,25 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case name
             case isCollapsed = "is_collapsed"
             case isPinned = "is_pinned"
+            case iconSymbol = "icon_symbol"
             case anchorWorkspaceID = "anchor_workspace_id"
+        }
+
+        /// Memberwise construction for locally-synced sources (state sync v2).
+        public init(
+            id: String,
+            name: String,
+            isCollapsed: Bool,
+            isPinned: Bool,
+            iconSymbol: String? = nil,
+            anchorWorkspaceID: String
+        ) {
+            self.id = id
+            self.name = name
+            self.isCollapsed = isCollapsed
+            self.isPinned = isPinned
+            self.iconSymbol = iconSymbol
+            self.anchorWorkspaceID = anchorWorkspaceID
         }
     }
 
@@ -108,13 +174,32 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case isFocused = "is_focused"
             case isReady = "is_ready"
         }
+
+        /// Memberwise construction for locally-synced sources (state sync v2).
+        public init(
+            id: String,
+            title: String,
+            currentDirectory: String?,
+            isFocused: Bool,
+            isReady: Bool?
+        ) {
+            self.id = id
+            self.title = title
+            self.currentDirectory = currentDirectory
+            self.isFocused = isFocused
+            self.isReady = isReady
+        }
     }
 
     /// The full workspace list.
     public let workspaces: [Workspace]
-    /// Group sections, in section order. Empty on Macs old enough not to emit
-    /// groups (the field is decoded with `decodeIfPresent`).
+    /// Group sections, in section order. Empty when the Mac reports no groups or
+    /// when an older payload omits the field.
     public let groups: [Group]
+    /// Whether the decoded payload carried a `groups` field at all. Older or
+    /// partial responses omit the field, and callers use that to preserve the
+    /// last authoritative group headers across reconnect churn.
+    public let groupsFieldWasPresent: Bool
     /// Identifier of a workspace created by the request, if any.
     public let createdWorkspaceID: String?
     /// Identifier of a terminal created by the request, if any.
@@ -135,6 +220,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         workspaces = try container.decode([Workspace].self, forKey: .workspaces)
+        groupsFieldWasPresent = container.contains(.groups)
         groups = try container.decodeIfPresent([Group].self, forKey: .groups) ?? []
         createdWorkspaceID = try container.decodeIfPresent(String.self, forKey: .createdWorkspaceID)
         createdTerminalID = try container.decodeIfPresent(String.self, forKey: .createdTerminalID)
@@ -146,5 +232,26 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
     /// - Throws: A decoding error if the payload is malformed.
     public static func decode(_ data: Data) throws -> MobileSyncWorkspaceListResponse {
         try JSONDecoder().decode(Self.self, from: data)
+    }
+}
+
+// Memberwise construction for callers that assemble a list response from an
+// already-synced local source (mobile state sync v2 projects its record mirror
+// through the same apply path the decoded wire response uses).
+extension MobileSyncWorkspaceListResponse {
+    /// Memberwise construction for locally-synced sources (state sync v2
+    /// projects its record mirror through the same apply path).
+    public init(
+        workspaces: [Workspace],
+        groups: [Group],
+        groupsFieldWasPresent: Bool = true,
+        createdWorkspaceID: String?,
+        createdTerminalID: String?
+    ) {
+        self.workspaces = workspaces
+        self.groups = groups
+        self.groupsFieldWasPresent = groupsFieldWasPresent
+        self.createdWorkspaceID = createdWorkspaceID
+        self.createdTerminalID = createdTerminalID
     }
 }

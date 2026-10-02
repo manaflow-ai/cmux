@@ -3,7 +3,7 @@ import CmuxWorkspaces
 import SwiftUI
 
 /// Top-level SwiftUI view for a ``WorkspaceTodoPanel``: a header (clickable
-/// status glyph, workspace title, lane name, progress) over the full
+/// status glyph, pane title, lane name, progress) over the full
 /// unclamped checklist with a pinned add field.
 ///
 /// Unlike the sidebar rows, this pane is NOT under the sidebar lazy-list
@@ -19,37 +19,99 @@ struct WorkspaceTodoPanelView: View {
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
-        Group {
-            if let workspace = panel.workspace {
-                WorkspaceTodoPaneContent(
-                    workspace: workspace,
-                    todoState: workspace.todoState,
-                    isFocused: isFocused,
-                    addFieldArmToken: panel.addFieldArmToken
-                )
-            } else {
-                Text(String(
-                    localized: "workspaceTodoPane.workspaceUnavailable",
-                    defaultValue: "This workspace is no longer available."
-                ))
-                .font(.system(size: 13))
-                .foregroundColor(.secondary)
+        ZStack(alignment: .topLeading) {
+            WorkspaceTodoPanelOpaqueBackground()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Group {
+                if let workspace = panel.workspace {
+                    WorkspaceTodoPaneContent(
+                        workspace: workspace,
+                        todoState: workspace.todoState,
+                        paneTitle: panel.displayTitle,
+                        isFocused: isFocused,
+                        addFieldArmToken: panel.addFieldArmToken
+                    )
+                } else {
+                    Text(String(
+                        localized: "workspaceTodoPane.workspaceUnavailable",
+                        defaultValue: "This workspace is no longer available."
+                    ))
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(NSColor.windowBackgroundColor))
         .contentShape(Rectangle())
         .onTapGesture { onRequestPanelFocus() }
     }
 }
 
+enum WorkspaceTodoPaneHeaderTitle {
+    nonisolated static func title(paneTitle: String) -> String {
+        paneTitle
+    }
+}
+
+enum WorkspaceTodoPaneHeaderStatusLabel {
+    nonisolated static func displayName(
+        effective: WorkspaceTaskStatus?,
+        hasOverride: Bool
+    ) -> String? {
+        guard let effective else { return nil }
+        if effective == .todo && !hasOverride { return nil }
+        return effective.displayName
+    }
+}
+
+enum WorkspaceTodoPaneItemRowClickPolicy {
+    enum Action: Equatable {
+        case select
+        case beginEdit
+        case focusEditor
+    }
+
+    nonisolated static func action(isEditing: Bool, isHighlighted: Bool) -> Action {
+        if isEditing { return .focusEditor }
+        if isHighlighted { return .beginEdit }
+        return .select
+    }
+}
+
+enum WorkspaceTodoPaneKeyboardNavigationPolicy {
+    nonisolated static func shouldMoveHighlight(isEditing: Bool, hasItems: Bool) -> Bool {
+        !isEditing && hasItems
+    }
+}
+
+private struct WorkspaceTodoPanelOpaqueBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        WorkspaceTodoPanelOpaqueBackgroundView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        nsView.needsDisplay = true
+    }
+}
+
+private final class WorkspaceTodoPanelOpaqueBackgroundView: NSView {
+    override var isOpaque: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.setFill()
+        dirtyRect.fill()
+    }
+}
+
 /// The pane body once the workspace is resolved. Observes the workspace (for
-/// title and inferred-status recomputes) and its todo state (for override and
-/// checklist churn) directly.
+/// inferred-status recomputes) and its todo state (for override and checklist
+/// churn) directly.
 private struct WorkspaceTodoPaneContent: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject var todoState: WorkspaceTodoState
+    let paneTitle: String
     let isFocused: Bool
     /// Open-or-focus bump; re-arms the add field when `isFocused` doesn't transition.
     let addFieldArmToken: Int
@@ -78,14 +140,22 @@ private struct WorkspaceTodoPaneContent: View {
             override: todoState.statusOverride,
             inferred: inferred
         )
-        let hasOverride = todoState.statusOverride != nil && !resolution.shouldClearOverride
+        let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
+        let hasOverride = todoControlsEnabled && todoState.statusOverride != nil && !resolution.shouldClearOverride
         let progress = todoState.checklist.checklistProgressSummary
+        let headerTitle = WorkspaceTodoPaneHeaderTitle.title(paneTitle: paneTitle)
+        let headerStatusLabel = WorkspaceTodoPaneHeaderStatusLabel.displayName(
+            effective: todoControlsEnabled ? resolution.effective : nil,
+            hasOverride: hasOverride
+        )
 
         VStack(alignment: .leading, spacing: 0) {
             header(
-                effective: resolution.effective,
+                title: headerTitle,
+                effective: todoControlsEnabled ? resolution.effective : nil,
                 inferred: inferred,
                 hasOverride: hasOverride,
+                statusLabel: headerStatusLabel,
                 progress: progress
             )
             .padding(.horizontal, 14)
@@ -127,17 +197,21 @@ private struct WorkspaceTodoPaneContent: View {
                 }
             }
             Divider()
-            addItemRow
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+            if todoControlsEnabled {
+                addItemRow
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+            }
         }
         // The add field is armed whenever the pane holds focus, so typing a
         // new item needs zero extra clicks after `cmux todo open`.
-        .onAppear { if isFocused { addFieldFocused = true } }
+        .onAppear { if todoControlsEnabled, isFocused { addFieldFocused = true } }
         .onChange(of: isFocused) { _, focused in
-            if focused, editingItemId == nil { addFieldFocused = true }
+            if todoControlsEnabled, focused, editingItemId == nil { addFieldFocused = true }
         }
-        .onChange(of: addFieldArmToken) { _, _ in if editingItemId == nil { addFieldFocused = true } }
+        .onChange(of: addFieldArmToken) { _, _ in
+            if todoControlsEnabled, editingItemId == nil { addFieldFocused = true }
+        }
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
         }
@@ -147,58 +221,64 @@ private struct WorkspaceTodoPaneContent: View {
     // MARK: Header
 
     private func header(
-        effective: WorkspaceTaskStatus,
+        title: String,
+        effective: WorkspaceTaskStatus?,
         inferred: WorkspaceTaskStatus,
         hasOverride: Bool,
+        statusLabel: String?,
         progress: WorkspaceChecklistProgressSummary
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Button {
-                isStatusPopoverPresented.toggle()
-            } label: {
-                SidebarWorkspaceTaskStatusGlyph(
-                    status: effective,
-                    hasOverride: hasOverride,
-                    usesMonochrome: false,
-                    monochromeColor: .primary,
-                    neutralColor: .secondary,
-                    fontScale: Self.headerGlyphFontScale
-                )
-                .contentShape(Rectangle().inset(by: -3))
-            }
-            .buttonStyle(.plain)
-            .background(
-                SidebarWorkspaceTodoPopoverHost(
-                    isPresented: $isStatusPopoverPresented,
-                    model: SidebarWorkspaceStatusPopoverModel(
-                        inferred: inferred,
-                        activeOverride: hasOverride ? effective : nil
-                    ),
-                    minWidth: 200,
-                    maxHeight: 400,
-                    preferredEdge: .maxY
-                ) { model, close in
-                    SidebarWorkspaceStatusPopover(
-                        model: model,
-                        onSelectLane: { [workspace] status in
-                            WorkspaceTodoActions.applyStatusOverride(status, to: [workspace])
-                        },
-                        onSelectNone: { [workspace] in
-                            WorkspaceTodoActions.hideStatus(for: [workspace])
-                        },
-                        onClose: close
+            if let effective {
+                Button {
+                    isStatusPopoverPresented.toggle()
+                } label: {
+                    SidebarWorkspaceTaskStatusGlyph(
+                        status: effective,
+                        hasOverride: hasOverride,
+                        usesMonochrome: false,
+                        monochromeColor: .primary,
+                        neutralColor: .secondary,
+                        fontScale: Self.headerGlyphFontScale
                     )
+                    .contentShape(Rectangle().inset(by: -3))
                 }
-            )
-            .accessibilityIdentifier("WorkspaceTodoPaneStatusGlyph")
-            Text(workspace.title)
+                .buttonStyle(.plain)
+                .background(
+                    SidebarWorkspaceTodoPopoverHost(
+                        isPresented: $isStatusPopoverPresented,
+                        model: SidebarWorkspaceStatusPopoverModel(
+                            inferred: inferred,
+                            activeOverride: hasOverride ? effective : nil
+                        ),
+                        minWidth: 200,
+                        maxHeight: 400,
+                        preferredEdge: .maxY
+                    ) { model, close in
+                        SidebarWorkspaceStatusPopover(
+                            model: model,
+                            onSelectLane: { [workspace] status in
+                                WorkspaceTodoActions.applyStatusOverride(status, to: [workspace])
+                            },
+                            onSelectNone: { [workspace] in
+                                WorkspaceTodoActions.hideStatus(for: [workspace])
+                            },
+                            onClose: close
+                        )
+                    }
+                )
+                .accessibilityIdentifier("WorkspaceTodoPaneStatusGlyph")
+            }
+            Text(title)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Text(effective.displayName)
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
+            if let statusLabel {
+                Text(statusLabel)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
             Spacer(minLength: 8)
             if progress.totalCount > 0 {
                 Text(verbatim: "\(progress.completedCount)/\(progress.totalCount)")
@@ -232,6 +312,9 @@ private struct WorkspaceTodoPaneContent: View {
                 beginEdit: { beginItemEdit(item) },
                 commitEdit: { commitItemEdit(item.id) },
                 cancelEdit: cancelItemEdit,
+                focusEditor: {
+                    editFieldFocused = true
+                },
                 select: {
                     highlightedItemId = item.id
                     itemsFocused = true
@@ -241,6 +324,22 @@ private struct WorkspaceTodoPaneContent: View {
                 },
                 remove: {
                     WorkspaceTodoActions.removeChecklistItem(id: item.id, from: workspace)
+                },
+                addAttachments: {
+                    WorkspaceTodoActions.addImageAttachments(to: item.id, in: workspace)
+                },
+                removeAttachment: { attachmentId in
+                    WorkspaceTodoActions.removeImageAttachment(
+                        itemId: item.id,
+                        attachmentId: attachmentId,
+                        from: workspace
+                    )
+                },
+                openAttachments: { selectedAttachmentId in
+                    WorkspaceTodoActions.openImageAttachments(
+                        item.attachments,
+                        selectedAttachmentId: selectedAttachmentId
+                    )
                 },
                 handleDrop: { payload, displayIndex in
                     handleReorderDrop(payload: payload, onto: displayIndex)
@@ -254,7 +353,10 @@ private struct WorkspaceTodoPaneContent: View {
     /// Moves the highlight up/down through the visible (display-ordered)
     /// items, clamping at the ends.
     private func moveHighlight(_ delta: Int, in ordered: [WorkspaceChecklistItem]) -> KeyPress.Result {
-        guard !ordered.isEmpty else { return .ignored }
+        guard WorkspaceTodoPaneKeyboardNavigationPolicy.shouldMoveHighlight(
+            isEditing: editingItemId != nil,
+            hasItems: !ordered.isEmpty
+        ) else { return .ignored }
         let currentIndex = ordered.firstIndex(where: { $0.id == highlightedItemId })
             ?? (delta > 0 ? -1 : ordered.count)
         let next = min(max(currentIndex + delta, 0), ordered.count - 1)
@@ -270,13 +372,11 @@ private struct WorkspaceTodoPaneContent: View {
         _ press: KeyPress,
         ordered: [WorkspaceChecklistItem]
     ) -> KeyPress.Result {
-        let isPlainReturn = press.key == .return && press.modifiers.isEmpty
-        guard isPlainReturn || toggleChecklistItemCompleteShortcutMatches(press) else {
+        if editingItemId != nil {
             return .ignored
         }
-        // Plain Return must fall through to a live in-row edit's onSubmit
-        // (the edit TextField is a descendant of this handler's scope).
-        if isPlainReturn, editingItemId != nil {
+        let isPlainReturn = press.key == .return && press.modifiers.isEmpty
+        guard isPlainReturn || toggleChecklistItemCompleteShortcutMatches(press) else {
             return .ignored
         }
         guard let id = highlightedItemId,
@@ -313,12 +413,22 @@ private struct WorkspaceTodoPaneContent: View {
                 .foregroundColor(.secondary)
             TextField(
                 String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
-                text: $pendingItemText
+                text: $pendingItemText,
+                axis: .vertical
             )
             .font(.system(size: Self.itemFontSize))
             .textFieldStyle(.plain)
             .foregroundColor(.primary)
             .focused($addFieldFocused)
+            .lineLimit(1...8)
+            .fixedSize(horizontal: false, vertical: true)
+            .backport.onKeyPress(.return) { modifiers in
+                if modifiers.contains(.shift), modifiers.subtracting(.shift).isEmpty {
+                    pendingItemText.append("\n")
+                    return .handled
+                }
+                return .ignored
+            }
             .onSubmit(commitPendingItem)
             .onExitCommand(perform: cancelPendingItem)
             .accessibilityIdentifier("WorkspaceTodoPaneAddItemField")
@@ -327,6 +437,7 @@ private struct WorkspaceTodoPaneContent: View {
 
     /// Enter commits the trimmed text and re-arms the field for the next item.
     private func commitPendingItem() {
+        guard WorkspaceTodoFeature.isEnabled else { return }
         let text = pendingItemText
         pendingItemText = ""
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -348,7 +459,7 @@ private struct WorkspaceTodoPaneContent: View {
         editFieldFocused = true
     }
 
-    /// Enter commits the trimmed replacement text; empty keeps the old text.
+    /// Cmd-Return or focus loss commits the trimmed replacement text; empty keeps the old text.
     private func commitItemEdit(_ id: UUID) {
         let text = editingText
         cancelItemEdit()
@@ -377,9 +488,13 @@ private struct WorkspaceTodoPaneItemRowActions {
     let beginEdit: () -> Void
     let commitEdit: () -> Void
     let cancelEdit: () -> Void
+    let focusEditor: () -> Void
     let select: () -> Void
     let markInProgress: () -> Void
     let remove: () -> Void
+    let addAttachments: () -> Void
+    let removeAttachment: (UUID) -> Void
+    let openAttachments: (UUID?) -> Void
     let handleDrop: ([String], Int) -> Bool
 }
 
@@ -428,13 +543,26 @@ private struct WorkspaceTodoPaneItemRow: View {
             if isEditing {
                 TextField(
                     String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
-                    text: $editingText
+                    text: $editingText,
+                    axis: .vertical
                 )
                 .textFieldStyle(.plain)
                 .font(.system(size: itemFontSize))
                 .foregroundColor(.primary)
                 .focused(editFieldFocused)
-                .onSubmit { actions.commitEdit() }
+                .lineLimit(1...8)
+                .fixedSize(horizontal: false, vertical: true)
+                .backport.onKeyPress(.return) { modifiers in
+                    if modifiers.contains(.shift), modifiers.subtracting(.shift).isEmpty {
+                        editingText.append("\n")
+                        return .handled
+                    }
+                    if modifiers.contains(.command) {
+                        actions.commitEdit()
+                        return .handled
+                    }
+                    return .ignored
+                }
                 .onExitCommand(perform: actions.cancelEdit)
                 .accessibilityIdentifier("WorkspaceTodoPaneEditItemField")
             } else {
@@ -455,9 +583,18 @@ private struct WorkspaceTodoPaneItemRow: View {
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .contentShape(Rectangle())
-                    .onTapGesture { actions.beginEdit() }
             }
             Spacer(minLength: 0)
+            WorkspaceChecklistAttachmentMenu(
+                item: item,
+                iconPointSize: checkboxPointSize - 2,
+                foregroundColor: .secondary,
+                countFont: .system(size: itemFontSize - 1),
+                addAttachments: { _ in actions.addAttachments() },
+                removeAttachment: { _, attachmentId in actions.removeAttachment(attachmentId) },
+                openAttachments: { _, selectedAttachmentId in actions.openAttachments(selectedAttachmentId) }
+            )
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
@@ -466,7 +603,7 @@ private struct WorkspaceTodoPaneItemRow: View {
                 .fill(isHighlighted ? Color.primary.opacity(0.08) : Color.clear)
         )
         .contentShape(Rectangle())
-        .onTapGesture { actions.select() }
+        .onTapGesture { handleRowTap() }
         // Drag to reorder within the item's completion partition; the model
         // clamps the target so completed items always stay last (item 5).
         .draggable(item.id.uuidString)
@@ -487,6 +624,17 @@ private struct WorkspaceTodoPaneItemRow: View {
             }
         }
         .accessibilityIdentifier("WorkspaceTodoPaneItemRow")
+    }
+
+    private func handleRowTap() {
+        switch WorkspaceTodoPaneItemRowClickPolicy.action(isEditing: isEditing, isHighlighted: isHighlighted) {
+        case .select:
+            actions.select()
+        case .beginEdit:
+            actions.beginEdit()
+        case .focusEditor:
+            actions.focusEditor()
+        }
     }
 
     private func checkboxSymbolName(for state: WorkspaceChecklistItem.State) -> String {

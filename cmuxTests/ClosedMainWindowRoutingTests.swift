@@ -162,3 +162,151 @@ struct ClosedMainWindowRoutingTests {
         #expect(app.focusMainWindow(windowId: windowCId))
     }
 }
+
+@MainActor
+@Suite("Window zombie regressions", .serialized)
+struct WindowZombieRegressionTests {
+    @Test("SwiftUI window state does not own its native window")
+    func swiftUIWindowStateDoesNotOwnItsNativeWindow() {
+        weak var releasedWindow: NSWindow?
+        var reference: WeakWindowReference?
+
+        autoreleasepool {
+            var window: NSWindow? = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            releasedWindow = window
+            reference = WeakWindowReference(window)
+            window = nil
+        }
+
+        #expect(reference?.window == nil)
+        #expect(releasedWindow == nil)
+    }
+
+    @Test("Closed Settings window is fully retired")
+    func closedSettingsWindowIsFullyRetired() async {
+        _ = NSApplication.shared
+        closeSettingsWindows()
+        defer { closeSettingsWindows() }
+
+        var closingWindowNumber: Int?
+        weak var releasedWindow: NSWindow?
+        autoreleasepool {
+            let presenter = SettingsWindowPresenter()
+            presenter.show()
+            var closingWindow = settingsWindow()
+            #expect(closingWindow != nil)
+            guard closingWindow != nil else { return }
+            closingWindowNumber = closingWindow?.windowNumber
+            releasedWindow = closingWindow
+            closingWindow?.close()
+            closingWindow = nil
+        }
+        let didRetireWindow = await settleWindowLifecycle {
+            releasedWindow == nil
+                && (closingWindowNumber.map { !isWindowServerWindowAlive($0) } ?? true)
+        }
+
+        #expect(didRetireWindow)
+        #expect(releasedWindow == nil)
+        #expect(closingWindowNumber != nil)
+        if let closingWindowNumber {
+            #expect(!isWindowServerWindowAlive(closingWindowNumber))
+        }
+    }
+
+    @Test("Closed detached main window is fully retired")
+    func closedDetachedMainWindowIsFullyRetired() async {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        let previousConfirmationHandler = app.debugCloseMainWindowConfirmationHandler
+        app.debugCloseMainWindowConfirmationHandler = { _ in true }
+        var survivorWindowId: UUID?
+        weak var releasedWindow: NSWindow?
+        defer {
+            if let leakedWindow = releasedWindow {
+                leakedWindow.windowController?.window = nil
+                leakedWindow.delegate = nil
+                leakedWindow.contentViewController = nil
+                leakedWindow.contentView = nil
+                leakedWindow.orderOut(nil)
+            }
+            if let survivorWindowId,
+               let survivor = app.windowForMainWindowId(survivorWindowId) {
+                survivor.close()
+            }
+            app.debugCloseMainWindowConfirmationHandler = previousConfirmationHandler
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        survivorWindowId = app.createMainWindow(shouldActivate: false)
+        let closingWindowId = app.createMainWindow(shouldActivate: false)
+        var closingWindow = app.windowForMainWindowId(closingWindowId)
+        #expect(closingWindow != nil)
+        guard closingWindow != nil else { return }
+        let closingWindowNumber = closingWindow?.windowNumber
+        releasedWindow = closingWindow
+
+        autoreleasepool {
+            closingWindow?.close()
+            closingWindow = nil
+        }
+        let didRetireWindow = await settleWindowLifecycle {
+            releasedWindow == nil
+                && (closingWindowNumber.map { !isWindowServerWindowAlive($0) } ?? true)
+        }
+
+        #expect(didRetireWindow)
+        #expect(releasedWindow?.windowController == nil)
+        #expect(releasedWindow?.contentViewController == nil)
+        #expect(releasedWindow?.contentView == nil)
+        #expect(closingWindowNumber != nil)
+        if let closingWindowNumber {
+            #expect(!isWindowServerWindowAlive(closingWindowNumber))
+        }
+    }
+
+    private func settingsWindow() -> NSWindow? {
+        NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.settings" && $0.isVisible
+        }
+    }
+
+    private func closeSettingsWindows() {
+        for window in NSApp.windows where window.identifier?.rawValue == "cmux.settings" {
+            window.orderOut(nil)
+            window.identifier = nil
+            window.close()
+        }
+    }
+
+    private func settleWindowLifecycle(
+        until condition: () async -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while !(await condition()) {
+            guard clock.now < deadline else { return false }
+            await Task.yield()
+            try? await clock.sleep(for: .milliseconds(50))
+        }
+        return true
+    }
+
+    private func isWindowServerWindowAlive(_ windowNumber: Int) -> Bool {
+        guard let windows = CGWindowListCopyWindowInfo(
+            .optionIncludingWindow,
+            CGWindowID(windowNumber)
+        ) as? [[CFString: Any]] else {
+            return false
+        }
+        return !windows.isEmpty
+    }
+}

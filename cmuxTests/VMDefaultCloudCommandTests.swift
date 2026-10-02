@@ -39,7 +39,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "image": "snapshot-default",
                     ]
                 )
-            case "vm.ssh_info":
+            case "vm.ssh_info", "vm.attach_info":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["id"] as? String, vmID)
                 return self.v2Response(
@@ -153,7 +153,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             [
                 "vm.create",
-                "vm.ssh_info",
+                "vm.attach_info",
                 "workspace.list",
                 "workspace.create",
                 "workspace.rename",
@@ -272,7 +272,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "image": "snapshot-default",
                     ]
                 )
-            case "vm.ssh_info":
+            case "vm.ssh_info", "vm.attach_info":
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -409,7 +409,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             [
                 "vm.create",
-                "vm.ssh_info",
+                "vm.attach_info",
                 "workspace.list",
                 "workspace.action",
                 "workspace.action",
@@ -459,7 +459,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "image": "snapshot-default",
                     ]
                 )
-            case "vm.ssh_info":
+            case "vm.ssh_info", "vm.attach_info":
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -568,7 +568,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             [
                 "vm.create",
-                "vm.ssh_info",
+                "vm.attach_info",
                 "workspace.list",
                 "workspace.create",
                 "workspace.rename",

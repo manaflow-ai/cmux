@@ -96,6 +96,230 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect(readParams["surface_id"] as? String == Self.numericSurfaceId)
     }
 
+    @Test func closeSurfaceRejectsMissingExplicitRefWithoutMutation() throws {
+        let socketPath = Self.makeSocketPath("close")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return Self.v2Response(id: id, ok: true, result: ["surfaces": Self.reproSurfaceRows])
+            case "surface.close":
+                state.recordMutation()
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["workspace_id": Self.reproWorkspaceRef, "surface_id": Self.reproSelectedSurfaceId]
+                )
+            default:
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "close-surface",
+                "--surface", "surface:99999",
+                "--workspace", Self.reproWorkspaceRef,
+            ],
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect((result.stderr + result.stdout).contains("Surface ref not found: surface:99999"))
+        #expect(state.mutationCountSnapshot() == 0)
+
+        let requests = try state.requestObjects()
+        #expect(requests.compactMap { $0["method"] as? String } == ["surface.list"])
+        let listParams = try #require(requests.first?["params"] as? [String: Any])
+        #expect(listParams["workspace_id"] as? String == Self.reproWorkspaceRef)
+    }
+
+    @Test func closeSurfaceRejectsExplicitTargetWithoutWorkspaceOrWindowWithoutMutation() throws {
+        let socketPath = Self.makeSocketPath("close-noworkspace")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        var environment = cliEnvironment(socketPath: socketPath)
+        environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
+        environment.removeValue(forKey: "CMUX_SURFACE_ID")
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            if method == "surface.close" {
+                state.recordMutation()
+            }
+            return Self.v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "unexpected_method", "message": method]
+            )
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "close-surface",
+                "--surface", Self.missingSurfaceUUID,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect((result.stderr + result.stdout).contains("close-surface requires --workspace or --window with explicit --surface"))
+        #expect(state.mutationCountSnapshot() == 0)
+        let requests = try state.requestObjects()
+        #expect(requests.isEmpty, Comment(rawValue: String(describing: requests)))
+    }
+
+    @Test func closeSurfaceRejectsBlankExplicitTargetWithWindowWithoutMutation() throws {
+        let socketPath = Self.makeSocketPath("close-blank")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        var environment = cliEnvironment(socketPath: socketPath)
+        environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
+        environment.removeValue(forKey: "CMUX_SURFACE_ID")
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            if method == "surface.close" {
+                state.recordMutation()
+            }
+            return Self.v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "unexpected_method", "message": method]
+            )
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "close-surface",
+                "--window", Self.reproWindowId,
+                "--surface", "   ",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect((result.stderr + result.stdout).contains("Surface handle is blank"))
+        #expect(state.mutationCountSnapshot() == 0)
+        let requests = try state.requestObjects()
+        #expect(requests.isEmpty, Comment(rawValue: String(describing: requests)))
+    }
+
+    @Test func respawnPaneRejectsMissingExplicitUUIDWithoutMutation() throws {
+        let socketPath = Self.makeSocketPath("respawn")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "window.list":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["windows": [["id": Self.reproWindowId, "ref": "window:1", "index": 0]]]
+                )
+            case "workspace.list":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["workspaces": [["id": Self.reproWorkspaceId, "ref": Self.reproWorkspaceRef, "index": 0]]]
+                )
+            case "surface.list":
+                return Self.v2Response(id: id, ok: true, result: ["surfaces": Self.reproSurfaceRows])
+            case "surface.respawn":
+                state.recordMutation()
+                return Self.v2Response(id: id, ok: true, result: ["surface_id": Self.reproSelectedSurfaceId])
+            default:
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "respawn-pane",
+                "--workspace", Self.reproWorkspaceRef,
+                "--surface", Self.missingSurfaceUUID,
+                "--command", "echo nope",
+            ],
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect((result.stderr + result.stdout).contains("Surface not found: \(Self.missingSurfaceUUID)"))
+        #expect(state.mutationCountSnapshot() == 0)
+
+        let requests = try state.requestObjects()
+        #expect(requests.compactMap { $0["method"] as? String } == ["window.list", "workspace.list", "surface.list"])
+        let listParams = try #require(requests.last?["params"] as? [String: Any])
+        #expect(listParams["workspace_id"] as? String == Self.reproWorkspaceId)
+    }
+
     private func assertExplicitSurfaceCommand(
         arguments: [String],
         expectedMethod: String,
@@ -171,6 +395,20 @@ struct CLIExplicitSurfaceRoutingTests {
     private static let callerSurfaceId = "22222222-2222-2222-2222-222222222222"
     private static let targetSurfaceRef = "surface:11"
     private static let numericSurfaceId = "33333333-3333-3333-3333-333333333333"
+    private static let reproWindowId = "44444444-4444-4444-4444-444444443001"
+    private static let reproWorkspaceId = "44444444-4444-4444-4444-444444443071"
+    private static let reproWorkspaceRef = "workspace:71"
+    private static let reproSelectedSurfaceId = "44444444-4444-4444-4444-444444443222"
+    private static let reproSecondSurfaceId = "44444444-4444-4444-4444-444444443223"
+    private static let reproThirdSurfaceId = "44444444-4444-4444-4444-444444443224"
+    private static let missingSurfaceUUID = "99999999-9999-9999-9999-999999999999"
+    private static var reproSurfaceRows: [[String: Any]] {
+        [
+            ["id": reproSelectedSurfaceId, "ref": "surface:3222", "index": 0, "focused": true],
+            ["id": reproSecondSurfaceId, "ref": "surface:3223", "index": 1, "focused": false],
+            ["id": reproThirdSurfaceId, "ref": "surface:3224", "index": 2, "focused": false],
+        ]
+    }
 
     private final class CLIExplicitSurfaceRoutingBundleToken {}
 
@@ -179,6 +417,7 @@ struct CLIExplicitSurfaceRoutingTests {
         private let lock = NSLock()
         private var requestLines: [String] = []
         private var errors: [String] = []
+        private var mutationCount = 0
 
         func record(_ line: String) {
             lock.lock()
@@ -196,6 +435,18 @@ struct CLIExplicitSurfaceRoutingTests {
             lock.lock()
             defer { lock.unlock() }
             return errors
+        }
+
+        func recordMutation() {
+            lock.lock()
+            mutationCount += 1
+            lock.unlock()
+        }
+
+        func mutationCountSnapshot() -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return mutationCount
         }
 
         func requestObjects() throws -> [[String: Any]] {

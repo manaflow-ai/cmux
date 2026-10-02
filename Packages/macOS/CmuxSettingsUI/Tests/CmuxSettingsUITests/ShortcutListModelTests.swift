@@ -435,4 +435,58 @@ import CmuxSettings
                 )
         )
     }
+
+    @Test func persistedGlobalSearchCollisionDisplaysRuntimeFallback() async throws {
+        let (store, catalog, errorLog) = makeStore()
+        let collision = StoredShortcut(first: ShortcutStroke(
+            key: "g", command: true, option: true, control: true
+        ))
+        try await store.set(
+            [
+                ShortcutAction.showHideAllWindows.rawValue: collision,
+                ShortcutAction.globalSearch.rawValue: collision,
+            ],
+            for: catalog.shortcuts.bindings
+        )
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.bindings.count == 2 })
+
+        #expect(model.effective(for: .showHideAllWindows) == collision)
+        #expect(model.effective(for: .globalSearch) == ShortcutAction.globalSearch.defaultShortcut)
+    }
+
+    @Test func invalidPersistedShowHideChordDisplaysNoEffectiveHotkey() async throws {
+        let (store, catalog, errorLog) = makeStore()
+        let invalidChord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true),
+            second: ShortcutStroke(key: "c")
+        )
+        let sentinel = StoredShortcut(first: ShortcutStroke(key: "j", command: true))
+        try await store.set(
+            [
+                ShortcutAction.showHideAllWindows.rawValue: invalidChord,
+                ShortcutAction.openSettings.rawValue: sentinel,
+            ],
+            for: catalog.shortcuts.bindings
+        )
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.bindings[ShortcutAction.openSettings.rawValue] == sentinel })
+
+        #expect(model.effective(for: .showHideAllWindows) == nil)
+    }
+
+    @Test func scopeCaptionDescribesSimulatorFocus() {
+        let (store, catalog, errorLog) = makeStore()
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+
+        #expect(
+            model.scopeCaption(for: .simulatorHome)
+                == String(
+                    localized: "shortcut.when.caption.simulatorFocus",
+                    defaultValue: "Only while a Simulator is focused"
+                )
+        )
+    }
 }

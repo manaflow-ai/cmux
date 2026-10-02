@@ -57,6 +57,17 @@ extension CmuxTaskManagerCodingAgentDefinition {
             argumentNeedles: CodePuppyAgentRegistration.standard.argumentNeedles
         ),
         .init(
+            id: "kimi",
+            displayName: String(localized: "agent.kimi.displayName", defaultValue: "Kimi Code"),
+            assetName: nil,
+            launchKinds: ["kimi"],
+            // Kimi's Python entrypoint deliberately overwrites its OS process title and argv with
+            // "Kimi Code". This is process-status/foreground detection only; session persistence
+            // still requires cmux-owned launch metadata or native executable aliases.
+            directBasenames: ["kimi", "kimi-cli", "kimi-code", "kimi code"],
+            argumentNeedles: ["kimi-cli", "kimi-code"]
+        ),
+        .init(
             id: "ollama",
             displayName: String(localized: "agent.ollama.displayName", defaultValue: "Ollama"),
             assetName: nil,

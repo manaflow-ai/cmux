@@ -216,9 +216,30 @@ extension TerminalSurface {
     /// Test-only helper to install a runtime surface pointer directly.
     @MainActor
     public func installRuntimeSurfaceForTesting(_ runtimeSurface: ghostty_surface_t) {
+        let callbackContext: Unmanaged<
+            GhosttySurfaceCallbackContext
+        >
+        if let existingContext =
+                surfaceCallbackContext {
+            callbackContext = existingContext
+        } else {
+            callbackContext =
+                Unmanaged.passRetained(
+                    GhosttySurfaceCallbackContext(
+                        surfaceHost: surfaceView,
+                        surfaceController: self
+                    )
+                )
+            surfaceCallbackContext = callbackContext
+        }
         surface = runtimeSurface
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
+        cacheControllingTTYIdentity(for: runtimeSurface)
+        installFontSizeActionObservation(
+            on: runtimeSurface,
+            callbackContext: callbackContext
+        )
     }
 #endif
 }

@@ -75,7 +75,7 @@ extension SidebarGitMetadataService {
                 }
                 clearWorkspaceGitMetadata(for: probeKey)
             }
-            guard sidebarGitMetadataWatchEnabled else {
+            guard sidebarGitMetadataActivePollingEnabled else {
                 if !clearsMetadataBeforeRefresh {
                     clearWorkspaceGitMetadata(for: probeKey)
                 }
@@ -102,7 +102,8 @@ extension SidebarGitMetadataService {
     ) {
         guard let host, host.workspaceExists(workspaceId) else { return }
         let probeKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-        guard sidebarGitMetadataWatchEnabled else {
+        let activity = host.gitMetadataActivity
+        guard activity.acceptsPassiveReports else {
             clearWorkspaceGitMetadata(for: probeKey)
             return
         }
@@ -118,7 +119,8 @@ extension SidebarGitMetadataService {
                 isDirty: nextIsDirty
             )
         }
-        if host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) {
+        if !activity.performsActivePolling ||
+            host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) {
             clearWorkspaceGitProbe(probeKey)
             workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
             updateWorkspaceGitMetadataFallbackTimer()

@@ -16,7 +16,10 @@ EOF
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GHOSTTY_DIR="$REPO_ROOT/ghostty"
-ZIG_REQUIRED="${ZIG_REQUIRED:-0.15.2}"
+# shellcheck source=ghostty-zig-version.sh
+source "$SCRIPT_DIR/ghostty-zig-version.sh"
+
+ZIG_REQUIRED="${ZIG_REQUIRED:-$(ghostty_minimum_zig_version "$REPO_ROOT")}"
 
 OUTPUT_PATH=""
 TARGET_TRIPLE=""

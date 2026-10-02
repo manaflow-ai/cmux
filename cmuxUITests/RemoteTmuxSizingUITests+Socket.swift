@@ -9,7 +9,7 @@ extension RemoteTmuxSizingUITests {
     /// launch precedes any tmux call — the sandboxed runner never spawns tmux
     /// itself.
     func launchApp() -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += [
             "-socketControlMode", "allowAll",
             // Plist-typed bool: the settings decoder accepts only real

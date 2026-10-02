@@ -12,6 +12,7 @@ use tungstenite::{Message, accept};
 
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 static SOCKET_SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+const CAPTURE_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAGQAAAAyAQAAAACCTkMTAAAAD0lEQVQoz2NgGAWjYGgCAAK8AAFtkh10AAAAAElFTkSuQmCC";
 
 fn read_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
     loop {
@@ -27,6 +28,59 @@ fn write_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>, value: Value
     ws.send(Message::Text(value.to_string().into())).unwrap();
 }
 
+fn write_main_frame_commit(
+    ws: &mut tungstenite::WebSocket<std::net::TcpStream>,
+    session_id: &str,
+    loader_id: &str,
+    url: &str,
+) {
+    write_json(
+        ws,
+        json!({
+            "method": "Page.frameNavigated",
+            "sessionId": session_id,
+            "params": {
+                "frame": {
+                    "id": "main-frame",
+                    "loaderId": loader_id,
+                    "url": url
+                }
+            }
+        }),
+    );
+    write_json(
+        ws,
+        json!({
+            "method": "Page.lifecycleEvent",
+            "sessionId": session_id,
+            "params": {
+                "frameId": "main-frame",
+                "loaderId": loader_id,
+                "name": "firstPaint",
+                "timestamp": 1.0
+            }
+        }),
+    );
+}
+
+fn write_default_frame_tree(ws: &mut tungstenite::WebSocket<std::net::TcpStream>, id: Value) {
+    write_json(
+        ws,
+        json!({
+            "id": id,
+            "result": {
+                "frameTree": {
+                    "frame": {
+                        "id": "main-frame",
+                        "loaderId": "loader-1",
+                        "url": "https://example.test"
+                    }
+                }
+            }
+        }),
+    );
+}
+
 fn rpc(path: &std::path::Path, mut cmd: Value) -> Value {
     let mut stream = UnixStream::connect(path).unwrap();
     if cmd.get("id").is_none() {
@@ -39,6 +93,26 @@ fn rpc(path: &std::path::Path, mut cmd: Value) -> Value {
     let mut response = String::new();
     reader.read_line(&mut response).unwrap();
     serde_json::from_str(&response).unwrap()
+}
+
+fn guarded_client(path: &std::path::Path, id: u64) -> BufReader<UnixStream> {
+    let mut stream = UnixStream::connect(path).unwrap();
+    let mut line = json!({
+        "id": id,
+        "cmd": "set-client-info",
+        "kind": "tui",
+        "capabilities": [server::GUARDED_BROWSER_POINTER_CAPABILITY],
+    })
+    .to_string()
+    .into_bytes();
+    line.push(b'\n');
+    stream.write_all(&line).unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut response = String::new();
+    reader.read_line(&mut response).unwrap();
+    let response: Value = serde_json::from_str(&response).unwrap();
+    assert_eq!(response["ok"], true, "guarded client registration failed: {response}");
+    reader
 }
 
 fn recv_method(rx: &mpsc::Receiver<Value>, method: &str) -> Value {
@@ -107,6 +181,8 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     let addr = listener.local_addr().unwrap();
     let (seen_tx, seen_rx) = mpsc::channel();
     let (frame_tx, frame_rx) = mpsc::channel();
+    let (attach_resize_started_tx, attach_resize_started_rx) = mpsc::channel();
+    let (attach_resize_release_tx, attach_resize_release_rx) = mpsc::channel();
 
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
@@ -115,7 +191,11 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         let mut start_count = 0u32;
         let mut closed = 0u32;
         let mut opener_second_frame_sent = false;
+        let mut opener_drag_frame_sent = false;
         let mut opener_ack_count = 0u32;
+        let mut resized_frame_sent = false;
+        let mut main_loader = 1u32;
+        let mut main_url = "https://example.test".to_string();
 
         loop {
             let request = read_json(&mut ws);
@@ -136,15 +216,50 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                     let session = target.replace("target", "session");
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": session}}));
                 }
+                "Page.getFrameTree" => {
+                    let session = request["sessionId"].as_str().unwrap();
+                    let (frame_id, loader_id, url) = if session == "session-1" {
+                        (
+                            "main-frame".to_string(),
+                            format!("loader-{main_loader}"),
+                            main_url.clone(),
+                        )
+                    } else {
+                        (
+                            "popup-frame".to_string(),
+                            "popup-loader".to_string(),
+                            "https://popup.test".to_string(),
+                        )
+                    };
+                    write_json(
+                        &mut ws,
+                        json!({
+                            "id": id,
+                            "result": {
+                                "frameTree": {
+                                    "frame": {
+                                        "id": frame_id,
+                                        "loaderId": loader_id,
+                                        "url": url
+                                    }
+                                }
+                            }
+                        }),
+                    );
+                }
+                "Emulation.setDeviceMetricsOverride" => {
+                    if request["params"]["width"] == 96 && request["params"]["height"] == 96 {
+                        attach_resize_started_tx.send(()).unwrap();
+                        attach_resize_release_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+                    }
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
                 "Page.enable"
-                | "Emulation.setDeviceMetricsOverride"
+                | "Page.setLifecycleEventsEnabled"
                 | "Page.stopScreencast"
                 | "Target.activateTarget"
                 | "Page.bringToFront"
-                | "Input.dispatchMouseEvent"
                 | "Input.insertText"
-                | "Page.navigateToHistoryEntry"
-                | "Page.reload"
                 | "Page.handleJavaScriptDialog" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
@@ -157,6 +272,14 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                     };
                     write_json(&mut ws, json!({"id": id, "result": result}));
                     if url.contains("live.test") && !opener_second_frame_sent {
+                        main_loader += 1;
+                        main_url = url.to_string();
+                        write_main_frame_commit(
+                            &mut ws,
+                            "session-1",
+                            &format!("loader-{main_loader}"),
+                            &main_url,
+                        );
                         frame_rx.recv_timeout(Duration::from_secs(30)).unwrap();
                         write_json(
                             &mut ws,
@@ -165,13 +288,83 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                                 "sessionId": "session-1",
                                 "params": {
                                     "data": "c2Vjb25k",
-                                    "metadata": {"deviceWidth": 100, "deviceHeight": 50},
+                                    "metadata": {
+                                        "deviceWidth": 100,
+                                        "deviceHeight": 50,
+                                        "timestamp": 10.002
+                                    },
                                     "sessionId": 77
                                 }
                             }),
                         );
                         opener_second_frame_sent = true;
                     }
+                }
+                "Page.navigateToHistoryEntry" => {
+                    let entry_id = request["params"]["entryId"].as_u64().unwrap();
+                    main_loader += 1;
+                    main_url = match entry_id {
+                        10 => "https://back.test",
+                        12 => "https://forward.test",
+                        _ => panic!("unexpected history entry {entry_id}"),
+                    }
+                    .to_string();
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    write_main_frame_commit(
+                        &mut ws,
+                        "session-1",
+                        &format!("loader-{main_loader}"),
+                        &main_url,
+                    );
+                }
+                "Page.reload" => {
+                    main_loader += 1;
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    write_main_frame_commit(
+                        &mut ws,
+                        "session-1",
+                        &format!("loader-{main_loader}"),
+                        &main_url,
+                    );
+                }
+                "Input.dispatchMouseEvent" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    if request["params"]["type"] == "mousePressed" && !opener_drag_frame_sent {
+                        write_json(
+                            &mut ws,
+                            json!({
+                                "method": "Page.screencastFrame",
+                                "sessionId": "session-1",
+                                "params": {
+                                    "data": "dGhpcmQ=",
+                                    "metadata": {
+                                        "deviceWidth": 100,
+                                        "deviceHeight": 50,
+                                        "timestamp": 10.002
+                                    },
+                                    "sessionId": 77
+                                }
+                            }),
+                        );
+                        opener_drag_frame_sent = true;
+                    }
+                }
+                "Page.createIsolatedWorld" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"executionContextId": 41}}));
+                }
+                "Runtime.evaluate" => {
+                    write_json(
+                        &mut ws,
+                        json!({
+                            "id": id,
+                            "result": {
+                                "result": {"type": "number", "value": 10_000.0}
+                            }
+                        }),
+                    );
+                }
+                "Page.captureScreenshot" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"data": CAPTURE_PNG}}));
                 }
                 "Page.getNavigationHistory" => {
                     write_json(
@@ -191,6 +384,8 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                 }
                 "Page.startScreencast" => {
                     let session = request["sessionId"].as_str().unwrap().to_string();
+                    let max_width = request["params"]["maxWidth"].as_u64().unwrap();
+                    let max_height = request["params"]["maxHeight"].as_u64().unwrap();
                     start_count += 1;
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                     if start_count == 1 {
@@ -258,11 +453,36 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                                 }
                             }),
                         );
+                    } else if session == "session-1"
+                        && max_width == 132
+                        && max_height == 102
+                        && !resized_frame_sent
+                    {
+                        write_json(
+                            &mut ws,
+                            json!({
+                                "method": "Page.screencastFrame",
+                                "sessionId": session,
+                                "params": {
+                                    "data": "Zm91cnRo",
+                                    "metadata": {
+                                        "deviceWidth": 100,
+                                        "deviceHeight": 50,
+                                        "timestamp": 10.002
+                                    },
+                                    "sessionId": 99
+                                }
+                            }),
+                        );
+                        resized_frame_sent = true;
                     }
                 }
                 "Page.screencastFrameAck" => {
                     if request["sessionId"] == "session-1" {
-                        assert_eq!(request["params"]["sessionId"], 77);
+                        assert!(
+                            matches!(request["params"]["sessionId"].as_u64(), Some(77 | 99)),
+                            "unexpected opener screencast acknowledgement: {request}"
+                        );
                         opener_ack_count += 1;
                     }
                     write_json(&mut ws, json!({"id": id, "result": {}}));
@@ -271,7 +491,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
                     closed += 1;
                     if closed >= 2 {
-                        assert_eq!(opener_ack_count, 2);
+                        assert_eq!(opener_ack_count, 4);
                         break;
                     }
                 }
@@ -300,6 +520,12 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     );
     assert_eq!(created["ok"], true);
     let surface = created["data"]["surface"].as_u64().unwrap();
+    frame_tx.send(()).unwrap();
+    wait_for(
+        || mux.surface(surface)?.browser_frame().filter(|frame| frame.seq == 1),
+        Duration::from_secs(10),
+    )
+    .expect("initial browser frame before sized attach");
 
     // A second tab in the same pane, sized differently, becomes the active
     // tab. The popup adopted from `surface` below must be sized from
@@ -309,33 +535,117 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     assert_eq!(other_tab["ok"], true, "new-tab failed: {other_tab}");
     let other_tab_surface = other_tab["data"]["surface"].as_u64().unwrap();
 
-    let mut attach = UnixStream::connect(&socket_path).unwrap();
-    attach
+    let unsupported_attach =
+        rpc(&socket_path, json!({"id": 199, "cmd": "attach-surface", "surface": surface}));
+    assert_eq!(unsupported_attach["ok"], false);
+    assert!(
+        unsupported_attach["error"]
+            .as_str()
+            .is_some_and(|error| error.contains(server::GUARDED_BROWSER_POINTER_CAPABILITY)),
+        "unguarded browser attach must fail with an actionable capability error: {unsupported_attach}"
+    );
+
+    let mut attach_reader = guarded_client(&socket_path, 200);
+    attach_reader
+        .get_mut()
         .write_all(
-            json!({"id": 2, "cmd": "attach-surface", "surface": surface}).to_string().as_bytes(),
+            json!({
+                "id": 2,
+                "cmd": "attach-surface",
+                "surface": surface,
+                "cols": 12,
+                "rows": 6
+            })
+            .to_string()
+            .as_bytes(),
         )
         .unwrap();
-    attach.write_all(b"\n").unwrap();
-    let mut attach_reader = BufReader::new(attach);
+    attach_reader.get_mut().write_all(b"\n").unwrap();
+    attach_reader.get_ref().set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    attach_resize_started_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("sized attach reached browser reconfigure");
+    let mut premature = String::new();
+    let error = match attach_reader.read_line(&mut premature) {
+        Err(error) => error,
+        Ok(_) => panic!("browser attach state must wait for its requested resize: {premature}"),
+    };
+    assert!(matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut));
+
+    let mut joined_reader = guarded_client(&socket_path, 201);
+    joined_reader
+        .get_mut()
+        .write_all(
+            json!({
+                "id": 3,
+                "cmd": "attach-surface",
+                "surface": surface,
+                "cols": 12,
+                "rows": 6
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+    joined_reader.get_mut().write_all(b"\n").unwrap();
+    joined_reader.get_ref().set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut premature = String::new();
+    let error = match joined_reader.read_line(&mut premature) {
+        Err(error) => error,
+        Ok(_) => panic!("joined browser attach must wait for the pending resize: {premature}"),
+    };
+    assert!(matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut));
+
+    for _ in 0..4 {
+        attach_resize_release_tx.send(()).unwrap();
+    }
+    attach_reader.get_ref().set_read_timeout(None).unwrap();
+    joined_reader.get_ref().set_read_timeout(None).unwrap();
     let state = recv_attach_event(&mut attach_reader, "browser-state");
     assert_eq!(state["surface"], surface);
+    assert_eq!(state["cols"], 12);
+    assert_eq!(state["rows"], 6);
     assert_eq!(state["url"], "https://example.test");
     assert!(state["frame"].is_null());
+    let joined_state = recv_attach_event(&mut joined_reader, "browser-state");
+    assert_eq!(joined_state["cols"], 12);
+    assert_eq!(joined_state["rows"], 6);
+    assert!(joined_state["frame"].is_null());
 
-    frame_tx.send(()).unwrap();
-    let frame = recv_attach_event(&mut attach_reader, "frame");
-    assert_eq!(frame["surface"], surface);
-    assert_eq!(frame["seq"], 1);
-    assert_eq!(frame["width"], 100);
-    assert_eq!(frame["height"], 50);
-    assert_eq!(frame["data"], "iVBORw0KGgo=");
+    let mut larger_reader = guarded_client(&socket_path, 202);
+    larger_reader
+        .get_mut()
+        .write_all(
+            json!({
+                "id": 4,
+                "cmd": "attach-surface",
+                "surface": surface,
+                "cols": 20,
+                "rows": 10
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+    larger_reader.get_mut().write_all(b"\n").unwrap();
+    let mut larger_line = String::new();
+    larger_reader.read_line(&mut larger_line).unwrap();
+    let larger_state: Value = serde_json::from_str(&larger_line).unwrap();
+    assert_eq!(larger_state["event"], "browser-state", "larger viewer attach failed");
+    assert_eq!(larger_state["cols"], 12);
+    assert_eq!(larger_state["rows"], 6);
 
     let navigate = rpc(
         &socket_path,
         json!({"id": 101, "cmd": "browser-navigate", "surface": surface, "url": "live.test"}),
     );
     assert_eq!(navigate["ok"], true, "browser-navigate failed: {navigate}");
-    let live_state = recv_attach_event(&mut attach_reader, "browser-state");
+    let live_state = loop {
+        let state = recv_attach_event(&mut attach_reader, "browser-state");
+        if state["url"] == "https://live.test" {
+            break state;
+        }
+    };
     assert_eq!(live_state["surface"], surface);
     assert_eq!(live_state["url"], "https://live.test");
     assert_eq!(live_state["status"], "live");
@@ -347,7 +657,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     assert_eq!(second_frame["seq"], 2);
     assert_eq!(second_frame["width"], 100);
     assert_eq!(second_frame["height"], 50);
-    assert_eq!(second_frame["data"], "c2Vjb25k");
+    assert_eq!(second_frame["data"], CAPTURE_PNG);
 
     let dialog = recv_method(&seen_rx, "Page.handleJavaScriptDialog");
     assert_eq!(dialog["sessionId"], "session-1");
@@ -372,6 +682,34 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         (10, 5),
         "popup must inherit the opener's size, not the pane's active (non-opener) tab"
     );
+    let popup_snapshot = wait_for(
+        || {
+            let snapshot = rpc(
+                &socket_path,
+                json!({
+                    "protocol": "cmux.protocol/1",
+                    "type": "request",
+                    "id": "popup-public-snapshot",
+                    "operation": "session.snapshot",
+                    "params": {
+                        "machine": "current",
+                        "session": "current"
+                    }
+                }),
+            );
+            if snapshot["ok"] != true {
+                return None;
+            }
+            snapshot["result"]["browsers"]
+                .as_array()?
+                .iter()
+                .any(|browser| browser["url"] == "https://popup.test")
+                .then_some(snapshot)
+        },
+        Duration::from_secs(10),
+    )
+    .expect("adopted popup entered the durable public projection");
+    assert_eq!(popup_snapshot["result"]["browsers"].as_array().unwrap().len(), 2);
     let popup_start = recv_method_where(&seen_rx, "Page.startScreencast", |value| {
         value["sessionId"] == "session-popup"
     });
@@ -408,6 +746,36 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     }
     mux.with_state(|state| assert_eq!(state.surfaces.len(), 3));
 
+    let stale_mouse = rpc(
+        &socket_path,
+        json!({
+            "id": 102,
+            "cmd": "browser-mouse",
+            "surface": surface,
+            "kind": "down",
+            "x_px": 1.0,
+            "y_px": 1.0,
+            "button": "left",
+            "click_count": 1,
+            "frame_seq": 1
+        }),
+    );
+    assert_eq!(stale_mouse["ok"], true);
+    let stale_release = rpc(
+        &socket_path,
+        json!({
+            "id": 103,
+            "cmd": "browser-mouse",
+            "surface": surface,
+            "kind": "up",
+            "x_px": 1.0,
+            "y_px": 1.0,
+            "button": "left",
+            "click_count": 1,
+            "frame_seq": 1
+        }),
+    );
+    assert_eq!(stale_release["ok"], true);
     let mouse = rpc(
         &socket_path,
         json!({
@@ -418,15 +786,64 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
             "x_px": 12.5,
             "y_px": 9.0,
             "button": "left",
-            "click_count": 1
+            "click_count": 1,
+            "frame_seq": 2
         }),
     );
     assert_eq!(mouse["ok"], true);
     let mouse_request = recv_method(&seen_rx, "Input.dispatchMouseEvent");
     assert_eq!(mouse_request["sessionId"], "session-1");
     assert_eq!(mouse_request["params"]["type"], "mousePressed");
-    assert_eq!(mouse_request["params"]["x"], 15.625);
-    assert_eq!(mouse_request["params"]["y"], 5.625);
+    assert_eq!(
+        mouse_request["params"]["x"], 13.020833333333334,
+        "the old rendered frame must not dispatch into the newer browser frame"
+    );
+    assert_eq!(mouse_request["params"]["y"], 4.6875);
+    wait_for(
+        || mux.surface(surface)?.browser_frame().filter(|frame| frame.seq == 3),
+        Duration::from_secs(10),
+    )
+    .expect("browser repaint during an active drag");
+
+    let drag = rpc(
+        &socket_path,
+        json!({
+            "id": 104,
+            "cmd": "browser-mouse",
+            "surface": surface,
+            "kind": "move",
+            "x_px": 14.0,
+            "y_px": 10.0,
+            "button": "left",
+            "click_count": 1,
+            "frame_seq": 2
+        }),
+    );
+    assert_eq!(drag["ok"], true);
+    let drag_request = recv_method(&seen_rx, "Input.dispatchMouseEvent");
+    assert_eq!(drag_request["params"]["type"], "mouseMoved");
+    assert_ne!(drag_request["params"]["x"], mouse_request["params"]["x"]);
+    assert_ne!(drag_request["params"]["y"], mouse_request["params"]["y"]);
+
+    let release = rpc(
+        &socket_path,
+        json!({
+            "id": 105,
+            "cmd": "browser-mouse",
+            "surface": surface,
+            "kind": "up",
+            "x_px": 14.0,
+            "y_px": 10.0,
+            "button": "left",
+            "click_count": 1,
+            "frame_seq": 2
+        }),
+    );
+    assert_eq!(release["ok"], true);
+    let release_request = recv_method(&seen_rx, "Input.dispatchMouseEvent");
+    assert_eq!(release_request["params"]["type"], "mouseReleased");
+    assert_eq!(release_request["params"]["x"], drag_request["params"]["x"]);
+    assert_eq!(release_request["params"]["y"], drag_request["params"]["y"]);
 
     let insert = rpc(
         &socket_path,
@@ -445,34 +862,68 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     assert!(metrics["data"]["resizes"].as_array().is_some_and(|resizes| {
         resizes.iter().any(|resize| {
             resize["surface"] == surface
-                && resize["cols"] == 10
-                && resize["rows"] == 5
+                && resize["cols"] == 12
+                && resize["rows"] == 6
                 && resize["reservation_id"].as_u64().is_some()
         })
     }));
     let metrics_request =
         recv_method_where(&seen_rx, "Emulation.setDeviceMetricsOverride", |value| {
-            value["params"]["width"] == 110 && value["params"]["height"] == 85
+            value["params"]["width"] == 132 && value["params"]["height"] == 102
         });
-    assert_eq!(metrics_request["params"]["width"], 110);
-    assert_eq!(metrics_request["params"]["height"], 85);
+    assert_eq!(metrics_request["params"]["width"], 132);
+    assert_eq!(metrics_request["params"]["height"], 102);
+    wait_for(
+        || {
+            mux.surface(surface)
+                .and_then(|surface| surface.browser_frame())
+                .filter(|frame| frame.data_b64 == "Zm91cnRo")
+        },
+        Duration::from_secs(10),
+    )
+    .expect("browser frame after accepted cell-pixel reconfigure");
 
     let back = rpc(&socket_path, json!({"id": 6, "cmd": "browser-back", "surface": surface}));
     assert_eq!(back["ok"], true);
     let back_nav = recv_method(&seen_rx, "Page.navigateToHistoryEntry");
     assert_eq!(back_nav["sessionId"], "session-1");
     assert_eq!(back_nav["params"]["entryId"], 10);
+    wait_for(
+        || {
+            let surface = mux.surface(surface)?;
+            (surface.browser_url().as_deref() == Some("https://back.test")
+                && surface.browser_frame_seq().is_some_and(|seq| seq >= 5))
+            .then_some(())
+        },
+        Duration::from_secs(10),
+    )
+    .expect("back navigation authority committed");
 
     let forward = rpc(&socket_path, json!({"id": 7, "cmd": "browser-forward", "surface": surface}));
     assert_eq!(forward["ok"], true);
     let forward_nav = recv_method(&seen_rx, "Page.navigateToHistoryEntry");
     assert_eq!(forward_nav["sessionId"], "session-1");
     assert_eq!(forward_nav["params"]["entryId"], 12);
+    wait_for(
+        || {
+            let surface = mux.surface(surface)?;
+            (surface.browser_url().as_deref() == Some("https://forward.test")
+                && surface.browser_frame_seq().is_some_and(|seq| seq >= 6))
+            .then_some(())
+        },
+        Duration::from_secs(10),
+    )
+    .expect("forward navigation authority committed");
 
     let reload = rpc(&socket_path, json!({"id": 8, "cmd": "browser-reload", "surface": surface}));
     assert_eq!(reload["ok"], true);
     let reload_request = recv_method(&seen_rx, "Page.reload");
     assert_eq!(reload_request["sessionId"], "session-1");
+    wait_for(
+        || mux.surface(surface)?.browser_frame_seq().filter(|seq| *seq >= 7).map(|_| ()),
+        Duration::from_secs(10),
+    )
+    .expect("reload authority committed");
 
     let navigate = rpc(
         &socket_path,
@@ -492,7 +943,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     .expect("navigate errorText surfaced as browser failure");
     assert_eq!(failed, "net::ERR_NAME_NOT_RESOLVED");
 
-    mux.close_surface(surface);
+    mux.close_surface(surface).unwrap();
     mux.shutdown();
     server::cleanup(&socket_path);
     server.join().unwrap();
@@ -523,7 +974,11 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
-                "Page.enable" | "Emulation.setDeviceMetricsOverride" | "Page.startScreencast" => {
+                "Page.getFrameTree" => write_default_frame_tree(&mut ws, id),
+                "Page.enable"
+                | "Page.setLifecycleEventsEnabled"
+                | "Emulation.setDeviceMetricsOverride"
+                | "Page.startScreencast" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
                 "Page.navigate" => {
@@ -621,7 +1076,7 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
     );
 
     let close_started = Instant::now();
-    mux.close_surface(surface);
+    mux.close_surface(surface).unwrap();
     assert!(
         close_started.elapsed() < Duration::from_millis(500),
         "wedged browser close blocked for {:?}",
@@ -664,14 +1119,28 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
-                "Page.enable" | "Emulation.setDeviceMetricsOverride" | "Page.startScreencast" => {
+                "Page.getFrameTree" => write_default_frame_tree(&mut ws, id),
+                "Page.enable"
+                | "Page.setLifecycleEventsEnabled"
+                | "Emulation.setDeviceMetricsOverride"
+                | "Page.startScreencast" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
                 "Page.navigate" => {
                     // Hold the worker inside the CDP call until the test has
-                    // queued back+forward behind it, then let it finish.
+                    // queued back+forward behind it, then reject definitively
+                    // so the prior document can admit both control commands.
                     let _ = release_rx.recv();
-                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    write_json(
+                        &mut ws,
+                        json!({
+                            "id": id,
+                            "error": {
+                                "code": -32000,
+                                "message": "injected navigation rejection"
+                            }
+                        }),
+                    );
                 }
                 "Page.getNavigationHistory" => {
                     write_json(
@@ -690,7 +1159,16 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
                     );
                 }
                 "Page.navigateToHistoryEntry" => {
-                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    write_json(
+                        &mut ws,
+                        json!({
+                            "id": id,
+                            "error": {
+                                "code": -32000,
+                                "message": "injected history rejection"
+                            }
+                        }),
+                    );
                 }
                 "Target.closeTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
@@ -754,7 +1232,7 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
         "forward must not be swallowed by back through a shared latest-wins slot"
     );
 
-    mux.close_surface(surface);
+    mux.close_surface(surface).unwrap();
     mux.shutdown();
     server::cleanup(&socket_path);
     server.join().unwrap();
@@ -792,7 +1270,11 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
-                "Page.enable" | "Emulation.setDeviceMetricsOverride" | "Page.startScreencast" => {
+                "Page.getFrameTree" => write_default_frame_tree(&mut ws, id),
+                "Page.enable"
+                | "Page.setLifecycleEventsEnabled"
+                | "Emulation.setDeviceMetricsOverride"
+                | "Page.startScreencast" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
                 "Page.navigate" => {
@@ -868,7 +1350,7 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
         "a full command queue must be reported as ok:false, not silently dropped with ok:true"
     );
 
-    mux.close_surface(surface);
+    mux.close_surface(surface).unwrap();
     mux.shutdown();
     server::cleanup(&socket_path);
     server.join().unwrap();
@@ -899,10 +1381,29 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
+                "Page.getFrameTree" => write_default_frame_tree(&mut ws, id),
                 "Page.enable"
+                | "Page.setLifecycleEventsEnabled"
                 | "Emulation.setDeviceMetricsOverride"
-                | "Page.startScreencast"
                 | "Input.dispatchMouseEvent" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Page.startScreencast" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    write_json(
+                        &mut ws,
+                        json!({
+                            "method": "Page.screencastFrame",
+                            "sessionId": "session-1",
+                            "params": {
+                                "data": "c2NhbGU=",
+                                "metadata": {"deviceWidth": 100, "deviceHeight": 100},
+                                "sessionId": 70
+                            }
+                        }),
+                    );
+                }
+                "Page.screencastFrameAck" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
                 "Target.closeTarget" => {
@@ -975,12 +1476,31 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
+                "Page.getFrameTree" => write_default_frame_tree(&mut ws, id),
                 "Page.enable"
+                | "Page.setLifecycleEventsEnabled"
                 | "Emulation.setDeviceMetricsOverride"
-                | "Page.startScreencast"
                 | "Target.activateTarget"
                 | "Page.bringToFront"
                 | "Input.dispatchMouseEvent" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Page.startScreencast" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    write_json(
+                        &mut ws,
+                        json!({
+                            "method": "Page.screencastFrame",
+                            "sessionId": "session-1",
+                            "params": {
+                                "data": "c3RhbGw=",
+                                "metadata": {"deviceWidth": 80, "deviceHeight": 80},
+                                "sessionId": 71
+                            }
+                        }),
+                    );
+                }
+                "Page.screencastFrameAck" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
                 "Target.closeTarget" => {

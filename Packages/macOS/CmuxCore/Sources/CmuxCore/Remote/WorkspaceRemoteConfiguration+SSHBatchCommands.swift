@@ -56,34 +56,54 @@ extension WorkspaceRemoteConfiguration {
 
     /// `ssh -O <controlCommand>` argv that drives a reverse forward on the
     /// configured ControlMaster socket, or `nil` when no usable `ControlPath`
-    /// option is configured. Argument text is wire/process behavior; do not
-    /// alter.
+    /// option is present in the effective SSH options.
+    ///
+    /// - Parameters:
+    ///   - controlCommand: OpenSSH multiplexing command, such as `forward` or `cancel`.
+    ///   - forwardSpec: Exact reverse-forward specification.
+    ///   - effectiveSSHOptions: Options used by the foreground SSH connection.
+    /// - Returns: Arguments for `/usr/bin/ssh`, or `nil` without a usable control socket.
     public func reverseRelayControlMasterArguments(
         controlCommand: String,
-        forwardSpec: String
+        forwardSpec: String,
+        effectiveSSHOptions: [String]
     ) -> [String]? {
-        guard let controlPath = firstSSHOptionValue(named: "ControlPath")?
+        if let controlMaster = Self.firstSSHOptionValue(
+            named: "ControlMaster",
+            in: effectiveSSHOptions
+        )?.lowercased(),
+           ["no", "false", "off", "0"].contains(controlMaster) {
+            return nil
+        }
+        guard let controlPath = Self.firstSSHOptionValue(
+            named: "ControlPath",
+            in: effectiveSSHOptions
+        )?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !controlPath.isEmpty,
               controlPath.lowercased() != "none" else {
             return nil
         }
 
-        var args = batchSSHArguments()
-        args += ["-O", controlCommand, "-R", forwardSpec, destination]
-        return args
+        var arguments = batchSSHArguments(sshOptions: effectiveSSHOptions)
+        arguments += ["-O", controlCommand, "-R", forwardSpec, destination]
+        return arguments
     }
 
-    /// ``reverseRelayControlMasterArguments(controlCommand:forwardSpec:)``
-    /// specialized to `-O cancel` for the relay's remote listen port, or
-    /// `nil` for a non-positive port. Argument text is wire/process behavior;
-    /// do not alter.
-    public func reverseRelayControlMasterCancelArguments(relayPort: Int) -> [String]? {
-        guard relayPort > 0 else { return nil }
-        return reverseRelayControlMasterArguments(
-            controlCommand: "cancel",
-            forwardSpec: "127.0.0.1:\(relayPort)"
-        )
+    /// Builds a non-interactive command that reuses the supplied exact ControlPath.
+    ///
+    /// - Parameters:
+    ///   - command: Remote shell command to execute.
+    ///   - effectiveSSHOptions: Options carrying the authenticated ControlPath.
+    /// - Returns: Arguments for `/usr/bin/ssh`.
+    public func batchSSHCommandArguments(
+        command: String,
+        effectiveSSHOptions: [String]
+    ) -> [String] {
+        ["-T"]
+            + SSHHostConfiguredRemoteCommand().overrideArguments
+            + batchSSHArguments(sshOptions: effectiveSSHOptions)
+            + ["-o", "RequestTTY=no", destination, command]
     }
 
     // Shared batch-mode `ssh` options: keepalives, BatchMode, no new
@@ -91,7 +111,11 @@ extension WorkspaceRemoteConfiguration {
     // identity, then the configuration's options minus
     // ControlMaster/ControlPersist.
     private func batchSSHArguments() -> [String] {
-        let effectiveSSHOptions = backgroundSSHOptions()
+        batchSSHArguments(sshOptions: sshOptions)
+    }
+
+    private func batchSSHArguments(sshOptions: [String]) -> [String] {
+        let effectiveSSHOptions = backgroundSSHOptions(sshOptions)
         var args: [String] = [
             "-o", "ConnectTimeout=6",
             "-o", "ServerAliveInterval=20",
@@ -118,22 +142,21 @@ extension WorkspaceRemoteConfiguration {
 
     // Trimmed options minus ControlMaster/ControlPersist (ControlPath is
     // kept so batch helpers can reuse an existing master's socket).
-    private func backgroundSSHOptions() -> [String] {
+    private func backgroundSSHOptions(_ options: [String]) -> [String] {
         let resolver = SSHAgentSocketResolver()
-        return Self.trimmedSSHOptions(sshOptions).filter { option in
+        return Self.trimmedSSHOptions(options).filter { option in
             guard let key = resolver.optionKey(option) else { return false }
             return !Self.batchSSHControlOptionKeys.contains(key)
         }
     }
 
-    // First non-empty value for an option key, scanning forward. This
-    // deliberately differs from SSHAgentSocketResolver.optionValue(named:in:)
-    // (which scans in reverse for OpenSSH last-wins semantics): the legacy
-    // batch builder used first-match and the reverse-relay behavior is pinned
-    // to it.
-    private func firstSSHOptionValue(named key: String) -> String? {
+    // OpenSSH uses the first obtained value for these command-line options.
+    private static func firstSSHOptionValue(
+        named key: String,
+        in options: [String]
+    ) -> String? {
         let loweredKey = key.lowercased()
-        for option in Self.trimmedSSHOptions(sshOptions) {
+        for option in trimmedSSHOptions(options) {
             let parts = option.split(
                 maxSplits: 1,
                 omittingEmptySubsequences: true,

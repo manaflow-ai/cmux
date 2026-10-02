@@ -19,13 +19,23 @@ public import GhosttyKit
 /// to the main actor, as it always did.
 public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable {
     private let lock = NSLock()
-    // SAFETY: all five are guarded by `lock`; callers arrive on the main
-    // actor and from nonisolated `deinit` paths.
+    // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private let surfaces = NSHashTable<AnyObject>.weakObjects()
+    // SAFETY: synchronous `deinit` callers cannot await an actor; `lock`
+    // serializes every access from those callers and the main actor.
+    nonisolated(unsafe) private var incrementalTraversalHead:
+        TerminalSurfaceRegistryWeakNode?
+    // SAFETY: synchronous `deinit` callers cannot await an actor; `lock`
+    // serializes every access from those callers and the main actor.
+    nonisolated(unsafe) private var incrementalTraversalNodes:
+        [ObjectIdentifier: TerminalSurfaceRegistryWeakNode] = [:]
+    // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private var runtimeSurfaceOwners: [UInt: UUID] = [:]
+    // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private var surfaceFocusPlacements: [UUID: TerminalSurfaceFocusPlacement] = [:]
     // SAFETY: every read and write is guarded by `lock`.
     nonisolated(unsafe) private var generation: UInt64 = 0
+    // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private weak var routeRetirer: (any MainWindowRouteRetiring)?
 
     /// Creates an empty registry.
@@ -51,6 +61,29 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         lock.lock()
         defer { lock.unlock() }
         surfaces.add(surface)
+        let identity = ObjectIdentifier(surface)
+        if let existingNode =
+                incrementalTraversalNodes[identity],
+           existingNode.isRegistered,
+           existingNode.surface === surface {
+            surfaceFocusPlacements[surface.id] =
+                surface.focusPlacement
+            generation &+= 1
+            return
+        }
+        if let replacedNode =
+            incrementalTraversalNodes.removeValue(
+                forKey: identity
+            ) {
+            unlinkIncrementalTraversalNode(replacedNode)
+        }
+        let node = TerminalSurfaceRegistryWeakNode(
+            surface: surface,
+            next: incrementalTraversalHead
+        )
+        incrementalTraversalHead?.previous = node
+        incrementalTraversalHead = node
+        incrementalTraversalNodes[identity] = node
         surfaceFocusPlacements[surface.id] = surface.focusPlacement
         generation &+= 1
     }
@@ -62,6 +95,11 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         lock.lock()
         let surfaceId = surface.id
         surfaces.remove(surface)
+        if let node = incrementalTraversalNodes.removeValue(
+            forKey: ObjectIdentifier(surface)
+        ) {
+            unlinkIncrementalTraversalNode(node)
+        }
         let stillRegistered = surfaces.allObjects
             .compactMap { $0 as? any TerminalSurfacing }
             .contains { $0 !== surface && $0.id == surfaceId }
@@ -159,11 +197,96 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
 
     /// All live registered surfaces, ordered by id for stable iteration.
     public func allSurfaces() -> [any TerminalSurfacing] {
+        allSurfacesUnordered().sorted { lhs, rhs in
+            lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
+    /// All live registered surfaces without imposing an allocation-heavy UUID
+    /// string ordering. Hot-path consumers that apply their own ranking should
+    /// use this snapshot to avoid sorting the registry twice.
+    public func allSurfacesUnordered() -> [any TerminalSurfacing] {
         lock.lock()
         let objects = surfaces.allObjects.compactMap { $0 as? any TerminalSurfacing }
         lock.unlock()
-        return objects.sorted { lhs, rhs in
-            lhs.id.uuidString < rhs.id.uuidString
+        return objects
+    }
+
+    /// Begins a weak traversal without materializing or sorting every surface.
+    public func makeIncrementalTraversal()
+        -> TerminalSurfaceRegistryIncrementalTraversal {
+        lock.lock()
+        let traversal =
+            TerminalSurfaceRegistryIncrementalTraversal(
+                registry: self,
+                cursor: incrementalTraversalHead
+            )
+        lock.unlock()
+        return traversal
+    }
+
+    /// Constant-time identity check for work captured by an incremental walk.
+    public func isRegistered(
+        _ surface: any TerminalSurfacing
+    ) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let node =
+                incrementalTraversalNodes[
+                    ObjectIdentifier(surface)
+                ],
+              node.isRegistered else {
+            return false
         }
+        return node.surface === surface
+    }
+
+    func nextVisit(
+        for traversal:
+            TerminalSurfaceRegistryIncrementalTraversal
+    ) -> TerminalSurfaceRegistryIncrementalVisit? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !traversal.isFinished else {
+            return nil
+        }
+        guard let node = traversal.cursor else {
+            traversal.isFinished = true
+            return nil
+        }
+        traversal.cursor = node.next
+        guard node.isRegistered, let surface = node.surface else {
+            if node.isRegistered {
+                if incrementalTraversalNodes[node.identity] === node {
+                    incrementalTraversalNodes.removeValue(
+                        forKey: node.identity
+                    )
+                }
+                unlinkIncrementalTraversalNode(node)
+            }
+            return TerminalSurfaceRegistryIncrementalVisit(
+                surface: nil
+            )
+        }
+        return TerminalSurfaceRegistryIncrementalVisit(
+            surface: surface
+        )
+    }
+
+    private func unlinkIncrementalTraversalNode(
+        _ node: TerminalSurfaceRegistryWeakNode
+    ) {
+        guard node.isRegistered else { return }
+        node.isRegistered = false
+        let previous = node.previous
+        let next = node.next
+        if let previous {
+            previous.next = next
+        } else if incrementalTraversalHead === node {
+            incrementalTraversalHead = next
+        }
+        next?.previous = previous
+        node.previous = nil
+        // Preserve `next` for traversals already parked on this node.
     }
 }

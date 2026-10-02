@@ -12,7 +12,7 @@ fn chrome_smoke_is_env_gated() {
         return;
     };
     let chrome = cmux_tui_cdp::Chrome::launch(binary.into()).unwrap();
-    let (tx, _rx) = std::sync::mpsc::channel();
+    let (tx, _rx) = std::sync::mpsc::sync_channel(cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY);
     let client = cmux_tui_cdp::CdpClient::connect(chrome.web_socket_url(), tx).unwrap();
     client.set_discover_targets(true).unwrap();
     let target = client.create_target("about:blank").unwrap();

@@ -1,0 +1,630 @@
+name: sdk bootstrap crates
+
+on:
+  repository_dispatch:
+    types: [sdk-bootstrap-crates]
+
+permissions: {}
+
+concurrency:
+  group: sdk-bootstrap-crates
+  cancel-in-progress: false
+
+env:
+  BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"
+  RUST_TOOLCHAIN: "1.95.0"
+
+jobs:
+  build:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      sdk_sha256: ${{ steps.package.outputs.sdk_sha256 }}
+      sidebar_sha256: ${{ steps.package.outputs.sidebar_sha256 }}
+    steps:
+      - name: Require explicit bootstrap confirmation
+        if: github.event.client_payload.confirm_bootstrap != true
+        run: |
+          echo "Refusing to reserve the Rust SDK crates without confirm_bootstrap=true." >&2
+          exit 1
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require current protected main
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "Dispatch sdk-bootstrap-crates.yml from main, found $GITHUB_REF." >&2
+            exit 1
+          }
+          git fetch --force origin main
+          main_sha="$(git rev-parse origin/main)"
+          [[ "$GITHUB_SHA" == "$main_sha" ]] || {
+            echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
+            exit 1
+          }
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          cargo --version
+          rustc --version
+
+      - name: Build and test the ownership bootstrap
+        id: package
+        run: |
+          set -euo pipefail
+          for specification in \
+            "cmux-sdk:rust-sdk:sdk_sha256" \
+            "cmux-sidebar:rust-sidebar:sidebar_sha256"; do
+            IFS=: read -r package source output_name <<< "$specification"
+            source_dir="cmux-tui/bindings/bootstrap/$source"
+            bootstrap_dir="$RUNNER_TEMP/$package-bootstrap"
+            cp -R "$source_dir" "$bootstrap_dir"
+            manifest="$bootstrap_dir/Cargo.toml"
+            cargo test --manifest-path "$manifest" --locked
+            cargo package --manifest-path "$manifest" --locked --no-verify
+            artifact="$bootstrap_dir/target/package/$package-$BOOTSTRAP_VERSION.crate"
+            [[ -f "$artifact" ]] || {
+              echo "$package bootstrap crate was not created" >&2
+              exit 1
+            }
+            verify_dir="$RUNNER_TEMP/$package-bootstrap-verify"
+            mkdir -p "$verify_dir"
+            tar -xzf "$artifact" -C "$verify_dir"
+            cargo test \
+              --manifest-path \
+                "$verify_dir/$package-$BOOTSTRAP_VERSION/Cargo.toml" \
+              --locked
+            artifact_dir="$RUNNER_TEMP/$package-bootstrap-artifact"
+            mkdir -p "$artifact_dir"
+            cp "$artifact" "$artifact_dir/"
+            artifact_sha256="$(sha256sum "$artifact" | cut -d ' ' -f 1)"
+            [[ "$artifact_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+              echo "$package bootstrap crate digest is malformed" >&2
+              exit 1
+            }
+            echo "$output_name=$artifact_sha256" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Upload the cmux-sdk bootstrap crate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-sdk-bootstrap-crate
+          path: ${{ runner.temp }}/cmux-sdk-bootstrap-artifact
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Upload the cmux-sidebar bootstrap crate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-sidebar-bootstrap-crate
+          path: ${{ runner.temp }}/cmux-sidebar-bootstrap-artifact
+          if-no-files-found: error
+          overwrite: true
+
+  preflight:
+    needs: build
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - package: cmux-sdk
+            artifact: cmux-sdk-bootstrap-crate
+            decision: cmux-sdk-bootstrap-decision
+          - package: cmux-sidebar
+            artifact: cmux-sidebar-bootstrap-crate
+            decision: cmux-sidebar-bootstrap-decision
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ matrix.artifact }}
+          path: bootstrap-crate
+
+      - name: Inspect the crates.io bootstrap state
+        id: project
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          metadata="$RUNNER_TEMP/$PACKAGE-bootstrap-registry.json"
+          status="$(
+            curl \
+              --silent \
+              --show-error \
+              --location \
+              --retry 5 \
+              --retry-delay 1 \
+              --retry-all-errors \
+              --user-agent 'cmux-sdk-bootstrap/1 (https://github.com/manaflow-ai/cmux; contact: https://github.com/manaflow-ai/cmux/issues)' \
+              --output "$metadata" \
+              --write-out '%{http_code}' \
+              "https://crates.io/api/v1/crates/$PACKAGE"
+          )"
+          case "$status" in
+            404)
+              echo "$PACKAGE is unclaimed; bootstrap may continue."
+              project_status=missing
+              ;;
+            200)
+              echo "$PACKAGE exists; bootstrap bytes must match."
+              project_status=exists
+              ;;
+            *)
+              echo "crates.io returned HTTP $status; refusing to infer availability." >&2
+              exit 1
+              ;;
+          esac
+          echo "status=$project_status" >> "$GITHUB_OUTPUT"
+          sleep 1
+
+      - name: Reconcile an existing crates.io ownership bootstrap
+        if: steps.project.outputs.status == 'exists'
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          artifacts=(bootstrap-crate/*.crate)
+          [[ "${#artifacts[@]}" == 1 ]] || {
+            echo "expected one tested crate, found ${#artifacts[@]}" >&2
+            exit 1
+          }
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry crates \
+            --package "$PACKAGE" \
+            --version "$BOOTSTRAP_VERSION" \
+            --artifact "${artifacts[0]}" \
+            --require-match
+          sleep 1
+          python3 cmux-tui/bindings/verify_crates_ownership.py \
+            --package "$PACKAGE" \
+            --repository https://github.com/manaflow-ai/cmux \
+            --owner-id 431397 \
+            --owner-login lawrencecchen \
+            --bootstrap-ownership-only
+
+      - name: Record the credential-job decision
+        env:
+          PACKAGE: ${{ matrix.package }}
+          PROJECT_STATUS: ${{ steps.project.outputs.status }}
+        run: |
+          set -euo pipefail
+          case "$PROJECT_STATUS" in
+            missing) decision=publish ;;
+            exists) decision=skip ;;
+            *)
+              echo "unexpected $PACKAGE project state: $PROJECT_STATUS" >&2
+              exit 1
+              ;;
+          esac
+          decision_dir="$RUNNER_TEMP/$PACKAGE-bootstrap-decision"
+          mkdir -p "$decision_dir"
+          printf '%s\n' "$decision" > "$decision_dir/decision.txt"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.decision }}
+          path: ${{ runner.temp }}/${{ matrix.package }}-bootstrap-decision
+          if-no-files-found: error
+          overwrite: true
+
+  decisions:
+    needs:
+      - preflight
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      sdk_need_publish: ${{ steps.read.outputs.sdk_need_publish }}
+      sidebar_need_publish: ${{ steps.read.outputs.sidebar_need_publish }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-sdk-bootstrap-decision
+          path: sdk-decision
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-sidebar-bootstrap-decision
+          path: sidebar-decision
+
+      - name: Export protected-environment decisions
+        id: read
+        run: |
+          set -euo pipefail
+          read_decision() {
+            local path="$1"
+            local output_name="$2"
+            local decision
+            decision="$(cat "$path")"
+            case "$decision" in
+              publish) need_publish=true ;;
+              skip) need_publish=false ;;
+              *)
+                echo "invalid bootstrap publication decision: $decision" >&2
+                exit 1
+                ;;
+            esac
+            echo "$output_name=$need_publish" >> "$GITHUB_OUTPUT"
+          }
+          read_decision sdk-decision/decision.txt sdk_need_publish
+          read_decision sidebar-decision/decision.txt sidebar_need_publish
+
+  publish-sdk:
+    needs:
+      - build
+      - preflight
+      - decisions
+    if: needs.decisions.outputs.sdk_need_publish == 'true'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions: {}
+    environment:
+      name: crates-bootstrap
+      url: https://crates.io/crates/cmux-sdk
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-sdk-bootstrap-crate
+          path: bootstrap-crate
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          cargo --version
+          rustc --version
+
+      - name: Verify protected source and reproduce the tested crate
+        id: prepare
+        env:
+          EXPECTED_SHA256: ${{ needs.build.outputs.sdk_sha256 }}
+          PACKAGE: cmux-sdk
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "manaflow-ai/cmux" ]] || {
+            echo "bootstrap repository must be manaflow-ai/cmux" >&2
+            exit 1
+          }
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "bootstrap credential job must run from main" >&2
+            exit 1
+          }
+          main_sha="$(
+            git ls-remote \
+              https://github.com/manaflow-ai/cmux.git \
+              refs/heads/main |
+              awk 'NR == 1 { print $1 }'
+          )"
+          [[ "$main_sha" == "$GITHUB_SHA" ]] || {
+            echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
+            exit 1
+          }
+
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "validated crate digest is malformed" >&2
+            exit 1
+          }
+          shopt -s nullglob
+          artifacts=(bootstrap-crate/*.crate)
+          [[ "${#artifacts[@]}" == 1 ]] || {
+            echo "expected one tested crate, found ${#artifacts[@]}" >&2
+            exit 1
+          }
+          BOOTSTRAP_ARTIFACT="${artifacts[0]}"
+          [[ "$(basename "$BOOTSTRAP_ARTIFACT")" == "$PACKAGE-$BOOTSTRAP_VERSION.crate" ]] || {
+            echo "unexpected bootstrap crate filename" >&2
+            exit 1
+          }
+          actual_sha256="$(sha256sum "$BOOTSTRAP_ARTIFACT" | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$EXPECTED_SHA256" ]] || {
+            echo "downloaded crates.io bootstrap artifact digest mismatch" >&2
+            exit 1
+          }
+
+          package_prefix="$PACKAGE-$BOOTSTRAP_VERSION"
+          publish_root="$RUNNER_TEMP/$PACKAGE-publish"
+          mkdir -p "$publish_root"
+          python3 - \
+            "$BOOTSTRAP_ARTIFACT" \
+            "$publish_root" \
+            "$package_prefix" <<'PY'
+          import pathlib
+          import shutil
+          import sys
+          import tarfile
+
+          archive_path = pathlib.Path(sys.argv[1])
+          publish_root = pathlib.Path(sys.argv[2])
+          package_prefix = sys.argv[3]
+          expected = {
+              f"{package_prefix}/Cargo.lock",
+              f"{package_prefix}/Cargo.toml",
+              f"{package_prefix}/Cargo.toml.orig",
+              f"{package_prefix}/README.md",
+              f"{package_prefix}/src/lib.rs",
+          }
+          with tarfile.open(archive_path, "r:gz") as archive:
+              members = archive.getmembers()
+              names = [member.name for member in members]
+              if len(names) != len(expected) or set(names) != expected:
+                  raise SystemExit(
+                      f"bootstrap crate paths differ from the allowlist: {names!r}"
+                  )
+              for member in members:
+                  if not member.isfile():
+                      raise SystemExit(
+                          f"bootstrap crate member is not a regular file: {member.name}"
+                      )
+                  source = archive.extractfile(member)
+                  if source is None:
+                      raise SystemExit(
+                          f"bootstrap crate member cannot be read: {member.name}"
+                      )
+                  destination = publish_root / member.name
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  with source, destination.open("wb") as output:
+                      shutil.copyfileobj(source, output)
+                  destination.chmod(member.mode & 0o777)
+          PY
+          package_root="$publish_root/$package_prefix"
+          cp "$package_root/Cargo.toml.orig" "$package_root/Cargo.toml"
+          cargo package \
+            --manifest-path "$package_root/Cargo.toml" \
+            --locked \
+            --no-verify
+          REPACKED_ARTIFACT="$package_root/target/package/$package_prefix.crate"
+          cmp "$BOOTSTRAP_ARTIFACT" "$REPACKED_ARTIFACT"
+          echo "manifest=$package_root/Cargo.toml" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the exact tested ownership bootstrap
+        continue-on-error: true
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_BOOTSTRAP_TOKEN }}
+          PUBLISH_MANIFEST: ${{ steps.prepare.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          [[ -n "$CARGO_REGISTRY_TOKEN" ]] || {
+            echo "crates-bootstrap environment secret CARGO_BOOTSTRAP_TOKEN is required." >&2
+            exit 1
+          }
+          cargo publish \
+            --manifest-path "$PUBLISH_MANIFEST" \
+            --locked \
+            --no-verify
+
+  publish-sidebar:
+    needs:
+      - build
+      - preflight
+      - decisions
+      - publish-sdk
+    if: >-
+      always() &&
+      !cancelled() &&
+      needs.build.result == 'success' &&
+      needs.preflight.result == 'success' &&
+      needs.decisions.result == 'success' &&
+      needs.decisions.outputs.sidebar_need_publish == 'true'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions: {}
+    environment:
+      name: crates-bootstrap
+      url: https://crates.io/crates/cmux-sidebar
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-sidebar-bootstrap-crate
+          path: bootstrap-crate
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          cargo --version
+          rustc --version
+
+      - name: Verify protected source and reproduce the tested crate
+        id: prepare
+        env:
+          EXPECTED_SHA256: ${{ needs.build.outputs.sidebar_sha256 }}
+          PACKAGE: cmux-sidebar
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "manaflow-ai/cmux" ]] || {
+            echo "bootstrap repository must be manaflow-ai/cmux" >&2
+            exit 1
+          }
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "bootstrap credential job must run from main" >&2
+            exit 1
+          }
+          main_sha="$(
+            git ls-remote \
+              https://github.com/manaflow-ai/cmux.git \
+              refs/heads/main |
+              awk 'NR == 1 { print $1 }'
+          )"
+          [[ "$main_sha" == "$GITHUB_SHA" ]] || {
+            echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
+            exit 1
+          }
+
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "validated crate digest is malformed" >&2
+            exit 1
+          }
+          shopt -s nullglob
+          artifacts=(bootstrap-crate/*.crate)
+          [[ "${#artifacts[@]}" == 1 ]] || {
+            echo "expected one tested crate, found ${#artifacts[@]}" >&2
+            exit 1
+          }
+          BOOTSTRAP_ARTIFACT="${artifacts[0]}"
+          [[ "$(basename "$BOOTSTRAP_ARTIFACT")" == "$PACKAGE-$BOOTSTRAP_VERSION.crate" ]] || {
+            echo "unexpected bootstrap crate filename" >&2
+            exit 1
+          }
+          actual_sha256="$(sha256sum "$BOOTSTRAP_ARTIFACT" | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$EXPECTED_SHA256" ]] || {
+            echo "downloaded crates.io bootstrap artifact digest mismatch" >&2
+            exit 1
+          }
+
+          package_prefix="$PACKAGE-$BOOTSTRAP_VERSION"
+          publish_root="$RUNNER_TEMP/$PACKAGE-publish"
+          mkdir -p "$publish_root"
+          python3 - \
+            "$BOOTSTRAP_ARTIFACT" \
+            "$publish_root" \
+            "$package_prefix" <<'PY'
+          import pathlib
+          import shutil
+          import sys
+          import tarfile
+
+          archive_path = pathlib.Path(sys.argv[1])
+          publish_root = pathlib.Path(sys.argv[2])
+          package_prefix = sys.argv[3]
+          expected = {
+              f"{package_prefix}/Cargo.lock",
+              f"{package_prefix}/Cargo.toml",
+              f"{package_prefix}/Cargo.toml.orig",
+              f"{package_prefix}/README.md",
+              f"{package_prefix}/src/lib.rs",
+          }
+          with tarfile.open(archive_path, "r:gz") as archive:
+              members = archive.getmembers()
+              names = [member.name for member in members]
+              if len(names) != len(expected) or set(names) != expected:
+                  raise SystemExit(
+                      f"bootstrap crate paths differ from the allowlist: {names!r}"
+                  )
+              for member in members:
+                  if not member.isfile():
+                      raise SystemExit(
+                          f"bootstrap crate member is not a regular file: {member.name}"
+                      )
+                  source = archive.extractfile(member)
+                  if source is None:
+                      raise SystemExit(
+                          f"bootstrap crate member cannot be read: {member.name}"
+                      )
+                  destination = publish_root / member.name
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  with source, destination.open("wb") as output:
+                      shutil.copyfileobj(source, output)
+                  destination.chmod(member.mode & 0o777)
+          PY
+          package_root="$publish_root/$package_prefix"
+          cp "$package_root/Cargo.toml.orig" "$package_root/Cargo.toml"
+          cargo package \
+            --manifest-path "$package_root/Cargo.toml" \
+            --locked \
+            --no-verify
+          REPACKED_ARTIFACT="$package_root/target/package/$package_prefix.crate"
+          cmp "$BOOTSTRAP_ARTIFACT" "$REPACKED_ARTIFACT"
+          echo "manifest=$package_root/Cargo.toml" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the exact tested ownership bootstrap
+        continue-on-error: true
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_BOOTSTRAP_TOKEN }}
+          PUBLISH_MANIFEST: ${{ steps.prepare.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          [[ -n "$CARGO_REGISTRY_TOKEN" ]] || {
+            echo "crates-bootstrap environment secret CARGO_BOOTSTRAP_TOKEN is required." >&2
+            exit 1
+          }
+          cargo publish \
+            --manifest-path "$PUBLISH_MANIFEST" \
+            --locked \
+            --no-verify
+
+  verify:
+    needs:
+      - build
+      - preflight
+      - decisions
+      - publish-sdk
+      - publish-sidebar
+    if: >-
+      always() &&
+      needs.build.result == 'success' &&
+      needs.preflight.result == 'success' &&
+      needs.decisions.result == 'success'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - package: cmux-sdk
+            artifact: cmux-sdk-bootstrap-crate
+          - package: cmux-sidebar
+            artifact: cmux-sidebar-bootstrap-crate
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ matrix.artifact }}
+          path: bootstrap-crate
+
+      - name: Reconcile the exact crates.io ownership bootstrap
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          artifacts=(bootstrap-crate/*.crate)
+          [[ "${#artifacts[@]}" == 1 ]] || {
+            echo "expected one tested crate, found ${#artifacts[@]}" >&2
+            exit 1
+          }
+          retry_missing_project=()
+          if [[ "$PACKAGE" == "cmux-sidebar" ]]; then
+            retry_missing_project=(--retry-missing-project)
+          fi
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry crates \
+            --package "$PACKAGE" \
+            --version "$BOOTSTRAP_VERSION" \
+            --artifact "${artifacts[0]}" \
+            "${retry_missing_project[@]}" \
+            --wait-seconds 300 \
+            --require-match
+          sleep 1
+          python3 cmux-tui/bindings/verify_crates_ownership.py \
+            --package "$PACKAGE" \
+            --repository https://github.com/manaflow-ai/cmux \
+            --owner-id 431397 \
+            --owner-login lawrencecchen \
+            --bootstrap-ownership-only

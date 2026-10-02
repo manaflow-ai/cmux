@@ -10,6 +10,10 @@ describe("Next app route layout invariants", () => {
     const rootLayout = await readFile(join(appDir, "layout.tsx"), "utf8");
     const localizedLayout = await readFile(join(appDir, "[locale]", "layout.tsx"), "utf8");
     const handlerLayout = await readFile(join(appDir, "handler", "layout.tsx"), "utf8");
+    const appProWelcomeLayout = await readFile(
+      join(appDir, "app-pro-welcome", "layout.tsx"),
+      "utf8",
+    );
 
     expect(rootLayout).toContain("<html");
     expect(rootLayout).toContain("<body");
@@ -20,5 +24,7 @@ describe("Next app route layout invariants", () => {
     expect(localizedLayout).not.toContain("<body");
     expect(handlerLayout).not.toContain("<html");
     expect(handlerLayout).not.toContain("<body");
+    expect(appProWelcomeLayout).not.toContain("<html");
+    expect(appProWelcomeLayout).not.toContain("<body");
   });
 });

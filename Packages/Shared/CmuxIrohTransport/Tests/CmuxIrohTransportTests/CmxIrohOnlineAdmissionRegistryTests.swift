@@ -22,6 +22,31 @@ struct CmxIrohOnlineAdmissionRegistryTests {
         #expect(lease.expiresAt == fixture.now.addingTimeInterval(300))
         #expect(await broker.callCount() == 1)
     }
+
+    @Test
+    func cachedDiscoveryMissRefreshesBeforeDenyingNewBinding() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let replacement = try fixture.replacementInitiator()
+        let broker = OnlineAdmissionBroker(responses: [
+            .success(try fixture.discovery()),
+            .success(try fixture.discovery(initiator: replacement)),
+        ])
+        let registry = fixture.registry(broker: broker)
+
+        #expect(
+            await registry.authorizePairGrant(
+                fixture.grant(),
+                authenticatedPeerID: fixture.initiator.endpointID
+            ).isAccepted
+        )
+        #expect(
+            await registry.authorizePairGrant(
+                fixture.grant(initiator: replacement),
+                authenticatedPeerID: replacement.endpointID
+            ).isAccepted
+        )
+        #expect(await broker.callCount() == 2)
+    }
 }
 
 actor OnlineAdmissionBroker: CmxIrohRegistryServing {
@@ -160,20 +185,24 @@ final class OnlineAdmissionManualClock: CmxIrohRelayClock, @unchecked Sendable {
 }
 
 actor OnlineAdmissionCloseRecorder {
-    private var closes = 0
+    private var reasons: [CmxIrohOnlineAdmissionInvalidationReason] = []
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
-    func close() {
-        closes += 1
+    func close(reason: CmxIrohOnlineAdmissionInvalidationReason) {
+        reasons.append(reason)
         let current = waiters
         waiters.removeAll()
         for waiter in current { waiter.resume() }
     }
 
-    func count() -> Int { closes }
+    func count() -> Int { reasons.count }
+
+    func observedReasons() -> [CmxIrohOnlineAdmissionInvalidationReason] {
+        reasons
+    }
 
     func waitUntilClosed() async {
-        if closes > 0 { return }
+        if !reasons.isEmpty { return }
         await withCheckedContinuation { waiters.append($0) }
     }
 }
@@ -254,8 +283,10 @@ struct OnlineAdmissionFixture {
     }
 
     func grant(
-        signer: Curve25519.Signing.PrivateKey? = nil
+        signer: Curve25519.Signing.PrivateKey? = nil,
+        initiator grantInitiator: CmxIrohGrantPeer? = nil
     ) -> String {
+        let grantInitiator = grantInitiator ?? initiator
         let header = try! JSONSerialization.data(withJSONObject: [
             "alg": "EdDSA",
             "typ": "cmux-pair-grant+jwt",
@@ -269,7 +300,7 @@ struct OnlineAdmissionFixture {
             "exp": nowSeconds + grantLifetime,
             "alpn": "cmux/mobile/1",
             "scope": "cmux.mobile.attach",
-            "initiator": peerObject(initiator),
+            "initiator": peerObject(grantInitiator),
             "acceptor": peerObject(acceptor),
         ], options: [.sortedKeys])
         let encodedHeader = header.base64URL
@@ -277,6 +308,22 @@ struct OnlineAdmissionFixture {
         let input = Data("\(encodedHeader).\(encodedPayload)".utf8)
         let signature = try! (signer ?? signingKey).signature(for: input)
         return "\(encodedHeader).\(encodedPayload).\(signature.base64URL)"
+    }
+
+    func replacementInitiator() throws -> CmxIrohGrantPeer {
+        let endpointKey = try Curve25519.Signing.PrivateKey(
+            rawRepresentation: Data(repeating: 11, count: 32)
+        )
+        return CmxIrohGrantPeer(
+            bindingID: "123e4567-e89b-42d3-a456-426614174091",
+            deviceID: "123e4567-e89b-42d3-a456-426614174092",
+            tag: "ios-reinstalled",
+            platform: .ios,
+            endpointID: try CmxIrohPeerIdentity(
+                endpointID: endpointKey.publicKey.rawRepresentation.hex
+            ),
+            identityGeneration: 1
+        )
     }
 
     func replacementAcceptor() -> CmxIrohGrantPeer {
@@ -314,17 +361,19 @@ struct OnlineAdmissionFixture {
         includeInitiator: Bool = true,
         duplicateInitiator: Bool = false,
         acceptorPairingEnabled: Bool = true,
-        initiatorTag: String? = nil
+        initiatorTag: String? = nil,
+        initiator discoveryInitiator: CmxIrohGrantPeer? = nil
     ) throws -> CmxIrohDiscoveryResponse {
         var bindings: [[String: Any]] = []
         if includeInitiator {
+            let discoveryInitiator = discoveryInitiator ?? initiator
             let discoveredInitiator = CmxIrohGrantPeer(
-                bindingID: initiator.bindingID,
-                deviceID: initiator.deviceID,
-                tag: initiatorTag ?? initiator.tag,
-                platform: initiator.platform,
-                endpointID: initiator.endpointID,
-                identityGeneration: initiator.identityGeneration
+                bindingID: discoveryInitiator.bindingID,
+                deviceID: discoveryInitiator.deviceID,
+                tag: initiatorTag ?? discoveryInitiator.tag,
+                platform: discoveryInitiator.platform,
+                endpointID: discoveryInitiator.endpointID,
+                identityGeneration: discoveryInitiator.identityGeneration
             )
             bindings.append(bindingObject(peer: discoveredInitiator, pairingEnabled: true))
             if duplicateInitiator {

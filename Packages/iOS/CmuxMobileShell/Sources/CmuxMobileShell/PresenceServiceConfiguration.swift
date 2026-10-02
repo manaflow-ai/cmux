@@ -34,9 +34,9 @@ extension PresenceClient {
     /// one (`isDevelopmentAuthChannel`), not just the build config: each worker
     /// verifies its own Stack project's tokens, so a Debug build resolved to
     /// production auth (`ios/scripts/reload.sh --prod-auth`, issue 7145) must
-    /// subscribe to the production worker or no release Mac could ever appear
-    /// in Computers. The worker URLs live only here — build scripts bake no
-    /// copy — so they cannot drift from the runtime.
+    /// subscribe to the production worker so its token is accepted. The build
+    /// compatibility policy separately filters Mac instances. The worker URLs
+    /// live only here, so build scripts cannot drift from the runtime.
     public static func resolvedServiceBaseURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard,

@@ -38,6 +38,55 @@ struct GhosttyTerminalStartupEnvironmentTests {
             "CMUX_SOCKET_PATH should be present"
         )
         expectFalse(socketPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+        let terminalLifecycleID = try #require(
+            surface.startupEnvironmentValue("CMUX_TERMINAL_LIFECYCLE_ID"),
+            "CMUX_TERMINAL_LIFECYCLE_ID should be present"
+        )
+        #expect(UUID(uuidString: terminalLifecycleID) != nil)
+    }
+
+    @MainActor
+    @Test
+    func terminalLifecycleIDChangesWhenTheSameSurfaceRespawns() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let original = TerminalSurface(
+            id: surfaceID,
+            tabId: workspaceID,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil
+        )
+        var originalNeedsTeardown = true
+        defer {
+            if originalNeedsTeardown {
+                GhosttyApp.terminalSurfaceRegistry.unregister(original)
+                original.teardownSurface()
+            }
+        }
+        let originalLifecycleID = try #require(
+            original.startupEnvironmentValue("CMUX_TERMINAL_LIFECYCLE_ID")
+        )
+        GhosttyApp.terminalSurfaceRegistry.unregister(original)
+        original.teardownSurface()
+        originalNeedsTeardown = false
+
+        let replacement = TerminalSurface(
+            id: surfaceID,
+            tabId: workspaceID,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil
+        )
+        defer {
+            GhosttyApp.terminalSurfaceRegistry.unregister(replacement)
+            replacement.teardownSurface()
+        }
+        let replacementLifecycleID = try #require(
+            replacement.startupEnvironmentValue("CMUX_TERMINAL_LIFECYCLE_ID")
+        )
+
+        #expect(replacement.id == original.id)
+        #expect(replacementLifecycleID != originalLifecycleID)
     }
 
     @Test

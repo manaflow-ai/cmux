@@ -51,6 +51,9 @@ public final class UpdateStateModel {
     /// `updateErrorDomain` code for "the user asked to install but the flow never started
     /// downloading" (the install-watchdog trip).
     public nonisolated static let installDidNotStartCode = 2
+    /// `updateErrorDomain` code for an active foreground check whose Sparkle session ended before
+    /// producing a visible result.
+    public nonisolated static let foregroundCycleEndedCode = 3
 
     // MARK: - Change stream
 
@@ -136,12 +139,20 @@ public final class UpdateStateModel {
     /// Cancels whatever phase is active and returns the model to ``UpdateState/idle``,
     /// clearing any override. Used when starting a fresh check.
     public func cancelActiveStateForNewCheck() {
-        state.cancel()
-        // One conceptual transition: update both fields, then emit a single change notification
-        // (avoids two redundant stateChanges() emissions for one logical reset).
-        state = .idle
+        replaceActiveState(with: .idle)
+    }
+
+    /// Replaces the visible phase before causally ending the old Sparkle prompt/check.
+    ///
+    /// The order matters: Sparkle is allowed to synchronously call back while its cancellation
+    /// closure runs. Publishing the replacement first prevents that callback from exposing an
+    /// empty pill between an accepted install and its fresh check.
+    func replaceActiveState(with replacement: UpdateState) {
+        let replacedState = state
+        state = replacement
         overrideState = nil
         notifyStateChanged()
+        replacedState.finishAsSuperseded()
     }
 
     // MARK: - Detected background update
@@ -237,6 +248,8 @@ public final class UpdateStateModel {
             return ""
         case .permissionRequest:
             return String(localized: "update.permissionRequest.text", defaultValue: "Enable Automatic Updates?")
+        case .preparingCheck:
+            return String(localized: "update.preparingCheck", defaultValue: "Preparing Update Check…")
         case .checking:
             return String(localized: "update.checking", defaultValue: "Checking for Updates…")
         case .updateAvailable(let update):
@@ -261,6 +274,8 @@ public final class UpdateStateModel {
             return String(localized: "update.noUpdates.title", defaultValue: "No Updates Available")
         case .error(let err):
             return Self.userFacingErrorTitle(for: err.error)
+        case .startingDownload:
+            return String(localized: "update.startingDownload", defaultValue: "Starting Download…")
         }
     }
 
@@ -290,11 +305,13 @@ public final class UpdateStateModel {
             return nil
         case .permissionRequest:
             return "questionmark.circle"
-        case .checking:
+        case .preparingCheck, .checking:
             return "arrow.triangle.2.circlepath"
         case .updateAvailable:
             return "shippingbox.fill"
         case .downloading:
+            return "arrow.down.circle"
+        case .startingDownload:
             return "arrow.down.circle"
         case .extracting:
             return "shippingbox"
@@ -314,6 +331,8 @@ public final class UpdateStateModel {
             return ""
         case .permissionRequest:
             return String(localized: "update.configureAutoUpdates", defaultValue: "Configure automatic update preferences")
+        case .preparingCheck:
+            return String(localized: "update.preparingCheck.message", defaultValue: "Waiting for the current update session to finish")
         case .checking:
             return String(localized: "update.pleaseWait", defaultValue: "Please wait while we check for available updates")
         case .updateAvailable(let update):
@@ -328,6 +347,8 @@ public final class UpdateStateModel {
             return String(localized: "update.noUpdates.message", defaultValue: "You are running the latest version")
         case .error(let err):
             return Self.userFacingErrorMessage(for: err.error)
+        case .startingDownload:
+            return String(localized: "update.startingDownload.message", defaultValue: "Starting the update download")
         }
     }
 
@@ -362,119 +383,3 @@ public final class UpdateStateModel {
         return trimmed.isEmpty ? nil : trimmed
     }
 }
-
-#if DEBUG
-/// A synthetic update-error scenario that the debug menu can inject so every error popover
-/// variant (title, message, and whether the manual-download button shows) can be previewed
-/// without reproducing the real failure.
-///
-/// Cases map one-to-one to the branches in ``UpdateStateModel/userFacingErrorTitle(for:)`` and
-/// ``UpdateStateModel/userFacingErrorMessage(for:)`` plus ``UpdateManualDownloadRecovery``.
-public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
-    /// 4005 wrapping the internal IPC-timeout (the wedged-launchd case): "Couldn't Start Updater".
-    case installerAgentFailure
-    /// 4010 `SUAgentInvalidationError`: also "Couldn't Start Updater".
-    case agentInvalidation
-    /// Plain 4005 with no agent signal: "Updater Permission Error" + recovery message + download.
-    case genericInstallFailure
-    /// 4005 wrapping `SUAuthenticationFailure` (4001): must NOT be treated as an agent failure.
-    case installFailureWrappingAuth
-    /// 2001 `SUDownloadError`: "Couldn't Download Update", offers download.
-    case downloadFailure
-    /// 1003 `SURunningFromDiskImageError`: keeps "Move into Applications", no download button.
-    case diskImageTranslocation
-    /// 3001 `SUSignatureError`: signature copy, deliberately no download button.
-    case signatureError
-    /// Offline `NSURLError`: "No Internet Connection".
-    case noInternet
-    /// cmux.update install-watchdog trip: "Update Didn't Start" (the install-loop guard).
-    case installDidNotStart
-    /// cmux.update readiness timeout: "Updater Not Ready".
-    case updaterNotReady
-
-    /// The label shown for this scenario in the debug menu.
-    public var menuTitle: String {
-        switch self {
-        case .installerAgentFailure: return "Installer Agent Failure (4005 + timeout)"
-        case .agentInvalidation: return "Agent Invalidation (4010)"
-        case .genericInstallFailure: return "Generic Install Failure (4005)"
-        case .installFailureWrappingAuth: return "Install Failure / Auth (4005→4001)"
-        case .downloadFailure: return "Download Failure (2001)"
-        case .diskImageTranslocation: return "Disk Image / Translocated (1003)"
-        case .signatureError: return "Signature Error (3001)"
-        case .noInternet: return "No Internet"
-        case .installDidNotStart:
-            return String(
-                localized: "update.debug.error.installDidNotStart",
-                defaultValue: "Install Didn’t Start (watchdog)"
-            )
-        case .updaterNotReady:
-            return String(
-                localized: "update.debug.error.updaterNotReady",
-                defaultValue: "Updater Not Ready (readiness timeout)"
-            )
-        }
-    }
-
-    /// Builds the synthetic error for this scenario.
-    var error: NSError {
-        switch self {
-        case .installerAgentFailure:
-            let underlying = NSError(domain: SUSparkleErrorDomain, code: 10, userInfo: [
-                NSLocalizedDescriptionKey: "Timeout: agent connection was never initiated",
-            ])
-            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
-                NSLocalizedDescriptionKey: "An error occurred while running the updater. Please try again later.",
-                NSLocalizedFailureReasonErrorKey: "The remote port connection was invalidated from the updater.",
-                NSUnderlyingErrorKey: underlying,
-            ])
-        case .agentInvalidation:
-            return NSError(domain: SUSparkleErrorDomain, code: 4010, userInfo: [
-                NSLocalizedDescriptionKey: "The updater agent was invalidated.",
-            ])
-        case .genericInstallFailure:
-            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
-                NSLocalizedDescriptionKey: "The installation failed.",
-            ])
-        case .installFailureWrappingAuth:
-            let underlying = NSError(domain: SUSparkleErrorDomain, code: 4001, userInfo: [
-                NSLocalizedDescriptionKey: "Authorization failed.",
-            ])
-            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
-                NSLocalizedDescriptionKey: "An error occurred while installing the update.",
-                NSUnderlyingErrorKey: underlying,
-            ])
-        case .downloadFailure:
-            return NSError(domain: SUSparkleErrorDomain, code: 2001, userInfo: [
-                NSLocalizedDescriptionKey: "The update download failed.",
-            ])
-        case .diskImageTranslocation:
-            return NSError(domain: SUSparkleErrorDomain, code: 1003, userInfo: [
-                NSLocalizedDescriptionKey: "Running from a disk image.",
-            ])
-        case .signatureError:
-            return NSError(domain: SUSparkleErrorDomain, code: 3001, userInfo: [
-                NSLocalizedDescriptionKey: "The update signature is invalid.",
-            ])
-        case .noInternet:
-            return NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet, userInfo: [
-                NSLocalizedDescriptionKey: "The Internet connection appears to be offline.",
-            ])
-        case .installDidNotStart:
-            return NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode, userInfo: [
-                NSLocalizedDescriptionKey: String(
-                    localized: "update.error.didNotStart.message",
-                    defaultValue: "cmux couldn’t start the update. Check your internet connection and try again."
-                ),
-            ])
-        case .updaterNotReady:
-            return NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.updaterNotReadyCode, userInfo: [
-                NSLocalizedDescriptionKey: String(
-                    localized: "update.error.notReady",
-                    defaultValue: "Updater is still starting. Try again in a moment."
-                ),
-            ])
-        }
-    }
-}
-#endif

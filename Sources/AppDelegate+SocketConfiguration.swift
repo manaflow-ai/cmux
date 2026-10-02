@@ -6,7 +6,7 @@ extension AppDelegate {
     func reconcileSocketListenerConfiguration(source: String) {
         TerminalController.shared.reconcileSocketConfiguration(
             resolvedSocketListenerConfiguration(),
-            preferredTabManager: activeTabManagerForCommands(),
+            routingFallbackTabManager: activeTabManagerForCommands(),
             source: source
         )
     }
@@ -47,7 +47,7 @@ extension AppDelegate {
         ])
         TerminalController.shared.reconcileSocketConfiguration(
             config,
-            preferredTabManager: tabManager,
+            routingFallbackTabManager: tabManager,
             source: source
         )
     }
@@ -65,7 +65,7 @@ extension AppDelegate {
         guard !health.isHealthy else {
             TerminalController.shared.reconcileSocketConfiguration(
                 config,
-                preferredTabManager: tabManager,
+                routingFallbackTabManager: tabManager,
                 source: source
             )
             return
@@ -79,7 +79,7 @@ extension AppDelegate {
         ])
         TerminalController.shared.reconcileSocketConfiguration(
             config,
-            preferredTabManager: tabManager,
+            routingFallbackTabManager: tabManager,
             source: source
         )
     }
@@ -102,7 +102,7 @@ extension AppDelegate {
         TerminalController.shared.startSocketTransport(
             config,
             socketPath: restartPath,
-            preferredTabManager: manager,
+            routingFallbackTabManager: manager
         )
     }
 }

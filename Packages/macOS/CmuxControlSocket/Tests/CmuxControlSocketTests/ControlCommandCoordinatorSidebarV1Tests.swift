@@ -1,9 +1,47 @@
+import Foundation
 import Testing
 @testable import CmuxControlSocket
 
 @MainActor
 @Suite("ControlCommandCoordinator sidebar v1 dispatch")
 struct ControlCommandCoordinatorSidebarV1Tests {
+    @Test func agentPIDClearForwardsOwnedKeyRequirement() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+        let panelID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "clear_agent_pid",
+            args: "omp.stale --tab=\(workspaceID.uuidString) --panel=\(panelID.uuidString) "
+                + "--clear-status --require-owned-key"
+        )
+
+        #expect(response == "OK")
+        #expect(context.agentPIDClearCall?.target == .workspace(workspaceID))
+        #expect(context.agentPIDClearCall?.key == "omp.stale")
+        #expect(context.agentPIDClearCall?.panelID == panelID)
+        #expect(context.agentPIDClearCall?.clearStatus == true)
+        #expect(context.agentPIDClearCall?.requireOwnedKey == true)
+    }
+
+    @Test func statusClearForwardsPanelScope() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+        let panelID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "clear_status",
+            args: "omp --tab=\(workspaceID.uuidString) --panel=\(panelID.uuidString)"
+        )
+
+        #expect(response == "OK")
+        #expect(context.statusClearCall?.target == .workspace(workspaceID))
+        #expect(context.statusClearCall?.key == "omp")
+        #expect(context.statusClearCall?.panelID == panelID)
+    }
+
     @Test func workspaceLoadingFailureReasonReturnsErrorLine() {
         let context = FakeSidebarV1ControlCommandContext()
         context.workspaceLoadingResult = ControlSidebarWorkspaceLoadingState(

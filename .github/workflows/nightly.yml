@@ -1,7 +1,10 @@
 name: Nightly macOS build
 
 on:
-  # Keep PR Release builds warm, then publish one signed Nightly each day.
+  # Publish every changed main revision, while keeping the scheduled cache warm.
+  push:
+    branches:
+      - main
   schedule:
     - cron: "17 */6 * * *"
     - cron: "47 8 * * *"
@@ -49,15 +52,10 @@ jobs:
               : 'main';
             const isMainRef = requestedRef === 'main';
 
-            let headSha = context.sha;
-            if (isMainRef) {
-              const branch = await github.rest.repos.getBranch({
-                owner,
-                repo,
-                branch: 'main',
-              });
-              headSha = branch.data.commit.sha;
-            }
+            // Pin every run to the revision that triggered it. In particular,
+            // queued main pushes must each build their own merge commit instead
+            // of all resolving to whichever commit is newest when `decide` runs.
+            const headSha = context.sha;
 
             let nightlySha = null;
             if (isMainRef) {
@@ -190,7 +188,7 @@ jobs:
         run: |
           set -euo pipefail
           cache_path="build-universal/CompilationCache.noindex"
-          max_cache_kib=$((3 * 1024 * 1024))
+          max_cache_kib=$((5 * 1024 * 1024))
           if [ -d "$cache_path" ]; then
             cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
           else
@@ -198,23 +196,195 @@ jobs:
           fi
           echo "Xcode compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
           if [ "$cache_kib" -gt "$max_cache_kib" ]; then
-            echo "Xcode compilation cache exceeds 3 GiB; skipping cache save"
+            echo "Xcode compilation cache exceeds 5 GiB; skipping cache save"
             rm -rf "$cache_path"
           fi
 
-  build-sign-notarize-nightly:
+  build-nightly-ghostty-cli-helper:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    # Run on the macOS 15 host that carries the signing/notarization secrets.
-    # Import the Apple Developer ID intermediate chain into the build keychain
-    # below so signing does not depend on mutable runner login-keychain state.
-    # The Swift app still selects an Xcode with the macOS 26 SDK so it adopts
-    # Liquid Glass on Tahoe. The Ghostty CLI helper is built separately and
-    # injected before signing, preferring a pre-26 SDK when the runner image has
-    # one but falling back to the selected app Xcode when the image only ships
-    # Xcode 26. The helper build remains required and lipo-verified below.
+    # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
+    # release workflow by building and verifying it on macOS 15 instead.
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 60
+    timeout-minutes: 20
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+      - name: Checkout helper ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.decide.outputs.head_sha }}
+          submodules: recursive
+
+      - name: Install Zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Cache Zig packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: zig-packages-
+
+      - name: Build universal Ghostty CLI helper
+        run: |
+          set -euo pipefail
+          mkdir -p nightly-helper
+          ./scripts/build-ghostty-cli-helper.sh --universal --output nightly-helper/ghostty
+          lipo nightly-helper/ghostty -verify_arch arm64 x86_64
+
+      - name: Upload universal Ghostty CLI helper
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-ghostty-cli-helper
+          path: nightly-helper/ghostty
+          if-no-files-found: error
+          retention-days: 1
+
+  build-nightly-app:
+    needs: decide
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    # Match the cache warmer and stable release app build exactly. Keeping the
+    # runner and pinned Xcode identical makes their compilation caches reusable.
+    runs-on: ${{ vars.MACOS_RUNNER_26_NIGHTLY_BUILD || 'blacksmith-12vcpu-macos-26' }}
+    timeout-minutes: 45
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+      - name: Checkout build ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.decide.outputs.head_sha }}
+          submodules: recursive
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Compute Xcode compilation cache key
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Xcode compilation results
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: build-universal/CompilationCache.noindex
+          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
+          restore-keys: |
+            xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
+
+      - name: Install compilation dependencies
+        run: |
+          ./scripts/install-rust-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Cache Swift packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .spm-cache
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
+
+      - name: Build universal nightly app (Release)
+        run: |
+          set -euo pipefail
+          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+            -destination 'generic/platform=macOS' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            -showBuildTimingSummary \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            COMPILATION_CACHE_ENABLE_CACHING=YES \
+            COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+
+      - name: Bound Xcode compilation cache size
+        run: |
+          set -euo pipefail
+          cache_path="build-universal/CompilationCache.noindex"
+          max_cache_kib=$((5 * 1024 * 1024))
+          if [ -d "$cache_path" ]; then
+            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
+          else
+            cache_kib=0
+          fi
+          echo "Xcode compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
+          if [ "$cache_kib" -gt "$max_cache_kib" ]; then
+            echo "Xcode compilation cache exceeds 5 GiB; skipping cache save"
+            rm -rf "$cache_path"
+          fi
+
+      - name: Strip unsigned nightly app before transfer
+        run: |
+          set -euo pipefail
+          products="build-universal/Build/Products/Release"
+          ./scripts/strip-release-bundle.sh "$products/cmux.app"
+
+      - name: Archive unsigned nightly app
+        run: |
+          set -euo pipefail
+          products="build-universal/Build/Products/Release"
+          if [ ! -d "$products/cmux.app" ]; then
+            echo "Built app not found at $products/cmux.app" >&2
+            exit 1
+          fi
+          tar -C "$products" -czf "$RUNNER_TEMP/cmux-nightly-unsigned.tar.gz" cmux.app
+
+      - name: Upload unsigned nightly app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-unsigned-app
+          path: ${{ runner.temp }}/cmux-nightly-unsigned.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload dSYMs to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: manaflow
+          SENTRY_PROJECT: cmuxterm-macos
+        run: |
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
+            exit 0
+          fi
+          SENTRY_CLI="$(./scripts/ensure-sentry-cli.sh)"
+          "$SENTRY_CLI" debug-files upload --include-sources \
+            build-universal/Build/Products/Release/
+
+  build-sign-notarize-nightly:
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app]
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    # Sign and notarize on the same macOS 26 lane proven by stable releases.
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 40
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -231,32 +401,31 @@ jobs:
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: recursive
 
       - name: Select Xcode
-        run: |
-          set -euo pipefail
-          ./scripts/select-nightly-xcodes.sh
+        run: ./scripts/select-ci-xcode.sh
 
-      # Xcode 26 compilation caching reuses unchanged Swift/Clang compilation
-      # results even though each nightly uses a clean DerivedData directory.
-      # Key snapshots by source revision and restore the newest compatible
-      # predecessor. Scheduled refreshes and release builds advance the same
-      # rolling cache instead of leaving one weekly snapshot to become stale.
-      - name: Compute Xcode compilation cache key
-        id: compilation-cache-key
-        run: |
-          set -euo pipefail
-          echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Xcode compilation results
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      - name: Download unsigned nightly app
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          path: build-universal/CompilationCache.noindex
-          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
-          restore-keys: |
-            xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
+          name: cmux-nightly-unsigned-app
+          path: nightly-inputs/app
+
+      - name: Download universal Ghostty CLI helper
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-nightly-ghostty-cli-helper
+          path: nightly-inputs/ghostty
+
+      - name: Restore unsigned nightly products
+        run: |
+          set -euo pipefail
+          products="build-universal/Build/Products/Release"
+          mkdir -p "$products"
+          tar -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
 
       # Provide node/npm explicitly. The build/sign/notarize job can land on a
       # self-hosted macOS runner (the iOS-CI minis match the same label) that has
@@ -270,8 +439,6 @@ jobs:
 
       - name: Install build deps
         run: |
-          ./scripts/install-rust-ci.sh
-          ./scripts/install-zig-ci.sh
           CMUX_NODE_BIN="$(command -v node)"
           export npm_config_prefix="$RUNNER_TEMP/npm-global"
           mkdir -p "$npm_config_prefix"
@@ -284,20 +451,6 @@ jobs:
           EOF
           chmod +x "$wrapper_dir/create-dmg"
           echo "$wrapper_dir" >> "$GITHUB_PATH"
-
-      - name: Download pre-built GhosttyKit.xcframework
-        run: |
-          ./scripts/download-prebuilt-ghosttykit.sh
-
-      - name: Cache Swift packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-
-
-      - name: Sanitize Swift package cache
-        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -317,65 +470,6 @@ jobs:
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
-      - name: Build universal nightly app and Ghostty CLI helper (Release)
-        run: |
-          set -euo pipefail
-          HELPER_LOG="$RUNNER_TEMP/cmux-nightly-ghostty-helper.log"
-          (
-            set -euo pipefail
-            export DEVELOPER_DIR="$HELPER_DEVELOPER_DIR"
-            ./scripts/build-ghostty-cli-helper.sh --universal --output /tmp/cmux-ghostty-helper-universal
-            ARCHS_OUT="$(lipo -archs /tmp/cmux-ghostty-helper-universal)"
-            echo "Universal Ghostty CLI helper architectures: $ARCHS_OUT"
-            case " $ARCHS_OUT " in *" arm64 "*) ;; *) echo "helper missing arm64 slice" >&2; exit 1 ;; esac
-            case " $ARCHS_OUT " in *" x86_64 "*) ;; *) echo "helper missing x86_64 slice" >&2; exit 1 ;; esac
-          ) >"$HELPER_LOG" 2>&1 &
-          HELPER_PID=$!
-
-          APP_STATUS=0
-          set +e
-          # Skip only the in-Xcode helper build; the background helper process
-          # above must build the real universal Zig helper, not the CI stub.
-          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
-            -destination 'generic/platform=macOS' \
-            -clonedSourcePackagesDirPath .spm-cache \
-            -showBuildTimingSummary \
-            ARCHS="arm64 x86_64" \
-            ONLY_ACTIVE_ARCH=NO \
-            COMPILATION_CACHE_ENABLE_CACHING=YES \
-            COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
-          APP_STATUS=$?
-          set -e
-          HELPER_STATUS=0
-          wait "$HELPER_PID" || HELPER_STATUS=$?
-          cat "$HELPER_LOG"
-          if [ "$APP_STATUS" -ne 0 ]; then
-            echo "Universal nightly app build failed" >&2
-            exit "$APP_STATUS"
-          fi
-          if [ "$HELPER_STATUS" -ne 0 ]; then
-            echo "Universal Ghostty CLI helper build failed" >&2
-            exit "$HELPER_STATUS"
-          fi
-
-      - name: Bound Xcode compilation cache size
-        run: |
-          set -euo pipefail
-          cache_path="build-universal/CompilationCache.noindex"
-          max_cache_kib=$((3 * 1024 * 1024))
-          if [ -d "$cache_path" ]; then
-            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
-          else
-            cache_kib=0
-          fi
-          echo "Xcode compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
-          if [ "$cache_kib" -gt "$max_cache_kib" ]; then
-            echo "Xcode compilation cache exceeds 3 GiB; skipping cache save"
-            rm -rf "$cache_path"
-          fi
-
       - name: Inject universal Ghostty CLI helper
         run: |
           set -euo pipefail
@@ -386,7 +480,7 @@ jobs:
           fi
           DEST="$APP_DIR/Contents/Resources/bin/ghostty"
           mkdir -p "$(dirname "$DEST")"
-          install -m 755 /tmp/cmux-ghostty-helper-universal "$DEST"
+          install -m 755 nightly-inputs/ghostty/ghostty "$DEST"
           echo "Injected Ghostty CLI helper architectures: $(lipo -archs "$DEST")"
 
       - name: Run bundled Ghostty theme picker helper regression
@@ -594,9 +688,6 @@ jobs:
 
           cp "$TMP_PROFILE" "$PROFILE_PATH"
 
-      - name: Strip nightly release binaries
-        run: ./scripts/strip-release-bundle.sh "build-universal/Build/Products/Release/cmux NIGHTLY.app"
-
       - name: Codesign apps
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -614,91 +705,17 @@ jobs:
               "$APPLE_SIGNING_IDENTITY"
           done
 
-      - name: Notarize apps and dmgs
+      - name: Notarize app ticket through final DMG
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
-            echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
-            exit 1
-          fi
-          notarize_and_package() {
-            local app_path="$1"
-            local dmg_release="$2"
-            local dmg_immutable="$3"
-            local zip_submit="${dmg_release%.dmg}-notary.zip"
-            local dmg_tmp_dir
-            local created_dmg
-
-            ditto -c -k --sequesterRsrc --keepParent "$app_path" "$zip_submit"
-            APP_SUBMIT_JSON="$(xcrun notarytool submit "$zip_submit" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
-            APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
-            APP_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$APP_SUBMIT_JSON")"
-            if [ "$APP_STATUS" != "Accepted" ]; then
-              echo "App notarization failed for $app_path with status: $APP_STATUS" >&2
-              xcrun notarytool log "$APP_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
-              exit 1
-            fi
-            xcrun stapler staple "$app_path"
-            xcrun stapler validate "$app_path"
-            spctl -a -vv --type execute "$app_path"
-            CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$app_path"
-            CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$app_path"
-            ./scripts/verify-app-bundle-channel-metadata.sh "$app_path" nightly
-            ./scripts/verify-app-bundle-licenses.sh "$app_path"
-            rm -f "$zip_submit"
-
-            dmg_tmp_dir="$(mktemp -d)"
-            create-dmg \
-              --no-code-sign \
-              "$app_path" \
-              "$dmg_tmp_dir"
-            created_dmg="$(find "$dmg_tmp_dir" -maxdepth 1 -name '*.dmg' | head -n 1)"
-            if [ -z "$created_dmg" ]; then
-              echo "Failed to locate created DMG for $app_path" >&2
-              exit 1
-            fi
-            mv "$created_dmg" "$dmg_release"
-            rm -rf "$dmg_tmp_dir"
-            /usr/bin/codesign --force --timestamp --keychain build.keychain \
-              --sign "$APPLE_SIGNING_IDENTITY" \
-              "$dmg_release"
-            /usr/bin/codesign --verify --verbose=2 "$dmg_release"
-
-            DMG_SUBMIT_JSON="$(xcrun notarytool submit "$dmg_release" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
-            DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
-            DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
-            if [ "$DMG_STATUS" != "Accepted" ]; then
-              echo "DMG notarization failed for $dmg_release with status: $DMG_STATUS" >&2
-              xcrun notarytool log "$DMG_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
-              exit 1
-            fi
-            xcrun stapler staple "$dmg_release"
-            xcrun stapler validate "$dmg_release"
-            cp "$dmg_release" "$dmg_immutable"
-          }
-
-          notarize_and_package \
+          ./scripts/ci/notarize-nightly-dmg.sh \
             "build-universal/Build/Products/Release/cmux NIGHTLY.app" \
             "cmux-nightly-macos.dmg" \
             "$NIGHTLY_DMG_IMMUTABLE"
-
-      - name: Upload dSYMs to Sentry
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: manaflow
-          SENTRY_PROJECT: cmuxterm-macos
-        run: |
-          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
-            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
-            exit 0
-          fi
-          SENTRY_CLI="$(./scripts/ensure-sentry-cli.sh)"
-          "$SENTRY_CLI" debug-files upload --include-sources \
-            build-universal/Build/Products/Release/
 
       - name: Generate Sparkle appcasts (nightly)
         env:

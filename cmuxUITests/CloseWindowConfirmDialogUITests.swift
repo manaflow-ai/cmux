@@ -9,7 +9,7 @@ final class CloseWindowConfirmDialogUITests: XCTestCase {
     }
 
     func testCmdCtrlWShowsCloseWindowConfirmationText() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launch()
         XCTAssertTrue(
@@ -34,7 +34,7 @@ final class CloseWindowConfirmDialogUITests: XCTestCase {
     }
 
     func testReturnConfirmsCloseWindowDialog() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launch()
         XCTAssertTrue(

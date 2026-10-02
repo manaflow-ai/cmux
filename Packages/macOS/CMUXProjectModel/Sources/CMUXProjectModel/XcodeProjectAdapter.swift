@@ -709,7 +709,7 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
                 if resolved.pathExtension.lowercased() == "xcodeproj" {
                     out.append(resolved)
                 }
-            case let .group(group):
+            case let .group(group), let .fileSystemSynchronizedGroup(group):
                 let nested = collectProjectURLs(from: group.children, workspaceDir: workspaceDir)
                 out.append(contentsOf: nested)
             }

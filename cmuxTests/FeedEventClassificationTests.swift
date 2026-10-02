@@ -90,22 +90,21 @@ struct FeedEventClassificationTests {
         }
     }
 
-    // MARK: Generic agents without a dedicated approval event
+    // MARK: Explicit approval-capable agents
 
-    /// Agents whose only signal is `PreToolUse` (gemini, copilot, …) still
-    /// escalate side-effecting tools to an approval — that path is correct
-    /// and must be preserved.
-    @Test func genericPreToolUseEscalatesSideEffectingTools() {
+    /// Gemini has a verified PreToolUse decision contract and explicitly
+    /// opts in to escalating side-effecting tools.
+    @Test func geminiPreToolUseEscalatesSideEffectingTools() {
         #expect(classify("gemini", "PreToolUse", tool: "Bash").name == "PermissionRequest")
         #expect(classify("gemini", "PreToolUse", tool: "Bash").actionable == true)
         #expect(classify("gemini", "PreToolUse", tool: "Read").actionable == false)
     }
 
-    /// Even on the maybe-approval (generic pre-tool) path, the two dedicated
+    /// Even on the maybe-approval pre-tool path, the two dedicated
     /// approval tool names route to their own wire kinds — they are never
     /// collapsed into a generic `PermissionRequest`. Guards the shared
     /// `dedicatedApprovalEvent(for:)` branch inside `.toolStartMaybeApproval`.
-    @Test func genericPreToolUseRoutesDedicatedApprovalTools() {
+    @Test func geminiPreToolUseRoutesDedicatedApprovalTools() {
         #expect(classify("gemini", "PreToolUse", tool: "ExitPlanMode").name == "ExitPlanMode")
         #expect(classify("gemini", "PreToolUse", tool: "ExitPlanMode").actionable == true)
         #expect(classify("gemini", "PreToolUse", tool: "AskUserQuestion").name == "AskUserQuestion")
@@ -146,9 +145,22 @@ struct FeedEventClassificationTests {
         }
     }
 
-    /// Unknown source + unknown event is safe by default.
-    @Test func unknownSourceUnknownEventIsSafe() {
+    /// Unknown sources must stay non-blocking even when they emit a familiar
+    /// pre-tool event for a side-effecting tool. A new integration must opt in
+    /// to decision semantics explicitly before it can stall an agent process.
+    @Test func unknownSourcePreToolUseIsSafeByDefault() {
+        let preTool = classify("totally-new-agent", "PreToolUse", tool: "Bash")
+        #expect(preTool.name == "PreToolUse")
+        #expect(preTool.actionable == false)
+
         #expect(classify("totally-new-agent", "some_future_event", tool: "Bash").actionable == false)
+    }
+
+    /// Antigravity and Cursor tool-start hooks are telemetry, not approval
+    /// requests. Neither integration has a safe blocking bridge contract.
+    @Test func incompatibleToolLifecycleHooksStayTelemetry() {
+        #expect(classify("antigravity", "PreToolUse", tool: "Bash").actionable == false)
+        #expect(classify("cursor", "beforeShellExecution", tool: "Bash").actionable == false)
     }
 
     // MARK: Kiro (camelCase events, no dedicated approval event)

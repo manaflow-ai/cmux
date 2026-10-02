@@ -338,7 +338,7 @@ extension TerminalController {
         }
     }
 
-    /// `remote.tmux.pane_grids` — per mirrored multi-pane window, each pane's
+    /// `remote.tmux.pane_grids` — per mirrored window, each pane's
     /// tmux-assigned dims (from the layout tree) next to the grid its ghostty
     /// surface actually renders, plus the sizing state they converge toward
     /// (summed grid, last requested client size, structure/correction

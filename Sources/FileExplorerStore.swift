@@ -131,67 +131,24 @@ enum FileExplorerStyle: Int, CaseIterable {
     }
 
     var fileIconTint: NSColor {
-        switch self {
-        case .liquidGlass: return .secondaryLabelColor
-        case .highDensity: return .secondaryLabelColor
-        case .terminalStealth: return .tertiaryLabelColor
-        case .proStudio: return .secondaryLabelColor
-        case .finder: return NSColor(white: 0.55, alpha: 1.0)
-        }
+        palette.fileIconTint
     }
 
     var folderIconTint: NSColor {
-        switch self {
-        case .liquidGlass: return .systemBlue
-        case .highDensity: return .secondaryLabelColor
-        case .terminalStealth: return .tertiaryLabelColor
-        case .proStudio: return .systemBlue
-        case .finder: return .systemBlue
-        }
+        palette.folderIconTint
     }
 
     func gitColor(for status: GitFileStatus) -> NSColor {
+        palette.gitColor(for: status)
+    }
+
+    private var palette: FileExplorerPalette {
         switch self {
-        case .liquidGlass:
-            switch status {
-            case .modified: return .systemOrange
-            case .added: return .systemTeal
-            case .deleted: return .systemRed
-            case .renamed: return .systemPurple
-            case .untracked: return .quaternaryLabelColor
-            }
-        case .highDensity:
-            switch status {
-            case .modified: return .systemYellow
-            case .added: return .systemGreen
-            case .deleted: return .systemRed
-            case .renamed: return .systemBlue
-            case .untracked: return .tertiaryLabelColor
-            }
-        case .terminalStealth:
-            switch status {
-            case .modified: return NSColor(red: 0.8, green: 0.7, blue: 0.4, alpha: 1.0)
-            case .added: return NSColor(red: 0.5, green: 0.8, blue: 0.5, alpha: 1.0)
-            case .deleted: return NSColor(red: 0.8, green: 0.4, blue: 0.4, alpha: 1.0)
-            case .renamed: return NSColor(red: 0.5, green: 0.7, blue: 0.9, alpha: 1.0)
-            case .untracked: return NSColor(white: 0.5, alpha: 1.0)
-            }
-        case .proStudio:
-            switch status {
-            case .modified: return .systemYellow
-            case .added: return .systemGreen
-            case .deleted: return .systemPink
-            case .renamed: return .systemCyan
-            case .untracked: return .systemGray
-            }
-        case .finder:
-            switch status {
-            case .modified: return .systemOrange
-            case .added: return .systemGreen
-            case .deleted: return .systemRed
-            case .renamed: return .systemBlue
-            case .untracked: return .tertiaryLabelColor
-            }
+        case .liquidGlass: .liquidGlass
+        case .highDensity: .highDensity
+        case .terminalStealth: .terminalStealth
+        case .proStudio: .proStudio
+        case .finder: .finder
         }
     }
 
@@ -480,7 +437,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         private let outPipe = Pipe()
         private let errPipe = Pipe()
         private let lock = NSLock()
-        private let terminationGate = ProcessTerminationGate()
+        private var terminationGate = ProcessTerminationGate()
         private var cancelled = false
 
         init(connection: SSHFileExplorerConnection, command: String) {
@@ -501,17 +458,22 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             do {
                 try process.run()
             } catch {
+                lock.lock()
                 terminationGate.markFinished()
+                lock.unlock()
                 throw error
             }
 
             lock.lock()
             let shouldTerminate = cancelled
+            let shouldTerminateDeferredRequest = terminationGate.markLaunched()
             lock.unlock()
-            if terminationGate.markLaunched() || shouldTerminate {
+            if shouldTerminateDeferredRequest || shouldTerminate {
                 guard process.isRunning else {
                     process.waitUntilExit()
+                    lock.lock()
                     terminationGate.markFinished()
+                    lock.unlock()
                     throw CancellationError()
                 }
                 process.terminate()
@@ -520,8 +482,8 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             let data = outPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             let stderrData = errPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
-            terminationGate.markFinished()
             lock.lock()
+            terminationGate.markFinished()
             let cancelledAfterExit = cancelled
             lock.unlock()
             if cancelledAfterExit {
@@ -538,9 +500,10 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         func terminate() {
             lock.lock()
             cancelled = true
+            let shouldTerminate = terminationGate.requestTermination()
             lock.unlock()
 
-            guard terminationGate.requestTermination() else {
+            guard shouldTerminate else {
                 return
             }
             guard process.isRunning else {
@@ -556,7 +519,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         private let errPipe = Pipe()
         private let outputURL: URL
         private let lock = NSLock()
-        private let terminationGate = ProcessTerminationGate()
+        private var terminationGate = ProcessTerminationGate()
         private var cancelled = false
 
         init(connection: SSHFileExplorerConnection, command: String, outputURL: URL) {
@@ -586,17 +549,22 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             do {
                 try process.run()
             } catch {
+                lock.lock()
                 terminationGate.markFinished()
+                lock.unlock()
                 throw error
             }
 
             lock.lock()
             let shouldTerminate = cancelled
+            let shouldTerminateDeferredRequest = terminationGate.markLaunched()
             lock.unlock()
-            if terminationGate.markLaunched() || shouldTerminate {
+            if shouldTerminateDeferredRequest || shouldTerminate {
                 guard process.isRunning else {
                     process.waitUntilExit()
+                    lock.lock()
                     terminationGate.markFinished()
+                    lock.unlock()
                     throw CancellationError()
                 }
                 process.terminate()
@@ -605,8 +573,8 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             try outPipe.fileHandleForReading.copyDataToEndOfFile(to: outputHandle)
             let stderrData = errPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
-            terminationGate.markFinished()
             lock.lock()
+            terminationGate.markFinished()
             let cancelledAfterExit = cancelled
             lock.unlock()
             if cancelledAfterExit {
@@ -623,9 +591,10 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         func terminate() {
             lock.lock()
             cancelled = true
+            let shouldTerminate = terminationGate.requestTermination()
             lock.unlock()
 
-            guard terminationGate.requestTermination() else {
+            guard shouldTerminate else {
                 return
             }
             guard process.isRunning else {
@@ -735,9 +704,8 @@ enum FileExplorerSelectionRestoration {
 
 // MARK: - Store
 
-/// All access must happen on the main thread. Properties are not marked @MainActor
-/// because NSOutlineView data source/delegate methods are called on the main thread
-/// but are not annotated @MainActor.
+/// Main-actor store for file-explorer presentation and loading state.
+@MainActor
 final class FileExplorerStore: ObservableObject {
     @Published var rootPath: String = ""
     @Published var rootNodes: [FileExplorerNode] = []
@@ -778,8 +746,8 @@ final class FileExplorerStore: ObservableObject {
     /// Cache of path -> node for quick lookup
     private var nodesByPath: [String: FileExplorerNode] = [:]
 
-    /// Prefetch debounce: path -> work item
-    private var prefetchWorkItems: [String: DispatchWorkItem] = [:]
+    /// Prefetch debounce schedulers keyed by path.
+    private var prefetchSchedulers: [String: MainActorDeferredActionScheduler] = [:]
 
     private var remoteHomeResolutionTask: Task<Void, Never>?
     private var remoteHomeResolutionKey: String?
@@ -1024,21 +992,20 @@ final class FileExplorerStore: ObservableObject {
         guard node.isDirectory, node.children == nil, !loadingPaths.contains(node.path) else { return }
         // Debounce: only prefetch if hover persists for 200ms
         let path = node.path
-        prefetchWorkItems[path]?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
+        let scheduler = prefetchSchedulers[path] ?? MainActorDeferredActionScheduler()
+        prefetchSchedulers[path] = scheduler
+        scheduler.schedule(after: .milliseconds(200)) { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, node.children == nil, !self.loadingPaths.contains(path) else { return }
                 // Silent prefetch: don't show loading indicator
                 await self.loadChildren(for: node, at: path, silent: true)
             }
         }
-        prefetchWorkItems[path] = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: workItem)
     }
 
     func cancelPrefetch(for node: FileExplorerNode) {
-        prefetchWorkItems[node.path]?.cancel()
-        prefetchWorkItems.removeValue(forKey: node.path)
+        prefetchSchedulers[node.path]?.cancel()
+        prefetchSchedulers.removeValue(forKey: node.path)
     }
 
     /// Called when SSH provider becomes available after being unavailable.
@@ -1055,6 +1022,10 @@ final class FileExplorerStore: ObservableObject {
 
     @MainActor
     private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
+        // A load cancelled by cancelAllLoads (e.g. a root reload during an SSH provider swap) must not
+        // reach provider.listDirectory: the provider may have been replaced, so a stale in-flight load
+        // would list the old path through the new transport. Bail before any listing.
+        guard !Task.isCancelled else { return }
         guard let provider else { return }
 
         if !silent {
@@ -1132,10 +1103,10 @@ final class FileExplorerStore: ObservableObject {
         loadTasks.removeAll()
         loadingPaths.removeAll()
         pendingDescendIntoFirstChildPath = nil
-        for (_, item) in prefetchWorkItems {
-            item.cancel()
+        for scheduler in prefetchSchedulers.values {
+            scheduler.cancel()
         }
-        prefetchWorkItems.removeAll()
+        prefetchSchedulers.removeAll()
         isRootLoading = false
     }
 
@@ -1311,7 +1282,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     deinit {
-        cancelRemoteHomeResolution()
+        remoteHomeResolutionTask?.cancel()
         directoryWatchTask?.cancel()
     }
 }

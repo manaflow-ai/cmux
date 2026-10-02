@@ -4,6 +4,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
 import { createNextNavigationMock } from "./helpers/next-navigation-mock";
+import { withAccountMutationLeaseSupport } from
+  "./helpers/account-mutation-db-mock";
 
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -41,12 +43,6 @@ mock.module("../app/[locale]/components/site-header", () => ({
   SiteHeader: () => <header />,
 }));
 
-mock.module("../app/[locale]/components/pro-cta-link", () => ({
-  ProCtaLink: ({ checkoutHref, children }: { checkoutHref: string; children: React.ReactNode }) => (
-    <a href={checkoutHref}>{children}</a>
-  ),
-}));
-
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => stackConfigured,
@@ -56,7 +52,7 @@ mock.module("../app/lib/stack", () => ({
 mock.module("../db/client", () => ({
   createAwsRdsIamPool: realCreateAwsRdsIamPool,
   closeCloudDbForTests: realCloseCloudDbForTests,
-  cloudDb: () => ({
+  cloudDb: () => withAccountMutationLeaseSupport({
     select: () => ({
       from: (table: unknown) => ({
         where: () => ({
@@ -83,6 +79,16 @@ describe("localized pricing page", () => {
 
     expect(html).not.toContain("/api/billing/portal");
     expect(html).not.toContain("Manage billing");
+    expect(html).toContain("/mo");
+    expect(html).toContain("/user/mo");
+    expect(html).not.toContain("/mo.");
+    expect(html).toContain("$35/user/mo");
+    expect(html).toContain(
+      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=month",
+    );
+    expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
+    expect(html).not.toContain('style="min-height:4rem"');
+    expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
   });
 
   test("renders Stack metadata-only Pro snapshots as Free", async () => {
@@ -108,13 +114,46 @@ describe("localized pricing page", () => {
     expect(html).toContain("Manage billing");
     expect(html).toContain("Current plan");
   });
+
+  test("renders the annual price and sends annual checkout intent", async () => {
+    const element = await PricingPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({ interval: "year" }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("$24");
+    expect(html).toContain("/mo");
+    expect(html).toContain("$24/mo");
+    expect(html).toContain("$28");
+    expect(html).toContain("/user/mo");
+    expect(html).toContain("/mo, billed yearly");
+    expect(html).toContain("/user/mo, billed yearly");
+    expect(html).toContain("$28/user/mo");
+    expect(html).not.toContain("$288/year");
+    expect(html).not.toContain("$336/user/year");
+    expect(html).not.toContain("Billed $288 annually · save 20%");
+    expect(html).not.toContain("Billed $336 annually · save 20%");
+    expect(html).toContain(
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
+    );
+    expect(html).toContain(
+      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=year",
+    );
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain('<button type="button" role="radio" aria-checked="true"');
+    expect(html).not.toContain('href="?interval=');
+    expect(html).toContain("mx-auto mt-6 flex w-fit");
+  });
 });
 
 function translator(namespace?: string) {
   const root = namespace ? valueAtPath(enMessages, namespace) : enMessages;
-  const t = (key: string) => String(valueAtPath(root, key));
+  const t = (key: string, values?: Record<string, unknown>) =>
+    interpolate(String(valueAtPath(root, key)), values);
   t.raw = (key: string) => valueAtPath(root, key);
-  t.rich = (key: string) => String(valueAtPath(root, key));
+  t.rich = (key: string, values?: Record<string, unknown>) =>
+    interpolate(String(valueAtPath(root, key)), values);
   return t;
 }
 
@@ -125,4 +164,12 @@ function valueAtPath(root: unknown, path: string): unknown {
     }
     return path;
   }, root);
+}
+
+function interpolate(message: string, values?: Record<string, unknown>) {
+  if (!values) return message;
+  return Object.entries(values).reduce(
+    (result, [key, value]) => result.replaceAll(`{${key}}`, String(value)),
+    message,
+  );
 }

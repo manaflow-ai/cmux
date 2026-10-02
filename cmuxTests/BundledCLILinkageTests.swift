@@ -56,8 +56,17 @@ final class BundledCLILinkageTests: XCTestCase {
     func testBundledCLIDoesNotDependOnPrivateRPathFrameworks() throws {
         let cliURL = try bundledCLIURL()
         let linkedLibraries = try linkedLibraries(for: cliURL)
+        // Xcode links a target's automatic SwiftPM products as dynamic
+        // <Name>_<hash>_PackageProduct.framework variants under the test action, so the
+        // helper in a test-built app bundle picks those up even though a plain build links
+        // the same products statically. Those names are toolchain-generated and do not
+        // appear in a shipped bundle. A dependency that would abort dyld keeps its real
+        // framework name (the v0.64.1 crash was @rpath/Sentry.framework, from the
+        // Sentry-Dynamic product) and still fails this assert in every build style.
         let privateRPathFrameworks = linkedLibraries.filter {
-            $0.hasPrefix("@rpath/") && $0.contains(".framework/")
+            $0.hasPrefix("@rpath/")
+                && $0.contains(".framework/")
+                && !$0.contains("_PackageProduct.framework/")
         }
 
         XCTAssertEqual(

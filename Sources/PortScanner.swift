@@ -13,8 +13,9 @@ import Foundation
 /// 1. `kick()` adds panel to `pendingKicks` set
 /// 2. If no burst is active, starts a 200ms coalesce timer
 /// 3. Coalesce fires → snapshots pending set → starts burst of 6 scans
-/// 4. New kicks during burst merge into the active burst
-/// 5. After last scan, if new kicks arrived, start a new coalesce cycle
+/// 4. New kicks during a burst require three later scan attempts
+/// 5. After the last scan, start a follow-up burst if the active burst did not
+///    have three attempts left for the most recent kick
 final class PortScanner: @unchecked Sendable {
     static let shared = PortScanner()
 
@@ -29,6 +30,7 @@ final class PortScanner: @unchecked Sendable {
     let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
     let processIdentityProvider: @Sendable (pid_t) -> AgentPIDProcessIdentity?
     let processPresenceProvider: @Sendable (pid_t) -> PIDPresence
+    @MainActor let ttySessionIdentityProvider: @MainActor @Sendable (String) -> TerminalTTYSessionIdentity?
 
     private var ttyNames: [PanelKey: String] = [:]
     private var panelRevisionByKey: [PanelKey: UInt64] = [:]
@@ -40,7 +42,9 @@ final class PortScanner: @unchecked Sendable {
     var trackedAgentWorkspaces: Set<UUID> = []
     var agentPublicationHistory = AgentPortPublicationHistory()
     /// Stable publication state shared by every best-effort local scan path.
-    private var panelPortSnapshot = PortScanSnapshotReconciler<PanelKey>()
+    private var panelPortSnapshot = PortScanSnapshotReconciler<PanelKey>(
+        missingPortRetentionLimit: PortScanner.panelMissingPortRetentionLimit
+    )
     var agentPortSnapshot = PortScanSnapshotReconciler<UUID>()
     var agentSnapshotReplacementState = AgentPortSnapshotReplacementState()
     var forceAgentResultWorkspaces: Set<UUID> = []
@@ -49,6 +53,10 @@ final class PortScanner: @unchecked Sendable {
     var publicationBuffer = PortScanPublicationBuffer()
 
     private var pendingKicks: Set<PanelKey> = []
+
+    /// Scan attempts still owed to the most recent kick. This keeps scheduling
+    /// coupled to the panel reconciler's complete-miss retention policy.
+    private var scansRemainingForPendingKicks = 0
 
     /// Whether a burst sequence is currently running.
     private var burstActive = false
@@ -61,6 +69,8 @@ final class PortScanner: @unchecked Sendable {
     /// Each scan fires at this absolute offset; the recursive scheduler
     /// converts to relative delays between consecutive scans.
     private static let burstOffsets: [Double] = [0.5, 1.5, 3, 5, 7.5, 10]
+    private static let panelMissingPortRetentionLimit = 2
+    private static let minimumScansPerKick = panelMissingPortRetentionLimit + 1
     private static let agentRescanInterval: TimeInterval = 2
 
     // MARK: - Public API
@@ -72,23 +82,32 @@ final class PortScanner: @unchecked Sendable {
         },
         processPresenceProvider: @escaping @Sendable (pid_t) -> PIDPresence = {
             PIDPresence.current(pid: $0)
+        },
+        ttySessionIdentityProvider: @escaping @MainActor @Sendable (String) -> TerminalTTYSessionIdentity? = {
+            TerminalTTYSessionIdentity(ttyName: $0)
         }
     ) {
         self.commandRunner = commandRunner
         self.processIdentityProvider = processIdentityProvider
         self.processPresenceProvider = processPresenceProvider
+        self.ttySessionIdentityProvider = ttySessionIdentityProvider
     }
 
     @MainActor
     func registerTTY(workspaceId: UUID, panelId: UUID, ttyName: String) {
         let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
-        guard let revision = publicationState.replacePanelLifecycle(key: key, ttyName: ttyName) else {
+        guard let revision = publicationState.replacePanelLifecycle(
+            key: key,
+            ttyName: ttyName,
+            sessionIdentity: ttySessionIdentityProvider(ttyName)
+        ) else {
             return
         }
+        let scanTTYName = Self.canonicalTTYName(ttyName)
         queue.async { [self] in
             let previousTTY = ttyNames[key]
             panelPortSnapshot.remove(keys: [key])
-            ttyNames[key] = ttyName
+            ttyNames[key] = scanTTYName
             panelRevisionByKey[key] = revision
             if previousTTY != nil {
                 enqueuePanelPublication([
@@ -106,8 +125,21 @@ final class PortScanner: @unchecked Sendable {
             ttyNames.removeValue(forKey: key)
             panelRevisionByKey.removeValue(forKey: key)
             pendingKicks.remove(key)
+            if pendingKicks.isEmpty {
+                scansRemainingForPendingKicks = 0
+            }
             panelPortSnapshot.remove(keys: [key])
         }
+    }
+
+    @MainActor
+    func freshReportedTTYName(workspaceId: UUID, panelId: UUID) -> String? {
+        let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+        guard let ttyName = publicationState.registeredPanelTTYName(for: key),
+              let sessionIdentity = ttySessionIdentityProvider(ttyName) else {
+            return nil
+        }
+        return publicationState.currentPanelTTYName(for: key, sessionIdentity: sessionIdentity)
     }
 
     func kick(workspaceId: UUID, panelId: UUID) {
@@ -115,11 +147,13 @@ final class PortScanner: @unchecked Sendable {
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             guard ttyNames[key] != nil else { return }
             pendingKicks.insert(key)
+            scansRemainingForPendingKicks = Self.minimumScansPerKick
 
             if !burstActive {
                 startCoalesce()
             }
-            // If burst is active, the next scan iteration will pick up the new kick.
+            // If a burst is active, its later scans pay down this count. A
+            // follow-up burst starts when too few scans remained.
         }
     }
     @MainActor
@@ -211,13 +245,18 @@ final class PortScanner: @unchecked Sendable {
 
         guard !panelSnapshot.isEmpty else {
             pendingKicks.removeAll()
+            scansRemainingForPendingKicks = 0
             return
         }
 
         guard scanCoordination.beginPanelScan() else { return }
 
-        // Clear pending kicks — they're accounted for in this scan.
-        pendingKicks.removeAll()
+        if scansRemainingForPendingKicks > 0 {
+            scansRemainingForPendingKicks -= 1
+            if scansRemainingForPendingKicks == 0 {
+                pendingKicks.removeAll()
+            }
+        }
 
         let workspaceIds = Set(panelSnapshot.keys.map(\.workspaceId))
         let panelRevisions = panelSnapshot.keys.reduce(into: [PanelKey: UInt64]()) { result, key in

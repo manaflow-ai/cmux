@@ -1,3 +1,4 @@
+import CmuxAgentChat
 import Foundation
 
 enum TextBoxAgentDetection: CaseIterable {
@@ -76,6 +77,14 @@ enum TextBoxAgentDetection: CaseIterable {
 
     static func isClaudeCode(context: String) -> Bool {
         claudeCode.matches(context: context)
+    }
+
+    static func composedPromptSubmitKey(containsNewline: Bool, context: String) -> String {
+        isClaudeCode(context: context) && containsNewline ? "ctrl+enter" : "return"
+    }
+
+    static func composedPromptSubmitKey(containsNewline: Bool, agentKind: ChatAgentKind) -> String {
+        agentKind == .claude && containsNewline ? "ctrl+enter" : "return"
     }
 
     static func boundedLaunchCommandContext(from rawCommand: String) -> String? {

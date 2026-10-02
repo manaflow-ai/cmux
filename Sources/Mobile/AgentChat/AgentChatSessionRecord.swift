@@ -26,6 +26,10 @@ struct AgentChatSessionRecord: Sendable {
     /// Live activity state derived from hook events.
     var state: ChatAgentState
 
+    /// Whether `state` has been established by the agent's hook lifecycle.
+    /// Process-table discovery proves presence and identity, but not idleness.
+    var hasHookLifecycleState: Bool = false
+
     /// When the record entered `.ended`. Best-effort process observations sampled
     /// before this point must not revive it after a hook or exit watcher ended it.
     var endedAt: Date?
@@ -51,6 +55,21 @@ struct AgentChatSessionRecord: Sendable {
 
     mutating func rememberHookStoreSessionID(_ id: String) {
         if id != sessionID { hookStoreSessionID = id }
+    }
+
+    mutating func setHookLifecycleState(_ nextState: ChatAgentState) {
+        state = nextState
+        hasHookLifecycleState = true
+    }
+
+    mutating func setProcessObservedIdle() {
+        state = .idle
+        hasHookLifecycleState = false
+    }
+
+    mutating func setTranscriptObservedIdle() {
+        state = .idle
+        hasHookLifecycleState = false
     }
 
     /// Adopts terminal/transcript bindings from a hook-store entry. The

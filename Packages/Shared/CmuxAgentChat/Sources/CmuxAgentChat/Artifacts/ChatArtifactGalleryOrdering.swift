@@ -46,9 +46,16 @@ public struct ChatArtifactGalleryOrdering: Sendable {
         _ items: [ChatArtifactIndexedReference],
         query: String
     ) -> [ChatArtifactIndexedReference] {
+        matching(sorted(items), query: query)
+    }
+
+    func matching(
+        _ orderedItems: [ChatArtifactIndexedReference],
+        query: String
+    ) -> [ChatArtifactIndexedReference] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty else { return sorted(items) }
-        return sorted(items).filter { item in
+        guard !needle.isEmpty else { return orderedItems }
+        return orderedItems.filter { item in
             item.path.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil
                 || URL(fileURLWithPath: item.path).lastPathComponent.range(
                     of: needle,

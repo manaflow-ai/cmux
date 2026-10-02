@@ -16,6 +16,8 @@
 	<string>$(CMUX_IOS_AUTH_ENV)</string>
 	<key>CMUXApiBaseURL</key>
 	<string>$(CMUX_API_BASE_URL)</string>
+	<key>CMUXIrohBrokerBaseURL</key>
+	<string>$(CMUX_IROH_BROKER_BASE_URL)</string>
 	<key>CMUXDevTag</key>
 	<string>$(CMUX_DEV_TAG)</string>
 	<key>CMUXGitSHA</key>

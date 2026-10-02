@@ -14,7 +14,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         // Terminate any lingering app from a prior test so its debounced
         // history-save doesn't overwrite the seeded browser_history.json.
-        let cleanup = XCUIApplication()
+        let cleanup = XCUIApplication.cmuxTestApplication()
         cleanup.terminate()
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
@@ -26,7 +26,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             SeedEntry(url: "https://go.dev/", title: "The Go Programming Language", visitCount: 6, typedCount: 1),
         ])
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
@@ -109,7 +109,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     func testOmnibarEscapeAndClickOutsideBehaveLikeChrome() {
         seedBrowserHistoryForTest()
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
@@ -190,7 +190,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     func testOmnibarSuggestionsCtrlNPWhenAddressBarFocused() {
         seedBrowserHistoryForTest()
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
@@ -235,7 +235,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     func testOmnibarShowsMultipleRowsWithoutClipping() {
         seedBrowserHistoryForTest()
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
@@ -263,7 +263,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     func testCmdLRefocusAfterNavigationKeepsOmnibarEditable() {
         seedBrowserHistoryForTest()
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
@@ -313,7 +313,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     func testCmdLImmediateTypingReplacesExistingURLBuffer() {
         seedBrowserHistoryForTest()
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
@@ -357,7 +357,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             ]
         )
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
@@ -439,7 +439,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             ]
         )
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
@@ -495,7 +495,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     }
 
     func testOmnibarSingleRowPopupUsesMinimumHeight() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
@@ -540,7 +540,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     func testInlineAutocompleteBackspaceDeletesTypedPrefixCharacter() {
         seedBrowserHistoryForTest()
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
@@ -577,7 +577,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     func testCmdASelectAllDoesNotClearInlineCompletion() {
         seedBrowserHistoryForTest()
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath

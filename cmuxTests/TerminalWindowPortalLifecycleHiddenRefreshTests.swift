@@ -157,4 +157,55 @@ extension TerminalWindowPortalLifecycleTests {
         )
         withExtendedLifetime((leftSurface, rightSurface)) {}
     }
+
+    /// Regression: switching a pane's tab from a terminal to a browser hides
+    /// the terminal only through its registry entry — the SwiftUI update that
+    /// carries visible=false is dropped by the portal-host ownership gate
+    /// (`isCurrentPaneOwner()` is already false for a deselected tab, logged
+    /// as `ws.hostState.deferApply reason=hostOwnershipRejected`), and a
+    /// selection-only switch produces no window geometry churn that would run
+    /// a sync pass later. If flipping the entry to invisible does not schedule
+    /// its own sync pass, the stale terminal layer keeps rendering above
+    /// SwiftUI chrome: the previous terminal's content fills the browser's
+    /// omnibar band until unrelated churn (sidebar toggle, resize) heals it.
+    @MainActor
+    func testEntryVisibilityFlipToHiddenHidesHostedViewWithoutExternalChurn() throws {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340)
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let portal = makeTrackedPortal(window: window)
+        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
+        contentView.addSubview(anchor)
+
+        let surface = makeTrackedTerminalSurface()
+        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        realizeWindowLayout(window)
+        XCTAssertFalse(
+            surface.hostedView.isHidden,
+            "Precondition: a bound, visible surface with usable geometry is revealed"
+        )
+
+        _ = portal.updateEntryVisibility(
+            forHostedId: ObjectIdentifier(surface.hostedView),
+            visibleInUI: false
+        )
+
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) { surface.hostedView.isHidden },
+            "Flipping a portal entry to invisible must hide the hosted terminal view on its own — no other geometry churn is obligated to arrive after a tab deselection"
+        )
+        withExtendedLifetime(surface) {}
+    }
 }

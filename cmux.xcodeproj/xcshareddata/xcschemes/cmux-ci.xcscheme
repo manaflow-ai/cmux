@@ -14,6 +14,15 @@
     <Testables>
       <TestableReference skipped="NO">
         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="F1000004A1B2C3D4E5F60718" BuildableName="cmuxTests.xctest" BlueprintName="cmuxTests" ReferencedContainer="container:cmux.xcodeproj"/>
+        <!-- Superseded by explicit-setting Swift Testing coverage in FocusHistoryScopeTests. -->
+        <SkippedTests>
+          <Test Identifier="TabManagerSessionSnapshotTests/testFocusHistoryNavigatesWithinWorkspacePanels()"/>
+          <Test Identifier="TabManagerSessionSnapshotTests/testFocusHistoryBackSkipsStaleEntriesThatResolveToCurrentPanel()"/>
+          <Test Identifier="TabManagerSessionSnapshotTests/testFocusHistoryRevisionInvalidatesWhenClosedPanelChangesAvailability()"/>
+          <Test Identifier="TabManagerSessionSnapshotTests/testFocusHistoryRevisionInvalidatesWhenClosedPaneChangesAvailability()"/>
+          <Test Identifier="TabManagerSessionSnapshotTests/testGhosttyFocusSurfaceIdRecordsMappedPanelInFocusHistory()"/>
+          <Test Identifier="TabManagerSessionSnapshotTests/testFocusHistoryMenuSnapshotReflectsRenamedWorkspaceAndPanel()"/>
+        </SkippedTests>
       </TestableReference>
       <TestableReference skipped="NO">
         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="CB450DF0F0B3839599082C4D" BuildableName="cmuxUITests.xctest" BlueprintName="cmuxUITests" ReferencedContainer="container:cmux.xcodeproj"/>

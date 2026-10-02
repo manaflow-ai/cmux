@@ -3,7 +3,7 @@
 // 24x24 viewBox and drawn in `currentColor` so they inherit the menu's text
 // color. macOS and iOS both use the Apple mark.
 
-type GlyphName = "macos" | "ios" | "linux" | "android" | "windows";
+export type GlyphName = "macos" | "ios" | "linux" | "android" | "windows";
 
 const PATHS: Record<GlyphName, string> = {
   macos:
@@ -18,11 +18,17 @@ const PATHS: Record<GlyphName, string> = {
 };
 
 /** A monochrome platform brand glyph sized to the menu's text line. */
-export function PlatformIcon({ name }: { name: GlyphName }) {
+export function PlatformIcon({
+  name,
+  size = 16,
+}: {
+  name: GlyphName;
+  size?: number;
+}) {
   return (
     <svg
-      width="16"
-      height="16"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="currentColor"
       className="shrink-0"

@@ -80,7 +80,7 @@ extension Workspace {
         }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         let customPanel = CustomSidebarPanel(workspace: self, name: name, fileURL: fileURL)
         panels[customPanel.id] = customPanel
@@ -150,7 +150,7 @@ extension Workspace {
             isPinned: false
         )
         bindSurface(newTab.id, toPanelId: customPanel.id)
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }

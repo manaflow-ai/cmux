@@ -372,7 +372,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let firstPanelId = try #require(workspace.focusedPanelId)
             let event = try #require(makeKeyDownEvent(
                 key: "=",
-                modifiers: [.command, .control],
+                modifiers: [.command, .control, .shift],
                 keyCode: 24,
                 windowNumber: window.windowNumber
             ))

@@ -6,12 +6,16 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
     private let registration: CmxIrohRegistrationResponse
     private let discoveryResponse: CmxIrohDiscoveryResponse
     private let relayResponse: CmxIrohRelayTokenResponse
+    private let pairGrantResponse: CmxIrohPairGrantResponse?
     private let revokeError: (any Error)?
     private let registrationHook: (@Sendable (_ count: Int) async -> Void)?
     private var registrationError: (any Error)?
+    private var registrationErrorsByCount: [Int: any Error] = [:]
     private var preparedRegistrations: [CmxIrohPreparedRegistration] = []
     private var revokedBindingIDs: [String] = []
     private var relayIssueCount = 0
+    private var discoveryCount = 0
+    private var discoveryErrorsByCount: [Int: any Error] = [:]
     private var registrationCountWaiters: [
         UUID: (minimum: Int, continuation: CheckedContinuation<Void, Never>)
     ] = [:]
@@ -20,8 +24,10 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         binding: CmxIrohBrokerBinding,
         discovery: CmxIrohDiscoveryResponse,
         relay: CmxIrohRelayTokenResponse,
+        pairGrant: CmxIrohPairGrantResponse? = nil,
         issueRelayAtRegistration: Bool = true,
         registrationError: (any Error)? = nil,
+        discoveryErrorsByCount: [Int: any Error] = [:],
         revokeError: (any Error)? = nil,
         registrationHook: (@Sendable (_ count: Int) async -> Void)? = nil
     ) {
@@ -31,8 +37,10 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         )
         discoveryResponse = discovery
         relayResponse = relay
+        pairGrantResponse = pairGrant
         self.revokeError = revokeError
         self.registrationError = registrationError
+        self.discoveryErrorsByCount = discoveryErrorsByCount
         self.registrationHook = registrationHook
     }
 
@@ -49,19 +57,29 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
             registrationCountWaiters.removeValue(forKey: id)?.continuation.resume()
         }
         await registrationHook?(count)
+        if let registrationError = registrationErrorsByCount[count] {
+            throw registrationError
+        }
         if let registrationError { throw registrationError }
         return registration
     }
 
-    func discover() -> CmxIrohDiscoveryResponse {
-        discoveryResponse
+    func discover() throws -> CmxIrohDiscoveryResponse {
+        discoveryCount += 1
+        if let error = discoveryErrorsByCount[discoveryCount] {
+            throw error
+        }
+        return discoveryResponse
     }
 
     func issuePairGrant(
         initiatorBindingID _: String,
         acceptorBindingID _: String
     ) throws -> CmxIrohPairGrantResponse {
-        throw TestIrohTransportError.unsupported
+        guard let pairGrantResponse else {
+            throw TestIrohTransportError.unsupported
+        }
+        return pairGrantResponse
     }
 
     func issueRelayToken(
@@ -89,8 +107,16 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         relayIssueCount
     }
 
+    func observedDiscoveryCount() -> Int {
+        discoveryCount
+    }
+
     func setRegistrationError(_ error: (any Error)?) {
         registrationError = error
+    }
+
+    func setRegistrationError(_ error: any Error, forRegistrationCount count: Int) {
+        registrationErrorsByCount[count] = error
     }
 
     func waitForRegistrationCount(_ minimum: Int) async {

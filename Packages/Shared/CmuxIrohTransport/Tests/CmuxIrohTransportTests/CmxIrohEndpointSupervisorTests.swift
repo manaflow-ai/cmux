@@ -221,6 +221,81 @@ struct CmxIrohEndpointSupervisorTests {
         #expect(configurations[1].bindPolicy == bindPolicy)
     }
 
+    @Test("successful relay replacement publishes a reachability change")
+    func successfulRelayReplacementPublishesNetworkChange() async throws {
+        let relayHint = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: "https://usw1-1.relay.lawrence.cmux.iroh.link/",
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let endpoint = TestIrohEndpoint(
+            identity: identity,
+            pathHintsAfterRelayReplacement: [relayHint]
+        )
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try endpointConfiguration()
+        )
+        let changes = HostRuntimeLANRefreshRecorder()
+        let events = await supervisor.events()
+        let observation = Task {
+            for await event in events {
+                if case .networkChanged = event {
+                    await changes.record()
+                }
+            }
+        }
+        _ = try await supervisor.activate()
+        let replacement = try relayConfiguration(
+            url: "https://usw1-1.relay.lawrence.cmux.iroh.link/",
+            token: "bbbb"
+        )
+
+        try await supervisor.replaceRelays([replacement])
+
+        let emittedChange = await changes.waitForRefresh(timeout: .seconds(1))
+        #expect(
+            emittedChange,
+            "A successful relay replacement must publish a network-change event"
+        )
+        observation.cancel()
+        await supervisor.deactivate()
+    }
+
+    @Test("relay credential rotation does not republish an unchanged address")
+    func unchangedRelayAddressDoesNotPublishNetworkChange() async throws {
+        let endpoint = TestIrohEndpoint(identity: identity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try endpointConfiguration()
+        )
+        let changes = HostRuntimeLANRefreshRecorder()
+        let events = await supervisor.events()
+        let observation = Task {
+            for await event in events {
+                if case .networkChanged = event {
+                    await changes.record()
+                }
+            }
+        }
+        _ = try await supervisor.activate()
+        let replacement = try relayConfiguration(
+            url: "https://usw1-1.relay.lawrence.cmux.iroh.link/",
+            token: "bbbb"
+        )
+
+        try await supervisor.replaceRelays([replacement])
+
+        let emittedChange = await changes.waitForRefresh(timeout: .milliseconds(50))
+        #expect(
+            !emittedChange,
+            "Rotating credentials without changing the published address must not refresh policy"
+        )
+        observation.cancel()
+        await supervisor.deactivate()
+    }
+
     @Test
     func customProfileReplacementSurvivesEndpointRecovery() async throws {
         let firstEndpoint = TestIrohEndpoint(identity: identity)
@@ -288,6 +363,135 @@ struct CmxIrohEndpointSupervisorTests {
         let configurations = await factory.observedConfigurations()
         #expect(configurations.count == 3)
         #expect(configurations[2].relays == initialConfiguration.relays)
+    }
+
+    @Test("an already-online generation replays relay readiness")
+    func alreadyOnlineGenerationIsImmediatelyReady() async throws {
+        let endpoint = TestIrohEndpoint(identity: identity)
+        let supervisor = try CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: endpointConfiguration()
+        )
+        _ = try await supervisor.activate()
+        await endpoint.emit(.online)
+
+        try await supervisor.waitForUsableHomeRelay(timeout: .seconds(1))
+
+        #expect(await supervisor.hasUsableHomeRelay())
+    }
+
+    @Test("a strict custom relay profile participates in readiness")
+    func customRelayProfileWaitsForOnlineSignal() async throws {
+        let endpoint = TestIrohEndpoint(identity: identity)
+        let custom = try CmxIrohCustomRelayProfile(relays: [
+            CmxIrohCustomRelay(
+                url: "https://private.example.net:8443/",
+                authenticationToken: "private-token"
+            ),
+        ])
+        let base = try endpointConfiguration()
+        let configuration = CmxIrohEndpointConfiguration(
+            secretKey: base.secretKey,
+            alpns: base.alpns,
+            bindPolicy: base.bindPolicy,
+            relayProfile: CmxIrohEndpointRelayProfile(customProfile: custom)
+        )
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: configuration
+        )
+        _ = try await supervisor.activate()
+        #expect(await supervisor.hasConfiguredRelay())
+        let wait = Task {
+            try await supervisor.waitForUsableHomeRelay(timeout: .seconds(1))
+        }
+        await Task.yield()
+
+        await endpoint.emit(.online)
+
+        try await wait.value
+        #expect(await supervisor.hasUsableHomeRelay())
+    }
+
+    @Test("relay replacement waits for the next online signal")
+    func relayReplacementWaitsForOnlineSignal() async throws {
+        let endpoint = TestIrohEndpoint(identity: identity)
+        let configuration = try endpointConfiguration()
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: configuration
+        )
+        _ = try await supervisor.activate()
+        await endpoint.emit(.online)
+        try await supervisor.waitForUsableHomeRelay(timeout: .seconds(1))
+        try await supervisor.replaceRelayProfile(configuration.relayProfile)
+        #expect(!(await supervisor.hasUsableHomeRelay()))
+
+        let wait = Task {
+            try await supervisor.waitForUsableHomeRelay(timeout: .seconds(1))
+        }
+        await Task.yield()
+        await endpoint.emit(.online)
+
+        try await wait.value
+        #expect(await supervisor.hasUsableHomeRelay())
+    }
+
+    @Test("relay readiness has a bounded timeout")
+    func relayReadinessTimesOut() async throws {
+        let endpoint = TestIrohEndpoint(identity: identity)
+        let supervisor = try CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: endpointConfiguration()
+        )
+        _ = try await supervisor.activate()
+
+        await #expect(throws: CmxIrohEndpointSupervisorError.relayReadinessTimedOut) {
+            try await supervisor.waitForUsableHomeRelay(timeout: .milliseconds(20))
+        }
+    }
+
+    @Test("relay readiness cancellation removes its waiter")
+    func relayReadinessCancellationPropagates() async throws {
+        let endpoint = TestIrohEndpoint(identity: identity)
+        let supervisor = try CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: endpointConfiguration()
+        )
+        _ = try await supervisor.activate()
+        let wait = Task {
+            try await supervisor.waitForUsableHomeRelay(timeout: .seconds(5))
+        }
+        await Task.yield()
+
+        wait.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await wait.value
+        }
+    }
+
+    @Test("a replacement generation supersedes the prior relay waiter")
+    func replacementGenerationSupersedesRelayReadiness() async throws {
+        let first = TestIrohEndpoint(identity: identity)
+        let second = TestIrohEndpoint(identity: identity)
+        let supervisor = try CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [first, second]),
+            configuration: endpointConfiguration()
+        )
+        _ = try await supervisor.activate()
+        let wait = Task {
+            try await supervisor.waitForUsableHomeRelay(timeout: .seconds(5))
+        }
+        await Task.yield()
+
+        await first.emit(.closedUnexpectedly)
+
+        await #expect(throws: CmxIrohEndpointSupervisorError.superseded) {
+            try await wait.value
+        }
+        let replacementIdentity = try await supervisor.activeEndpoint().identity()
+        #expect(replacementIdentity == identity)
     }
 
     private func endpointConfiguration(

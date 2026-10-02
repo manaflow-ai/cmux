@@ -54,4 +54,67 @@ struct RenderDemandCounterTests {
         retention.release()
         #expect(!counter.isActive)
     }
+
+    @Test func metalLayerAcceptsEitherGlobalOrLocalDemand() {
+        let global = RenderDemandCounter()
+        let local = RenderDemandCounter()
+
+        #expect(!GhosttyMetalLayer.hasActiveRenderDemand(global: global, local: local))
+
+        let globalRetention = global.retain()
+        #expect(GhosttyMetalLayer.hasActiveRenderDemand(global: global, local: local))
+        globalRetention.release()
+        #expect(!GhosttyMetalLayer.hasActiveRenderDemand(global: global, local: local))
+
+        let localRetention = local.retain()
+        #expect(GhosttyMetalLayer.hasActiveRenderDemand(global: global, local: local))
+        localRetention.release()
+        #expect(!GhosttyMetalLayer.hasActiveRenderDemand(global: global, local: local))
+    }
+
+    @Test func cursorDemandDoesNotRequestSharedFrameNotifications() {
+        let global = RenderDemandCounter()
+        let local = RenderDemandCounter()
+        let cursor = RenderDemandCounter()
+        let coordinator = RenderedFrameDeliveryCoordinator(
+            renderDemand: global,
+            localRenderDemand: local,
+            keyboardCopyModeCursorDemand: cursor,
+            startConsumer: false
+        )
+
+        #expect(coordinator.activeDeliveryReasons.isEmpty)
+
+        let cursorRetention = cursor.retain()
+        #expect(
+            coordinator.activeDeliveryReasons == [.keyboardCopyModeCursor]
+        )
+
+        let localRetention = local.retain()
+        #expect(
+            coordinator.activeDeliveryReasons
+                == [.notification, .keyboardCopyModeCursor]
+        )
+
+        localRetention.release()
+        cursorRetention.release()
+        #expect(coordinator.activeDeliveryReasons.isEmpty)
+    }
+
+    @Test @MainActor
+    func renderedFrameDeliveryBuffersOnlyTheNewestMainActorHop() {
+        let demand = RenderDemandCounter()
+        let coordinator = RenderedFrameDeliveryCoordinator(
+            renderDemand: demand,
+            startConsumer: false
+        )
+
+        #expect(!coordinator.requestFrame())
+        let retention = demand.retain()
+        #expect(coordinator.requestFrame())
+        #expect(!coordinator.requestFrame())
+        #expect(!coordinator.requestFrame())
+        retention.release()
+        #expect(!coordinator.requestFrame())
+    }
 }

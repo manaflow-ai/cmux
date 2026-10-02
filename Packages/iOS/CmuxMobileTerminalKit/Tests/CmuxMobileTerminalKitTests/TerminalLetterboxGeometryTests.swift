@@ -289,4 +289,154 @@ struct TerminalLetterboxGeometryTests {
         )
         #expect(clamped == CGSize(width: 402, height: 700))
     }
+
+    @Test("render pin: steady state matches the legacy live-bottom pin")
+    func renderPinSteadyState() {
+        // live == target (no transition). A render shorter than the viewport
+        // bottom-pins to the live edge (letterboxed box rides above the
+        // toolbar), exactly like the legacy `maxY - height` math.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 700, targetViewportMaxY: 700,
+            viewportMinY: 0, renderHeight: 400
+        ) == 700)
+        // A render taller than the viewport still pins to the live bottom
+        // (the prompt row must stay visible; the top overflow is clipped).
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 700, targetViewportMaxY: 700,
+            viewportMinY: 0, renderHeight: 900
+        ) == 700)
+    }
+
+    @Test("render pin: keyboard rise keeps the legacy ride-the-keyboard slide")
+    func renderPinKeyboardRise() {
+        // Shrinking viewport (keyboard rising): live > target. The old
+        // full-height render keeps sliding with the live edge so the prompt
+        // rides the keyboard top; no behavior change.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 600, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 714
+        ) == 600)
+        // The target-sized render (after the resize) also rides the live edge.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 600, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 403
+        ) == 600)
+    }
+
+    @Test("render pin: keyboard dismissal never clips settled-visible content")
+    func renderPinKeyboardDismissal() {
+        // Growing viewport (keyboard dismissing): live < target. The surface
+        // is already target-sized (766). The legacy live pin gave
+        // 403 - 766 = -363 (top rows shoved off screen, sliding back as the
+        // keyboard left). The pin must hold the render's top at the viewport
+        // top instead: bottom edge = min(target, renderHeight).
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 403, targetViewportMaxY: 766,
+            viewportMinY: 0, renderHeight: 766
+        ) == 766)
+        // Mid-animation the live edge catches up; the pin stays at the
+        // target so the content does not move.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 600, targetViewportMaxY: 766,
+            viewportMinY: 0, renderHeight: 766
+        ) == 766)
+        // A settled small letterboxed box still rides the live edge during
+        // the dismissal (it stays glued to the dock).
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 403, targetViewportMaxY: 766,
+            viewportMinY: 0, renderHeight: 400
+        ) == 403)
+        // A mid-height render pins to its own height until the live edge
+        // passes it, then rides — continuous at the crossover.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 403, targetViewportMaxY: 766,
+            viewportMinY: 0, renderHeight: 500
+        ) == 500)
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 500, targetViewportMaxY: 766,
+            viewportMinY: 0, renderHeight: 500
+        ) == 500)
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 620, targetViewportMaxY: 766,
+            viewportMinY: 0, renderHeight: 500
+        ) == 620)
+    }
+
+    @Test("render pin: provisional pin holds the top while the viewport grows")
+    func renderPinProvisionalGrowth() {
+        // Keyboard dismissal with the grid negotiation still unsettled: the
+        // squeezed keyboard-up render (397pt) must NOT ride the departing
+        // keyboard down (it snaps back to the top one round-trip later when
+        // the fresh grant unpins it). It holds its top edge instead.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 403, targetViewportMaxY: 714,
+            viewportMinY: 0, renderHeight: 397, holdsProvisionalPin: true
+        ) == 397)
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 650, targetViewportMaxY: 714,
+            viewportMinY: 0, renderHeight: 397, holdsProvisionalPin: true
+        ) == 397)
+        // A target-sized render under a provisional pin also stays put.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 403, targetViewportMaxY: 714,
+            viewportMinY: 0, renderHeight: 714, holdsProvisionalPin: true
+        ) == 714)
+        // Shrinking (keyboard rise) keeps the live ride even while
+        // provisional — the keyboard pushes the content up naturally.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 600, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 714, holdsProvisionalPin: true
+        ) == 600)
+        // Steady (live == target) is unaffected by the provisional flag.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 714, targetViewportMaxY: 714,
+            viewportMinY: 0, renderHeight: 397, holdsProvisionalPin: true
+        ) == 714)
+    }
+
+    @Test("render pin: provisional shrink anchors the cursor, not the screen bottom")
+    func renderPinProvisionalShrinkCursorAnchor() {
+        // Keyboard rising over a prompt in the upper half (cursor bottom
+        // 400 of a 714pt render): the blank rows below the prompt absorb
+        // the keyboard, so the content must not move at all. The legacy
+        // screen-bottom ride gave 500 - 714 = -214 (all rows pushed up).
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 500, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 714,
+            holdsProvisionalPin: true, cursorBottomInRender: 400
+        ) == 714)
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 403, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 714,
+            holdsProvisionalPin: true, cursorBottomInRender: 400
+        ) == 714)
+        // Once the keyboard would cover the cursor row itself, the render
+        // slides exactly enough to keep it visible: cursor at 600, live at
+        // 500 -> bottom edge 500 + (714-600) = 614, cursor lands on the
+        // live bottom edge.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 500, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 714,
+            holdsProvisionalPin: true, cursorBottomInRender: 600
+        ) == 614)
+        // Full-screen content (cursor on the last row) keeps the legacy
+        // ride so the prompt never hides under the keyboard.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 500, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 714,
+            holdsProvisionalPin: true, cursorBottomInRender: 714
+        ) == 500)
+        // Unknown cursor falls back to the legacy ride.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 500, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 714,
+            holdsProvisionalPin: true, cursorBottomInRender: nil
+        ) == 500)
+        // Settled shrink (no provisional pin) is unchanged by the cursor.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 500, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 714,
+            holdsProvisionalPin: false, cursorBottomInRender: 400
+        ) == 500)
+    }
 }

@@ -19,7 +19,7 @@ Pi Coding Agent, OMP, and Campfire are registered by default:
         },
         "sessionIdSource": { "type": "piSessionFile" },
         "resumeCommand": "{{executable}} --session {{sessionId}}",
-        "forkCommand": "{{executable}} --session {{sessionId}} --fork",
+        "forkCommand": "{{executable}} --fork {{sessionId}}",
         "cwd": "preserve",
         "sessionDirectory": "~/.pi/agent/sessions"
       },
@@ -31,7 +31,7 @@ Pi Coding Agent, OMP, and Campfire are registered by default:
         },
         "sessionIdSource": { "type": "piSessionFile" },
         "resumeCommand": "{{executable}} --session {{sessionId}}",
-        "forkCommand": "{{executable}} --session {{sessionId}} --fork",
+        "forkCommand": "{{executable}} --fork {{sessionId}}",
         "cwd": "preserve",
         "sessionDirectory": "~/.omp/agent/sessions"
       },
@@ -90,7 +90,7 @@ is the argv template for forking (branching) a session into a new copy, for
 example `{{executable}} --session {{sessionId}} --fork`. Provide it only when the
 agent supports forking; when omitted, the right-click **Fork Conversation** item
 stays hidden for that agent (resume still works via `resumeCommand`). Pi and OMP
-ship with `{{executable}} --session {{sessionId}} --fork`.
+ship with `{{executable}} --fork {{sessionId}}`.
 
 `iconAssetName` is optional. When omitted, Vault uses a neutral system icon for
 registered agents instead of reusing another agent's brand mark.

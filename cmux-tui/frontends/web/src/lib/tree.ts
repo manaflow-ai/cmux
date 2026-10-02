@@ -1,4 +1,4 @@
-import type { Id, Layout, LivePane, Screen, Tab, Tree } from "cmux/browser";
+import type { Id, Layout, LivePane, Screen, Tab, Tree } from "cmux/raw";
 import { t } from "../i18n";
 import type { LocalSelectionState } from "./localSelection";
 
@@ -6,6 +6,7 @@ export interface ScreenView {
   id: Id;
   workspaceId: Id;
   label: string;
+  statusLabel?: string;
   active: boolean;
   pane: LivePane | null;
   tab: Tab | null;
@@ -49,7 +50,7 @@ export function treeToViewModel(
     const displayRawScreen = selectedRawScreen ?? workspace.screens[0];
     const displayPaneId = selectedRawScreen ? selection.selectedPaneId : null;
     const activeRawPane = displayRawScreen ? livePane(displayRawScreen, displayPaneId) : null;
-    const activeTab = activeRawPane?.tabs[activeRawPane.active_tab];
+    const activeTab = activeRawPane?.tabs[Number(activeRawPane.active_tab)];
     const title = activeRawPane?.name || activeTab?.name || activeTab?.title || t("shell");
     const subtitle = workspace.screens.length > 1
       ? t("workspaceSubtitle", { title, count: workspace.screens.length })
@@ -59,15 +60,16 @@ export function treeToViewModel(
       name: workspace.name,
       active: workspaceSelected,
       subtitle,
-      screens: workspace.screens.map((screen) => {
+      screens: workspace.screens.map((screen, screenIndex) => {
         const screenSelected = workspaceSelected && screen.id === selection.selectedScreenId;
         const pane = livePane(screen, screenSelected ? selection.selectedPaneId : null);
-        const tab = pane?.tabs[pane.active_tab] ?? null;
+        const tab = pane?.tabs[Number(pane.active_tab)] ?? null;
         const panes = screen.panes.filter((candidate): candidate is LivePane => "tabs" in candidate);
         return {
           id: screen.id,
           workspaceId: workspace.id,
           label: screen.name || tab?.name || tab?.title || `#${screen.id}`,
+          statusLabel: screen.name || String(screenIndex + 1),
           active: screenSelected,
           pane,
           tab,

@@ -1,6 +1,7 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
 import Foundation
+@preconcurrency import Network
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,6 +11,180 @@ import Testing
 #endif
 
 struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
+    @MainActor
+    @Test func liveCodexHookDefersFallbackTranscriptScanUntilHistoryOpen() async throws {
+        let home = try temporaryHomeDirectory()
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let transcriptURL = home
+            .appendingPathComponent(".codex/sessions/2026/07/24", isDirectory: true)
+            .appendingPathComponent("rollout-2026-07-24T00-00-00-\(sessionID).jsonl")
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            emitEventPayload: { _ in }
+        )
+        let connection = MobileHostConnection(
+            id: UUID(),
+            connection: NWConnection(
+                host: NWEndpoint.Host("127.0.0.1"),
+                port: NWEndpoint.Port(rawValue: 9)!,
+                using: .tcp
+            ),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        await connection.subscribe(
+            streamID: "agent-chat-fallback-regression",
+            topics: [AgentChatTranscriptService.eventTopic]
+        )
+
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            transcriptPath: nil,
+            cwd: "/Users/example/project",
+            ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: 300)
+        ))
+        let recordAfterHook = service.sessionRecord(sessionID: sessionID)
+        _ = await connection.unsubscribe(streamID: "agent-chat-fallback-regression")
+
+        let history = await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50)
+        let recordAfterHistory = service.sessionRecord(sessionID: sessionID)
+        let adoptedHistoryPath = recordAfterHistory?.transcriptPath.map {
+            URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+        }
+
+        #expect(recordAfterHook?.transcriptPath == nil)
+        #expect(history != nil)
+        #expect(adoptedHistoryPath == transcriptURL.resolvingSymlinksInPath().path)
+    }
+
+    @MainActor
+    @Test func concurrentCodexHistoryRequestsShareOneFallbackResolution() async throws {
+        let home = try temporaryHomeDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let sessionID = UUID().uuidString.lowercased()
+        let transcriptURL = home
+            .appendingPathComponent(".codex/sessions/2026/07/24", isDirectory: true)
+            .appendingPathComponent("rollout-2026-07-24T00-00-00-\(sessionID).jsonl")
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let probe = AgentChatConcurrentFallbackResolutionProbe(path: transcriptURL.path)
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in },
+            fallbackTranscriptPathResolver: { record, deadline in
+                await probe.resolve(record: record, deadline: deadline)
+            }
+        )
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            transcriptPath: nil,
+            cwd: "/Users/example/project",
+            ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: 301)
+        ))
+
+        let pageAvailability = await withTaskGroup(of: Bool.self) { group in
+            for _ in 0..<16 {
+                group.addTask {
+                    await service.history(
+                        sessionID: sessionID,
+                        beforeSeq: nil,
+                        limit: 50
+                    ) != nil
+                }
+            }
+            var results: [Bool] = []
+            for await result in group {
+                results.append(result)
+            }
+            return results
+        }
+
+        #expect(pageAvailability.count == 16)
+        #expect(pageAvailability.allSatisfy { $0 })
+        #expect(await probe.callCount() == 1)
+    }
+
+    @MainActor
+    @Test func onlyHookEventsProvideAuthoritativeAgentLifecycleState() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        registry.applyObservedSessions([
+            ObservedAgentSession(
+                sessionID: sessionID,
+                agentKind: .claude,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                pid: 123,
+                workingDirectory: "/Users/example/project",
+                transcriptPath: nil
+            )
+        ])
+
+        #expect(registry.record(sessionID: sessionID)?.hasHookLifecycleState == false)
+
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            ppid: 123
+        ))
+
+        #expect(registry.record(sessionID: sessionID)?.hasHookLifecycleState == true)
+    }
+
+    @MainActor
+    @Test func transcriptInferredIdleIsNotHookAuthoritative() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            ppid: 123,
+            receivedAt: Date(timeIntervalSince1970: 10)
+        ))
+
+        registry.noteAssistantTurnCompleted(
+            sessionID: sessionID,
+            at: Date(timeIntervalSince1970: 11)
+        )
+
+        let record = try #require(registry.record(sessionID: sessionID))
+        #expect(record.state == .idle)
+        #expect(!record.hasHookLifecycleState)
+    }
+
     @MainActor
     @Test func relaunchOnlyPlaceholderCannotBecomeResumeSessionIdentity() {
         #expect(!AgentChatTranscriptService.isValidResumeSessionID(""))
@@ -268,5 +443,30 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
             .appendingPathComponent("cmux-agent-chat-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+}
+
+private actor AgentChatConcurrentFallbackResolutionProbe {
+    private let path: String
+    private var calls = 0
+
+    init(path: String) {
+        self.path = path
+    }
+
+    func resolve(
+        record _: AgentChatSessionRecord,
+        deadline: ContinuousClock.Instant
+    ) async -> String? {
+        calls += 1
+        for _ in 0..<100 {
+            guard !Task.isCancelled, ContinuousClock.now < deadline else { return nil }
+            await Task.yield()
+        }
+        return path
+    }
+
+    func callCount() -> Int {
+        calls
     }
 }

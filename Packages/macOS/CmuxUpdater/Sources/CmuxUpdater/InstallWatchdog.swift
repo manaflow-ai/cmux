@@ -5,9 +5,9 @@ import Foundation
 /// When the user clicks Install, ``UpdateController`` arms this watchdog with a bounded,
 /// cancellable deadline (``installWatchdogTimeout``). If the flow reaches a state
 /// that either progresses the install or communicates a clear outcome, the controller disarms it.
-/// If the deadline elapses while the flow is still merely checking or showing "Update Available"
-/// with nothing downloading, the controller surfaces a visible "Update Didn't Start" error rather
-/// than leaving the user staring at a pill that never advances.
+/// If the deadline elapses before Sparkle reports download progress or another visible terminal,
+/// the controller surfaces a visible "Update Didn't Start" error rather than leaving the user
+/// staring at a pill that never advances.
 ///
 /// The watchdog owns only its timer; the *decision* of what counts as stalled vs. resolved lives
 /// in the two pure, exhaustively-tested static predicates below, and the error-surfacing side
@@ -58,15 +58,14 @@ final class InstallWatchdog {
     /// Whether `state`, observed when the watchdog fires, means the install never got going: the
     /// user asked to install but the flow is still merely checking, showing "Update Available",
     /// or sitting at `.idle` with no download underway. `.idle` counts as stalled because every
-    /// legitimate way to be idle at the deadline disarms first (a user-cancelled fresh check ends
-    /// the attempt via ``attemptEndedWithoutInstall(action:isCoordinatorMonitoring:)``; terminal
-    /// outcomes disarm via ``installAttemptResolved(_:)``) — so an armed deadline firing at idle
-    /// is the pre-check stall where the delayed re-check was dropped and `.checking` never came.
+    /// legitimate way to be idle at the deadline disarms first (causal user-cancel callbacks end
+    /// the attempt; terminal outcomes disarm via ``installAttemptResolved(_:)``) — so an armed
+    /// deadline firing at idle is an unattributed accepted-install failure.
     /// `.permissionRequest` stays not-stalled (a state cmux never surfaces; erroring over it
     /// would be wrong if Sparkle ever did).
     func installAttemptStalled(_ state: UpdateState) -> Bool {
         switch state {
-        case .checking, .updateAvailable, .idle:
+        case .preparingCheck, .checking, .updateAvailable, .startingDownload, .idle:
             return true
         case .permissionRequest, .downloading, .extracting, .installing, .notFound, .error:
             return false
@@ -79,15 +78,14 @@ final class InstallWatchdog {
         switch state {
         case .downloading, .extracting, .installing, .notFound, .error:
             return true
-        case .idle, .permissionRequest, .checking, .updateAvailable:
+        case .idle, .permissionRequest, .preparingCheck, .checking, .updateAvailable, .startingDownload:
             return false
         }
     }
 
     /// Whether feeding a state change to ``AttemptUpdateCoordinator`` just ended the install
     /// attempt without handing an install to Sparkle: the coordinator stopped monitoring for any
-    /// reason other than `.confirmInstall` (the user cancelled the fresh check back to idle, or
-    /// it terminated in notFound/error). The watchdog is bound to the attempt that armed it, so
+    /// reason other than `.confirmInstall`. The watchdog is bound to the attempt that armed it, so
     /// the controller disarms on this — a deadline that outlives its attempt would otherwise fire
     /// a spurious "Update Didn't Start" over a later, unrelated check that happens to be sitting
     /// in `.checking`/`.updateAvailable`.

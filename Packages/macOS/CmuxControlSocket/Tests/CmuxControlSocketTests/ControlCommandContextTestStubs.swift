@@ -45,6 +45,7 @@ extension ControlPaneContext {
     func controlPaneList(routing: ControlRoutingSelectors) -> ControlPaneListSnapshot? { nil }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { false }
     func controlPaneResizeInvalidParametersMessage() -> String { "Invalid pane resize parameters" }
+    func controlPaneSurfaceNotFoundMessage() -> String { "Surface not found" }
     func controlPaneFocus(
         routing: ControlRoutingSelectors,
         paneID: UUID
@@ -188,7 +189,12 @@ extension ControlNotificationContext {
 
 extension ControlWorkspaceGroupContext {
     func controlWorkspaceGroupStrings() -> ControlWorkspaceGroupStrings {
-        ControlWorkspaceGroupStrings(allChildrenAreAnchors: "", workspaceIsOtherGroupAnchor: "", invalidReferenceWorkspace: "invalid reference workspace")
+        ControlWorkspaceGroupStrings(
+            allChildrenAreAnchors: "",
+            workspaceIsOtherGroupAnchor: "",
+            invalidReferenceWorkspace: "invalid reference workspace",
+            closeWorkspacesMustBeBoolean: "close workspaces must be boolean"
+        )
     }
 
     func controlWorkspaceGroupList(
@@ -199,11 +205,10 @@ extension ControlWorkspaceGroupContext {
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
-        childWorkspaceIDs: [UUID],
-        childrenExplicit: Bool
+        childWorkspaceIDs: [UUID]
     ) -> ControlWorkspaceGroupCreateResolution { .tabManagerUnavailable }
 
-    func controlUngroupWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID) -> Bool? { nil }
+    func controlUngroupWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID) -> Int? { nil }
     func controlDeleteWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID) -> Int? { nil }
     func controlRenameWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID, name: String) -> Bool? { nil }
     func controlSetWorkspaceGroupCollapsed(routing: ControlRoutingSelectors, groupID: UUID, isCollapsed: Bool) -> Bool? { nil }
@@ -342,7 +347,8 @@ extension ControlWorkspaceContext {
 
     func controlWorkspaceRemoteForegroundAuthReady(
         workspaceID: UUID,
-        foregroundAuthToken: String?
+        foregroundAuthToken: String?,
+        resolvedControlPath: String?
     ) -> ControlWorkspaceRemoteResolution { .notFound(workspaceID: workspaceID) }
 
     func controlWorkspaceRemoteStatus(workspaceID: UUID) -> ControlWorkspaceRemoteResolution {
@@ -360,10 +366,34 @@ extension ControlWorkspaceContext {
         sessionID: String
     ) -> ControlWorkspaceRemotePTYAttachEndResolution { .notFound }
 
+    nonisolated func controlCurrentRemotePTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> ControlRemotePTYLifecycleOwner? { nil }
+
+    func controlWorkspaceRemoteTerminalSessionLaunching(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution { .notFound }
+
+    func controlWorkspaceRemoteTerminalSessionConnected(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        authority: ControlWorkspaceRemoteTerminalAuthority,
+        attemptID: UUID,
+        commitLease: (any ControlRemotePTYLifecycleCommitLease)?
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution { .notFound }
+
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID: UUID,
         surfaceID: UUID,
-        relayPort: Int?, sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
+        relayPort: Int?,
+        terminalLifecycleID: UUID?,
+        sessionID: String?,
+        lifecycleID: String?,
+        lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution { .notFound }
 }
 
@@ -390,6 +420,7 @@ extension ControlSurfaceContext {
             surfaceNotTerminal: ""
         )
     }
+    func controlSurfaceNotFoundMessage() -> String { "Surface not found" }
 
     func controlSurfaceSplit(
         routing: ControlRoutingSelectors,
@@ -408,7 +439,8 @@ extension ControlSurfaceContext {
 
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
-        surfaceID: UUID?
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
     ) -> ControlSurfaceCloseResolution { .tabManagerUnavailable }
 
     func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {
@@ -438,6 +470,13 @@ extension ControlSurfaceContext {
 
     nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
         ControlSurfaceInputStrings(inputQueueFull: "", surfaceUnavailable: "", processExited: "")
+    }
+
+    func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
+        ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: "",
+            launchCommandMustBeValid: ""
+        )
     }
 
     func controlSurfaceSendText(
@@ -472,16 +511,32 @@ extension ControlSurfaceContext {
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
-        expectedSource: String?
+        expectedSource: String?,
+        agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
     nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }
     nonisolated func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? { nil }
 
-    func controlSurfaceReportTTY(workspaceID: UUID, requestedSurfaceID: UUID?, ttyName: String)
+    func controlSurfaceReportTTY(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        ttyName: String,
+        authenticatedRemoteWorkspaceID: UUID?,
+        terminalLifecycleID: UUID?,
+        attemptID: UUID?
+    )
         -> ControlSurfaceReportTTYResolution { .workspaceNotFound }
     func controlSurfaceReportPWD(workspaceID: UUID, requestedSurfaceID: UUID?, path: String)
         -> ControlSurfaceReportPWDResolution { .workspaceNotFound }
+    func controlSurfaceReportGitBranch(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        branch: String,
+        isDirty: Bool?
+    ) -> ControlSurfaceReportGitBranchResolution { .workspaceNotFound }
+    func controlSurfaceClearGitBranch(workspaceID: UUID, requestedSurfaceID: UUID?)
+        -> ControlSurfaceReportGitBranchResolution { .workspaceNotFound }
 
     func controlSurfaceReportShellState(
         workspaceID: UUID,
@@ -512,5 +567,6 @@ extension ControlMobileHostContext {
     func controlMobileTerminalScroll(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalMouse(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileTaskAttachmentUpload(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileChatSessionsDump() -> ControlCallResult { mobileHostStubResult }
 }

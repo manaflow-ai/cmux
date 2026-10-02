@@ -19,6 +19,9 @@ public struct ChatRowActions {
     /// Opens the session's raw terminal (the escape hatch).
     public var openTerminal: () -> Void
 
+    /// Pushes a Mac-hosted artifact in the conversation's navigation stack.
+    public var openArtifact: (String) -> Void
+
     /// Shows a non-resizing detail sheet for a compact message row.
     public var showMessageDetail: (ChatMessage) -> Void
 
@@ -28,6 +31,11 @@ public struct ChatRowActions {
     /// Shows a non-resizing detail sheet for an embedded prose code block.
     public var showCodeBlockDetail: (String, Int) -> Void
 
+    /// A row copied something to the pasteboard; the host confirms it
+    /// (toast + haptic), keeping one confirmation vocabulary above the
+    /// snapshot boundary.
+    public var notifyCopied: () -> Void
+
     /// Creates an action bundle.
     ///
     /// - Parameters:
@@ -35,6 +43,7 @@ public struct ChatRowActions {
     ///   - retryPending: Retries a failed pending send by pending id.
     ///   - discardPending: Discards a failed pending send by pending id.
     ///   - openTerminal: Opens the session's raw terminal.
+    ///   - openArtifact: Pushes a Mac-hosted artifact path inline.
     ///   - showMessageDetail: Presents full details for compact message rows.
     ///   - showTerminalCommandDetail: Presents full details for terminal rows.
     ///   - showCodeBlockDetail: Presents full details for prose code blocks.
@@ -43,16 +52,20 @@ public struct ChatRowActions {
         retryPending: @escaping (String) -> Void = { _ in },
         discardPending: @escaping (String) -> Void = { _ in },
         openTerminal: @escaping () -> Void = {},
+        openArtifact: @escaping (String) -> Void = { _ in },
         showMessageDetail: @escaping (ChatMessage) -> Void = { _ in },
         showTerminalCommandDetail: @escaping (TerminalCommandBlock) -> Void = { _ in },
-        showCodeBlockDetail: @escaping (String, Int) -> Void = { _, _ in }
+        showCodeBlockDetail: @escaping (String, Int) -> Void = { _, _ in },
+        notifyCopied: @escaping () -> Void = {}
     ) {
         self.answerOption = answerOption
         self.retryPending = retryPending
         self.discardPending = discardPending
         self.openTerminal = openTerminal
+        self.openArtifact = openArtifact
         self.showMessageDetail = showMessageDetail
         self.showTerminalCommandDetail = showTerminalCommandDetail
         self.showCodeBlockDetail = showCodeBlockDetail
+        self.notifyCopied = notifyCopied
     }
 }

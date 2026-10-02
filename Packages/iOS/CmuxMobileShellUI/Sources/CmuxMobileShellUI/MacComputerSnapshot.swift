@@ -1,9 +1,11 @@
+import CmuxMobilePairedMac
 import CmuxMobileShellModel
 import Foundation
 
 /// Immutable per-computer snapshot for the Computers screen.
 struct MacComputerSnapshot: Equatable, Identifiable {
     let deviceId: String
+    let instanceTag: String?
     let title: String
     let platform: String
     /// The Mac's distinct color index.
@@ -34,5 +36,7 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     /// entries stop looking interchangeable.
     var isOlderDuplicate: Bool = false
 
-    var id: String { deviceId }
+    var id: String {
+        MobilePairedMac.pairingID(macDeviceID: deviceId, instanceTag: instanceTag)
+    }
 }

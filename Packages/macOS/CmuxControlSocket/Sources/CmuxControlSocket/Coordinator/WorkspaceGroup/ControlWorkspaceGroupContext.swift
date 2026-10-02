@@ -37,29 +37,21 @@ public protocol ControlWorkspaceGroupContext: AnyObject {
 
     /// Creates a workspace group for `workspace.group.create`.
     ///
-    /// The coordinator has already parsed `name` / `cwd`, resolved the child
-    /// handles to UUIDs, and surfaced the param-shape `invalid_params` failures;
-    /// this runs the live-state remainder (fallback child selection, the
-    /// target-window existence check, the all-children-are-anchors guard, and
-    /// the create call).
+    /// The coordinator has already parsed `name` / `cwd`, resolved the explicit
+    /// child handles to UUIDs, and surfaced param-shape failures. Missing child
+    /// input is represented as an empty array rather than ambient app state.
     ///
     /// - Parameters:
-    ///   - routing: The routing selectors used for TabManager resolution and the
-    ///     caller-workspace fallback.
+    ///   - routing: The routing selectors used for TabManager resolution.
     ///   - name: The group name (already defaulted to "" when absent).
     ///   - cwd: The anchor working directory, if provided.
-    ///   - childWorkspaceIDs: The resolved child workspace ids, in request order
-    ///     (empty when none provided/resolved).
-    ///   - childrenExplicit: Whether the caller explicitly listed
-    ///     `child_workspace_ids` (drives the eligibility guard and disables the
-    ///     fallback selection).
+    ///   - childWorkspaceIDs: The resolved child workspace ids, in request order.
     /// - Returns: The create resolution.
     func controlCreateWorkspaceGroup(
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
-        childWorkspaceIDs: [UUID],
-        childrenExplicit: Bool
+        childWorkspaceIDs: [UUID]
     ) -> ControlWorkspaceGroupCreateResolution
 
     /// Ungroups the group for `workspace.group.ungroup`.
@@ -67,12 +59,12 @@ public protocol ControlWorkspaceGroupContext: AnyObject {
     /// - Parameters:
     ///   - routing: The routing selectors used for TabManager resolution.
     ///   - groupID: The group to ungroup.
-    /// - Returns: `true` if the group existed and was ungrouped, `nil` if no
-    ///   TabManager resolved.
+    /// - Returns: The number of workspaces kept if the group existed, `-1` if
+    ///   the group was not found, or `nil` if no TabManager resolved.
     func controlUngroupWorkspaceGroup(
         routing: ControlRoutingSelectors,
         groupID: UUID
-    ) -> Bool?
+    ) -> Int?
 
     /// Deletes the group for `workspace.group.delete`.
     ///

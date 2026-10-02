@@ -2,6 +2,13 @@ import Foundation
 
 /// Mobile integration settings for pairing and syncing with cmux on iOS.
 public struct MobileCatalogSection: SettingCatalogSection {
+    /// Folder paths that iOS may access after a chat or terminal references a directory.
+    public let artifactFolderAccess = DefaultsKey<MobileArtifactFolderAccess>(
+        id: "mobile.artifactFolderAccess",
+        defaultValue: .subtree,
+        userDefaultsKey: "mobile.artifactFolderAccess"
+    )
+
     /// Mac-side iOS pairing host. Release defaults OFF so macOS never asks for
     /// Local Network permission until the user opts in from Settings. DEBUG
     /// (dev) builds default ON so a dev Mac advertises its attach route without a

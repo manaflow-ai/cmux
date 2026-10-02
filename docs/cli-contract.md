@@ -66,7 +66,8 @@ Environment:
 | `disable-browser` | Disable cmux browser creation and link interception until re-enabled. |
 | `enable-browser` | Re-enable cmux browser creation and link interception. |
 | `browser-status` | Print whether cmux browser creation and link interception are enabled. |
-| `agent-hibernation` | Enable or disable Agent Hibernation. |
+| `agent-hibernation` | Enable or disable routine Agent Hibernation. |
+| `restore` | Replace the CLI with a process restored from structured surface state. |
 | `restore-session` | Restore the previously saved cmux session. |
 | `open` | Open files, directories, or URLs in cmux. |
 | `feedback` | Open feedback UI or submit feedback with `--email`, `--body`, and repeated `--image`. |
@@ -339,6 +340,12 @@ Browser subcommands:
 | `browser input`, `browser input_mouse`, `browser input_keyboard`, `browser input_touch` | Send low-level input. |
 | `browser identify` | Identify browser surface context. |
 
+`browser screenshot` reports `screenshot_mismatch` when conservative DOM/pixel
+attestation still disagrees after its retry, `timeout` when capture cannot
+complete within its bounded budget or another capture is already in progress,
+and `internal_error` for other failures. Clients may retry `timeout` and
+`screenshot_mismatch`; cmux does not return the suspect image.
+
 `browser viewport` changes the selected browser surface only. On WKWebView, the
 requested logical size becomes `window.innerWidth`/`window.innerHeight` and the
 page is uniformly scaled to fit inside the existing pane. The pane layout and
@@ -372,6 +379,8 @@ Hook subcommands:
 | `hooks codex <event>` | Handle Codex hook events. `codex install-hooks` remains as the main-compatibility installer alias. |
 | `hooks feed --source <agent>` | Convert agent hook events into Feed context. |
 | `hooks <agent> <event>` | Generic hook surface for `grok`, `opencode`, `pi`, `amp`, `cursor`, `gemini`, `kimi`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+
+Kimi hook setup targets `${KIMI_SHARE_DIR:-~/.kimi}/config.toml`. Setup and uninstall also remove only cmux's marker-delimited block from the legacy `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml` path.
 
 Right sidebar commands:
 
@@ -470,6 +479,14 @@ shared by the sidebar row, the checklist popover, the todo pane, `cmux todo`
 / `cmux workspace status`, and the `workspace.todo.*` / `workspace.status.*`
 socket verbs (all funnel through the same mutation entry points).
 
+Agent policy: the checklist and manual status pins belong to the user.
+Coding agents must not create, edit, complete, remove, or replace checklist
+items, and must not `set`/`cycle` the status, unless the user explicitly
+asks them to manage that surface — a request to manage checklist items or
+a request to manage manual status pins. The status lane already tracks
+agent activity automatically through inference; agents should keep their
+own plans in their internal task tracking.
+
 Item schema (wire and `todo list --json` shape):
 
 | Field | Contract |
@@ -543,6 +560,7 @@ the expected text without connecting to a cmux socket.
 - `cmux enable-browser --help` -> `Usage: cmux enable-browser [--json]`
 - `cmux browser-status --help` -> `Usage: cmux browser-status [--json]`
 - `cmux agent-hibernation --help` -> `Usage: cmux agent-hibernation <on|off> [--json]`
+- `cmux restore --help` -> `Usage: cmux restore <kind> <checkpoint-id>`
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
 - `cmux open --help` -> `Usage: cmux open <path-or-url>...`
 - `cmux feedback --help` -> `Usage: cmux feedback`
@@ -573,6 +591,11 @@ the expected text without connecting to a cmux socket.
 - `cmux list-workspaces --help` -> `Usage: cmux list-workspaces`
 - `cmux ssh --help` -> `Usage: cmux ssh <destination>`
 - `cmux ssh --help` -> `--forward-agent`
+- `cmux ssh --help` -> `--transport <ssh|mosh>`
+- `cmux mosh --help` -> `Usage: cmux mosh <destination>`
+- `cmux mosh-tmux --help` -> `Usage: cmux mosh-tmux <destination>`
+- `cmux mosh-tmux --help` -> `--session <name>`
+- `cmux ssh --help` -> `--command <text>`
 - `cmux ssh-session-list --help` -> `Usage: cmux ssh-session-list`
 - `cmux ssh-session-attach --help` -> `Usage: cmux ssh-session-attach --session-id <id>`
 - `cmux ssh-session-cleanup --help` -> `Usage: cmux ssh-session-cleanup`
@@ -657,6 +680,8 @@ the expected text without connecting to a cmux socket.
 - `cmux is-webview-focused --help` -> `Legacy alias for 'cmux browser is-webview-focused'`
 - `cmux markdown --help` -> `Usage: cmux markdown open <path>`
 <!-- cli-contract-help-probes:end -->
+
+For `cmux restore`, `--surface [id|ref]` uses the caller when omitted.
 
 ## No-Socket Negative Help Probes
 

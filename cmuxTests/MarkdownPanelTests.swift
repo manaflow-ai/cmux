@@ -320,6 +320,11 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(panel.isFileUnavailable)
 
         let reloaded = expectation(description: "markdown file change reloaded")
+        // An atomic write is a rename, so the watcher can re-read and republish the
+        // same content more than once. Over-fulfilling a one-shot expectation raises
+        // XCTest's API-violation exception while this test is suspended in
+        // `fulfillment(of:)`, which kills the test host instead of failing the test.
+        reloaded.assertForOverFulfill = false
         let cancellable = panel.$content.dropFirst().sink { content in
             if content == updatedContent {
                 reloaded.fulfill()
@@ -1586,23 +1591,34 @@ final class MarkdownPanelTests: XCTestCase {
 private final class MarkdownShellLoadDelegate: NSObject, WKNavigationDelegate {
     let expectation: XCTestExpectation
     var error: Error?
+    private var didSettle = false
 
     init(expectation: XCTestExpectation) {
         self.expectation = expectation
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    /// WebKit can report more than one terminal outcome for a single load (a
+    /// provisional failure followed by a finish, for instance), so only the first
+    /// one counts. Fulfilling the same one-shot expectation twice raises XCTest's
+    /// API-violation exception from inside the callback, which takes the test host
+    /// down instead of failing the test.
+    private func settle(_ error: Error?) {
+        guard !didSettle else { return }
+        didSettle = true
+        self.error = error
         expectation.fulfill()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        settle(nil)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        self.error = error
-        expectation.fulfill()
+        settle(error)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        self.error = error
-        expectation.fulfill()
+        settle(error)
     }
 }
 

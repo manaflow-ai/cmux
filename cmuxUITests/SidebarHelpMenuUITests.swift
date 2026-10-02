@@ -24,7 +24,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
     }
 
     func testHelpMenuCheckForUpdatesTriggersSidebarUpdatePill() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmux.test/appcast.xml"
         app.launchEnvironment["CMUX_UI_TEST_FEED_MODE"] = "available"
@@ -54,7 +54,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
     }
 
     func testHelpMenuSendFeedbackOpensComposerSheet() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
 
@@ -220,7 +220,7 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
     }
 
     func testCmdOptionFOpensFeedbackComposer() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launch()
         app.activate()
@@ -241,7 +241,7 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
     }
 
     func testCmdOptionFWorksWithHiddenSidebar() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launch()
         app.activate()
@@ -266,7 +266,7 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
     }
 
     func testCmdOptionFWorksFromSettingsWindow() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
         app.launch()
@@ -323,7 +323,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     func testCmdShiftPBackspaceReturnsToWorkspaceResults() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureSocketControlledLaunch(app)
         launchAndActivate(app)
 
@@ -405,7 +405,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     func testCmdShiftPCheckQueryPrefersCheckForUpdatesBeforeAttemptUpdate() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
@@ -438,7 +438,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     func testCmdPSearchCanIncludeSurfacesFromOtherWorkspacesWhenEnabled() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureSocketControlledLaunch(app, showSettingsWindow: true)
         launchAndActivate(app)
 
@@ -514,7 +514,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     func testMinimalModeToggleKeepsSettingsWindowFocused() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let diagnosticsPath = "/tmp/cmux-ui-test-settings-focus-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -581,7 +581,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     func testMenuBarOnlyToggleKeepsSettingsWindowFocused() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let diagnosticsPath = "/tmp/cmux-ui-test-menu-bar-only-focus-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
         resetMenuBarOnlyDefault()
@@ -666,7 +666,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     func testCommandPaletteCanEnableAndDisableMinimalMode() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureSocketControlledLaunch(app, showSettingsWindow: true)
         app.launchArguments += ["-workspacePresentationMode", "standard"]
         launchAndActivate(app)
@@ -757,7 +757,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     func testSwitcherEmptyStateDoesNotBlinkWhileRefiningNoMatchQuery() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureSocketControlledLaunch(app)
         launchAndActivate(app)
 

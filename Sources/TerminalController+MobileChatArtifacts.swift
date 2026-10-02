@@ -1,8 +1,11 @@
 import CmuxAgentChat
+import CmuxSettings
 import Foundation
 
 private enum TerminalControllerChatArtifactIndexProvider {
     static let shared = AgentChatArtifactIndex()
+    static let ordering = ChatArtifactGalleryOrderingCache()
+    static let rowCounts = ChatArtifactGalleryRowCountCache(maximumAge: 2)
 }
 
 extension TerminalController {
@@ -41,22 +44,25 @@ extension TerminalController {
             }
             let pageSize = min(max(v2Int(params, "page_size") ?? 60, 1), 100)
             let query = v2RawString(params, "query")
+            let includeDirectories = v2Bool(params, "include_directories") ?? false
+            let orderedItems = await TerminalControllerChatArtifactIndexProvider.ordering.ordered(
+                indexedSession.snapshot.artifacts,
+                indexID: indexedSession.sessionID,
+                generation: indexedSession.snapshot.generation
+            )
             let page = await Task.detached(priority: .utility) {
                 AgentChatArtifactGalleryBuilder().page(
                     sessionID: indexedSession.sessionID,
                     items: indexedSession.snapshot.artifacts,
+                    orderedItems: orderedItems,
                     generation: indexedSession.snapshot.generation,
                     cursor: cursor,
                     pageSize: pageSize,
-                    query: query
+                    query: query,
+                    includeDirectories: includeDirectories
                 )
             }.value
-            var payload = ChatArtifactWire.payload(page) ?? [:]
-            if cursor != nil {
-                payload.removeValue(forKey: "created")
-                payload.removeValue(forKey: "attached")
-            }
-            return .ok(payload)
+            return .ok(ChatArtifactWire.payload(page) ?? [:])
         } catch {
             return mobileChatArtifactError(.notFound, path: "")
         }
@@ -79,6 +85,33 @@ extension TerminalController {
             workingDirectory: record.workingDirectory
         )
         return (record.sessionID, snapshot)
+    }
+
+    /// Returns the stat-filtered count for the gallery's default landing view.
+    func mobileChatArtifactGalleryRowTotal(
+        sessionID: String,
+        generation: String,
+        artifacts: [ChatArtifactIndexedReference],
+        includeDirectories: Bool,
+        includeMissing: Bool
+    ) async -> Int {
+        // Counting is order-independent, so the ordering cache is skipped;
+        // the sweep is existence-only over the raw snapshot, runs off the
+        // caller inside the cache actor, and concurrent misses on the same
+        // (session, generation, filters) key share one computation.
+        await TerminalControllerChatArtifactIndexProvider.rowCounts.total(
+            sessionID: sessionID,
+            generation: generation,
+            includeDirectories: includeDirectories,
+            includeMissing: includeMissing,
+            now: Date()
+        ) {
+            ChatArtifactGalleryRowEligibility().defaultRowCount(
+                artifacts,
+                includeDirectories: includeDirectories,
+                includeMissing: includeMissing
+            )
+        }
     }
 
     func v2MobileChatArtifactStat(params: [String: Any]) async -> V2CallResult {
@@ -106,7 +139,10 @@ extension TerminalController {
         }
     }
 
-    func v2MobileChatArtifactFetch(params: [String: Any]) async -> V2CallResult {
+    func v2MobileChatArtifactFetch(
+        params: [String: Any],
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) async -> V2CallResult {
         let resolution = await mobileChatArtifactResolution(params: params, operation: .file)
         guard case .success(let resolved) = resolution else {
             return resolution.failureResult
@@ -115,10 +151,44 @@ extension TerminalController {
         let length = ChatArtifactTransferPolicy.defaultPolicy
             .clampedChunkLength(v2Int(params, "length"))
         do {
+            if v2RawString(params, "transport") == "iroh_artifact_v1" {
+                guard let executionContext else {
+                    return .err(
+                        code: "unsupported_transport",
+                        message: String(
+                            localized: "mobile.chat.artifact.error.irohTransportUnavailable",
+                            defaultValue: "Artifact transfer requires an authenticated session."
+                        ),
+                        data: nil
+                    )
+                }
+                return .ok(ChatArtifactWire.payload(
+                    try await executionContext.issueArtifactTransfer(
+                        canonicalPath: resolved.canonicalPath
+                    )
+                ) ?? [:])
+            }
             let chunk = try await Task.detached {
                 try ArtifactByteReader().fetch(path: resolved.canonicalPath, offset: offset, length: length)
             }.value
             return .ok(ChatArtifactWire.payload(chunk) ?? [:])
+        } catch let error as MobileHostIrohArtifactTransferRegistry.Error {
+            switch error.issueFailure {
+            case .fileNotFound:
+                debugLogMobileChatArtifactDenial(
+                    code: "file_not_found",
+                    reason: "descriptor-file-invalid",
+                    path: resolved.requestedPath
+                )
+                return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
+            case .unavailable:
+                debugLogMobileChatArtifactDenial(
+                    code: "unavailable",
+                    reason: "descriptor-issue-failed",
+                    path: resolved.requestedPath
+                )
+                return mobileChatArtifactError(.unavailable, path: resolved.requestedPath)
+            }
         } catch ArtifactByteReader.Error.fileNotFound {
             debugLogMobileChatArtifactDenial(
                 code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
@@ -244,7 +314,8 @@ extension TerminalController {
                 transcriptPath: transcriptPath,
                 workingDirectory: record.workingDirectory,
                 requestedPath: requestedPath,
-                operation: operation.indexOperation
+                operation: operation.indexOperation,
+                directoryAccessMode: mobileArtifactDirectoryAccessMode()
             )
             switch pathResult {
             case .success(let canonicalPath):
@@ -268,6 +339,22 @@ extension TerminalController {
         }
     }
 
+    /// Resolves the persisted mobile folder setting into the shared scope policy.
+    func mobileArtifactDirectoryAccessMode(
+        defaults: UserDefaults = .standard
+    ) -> ChatArtifactScope.DirectoryAccessMode {
+        let key = SettingCatalog().mobile.artifactFolderAccess
+        let setting = MobileArtifactFolderAccess.decodeFromUserDefaults(
+            defaults.object(forKey: key.userDefaultsKey)
+        ) ?? key.defaultValue
+        switch setting {
+        case .subtree:
+            return .subtree
+        case .oneLevel:
+            return .oneLevel
+        }
+    }
+
     private func debugLogMobileChatArtifactDenial(code: String, reason: String, path: String) {
         #if DEBUG
         cmuxDebugLog("mobile.chat.artifact.deny code=\(code) reason=\(reason) path=\(path)")
@@ -279,6 +366,7 @@ extension TerminalController {
         case forbidden
         case fileNotFound
         case unsupportedMedia
+        case unavailable
     }
 
     private func mobileChatArtifactError(
@@ -321,6 +409,15 @@ extension TerminalController {
                     defaultValue: "This file type cannot be previewed."
                 ),
                 data: ["path": path]
+            )
+        case .unavailable:
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "mobile.chat.artifact.error.transferUnavailable",
+                    defaultValue: "Artifact transfer is temporarily unavailable."
+                ),
+                data: nil
             )
         }
     }

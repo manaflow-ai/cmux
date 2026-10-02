@@ -678,34 +678,43 @@ EOF
 }
 
 check_dmg_signing_uses_build_keychain() {
-  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
-    if grep -Fq -- '--identity="$APPLE_SIGNING_IDENTITY"' "$file"; then
-      echo "FAIL: $(basename "$file") must not let create-dmg codesign outside build.keychain"
-      exit 1
-    fi
+  local nightly_workflow="$ROOT_DIR/.github/workflows/nightly.yml"
+  local nightly_helper="$ROOT_DIR/scripts/ci/notarize-nightly-dmg.sh"
+  local release_workflow="$ROOT_DIR/.github/workflows/release.yml"
 
-    if ! awk '
-      /create-dmg[[:space:]]*\\/ { in_dmg=1; next }
-      in_dmg && /--no-code-sign[[:space:]]*\\/ { saw_no_code_sign=1 }
-      in_dmg && /^[[:space:]]*$/ { in_dmg=0 }
-      END { exit !saw_no_code_sign }
-    ' "$file"; then
-      echo "FAIL: $(basename "$file") must disable create-dmg implicit code signing"
-      exit 1
-    fi
-
-    if ! awk '
-      /create-dmg[[:space:]]*\\/ { in_dmg=1; next }
-      in_dmg && /\/usr\/bin\/codesign --force --timestamp --keychain build\.keychain/ { saw_keychain=1 }
-      in_dmg && /--sign "\$APPLE_SIGNING_IDENTITY"/ { saw_identity=1 }
-      in_dmg && /\/usr\/bin\/codesign --verify --verbose=2 "\$(DMG_RELEASE|dmg_release)"/ { saw_verify=1 }
-      in_dmg && /xcrun notarytool submit "\$(DMG_RELEASE|dmg_release)"/ { saw_notary=1 }
-      END { exit !(saw_keychain && saw_identity && saw_verify && saw_notary) }
-    ' "$file"; then
-      echo "FAIL: $(basename "$file") must sign DMGs explicitly with build.keychain before notarization"
+  if ! grep -Fq './scripts/ci/notarize-nightly-dmg.sh \' "$nightly_workflow"; then
+    echo "FAIL: nightly workflow must invoke the guarded notarization helper"
+    exit 1
+  fi
+  for needle in \
+    'CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"' \
+    '"$CREATE_DMG_TOOL" --no-code-sign "$APP_PATH" "$DMG_TMP_DIR"' \
+    '"$CODESIGN_TOOL" --force --timestamp --keychain build.keychain' \
+    '--sign "$APPLE_SIGNING_IDENTITY"' \
+    '"$CODESIGN_TOOL" --verify --verbose=2 "$DMG_RELEASE"' \
+    '"$XCRUN_TOOL" notarytool submit "$DMG_RELEASE"'; do
+    if ! grep -Fq -- "$needle" "$nightly_helper"; then
+      echo "FAIL: nightly notarization helper must sign the DMG through build.keychain before submission: $needle"
       exit 1
     fi
   done
+
+  if grep -Eq -- '--identity([=[:space:]]|$)' "$release_workflow"; then
+    echo "FAIL: release.yml must not let create-dmg codesign outside build.keychain"
+    exit 1
+  fi
+  if ! awk '
+    /create-dmg[[:space:]]*\\/ { in_dmg=1; next }
+    in_dmg && /--no-code-sign[[:space:]]*\\/ { saw_no_code_sign=1 }
+    in_dmg && /\/usr\/bin\/codesign --force --timestamp --keychain build\.keychain/ { saw_keychain=1 }
+    in_dmg && /--sign "\$APPLE_SIGNING_IDENTITY"/ { saw_identity=1 }
+    in_dmg && /\/usr\/bin\/codesign --verify --verbose=2 "\$(DMG_RELEASE|dmg_release)"/ { saw_verify=1 }
+    in_dmg && /xcrun notarytool submit "\$(DMG_RELEASE|dmg_release)"/ { saw_notary=1 }
+    END { exit !(saw_no_code_sign && saw_keychain && saw_identity && saw_verify && saw_notary) }
+  ' "$release_workflow"; then
+    echo "FAIL: release.yml must sign DMGs explicitly with build.keychain before notarization"
+    exit 1
+  fi
 
   echo "PASS: DMG signing uses build.keychain explicitly"
 }
@@ -757,21 +766,26 @@ check_gui_smoke_unsupported_launch_handling() {
     exit 1
   fi
 
-  if ! awk '
-    /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1/ { saw_launchservices=1 }
-    /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_DIRECT_EXEC=1/ { saw_direct_exec=1 }
-    END { exit !(saw_launchservices && saw_direct_exec) }
-  ' "$ROOT_DIR/.github/workflows/nightly.yml"; then
-    echo "FAIL: nightly signing smoke must run direct exec after unsupported-GUI LaunchServices smoke"
+  local nightly_workflow="$ROOT_DIR/.github/workflows/nightly.yml"
+  local nightly_helper="$ROOT_DIR/scripts/ci/notarize-nightly-dmg.sh"
+  if ! grep -Fq './scripts/ci/notarize-nightly-dmg.sh \' "$nightly_workflow"; then
+    echo "FAIL: nightly workflow must invoke the helper that owns launch smokes"
     exit 1
   fi
-
-  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
-    if ! grep -Fq 'scripts/smoke-launch-macos-app.sh' "$file"; then
-      echo "FAIL: $(basename "$file") signing workflow must run launch smoke"
+  for needle in \
+    'SMOKE_TOOL="${CMUX_SMOKE_TOOL:-$ROOT_DIR/scripts/smoke-launch-macos-app.sh}"' \
+    'CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL"' \
+    'CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL"'; do
+    if ! grep -Fq -- "$needle" "$nightly_helper"; then
+      echo "FAIL: nightly notarization helper must preserve both launch smokes: $needle"
       exit 1
     fi
   done
+
+  if ! grep -Fq 'scripts/smoke-launch-macos-app.sh' "$ROOT_DIR/.github/workflows/release.yml"; then
+    echo "FAIL: release.yml signing workflow must run launch smoke"
+    exit 1
+  fi
 
   echo "PASS: signing smoke handles unsupported GUI launch and release direct exec explicitly"
 }
@@ -825,6 +839,252 @@ check_web_db_behavior_tests() {
   echo "PASS: web DB behavior tests run through the discovery runner"
 }
 
+check_web_test_runner_behavior() {
+  local fixture_dir fixture_runner args_log expected_args live_mode
+  fixture_dir="$(mktemp -d)"
+  trap 'rm -rf -- "$fixture_dir"' EXIT
+  fixture_runner="$fixture_dir/web/scripts/run-tests.sh"
+  args_log="$fixture_dir/bun-args.log"
+  mkdir -p \
+    "$fixture_dir/web/.hidden" \
+    "$fixture_dir/web/node_modules/fixture" \
+    "$fixture_dir/web/scripts" \
+    "$fixture_dir/web/tests/nested" \
+    "$fixture_dir/bin"
+  cp "$ROOT_DIR/web/scripts/run-tests.sh" "$fixture_runner"
+  touch \
+    "$fixture_dir/web/.hidden/ignored.test.ts" \
+    "$fixture_dir/web/node_modules/fixture/ignored.test.ts" \
+    "$fixture_dir/web/scripts/alpha_spec.mts" \
+    "$fixture_dir/web/tests/beta.test.ts" \
+    "$fixture_dir/web/tests/nested/gamma_test.tsx" \
+    "$fixture_dir/web/tests/nested/omega.spec.mjs"
+
+  cat > "$fixture_dir/bin/bun" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then
+  printf '%s\n' "${CMUX_WEB_TEST_RUNNER_BUN_VERSION:-1.3.14}"
+  exit 0
+fi
+printf '%s\n' "$@" > "$CMUX_WEB_TEST_RUNNER_ARGS_LOG"
+EOF
+  chmod +x "$fixture_dir/bin/bun"
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner"; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner default discovery should execute"
+    exit 1
+  fi
+
+  expected_args=$'test\n--isolate\n./scripts/alpha_spec.mts\n./tests/beta.test.ts\n./tests/nested/gamma_test.tsx\n./tests/nested/omega.spec.mjs'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: shared web test runner must sort recursive Bun test patterns and exclude hidden dependencies"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    CMUX_WEB_TEST_RUNNER_BUN_VERSION="1.2.14" \
+    /bin/bash "$fixture_runner" >/dev/null 2>&1; then
+    echo "FAIL: shared web test runner must reject Bun versions with process-global mock leakage"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    CMUX_WEB_TEST_RUNNER_BUN_VERSION="1.3.13" \
+    /bin/bash "$fixture_runner" >/dev/null 2>&1; then
+    echo "FAIL: shared web test runner must enforce the patch-level Bun isolation boundary"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" \
+    --coverage -t "fixture runs" --bail=2 --parallel=2; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner option-only discovery should execute"
+    exit 1
+  fi
+  expected_args+=$'\n--coverage\n-t\nfixture runs\n--bail=2\n--parallel=2'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: option-only runs must retain sorted discovery before forwarding options"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" --changed=main; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner changed-file discovery should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\n--changed=main'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: changed-file selection must retain Bun-owned discovery"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" tests/beta; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner explicit filter should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\ntests/beta'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: explicit test filters must remain scoped instead of expanding to every test"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" --bail tests/beta; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner optional flag plus filter should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\n--bail\ntests/beta'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: optional-valued flags must not consume a following test filter"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  for live_mode in --watch --hot; do
+    if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+      CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+      /bin/bash "$fixture_runner" "$live_mode"; then
+      rm -rf "$fixture_dir"
+      echo "FAIL: shared web test runner $live_mode mode should execute"
+      exit 1
+    fi
+    expected_args=$'test\n--isolate\n'"$live_mode"
+    if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+      echo "FAIL: $live_mode mode must delegate live test discovery to Bun"
+      cat "$args_log"
+      rm -rf "$fixture_dir"
+      exit 1
+    fi
+  done
+
+  cat > "$fixture_dir/web/bunfig.toml" <<'EOF'
+[test]
+root = "tests"
+EOF
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner"; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner configured-root discovery should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: default root-bearing Bun config must retain Bun-owned discovery"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+  rm -f "$fixture_dir/web/bunfig.toml"
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" --config=ci.bunfig.toml; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner alternate-config discovery should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\n--config=ci.bunfig.toml'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: alternate Bun configs must retain Bun-owned discovery"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  cat > "$fixture_dir/bin/find" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "./tests/beta.test.ts"
+exit 1
+EOF
+  chmod +x "$fixture_dir/bin/find"
+  rm -f "$args_log"
+  if PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" \
+    >"$fixture_dir/discovery.stdout" 2>"$fixture_dir/discovery.stderr"; then
+    echo "FAIL: shared web test runner must reject partial discovery results"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+  if ! grep -Fq "Web test discovery failed" "$fixture_dir/discovery.stderr"; then
+    echo "FAIL: shared web test runner must explain discovery failures"
+    cat "$fixture_dir/discovery.stderr"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+  if [[ -e "$args_log" ]]; then
+    echo "FAIL: shared web test runner must not execute Bun after discovery fails"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+  rm -f "$fixture_dir/bin/find"
+
+  mkdir -p "$fixture_dir/empty/scripts"
+  cp "$ROOT_DIR/web/scripts/run-tests.sh" "$fixture_dir/empty/scripts/run-tests.sh"
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_dir/empty/scripts/run-tests.sh" \
+    --pass-with-no-tests; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner must honor --pass-with-no-tests"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\n--pass-with-no-tests'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: --pass-with-no-tests must retain Bun-owned empty discovery"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_dir/empty/scripts/run-tests.sh" \
+    >"$fixture_dir/empty.stdout" 2>"$fixture_dir/empty.stderr"; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner must fail when no tests exist"
+    exit 1
+  fi
+  if ! grep -Fq "No web test files found" "$fixture_dir/empty.stderr"; then
+    echo "FAIL: shared web test runner must explain an empty test suite"
+    cat "$fixture_dir/empty.stderr"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  rm -rf "$fixture_dir"
+  trap - EXIT
+  echo "PASS: shared web test runner sorts recursive discovery and fails closed when empty"
+}
+
 check_tmux_terminal_nightly_isolation() {
   check_macos_runner "$TMUX_CORPUS_FILE" "terminal-nightly"
 
@@ -868,13 +1128,13 @@ check_no_self_hosted_fleet_runners() {
   # labels so Tart cutover and paid-provider fallback remain configuration
   # changes and a physical host label cannot bypass the isolated VM pool.
   # Allowed macOS labels (none carried by any fleet runner):
-  #   blacksmith-6vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
+  #   blacksmith-{6,12}vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
   #   depot-macos-{latest,14}.
   # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
   # not required CI) and intentionally targets the fleet via a free-form input;
   # this guard only inspects runner-selection lines, not its input description.
   local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
-  local allowed='blacksmith-6vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x|depot-macos-(latest|14)'
+  local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x|depot-macos-(latest|14)'
 
   # Bare self-hosted/macOS/ARM64 targeting (inline array or multi-line list).
   # Case-sensitive: GitHub's auto labels are `macOS`/`ARM64`, distinct from the
@@ -896,6 +1156,7 @@ check_no_self_hosted_fleet_runners() {
     fi
   done
   for probe in "runs-on: \${{ vars.X || 'blacksmith-6vcpu-macos-26' }}" \
+               "runs-on: \${{ vars.X || 'blacksmith-12vcpu-macos-26' }}" \
                "runs-on: \${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}" \
                '- warp-macos-15-arm64-6x' '- depot-macos-latest' '- blacksmith-6vcpu-macos-15' \
                '- blacksmith-4vcpu-ubuntu-2404'; do
@@ -969,7 +1230,7 @@ check_no_self_hosted_fleet_runners() {
   if [[ -n "$hits" ]]; then
     echo "FAIL: workflow references a self-hosted mac fleet label or bare self-hosted runner in a runner-selection position."
     echo "      Use a cloud label so required jobs never land on a mini that can't foreground a GUI app:"
-    echo "      blacksmith-6vcpu-macos-{15,26,latest} / warp-macos-15-arm64-6x / depot-macos-{latest,14}."
+    echo "      blacksmith-{6,12}vcpu-macos-{15,26,latest} / warp-macos-15-arm64-6x / depot-macos-{latest,14}."
     echo "$hits"
     exit 1
   fi
@@ -1012,4 +1273,5 @@ check_gui_smoke_unsupported_launch_handling
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
+check_web_test_runner_behavior
 check_tmux_terminal_nightly_isolation

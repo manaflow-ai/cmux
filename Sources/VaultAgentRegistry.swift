@@ -139,8 +139,8 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             iconAssetName: "AgentIcons/Pi",
             detect: CmuxVaultAgentDetectRule(processName: "pi", argvContains: ["pi"]),
             sessionIdSource: .piSessionFile,
-            resumeCommand: "{{executable}} --session {{sessionId}}",
-            forkCommand: "{{executable}} --session {{sessionId}} --fork",
+            resumeCommand: RegisteredAgentResumeKind.pi.commandTemplate,
+            forkCommand: "{{executable}} --fork {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.pi/agent/sessions"
         )
@@ -156,11 +156,33 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
                 alternateArgvContains: ["@oh-my-pi/pi-coding-agent"]
             ),
             sessionIdSource: .piSessionFile,
-            resumeCommand: "{{executable}} --session {{sessionId}}",
-            forkCommand: "{{executable}} --session {{sessionId}} --fork",
+            resumeCommand: RegisteredAgentResumeKind.omp.commandTemplate,
+            forkCommand: "{{executable}} --fork {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.omp/agent/sessions"
         )
+    }
+
+    var migratedPersistedBuiltInRegistration: CmuxVaultAgentRegistration {
+        if matchesPersistedBuiltInHistory(current: Self.builtInPi) {
+            return Self.builtInPi
+        }
+        if matchesPersistedBuiltInHistory(current: Self.builtInOmp) {
+            return Self.builtInOmp
+        }
+        return self
+    }
+
+    private func matchesPersistedBuiltInHistory(current: CmuxVaultAgentRegistration) -> Bool {
+        let legacyForkCommand = "{{executable}} --session {{sessionId}} --fork"
+        guard iconAssetName == nil || iconAssetName == current.iconAssetName,
+              forkCommand == legacyForkCommand else {
+            return false
+        }
+        var candidate = self
+        candidate.iconAssetName = current.iconAssetName
+        candidate.forkCommand = current.forkCommand
+        return candidate == current
     }
 
     static var builtInAntigravity: CmuxVaultAgentRegistration {
@@ -170,7 +192,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             iconAssetName: "AgentIcons/Antigravity",
             detect: CmuxVaultAgentDetectRule(processNames: ["agy", "antigravity"]),
             sessionIdSource: .argvOption("--conversation"),
-            resumeCommand: "{{executable}} --conversation {{sessionId}}",
+            resumeCommand: RegisteredAgentResumeKind.antigravity.commandTemplate,
             cwd: .preserve,
             sessionDirectory: "~/.gemini/antigravity-cli"
         )
@@ -182,7 +204,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             name: "Grok",
             detect: CmuxVaultAgentDetectRule(processNames: ["grok", "grok-macos-aarch64", "grok-macos-aarch"]),
             sessionIdSource: .grokSessionDirectory,
-            resumeCommand: "{{executable}} -r {{sessionId}}",
+            resumeCommand: RegisteredAgentResumeKind.grok.commandTemplate,
             cwd: .preserve,
             sessionDirectory: "~/.grok/sessions"
         )
@@ -434,6 +456,7 @@ struct CmuxVaultAgentRegistry: Sendable {
             CmuxVaultAgentRegistration.builtInCampfire,
             CmuxVaultAgentRegistration.builtInAntigravity,
             CmuxVaultAgentRegistration.builtInGrok,
+            CmuxVaultAgentRegistration.builtInKimi,
             CmuxVaultAgentRegistration.builtInCodePuppy,
         ]
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {

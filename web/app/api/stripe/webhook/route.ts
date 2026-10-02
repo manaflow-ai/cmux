@@ -13,6 +13,7 @@ import {
   isCmuxCheckoutSession,
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
+import { sendProSignupWelcome as sendProSignupWelcomeDefault } from "../../../../services/billing/proFulfillment";
 import { isStripeBillingConfigured, stripe } from "../../../../services/billing/stripe";
 import {
   recordSpanError,
@@ -30,6 +31,7 @@ type StripeWebhookDependencies = {
   db: typeof cloudDb;
   recordCheckoutCompletion: typeof recordCheckoutCompletionDefault;
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
+  sendProSignupWelcome: typeof sendProSignupWelcomeDefault;
 };
 
 const defaultDependencies: StripeWebhookDependencies = {
@@ -39,6 +41,7 @@ const defaultDependencies: StripeWebhookDependencies = {
   db: cloudDb,
   recordCheckoutCompletion: recordCheckoutCompletionDefault,
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
+  sendProSignupWelcome: sendProSignupWelcomeDefault,
 };
 
 export const POST = makeStripeWebhookHandler();
@@ -126,19 +129,32 @@ async function processStripeEvent(
   dependencies: StripeWebhookDependencies,
 ): Promise<{ processed?: string; skipped?: string }> {
   switch (event.type) {
-    case "checkout.session.completed": {
+    case "checkout.session.completed":
+    case "checkout.session.async_payment_succeeded": {
       const session = event.data.object;
       if (!isCmuxCheckoutSession(session)) return { skipped: "foreign_checkout" };
       const expanded = await dependencies.stripe().checkout.sessions.retrieve(session.id, {
         expand: ["subscription", "customer"],
       });
+      if (!checkoutPaymentSettled(expanded)) {
+        return { skipped: "checkout_payment_pending" };
+      }
       const result = await dependencies.recordCheckoutCompletion({
         session: expanded,
         subscription: expandedSubscription(expanded),
         customer: expandedCustomer(expanded),
       });
       if (result && "skipped" in result) return { skipped: result.skipped };
-      return { processed: "checkout.session.completed" };
+      if (result.scope === "user" && isPersonalProCheckout(expanded)) {
+        // Keep the Stripe event retryable until Resend accepts the message.
+        // The checkout-session id is also the provider idempotency key, so a
+        // redelivery retries the same email operation without duplicating it.
+        await dependencies.sendProSignupWelcome({
+          session: expanded,
+          stackUserId: result.stackUserId,
+        });
+      }
+      return { processed: event.type };
     }
     case "customer.subscription.created":
     case "customer.subscription.updated":
@@ -161,6 +177,15 @@ async function processStripeEvent(
     default:
       return { skipped: "event_type" };
   }
+}
+
+function isPersonalProCheckout(session: Stripe.Checkout.Session): boolean {
+  return session.metadata?.app === "cmux" && session.metadata?.plan === "pro";
+}
+
+function checkoutPaymentSettled(session: Stripe.Checkout.Session): boolean {
+  return session.payment_status === "paid"
+    || session.payment_status === "no_payment_required";
 }
 
 function expandedSubscription(session: Stripe.Checkout.Session): Stripe.Subscription | null {

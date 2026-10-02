@@ -187,8 +187,8 @@ evaluates it against a `ShortcutContext` value — no app, AppKit, or filesystem
 needed. Build a context by hand and assert evaluation:
 
 Known boolean keys are `sidebarFocus`, `browserFocus`, `markdownFocus`,
-`filePreviewTextEditorFocus`, `terminalFocus`, `commandPaletteVisible`,
-`terminalFindVisible`, and `workspaceCanvasLayout`.
+`filePreviewTextEditorFocus`, `simulatorFocus`, `terminalFocus`,
+`commandPaletteVisible`, `terminalFindVisible`, and `workspaceCanvasLayout`.
 
 ```swift
 var context = ShortcutContext()

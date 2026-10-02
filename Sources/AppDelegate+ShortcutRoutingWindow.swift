@@ -34,8 +34,8 @@ extension AppDelegate {
     }
 
     func activeTabManagerForCommands(preferredWindow: NSWindow? = nil) -> TabManager? {
-        if let context = contextForMainWindow(preferredWindow) {
-            return context.tabManager
+        if let preferredWindow {
+            return senderRelativeMainWindowContext(for: preferredWindow)?.tabManager
         }
         if let context = contextForMainWindow(shortcutRoutingKeyWindow) {
             return context.tabManager
@@ -50,6 +50,22 @@ extension AppDelegate {
         return mainWindowContexts.values.first { context in
             resolvedWindow(for: context) != nil
         }?.tabManager
+    }
+
+    /// Resolves an in-window action from the exact AppKit window that emitted
+    /// it. Sender-relative actions must never fall through to the process-wide
+    /// key/main/active-manager chain: a consumed first-mouse event can leave
+    /// those globals pointing at a different window.
+    func senderRelativeMainWindowContext(for window: NSWindow) -> MainWindowContext? {
+        guard let context = mainWindowContexts[ObjectIdentifier(window)],
+              context.window === window else {
+            return nil
+        }
+        if let windowId = mainWindowId(from: window),
+           context.windowId != windowId {
+            return nil
+        }
+        return context
     }
 
     func repairFocusedTerminalKeyboardRoutingIfNeeded(

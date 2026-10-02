@@ -67,7 +67,7 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> creates a workspace for a remote machine. Browser panes route through the remote network so localhost just works. Drag an image into a remote session to upload via scp.
+<code>cmux ssh user@remote</code> creates a workspace for a remote machine. Pass <code>--command 'omp "investigate auth"'</code> to run an initial command once in its first remote terminal. Browser panes route through the remote network so localhost just works. Drag an image into a remote session to upload via scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -440,4 +440,8 @@ cmux is free, open source, and always will be. If you'd like to support developm
 
 cmux is open source under [GPL-3.0-or-later](LICENSE).
 
-If your organization cannot comply with GPL, a commercial license is available. Contact [founders@manaflow.com](mailto:founders@manaflow.com) for details.
+If your organization cannot comply with GPL, commercial terms may be available
+for portions for which Manaflow controls the necessary rights. They do not
+relicense third-party material or outside contributions for which Manaflow
+lacks a separate grant. See [LICENSE](LICENSE) for the exact scope and contact
+[founders@manaflow.com](mailto:founders@manaflow.com) for details.

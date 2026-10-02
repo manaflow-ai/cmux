@@ -33,6 +33,7 @@ def main() -> int:
         user_config_dir = root / ".config" / "opencode"
         plugin_dir = user_config_dir / "node_modules" / "oh-my-openagent"
         plugin_dir.mkdir(parents=True)
+        provider_log = root / "opencode.log"
 
         make_executable(
             fallback_bin / "opencode-node-helper",
@@ -46,6 +47,7 @@ printf 'args:%s\\n' "$*"
             fallback_bin / "opencode",
             """#!/usr/bin/env bash
 set -euo pipefail
+printf 'ran\n' > "$FAKE_PROVIDER_LOG"
 command -v opencode-node-helper
 exec opencode-node-helper "$@"
 """,
@@ -56,6 +58,7 @@ exec opencode-node-helper "$@"
         env["PATH"] = "/usr/bin:/bin"
         env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         env["CMUX_SOCKET_PATH"] = str(root / "missing.sock")
+        env["FAKE_PROVIDER_LOG"] = str(provider_log)
 
         proc = subprocess.run(
             [cli_path, "omo", "--version", "--port", "19777"],
@@ -83,6 +86,80 @@ exec opencode-node-helper "$@"
         if lines != expected:
             print(f"FAIL: expected fallback helper to remain on PATH, got {lines!r}")
             return 1
+
+        for invocation in (
+            ("agent",),
+            ("auth",),
+            ("completion",),
+            ("db",),
+            ("debug",),
+            ("export",),
+            ("import", "session.json"),
+            ("mcp",),
+            ("models",),
+            ("plugin",),
+            ("plug", "opencode-sample-plugin"),
+            ("providers",),
+            ("github", "install"),
+            ("session", "delete", "session-id"),
+            ("session", "list"),
+            ("session", "--help"),
+            ("session", "run", "--help"),
+            ("stats",),
+            ("uninstall",),
+            ("upgrade",),
+            ("--mdns", "models"),
+            ("--port", "19777", "models"),
+            ("--hostname=127.0.0.1", "models"),
+            ("--mdns-domain", "local", "models"),
+            ("--cors", "https://example.com", "models"),
+        ):
+            provider_log.unlink(missing_ok=True)
+            management = subprocess.run(
+                [cli_path, "omo", *invocation],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=30,
+            )
+            if management.returncode != 0 or not provider_log.exists():
+                print(f"FAIL: OMO management command {invocation!r} required a live surface")
+                return 1
+
+        blocked_invocations = (
+            ["acp"],
+            ["serve"],
+            ["web"],
+            ["session"],
+            ["session", "run"],
+            ["session", "--", "--help"],
+            ["github", "run"],
+            ["run", "hello"],
+            ["unknown-command"],
+            ["--session", "session-id"],
+            ["--model", "--version"],
+            ["--port", "models"],
+            ["--hostname", "--version"],
+            ["--mdns-domain"],
+            ["--cors"],
+            ["--mdns", "run", "hello"],
+            ["--", "--version"],
+            ["some-project"],
+        )
+        for invocation in blocked_invocations:
+            provider_log.unlink(missing_ok=True)
+            blocked = subprocess.run(
+                [cli_path, "omo", *invocation],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=30,
+            )
+            if blocked.returncode == 0 or provider_log.exists():
+                print(f"FAIL: contextless OMO launch was not rejected: {invocation!r}")
+                return 1
 
     with tempfile.TemporaryDirectory(prefix="cmux-omo-fallback-install-path-") as td:
         root = Path(td)
@@ -215,7 +292,7 @@ exec opencode-node-helper "$@"
             print(f"FAIL: expected app-bundled OpenCode to be skipped, got {lines!r}")
             return 1
 
-    print("PASS: cmux omo preserves fallback OpenCode dirs in PATH")
+    print("PASS: cmux omo preserves management commands and rejects contextless launches")
     return 0
 
 

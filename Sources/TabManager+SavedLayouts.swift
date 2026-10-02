@@ -13,7 +13,7 @@ extension TabManager {
             select: focus
         )
         if let color = layout.workspace.color {
-            workspace.setCustomColor(color)
+            setTabColor(tabId: workspace.id, color: color)
         }
         if let layoutNode = layout.workspace.layout {
             workspace.applyCustomLayout(layoutNode, baseCwd: resolvedCwd)

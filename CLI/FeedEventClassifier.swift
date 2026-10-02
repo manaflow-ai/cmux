@@ -25,7 +25,7 @@ struct FeedEventClassifier {
     ///
     /// - Parameters:
     ///   - source: The agent id that emitted the event (`claude`, `codex`,
-    ///     `hermes-agent`, …). Unregistered sources use the generic table.
+    ///     `hermes-agent`, …). Unregistered sources are telemetry-only.
     ///   - event: The agent's raw hook event name.
     ///   - toolName: The tool the event refers to, used only for the two
     ///     tool-dependent semantics.
@@ -83,14 +83,14 @@ struct FeedEventClassifier {
         case unknown
     }
 
-    /// Resolves the semantic for a `(source, event)` pair. A registered
-    /// source uses its own table (unmatched events fall to ``FeedEventSemantic/unknown``);
-    /// unregistered sources use the generic table.
+    /// Resolves the semantic for a `(source, event)` pair. Only registered
+    /// sources can opt in to blocking decisions. Unregistered sources retain
+    /// useful lifecycle names but always use telemetry-only semantics.
     private static func feedEventSemantic(
         source: String,
         event: String
     ) -> FeedEventSemantic {
-        let table = feedEventSemanticRegistry[source] ?? genericFeedEventSemantics
+        let table = feedEventSemanticRegistry[source] ?? telemetryOnlyFeedEventSemantics
         return table[event] ?? .unknown
     }
 
@@ -160,14 +160,10 @@ struct FeedEventClassifier {
     /// for that agent's `(event) -> semantic` mapping; events absent here
     /// resolve to ``FeedEventSemantic/unknown``.
     ///
-    /// The key distinction the registry encodes: agents with a *dedicated*
-    /// approval event (Claude `PermissionRequest`, Codex `PermissionRequest`,
-    /// Hermes `pre_approval_request`) classify their pre-tool event as
-    /// ``FeedEventSemantic/toolStart`` (always telemetry). Agents whose only
-    /// signal is the pre-tool event (gemini, copilot, …, handled by
-    /// ``genericFeedEventSemantics``) use
-    /// ``FeedEventSemantic/toolStartMaybeApproval`` so side-effecting tools
-    /// still escalate. Conflating the two is the bug behind #4985.
+    /// Blocking is an explicit capability: a source must be registered with
+    /// ``FeedEventSemantic/toolStartMaybeApproval`` or
+    /// ``FeedEventSemantic/approvalRequest``. New and incompatible sources
+    /// fail neutral instead of inheriting a synchronous approval wait.
     private static let feedEventSemanticRegistry: [String: [String: FeedEventSemantic]] = [
         "claude": [
             "PermissionRequest": .approvalRequest,
@@ -231,14 +227,14 @@ struct FeedEventClassifier {
             "on_session_end": .sessionEnd,
             "on_session_finalize": .sessionEnd,
         ],
+        // Gemini CLI consumes the generic PreToolUse decision schema and has
+        // no separate approval event, so it deliberately opts in to blocking.
+        "gemini": approvalCapableFeedEventSemantics,
         // Kiro emits camelCase hook events and has no dedicated approval
         // event, so its pre-tool event escalates side-effecting tools to an
         // approval (resolved against the kiro tool aliases in
         // ``isSideEffectingTool``). Registering kiro explicitly is required:
-        // its lowercase event names are absent from
-        // ``genericFeedEventSemantics`` and would otherwise resolve to
-        // ``FeedEventSemantic/unknown`` (non-actionable), silently dropping
-        // every kiro approval.
+        // its lowercase event names are absent from the shared tables.
         "kiro": [
             "preToolUse": .toolStartMaybeApproval,
             "postToolUse": .toolEnd,
@@ -248,13 +244,31 @@ struct FeedEventClassifier {
         ],
     ]
 
-    /// Fallback table for agents without a dedicated entry in
-    /// ``feedEventSemanticRegistry``. These agents expose only a pre-tool
-    /// event, so it carries ``FeedEventSemantic/toolStartMaybeApproval``.
-    private static let genericFeedEventSemantics: [String: FeedEventSemantic] = [
+    /// Shared event spellings for sources that have a verified blocking
+    /// decision contract. Registration is required; this table is never the
+    /// fallback for an unknown source.
+    private static let approvalCapableFeedEventSemantics: [String: FeedEventSemantic] = [
         "PreToolUse": .toolStartMaybeApproval,
         "beforeShellExecution": .toolStartMaybeApproval,
         "PermissionRequest": .approvalRequest,
+        "PostToolUse": .toolEnd,
+        "PreCompact": .preCompact,
+        "PostCompact": .postCompact,
+        "UserPromptSubmit": .promptSubmit,
+        "SessionStart": .sessionStart,
+        "SessionEnd": .sessionEnd,
+        "Stop": .response,
+        "SubagentStart": .subagentStart,
+        "SubagentStop": .subagentResponse,
+        "Notification": .statusNotification,
+    ]
+
+    /// Safe fallback for unregistered sources. Familiar event names preserve
+    /// Feed telemetry classification, but none can create a blocking request.
+    private static let telemetryOnlyFeedEventSemantics: [String: FeedEventSemantic] = [
+        "PreToolUse": .toolStart,
+        "beforeShellExecution": .toolStart,
+        "PermissionRequest": .toolStart,
         "PostToolUse": .toolEnd,
         "PreCompact": .preCompact,
         "PostCompact": .postCompact,

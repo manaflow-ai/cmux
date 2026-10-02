@@ -15,6 +15,7 @@ extension TerminalController {
         orientation: SplitOrientation,
         insertFirst: Bool,
         initialDividerPosition: CGFloat?,
+        preferredProfileID: UUID?,
         inputs: ControlPaneCreateInputs
     ) -> ControlPaneCreateResolution {
         if let invalid = validateDockPaneCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
@@ -47,6 +48,7 @@ extension TerminalController {
             environment: inputs.startupEnvironment,
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
             initialDividerPosition: initialDividerPosition,
+            preferredProfileID: preferredProfileID,
             focus: focus
         )
         guard let newPanelId else {

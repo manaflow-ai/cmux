@@ -20,7 +20,7 @@ import Testing
         // to leak: without an explicit reset, `stableMacColorSlots` is
         // additive-only, so the next account's slots would start numbering past
         // this account's stale entry instead of at zero.
-        store.workspacesByMac["mac-previous-account"] = MacWorkspaceState(
+        store.workspacesByMac["mac-previous-account".pairingKey] = MacWorkspaceState(
             macDeviceID: "mac-previous-account",
             workspaces: []
         )
@@ -41,11 +41,11 @@ import Testing
         // A real (non-anonymous) foreground Mac, plus a background Mac that
         // belongs to the team being switched away from.
         store.foregroundMacDeviceID = "mac-foreground"
-        store.workspacesByMac["mac-foreground"] = MacWorkspaceState(
+        store.workspacesByMac["mac-foreground".pairingKey] = MacWorkspaceState(
             macDeviceID: "mac-foreground",
             workspaces: []
         )
-        store.workspacesByMac["mac-old-team"] = MacWorkspaceState(
+        store.workspacesByMac["mac-old-team".pairingKey] = MacWorkspaceState(
             macDeviceID: "mac-old-team",
             workspaces: []
         )

@@ -302,63 +302,6 @@ extension RemoteSessionCoordinator {
         return output
     }
 
-    func uploadRemoteDaemonBinaryLocked(localBinary: URL, location: RemoteDaemonInstallLocation) throws {
-        let remotePath = location.absolutePath
-        let remoteDirectory = location.directory
-        let remoteTempPath = "\(remotePath).tmp-\(UUID().uuidString.prefix(8))"
-        debugLog(
-            "remote.upload.begin local=\(localBinary.path) remoteTemp=\(remoteTempPath) remote=\(remotePath)"
-        )
-
-        let mkdirScript = "mkdir -p \(remoteDirectory.shellSingleQuoted)"
-        let mkdirCommand = "sh -c \(mkdirScript.shellSingleQuoted)"
-        let mkdirResult = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, mkdirCommand], timeout: 12)
-        guard mkdirResult.status == 0 else {
-            let detail = Self.bestErrorLine(stderr: mkdirResult.stderr, stdout: mkdirResult.stdout) ?? "ssh exited \(mkdirResult.status)"
-            throw NSError(domain: "cmux.remote.daemon", code: 30, userInfo: [
-                NSLocalizedDescriptionKey: "failed to create remote daemon directory: \(detail)",
-            ])
-        }
-
-        let scpSSHOptions = backgroundSSHOptions(configuration.sshOptions)
-        var scpArgs: [String] = ["-q"]
-        if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
-            scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
-        }
-        scpArgs += ["-o", "ControlMaster=no"]
-        if let port = configuration.port {
-            scpArgs += ["-P", String(port)]
-        }
-        if let identityFile = configuration.identityFile,
-           !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            scpArgs += ["-i", identityFile]
-        }
-        for option in scpSSHOptions {
-            scpArgs += ["-o", option]
-        }
-        scpArgs += [localBinary.path, "\(configuration.destination):\(remoteTempPath)"]
-        let scpResult = try scpExec(arguments: scpArgs, timeout: 45)
-        guard scpResult.status == 0 else {
-            let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout) ?? "scp exited \(scpResult.status)"
-            throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
-                NSLocalizedDescriptionKey: "failed to upload cmuxd-remote: \(detail)",
-            ])
-        }
-
-        let finalizeScript = """
-        chmod 755 \(remoteTempPath.shellSingleQuoted) && \
-        mv \(remoteTempPath.shellSingleQuoted) \(remotePath.shellSingleQuoted)
-        """
-        let finalizeCommand = "sh -c \(finalizeScript.shellSingleQuoted)"
-        let finalizeResult = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, finalizeCommand], timeout: 12)
-        guard finalizeResult.status == 0 else {
-            let detail = Self.bestErrorLine(stderr: finalizeResult.stderr, stdout: finalizeResult.stdout) ?? "ssh exited \(finalizeResult.status)"
-            throw NSError(domain: "cmux.remote.daemon", code: 32, userInfo: [
-                NSLocalizedDescriptionKey: "failed to install remote daemon binary: \(detail)",
-            ])
-        }
-    }
-
     func helloRemoteDaemonLocked(remotePath: String) throws -> DaemonHello {
         let request = #"{"id":1,"method":"hello","params":{}}"#
         let script = "printf '%s\\n' \(request.shellSingleQuoted) | \(remotePath.shellSingleQuoted) serve --stdio"

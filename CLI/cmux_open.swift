@@ -4035,7 +4035,7 @@ extension CMUXCLI {
             to: openingFileURL,
             title: title,
             message: message,
-            appearance: appearance,
+            appearance: appearance
         )
         let allowedFiles = [try mapper.allowedFile(fileURL: openingFileURL, mimeType: "text/html")]
         try writeDiffViewerHTTPManifest(

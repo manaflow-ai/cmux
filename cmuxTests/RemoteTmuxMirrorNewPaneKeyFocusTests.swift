@@ -1,6 +1,5 @@
-import CmuxRemoteSession
 import AppKit
-import Bonsplit
+import CmuxRemoteSession
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -9,33 +8,12 @@ import Testing
 @testable import cmux
 #endif
 
-/// Reproduces the reported "new split pane shows selected (blue) but I can't type
-/// anywhere until I click it" bug for a mirrored multi-pane tmux window.
-///
-/// A ``RemoteTmuxWindowMirror`` renders each tmux pane as a ``TerminalPanel`` in
-/// its OWN Bonsplit tree — those pane panels are never inserted into the
-/// workspace's Bonsplit, so the workspace-level focus machinery
-/// (`Workspace.focusPanel` → `applyFirstResponderIfNeeded`, gated on
-/// `matchesCurrentTerminalFocusTarget`) cannot resolve them. The only thing that
-/// makes such a pane the window's first responder is a click (AppKit `mouseDown`
-/// → `becomeFirstResponder`) or the equivalent `GhosttySurfaceScrollView.moveFocus()`.
-///
-/// When tmux splits a window, the mirror creates the new pane's panel and marks
-/// it active/selected — but it never drives the first-responder path, so the new
-/// pane is highlighted yet untypeable until the user clicks it. The fix drives
-/// key focus for a freshly created pane the moment it becomes active, on the
-/// creation event edge.
-///
-/// These are mirror-layer contract tests: they spy the mirror's key-focus
-/// establishment seam (`onEstablishPaneKeyFocus`), which production wires to the
-/// pane's `moveFocus()`. They assert the mirror DROVE key focus onto the NEW
-/// pane's panel at creation — not merely that `activePaneId` moved. That makes
-/// them timing-independent (no live surface, window, or run loop) and RED on the
-/// buggy build, where creation only updates selection.
+/// Focus ownership coverage for tmux panes nested inside a workspace tab.
+/// The workspace's focused panel remains the outer container; input focus is
+/// projected to the mirror's authoritative active inner pane.
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxMirrorNewPaneKeyFocusTests {
-
     private static func singlePaneLayout(_ pane: Int) -> RemoteTmuxLayoutNode {
         RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(pane))
     }
@@ -53,97 +31,338 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         )
     }
 
-    /// A mirror wired with a key-focus spy and a real-panel factory, driving the
-    /// exact 1→2 split the user hit: a window mirrored as a single zsh pane (%4),
-    /// then split so %5 is created and made active.
+    private static func threePaneLayout(
+        left: Int,
+        middle: Int,
+        right: Int
+    ) -> RemoteTmuxLayoutNode {
+        RemoteTmuxLayoutNode(
+            width: 120,
+            height: 24,
+            x: 0,
+            y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(width: 39, height: 24, x: 0, y: 0, content: .pane(left)),
+                RemoteTmuxLayoutNode(width: 39, height: 24, x: 40, y: 0, content: .pane(middle)),
+                RemoteTmuxLayoutNode(width: 40, height: 24, x: 80, y: 0, content: .pane(right)),
+            ])
+        )
+    }
+
     @MainActor
     private final class Harness {
-        let manager: TabManager
         let workspace: Workspace
-        let connection: RemoteTmuxControlConnection
         let mirror: RemoteTmuxWindowMirror
-        /// Every pane the mirror drove key focus onto, in order.
-        private(set) var focusRequests: [(paneId: Int, panelId: UUID)] = []
+        let containerPanelId: UUID
+        let connection: RemoteTmuxControlConnection
+        let writer: RemoteTmuxControlPipeWriter
+        let pipe: Pipe
 
-        init() {
+        init() throws {
             let manager = TabManager()
-            let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
-            workspace.isRemoteTmuxMirror = true
-            let host = RemoteTmuxHost(destination: "user@newpanefocus")
-            let connection = RemoteTmuxControlConnection(host: host, sessionName: "focus-map")
+            let workspace = try #require(manager.selectedWorkspace)
+            let containerPanelId = try #require(workspace.focusedPanelId)
+            let connection = RemoteTmuxControlConnection(
+                host: RemoteTmuxHost(destination: "user@newpanefocus"),
+                sessionName: "focus-map"
+            )
+            let pipe = Pipe()
+            let writer = RemoteTmuxControlPipeWriter(
+                handle: pipe.fileHandleForWriting,
+                label: "remote-tmux-created-pane-focus-test",
+                maxPendingBytes: 1 << 16,
+                onFailure: {}
+            )
+            connection.installStdinWriterForTesting(writer)
+            connection.handleMessageForTesting(.enter)
+            connection.handleMessageForTesting(
+                .commandResult(commandNumber: 0, lines: [], isError: false)
+            )
             let mirror = RemoteTmuxWindowMirror(
                 windowId: 2,
-                panelId: UUID(),
+                panelId: containerPanelId,
                 connection: connection,
                 layout: RemoteTmuxMirrorNewPaneKeyFocusTests.singlePaneLayout(4),
                 makePanel: { _ in workspace.makeRemoteTmuxPanePanel(onInput: { _ in }) }
             )
-            self.manager = manager
+            workspace.setRemoteTmuxWindowMirror(mirror, forPanelId: containerPanelId)
             self.workspace = workspace
-            self.connection = connection
             self.mirror = mirror
-            // Installed after the mirror's own init reconcile (which creates the
-            // initial pane %4), so only the split's %5 — driven later — is
-            // recorded, matching the repro.
-            mirror.onEstablishPaneKeyFocus = { [weak self] paneId, panel in
-                self?.focusRequests.append((paneId, panel.id))
+            self.containerPanelId = containerPanelId
+            self.connection = connection
+            self.writer = writer
+            self.pipe = pipe
+        }
+
+        func splitMakingPaneFiveActive() {
+            mirror.reconcile(
+                layout: RemoteTmuxMirrorNewPaneKeyFocusTests.twoPaneLayout(left: 4, right: 5)
+            )
+            mirror.noteRemoteActivePane(5)
+        }
+
+        func drainPendingCommands() {
+            while !connection.pendingCommandKindsForTesting.isEmpty {
+                connection.handleMessageForTesting(
+                    .commandResult(commandNumber: 1, lines: [], isError: false)
+                )
             }
         }
 
-        /// tmux splits window @2: pane %5 is created and becomes active.
-        func splitMakingPaneFiveActive() {
-            mirror.reconcile(layout: RemoteTmuxMirrorNewPaneKeyFocusTests.twoPaneLayout(left: 4, right: 5))
-            // `%window-pane-changed`: tmux reports the freshly split pane active.
-            mirror.noteRemoteActivePane(5)
+        func resolveFocusedSplit(createdPaneID: Int) {
+            let pendingSplitIsNext = connection.pendingCommandKindsForTesting.first.map { kind in
+                if case .newPane = kind {
+                    return true
+                }
+                return false
+            } ?? false
+            #expect(
+                pendingSplitIsNext,
+                "The focused split result must remain next in the command FIFO"
+            )
+            guard pendingSplitIsNext else { return }
+            connection.handleMessageForTesting(
+                .commandResult(
+                    commandNumber: 2,
+                    lines: ["%\(createdPaneID)"],
+                    isError: false
+                )
+            )
+        }
+
+        func tearDown() {
+            workspace.setRemoteTmuxWindowMirror(nil, forPanelId: containerPanelId)
+            mirror.teardown()
+            writer.close()
+            try? pipe.fileHandleForReading.close()
         }
     }
 
-    /// The freshly split, active pane must have key focus driven onto its own
-    /// panel at creation — the mirror-layer equivalent of "typeable without a
-    /// click." RED on the buggy build: creation sets `activePaneId`/selection but
-    /// never touches the first-responder path.
     @Test
-    func freshlySplitActivePaneDrivesKeyFocusOntoItsOwnPanel() throws {
-        let harness = Harness()
+    func freshlySplitPaneBecomesFocusedTerminalInputTarget() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
         harness.splitMakingPaneFiveActive()
 
-        #expect(harness.mirror.activePaneId == 5, "The split pane must be the active pane")
-        let newPane = try #require(harness.mirror.panel(forPane: 5), "Expected the new pane's panel")
+        #expect(harness.workspace.focusedPanelId == harness.containerPanelId)
+        let paneFive = try #require(harness.mirror.panel(forPane: 5))
+        let inputTarget = try #require(harness.workspace.focusedTerminalInputTarget())
 
-        let requestedForFive = harness.focusRequests.filter { $0.paneId == 5 }
+        #expect(harness.mirror.activePaneId == 5)
+        #expect(inputTarget.surfaceID == paneFive.id)
+        #expect(inputTarget.panel === paneFive)
+        #expect(harness.workspace.focusedTerminalPanel?.id == harness.containerPanelId)
         #expect(
-            !requestedForFive.isEmpty,
-            "A newly created active mirror pane must have key focus driven onto it without a click"
+            harness.workspace.terminalInputTarget(
+                forPanelID: harness.containerPanelId
+            )?.panel === paneFive
         )
         #expect(
-            harness.focusRequests.last?.paneId == 5,
-            "The newly split pane must be the final key-focus target, got \(String(describing: harness.focusRequests.last?.paneId))"
-        )
-        #expect(
-            requestedForFive.last?.panelId == newPane.id,
-            "Key focus must be pointed at the NEW pane's own panel, not another pane's"
+            AppDelegate.resolveTerminalPanelForTextSend(
+                in: harness.workspace,
+                preferredPanelId: harness.containerPanelId
+            ) === paneFive
         )
     }
 
-    /// The fix must act on the CREATION edge only. A routine active-pane change to
-    /// a pane that already exists (a co-attached client switching panes, or an
-    /// echoed `%window-pane-changed`) must not re-drive key focus, or a background
-    /// client's pane switch would yank the local first responder around.
     @Test
-    func routineActivePaneSwitchDoesNotRedriveKeyFocus() throws {
-        let harness = Harness()
-        harness.splitMakingPaneFiveActive()
-        let requestsAfterSplit = harness.focusRequests.count
+    func locallyRequestedFocusedSplitTransfersFirstResponderWhenNewPaneMounts() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let paneFour = try #require(harness.mirror.panel(forPane: 4))
+        let mountedPortal = try RemoteTmuxPanePortalTestHarness()
+        defer { mountedPortal.tearDown() }
+        mountedPortal.mount(paneFour, frame: NSRect(x: 0, y: 0, width: 395, height: 500))
+        paneFour.hostedView.setVisibleInUI(true)
+        paneFour.hostedView.setActive(true)
+        paneFour.hostedView.moveFocus()
+        #expect(paneFour.hostedView.isSurfaceViewFirstResponder())
 
-        // Both panes already exist; switching back and forth must add no focus
-        // drives (each pane's creation edge was already consumed).
-        harness.mirror.noteRemoteActivePane(4)
-        harness.mirror.noteRemoteActivePane(5)
-        harness.mirror.setActivePane(4, fromTmux: true)
+        harness.drainPendingCommands()
+        #expect(harness.mirror.requestSplit(
+            fromPane: 4,
+            vertical: false,
+            focusIntent: .focusCreatedPane
+        ))
+        harness.resolveFocusedSplit(createdPaneID: 5)
+        harness.splitMakingPaneFiveActive()
+
+        let paneFive = try #require(harness.mirror.panel(forPane: 5))
+        #expect(paneFour.hostedView.isSurfaceViewFirstResponder())
+        paneFour.hostedView.setActive(false)
+        mountedPortal.mount(paneFive, frame: NSRect(x: 405, y: 0, width: 395, height: 500))
+        paneFive.hostedView.setVisibleInUI(true)
+        paneFive.hostedView.setActive(true)
+        paneFive.surface.onRuntimeReady?()
 
         #expect(
-            harness.focusRequests.count == requestsAfterSplit,
-            "Only pane creation may drive key focus; a plain active-pane switch must not"
+            paneFive.hostedView.isSurfaceViewFirstResponder(),
+            "The authoritative created pane must receive key input as soon as it mounts"
         )
+    }
+
+    @Test
+    func locallyRequestedFocusedSplitDoesNotOverrideLaterPaneFocus() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let paneFour = try #require(harness.mirror.panel(forPane: 4))
+        let mountedPortal = try RemoteTmuxPanePortalTestHarness()
+        defer { mountedPortal.tearDown() }
+        mountedPortal.mount(paneFour, frame: NSRect(x: 0, y: 0, width: 395, height: 500))
+        paneFour.hostedView.setVisibleInUI(true)
+        paneFour.hostedView.setActive(true)
+        paneFour.hostedView.moveFocus()
+        #expect(paneFour.hostedView.isSurfaceViewFirstResponder())
+
+        harness.drainPendingCommands()
+        #expect(harness.mirror.requestSplit(
+            fromPane: 4,
+            vertical: false,
+            focusIntent: .focusCreatedPane
+        ))
+        harness.resolveFocusedSplit(createdPaneID: 5)
+        harness.splitMakingPaneFiveActive()
+        let paneFive = try #require(harness.mirror.panel(forPane: 5))
+
+        harness.mirror.focus(pane: 4)
+        #expect(harness.mirror.activePaneId == 4)
+        mountedPortal.mount(paneFive, frame: NSRect(x: 405, y: 0, width: 395, height: 500))
+        paneFive.hostedView.setVisibleInUI(true)
+        paneFive.hostedView.setActive(false)
+        paneFive.surface.onRuntimeReady?()
+
+        #expect(
+            paneFour.hostedView.isSurfaceViewFirstResponder(),
+            "Mounting a stale split candidate must not override newer user focus"
+        )
+        #expect(harness.mirror.activePaneId == 4)
+        #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == paneFour.id)
+    }
+
+    @Test
+    func focusedSplitWaitsForThePaneIDReturnedByTmux() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let paneFour = try #require(harness.mirror.panel(forPane: 4))
+        let mountedPortal = try RemoteTmuxPanePortalTestHarness()
+        defer { mountedPortal.tearDown() }
+        mountedPortal.mount(paneFour, frame: NSRect(x: 0, y: 0, width: 390, height: 500))
+        paneFour.hostedView.setVisibleInUI(true)
+        paneFour.hostedView.setActive(true)
+        paneFour.hostedView.moveFocus()
+        #expect(paneFour.hostedView.isSurfaceViewFirstResponder())
+
+        harness.drainPendingCommands()
+        #expect(harness.mirror.requestSplit(
+            fromPane: 4,
+            vertical: false,
+            focusIntent: .focusCreatedPane
+        ))
+
+        // A second attached tmux client creates and activates %6 while cmux's
+        // own split command is still awaiting its result block.
+        harness.mirror.reconcile(
+            layout: RemoteTmuxMirrorNewPaneKeyFocusTests.twoPaneLayout(left: 4, right: 6)
+        )
+        let paneSix = try #require(harness.mirror.panel(forPane: 6))
+        mountedPortal.mount(paneSix, frame: NSRect(x: 400, y: 0, width: 390, height: 500))
+        paneSix.hostedView.setVisibleInUI(true)
+        paneSix.hostedView.setActive(true)
+        harness.mirror.noteRemoteActivePane(6)
+
+        #expect(
+            paneFour.hostedView.isSurfaceViewFirstResponder(),
+            "An unrelated pane must not consume the pending local split-focus request"
+        )
+
+        // The command reply identifies cmux's pane exactly. Only that pane may
+        // complete the focus handoff when its authoritative topology arrives.
+        harness.resolveFocusedSplit(createdPaneID: 5)
+        harness.mirror.reconcile(
+            layout: RemoteTmuxMirrorNewPaneKeyFocusTests.threePaneLayout(
+                left: 4,
+                middle: 6,
+                right: 5
+            )
+        )
+        let paneFive = try #require(harness.mirror.panel(forPane: 5))
+        mountedPortal.mount(paneFive, frame: NSRect(x: 800, y: 0, width: 390, height: 500))
+        paneFour.hostedView.setActive(false)
+        paneSix.hostedView.setActive(false)
+        paneFive.hostedView.setVisibleInUI(true)
+        paneFive.hostedView.setActive(true)
+        harness.mirror.noteRemoteActivePane(5)
+
+        #expect(
+            paneFive.hostedView.isSurfaceViewFirstResponder(),
+            "The pane ID returned by split-window must own the focus handoff"
+        )
+    }
+
+    @Test
+    func rejectedProjectedPaneSelectionPreservesCurrentWorkspaceFocus() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let containerPaneID = try #require(
+            harness.workspace.paneId(forPanelId: harness.containerPanelId)
+        )
+        let outerNeighbor = try #require(harness.workspace.splitPaneWithNewTerminal(
+            targetPane: containerPaneID,
+            orientation: .horizontal,
+            insertFirst: false,
+            workingDirectory: nil,
+            initialInput: nil
+        ))
+        harness.workspace.focusPanel(outerNeighbor.id)
+        #expect(harness.workspace.focusedPanelId == outerNeighbor.id)
+
+        let projectedPane = try #require(harness.mirror.panel(forPane: 4))
+        harness.writer.close()
+        harness.workspace.focusPanel(projectedPane.id)
+
+        #expect(
+            harness.workspace.focusedPanelId == outerNeighbor.id,
+            "A rejected select-pane must not activate the mirror container's stale active pane"
+        )
+    }
+
+    @Test
+    func activePaneChangesUpdateFocusedTerminalInputTarget() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        harness.splitMakingPaneFiveActive()
+
+        #expect(harness.workspace.focusedPanelId == harness.containerPanelId)
+        let paneFour = try #require(harness.mirror.panel(forPane: 4))
+        let paneFive = try #require(harness.mirror.panel(forPane: 5))
+
+        harness.mirror.noteRemoteActivePane(4)
+        #expect(harness.workspace.focusedPanelId == harness.containerPanelId)
+        #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == paneFour.id)
+        #expect(harness.workspace.focusedTerminalPanel?.id == harness.containerPanelId)
+
+        harness.mirror.noteRemoteActivePane(5)
+        #expect(harness.workspace.focusedPanelId == harness.containerPanelId)
+        #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == paneFive.id)
+        #expect(harness.workspace.focusedTerminalPanel?.id == harness.containerPanelId)
+    }
+
+    @Test
+    func unresolvedDirectMirrorActivePaneFailsClosed() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        harness.splitMakingPaneFiveActive()
+
+        let paneFive = try #require(harness.mirror.panel(forPane: 5))
+        harness.mirror.panelsByPaneId[5] = nil
+        defer { harness.mirror.panelsByPaneId[5] = paneFive }
+
+        #expect(
+            harness.workspace.activeRemoteTmuxControlPane(
+                containerPanelID: harness.containerPanelId
+            ) == nil
+        )
+        #expect(harness.workspace.focusedTerminalInputTarget() == nil)
+        #expect(harness.workspace.focusedTerminalPanel?.id == harness.containerPanelId)
     }
 }

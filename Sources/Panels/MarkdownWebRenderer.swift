@@ -206,7 +206,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             let zoom = MarkdownFontSizeSettings.pageZoom(forPointSize: lastFontSize)
             let shouldSyncShell = forceShellSync || abs(webView.pageZoom - zoom) > 0.0001
             if abs(webView.pageZoom - zoom) > 0.0001 { webView.pageZoom = zoom }
-            if shouldSyncShell { webView.evaluateJavaScript("window.__cmuxSetMarkdownZoom && window.__cmuxSetMarkdownZoom(\(Double(zoom)));", completionHandler: nil) }
+            if shouldSyncShell { webView.evaluateJavaScript("window.__cmuxSetMarkdownZoom && window.__cmuxSetMarkdownZoom(\(Double(zoom)), \(Double(webView.bounds.width)));", completionHandler: nil) }
         }
 
         /// Records the desired body prose font and applies it as an inline

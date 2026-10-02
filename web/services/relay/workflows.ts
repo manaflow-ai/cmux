@@ -2,7 +2,6 @@ import * as Effect from "effect/Effect";
 
 import {
   configuredRelayCatalog,
-  relayCatalogDigest,
   relayPolicyPayload,
   relayPolicySigningKey,
   signRelayPolicy,
@@ -52,8 +51,8 @@ export function signedRelayPolicy(
   return Effect.gen(function* () {
     const repository = yield* RelayRepository;
     yield* repository.acceptCatalog({
-      sequence: config.catalog.sequence,
-      digest: relayCatalogDigest(config.catalog),
+      catalog: config.catalog,
+      nowSeconds: config.nowSeconds,
     });
     const record = yield* repository.getPreference(accountId);
     const signed = yield* Effect.try({

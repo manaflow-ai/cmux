@@ -39,7 +39,7 @@ export function AddAiAccountForms({ teamId }: { teamId: string }) {
   ) => {
     setStatus(kind, { state: "submitting" });
     try {
-      const response = await fetch(`/api/subrouter/accounts?teamId=${encodeURIComponent(teamId)}&validate=1`, {
+      const response = await fetch(`/api/subrouter/accounts?teamId=${encodeURIComponent(teamId)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
