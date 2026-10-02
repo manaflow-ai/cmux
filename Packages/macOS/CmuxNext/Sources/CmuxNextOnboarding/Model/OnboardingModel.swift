@@ -9,12 +9,13 @@ public import Observation
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        case defaultBrowser, importData, theme, accounts
+        case role, defaultBrowser, importData, theme, accounts
     }
 
     public private(set) var step: Step
     /// The steps of this flow (`accounts` only when the App supplies it).
     public let steps: [Step]
+    public let role: RoleStepModel
     public let theme: ThemeStepModel
     public let importer: ImportStepModel
     public let defaults: DefaultAppsStepModel
@@ -29,6 +30,7 @@ public final class OnboardingModel {
         let steps = Step.allCases.filter { $0 != .accounts || services.hasAccountsStep }
         self.steps = steps
         step = start.flatMap { steps.contains($0) ? $0 : nil } ?? steps[0]
+        role = RoleStepModel(services: services)
         theme = ThemeStepModel(services: services)
         importer = ImportStepModel(services: services)
         defaults = DefaultAppsStepModel(services: services)
@@ -56,6 +58,7 @@ public final class OnboardingModel {
         case .importData where importer.canStart:
             importer.start()
             return
+        case .role: role.commit()
         case .theme: theme.commit()
         default: break
         }
@@ -87,7 +90,7 @@ public final class OnboardingModel {
         case .defaultBrowser: defaults.refresh()
         case .importData: importer.detect()
         case .theme: theme.load()
-        case .accounts: break
+        case .role, .accounts: break
         }
     }
 

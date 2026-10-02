@@ -12,7 +12,7 @@ mod package;
 mod rules;
 
 pub use issue::{Issue, Severity};
-pub use package::{validate_package, PackageReport};
+pub use package::{PackageReport, validate_package};
 
 use serde_json::Value;
 use std::sync::OnceLock;
