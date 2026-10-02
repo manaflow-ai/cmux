@@ -15,6 +15,8 @@ export const COMPOSER_LABELS = {
   commands: "Commands",
   noCommands: "No commands",
   noMatchingCommands: "No matching commands",
+  queue: "Queued prompts",
+  queued: "Queued",
 };
 
 type Props = {
@@ -112,6 +114,9 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   const stop = snapshot.isWorking && !text.trim();
   return <form className="acpmux-composer" onSubmit={submit}>
     {open && <SlashMenu matches={matches} active={selected} empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands} onHover={setActive} onPick={pick} />}
+    {snapshot.queue.length > 0 && <ol className="acpmux-queue" aria-label={COMPOSER_LABELS.queue}>
+      {snapshot.queue.map((entry) => <li className="acpmux-queued" key={entry.id} title={entry.prompt}><span className="acpmux-queued-label">{COMPOSER_LABELS.queued}</span><span className="acpmux-queued-text">{entry.prompt}</span></li>)}
+    </ol>}
     <div className="acpmux-composer-box">
       {leading}
       {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}

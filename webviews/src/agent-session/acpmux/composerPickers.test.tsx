@@ -190,3 +190,21 @@ describe("acpmux composer send button", () => {
     expect(stops).toBe(0);
   });
 });
+
+describe("acpmux composer queue", () => {
+  test("queued prompts list above the bar in order, and the list goes away when empty", async () => {
+    const root = createRoot(doc.getElementById("root")!);
+    const render = async (queue: AcpmuxSnapshot["queue"]) => act(async () => root.render(createElement(Composer, { snapshot: { ...snapshot({}, true), queue }, chips: () => null, onSend: () => {}, onStop: () => {} })));
+    try {
+      await render([{ id: "p1", prompt: "first" }, { id: "p2", prompt: "second\nline" }]);
+      const list = doc.querySelector("ol.acpmux-queue")!;
+      expect(list.getAttribute("aria-label")).toBe("Queued prompts");
+      expect([...list.querySelectorAll(".acpmux-queued-text")].map((node) => node.textContent)).toEqual(["first", "second\nline"]);
+      expect(list.nextElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
+      await render([]);
+      expect(doc.querySelector(".acpmux-queue")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+});
