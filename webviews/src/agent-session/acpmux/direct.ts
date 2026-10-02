@@ -1,5 +1,5 @@
 import type { AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
-import { sessionEntry } from "./sessionList";
+import { sessionEntry, type AcpmuxSessionEntry } from "./sessionList";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -82,6 +82,8 @@ export class AcpmuxDirectClient {
   private events: EventRecord[] = [];
   private rows = new Map<string, AcpmuxRow>();
   private sessions: Session[] = [];
+  /// Sidebar entries by acpmux session object. A changed session arrives as a new object, so unchanged rows keep their entry and skip rendering.
+  private sessionEntries = new WeakMap<Session, AcpmuxSessionEntry>();
   private selectedSessionId?: string;
   private summary: Record<string, any> | undefined;
   private catalog: any[] = [];
@@ -424,7 +426,7 @@ export class AcpmuxDirectClient {
   private emit(connection = "connected"): void {
     const summary = this.summary;
     const effort = (summary?.configOptions ?? []).find((option: any) => option.category === "thought_level" || option.id === "reasoning_effort");
-    this.listener({ type: "snapshot", protocolVersion: 1, rows: [...this.rows.values()].sort((a, b) => a.at - b.at), sessions: this.sessions.map(sessionEntry), summary: summary ? { sessionId: summary.sessionId, title: summary.title, name: summary.name, harness: summary.harness, model: summary.model, effort: effort?.currentValue, status: summary.status, modes: summary.modes, configOptions: summary.configOptions } : undefined, connection, sessionId: this.selectedSessionId, isWorking: this.turnOpen || summary?.status === "running", queue: this.queue, permission: this.pendingPermission, catalog: this.catalog, canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1 });
+    this.listener({ type: "snapshot", protocolVersion: 1, rows: [...this.rows.values()].sort((a, b) => a.at - b.at), sessions: this.sessions.map((session) => { let entry = this.sessionEntries.get(session); if (!entry) { entry = sessionEntry(session); this.sessionEntries.set(session, entry); } return entry; }), summary: summary ? { sessionId: summary.sessionId, title: summary.title, name: summary.name, harness: summary.harness, model: summary.model, effort: effort?.currentValue, status: summary.status, modes: summary.modes, configOptions: summary.configOptions } : undefined, connection, sessionId: this.selectedSessionId, isWorking: this.turnOpen || summary?.status === "running", queue: this.queue, permission: this.pendingPermission, catalog: this.catalog, canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1 });
   }
 
   snapshot(): void { this.emit(); }

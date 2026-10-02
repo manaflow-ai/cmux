@@ -10,6 +10,8 @@ describe("session titles", () => {
   });
   test("a name the user gave wins over the prompt", () => {
     expect(sessionTitle({ sessionId: "s1", name: "login-fix", harness: "codex", title: "Fix the login flow" })).toBe("login-fix");
+    expect(sessionTitle({ sessionId: "s1", name: "codex-2b", harness: "codex", title: "Fix the login flow" })).toBe("codex-2b");
+    expect(sessionTitle({ sessionId: "s1", name: "codex-", harness: "codex", title: "Fix the login flow" })).toBe("codex-");
   });
   test("a generated name without a prompt yet shows the name, then the id", () => {
     expect(sessionTitle({ sessionId: "s1", name: "claude-2", harness: "claude" })).toBe("claude-2");

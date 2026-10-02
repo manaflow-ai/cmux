@@ -1,0 +1,63 @@
+import { afterAll, expect, test } from "bun:test";
+import { JSDOM, VirtualConsole } from "jsdom";
+import type { AcpmuxSnapshot } from "./model";
+
+const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
+const globals = globalThis as Record<string, unknown>;
+const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "ResizeObserver", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
+Object.assign(globals, {
+  window: dom.window,
+  document: dom.window.document,
+  navigator: dom.window.navigator,
+  HTMLElement: dom.window.HTMLElement,
+  ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
+  requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
+  cancelAnimationFrame: (handle: number) => clearTimeout(handle),
+  IS_REACT_ACT_ENVIRONMENT: true,
+});
+// A narrow pane: the session list is an overlay.
+Object.assign(dom.window, { matchMedia: () => ({ matches: false }) });
+afterAll(() => Object.assign(globals, saved));
+
+const { act, createElement } = await import("react");
+const { createRoot } = await import("react-dom/client");
+const { AcpmuxApp } = await import("./App");
+
+test("in a narrow pane the session overlay takes focus and closes on Escape, the scrim, or a pick", async () => {
+  const host = dom.window as unknown as { cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>; cmuxAcpmuxBridge?: { receive(snapshot: AcpmuxSnapshot): void } };
+  const selected: unknown[] = [];
+  host.cmuxAcpmuxActions = {
+    ready: async () => ({ protocolVersion: 1, transport: "test" }),
+    "chat.select": async (params) => { selected.push(params.sessionId); },
+  };
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const shell = () => container.querySelector(".acpmux-shell")!;
+  const toggle = () => container.querySelector<HTMLButtonElement>(".acpmux-sidebar-toggle")!;
+  try {
+    await act(async () => root.render(createElement(AcpmuxApp)));
+    await act(async () => host.cmuxAcpmuxBridge!.receive({ type: "snapshot", protocolVersion: 1, rows: [], connection: "connected", isWorking: false, queue: [], catalog: [], canLoadOlder: false, sessionId: "b", sessions: [{ sessionId: "a", displayTitle: "First", cwd: "/src/web", updatedAt: 2 }, { sessionId: "b", displayTitle: "Second", cwd: "/src/web", updatedAt: 1 }] }));
+    expect(shell().getAttribute("data-sidebar")).toBe("auto");
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => toggle().click());
+    expect(shell().getAttribute("data-sidebar")).toBe("open");
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    expect(dom.window.document.activeElement?.textContent).toBe("Second");
+    await act(async () => { dom.window.document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" })); });
+    expect(shell().getAttribute("data-sidebar")).toBe("auto");
+
+    await act(async () => toggle().click());
+    await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-sidebar-scrim")!.click());
+    expect(shell().getAttribute("data-sidebar")).toBe("auto");
+    expect(container.querySelector(".acpmux-sidebar-scrim")).toBeNull();
+
+    await act(async () => toggle().click());
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".acpmux-session-row")].find((row) => row.textContent === "First")!.click());
+    expect(shell().getAttribute("data-sidebar")).toBe("auto");
+    expect(selected).toEqual(["a"]);
+  } finally {
+    await act(async () => root.unmount());
+    delete host.cmuxAcpmuxActions;
+  }
+});

@@ -48,7 +48,7 @@ export function sessionTitle(session: { title?: string; name?: string; harness?:
   const name = session.name ?? "";
   const harness = session.harness ?? "";
   const bare = name.split("/").pop() ?? name;
-  const generated = !name || (harness !== "" && (bare === harness || new RegExp(`^${escapeRegExp(harness)}-\\d+$`).test(bare)));
+  const generated = !name || (harness !== "" && (bare === harness || (bare.startsWith(`${harness}-`) && /^\d+$/.test(bare.slice(harness.length + 1)))));
   const title = session.title?.trim();
   if (generated) return title || name || session.sessionId.slice(0, 8);
   return name;
@@ -95,6 +95,3 @@ export function visibleSessions(group: SessionGroup, expanded: boolean, selected
   return { rows: group.sessions.slice(0, GROUP_ROWS), hidden: group.sessions.length - GROUP_ROWS };
 }
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}

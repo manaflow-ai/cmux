@@ -8,7 +8,7 @@ const MARK_GLYPHS: Record<Exclude<SessionMark, undefined>, string> = { input: "?
 export function SessionSidebar({ sessions, selectedId, onSelect }: { sessions: AcpmuxSessionEntry[]; selectedId?: string; onSelect: (sessionId: string) => void }) {
   const groups = useMemo(() => groupByProject(sessions), [sessions]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  return <nav className="acpmux-sidebar" aria-label="Sessions">{groups.length === 0 ? <div className="acpmux-sidebar-empty">No sessions yet</div> : groups.map((group) => {
+  return <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label="Sessions">{groups.length === 0 ? <div className="acpmux-sidebar-empty">No sessions yet</div> : groups.map((group) => {
     const { rows, hidden } = visibleSessions(group, expanded.has(group.key), selectedId);
     return <section className="acpmux-sidebar-group" key={group.key}><div className="acpmux-sidebar-project" title={group.cwd}>{group.label}</div><ul>{rows.map((session) => <SessionRow key={session.sessionId} session={session} selected={session.sessionId === selectedId} onSelect={onSelect} />)}</ul>{hidden > 0 && <button type="button" className="acpmux-sidebar-more" onClick={() => setExpanded((current) => new Set(current).add(group.key))}>Show {hidden} more</button>}</section>;
   })}</nav>;
