@@ -112,7 +112,7 @@ final class AppTabSearchSource: TabSearchSource {
         case .pty: .terminal
         case .browser: .browser
         case .remoteTerminal: .remoteTerminal
-        case .other: .other
+        case .conversation, .other: .other
         }
     }
 }

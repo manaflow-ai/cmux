@@ -112,6 +112,11 @@ public struct DaemonCapabilities: Sendable {
     /// Local conversations owned by the daemon (Home, plans/cmux-next/home.md):
     /// the `conversation-*` commands and `conversation-changed`/`conversation-typing` events.
     public let localConversations = "local-conversations-v1"
+    /// `workspace.ensure_home` and the home workspace (`kind: home`; home.md 7).
+    public let workspaceKind = "workspace-kind-v1"
+    /// Conversation tabs: `new-conversation-tab` and the `conversation` tab kind.
+    /// Echoed so the daemon sends the canonical kind instead of `browser`.
+    public let conversationTabs = "conversation-tabs-v1"
     public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks, localConversations] }
     /// Written to the local daemon's personal rows instead of each machine's
     /// daemon once the local daemon serves `profiles-v1`.
@@ -148,7 +153,8 @@ public struct DaemonCapabilities: Sendable {
     public let tabSplitRespawn = "tab-split-respawn-v1"
     public var awaitingPin: [String] {
         [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns,
-         endTerminalsKeepLayout, stateResources, localConversations, sidebarLayout, tabSplitRespawn, frontendBrowserHistory]
+         endTerminalsKeepLayout, stateResources, localConversations, sidebarLayout, tabSplitRespawn, frontendBrowserHistory,
+         workspaceKind, conversationTabs]
     }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.

@@ -2750,6 +2750,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "focusMove",
+      "cli_name" : "home show",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "home.show",
+      "mcp" : "focusMove",
+      "palette" : "offered"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "tab-group create",
       "context_menu" : "offered",

@@ -13,6 +13,9 @@ enum TabContent {
     case agent(AgentPaneView)
     /// A remote-terminal tab whose session is not attached (data-model.md 1.4).
     case placeholder(RemoteTerminalPlaceholderView)
+    /// A conversation tab (`conversation-tabs-v1`): the native Home view
+    /// of one conversation (plans/cmux-next/home.md 7).
+    case conversation(HomeHostView)
 
     var view: NSView {
         switch self {
@@ -20,6 +23,7 @@ enum TabContent {
         case .browser(let entry): entry.chrome
         case .agent(let view): view
         case .placeholder(let view): view
+        case .conversation(let view): view
         }
     }
 
@@ -30,6 +34,7 @@ enum TabContent {
         case .browser(let entry): entry.tab.contentView
         case .agent(let view): view.webView
         case .placeholder(let view): view
+        case .conversation(let view): view.focusTarget
         }
     }
 }

@@ -2,9 +2,10 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextHome
 
-/// The window's Home content: the native conversations view (CmuxNextHome)
-/// fed by this window's `HomeWindowModel`, or why it cannot show (the local
-/// daemon does not serve conversations).
+/// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
+/// native conversations view (CmuxNextHome) fed by this tab's
+/// `HomeWindowModel`, opened on the tab's conversation, or why it cannot show
+/// (the local daemon does not serve conversations).
 @MainActor
 final class HomeHostView: NSView {
     private unowned let services: AppServices
@@ -13,9 +14,9 @@ final class HomeHostView: NSView {
     private let message = NSTextField(labelWithString: "")
     private var availability: Task<Void, Never>?
 
-    init(services: AppServices, state: WindowState) {
+    init(services: AppServices, conversation: String) {
         self.services = services
-        model = HomeWindowModel(service: services.home)
+        model = HomeWindowModel(service: services.home, conversation: conversation)
         home = HomeView(viewModel: model.viewModel)
         super.init(frame: .zero)
         wantsLayer = true
@@ -54,7 +55,6 @@ final class HomeHostView: NSView {
         message.frame = NSRect(x: 0, y: (bounds.height - size.height) / 2, width: bounds.width, height: size.height)
     }
 
-    func focusComposer() {
-        window?.makeFirstResponder(home)
-    }
+    /// The view that takes the keyboard when the tab's pane is focused.
+    var focusTarget: NSView { home }
 }

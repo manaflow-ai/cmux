@@ -19,6 +19,12 @@ final class HomeService {
     @ObservationIgnored private var listing: Task<Void, Never>?
     /// The brain host was started on this app launch (it outlives the app).
     @ObservationIgnored private var startedBrainHost = false
+    /// The store's home workspace (`workspace-kind-v1`), from `workspace.ensure_home`.
+    var homeWorkspaceID: ResourceID?
+    @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
+    @ObservationIgnored private var homeObservation: Task<Void, Never>?
+    /// Each conversation tab's view, by tab id; released with the tab.
+    @ObservationIgnored var tabViews: [String: HomeHostView] = [:]
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
     /// The local user's participant id in local conversations.
     let actor = ConversationParticipant.localUserID
@@ -33,6 +39,13 @@ final class HomeService {
     func start() {
         services.machines.local.store.sideEvents.subscribe { [weak self] event in self?.handle(event) }
         let local = services.machines.local
+        // task-owner: lives as long as the service; event-driven (Observation)
+        homeObservation = Task { [weak self] in
+            for await connection in Observations({ local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil }) {
+                guard let self, let connection else { continue }
+                ensureHomeWorkspace(connection)
+            }
+        }
         // task-owner: lives as long as the service; event-driven (Observation)
         availability = Task { [weak self] in
             for await connection in Observations({ local.supports(DaemonCapabilities.shared.localConversations) ? local.connection : nil }) {
