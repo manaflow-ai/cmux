@@ -30,6 +30,8 @@ INHERITED_SOCKET_KEYS = (
     "CMUX_WORKSPACE_ID",
     "CMUX_SURFACE_ID",
     "CMUX_TAB_ID",
+    "CMUX_PANEL_ID",
+    "CMUX_PANE_ID",
 )
 
 # Resources/shell-integration prefixes a request with this when the shell
