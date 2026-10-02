@@ -100,7 +100,7 @@ function paramsType(op: Op): string {
 }
 
 export function generate(): Record<string, string> {
-  const { ops, types, generics, actions } = loadCatalog()
+  const { ops, types, generics } = loadCatalog()
   const names = Object.keys(ops).sort()
   const scopes: Record<string, { scope: string; class: string }> = {}
   const never: string[] = []
@@ -166,7 +166,8 @@ type CmuxSignal<T> = () => T
 interface CmuxLive<T> { (): T | undefined; error(): CmuxError | null; loading(): boolean; refresh(): void }
 declare class CmuxError extends Error { readonly code: string; readonly details?: unknown; readonly retryable: boolean }
 interface CmuxFetchResponse { status: number; ok: boolean; headers: Record<string, string>; text(): string; json<T = unknown>(): T }
-type CmuxActionId = ${actions.map((a) => JSON.stringify(a)).join(" | ") || "string"}
+// App action ids are not enumerated here: the registry changes daily. List them at runtime with cmux.actions.list().
+type CmuxActionId = string
 
 interface CmuxGlobal {
 ${render(root, "  ")}
