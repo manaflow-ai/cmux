@@ -85,7 +85,7 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop }: Props) {
       aria-activedescendant={open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined}
       onChange={(event) => edit(event.target.value, event.target.selectionStart)} onSelect={track} onKeyDown={keyDown} />
     <button type="submit">{COMPOSER_LABELS.send}</button>
-    <button type="button" className="acpmux-cancel" onClick={onStop}>{COMPOSER_LABELS.stop}</button>
+    {snapshot.isWorking && <button type="button" className="acpmux-cancel" onClick={onStop}>{COMPOSER_LABELS.stop}</button>}
   </form>;
 }
 

@@ -140,6 +140,17 @@ describe("direct client session state", () => {
 
   const connect = () => AcpmuxDirectClient.connect(host, (snapshot) => snapshots.push(snapshot));
 
+  test("connect attaches without waiting on the harness catalog, which the pane queries itself", async () => {
+    ScriptedSocket.held = new Set(["_acpmux/harnesses"]);
+    const client = await connect();
+    expect(ScriptedSocket.current.sent.map((request) => request.method)).not.toContain("_acpmux/harnesses");
+    expect(latest().catalog).toEqual([]);
+    const catalog = client.harnesses();
+    await settle();
+    ScriptedSocket.current.release("_acpmux/harnesses", { harnesses: { codex: { name: "Codex", models: [{ modelId: "gpt-6-astra" }] } } });
+    expect(await catalog).toEqual([{ id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: undefined }] }]);
+  });
+
   test("purging an unselected session refreshes the picker", async () => {
     await connect();
     const before = snapshots.length;

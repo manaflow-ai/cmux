@@ -170,3 +170,14 @@ Coordinator (reversible): WebKit inspector uses Safari's own dock controls (WebK
 ## Onboarding (2026-10-01, minimal per user)
 
 User: "more undesigned and minimal, liquid glass; right now it's overwhelming." One decision per screen: Default Browser, Import from Browsers (one checkbox per detected profile; bookmarks, history, sign-ins in one line; Continue starts the import, which keeps running after the window moves on; each source profile becomes its own cmux profile), Theme (curated Ghostty themes as a radio list with a terminal preview; applies live, Skip reverts), Accounts (CmuxNextAccounts view, when the App supplies it). 4 steps (was 7). The window is one NSGlassEffectView (opaque theme background under Reduce Transparency), system font and controls, "2 of 4", Skip and Continue, a Motion crossfade between steps. Everything else lives in Settings with defaults: density, animations, titlebar, pane chrome (Appearance), notifications (Notifications), quit behavior (General), Import from Browser… (Browser section and palette). Removed from onboarding (code deleted, see git history before this change): welcome screen, tour, keyboard presets, extension reinstall, open tabs import, "one profile" merge choice, per-profile kind chips. Kept without UI: `terminal.fontFamily` / `terminal.fontSize` in cmux.json (Ghostty overrides). Not built: password import (cmux reads no password store), site permissions and search engine import, Safari 17+ named profiles.
+
+## Round 5 decisions (2026-10-01)
+
+- Cmd-D splits inside the focused column only; it never creates a column and never scrolls. "New Column" (Cmd-Opt-D) appends a column after the current one and scrolls to it, and does not resize existing columns (`layout.newColumnWidth` default `matchCurrent`).
+- `layout.splitSizing` default `even`; `layout.closeSizing` default `even`; `layout.closeFocus` default previous neighbor. Every layout default is a user setting.
+- After a user-initiated drop or move, the moved tab gets focus and is revealed (Option files it away). Automation (CLI, MCP, scripts, remote) never changes focus; `origin` marker on action.run, central check.
+- MCP server in the Rust binary, generated from the operation catalogs, off by default, stdio only in phase 1; HTTP with scoped revocable tokens in phase 2.
+- Ghostty `window-padding-color` stays at Ghostty's default.
+- Hover cards: one app-wide coordinator, formally checked single-card invariant.
+- Debug Settings window (DEV and NIGHTLY only) with searchable tunables; drop overlay variants selectable there.
+- State ownership: plans/cmux-next/OWNERSHIP-PRINCIPLES.md is binding.

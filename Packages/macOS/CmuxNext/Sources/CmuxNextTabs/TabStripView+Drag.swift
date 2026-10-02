@@ -212,7 +212,7 @@ extension TabStripView {
             context.setFillColor(Palette.windowBackground.cgColor)
         }
         let radius = metrics.cornerRadius
-        context.addPath(CGPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: metrics.tabBackgroundInset, dy: 0), cornerWidth: radius, cornerHeight: radius, transform: nil))
+        context.addPath(CGPath(roundedRect: metrics.pillFrame(slotWidth: size.width, height: size.height), cornerWidth: radius, cornerHeight: radius, transform: nil))
         context.fillPath()
         for layer in layers {
             context.saveGState()
@@ -222,6 +222,10 @@ extension TabStripView {
         }
         return context.makeImage().map(TabImage.init)
     }
+
+    /// The tabs the strip shows, in order (tab conservation check DP1: once
+    /// no drag is in flight this equals the model's tabs).
+    public var presentedTabIDs: [TabID] { displayed.map(\.id) }
 
     /// Restores a tab this strip handed off (drag cancelled). It grows back
     /// into its slot. No-op when `id` is not the detached tab.
