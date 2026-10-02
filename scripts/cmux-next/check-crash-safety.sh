@@ -9,7 +9,10 @@
 #                      and no `as!`.
 #   SIGPIPE:           a file that makes or accepts a socket must say how its
 #                      writes avoid SIGPIPE (SO_NOSIGPIPE or MSG_NOSIGNAL), and
-#                      the app entry point must ignore SIGPIPE.
+#                      the app entry point must install the SIGPIPE policy
+#                      (ChildSignalDefaults: caught by a no-op handler, so a
+#                      write fails with EPIPE and children still get the
+#                      default; ChildSignalDefaultsTests proves both).
 #
 # Usage: scripts/cmux-next/check-crash-safety.sh [package-root]
 set -euo pipefail
@@ -55,8 +58,8 @@ for dirpath, _, files in os.walk(sources):
             failures.append(f"{rel}: makes or accepts a socket without SO_NOSIGPIPE or MSG_NOSIGNAL")
 
 entry = os.path.join(sources, "CmuxNextApp", "CmuxNextApp.swift")
-if "signal(SIGPIPE, SIG_IGN)" not in open(entry, encoding="utf-8").read():
-    failures.append("Sources/CmuxNextApp/CmuxNextApp.swift: the entry point must ignore SIGPIPE")
+if "ChildSignalDefaults.installAppSignalPolicy()" not in open(entry, encoding="utf-8").read():
+    failures.append("Sources/CmuxNextApp/CmuxNextApp.swift: the entry point must call ChildSignalDefaults.installAppSignalPolicy()")
 
 for failure in failures:
     print("crash-safety: " + failure)
