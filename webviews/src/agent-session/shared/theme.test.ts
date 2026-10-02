@@ -52,6 +52,19 @@ describe("agent theme", () => {
     expect(document.documentElement.style.getPropertyValue("--agent-accent-text")).toBe("rgba(30, 30, 46, 1.0)");
   });
 
+  // The host's motion durations become the stylesheets' tokens; ui.animationSpeed off sends 0.
+  test("sets the motion tokens in milliseconds, and a theme without them clears them", () => {
+    const style = document.documentElement.style;
+    applyAgentTheme({ ...theme, motion: { hover: 0.08, focus: 0.1, fadeIn: 0.18, fadeOut: 0 } });
+    expect(style.getPropertyValue("--agent-motion-hover")).toBe("80ms");
+    expect(style.getPropertyValue("--agent-motion-focus")).toBe("100ms");
+    expect(style.getPropertyValue("--agent-motion-in")).toBe("180ms");
+    expect(style.getPropertyValue("--agent-motion-out")).toBe("0ms");
+    applyAgentTheme(theme);
+    expect(style.getPropertyValue("--agent-motion-hover")).toBe("");
+    expect(style.getPropertyValue("--agent-motion-in")).toBe("");
+  });
+
   // A theme without a key must not leave the previous theme's value behind.
   test("clears a key the next theme leaves out", () => {
     applyAgentTheme(theme);

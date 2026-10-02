@@ -160,16 +160,16 @@ Three targets, in phase order:
 | Channel | Carrier | Reliability | Contents |
 | --- | --- | --- | --- |
 | control | one TCP stream through the overlay (link stream, `cmux.wire/1` framing) | reliable, ordered | session setup and teardown, capabilities, consent state, cursor shapes, clipboard, display list, quality reports, keyframe or LTR requests that need confirmation |
-| media | overlay datagrams (UDP inside the WireGuard session, overlay port 4102) | unreliable; FEC and NACK | video packets, FEC packets, audio packets |
+| media | overlay datagrams (UDP inside the WireGuard session, overlay port 4103, service name `remote-desktop`; 4102 is the overlay's path-probe port) | unreliable; FEC and NACK | video packets, FEC packets, audio packets |
 | input | overlay datagrams | unreliable with redundancy: each input event repeats in the next three input packets until acknowledged; the host applies by sequence number exactly once | keys, pointer, scroll, text |
 | cursor position | overlay datagrams | latest wins | position, visibility |
 | feedback | overlay datagrams, client to host, once per frame and at least every 50 ms while streaming | unreliable | transport-wide arrival times, loss, NACK list, decode time, last presented frame, client refresh rate |
 
-Because lane 12 carries every path's traffic as WireGuard datagrams (including the DO relay), the datagram channels work on every path; the DO relay just has higher RTT and its own cost cap.
+Media, input, cursor position and feedback all use overlay port 4103. Because lane 12 carries every path's traffic as WireGuard datagrams (including the DO relay), the datagram channels work on every path; the DO relay just has higher RTT and its own cost cap.
 
 ### 6.2 Datagram header (16 bytes, then payload)
 
-`u8 version_flags`, `u8 type` (video, fec, audio, input, input_ack, cursor_pos, feedback, probe), `u16 stream` (one per display), `u32 frame`, `u16 index`, `u16 count` (data packets of the frame), `u16 fec_count`, `u16 transport_seq` (for transport-wide feedback). Payload size: the path MTU from the link minus headers. With an inner MTU of 1280 (the Freestyle tunnel), an inner UDP payload is 1252 bytes over IPv4 or 1232 over IPv6; on `via_cloud_region` the end-to-end WireGuard session sits inside the tunnel and costs another 60 to 80 bytes, so media payloads are about 1150 bytes there and about 1350 on direct paths. Lane 12 reports the effective inner MTU per path. Video packets carry a frame-level `t_capture` (host monotonic microseconds) in the first packet for latency accounting.
+`u8 version_flags`, `u8 type` (video, fec, audio, input, input_ack, cursor_pos, feedback, probe), `u16 stream` (one per display), `u32 frame`, `u16 index`, `u16 count` (data packets of the frame), `u16 fec_count`, `u16 transport_seq` (for transport-wide feedback). Datagram size: the link reports `max_datagram` for the session, fixed for the session's life and repeated in every `path.changed` event (transport.md section 12b): 1152 bytes for a session that may use the Freestyle path (hosts in a VPC), 1332 bytes otherwise. A session never re-packetizes on a path change. The packetizer sizes every video, FEC and audio packet to `max_datagram`: with the 16-byte header, a video packet carries up to 1136 bytes of access unit (VPC hosts) or 1316 bytes (other hosts); the first packet of a frame also carries the 8-byte `t_capture`. Where the encoder supports slice size limits, slices are sized to one packet payload so a lost packet costs one slice. FEC parity packets have the same size as the frame's data packets. Video packets carry a frame-level `t_capture` (host monotonic microseconds) in the first packet for latency accounting.
 
 ### 6.3 FEC and retransmission
 
@@ -192,7 +192,7 @@ The client acknowledges complete frames in feedback. On loss, the host's next fr
 
 - The pane shows the path badge (`direct`, `via cloud region`, `relayed`) and live RTT, loss and the measured G2G. Above `remoteDesktop.interactiveMaxRttMs` the pane is view-only until the user chooses "Control anyway" (spec computer-use lesson 3).
 - One link per session: control, media and input share the viewer's one overlay link to the host (lane 12 moves paths without a reconnect). The engine subscribes to the link's path events; a path change resets the congestion controller's delay baseline and, for a relay path, applies the relay caps at once instead of waiting for the controller to find them.
-- The DO relay is a weak path for video (lane 12, plans/cmux-next/transport.md section 13: same-city relay 7.8 ms p50 / 14.2 ms p99, 5 to 21 MB/s, about 4,000 messages per second per Durable Object, one WireGuard datagram per message). At about 1,150 bytes per datagram, 4,000 messages per second is about 37 Mbit/s for every client of that host together, billed per message. So on `do_relay` the quality ladder starts at `remoteDesktop.relay.maxBitrateMbps` (default 4) and `remoteDesktop.relay.maxFps` (default 15), prefers lower fps over lower resolution for text, and shows "relayed"; both caps are team policy values. Batching several datagrams into one relay message would cut message cost and is a question for lane 12 (section 19).
+- The DO relay is a weak path for video (lane 12, plans/cmux-next/transport.md section 13: same-city relay 7.8 ms p50 / 14.2 ms p99, 5 to 21 MB/s, about 4,000 messages per second per Durable Object). Relay batching is landed (transport.md section 12b: relay frame kind `datagrams`, up to 16 KiB of length-prefixed datagrams per message, about 14 media datagrams per message), so the message ceiling is no longer the video limit; the relay's byte rate (21 MB/s measured with 16 KiB messages, shared by every client of that host) and its per-message cost are. The engine hands the link one frame's packets at once so they can share relay messages. So on `do_relay` the quality ladder starts at `remoteDesktop.relay.maxBitrateMbps` (default 4) and `remoteDesktop.relay.maxFps` (default 15), prefers lower fps over lower resolution for text, and shows "relayed"; both caps are team policy values.
 - The Freestyle tunnel path measured 2.2 ms p50 at 228 Mbit/s down with the in-process WireGuard engine (lane 12); every tunnel today uses one San Francisco endpoint, so users far from it pay the hairpin.
 - Web dashboard (later): the HostDO application relay with WebCodecs decode; the same packets on a WebSocket; view-only first.
 
@@ -279,15 +279,15 @@ The CLI verbs go through a request file (lane rule: the Swift CLI is frozen): `.
 
 ## 11. Security
 
-- Reachability: hosts listen only on the overlay (no public or LAN port). The team network policy (spec/network-policy.md) must allow the viewer's device to the host's overlay port; a new tag `tag:desktop` lets admins write `{"src": ["autogroup:member"], "dst": ["autogroup:self:4102"]}` style rules. Network policy gives reachability only.
+- Reachability: hosts listen only on the overlay (no public or LAN port). The team network policy (spec/network-policy.md) must allow the viewer's device to the host's overlay port; a new tag `tag:desktop` lets admins write `{"src": ["autogroup:member"], "dst": ["autogroup:self:remote-desktop"]}` style rules. Network policy gives reachability only.
 - Authorization (default deny, checked by the host engine on every `rd.session.start`): allow only if (a) hosting is enabled on that machine, (b) the viewer's principal is the host's owner user from their own interactive client (`autogroup:self`), or holds a host grant from the owner, and (c) the agent class rules allow it (agents: never control; `mux` may open a view-only pane for its own user, which streams to the user's client, not to the agent).
-- Consent: if anyone other than the requesting user is logged in at the console, or the host owner set "Ask every time", the host shows a consent sheet (Allow view, Allow control, Deny; deny after 30 s). Control is a separate consent from view. A viewer can hold control only while the consent stands; the person at the host can take control back by moving the mouse (configurable) and always by Stop.
+- Consent: if anyone other than the requesting user is logged in at the console, or the host owner set "Ask every time", the host shows a consent panel at the top center of the active screen, no default button (Allow view, Allow control, Deny; deny after 30 s). Control is a separate consent from view. A viewer can hold control only while the consent stands; the person at the host can take control back by moving the mouse (configurable) and always by Stop.
 - Indicator: while any session exists, the host shows a non-dismissable indicator: on macOS a menu bar item plus a thin colored screen-edge border and a pill "Viewed by <name>" / "Controlled by <name>" with Stop (the system's own capture indicator also shows and cannot be hidden); on Linux desktops the portal's indicator plus ours; on headless hosts no local indicator exists, so every start posts a feed item to the host owner. Stop ends every session at once and wins over any viewer op.
 - Unattended access: only by explicit setup on the host machine: `rd.host.grant {principal, mode, expires}` (user origin, Touch ID or password re-authentication, feed notification to the owner, audit); own-user unattended grants never expire, grants to other people expire (default 30 days, renewable). Team admins can forbid unattended grants by policy. Headless servers and VMs: the installer flag `--desktop` enables owner-only access; other principals still need a grant.
 - End-to-end encryption: WireGuard end to end on every lane 12 path including the DO relay (it carries ciphertext). Web clients are the exception (TLS ends at Cloudflare), which is why web stays view-only first.
 - Clipboard: off for other people's sessions by default, on for own devices; every transfer is audited as type and size, never content.
 - Audit: session start and end, consent decisions, control grants and releases, clipboard and file transfers, policy changes; stored by the engine and appended to the `TeamDO` audit chain; visible in Settings and `cmux rd audit`.
-- Secure content: the capture excludes password manager and authentication windows on macOS (content filter list shared with computer use); on Linux and Windows nothing comparable exists, which the consent sheet states.
+- Secure content: the capture excludes password manager and authentication windows on macOS (content filter list shared with computer use); on Linux and Windows nothing comparable exists, which the consent panel states.
 
 ### 11.1 Remote relay analysis (required by the repo's remote relay rules)
 
@@ -311,7 +311,7 @@ Decision RD9: a Rust RFB client (protocol 3.8; Raw, CopyRect, ZRLE, Tight; Apple
 - Pure core: property tests for the packetizer and reassembly (any loss pattern within FEC capacity reconstructs the frame; frames never display out of order; a frame that references a lost frame never displays), the congestion controller against a simulated path (queue delay bounded under a step capacity drop; recovery time), and input exactly-once under duplication and loss.
 - A TLA+ model of the session and consent lifecycle: no frame is sent after Stop or after consent is revoked; control is never held without consent; a kicked viewer receives nothing after `rd.session.stop`.
 - Bench: `cmux rd bench` (section 15.1 method) in CI on two machines per release (Linux host on a Freestyle VM, macOS client on a fleet Mac) records G2G, bandwidth and CPU per workload and fails on regressions over 20 %.
-- Visual: screenshots of the pane variants, the host indicator, the consent sheet (DEV switch per variant), Reduce Motion and Reduce Transparency, `appearance.borders = none`.
+- Visual: screenshots of the pane variants, the host indicator, the consent panel (DEV switch per variant), Reduce Motion and Reduce Transparency, `appearance.borders = none`.
 
 ## 15. Prototype and measurements
 
@@ -398,7 +398,7 @@ PNGs in the lane's private scratch directory (`ui-variants/`, index.md lists eac
 
 0. Prototype and measurements (this lane, done in this pass; section 15).
 1. Phase 1: `cmux-rd-proto` and `cmux-rd-core` (pure, property tests); Linux virtual X host (Xvfb, XDamage, XShm, XTest; VA-API when a GPU exists, else openh264); macOS client pane with variants A to C; control channel on the overlay stream; media on overlay datagrams once lane 12 exposes them (until then, media on the stream with the same packets and no FEC); owner-only access; bench in CI.
-2. Phase 2: macOS host in the screen agent helper (ScreenCaptureKit, VideoToolbox, CGEvent), consent sheet, indicator variants, unattended grants, audit to `TeamDO`, clipboard, cursor channel, multi-monitor, HiDPI virtual displays on server Macs; RFB client.
+2. Phase 2: macOS host in the screen agent helper (ScreenCaptureKit, VideoToolbox, CGEvent), consent panel, indicator variants, unattended grants, audit to `TeamDO`, clipboard, cursor channel, multi-monitor, HiDPI virtual displays on server Macs; RFB client.
 3. Phase 3: Wayland hosts (portals, PipeWire, libei, virtual monitors), Windows host (service plus session agent, Desktop Duplication, hardware MFT/NVENC/AMF/QSV), audio, file transfer, iOS client (IOS1 app, same core), web dashboard view-only.
 4. Phase 4: 4:4:4 and lossless text tiles, AV1, IddCx virtual displays on Windows, multiple simultaneous viewers with presence and kick (U6 rules).
 
@@ -413,13 +413,13 @@ PNGs in the lane's private scratch directory (`ui-variants/`, index.md lists eac
 ## 19. Questions for other lanes
 
 Lane 12 (transport):
-1. An unreliable datagram service on the overlay for app flows (UDP inside the WireGuard session to an overlay port such as 4102), offered by `cmux link` to local processes (a Unix datagram socket or a shared-memory ring), with a priority class for real-time media over bulk streams. Until it exists, phase 1 runs media on the link's TCP stream with the flow control of section 6.5.
+1. An unreliable datagram service on the overlay for app flows (UDP inside the WireGuard session to overlay port 4103, service `remote-desktop`), offered by `cmux link` to local processes (a Unix datagram socket or a shared-memory ring), with a priority class for real-time media over bulk streams. Until it exists, phase 1 runs media on the link's TCP stream with the flow control of section 6.5.
 2. The effective inner MTU per path (direct, `via_cloud_region` with WireGuard inside the tunnel's 1280, `do_relay`), exposed to the sender.
 3. Path events and live stats per link (path type, RTT, jitter, loss, path changes) as a subscription, so congestion control resets on a path change and the pane shows the badge.
-4. Several WireGuard datagrams per DO relay message (the frame format allows a 16 KiB payload), to cut per-message cost and the ~4,000 messages/s per object ceiling for video.
+4. Answered (transport.md 12b): relay batching is landed, up to 16 KiB of datagrams per relay message.
 5. May a second signed process of the same user (the macOS screen agent helper, which hosts this engine) use the user's `cmux link` endpoint through its socket, or does it need its own WireGuard key (one key, one live session)?
-6. The userspace hub lost a FIN on session close in the prototype (the host kept the session established until keepalive); TCP keepalive, user timeout and Nagle defaults of the in-process TCP stack.
-7. Host listen port policy: is any overlay port of a host reachable once the peer map allows the pair, or should apps register ports (4102 for remote desktop) so the policy can name them?
+6. Answered (transport.md 12b, 99ca23d8102): a lost FIN is resent, and a close lost at tunnel shutdown is resent after shutdown (end seen after 410 ms). Still open: Nagle default of the in-process TCP stack.
+7. Host listen port policy: is any overlay port of a host reachable once the peer map allows the pair, or should apps register ports so the policy can name them? Answered in part: remote desktop is service `remote-desktop` on port 4103.
 
 Lane 10 (server) and lane 1 (VM image):
 8. A `desktop` role in `cmux host run` (off by default; `cmux server up --desktop`), with the packages it needs in the image (Xvfb or a headless compositor, a small window manager, fonts with grayscale antialiasing), and health signals "no hardware encoder" and "display asleep".
@@ -437,7 +437,10 @@ Identity, backend and enterprise:
 
 iOS (lane 14): 14. The client core (`cmux-rd-core`) in the client xcframework for a later iOS client.
 
-## 20. Open decisions (for Lawrence, through the coordinator)
+## 20. Decisions
+
+Coordinator, 2026-10-02: D-RD1, D-RD3, D-RD4, D-RD5, D-RD6 and D-RD7 are accepted as recommended. D-RD2 waits for Lawrence.
+
 
 - D-RD1 Software H.264 encoder for hosts without hardware encode: (a) the GPL encoder linked into `cmux-rd` (GPL-3.0-or-later compatible; best measured latency and, with per-frame rate control, the best text scroll; patent license question), (b) the codec vendor's prebuilt BSD binary downloaded at enable time (patent coverage only for that binary; screen mode is slow and forces IDR on large changes), (c) hardware-only hosts. Recommendation: (a) for phase 1 dogfood, decide (a) or (b) before any public release after a patent review.
 - D-RD2 Apply now for the restricted macOS entitlements (persistent content capture; virtual HID device). Recommendation: yes, approval is reported to take months and unattended Mac hosting depends on it.
@@ -445,3 +448,4 @@ iOS (lane 14): 14. The client core (`cmux-rd-core`) in the client xcframework fo
 - D-RD4 Pane chrome A, B or C and host indicator I1, I2 or I3 (section 15.5). Recommendation: A, and I1 + I2 + I3 by state.
 - D-RD5 Agents never control through this app (RD8). Recommendation: yes; agents use computer use.
 - D-RD6 RFB as client only (RD9). Recommendation: yes, phase 2.
+- D-RD7 The host consent prompt is a floating panel at the top center of the active screen (not a sheet on a cmux window), with no default button, so Return cannot grant control. Recommendation: yes.

@@ -20,6 +20,7 @@ One line per landed change to a shared surface (daemon protocol or state, layout
 
 ## Landed
 
+- 2026-10-02 (open) cmux-tui landing window: host-death fix (branch feat-cmux-next-hostdeath), hold other cmux-tui pushes ~75 min; waits only for origin to pass cargo fmt (cmux-app-manifest) and compile (code_mode.rs/cli.rs fix by the pin owner) (ownership lead)
 - 2026-10-02 (this push) actions/CLI/UI: Rooms are Spaces (Leo; data-model.md 3.4). Action ids `room.*` -> `space.*`, `workspace.moveToRoom`/`duplicateToRoom`, `workspaceGroup.moveToRoom`, `browserProfile.set/clearRoomDefault`, `sidebar.section.toggleRoomScope` -> `...Space...`; CLI `cmux space ...`, `--space`; UI strings in 21 locales; Rooms.xcstrings keys unchanged. Old ids stay as `ActionCatalog.legacyAliases`; old CLI names and the `room` noun resolve through `ControlCatalog.renamedCLIName`. Wire and stored names keep `room` (target kind, sidebar layout kind and section `room`, app permission selectors, window records); Swift type names follow later. Lanes that bind or test these ids: use the `space.*` names (browser lane)
 - 2026-10-02 (working tree) app/acpmux handoff: native `agentPane.continueIn` is a palette-only user chooser with `.guiOnly` CLI/context-menu exemptions; it calls the frontend `continueIn` bridge without taking focus for automation. The agent-pane handshake carries localized continuation review labels and coverage status keys; headless `cmux acp continue` remains the acpmux operation owner (harness-handoff lane)
 
