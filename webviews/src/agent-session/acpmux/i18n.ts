@@ -46,7 +46,7 @@ const ja: Record<StringKey, string> = {
   "trust.trust": "信頼する",
   "trust.distrust": "信頼しない",
   "trust.trusted": "{folder} を信頼しました",
-  "trust.untrusted": "{folder} を信頼しません",
+  "trust.untrusted": "{folder} を信頼しないことにしました",
   "trust.undo": "元に戻す",
   "trust.failed": "保存できませんでした。もう一度お試しください。",
   "trust.agent": "エージェント",

@@ -711,7 +711,7 @@ function AcpmuxPane() {
     sessionId: snapshot.sessionId,
     cwd: snapshot.summary?.cwd,
     started: !freshChat && snapshot.rows.length > 0,
-    turns: snapshot.summary?.turnCount ?? 0,
+    prompts: snapshot.rows.filter((row) => row.kind === "user").length,
   });
   // Turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(

@@ -9,17 +9,19 @@ export type FolderTrustAsk =
 
 /// The trust question for the chat in `cwd`, once `started` (its first prompt went): the send is
 /// never held for it. Another chat or folder drops the question, and a decided one goes once
-/// the next prompt starts (`turns` grows).
+/// the user sends their next prompt (`prompts` grows).
 export function useFolderTrustAsk(
   source: TrustSource,
-  chat: { sessionId?: string; cwd?: string; started: boolean; turns: number },
+  chat: { sessionId?: string; cwd?: string; started: boolean; prompts: number },
 ) {
   const [ask, setAsk] = useState<FolderTrustAsk>();
-  const { sessionId, cwd, started, turns } = chat;
+  const { sessionId, cwd, started, prompts } = chat;
   // The chat a reply belongs to; a late reply for another one is dropped.
   const current = useRef({ sessionId, cwd });
   current.current = { sessionId, cwd };
   const decidedAt = useRef<number | undefined>(undefined);
+  // One answer at a time: a second click while the first saves is ignored.
+  const saving = useRef(false);
 
   useEffect(() => {
     setAsk(undefined);
@@ -35,24 +37,27 @@ export function useFolderTrustAsk(
   }, [source, sessionId, cwd, started]);
 
   useEffect(() => {
-    if (ask?.state === "decided" && decidedAt.current !== undefined && turns > decidedAt.current) setAsk(undefined);
-  }, [ask, turns]);
+    if (ask?.state === "decided" && decidedAt.current !== undefined && prompts > decidedAt.current) setAsk(undefined);
+  }, [ask, prompts]);
 
   const save = useCallback(
     async (level: TrustLevel) => {
-      if (!ask) return;
+      if (!ask || saving.current) return;
+      saving.current = true;
       const asked = { sessionId, cwd: ask.cwd };
       const stillHere = () => current.current.sessionId === asked.sessionId && current.current.cwd === asked.cwd;
       try {
         await source.set(asked.cwd, level);
         if (!stillHere()) return;
-        decidedAt.current = level === "unknown" ? undefined : turns;
+        decidedAt.current = level === "unknown" ? undefined : prompts;
         setAsk(level === "unknown" ? { cwd: asked.cwd, state: "ask" } : { cwd: asked.cwd, state: "decided", level });
       } catch {
         if (stillHere()) setAsk({ cwd: asked.cwd, state: "failed" });
+      } finally {
+        saving.current = false;
       }
     },
-    [ask, source, sessionId, turns],
+    [ask, source, sessionId, prompts],
   );
 
   return {
