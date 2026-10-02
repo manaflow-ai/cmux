@@ -443,4 +443,14 @@ describe("direct client session state", () => {
       ["assistant", "It prints 64.35."],
     ]);
   });
+
+  test("a user message ends the reply streaming before it", async () => {
+    const chunk = (seq: number, text: string): EventRecord => ({ sessionId: "a", seq, at: seq, dir: "in", kind: "agent_message_chunk", msg: { method: "session/update", params: { sessionId: "a", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } } } });
+    ScriptedSocket.respond = ({ method }) => method === "_acpmux/attach"
+      ? { session: { sessionId: "a", status: "idle" }, events: [chunk(5, "Welcome."), userEvent("a", 6, "hi"), chunk(7, "Hello.")] }
+      : method === "_acpmux/watch" ? { sessions: [{ sessionId: "a" }] } : {};
+    await connect();
+    await settle();
+    expect(latest().rows.map((row) => [row.kind, row.text])).toEqual([["assistant", "Welcome."], ["user", "hi"], ["assistant", "Hello."]]);
+  });
 });
