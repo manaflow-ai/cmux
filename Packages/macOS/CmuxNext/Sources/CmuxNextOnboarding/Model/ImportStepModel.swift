@@ -121,6 +121,6 @@ public final class ImportStepModel {
     }
 
     public func openFullDiskAccessSettings() {
-        services.openExternal(SystemSettingsLink.fullDiskAccess)
+        services.openExternal(.systemSettingsFullDiskAccess)
     }
 }
