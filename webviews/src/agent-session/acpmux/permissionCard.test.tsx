@@ -55,7 +55,7 @@ async function render(permission: AcpmuxPermission) {
 const buttons = () => [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-permission-buttons button")];
 
 async function press(key: string, init: Partial<KeyboardEventInit> = {}, target: Element = buttons()[0]!) {
-  target instanceof dom.window.HTMLElement && target.focus();
+  if (target instanceof dom.window.HTMLElement) target.focus();
   await act(async () => {
     target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }));
   });
