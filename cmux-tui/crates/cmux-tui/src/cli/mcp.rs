@@ -16,6 +16,7 @@ mod schema;
 #[cfg(test)]
 mod tests;
 mod v2_tools;
+mod watch;
 
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
@@ -139,8 +140,11 @@ fn serve(global: GlobalArgs) -> i32 {
     // The client ends the server by closing stdin, then by SIGTERM; the
     // blocking stdin read must not hide that signal.
     let _ = crate::restore_default_termination_signals();
+    let output = watch::Output::new(io::stdout());
+    watch::spawn(global.clone(), output.clone());
     let mut server = Server::new(LiveBackend { global }, Some(path));
-    server.run(io::stdin().lock(), io::stdout().lock())
+    server.list_changed = true;
+    server.run(io::stdin().lock(), &output)
 }
 
 /// `cmux mcp tools [--json]`: what `serve` offers and what it leaves out.
@@ -200,6 +204,10 @@ pub(super) struct Server<B> {
     actions: Vec<ActionTool>,
     action_exclusions: Vec<Exclusion>,
     actions_loaded: bool,
+    /// Sends `notifications/tools/list_changed` (`watch`); `serve` only.
+    list_changed: bool,
+    /// The client sent `notifications/initialized`.
+    initialized: bool,
 }
 
 impl<B: Backend> Server<B> {
@@ -210,11 +218,13 @@ impl<B: Backend> Server<B> {
             actions: Vec::new(),
             action_exclusions: Vec::new(),
             actions_loaded: false,
+            list_changed: false,
+            initialized: false,
         }
     }
 
     /// Answers each line of `input` on `output` until stdin closes.
-    pub(super) fn run(&mut self, mut input: impl BufRead, mut output: impl Write) -> i32 {
+    pub(super) fn run(&mut self, mut input: impl BufRead, output: &watch::Output) -> i32 {
         let mut line = Vec::new();
         loop {
             line.clear();
@@ -228,7 +238,7 @@ impl<B: Backend> Server<B> {
             }
             if line.len() > MAX_MESSAGE_BYTES {
                 let response = error_response(Value::Null, -32600, "message exceeds 8 MiB");
-                let _ = write_message(&mut output, &response);
+                let _ = output.send(&response);
                 return 1;
             }
             let text = line.trim_ascii();
@@ -240,9 +250,12 @@ impl<B: Backend> Server<B> {
                 Err(error) => Some(error_response(Value::Null, -32700, &format!("{error}"))),
             };
             if let Some(response) = response
-                && write_message(&mut output, &response).is_err()
+                && output.send(&response).is_err()
             {
                 return 0;
+            }
+            if self.initialized {
+                output.set_ready();
             }
         }
     }
@@ -260,10 +273,13 @@ impl<B: Backend> Server<B> {
             }
             return Some(error_response(id.unwrap_or(Value::Null), -32600, "missing method"));
         };
+        if method == "notifications/initialized" {
+            self.initialized = true;
+        }
         let id = id?;
         let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
-            "initialize" => Ok(initialize(&params)),
+            "initialize" => Ok(initialize(&params, self.list_changed)),
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({ "tools": self.list() })),
             "tools/call" => self.call(&params),
@@ -379,7 +395,7 @@ impl<B: Backend> Server<B> {
     }
 }
 
-fn initialize(params: &Value) -> Value {
+fn initialize(params: &Value, list_changed: bool) -> Value {
     let requested = params["protocolVersion"].as_str();
     let version = PROTOCOL_VERSIONS
         .iter()
@@ -387,17 +403,10 @@ fn initialize(params: &Value) -> Value {
         .unwrap_or(&PROTOCOL_VERSIONS[0]);
     json!({
         "protocolVersion": version,
-        "capabilities": {"tools": {"listChanged": false}},
+        "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
         "instructions": INSTRUCTIONS,
     })
-}
-
-fn write_message(output: &mut impl Write, message: &Value) -> io::Result<()> {
-    let mut bytes = serde_json::to_vec(message).map_err(io::Error::other)?;
-    bytes.push(b'\n');
-    output.write_all(&bytes)?;
-    output.flush()
 }
 
 fn error_response(id: Value, code: i64, message: &str) -> Value {

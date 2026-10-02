@@ -710,6 +710,34 @@ fn stream_events(stream: &mut UnixStream, params: Value, output: OutputMode) -> 
     0
 }
 
+/// Reads `events.stream` from the app with the CLI's discovery and calls
+/// `on_frame` with each JSON frame (the stream's acknowledgement first),
+/// blocking until the app closes the stream (`Ok`) or cannot be reached.
+/// Blocking reads, no polling.
+pub(super) fn watch_events(
+    global: &GlobalArgs,
+    params: Value,
+    mut on_frame: impl FnMut(&Value),
+) -> Result<(), String> {
+    let socket = socket_path(global)?;
+    let mut stream = connect(&socket)?;
+    send_line(
+        &mut stream,
+        &json!({ "id": "events", "method": "events.stream", "params": params }),
+    )?;
+    let reader = BufReader::new(stream.try_clone().map_err(|error| error.to_string())?);
+    for line in reader.lines() {
+        let line = line.map_err(|error| error.to_string())?;
+        let Ok(frame) = serde_json::from_str::<Value>(&line) else { continue };
+        if frame.get("ok").and_then(Value::as_bool) == Some(false) {
+            let message = frame["error"]["message"].as_str().unwrap_or("events.stream failed");
+            return Err(message.to_owned());
+        }
+        on_frame(&frame);
+    }
+    Ok(())
+}
+
 fn failure(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
     super::wire::print_local_error(
         &json!({ "code": code, "message": message, "details": {}, "retryable": false }),

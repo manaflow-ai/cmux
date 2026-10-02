@@ -50,7 +50,11 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
   - one tool per app action with `cli: true` in `action.list`, named `app_` plus its
     CLI name (`app_new_window`, `app_workspace_move_to_window`), with the action's
     arguments (kinds, choices, ranges) as the schema. These appear only while the app
-    answers.
+    answers. The server declares `tools.listChanged` and sends
+    `notifications/tools/list_changed` when the app publishes `action.catalog.changed`
+    on `events.stream` (the router does it when its actions change) or comes back after
+    it quit or restarted; a thread reads the stream with blocking reads and retries an
+    unreachable app with a doubling delay (0.5 s to 30 s).
 - Calls use the CLI's transport (`wire::call`, `app::call_method`): the same route
   defaults, `--session` routing, lookups on the request's connection, deadlines and
   protocol checks.
@@ -67,7 +71,10 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
 - App actions send `action.run` with `wait: true`, `after: "sync"`, `cli: true` and
   `origin: "mcp"`. The app changes the user's focus, selection, shown workspace or key
   window only when the call passes `focus: true` or the action's purpose is focus.
-  Destructive actions need `confirm: true`, as from the CLI.
+  Destructive actions need `confirm: true`, as from the CLI (user decision
+  2026-10-01: they stay tools; the run carries `origin: "mcp"` as its actor).
+- Terminal input and command runs (`terminal_input_write`, `pane_run`,
+  `workspace_run`) stay tools, as in the CLI (user decision 2026-10-01).
 - Large reads: a read with an array result and no `limit` of its own answers
   `{items, total, offset, next_offset}` (default 100 items, at most 1000). Every
   result is cut to 256 KiB; a cut page says `truncated` and the next offset.
@@ -102,7 +109,8 @@ than 256 KiB still reports success (`applied: true`), so a client never retries 
 
 - A bounded `events_read` tool (app `events.stream` and daemon `session.events`
   with a count and a deadline).
-- Policy for `browser.page.*` (eval, fill and click reach signed-in pages).
-- `notifications/tools/list_changed` when the app's action registry changes.
+- Policy for `browser.page.*` (eval, fill and click reach signed-in pages) and the
+  history, bookmark, accounts and settings reads (excluded in phase 1, user decision
+  2026-10-01).
 - Prefix resolution in the daemon (cli.md, Remaining 7) replaces the client-side
   lookup.

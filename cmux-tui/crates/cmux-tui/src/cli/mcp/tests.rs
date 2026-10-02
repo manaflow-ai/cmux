@@ -370,14 +370,77 @@ fn json_rpc_lifecycle_and_errors() {
     assert_eq!(names.len(), tools.len(), "tool names are unique");
 
     let input = "{\"jsonrpc\":\"2.0\",\"id\":\"p\",\"method\":\"ping\"}\nnot json\n\n";
-    let mut output = Vec::new();
-    assert_eq!(server.run(input.as_bytes(), &mut output), 0);
-    let lines = String::from_utf8(output).unwrap();
+    let buffer = SharedBuffer::default();
+    assert_eq!(server.run(input.as_bytes(), &watch::Output::new(buffer.clone())), 0);
+    let lines = buffer.text();
     let lines =
         lines.lines().map(|line| serde_json::from_str::<Value>(line).unwrap()).collect::<Vec<_>>();
     assert_eq!(lines.len(), 2);
     assert_eq!(lines[0]["result"], json!({}));
     assert_eq!(lines[1]["error"]["code"], -32700);
+}
+
+/// A writer whose bytes a test reads back.
+#[derive(Clone, Default)]
+struct SharedBuffer(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl Write for SharedBuffer {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl SharedBuffer {
+    fn text(&self) -> String {
+        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+    }
+}
+
+#[test]
+fn the_tool_list_changes_on_a_catalog_event_or_an_app_restart() {
+    let ack = json!({"ok": true, "result": {"subscribed": true}});
+    let changed = json!({"type": "event", "name": watch::CATALOG_CHANGED});
+    let other = json!({"type": "event", "name": "workspace.created"});
+
+    // The app runs when the server starts: its acknowledgement is not a change.
+    let mut watch = watch::ActionWatch::default();
+    assert!(!watch.frame(&ack));
+    assert!(!watch.frame(&other));
+    assert!(watch.frame(&changed));
+    // The app quit and came back (maybe another build): list again.
+    assert!(watch.lost());
+    assert!(watch.frame(&ack));
+    // The app was not running at start and appears later.
+    let mut late = watch::ActionWatch::default();
+    assert!(!late.lost());
+    assert!(!late.lost());
+    assert!(late.frame(&ack));
+}
+
+#[test]
+fn notifications_wait_for_initialization_and_the_capability_says_so() {
+    let buffer = SharedBuffer::default();
+    let output = watch::Output::new(buffer.clone());
+    output.tools_changed().unwrap();
+    assert_eq!(buffer.text(), "", "nothing before notifications/initialized");
+
+    let mut server = Server::new(Fake::default(), None);
+    server.list_changed = true;
+    let input = concat!(
+        "{\"jsonrpc\":\"2.0\",\"id\":\"i\",\"method\":\"initialize\",\"params\":{}}\n",
+        "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+    );
+    assert_eq!(server.run(input.as_bytes(), &output), 0);
+    let initialize: Value = serde_json::from_str(buffer.text().lines().next().unwrap()).unwrap();
+    assert_eq!(initialize["result"]["capabilities"]["tools"]["listChanged"], true);
+    output.tools_changed().unwrap();
+    let last: Value = serde_json::from_str(buffer.text().lines().last().unwrap()).unwrap();
+    assert_eq!(last, json!({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}));
 }
 
 #[test]
