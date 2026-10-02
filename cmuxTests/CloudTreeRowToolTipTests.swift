@@ -135,7 +135,7 @@ struct CloudTreeRowToolTipTests {
         let cell = Self.cell(presence: [])
         cell.configure(node: node, machineActions: Self.machineActions(), nodeActions: Self.nodeActions())
         let toolTip = try #require(cell.toolTip)
-        #expect(toolTip == "Open in cmux. No VPN setup needed.")
+        #expect(toolTip == "vite")
         #expect(cell.accessibilityLabel()?.contains("Port 3000") == true)
     }
 
@@ -295,8 +295,8 @@ struct CloudTreeRowToolTipTests {
             machineActions: Self.machineActions(),
             nodeActions: Self.nodeActions()
         )
-        #expect(cell.toolTip == "Open in cmux. No VPN setup needed.")
-        #expect(cell.accessibilityLabel() == "Port 3000, Open in cmux")
+        #expect(cell.toolTip == nil)
+        #expect(cell.accessibilityLabel() == "Port 3000")
     }
 
     // MARK: - Fixtures
