@@ -12,6 +12,13 @@ public struct CloudFirewallEndpoint: Sendable, Hashable, Codable {
     enum CodingKeys: String, CodingKey { case vmId, vpcId, tunnelId, cidr, `public`, port, protocolName = "protocol" }
 }
 
+public struct CloudNetwork: Sendable, Hashable, Decodable {
+    public var id: String
+    public var cidr: String?
+    public var cidrV6: String?
+    public var scope: String
+}
+
 public struct CloudFirewallRule: Sendable, Hashable, Codable {
     public var id: String
     public var action: String

@@ -198,6 +198,11 @@ public struct CloudAPIClient: Sendable {
         return try await send("GET", "/api/vm/firewall\(parts.isEmpty ? "" : "?\(parts.joined(separator: "&"))")", as: List.self).rules
     }
 
+    public func listNetworks() async throws -> [CloudNetwork] {
+        struct List: Decodable { var networks: [CloudNetwork] }
+        return try await send("GET", "/api/vm/network", as: List.self).networks
+    }
+
     public func getFirewallRule(_ ruleID: String) async throws -> CloudFirewallRule {
         try await send("GET", "/api/vm/firewall?ruleId=\(queryComponent(ruleID))", as: CloudFirewallRule.self)
     }

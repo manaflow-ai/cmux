@@ -684,7 +684,8 @@ export function attachVmTunnelNetwork(input: {
     const tunnel = yield* repo.findTunnel({ userId: input.userId, deviceFingerprint: input.deviceFingerprint, tunnelPurpose: input.tunnelPurpose });
     if (!tunnel) return yield* Effect.fail(new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }));
     if (!providers.attachTunnelNetwork) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider: input.provider, reason: "tunnel attachment is unavailable" }));
-    return yield* providers.attachTunnelNetwork(input.provider, tunnel.providerTunnelId, input.networkId);
+    const attachment = yield* providers.attachTunnelNetwork(input.provider, tunnel.providerTunnelId, input.networkId);
+    return { tunnelId: tunnel.providerTunnelId, ...attachment };
   });
 }
 
@@ -724,7 +725,7 @@ export function rotateVmTunnelKey(input: {
     if (!isWireGuardPublicKey(input.clientPublicKey)) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider: input.provider, reason: "invalid WireGuard public key" }));
     const live = yield* providers.rotateTunnelKey(input.provider, tunnel.providerTunnelId, input.clientPublicKey.trim(), network.providerNetworkId);
     yield* repo.updateTunnel({ id: tunnel.id, clientPublicKey: live.clientPublicKey, addressV4: live.addressV4, addressV6: live.addressV6, configIssued: true });
-    return { tunnelId: live.id, clientPublicKey: live.clientPublicKey, serverPublicKey: live.serverPublicKey, clientConfig: live.clientConfig };
+    return { tunnelId: live.id, networkId: network.providerNetworkId, clientPublicKey: live.clientPublicKey, serverPublicKey: live.serverPublicKey, clientConfig: live.clientConfig };
   });
 }
 

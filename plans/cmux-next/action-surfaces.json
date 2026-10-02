@@ -6052,12 +6052,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud network-list",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "cloudNetworkList",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud firewall-list",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
 
       ],
       "id" : "cloudFirewallList",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud firewall-get",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "cloudFirewallGet",
       "mcp" : "offered",
       "palette" : "offered"
     },

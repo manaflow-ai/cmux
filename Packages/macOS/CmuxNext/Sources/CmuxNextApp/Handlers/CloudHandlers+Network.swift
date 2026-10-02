@@ -16,10 +16,24 @@ extension CloudHandlers {
             guard let key = invocation["publicKey"]?.stringValue else { throw ActionFailure(message: CloudStrings.publicKeyRequired) }
             runTracked("rotate Cloud tunnel key", context) { _ = try await cloud.api.rotateTunnelKey(deviceFingerprint: cloud.localDeviceID(), publicKey: key) }
         }
+        bind("cloudNetworkList", registry, reason: reason) { _ in
+            runTracked("list Cloud networks", context) {
+                let networks = try await cloud.api.listNetworks()
+                let lines = networks.map { network in [network.id, "(\(network.scope))", network.cidr ?? ""].joined(separator: " ") }
+                CloudPresenter.show(CloudStrings.networkTitle, lines.joined(separator: "\n"), copyable: true, in: window(context))
+            }
+        }
         bind("cloudFirewallList", registry, reason: reason) { _ in
             runTracked("list Cloud firewall rules", context) {
                 let rules = try await cloud.api.listFirewallRules()
                 CloudPresenter.show(CloudStrings.firewallTitle, rules.map { "\($0.id): \($0.description ?? $0.action)" }.joined(separator: "\n"), copyable: true, in: window(context))
+            }
+        }
+        bind("cloudFirewallGet", registry, reason: reason) { invocation in
+            let ruleID = try networkArgument(invocation)
+            runTracked("get Cloud firewall rule", context) {
+                let rule = try await cloud.api.getFirewallRule(ruleID)
+                CloudPresenter.show(CloudStrings.firewallTitle, "\(rule.id): \(rule.description ?? rule.action)", copyable: true, in: window(context))
             }
         }
         bind("cloudFirewallDelete", registry, reason: reason) { invocation in

@@ -13,6 +13,7 @@ function required(body: Record<string, unknown>, key: string): string | Response
 export async function POST(request: Request, { params }: { params: Promise<Params> }): Promise<Response> {
   const { operation } = await params;
   return withAuthedVmApiRoute(request, "/api/vm/tunnel/network/[operation]", { "cmux.vm.operation": `tunnel_${operation}` }, "/api/vm/tunnel/network failed", async ({ user }) => {
+    if (operation !== "attach" && operation !== "detach" && operation !== "rotate-key") return vmErrorResponse({ error: "vm_unknown_tunnel_operation", status: 404, message: "Unknown tunnel network operation.", action: "Use attach, detach, or rotate-key." });
     const body = await parseLenientObjectBody(request);
     const deviceFingerprint = required(body, "deviceFingerprint"); if (deviceFingerprint instanceof Response) return deviceFingerprint;
     const tunnelPurpose = optionalString(body.tunnelPurpose) ?? "browser";

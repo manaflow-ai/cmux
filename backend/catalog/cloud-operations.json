@@ -15811,7 +15811,9 @@
                   "type": {
                     "kind": "enum",
                     "values": [
-                      "tcp"
+                      "tcp",
+                      "udp",
+                      "icmp"
                     ]
                   }
                 }
@@ -15870,7 +15872,9 @@
                   "type": {
                     "kind": "enum",
                     "values": [
-                      "tcp"
+                      "tcp",
+                      "udp",
+                      "icmp"
                     ]
                   }
                 }
@@ -15970,7 +15974,9 @@
                       "type": {
                         "kind": "enum",
                         "values": [
-                          "tcp"
+                          "tcp",
+                          "udp",
+                          "icmp"
                         ]
                       }
                     }
@@ -16029,7 +16035,9 @@
                       "type": {
                         "kind": "enum",
                         "values": [
-                          "tcp"
+                          "tcp",
+                          "udp",
+                          "icmp"
                         ]
                       }
                     }
@@ -16106,7 +16114,9 @@
               "protocol": {
                 "type": "string",
                 "enum": [
-                  "tcp"
+                  "tcp",
+                  "udp",
+                  "icmp"
                 ]
               }
             },
@@ -16136,7 +16146,9 @@
               "protocol": {
                 "type": "string",
                 "enum": [
-                  "tcp"
+                  "tcp",
+                  "udp",
+                  "icmp"
                 ]
               }
             },
@@ -16189,7 +16201,9 @@
               "protocol": {
                 "type": "string",
                 "enum": [
-                  "tcp"
+                  "tcp",
+                  "udp",
+                  "icmp"
                 ]
               }
             },
@@ -16219,7 +16233,9 @@
               "protocol": {
                 "type": "string",
                 "enum": [
-                  "tcp"
+                  "tcp",
+                  "udp",
+                  "icmp"
                 ]
               }
             },
@@ -16435,7 +16451,9 @@
                   "type": {
                     "kind": "enum",
                     "values": [
-                      "tcp"
+                      "tcp",
+                      "udp",
+                      "icmp"
                     ]
                   }
                 }
@@ -16494,7 +16512,9 @@
                   "type": {
                     "kind": "enum",
                     "values": [
-                      "tcp"
+                      "tcp",
+                      "udp",
+                      "icmp"
                     ]
                   }
                 }
@@ -16587,7 +16607,9 @@
               "protocol": {
                 "type": "string",
                 "enum": [
-                  "tcp"
+                  "tcp",
+                  "udp",
+                  "icmp"
                 ]
               }
             },
@@ -16617,7 +16639,9 @@
               "protocol": {
                 "type": "string",
                 "enum": [
-                  "tcp"
+                  "tcp",
+                  "udp",
+                  "icmp"
                 ]
               }
             },
@@ -16749,7 +16773,9 @@
                           "type": {
                             "kind": "enum",
                             "values": [
-                              "tcp"
+                              "tcp",
+                              "udp",
+                              "icmp"
                             ]
                           }
                         }
@@ -16808,7 +16834,9 @@
                           "type": {
                             "kind": "enum",
                             "values": [
-                              "tcp"
+                              "tcp",
+                              "udp",
+                              "icmp"
                             ]
                           }
                         }
@@ -16913,7 +16941,9 @@
                     "protocol": {
                       "type": "string",
                       "enum": [
-                        "tcp"
+                        "tcp",
+                        "udp",
+                        "icmp"
                       ]
                     }
                   },
@@ -16943,7 +16973,9 @@
                     "protocol": {
                       "type": "string",
                       "enum": [
-                        "tcp"
+                        "tcp",
+                        "udp",
+                        "icmp"
                       ]
                     }
                   },
@@ -20423,8 +20455,46 @@
             "type": {
               "kind": "array",
               "items": {
-                "kind": "primitive",
-                "name": "json"
+                "kind": "object",
+                "fields": {
+                  "id": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "cidr": {
+                    "required": true,
+                    "type": {
+                      "kind": "nullable",
+                      "inner": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    }
+                  },
+                  "cidrV6": {
+                    "required": true,
+                    "type": {
+                      "kind": "nullable",
+                      "inner": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    }
+                  },
+                  "scope": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "user",
+                        "team"
+                      ]
+                    }
+                  }
+                }
               }
             }
           }
@@ -20467,7 +20537,49 @@
         "type": "object",
         "properties": {
           "networks": {
-            "type": "array"
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "cidr": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "cidrV6": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "team"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "cidr",
+                "cidrV6",
+                "scope"
+              ],
+              "additionalProperties": true
+            }
           }
         },
         "required": [
