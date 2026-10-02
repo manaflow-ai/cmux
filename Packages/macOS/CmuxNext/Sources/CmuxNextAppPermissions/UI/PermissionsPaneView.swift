@@ -35,6 +35,9 @@ struct PermissionsPaneView: View {
                 FoldersSection(record: record, add: { Task { await model.addFolder(appID: listing.id) } },
                                remove: { send(.removeFileRoot(id: $0), listing) })
             }
+            if let installs = model.installs, installs.states[listing.id]?.installed == true {
+                HiddenAccessSection(appID: listing.id, installs: installs)
+            }
             ReachSection(selectors: record.grant.selectors, source: model.source) { send(.setSelectors($0), listing) }
             ActivitySection(entries: model.activity[listing.id] ?? [])
             Rectangle().fill(colors.separator).frame(height: 0.5).padding(.top, 4)
