@@ -58,7 +58,8 @@ export function SessionSidebar({
   const onSearchKey = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Escape") return;
     // During IME composition Escape cancels the composition, and closes nothing.
-    const composing = event.nativeEvent.isComposing;
+    // WebKit can end the composition before this keydown, which then reports only keyCode 229.
+    const composing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
     if (!composing && !query) return;
     event.stopPropagation();
     if (!composing) setQuery("");
@@ -79,7 +80,8 @@ export function SessionSidebar({
           />
         </label>
       </search>
-      <output className="acpmux-sidebar-empty" hidden={pinned.length > 0 || groups.length > 0}>
+      {/* Always present, so a screen reader announces the text when it appears. */}
+      <output className="acpmux-sidebar-empty">
         {pinned.length === 0 && groups.length === 0 ? "No matching sessions" : ""}
       </output>
       {pinned.length > 0 && (

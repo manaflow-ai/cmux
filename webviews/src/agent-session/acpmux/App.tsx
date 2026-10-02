@@ -716,7 +716,7 @@ function AcpmuxPane() {
   useEffect(() => {
     if (sidebar !== "open" || wide) return;
     const list = document.getElementById("acpmux-sidebar");
-    // A search left over from the last opening can hide every row; the search field then takes focus.
+    // With no selected row in view (none yet, or a leftover search hides it), the search field, first in the list, takes focus.
     (list?.querySelector<HTMLElement>(".is-selected") ?? list?.querySelector<HTMLElement>("button, input"))?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") closeOverlay();
