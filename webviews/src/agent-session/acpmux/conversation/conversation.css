@@ -457,6 +457,12 @@
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
 }
+/* An opened run's calls; past nine 26px rows the list scrolls, as Codex's does. */
+.cv-tool-run {
+  max-height: 234px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 .cv-tool {
   all: unset;
   box-sizing: border-box;
