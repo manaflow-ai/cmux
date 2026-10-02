@@ -527,7 +527,7 @@ fn shared_cases_match_the_app() {
                 }
             }
             ("reject", Err(reject)) => {
-                assert_eq!(reject.as_str(), case["reason"].as_str().unwrap(), "{name}")
+                assert_eq!(reject.as_str(), case["reason"].as_str().unwrap(), "{name}");
             }
             (expect, other) => panic!("{name}: expected {expect}, got {other:?}"),
         }
