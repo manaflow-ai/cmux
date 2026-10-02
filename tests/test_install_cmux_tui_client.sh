@@ -114,7 +114,7 @@ if [[ "\${FAKE_CURL_TRANSIENT_503:-0}" == 1 && "\$url" == */cmux-tui-aarch64-app
     printf '503'
     exit 22
   fi
-  [[ -s "\$out" ]] || { echo 'transient HTTP failure discarded the resumable partial' >&2; exit 99; }
+  [[ "\$args" == *'--continue-at -'* && -s "\$out" ]] || { echo 'transient HTTP failure did not resume its partial' >&2; exit 99; }
   printf 'resume-preserved\n' >> "$EVENTS"
 fi
 cp "$SERVE/\$(basename "\$url")" "\$out"
