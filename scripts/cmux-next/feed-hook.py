@@ -8,7 +8,8 @@ user's feed as the signed-in user. It never blocks the agent: no socket, an
 error, a timeout or a cancel print the native "no decision" output (`{}`), so
 Claude Code shows its own prompt.
 
-  feed-hook.py claude-code request    PermissionRequest hook (synchronous)
+  feed-hook.py claude-code request    PermissionRequest hook (synchronous); also PreToolUse
+                                      for print mode, which shows no dialog
   feed-hook.py claude-code supersede  PreToolUse, PostToolUse, PostToolUseFailure,
                                       UserPromptSubmit, Stop, SessionEnd hooks:
                                       cancels open items of the session
@@ -148,7 +149,17 @@ def request(event):
         remember(event.get("session_id", ""), item.get("id", ""), True)
         return {}
     decision = decision_for(event, item)
-    return {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": decision}} if decision else {}
+    if not decision:
+        return {}
+    if event.get("hook_event_name") == "PreToolUse":
+        # Print mode (`claude -p`) shows no dialog, so the adapter can also sit on PreToolUse.
+        out = {"hookEventName": "PreToolUse", "permissionDecision": decision["behavior"]}
+        if decision.get("message"):
+            out["permissionDecisionReason"] = decision["message"]
+        if decision.get("updatedInput"):
+            out["updatedInput"] = decision["updatedInput"]
+        return {"hookSpecificOutput": out}
+    return {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": decision}}
 
 
 def supersede(event):
