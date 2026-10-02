@@ -1,7 +1,7 @@
 /// Builds the arguments forwarded to a detached Codex fork monitor.
-public enum CodexForkMonitorArguments {
+public struct CodexForkMonitorArguments {
     /// Preserves the parent-session claim and optional launch ownership values.
-    public static func make(environment: [String: String]) -> [String] {
+    public func make(environment: [String: String]) -> [String] {
         guard let forkParent = environment["CMUX_AGENT_FORK_PARENT_SESSION_ID"],
               !forkParent.isEmpty else { return [] }
         var arguments = ["--fork-parent", forkParent]
