@@ -112,6 +112,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var rail: WindowRailPlacement = WindowRailSetting.fallback
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
+    /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
+    /// theme) when unset, empty or invalid.
+    public var appTheme: String?
+    /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
+    public var terminalFontFamily: String?
+    /// `terminal.fontSize` in points; nil (the Ghostty config's size) when unset or invalid.
+    public var terminalFontSize: Double?
     /// `history.terminalCommands` (opt-in terminal command history).
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
@@ -202,6 +209,15 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.recordsTerminalCommands = recordsCommands
         if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
+        let (appTheme, appThemeDiagnostic) = AppThemeSetting.parse(root)
+        snapshot.appTheme = appTheme
+        if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }
+        let (fontFamily, fontFamilyDiagnostic) = TerminalFontSetting.parseFamily(root)
+        snapshot.terminalFontFamily = fontFamily
+        if let fontFamilyDiagnostic { snapshot.diagnostics.append(fontFamilyDiagnostic) }
+        let (fontSize, fontSizeDiagnostic) = TerminalFontSetting.parseSize(root)
+        snapshot.terminalFontSize = fontSize
+        if let fontSizeDiagnostic { snapshot.diagnostics.append(fontSizeDiagnostic) }
 
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {
@@ -228,6 +244,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
                                 continue
                             }
                             snapshot.metrics[name] = number
+                            // The applier clamps; the diagnostic says so, as the Settings window refuses it.
+                            if name == InterfaceSizeSetting.metricName, !InterfaceSizeSetting.range.contains(number) {
+                                snapshot.diagnostics.append(SettingsDiagnostic(
+                                    kind: .invalidValue, path: path,
+                                    message: "expected a size in points from \(Int(InterfaceSizeSetting.range.lowerBound)) to \(Int(InterfaceSizeSetting.range.upperBound)); clamped"
+                                ))
+                            }
                         }
                     } else {
                         snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.metrics", message: "expected an object"))
