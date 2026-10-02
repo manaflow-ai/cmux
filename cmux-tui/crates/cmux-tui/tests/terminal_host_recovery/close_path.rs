@@ -224,3 +224,48 @@ fn close_tabs_ends_one_hundred_terminals_in_one_commit() {
     let host_bound = if cfg!(target_os = "macos") { 3 } else { 10 };
     assert!(hosts_in < test_timeout(Duration::from_secs(host_bound)), "hosts took {hosts_in:?}");
 }
+
+/// Every Kitty image budget bucket change (a power of two of the terminal
+/// count) sends new limits to every live terminal host. A hosted terminal
+/// answers with ResyncRequired and then the acknowledgement. The daemon's
+/// reader reconnected on ResyncRequired and dropped the acknowledgement, so
+/// each update waited the full 2 s control timeout while it held that
+/// terminal's runtime lock, and a close of that terminal waited behind it.
+/// Closing 17 terminals crosses the 32 -> 8 bucket change; no close may wait
+/// for a Kitty update.
+#[test]
+fn kitty_budget_rebalance_never_holds_a_terminal_for_the_control_timeout() {
+    const COUNT: usize = 17;
+    let harness = RecoveryHarness::start("kitty-rebalance");
+    let terminals: Vec<(String, String)> = (0..COUNT)
+        .map(|index| run_cat_workspace(&harness.socket, index + 1, &format!("kitty-{index}")))
+        .collect();
+    wait_for_host_records(&harness.host_root(), COUNT);
+    let stream = transport::connect(&harness.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut slowest = (0, Duration::ZERO);
+    for (index, (terminal_id, incarnation)) in terminals.iter().enumerate() {
+        let started = Instant::now();
+        stream_request(
+            &mut writer,
+            &mut reader,
+            serde_json::json!({
+                "id": 1_000 + index,
+                "cmd": "close-terminal",
+                "terminal_id": terminal_id,
+                "terminal_incarnation": incarnation,
+            }),
+        );
+        if started.elapsed() > slowest.1 {
+            slowest = (index, started.elapsed());
+        }
+    }
+    assert!(
+        slowest.1 < Duration::from_millis(1_000),
+        "close {} waited {:?} behind a Kitty budget update",
+        slowest.0,
+        slowest.1
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
