@@ -96,6 +96,16 @@ export type CronSpec = {
 /** A device (hardware) that groups installs. */
 export type DeviceId = string
 
+export type DeviceStatus = {
+  readonly install: InstallId
+  readonly user: string
+  readonly policy_version: number
+  readonly app_version: string
+  readonly mdm_keys: ReadonlyArray<string>
+  readonly conflicts: ReadonlyArray<string>
+  readonly reported_at: number
+}
+
 export type EnrollmentToken = {
   readonly id: EnrollmentTokenId
   readonly label: string
@@ -1023,6 +1033,21 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
+  /** Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
+  readonly "team.device.compliance": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly policy_version: number
+      readonly devices: ReadonlyArray<{
+        readonly device: ManagedDevice
+        readonly status: DeviceStatus | null
+        readonly compliant: boolean
+        readonly reasons: ReadonlyArray<string>
+      }>
+      readonly revision: string
+    }
+  }
   /** Make this team the calling install's managing team: with an MDM enrollment token's hash, or without one as the user's explicit acceptance. */
   readonly "team.device.enroll": {
     readonly params: {
@@ -1052,6 +1077,16 @@ export interface CloudOps {
     readonly result: {
       readonly install: InstallId
     }
+  }
+  /** Report what this install applied (policy version, MDM key names, conflicts). Send when it changes; the latest report replaces the previous one. */
+  readonly "team.device.report_status": {
+    readonly params: {
+      readonly policy_version: number
+      readonly app_version: string
+      readonly mdm_keys: ReadonlyArray<string>
+      readonly conflicts: ReadonlyArray<string>
+    }
+    readonly result: DeviceStatus
   }
   /** Read a team's directory: members and enrolled hosts (U2). */
   readonly "team.directory": {
@@ -1183,9 +1218,11 @@ export const cloudOpMeta = {
   "linear.issue.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "linear.teams.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "slack.post_as_bot": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.device.policy": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.release": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "team.device.report_status": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.directory": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.enrollment_token.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.enrollment_token.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
