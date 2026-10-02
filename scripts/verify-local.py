@@ -25,6 +25,7 @@ import verification_receipt as receipt
 CHECKS = (
     ("xcstrings", "static_analysis", "XCStrings structure", ["python3", "scripts/lint-xcstrings.py"]),
     ("localization", "static_analysis", "Localization parity", ["python3", "scripts/localization_catalog.py", "check"]),
+    ("localization-defaults", "static_analysis", "Swift defaultValue parity", ["python3", "scripts/localization_defaults.py"]),
     ("project-tests", "tests", "Project normalizer tests", ["python3", "tests/test_normalize_pbxproj.py"]),
     ("project", "static_analysis", "Xcode project normalization and version", ["bash", "scripts/check-pbxproj.sh"]),
     ("config-schema", "static_analysis", "Embedded cmux.json schema", ["python3", "scripts/generate-cmux-config-schema.py", "--check"]),
@@ -48,6 +49,9 @@ CHECK_INPUTS = {
     "xcstrings": ("*.xcstrings",),
     "localization": ("*.xcstrings", "scripts/localization-allowed-omissions.json",
                      "scripts/localization-plurals.json"),
+    "localization-defaults": ("*.xcstrings", "Sources/*", "Packages/*", "CLI/*", "ios/*", "TunnelExtension/*",
+                              "scripts/localization_catalog.py", "scripts/localize_changes.py",
+                              "scripts/localization-default-mismatches.json"),
     "project-tests": ("scripts/normalize-pbxproj.py", "scripts/check-pbxproj-group-membership.py"),
     "project": ("scripts/normalize-pbxproj.py", "scripts/check-pbxproj-group-membership.py",
                 "cmux.xcodeproj/project.pbxproj",
@@ -252,7 +256,15 @@ def changed_files(repo, base, include_deleted=False):
         kind = "inputs" if include_deleted else "Swift files"
         raise ValueError(f"Cannot select changed {kind} against {base!r}; "
                          "check the Git checkout and local base ref") from error
-    names = sorted({os.fsdecode(p) for p in (changed + untracked).split(b"\0") if p and (include_deleted or p.endswith(b".swift"))})
+    # Interpreted custom-sidebar templates use `.swift` as their runtime file
+    # extension, but are SwiftUI-style source snippets rather than Swift files
+    # for the compiler. Keep them out of the native syntax preflight.
+    names = sorted({
+        os.fsdecode(p) for p in (changed + untracked).split(b"\0")
+        if p and (include_deleted or p.endswith(b".swift"))
+        and b"/Resources/CustomSidebarTemplates/" not in p
+        and b"Examples/CustomSidebars/" not in p
+    })
     return names, {"base_ref": base, "base_sha": base_sha, "merge_base_sha": merge_base,
                    "excluded_untracked_prefixes": [".glaeda/apple-build/"],
                    "contents": "current working tree, including staged/unstaged and nonignored untracked files"}

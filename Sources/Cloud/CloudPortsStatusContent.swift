@@ -78,9 +78,13 @@ final class CloudPortsStatusContent: NSView {
         if actionButton.isHidden {
             actionButton.frame = .zero
         } else {
-            actionButton.frame = NSRect(x: inset, y: messageLabel.frame.maxY + 4, width: min(width - inset * 2, actionButton.fittingSize.width), height: 22)
+            // The inline bezel hugs its title; give it room on both sides.
+            let padding = GlobalFontMagnification.scaledSize(Self.actionHorizontalPadding) * 2
+            actionButton.frame = NSRect(x: inset, y: messageLabel.frame.maxY + 4, width: min(width - inset * 2, actionButton.fittingSize.width + padding), height: 22)
         }
     }
+
+    private static let actionHorizontalPadding: CGFloat = 8
 
     override var intrinsicContentSize: NSSize {
         guard let presentation else { return NSSize(width: NSView.noIntrinsicMetric, height: 0) }

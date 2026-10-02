@@ -156,7 +156,7 @@ def main() -> int:
         "session_id": f"sess-{uuid.uuid4().hex}",
         "hook_event_name": "Stop",
         "stop_hook_active": True,
-        "cwd": "/Users/lawrence/fun",
+        "cwd": "/Users/dev/fun",
         "last_assistant_message": "2",
     }
 
@@ -172,7 +172,7 @@ def main() -> int:
         cron_payload = {
             "session_id": f"sess-{uuid.uuid4().hex}",
             "hook_event_name": "PreToolUse",
-            "cwd": "/Users/lawrence/fun",
+            "cwd": "/Users/dev/fun",
             "tool_name": "CronCreate",
             "tool_input": {
                 "cron": "7 5 1 5 *",
@@ -264,12 +264,13 @@ def main() -> int:
             print(f"FAIL: incorrect semantic completion: {notifications[0]!r}")
             return 1
         if not any(
-            command.startswith("set_status claude_code Idle ")
+            command.startswith("set_status claude_code Running ")
             and f"--tab={workspace_id}" in command
             and f"--panel={surface_id}" in command
+            and "--work=running" in command
             for command in server.commands
         ):
-            print(f"FAIL: final Stop with stop_hook_active=true did not settle Idle: {server.commands!r}")
+            print(f"FAIL: re-entrant Stop with stop_hook_active=true did not keep Running: {server.commands!r}")
             return 1
 
     print("PASS: Claude cron guard denies durable jobs and Stop notification uses final assistant text")

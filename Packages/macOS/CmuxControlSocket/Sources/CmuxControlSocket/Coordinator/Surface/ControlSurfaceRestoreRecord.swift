@@ -32,9 +32,6 @@ public struct ControlSurfaceRestoreRecord: Sendable, Equatable {
     public let legacyCommand: String?
     /// Compatibility fork command retained when structured fork argv is unavailable.
     public let legacyForkCommand: String?
-    /// A prompt `cmux restore` passes to the resumed agent, such as the nudge after an
-    /// update relaunch interrupted it mid-task.
-    public let continuationPrompt: String?
 
     /// The wire-facing name for ``legacyForkCommand``.
     public var forkCommand: String? { legacyForkCommand }
@@ -56,7 +53,6 @@ public struct ControlSurfaceRestoreRecord: Sendable, Equatable {
     ///   - permissionMode: The last observed provider permission mode.
     ///   - legacyCommand: Compatibility input for records written by older builds.
     ///   - legacyForkCommand: Compatibility fork input for older or non-structured records.
-    ///   - continuationPrompt: A prompt for the resumed agent's next turn.
     public init(
         modeRawValue: String,
         kind: String,
@@ -71,8 +67,7 @@ public struct ControlSurfaceRestoreRecord: Sendable, Equatable {
         legacyCommand: String?,
         forkArguments: [String]? = nil,
         forkArgumentsWorkingDirectory: String? = nil,
-        legacyForkCommand: String? = nil,
-        continuationPrompt: String? = nil
+        legacyForkCommand: String? = nil
     ) {
         self.modeRawValue = modeRawValue
         self.kind = kind
@@ -88,6 +83,5 @@ public struct ControlSurfaceRestoreRecord: Sendable, Equatable {
         self.permissionMode = permissionMode
         self.legacyCommand = legacyCommand
         self.legacyForkCommand = legacyForkCommand
-        self.continuationPrompt = continuationPrompt
     }
 }
