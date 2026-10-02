@@ -1,11 +1,11 @@
 # cmux next: browser crash isolation and recovery
 
-Written 2026-09-30 by the crash-isolation agent. User request: "if chrome tab crashes, rest of app cannot crash, and reload to recover needs to work." Goal: no single failure in a page, a Chromium process, an extension, the daemon connection or a UI component takes the app down, and every failure has a working recovery.
+Written 2026-09-30 by the crash-isolation agent. User request: a crashed browser tab must not crash the rest of the app, and reload must recover it. Goal: no single failure in a page, a Chromium process, an extension, the daemon connection or a UI component takes the app down, and every failure has a working recovery.
 
 ## Decisions for Lawrence
 
-1. **Out-of-process CEF browser process: not now.** The spike (below) shows the pixel path works (a `CALayerHost` of a helper's `CAContext` renders in our window, clipped by our rounded corners, with no extra frame), but Chrome style keeps every Views window (extension popups, permission bubbles, DevTools, file pickers, drag sources) and the page's text input and accessibility in the browser process. Moving that process out needs Chrome's remote_cocoa "app shim" split in the fork, weeks of fork work, and it regresses IME, VoiceOver and focus until each is bridged. Recommendation: keep CEF in process, harden it (done here), and revisit when the fork has a remote_cocoa host mode. Say if you want the fork project started.
-2. **SIGPIPE is ignored process-wide** at launch (`CmuxNextApp.main`), as Chrome does. Children get the default back (Foundation `Process` and Chromium reset it; the one `forkpty` site resets it). Say if you prefer per-socket protection only (it is also in place).
+1. **Out-of-process CEF browser process: not now.** The spike (below) shows the pixel path works (a `CALayerHost` of a helper's `CAContext` renders in our window, clipped by our rounded corners, with no extra frame), but Chrome style keeps every Views window (extension popups, permission bubbles, DevTools, file pickers, drag sources) and the page's text input and accessibility in the browser process. Moving that process out needs Chromium's remote_cocoa "app shim" split in the fork, weeks of fork work, and it regresses IME, VoiceOver and focus until each is bridged. Recommendation: keep CEF in process, harden it (done here), and revisit when the fork has a remote_cocoa host mode. Say if you want the fork project started.
+2. **SIGPIPE is ignored process-wide** at launch (`CmuxNextApp.main`), as Chromium does. Children get the default back (Foundation `Process` and Chromium reset it; the one `forkpty` site resets it). Say if you prefer per-socket protection only (it is also in place).
 3. **SIGTERM counts as a normal quit** for restart detection: `kill <pid>` does not show "cmux restarted after a problem". SIGKILL, jetsam and crashes do.
 4. **Safe restart rule**: a restart that ends again within 60 s starts the next time without loading browser pages (they show the URL and "Reload to open"). There is no launcher that restarts the app by itself, so there is no loop.
 
@@ -17,7 +17,7 @@ Written 2026-09-30 by the crash-isolation agent. User request: "if chrome tab cr
 | Renderer killed (`kill -9`, Activity Monitor, Exit page) | status killed | "This page was stopped" | same | see Verification |
 | Renderer out of memory | status OOM | "This page ran out of memory" | same | unit test only |
 | Renderer launch failure | status launch failed | "This page couldn't start" | same | unit test only |
-| Background tab crash | same | nothing until shown; the tab reloads when shown (Chrome behavior) | automatic | see Verification |
+| Background tab crash | same | nothing until shown; the tab reloads when shown (Chromium behavior) | automatic | see Verification |
 | Renderer hang (15 s without input handling) | CEF `OnRenderProcessUnresponsive` / `Responsive` (hang monitor, no polling) | "Page unresponsive" glass card over the page: Wait / Exit page. Chromium's modal Views dialog never shows | Wait restarts the hang timer; Exit page ends the renderer (sad tab, then Reload) | see Verification |
 | GPU process crash | helper monitor (kqueue) | Chromium restarts the GPU process and recreates compositor frames; pages repaint | automatic (Chromium) | see Verification |
 | Utility / network service crash | helper monitor | in-flight loads fail; Chromium restarts the service | automatic (Chromium); failed loads show the load error page with Try Again | see Verification |
@@ -45,14 +45,14 @@ Fork crash paths found but not changed here (sent to the extensions agent): `cmu
 
 Question: can Chromium's browser process run in a helper that cmux owns, with pages shown in the app through remote layers, so that a browser-process crash restarts only the helper?
 
-How Chrome itself is split on macOS:
+How Chromium itself is split on macOS:
 - Pixels: the GPU process renders each compositor frame into a `CAContext`; the browser process shows it with a `CALayerHost` (`ui::DisplayCALayerTree`). The browser process is not in the pixel path.
 - PWA app shims: the NSWindows of an app shim process are driven by the browser process through remote_cocoa (`NativeWidgetNSWindowBridge`, `RenderWidgetHostNSViewBridge` over mojo); page content arrives as `CALayerHost`s; accessibility crosses as remote AX elements. CEF's `libcef/browser/views/native_widget_mac.mm` already goes through remote_cocoa bridges in process.
 
 Spike (`/tmp/crashiso-spike/layerhost/spike.m`, kept out of the repo):
 - `spike server` creates a `CAContext` on the WindowServer connection and draws layers into it; `spike host <id>` puts a `CALayerHost` with that id in a normal window whose content layer has `cornerRadius 24, masksToBounds`.
 - Result: the helper's layers render in the host window, and the host's rounded clip clips them (screenshot: the bottom corners of the remote content are rounded). A `CALayerHost` is an ordinary layer in our tree, so overlays, column-strip scroll, the rounded clip and Liquid Glass above it all work, unlike today's child NSWindow.
-- Frame latency: a remote context commits to the render server directly; WindowServer composites it in the same frame as local layers. No extra hop was added in the pixel path (Chrome's own GPU-to-browser path is the same mechanism).
+- Frame latency: a remote context commits to the render server directly; WindowServer composites it in the same frame as local layers. No extra hop was added in the pixel path (Chromium's own GPU-to-browser path is the same mechanism).
 - Input hop (host process to helper, one pipe round trip, 20,000 samples, machine busy with builds): p50 4-9 us, p99 0.16-0.44 ms, max 3.5-9 ms (scheduling noise). A key or mouse event would pay one of these before Chromium sees it, well under one frame at p99.
 - Memory: one more process with the Chromium framework mapped. The app today gains about 40 MB footprint when CEF starts (browser.md, "Chromium warm start"); in the split design the app would not map CEF at all and the helper would carry that plus a process baseline (see Verification for measured helper footprints).
 
@@ -62,7 +62,7 @@ Why it is not feasible now (Chrome style is required for real extensions; CEF's 
 | --- | --- |
 | Extension popups, permission bubbles, extension context menus, JS dialogs Chromium draws, DevTools windows | NSWindows owned by the helper. They cannot be child windows of our windows (AppKit child windows are per process), clicking them activates the helper, and our window loses key status (traffic lights dim, cmux shortcuts stop). Needs remote_cocoa hosting of every Views widget in our process. |
 | Text input (IME, dead keys, emoji picker, dictation) | `NSTextInputClient` must be the page view in the key window's process. Needs `RenderWidgetHostNSViewBridge` in our process (remote_cocoa). |
-| Accessibility (VoiceOver, AX window managers) | The page AX tree lives in the helper; it needs remote AX tokens (Chrome does this for app shims). |
+| Accessibility (VoiceOver, AX window managers) | The page AX tree lives in the helper; it needs remote AX tokens (Chromium does this for app shims). |
 | Drag and drop, file pickers, printing, full screen | Helper-owned sessions and panels; each needs a bridge. |
 | Focus model and key routing (plans/cmux-next/focus.md) | Today `OnPreKeyEvent` runs our key router synchronously on the main thread; cross-process it becomes async, so shortcut precedence needs a new protocol. |
 | Fork work | A CEF mode that runs the browser process as its own executable and hosts remote_cocoa bridges in the embedder (like `chrome/app_shim`). The embedder still links the Chromium framework for the bridge code, but browser-process logic no longer runs in it. Estimate: several weeks in the fork plus a shim rewrite. |

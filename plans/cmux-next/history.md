@@ -89,7 +89,7 @@ questions. cmux has both, on separate keys.
 
 ### 4.1 Page history (per browser tab)
 
-The engine's back/forward list of one tab, as in Chrome. Defaults, all tier 2
+The engine's back/forward list of one tab. Defaults, all tier 2
 (content: only when a page, its address bar or find bar has the keyboard):
 
 | Action | Default |
@@ -97,19 +97,19 @@ The engine's back/forward list of one tab, as in Chrome. Defaults, all tier 2
 | `browserBack` | Cmd-[ |
 | `browserForward` | Cmd-] |
 
-Chrome also maps Cmd-Left / Cmd-Right to Back / Forward. The registry has one
+Browsers also map Cmd-Left / Cmd-Right to Back / Forward. The registry has one
 default chord per action, so those stay with the page (and the Simulator's
 rotate actions) until descriptors take alias chords; a user can bind them.
 
 The toolbar Back and Forward buttons open a menu of that tab's entries on
-long press or right-click (Chrome). WebKit lists `backForwardList`; Chromium
+long press or right-click. WebKit lists `backForwardList`; Chromium
 needs a fork call for the entry list and go-to-index (`cmux_tab_navigation_entries`,
 `cmux_tab_go_to_entry`, next fork API). Until then a Chromium tab's menu lists
 the tab's recorded visits and goes back step by step.
 
 ### 4.2 Location history (global, "where was I")
 
-Vim's jumplist, VS Code's Go Back, Xcode's history arrows: an ordered list of
+A jumplist: an ordered list of
 locations across panes, tabs, workspaces, screens, windows and machines with
 one cursor.
 
@@ -123,13 +123,12 @@ one cursor.
 Chord choice. Ctrl-Cmd-Left/Right is Xcode's Go Back/Forward, so Mac users
 already know it for this meaning. Checked against: macOS (Ctrl-Left/Right
 switch Spaces, Ctrl-Cmd-F full screen, Ctrl-Cmd-Q lock, Ctrl-Cmd-Space
-characters; Ctrl-Cmd-arrows are free), Chrome for Mac (no Ctrl-Cmd-arrow
-chord; BrowserChordTable unchanged), cmux (free; Ctrl-Cmd-[ / ] stay
+characters; Ctrl-Cmd-arrows are free), the standard browser chords (no
+Ctrl-Cmd-arrow chord; BrowserChordTable unchanged), cmux (free; Ctrl-Cmd-[ / ] stay
 Previous/Next Workspace, Ctrl-Shift-HJKL resize panes), Ghostty (macOS
 default `super+ctrl+left/right = resize_split`; tier 1 wins in a terminal,
 and cmux's own resize keys remain). Rejected: Cmd-[ / Cmd-] (now page history,
-the user's rule), Ctrl-Cmd-[ / ] (workspaces), Ctrl-- / Ctrl-Shift-- (VS Code;
-Ctrl-Shift-- is Ctrl-_, undo in readline, zsh and Emacs, which tier 1 would
+the user's rule), Ctrl-Cmd-[ / ] (workspaces), Ctrl-- / Ctrl-Shift-- (Ctrl-Shift-- is Ctrl-_, undo in readline, zsh and Emacs, which tier 1 would
 steal from every terminal), Ctrl-Opt-arrows (Rectangle's defaults).
 
 Cmd-[ / Cmd-] act only in a browser context (user 2026-09-30, "consistency
@@ -166,12 +165,12 @@ Rules:
    (the trail compares the settled location with the pending target and
    absorbs a match; any other settled location clears the pending target).
 6. A new location recorded while the cursor is not at the end drops the
-   entries after the cursor (browser semantics; VS Code does the same).
+   entries after the cursor (browser semantics).
 7. A closed tab's entries stay in the trail as dead entries until they age
    out. The history page lists them with Reopen when the closed-items log
    still holds the tab.
-8. The trail is app-wide, not per window: Go Back may move to another window,
-   as Xcode and VS Code do across editor groups. Per-pane directional history
+8. The trail is app-wide, not per window: Go Back may move to another window.
+   Per-pane directional history
    (focus.md 4a) is separate and unchanged.
 9. Persistence: the trail is written to the projection one second after the
    last change (one `DemandTimer`), with CAS; on launch it loads before the
@@ -203,7 +202,7 @@ page can script it, it opens instantly, and it needs no engine: it works in
 fleet builds without Chromium. The tab record keeps the URL `cmux://history`
 (frontend browser record), so the page survives relaunch.
 
-- Open it with Show History (Cmd-Y, Chrome's chord, tier 2 in a page; and
+- Open it with Show History (Cmd-Y, tier 2 in a page; and
   from the palette, menu and CLI in any context), by typing `cmux://history`
   in an address bar, or `cmux open cmux://history`. It opens in a new tab
   beside the focused tab, or selects the window's existing history tab. Typed
@@ -275,7 +274,7 @@ Commands (this terminal), Resume Agent Session (this terminal).
 
 ## 8. Not decided here
 
-- Syncing page history between Macs (Chrome Sync): out of scope.
+- Syncing page history between Macs: out of scope.
 - A per-workspace trail filter as a second pair of keys: the palette's
   Location History for This Workspace covers it until dogfood asks.
 

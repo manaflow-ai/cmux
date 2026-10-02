@@ -152,7 +152,7 @@ cmux-tui hosted CI idle test (10 s, context switches per second): macOS daemon 3
 | Window minimized | hidden | 0 | 0-0.5 Hz | 0.02% / 0.01% |
 | Offscreen strip column | hidden | 0 | 0.8 Hz | 0.05% / 0.13% |
 
-Every case returns to visible when shown. No visibility change was needed: the fork's tab strip hides inactive tabs as Chrome does, hidden content hides the page's host view, and a minimized parent hides the page window (occlusion). UNVERIFIED: fully covered window, window on another Space, app hidden, audio in a hidden tab (reaching them needs moving the user's windows or system input).
+Every case returns to visible when shown. No visibility change was needed: the fork's tab strip hides inactive tabs (Chromium engine behavior), hidden content hides the page's host view, and a minimized parent hides the page window (occlusion). UNVERIFIED: fully covered window, window on another Space, app hidden, audio in a hidden tab (reaching them needs moving the user's windows or system input).
 
 ### Tab lifecycle (tagged `tlnext`, 2dbaac77833, `bench-idle.sh --fresh`, 30 s per case, load average about 275)
 
