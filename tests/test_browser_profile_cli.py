@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import os
 import socketserver
 import subprocess
 import tempfile
@@ -12,6 +11,7 @@ import threading
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
+from fake_socket_env import cli_environment, unwrap_capability
 
 
 PROFILE_ID = "11111111-1111-4111-8111-111111111111"
@@ -83,7 +83,7 @@ class FakeCmuxState:
 class FakeCmuxHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         while line := self.rfile.readline():
-            request = json.loads(line.decode("utf-8"))
+            request = json.loads(unwrap_capability(line.decode("utf-8")))
             try:
                 result = self.server.state.handle(  # type: ignore[attr-defined]
                     request["method"],
@@ -106,9 +106,7 @@ class ThreadedUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamSer
 
 
 def run_cli(cli: str, socket_path: str, arguments: list[str]) -> str:
-    environment = dict(os.environ)
-    for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
-        environment.pop(key, None)
+    environment = cli_environment()
     result = subprocess.run(
         [cli, "--socket", socket_path, *arguments],
         capture_output=True,
@@ -130,9 +128,7 @@ def assert_cli_fails(
     arguments: list[str],
     expected_message: str,
 ) -> None:
-    environment = dict(os.environ)
-    for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
-        environment.pop(key, None)
+    environment = cli_environment()
     result = subprocess.run(
         [cli, "--socket", socket_path, *arguments],
         capture_output=True,

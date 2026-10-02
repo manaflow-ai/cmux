@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import os
 import socketserver
 import subprocess
 import tempfile
@@ -13,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from claude_teams_test_utils import resolve_cmux_cli
+from fake_socket_env import cli_environment, unwrap_capability
 
 
 class RecordingState:
@@ -36,7 +36,7 @@ class RecordingState:
 class FakeCmuxHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         while line := self.rfile.readline():
-            request = json.loads(line.decode("utf-8"))
+            request = json.loads(unwrap_capability(line.decode("utf-8")))
             self.server.state.record(request)  # type: ignore[attr-defined]
             method = request.get("method")
             params = request.get("params") or {}
@@ -91,14 +91,7 @@ def run_cli(
     fake_home: Path,
     arguments: list[str],
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    for key in [
-        "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID",
-        "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PASSWORD",
-    ]:
-        env.pop(key, None)
-    env["CMUX_SOCKET_PATH"] = str(socket_path)
-    env["CMUX_SOCKET"] = str(socket_path)
+    env = cli_environment(socket_path)
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
     env["HOME"] = str(fake_home)
@@ -118,14 +111,7 @@ def run_ios_cli(
     fake_home: Path,
     arguments: list[str],
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    for key in [
-        "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID",
-        "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PASSWORD",
-    ]:
-        env.pop(key, None)
-    env["CMUX_SOCKET_PATH"] = str(socket_path)
-    env["CMUX_SOCKET"] = str(socket_path)
+    env = cli_environment(socket_path)
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
     env["HOME"] = str(fake_home)

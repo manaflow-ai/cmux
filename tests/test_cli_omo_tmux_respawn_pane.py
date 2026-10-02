@@ -6,7 +6,6 @@ Regression tests for OMO subagent panes through cmux's tmux compatibility shim.
 from __future__ import annotations
 
 import json
-import os
 import socketserver
 import subprocess
 import tempfile
@@ -14,6 +13,7 @@ import threading
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
+from fake_socket_env import cli_environment, unwrap_capability
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 WINDOW_ID = "22222222-2222-4222-8222-222222222222"
@@ -194,7 +194,7 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             if not line:
                 return
 
-            request = json.loads(line.decode("utf-8"))
+            request = json.loads(unwrap_capability(line.decode("utf-8")))
             try:
                 result = self.server.state.handle(  # type: ignore[attr-defined]
                     request["method"],
@@ -226,8 +226,7 @@ def run_cli(
     fake_home: Path,
     args: list[str],
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env = cli_environment(socket_path)
     env["CMUX_WORKSPACE_ID"] = "workspace:1"
     env["CMUX_SURFACE_ID"] = "surface:1"
     env["TMUX_PANE"] = f"%{PANE_ID}"
