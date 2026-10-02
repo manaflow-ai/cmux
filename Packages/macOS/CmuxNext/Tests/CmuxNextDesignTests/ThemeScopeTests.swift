@@ -158,6 +158,62 @@ import Testing
         #expect(content.appearance?.name == .darkAqua)
     }
 
+    /// A workspace theme recolored only the content, so the sidebar and
+    /// titlebar kept the room theme beside it (Monokai next to Catppuccin).
+    /// The window's chrome draws in the shown workspace's colors; other
+    /// workspaces keep inheriting the room's own theme.
+    @Test func chromeDrawsInTheShownWorkspacesColors() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let room = ThemeScope(level: .room)
+        room.setOverride(spec("Gruvbox Dark"), input: ThemeFixtures.gruvboxDark, animated: false)
+        room.adopt(window)
+        let sidebar = ProbeView(frame: .zero)
+        let content = NSView(frame: .zero)
+        let pane = ProbeView(frame: .zero)
+        window.contentView!.addSubview(sidebar)
+        window.contentView!.addSubview(content)
+        content.addSubview(pane)
+        let shown = ThemeScope(level: .workspace, parent: room)
+        let parked = ThemeScope(level: .workspace, parent: room)
+        shown.setOverride(spec("GitHub Light Default"), input: ThemeFixtures.githubLight, animated: false)
+        shown.root(content)
+        let recorder = Recorder()
+        room.addResponder(recorder)
+
+        room.show(shown)
+        #expect(sidebar.resolved == background(ThemeFixtures.githubLight))
+        #expect(sidebar.resolved == pane.resolved)
+        #expect(window.appearance?.name == .aqua)
+        // The content matches its window, so it needs no explicit appearance.
+        #expect(content.appearance == nil)
+        #expect(recorder.calls == 1)
+        // Children inherit the room's own theme, not the shown one.
+        #expect(room.ownTokens == ThemeTokens.derive(from: ThemeFixtures.gruvboxDark))
+        #expect(parked.tokens == room.ownTokens)
+        let terminal = ThemeScope(level: .terminal, parent: room)
+        #expect(terminal.tokens == room.ownTokens)
+
+        // A theme change on the shown workspace reaches the chrome.
+        shown.setOverride(spec("Catppuccin Mocha"), input: ThemeFixtures.catppuccinMocha, animated: false)
+        #expect(sidebar.resolved == background(ThemeFixtures.catppuccinMocha))
+        #expect(recorder.calls == 2)
+
+        // A room change while showing an overridden workspace leaves the
+        // chrome alone but still reaches the other workspaces.
+        let sidebarCalls = sidebar.appearanceCalls
+        room.setOverride(spec("Nord"), input: ThemeFixtures.githubLight, animated: false)
+        #expect(sidebar.appearanceCalls == sidebarCalls)
+        #expect(parked.tokens == ThemeTokens.derive(from: ThemeFixtures.githubLight))
+        #expect(recorder.calls == 2)
+
+        // Showing a workspace without its own theme draws in the room's.
+        room.show(parked)
+        #expect(sidebar.resolved == background(ThemeFixtures.githubLight))
+        room.show(nil)
+        #expect(room.tokens == room.ownTokens)
+    }
+
     @Test func paletteOutsideAScopeIsTheAppTheme() {
         let room = ThemeScope(level: .room)
         room.setOverride(spec("Gruvbox Dark"), input: ThemeFixtures.gruvboxDark, animated: false)
