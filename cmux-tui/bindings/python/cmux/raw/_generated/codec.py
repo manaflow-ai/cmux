@@ -284,6 +284,7 @@ MODEL_BY_PATH = {
     'commands/set-cell-pixels/request': models.SetCellPixelsRequest,
     'commands/set-client-info/request': models.SetClientInfoRequest,
     'commands/set-client-sizing/request': models.SetClientSizingRequest,
+    'commands/set-column-sticky/request': models.SetColumnStickyRequest,
     'commands/set-default-colors/request': models.SetDefaultColorsRequest,
     'commands/set-personal-terminal/request': models.SetPersonalTerminalRequest,
     'commands/set-personal-workspace/request': models.SetPersonalWorkspaceRequest,

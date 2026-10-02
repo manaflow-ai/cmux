@@ -59,6 +59,7 @@ Today cmux-tui mixes session host and workspace store. New code must not deepen 
 - No new client-side optimistic copy, no client-side destructive inference, no new "pending" dictionary.
 - Every new op ships with reducer invariant tests; every change to the protocol or store adds a line to COORDINATION.md.
 - Before landing a change to the daemon, the store, the protocol or the projection, run a review subagent (correctness first, against this file) and fix its findings.
+- Every new action declares its surfaces (palette, CLI verb, right-click placements, MCP) or a reasoned `SurfaceExemption` per surface (plans/cmux-next/actions.md); `scripts/cmux-next/check-action-surfaces.sh` enforces it. Menus are generated from placements: never hand-build a menu list.
 - The Swift CLI is frozen until #16174 merges; CLI requests go to session feat-cmux-next-99 (`uds:/tmp/cc-socks/18283.sock`).
 
 ## Decided (user, 2026-10-01; details in ownership.md section 8)

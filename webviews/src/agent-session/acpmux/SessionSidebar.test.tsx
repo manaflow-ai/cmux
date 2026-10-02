@@ -171,6 +171,56 @@ test("pinned sessions get their own section, an all-cloud project names its mach
   await act(async () => root.unmount());
 });
 
+test("search narrows the list, shows every match, and Escape clears it before closing anything", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  await act(async () => root.render(createElement(SessionSidebar, { sessions, onSelect: () => {} })));
+  const field = container.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
+  const type = async (value: string) =>
+    act(async () => {
+      // React's change events depend on what react-dom detected when another test file first
+      // loaded it, and CI and local runs differ; call the field's onChange with its new value.
+      field.value = value;
+      const props = Object.entries(field).find(([key]) => key.startsWith("__reactProps$"))![1];
+      props.onChange({ target: field, currentTarget: field });
+    });
+  const titles = () => [...container.querySelectorAll(".acpmux-session-row")].map((node) => node.textContent);
+
+  await type("older");
+  expect(titles()).toEqual(Array.from({ length: 8 }, (_, index) => `Older ${index}`));
+  expect(container.querySelector(".acpmux-sidebar-more")).toBeNull();
+  // Folder names match, path prefixes don't.
+  await type("src");
+  expect(container.querySelector(".acpmux-sidebar-empty")?.textContent).toBe("No matching sessions");
+  await type("web checkout");
+  expect(titles()).toEqual(["Fix the checkout page"]);
+  await type("nothing like this");
+  expect(container.querySelector(".acpmux-sidebar-empty")?.textContent).toBe("No matching sessions");
+
+  let reached = 0;
+  const onKey = () => reached++;
+  dom.window.document.addEventListener("keydown", onKey);
+  const escape = () =>
+    act(async () => {
+      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+  // Escape during IME composition belongs to the composition.
+  await act(async () => {
+    field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, isComposing: true }));
+  });
+  expect(field.value).toBe("nothing like this");
+  await escape();
+  expect(field.value).toBe("");
+  expect(reached).toBe(0);
+  // The full list folds behind "Show more" again.
+  expect(titles()).toHaveLength(1 + 6);
+  expect(container.querySelector(".acpmux-sidebar-more")).not.toBeNull();
+  await escape();
+  expect(reached).toBe(1);
+  dom.window.document.removeEventListener("keydown", onKey);
+  await act(async () => root.unmount());
+});
+
 test("the rail switches the list; the sessions view adds New chat, project marks and the account", async () => {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
@@ -225,5 +275,21 @@ test("the rail switches the list; the sessions view adds New chat, project marks
   await act(async () => rail[4].click());
   expect(container.querySelector(".acpmux-sidebar-title")?.textContent).toBe("Closed sessions");
   expect(titles()).toEqual(["Ship the redirect"]);
+  await act(async () => root.unmount());
+});
+
+test("as a history layer, rows already open in a tab say so", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const list: AcpmuxSessionEntry[] = [
+    { sessionId: "open", displayTitle: "Fix the checkout page", cwd: "/src/web", updatedAt: 2 },
+    { sessionId: "past", displayTitle: "Tune the cache", cwd: "/src/web", updatedAt: 1 },
+  ];
+  await act(async () =>
+    root.render(createElement(SessionSidebar, { sessions: list, openIds: new Set(["open"]), onSelect: () => {} })),
+  );
+  const rows = [...container.querySelectorAll(".acpmux-session-row")];
+  expect(rows.map((row) => row.classList.contains("is-open"))).toEqual([true, false]);
+  expect(rows[0]!.getAttribute("aria-label")).toBe("Fix the checkout page, Open in a tab");
   await act(async () => root.unmount());
 });

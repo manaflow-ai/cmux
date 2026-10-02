@@ -1188,6 +1188,7 @@ fn registry_screen_from_live(
                             .as_ref()
                             .map(|panes| pane_public_ids(state, panes))
                             .transpose()?,
+                        sticky: column.sticky,
                     })
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?,

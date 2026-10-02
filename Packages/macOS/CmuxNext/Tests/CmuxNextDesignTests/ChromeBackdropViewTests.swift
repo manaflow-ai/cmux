@@ -5,12 +5,16 @@ import Testing
 /// Vibrancy under the sidebar and tab strips: tinted from the view's theme
 /// scope, shown only in a see-through window, and never in the way of a click.
 @MainActor @Suite(.serialized) struct ChromeBackdropViewTests {
-    private func backdrop(in input: ThemeInput, named name: String) -> (ChromeBackdropView, ThemeScope) {
+    /// The host's Reduce Transparency (on for some CI runners) never decides
+    /// a test: each pins it.
+    private func backdrop(in input: ThemeInput, named name: String,
+                          reduceTransparency: Bool = false) -> (ChromeBackdropView, ThemeScope) {
         let room = ThemeScope(level: .room)
         room.setOverride(ThemeSpec(name)!, input: input, animated: false)
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 40))
         room.root(host)
         let backdrop = ChromeBackdropView(material: .sidebar) { Palette.sidebarBackground }
+        backdrop.reduceTransparency = { reduceTransparency }
         backdrop.frame = host.bounds
         host.addSubview(backdrop)
         backdrop.viewDidChangeEffectiveAppearance()
@@ -43,6 +47,15 @@ import Testing
         #expect(effect.state == .active)
         try expectTint(backdrop, ThemeTokens.derive(from: input).sidebarBackground,
                        alpha: 0.85 * ChromeBackdropView.defaultTintOpacity)
+    }
+
+    /// Reduce Transparency keeps the chrome solid in a see-through window.
+    @Test func reduceTransparencyKeepsTheChromeSolid() throws {
+        var input = ThemeFixtures.catppuccinMocha
+        input.backgroundOpacity = 0.85
+        let (backdrop, _) = backdrop(in: input, named: "Catppuccin Mocha", reduceTransparency: true)
+        #expect(!backdrop.showsBlur)
+        try expectTint(backdrop, ThemeTokens.derive(from: input).sidebarBackground, alpha: 0.85)
     }
 
     /// A theme change reaches the chrome without a relaunch, including the switch to opaque.

@@ -2,23 +2,27 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import Foundation
 
-/// Whole-group drag commits (`tab-groups-v1`): one daemon command each.
-/// Groups exist only on daemons that support them, so there is no fallback.
+/// Whole-group drag commits (`tab-groups-v1`): one daemon command each,
+/// sent to the daemon that owns the group (`GroupOwnership`); a target on
+/// another machine is refused (workspaces never mix machines). Groups exist
+/// only on daemons that support them, so there is no fallback.
 enum TabGroupMoves {
     typealias Completion = @MainActor (Bool) -> Void
 
     static func move(_ group: TabGroupID, to pane: PaneModel, index: Int, services: AppServices,
                      transaction: ClientTransactionID, completion: @escaping Completion) {
-        guard !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
+        guard let daemon = owner(of: group, target: pane, services: services),
+              !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
         let target = pane.handle
-        run("move-tab-group", services: services, transaction: transaction, completion: completion) { connection in
+        run("move-tab-group", daemon: daemon, transaction: transaction, completion: completion) { connection in
             _ = try await connection.moveTabGroup(group, to: target, index: index, transaction: transaction)
         }
     }
 
     static func toNewSplit(_ group: TabGroupID, pane: PaneModel, edge: PaneEdge, services: AppServices,
                            transaction: ClientTransactionID, completion: @escaping Completion) {
-        guard !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
+        guard let daemon = owner(of: group, target: pane, services: services),
+              !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
         switch services.splitRoom(for: pane, edge: edge) {
         case .split:
             break
@@ -29,18 +33,19 @@ enum TabGroupMoves {
             return completion(false)
         }
         let target = pane.handle
-        run("move-tab-group-to-split", services: services, transaction: transaction, completion: completion) { connection in
+        run("move-tab-group-to-split", daemon: daemon, transaction: transaction, completion: completion) { connection in
             _ = try await connection.moveTabGroupToSplit(group, pane: target, edge: edge, transaction: transaction)
         }
     }
 
     static func toNewColumn(_ group: TabGroupID, anchor pane: PaneModel, afterColumn: DaemonColumnID?, services: AppServices,
                             transaction: ClientTransactionID, completion: @escaping Completion) {
-        guard !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
+        guard let daemon = owner(of: group, target: pane, services: services),
+              !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
         let target = pane.handle
         let spawn = services.newColumnWidth(nextTo: pane)
         let width = spawn.width
-        run("move-tab-group-to-column", services: services, transaction: transaction, completion: { ok in
+        run("move-tab-group-to-column", daemon: daemon, transaction: transaction, completion: { ok in
             if ok { spawn.commit() }
             completion(ok)
         }) { connection in
@@ -52,8 +57,9 @@ enum TabGroupMoves {
     /// Returns the new workspace key, or nil on failure.
     static func toNewWorkspace(_ group: TabGroupID, workspaceGroup: WorkspaceGroupID?, index: Int?, services: AppServices,
                                transaction: ClientTransactionID) async -> WorkspaceKey? {
-        let before = Set(services.daemon.store.workspaces.compactMap(\.key))
-        let key = await services.daemon.commit("move-tab-group-to-new-workspace", patch: .custom { _ in }, transaction: transaction,
+        guard let daemon = GroupOwnership.daemon(holdingTabGroup: group, machines: services.machines) else { return nil }
+        let before = Set(daemon.store.workspaces.compactMap(\.key))
+        let key = await daemon.commit("move-tab-group-to-new-workspace", patch: .custom { _ in }, transaction: transaction,
                                                expectEcho: false) { connection -> WorkspaceKey? in
             let result = try await connection.moveTabGroupToNewWorkspace(group, workspaceGroup: workspaceGroup, index: index,
                                                                          transaction: transaction)
@@ -73,10 +79,15 @@ enum TabGroupMoves {
         return true
     }
 
-    private static func run(_ label: String, services: AppServices, transaction: ClientTransactionID,
+    /// The daemon that owns `group`, when `pane` is on that machine too.
+    static func owner(of group: TabGroupID, target pane: PaneModel, services: AppServices) -> DaemonService? {
+        GroupOwnership.owner(ofTabGroup: group, sameMachineAs: services.daemon(for: pane), machines: services.machines)
+    }
+
+    private static func run(_ label: String, daemon: DaemonService, transaction: ClientTransactionID,
                             completion: @escaping Completion, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
         Task {
-            let ok = await services.daemon.commit(label, patch: .custom { _ in }, transaction: transaction, expectEcho: false, body) != nil
+            let ok = await daemon.commit(label, patch: .custom { _ in }, transaction: transaction, expectEcho: false, body) != nil
             completion(ok)
         }
     }
