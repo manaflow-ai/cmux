@@ -38,21 +38,30 @@ test("filterDiffItems applies the path query, status toggles, and hide-viewed to
   const unviewed = () => "unviewed" as const;
   expect(filterDiffItems(items, filter, unviewed)).toEqual(items);
 
-  expect(filterDiffItems(items, { ...filter, query: "src" }, unviewed).map((item) => item.id))
-    .toEqual(["src/app.ts", "src/new.ts", "src/moved.ts"]);
+  expect(filterDiffItems(items, { ...filter, query: "src" }, unviewed).map((item) => item.id)).toEqual([
+    "src/app.ts",
+    "src/new.ts",
+    "src/moved.ts",
+  ]);
   // A renamed file matches on its previous path too.
-  expect(filterDiffItems(items, { ...filter, query: "old.ts" }, unviewed).map((item) => item.id))
-    .toEqual(["src/moved.ts"]);
+  expect(filterDiffItems(items, { ...filter, query: "old.ts" }, unviewed).map((item) => item.id)).toEqual([
+    "src/moved.ts",
+  ]);
 
   const addedOnly = { ...filter, statuses: ["added" as const] };
   expect(isDiffFileFilterActive(addedOnly)).toBe(true);
   expect(filterDiffItems(items, addedOnly, unviewed).map((item) => item.id)).toEqual(["src/new.ts"]);
 
-  const viewedState = (item: { id: string }) => (item.id === "src/app.ts" ? "viewed" as const : "unviewed" as const);
-  expect(filterDiffItems(items, { ...filter, hideViewed: true }, viewedState).map((item) => item.id))
-    .toEqual(["src/new.ts", "docs/old.md", "src/moved.ts"]);
+  const viewedState = (item: { id: string }) =>
+    item.id === "src/app.ts" ? ("viewed" as const) : ("unviewed" as const);
+  expect(filterDiffItems(items, { ...filter, hideViewed: true }, viewedState).map((item) => item.id)).toEqual([
+    "src/new.ts",
+    "docs/old.md",
+    "src/moved.ts",
+  ]);
   // A file whose patch changed since it was viewed is not hidden.
-  const changedState = (item: { id: string }) => (item.id === "src/app.ts" ? "changed" as const : "unviewed" as const);
+  const changedState = (item: { id: string }) =>
+    item.id === "src/app.ts" ? ("changed" as const) : ("unviewed" as const);
   expect(filterDiffItems(items, { ...filter, hideViewed: true }, changedState)).toHaveLength(4);
 });
 

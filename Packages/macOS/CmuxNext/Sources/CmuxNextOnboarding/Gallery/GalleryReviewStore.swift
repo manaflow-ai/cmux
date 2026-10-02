@@ -47,37 +47,20 @@ public final class GalleryReviewStore {
     /// "Default Browser: C (note: …) · Import: A · Theme: — (B: too dense)".
     public static func summary(_ review: GalleryReview) -> String {
         OnboardingModel.Step.allCases.map { step in
-            let variants = OnboardingVariantRegistry.variants(for: step)
-            var part = "\(GalleryNames.screen(step)): "
+            let variants = step.variants
+            var part = "\(step.galleryName): "
             if let id = review.picks[step.rawValue], let index = variants.firstIndex(where: { $0.id == id }) {
-                part += GalleryNames.letter(index)
+                part += index.galleryLetter
                 if let note = review.notes[id] { part += " (note: \(note))" }
             } else {
                 part += "—"
             }
             let others = variants.enumerated().compactMap { index, variant -> String? in
                 guard variant.id != review.picks[step.rawValue], let note = review.notes[variant.id] else { return nil }
-                return "\(GalleryNames.letter(index)): \(note)"
+                return "\(index.galleryLetter): \(note)"
             }
             if !others.isEmpty { part += " [" + others.joined(separator: "; ") + "]" }
             return part
         }.joined(separator: " · ")
-    }
-}
-
-/// Short names for the review tool (developer text, not localized).
-public enum GalleryNames {
-    public static func letter(_ index: Int) -> String {
-        let letters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-        return index < letters.count ? String(letters[index]) : "\(index + 1)"
-    }
-
-    public static func screen(_ step: OnboardingModel.Step) -> String {
-        switch step {
-        case .defaultBrowser: "Default Browser"
-        case .importData: "Import"
-        case .theme: "Theme"
-        case .accounts: "Accounts"
-        }
     }
 }

@@ -6,15 +6,15 @@ public import QuartzCore
 public nonisolated enum MotionMarquee {
     /// Pointer rest before the scroll starts (hover intent, so a pointer
     /// sweeping across tabs never starts one).
-    public static let delay: TimeInterval = 0.6
+    public static var delay: TimeInterval { MotionTunables.marqueeDelay.value }
     /// Scroll speed. Slow enough to read while it moves.
-    public static let pointsPerSecond: Double = 40
+    public static var pointsPerSecond: Double { MotionTunables.marqueeSpeed.value }
     /// Shortest scroll, so a few clipped points do not flick past.
-    public static let minimumScroll: TimeInterval = 0.4
+    public static var minimumScroll: TimeInterval { MotionTunables.marqueeMinimumScroll.value }
     /// Pause at the end before it returns.
-    public static let hold: TimeInterval = 1.2
+    public static var hold: TimeInterval { MotionTunables.marqueeHold.value }
     /// Travel under this many points is not worth a marquee.
-    public static let minimumTravel: Double = 2
+    public static var minimumTravel: Double { MotionTunables.marqueeMinimumTravel.value }
 }
 
 /// Timing of one marquee pass, in seconds from its start.

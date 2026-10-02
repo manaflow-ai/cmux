@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { codeViewUnsafeCSS, fileTreeUnsafeCSS, shikiThemeFromGhostty, workerHighlighterOptions } from "../src/pierre-options";
+import {
+  codeViewUnsafeCSS,
+  fileTreeUnsafeCSS,
+  shikiThemeFromGhostty,
+  workerHighlighterOptions,
+} from "../src/pierre-options";
 
 test("code view CSS keeps Pierre structural surfaces transparent", () => {
   const css = codeViewUnsafeCSS();
@@ -104,16 +109,20 @@ test("Ghostty Shiki theme keeps transparent rendering separate from contrast che
 });
 
 test("worker highlighter options carry preloaded diff languages", () => {
-  const options = workerHighlighterOptions({
-    collapsed: false,
-    diffIndicators: "bars",
-    expandUnchanged: false,
-    layout: "unified",
-    lineNumbers: true,
-    showBackgrounds: true,
-    wordDiffs: false,
-    wordWrap: false,
-  }, {}, ["text", "markdown", "swift"]);
+  const options = workerHighlighterOptions(
+    {
+      collapsed: false,
+      diffIndicators: "bars",
+      expandUnchanged: false,
+      layout: "unified",
+      lineNumbers: true,
+      showBackgrounds: true,
+      wordDiffs: false,
+      wordWrap: false,
+    },
+    {},
+    ["text", "markdown", "swift"],
+  );
 
   expect(options.langs).toEqual(["text", "markdown", "swift"]);
 });

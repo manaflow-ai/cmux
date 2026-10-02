@@ -19,13 +19,18 @@ extension LayoutRootView {
             return nil
         }
         let rect = convert(hit.highlight, from: view)
+        let region = convert(hit.region, from: view)
         let style = context.style
         // Pane zones trace the rounded pane rect (already inset by the
         // padding); without pane chrome the highlight floats inside the pane.
         let traces = style.hasPaneChrome && hit.target.isPaneZone
-        let radius = traces ? PaneChromeGeometry.cornerRadius(for: rect, style: style) : style.panelCornerRadius
-        if highlight.show(rect, text: LayoutStrings.label(for: hit.target), inset: traces ? 0 : Metrics.space2,
-                          cornerRadius: radius, animated: canAnimate) { driver.start() }
+        let tunedRadius = CGFloat(DropOverlayTunables.cornerRadius.value)
+        let radius = tunedRadius >= 0 ? tunedRadius
+            : traces ? PaneChromeGeometry.cornerRadius(for: rect, style: style) : style.panelCornerRadius
+        let inset = traces ? 0 : DropOverlayTunables.floatingInset.resolve(Metrics.space2)
+        if highlight.show(rect, region: region, zone: DropOverlayZone(hit.target), text: LayoutStrings.label(for: hit.target),
+                          inset: inset, cornerRadius: radius, pointer: convert(locationInWindow, from: nil),
+                          animated: canAnimate) { driver.start() }
         return hit.target
     }
 

@@ -153,6 +153,28 @@ each other. Implemented by session feat-cmux-next-99 after its catch-up.
   `transaction` and `sequence`.
 - Other subscribers see the tag but cannot derive the key or the client.
 
+### 3.2 Workspace lifecycle in the store (step 5, `workspace-lifecycle-v1`)
+
+Today the app decides (`EmptyWorkspaceRepair`, 242 lines): a workspace this connection
+saw with a pane and now without one closes, unless the store's terminal registry says its
+last terminal ended with outcome `unknown`, in which case the app creates a new
+terminal; a workspace first seen empty gets a terminal; a drag that empties a workspace
+marks it `closing`. Three clients (app, TUI, CLI) can disagree, and the decision races the
+mirror. Target, decided by the store inside the commit that causes it:
+
+| Cause | Store action in the same commit |
+| --- | --- |
+| Last tab closed by a client (Cmd-W, CLI, TUI) | remove the tab; the workspace empties and closes (user decision 8.3, same for every client) |
+| Last process exits normally and its tab is not kept (`keep_on_exit` false) | same as above, caused by the session host's typed `exited` event |
+| Terminal host lost (outcome `unknown`: crash, kill, reboot) | nothing is removed: the tab becomes `dead` with a Respawn action, or respawns per policy; the workspace never empties (principle 3) |
+| A move, drag or tear-off takes the last tab out | the move op names the source workspace as closing; it closes in the same commit (tear-off is one op) |
+| `workspace.create` | creates the workspace with its first terminal in one op; there is no empty workspace for a client to repair |
+| Legacy empty workspace found at open (older builds, hard kill) | the store gives it a terminal once at open, recorded in the journal |
+
+The app deletes `EmptyWorkspaceRepair`, `EmptiedWorkspaceCause`, the `isDead` membership
+pruning and `claimClosing`; the window rule (a window exists only while it holds a
+workspace) reacts to the store's `workspace-closed` event.
+
 ## 4. Scenarios
 
 | Scenario | Behavior |
