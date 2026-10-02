@@ -30,6 +30,8 @@ final class RefusalHUDView: NSView {
     private let label = NSTextField(labelWithString: "")
     private(set) var isShowing = false
     var text: String { label.stringValue }
+    /// Whether the whole message fits (tests).
+    var fitsText: Bool { (label.cell?.cellSize.width ?? .infinity) <= label.frame.width + 0.5 }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -59,7 +61,8 @@ final class RefusalHUDView: NSView {
         surface.applyTheme()
         let inset = Metrics.space5
         let size = label.intrinsicContentSize
-        let width = min(container.width - inset * 2, size.width + inset * 2)
+        // Slack for the text field's own padding, or the text truncates.
+        let width = min(container.width - inset * 2, ceil(size.width) + inset * 2 + Metrics.space4)
         let height = size.height + Metrics.space4 * 2
         frame = CGRect(x: container.midX - width / 2, y: container.minY + Metrics.space6 * 2, width: width, height: height)
         surface.frame = bounds

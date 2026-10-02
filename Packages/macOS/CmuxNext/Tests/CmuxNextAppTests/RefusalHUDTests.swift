@@ -22,6 +22,8 @@ struct RefusalHUDTests {
         let view = try #require(window.contentView?.subviews.last as? RefusalHUDView)
         #expect(abs(view.frame.midX - 400) < 1)
         #expect(view.frame.minY < 100)
+        // Seen live: the label truncated to "Not enough room to split this colu…".
+        #expect(view.fitsText)
         #expect(view.hitTest(CGPoint(x: view.frame.midX, y: view.frame.midY)) == nil)
     }
 
