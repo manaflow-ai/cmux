@@ -26,6 +26,8 @@ final class ImportConsentView: NSView {
         let title = OnboardingLabel.make(OnboardingStrings.passwordsTitle, font: .systemFont(ofSize: 15, weight: .semibold), lines: 2)
         let heading = NSStackView(views: [lock, title])
         heading.spacing = 8
+        // Pinned to the stack's width below, so the title wraps to its full two-line height.
+        heading.alignment = .firstBaseline
         list.orientation = .vertical
         list.alignment = .leading
         list.spacing = 2
@@ -46,6 +48,7 @@ final class ImportConsentView: NSView {
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            heading.widthAnchor.constraint(equalTo: stack.widthAnchor),
             list.widthAnchor.constraint(equalTo: stack.widthAnchor),
             keychain.widthAnchor.constraint(equalTo: stack.widthAnchor),
             store.widthAnchor.constraint(equalTo: stack.widthAnchor),
