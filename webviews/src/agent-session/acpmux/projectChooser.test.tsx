@@ -15,6 +15,10 @@ Object.assign(globals, {
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  // The composer's prompt is a Milkdown (ProseMirror) editor.
+  Node: dom.window.Node,
+  getSelection: dom.window.getSelection.bind(dom.window),
+  MutationObserver: dom.window.MutationObserver,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(() => Object.assign(globals, saved));
@@ -22,6 +26,8 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ComposerContext } = await import("./ComposerContext");
+const { Composer } = await import("./Composer");
+const { promptField } = await import("./promptFieldTesting");
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 const doc = dom.window.document;
@@ -173,4 +179,37 @@ test("a chat with no folder yet offers Choose project; without chats or a choose
   expect(pill()).toBeNull();
   await render(undefined, []);
   expect(doc.querySelector(".acpmux-composer-context")).toBeNull();
+});
+
+test("in the composer, a pick that starts a chat puts the focus in the prompt", async () => {
+  await act(async () =>
+    root.render(
+      createElement(Composer, {
+        snapshot: {
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: [],
+          sessionId: "s",
+          summary: { sessionId: "s", cwd: "/Users/me/code/cmux" },
+          sessions,
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        },
+        chips: () => null,
+        onSend: () => {},
+        onStop: () => {},
+        onProject: (cwd: string) => picked.push(cwd),
+      }),
+    ),
+  );
+  // Milkdown makes its editor a task after the composer mounts.
+  await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+  await act(async () => pill()!.click());
+  await type("notes");
+  await key("Enter");
+  expect(picked).toEqual(["/Users/me/code/notes"]);
+  expect(doc.activeElement).toBe(promptField(doc).element);
 });
