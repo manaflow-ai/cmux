@@ -14,12 +14,10 @@ struct TerminalRenderPresentationGate: Sendable {
         _ submission: TerminalRenderSubmission
     ) -> TerminalRenderPresentationGateAction {
         if isSuppressed, submission.kind != .verifiedReplay {
-            queue(submission)
-            return .queued(submission)
+            return .queued(queue(submission))
         }
         guard inFlight == nil else {
-            queue(submission)
-            return .queued(submission)
+            return .queued(queue(submission))
         }
         inFlight = submission
         return .started(submission)
@@ -100,15 +98,25 @@ struct TerminalRenderPresentationGate: Sendable {
         isSuppressed = false
     }
 
-    private mutating func queue(_ submission: TerminalRenderSubmission) {
+    private mutating func queue(_ submission: TerminalRenderSubmission) -> TerminalRenderSubmission {
         // A verified replay is the only submission that may supersede a
-        // pending ordinary frame while presentation is frozen. Otherwise the
-        // newest ordinary/local request represents the newest complete model.
+        // pending ordinary frame while presentation is frozen. A local-scroll
+        // frame is also newer than an ordinary frame for presentation: the
+        // ordinary render describes the terminal model, while the local frame
+        // carries the user's current viewport anchor. Dropping that frame
+        // makes a continuous drag appear as row-sized jumps whenever output
+        // requests a repaint in the same presentation window.
+        if let pending,
+           pending.kind == .localScroll,
+           submission.kind == .ordinary {
+            return pending
+        }
         if let pending,
            pending.kind == .verifiedReplay,
            submission.kind != .verifiedReplay {
-            return
+            return pending
         }
         pending = submission
+        return submission
     }
 }

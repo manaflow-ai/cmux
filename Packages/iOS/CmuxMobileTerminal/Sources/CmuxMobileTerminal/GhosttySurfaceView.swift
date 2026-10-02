@@ -4764,7 +4764,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
             }
         }
-        let cursorRenderWakeDue = cursorRenderWakeState.consumeWakeIfDue(now: now)
+        // UIKit owns the viewport while a finger or deceleration is active.
+        // Output can keep the terminal model dirty during that interval, but
+        // an ordinary model render would compete with the pixel-scroll render
+        // that carries the current viewport anchor. Keep the dirty bit until
+        // the gesture ends so the next ordinary frame catches up once, after
+        // the native-looking scroll phase has finished.
+        let scrollRenderPhaseActive = scrollInteractionActive
+        let cursorRenderWakeDue = scrollRenderPhaseActive
+            ? false
+            : cursorRenderWakeState.consumeWakeIfDue(now: now)
         // Draw on content changes, Ghostty cursor wake-ups, and for a short
         // bounded burst after any geometry change. iOS has no renderer-side vsync, so a frame is
         // only produced when we ask. The renderer draws at the layer size read
@@ -4776,15 +4785,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // loop) so it never floods the main queue with `setSurface` present
         // blocks, which made the app unresponsive.
         let geometrySettling = pendingRenderFrames > 0
-        if geometrySettling { pendingRenderFrames -= 1 }
+        if geometrySettling, !scrollRenderPhaseActive { pendingRenderFrames -= 1 }
         if needsDraw || cursorRenderWakeDue || geometrySettling {
-            needsDraw = false
-            // Keep the dirty bit when the surface cannot accept a submission.
-            // A replay can hold the presentation gate while a scroll or output
-            // update arrives. Clearing this bit before the gate accepts work
-            // loses that update until an unrelated event requests a frame.
-            if !requestRender() {
+            if scrollRenderPhaseActive {
+                // Local scroll submissions are admitted by the scroll pump.
+                // Ordinary submissions wait for the end of the UIKit phase.
                 needsDraw = true
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_TRACE"] == "1" {
+                    MobileDebugLog.anchormux(
+                        "scroll.trace ordinary.defer needs_draw=\(needsDraw ? 1 : 0)"
+                    )
+                }
+                #endif
+            } else {
+                needsDraw = false
+                // Keep the dirty bit when the surface cannot accept a submission.
+                // A replay can hold the presentation gate while a scroll or output
+                // update arrives. Clearing this bit before the gate accepts work
+                // loses that update until an unrelated event requests a frame.
+                if !requestRender() {
+                    needsDraw = true
+                }
             }
         }
 
@@ -4923,9 +4945,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func shouldReplacePendingRenderSubmission(
         with submission: RenderSubmission
     ) -> Bool {
-        guard let pendingRenderSubmission else { return true }
-        return pendingRenderSubmission.kind != .verifiedReplay
-            || submission.kind == .verifiedReplay
+        guard let gatePending = renderPresentationGate.pending else {
+            return false
+        }
+        // The reducer may retain a local-scroll ticket when an ordinary
+        // output request arrives behind it. Keep the payload paired with the
+        // ticket the reducer actually retained; replacing it with the newer
+        // ordinary payload would leave the gate and UIKit admission out of
+        // sync and silently drop the pixel frame.
+        guard gatePending.token == submission.token else {
+            return false
+        }
+        if let pendingRenderSubmission,
+           pendingRenderSubmission.ticket == gatePending {
+            return false
+        }
+        return true
     }
 
     /// Replaces the current token when a geometry pass invalidates its
@@ -4976,12 +5011,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlight = true
         renderInFlightSince = CACurrentMediaTime()
         let enqueuedAt = CACurrentMediaTime()
+        #if DEBUG
+        let traceScroll = ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_TRACE"] == "1"
+        if traceScroll {
+            MobileDebugLog.anchormux(
+                "scroll.trace render.enqueue token=\(submission.token) kind=\(submission.kind) "
+                    + "inflight=\(renderPresentationGate.inFlight?.token == submission.token ? 1 : 0)"
+            )
+        }
+        #endif
         let workQueue = outputQueue
         // Ordinary steady-state frames are intentionally uninstrumented.
         let phaseLog = submission.kind == .verifiedReplay || pendingRenderFrames > 0 ? diagnosticLog : nil
         let phaseContext = terminalWorkSnapshot(transition: .unknown)
         let accepted = workQueue.async({ [weak self] in
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
+            #if DEBUG
+            if traceScroll {
+                MobileDebugLog.anchormux(
+                    "scroll.trace render.start token=\(submission.token) kind=\(submission.kind) queue_ms=\(Int(lagMs))"
+                )
+            }
+            #endif
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
             let work = phaseLog?.beginTerminalWork(.rendererRefresh, context: phaseContext)
             defer { work?.end() }
@@ -4996,6 +5047,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 // with VT applies and scroll batches, so a slow frame
                 // stretches everything behind it.
                 let renderMs = (CACurrentMediaTime() - renderStartedAt) * 1000
+                if traceScroll {
+                    MobileDebugLog.anchormux(
+                        "scroll.trace render.done token=\(submission.token) kind=\(submission.kind) render_ms=\(Int(renderMs))"
+                    )
+                }
                 if renderMs > 8 {
                     let perfNow = CACurrentMediaTime()
                     if perfNow - workQueue.lastRenderPerfLogTime >= 0.25 {
@@ -5092,6 +5148,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Called only from the render-presented bridge callback. A stale callback
     /// cannot release the gate or advance fallback visibility.
     func finishRenderSubmission(token: UInt64) {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_TRACE"] == "1",
+           let submission = renderSubmission,
+           submission.token == token {
+            let ageMs = renderInFlightSince.map { Int((CACurrentMediaTime() - $0) * 1000) } ?? 0
+            MobileDebugLog.anchormux(
+                "scroll.trace render.present token=\(token) kind=\(submission.kind) age_ms=\(ageMs)"
+            )
+        }
+        #endif
         releaseRenderSubmission(token: token, presented: true)
     }
 
