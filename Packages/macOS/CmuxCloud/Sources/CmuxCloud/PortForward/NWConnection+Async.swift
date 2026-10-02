@@ -36,6 +36,27 @@ extension NWConnection {
         }
     }
 
+    /// Network.framework reports an explicit `cancel()` as a POSIX
+    /// `ECANCELED` error on pending callbacks. Keep that distinct from a real
+    /// transport failure so deadline cancellation remains cancellation-aware.
+    private static func streamError(for error: NWError) -> StreamError {
+        if case .posix(.ECANCELED) = error {
+            return .cancelled
+        }
+        return .failed(error)
+    }
+
+    private static func unwrap<Value>(_ result: Result<Value, StreamError>) throws -> Value {
+        switch result {
+        case .success(let value):
+            return value
+        case .failure(.cancelled):
+            throw CancellationError()
+        case .failure(let error):
+            throw error
+        }
+    }
+
     /// Starts the connection on `queue` and returns once it is ready.
     #if compiler(>=6.2)
     @concurrent
@@ -64,7 +85,7 @@ extension NWConnection {
             start(queue: queue)
             let result = await outcome.result ?? .failure(.cancelled)
             stateUpdateHandler = nil
-            try result.get()
+            try Self.unwrap(result)
         } onCancel: {
             cancel()
         }
@@ -82,13 +103,13 @@ extension NWConnection {
         return try await withTaskCancellationHandler {
             receive(minimumIncompleteLength: 1, maximumLength: maximumLength) { data, _, isComplete, error in
                 if let error {
-                    outcome.resolve(.failure(.failed(error)))
+                    outcome.resolve(.failure(Self.streamError(for: error)))
                 } else {
                     outcome.resolve(.success(ReceivedChunk(data: data, isComplete: isComplete)))
                 }
             }
             let result = await outcome.result ?? .failure(.cancelled)
-            return try result.get().tuple
+            return try Self.unwrap(result).tuple
         } onCancel: {
             cancel()
         }
@@ -106,7 +127,7 @@ extension NWConnection {
         return try await withTaskCancellationHandler {
             receive(minimumIncompleteLength: count, maximumLength: count) { data, _, _, error in
                 if let error {
-                    outcome.resolve(.failure(.failed(error)))
+                    outcome.resolve(.failure(Self.streamError(for: error)))
                     return
                 }
                 guard let data, data.count == count else {
@@ -116,7 +137,7 @@ extension NWConnection {
                 outcome.resolve(.success([UInt8](data)))
             }
             let result = await outcome.result ?? .failure(.cancelled)
-            return try result.get()
+            return try Self.unwrap(result)
         } onCancel: {
             cancel()
         }
@@ -133,13 +154,13 @@ extension NWConnection {
         try await withTaskCancellationHandler {
             send(content: data, completion: .contentProcessed { error in
                 if let error {
-                    outcome.resolve(.failure(.failed(error)))
+                    outcome.resolve(.failure(Self.streamError(for: error)))
                 } else {
                     outcome.resolve(.success(()))
                 }
             })
             let result = await outcome.result ?? .failure(.cancelled)
-            try result.get()
+            try Self.unwrap(result)
         } onCancel: {
             cancel()
         }
@@ -156,13 +177,13 @@ extension NWConnection {
         try await withTaskCancellationHandler {
             send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { error in
                 if let error {
-                    outcome.resolve(.failure(.failed(error)))
+                    outcome.resolve(.failure(Self.streamError(for: error)))
                 } else {
                     outcome.resolve(.success(()))
                 }
             })
             let result = await outcome.result ?? .failure(.cancelled)
-            try result.get()
+            try Self.unwrap(result)
         } onCancel: {
             cancel()
         }
