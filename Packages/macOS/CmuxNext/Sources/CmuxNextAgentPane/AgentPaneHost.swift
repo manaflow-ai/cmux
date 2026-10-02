@@ -36,7 +36,7 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
 /// share one lookup, so they never race to spawn two daemons. A reconnect
 /// only looks; it never starts a daemon.
 public actor AcpmuxHost: AgentPaneHostProviding {
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
     private let resolveEnvironment: @Sendable () -> AcpmuxEnvironment?
     /// Kept only once found, so acpmux installed after the first chat is picked up.
     private var environment: AcpmuxEnvironment?
