@@ -24,7 +24,7 @@ import { t } from "./i18n";
 const STOP_GUARD_MS = 600;
 
 export const COMPOSER_LABELS = {
-  placeholder: "Ask anything, @ for context, / for commands",
+  placeholder: "Do anything",
   add: "Add",
   mention: "Mention a file or folder",
   attach: "Attach files or images",
@@ -54,6 +54,8 @@ type Props = {
   onAttach?(): void;
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
+  /// Starts a new chat in another project; the tray's project pill chooses only when set.
+  onProject?(cwd: string): void;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -73,6 +75,7 @@ export function Composer({
   accessory,
   onAttach,
   searchFiles,
+  onProject,
 }: Props) {
   const [findingFiles, setFindingFiles] = useState(false);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
@@ -250,7 +253,17 @@ export function Composer({
           ))}
         </ol>
       )}
-      <ComposerContext summary={snapshot.summary} />
+      <ComposerContext
+        summary={snapshot.summary}
+        sessions={snapshot.sessions}
+        onProject={
+          onProject &&
+          ((cwd) => {
+            onProject(cwd);
+            field.current?.focus();
+          })
+        }
+      />
       {findingFiles &&
         searchFiles &&
         form.current?.parentElement &&

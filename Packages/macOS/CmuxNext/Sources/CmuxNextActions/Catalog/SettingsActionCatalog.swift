@@ -269,6 +269,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "macwindow.badge.plus", surfaces: [.palette], cliName: "settings use-standard-titlebar"
             ),
             ActionDescriptor(
+                id: "appearance.customize",
+                title: String(localized: "action.appearance.customize", defaultValue: "Customize Appearance…", bundle: .module),
+                keywords: ["appearance", "customize", "personalize", "theme", "colors", "background", "wallpaper", "font", "make it yours"],
+                category: .settings, symbol: "paintbrush", surfaces: [.palette, .keyboard, .menu],
+                cliName: "settings customize-appearance", mainMenu: .view
+            ),
+            ActionDescriptor(
                 id: "appearance.interfaceSize.increase",
                 title: String(localized: "action.appearance.interfaceSize.increase", defaultValue: "Increase Interface Size", bundle: .module),
                 keywords: ["appearance", "font", "chrome", "bigger", "zoom"], category: .settings,

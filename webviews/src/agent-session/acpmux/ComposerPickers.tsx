@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
 import { t } from "./i18n";
+import { registerPicker } from "./pickerOpeners";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -243,6 +244,7 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
       )}
       {effort && efforts.length > 0 && (
         <EffortPicker
+          label={PICKER_LABELS.effort}
           efforts={efforts}
           current={effort.currentValue}
           model={model?.name ?? summary?.model}
@@ -433,6 +435,17 @@ export function Picker({
     // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt.
     trigger.current?.focus();
   };
+  const showRef = useRef(show);
+  showRef.current = show;
+  // Like a click, which takes focus off the prompt first: that closes the slash menu and restores the draft.
+  useEffect(
+    () =>
+      registerPicker(label, () => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        showRef.current();
+      }),
+    [label],
+  );
   const close = () => {
     setOpen(false);
     trigger.current?.focus();
@@ -505,6 +518,7 @@ export function Picker({
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="combobox"
         className="acpmux-picker-button"
+        data-menu={label}
         aria-label={label}
         aria-haspopup="listbox"
         aria-expanded={open}

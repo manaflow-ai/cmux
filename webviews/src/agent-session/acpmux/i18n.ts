@@ -23,6 +23,10 @@ const en = {
   "files.failed": "Couldn't search files",
   "files.outside": "This folder isn't in a git repository",
   "files.more": "Showing the first {count}; type more to narrow it",
+  "project.label": "Project",
+  "project.choose": "Choose project",
+  "project.search": "Search projects",
+  "project.none": "No matching projects",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -48,6 +52,10 @@ const ja: Record<StringKey, string> = {
   "files.failed": "ファイルを検索できませんでした",
   "files.outside": "このフォルダは git リポジトリにありません",
   "files.more": "最初の {count} 件を表示しています。絞り込むには続けて入力してください",
+  "project.label": "プロジェクト",
+  "project.choose": "プロジェクトを選択",
+  "project.search": "プロジェクトを検索",
+  "project.none": "一致するプロジェクトはありません",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };

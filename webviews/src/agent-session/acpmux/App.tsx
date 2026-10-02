@@ -39,8 +39,13 @@ import { TurnActionsContext, type TurnActions } from "./conversation/turnActions
 import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { DateLine } from "./conversation/DateLine";
 import { SearchChats } from "./SearchChats";
+import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
+import { ContinueMenu } from "./handoff/ContinueMenu";
+import { HandoffReviewMessage } from "./handoff/ReviewMessage";
+import { handoffStrings, localizedHandoffStrings } from "./handoff/strings";
+import type { HandoffReviewInput } from "./handoff/review";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { code?: string; userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -65,6 +70,8 @@ declare global {
       }): void;
       /// An app action for the page (CmuxNextAgentPane AgentPaneView): "searchChats" toggles Search chats.
       command?(name: string): void;
+      /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
+      applyShortcuts?(labels: Record<string, string>): void;
     };
     cmuxAcpmuxRegistry?: {
       register(
@@ -683,6 +690,10 @@ function AcpmuxPane() {
     catalog: [],
     canLoadOlder: false,
   });
+  const [handoffLabels, setHandoffLabels] = useState(handoffStrings);
+  const [continuing, setContinuing] = useState(false);
+  const [reviewReload, setReviewReload] = useState(0);
+  useEffect(() => setContinuing(false), [snapshot.sessionId]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // The footer's fork shows only when acpmux serves forks and is reachable. The client reports a
   // failed fork in the transcript; a bridge that cannot route it has nothing to add.
@@ -696,7 +707,14 @@ function AcpmuxPane() {
     [forkable],
   );
   // A new chat centers its composer under the hero.
-  const freshChat = isNewChat(snapshot);
+  const handoff = snapshot.handoff?.record;
+  const reviewing =
+    !!handoff &&
+    handoff.target.sessionId === snapshot.sessionId &&
+    ["draft", "starting"].includes(handoff.state) &&
+    !snapshot.handoff?.receipt;
+  const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
+  const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot);
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
@@ -797,8 +815,10 @@ function AcpmuxPane() {
     void callNative("chat.new").catch(() => undefined);
   }, []);
   // Search chats opens from the app's agentPane.searchChats action (Cmd-K by default, editable in
-  // Settings and cmux.json), which calls the bridge's command("searchChats").
+  // Settings and cmux.json), which calls the bridge's command("searchChats"). The host pushes the
+  // live bindings through applyShortcuts, so labels follow a rebind.
   const [searching, setSearching] = useState(false);
+  const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   // While the narrow-pane overlay is open, Escape closes it and focus moves into it.
   useEffect(() => {
     if (sidebar !== "open" || wide) return;
@@ -842,16 +862,28 @@ function AcpmuxPane() {
     window.cmuxAcpmuxBridge = {
       command(name) {
         if (name === "searchChats") setSearching((open) => !open);
+        if (
+          name === "continueIn" &&
+          snapshotRef.current?.canHandoff &&
+          snapshotRef.current.handoff?.ready &&
+          !snapshotRef.current.isWorking &&
+          !snapshotRef.current.queue.length
+        )
+          setContinuing(true);
       },
       receive(next) {
         if (next.protocolVersion !== 1) return;
         const change = diffRows(rowsRef.current, next.rows);
         rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
+        snapshotRef.current = next;
         setSnapshot(next);
         void change;
       },
       applyTheme(theme) {
         applyAgentTheme(theme as never);
+      },
+      applyShortcuts(labels) {
+        setShortcuts(readShortcuts(labels));
       },
       applyCustomization(customization) {
         if ("themeCSS" in customization) {
@@ -900,10 +932,12 @@ function AcpmuxPane() {
           cwd?: string;
           draft?: string;
           account?: unknown;
+          handoffStrings?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
+        setHandoffLabels(localizedHandoffStrings(host.handoffStrings));
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
         // Mock mode runs this same client against an in-page daemon.
@@ -915,7 +949,16 @@ function AcpmuxPane() {
           (next) => {
             rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
             snapshotRef.current = next;
-            setSnapshot(next);
+            setSnapshot((previous) => {
+              if (
+                next.canHandoff &&
+                !next.handoff?.ready &&
+                next.sessionId === previous.sessionId &&
+                previous.handoff?.record
+              )
+                return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
+              return next;
+            });
           },
           () => {
             // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
@@ -953,7 +996,8 @@ function AcpmuxPane() {
           "chat.mode": ({ modeId }) => client.setMode(String(modeId)),
           "chat.effort": ({ configId, value }) => client.setConfig(String(configId), String(value)),
           "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
-          "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
+          "chat.new": async ({ harness, cwd }) =>
+            persistSession(await client.create(harness ? String(harness) : undefined, cwd ? String(cwd) : undefined)),
           "chat.history": () => client.loadOlder(),
           "file.search": ({ path, query, limit }) =>
             client.fileSearch(
@@ -962,6 +1006,11 @@ function AcpmuxPane() {
               typeof limit === "number" ? limit : FILE_SEARCH_LIMIT,
             ),
           "chat.fork": async ({ throughSeq }) => persistSession(await client.fork(Number(throughSeq))),
+          "chat.handoff.prepare": async ({ harness }) => persistSession(await client.continueIn(String(harness))),
+          "chat.handoff.get": () => client.refreshHandoff(),
+          "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
+          "chat.handoff.start": ({ review }) => client.startHandoff(review as HandoffReviewInput),
+          "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
           "git.scope.diff": ({ scope }) => client.gitScopeDiff(String(scope)),
           "git.status": () => client.gitStatus(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
@@ -994,102 +1043,158 @@ function AcpmuxPane() {
   const toggleSidebar = () => setSidebar(sidebarShown ? "closed" : "open");
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot);
+  const sourceHarness = snapshot.summary?.harness?.split(/[-_]/)[0];
+  const handoffTargets = composerSnapshot.catalog.filter((entry) => {
+    const family = entry.id.split(/[-_]/)[0];
+    return sourceHarness === "claude" ? family === "codex" : sourceHarness === "codex" && family === "claude";
+  });
+  const canContinue =
+    !!snapshot.canHandoff &&
+    !!snapshot.handoff?.ready &&
+    !snapshot.isWorking &&
+    !snapshot.queue.length &&
+    !snapshot.handoff?.busy &&
+    !reviewing &&
+    handoffTargets.length > 0;
+  const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   return (
-    <section className="acpmux-shell" data-sidebar={sidebar}>
-      <SessionSidebar
-        sessions={snapshot.sessions}
-        selectedId={snapshot.sessionId}
-        onSelect={selectSession}
-        onNewChat={newChat}
-        account={account}
-      />
-      {sidebar === "open" && (
-        <button
-          type="button"
-          className="acpmux-sidebar-scrim"
-          aria-label="Close sessions"
-          tabIndex={-1}
-          onClick={closeOverlay}
+    <ShortcutsContext.Provider value={shortcuts}>
+      <section className="acpmux-shell" data-sidebar={sidebar}>
+        <SessionSidebar
+          sessions={snapshot.sessions}
+          selectedId={snapshot.sessionId}
+          onSelect={selectSession}
+          onNewChat={newChat}
+          account={account}
         />
-      )}
-      <div className="acpmux-main" data-new-chat={freshChat ? "" : undefined}>
-        <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
-          <header className="acpmux-header">
-            <div>
-              <button
-                type="button"
-                className="acpmux-sidebar-toggle"
-                ref={sidebarToggle}
-                aria-label="Sessions"
-                title="Sessions"
-                aria-controls="acpmux-sidebar"
-                aria-expanded={sidebarShown}
-                onClick={toggleSidebar}
-              />
-              <strong className="acpmux-title">{header.title}</strong>
-              {header.status && <span className="acpmux-status">{header.status}</span>}
-            </div>
-          </header>
-          {freshChat ? (
-            <EmptyState project={projectName(snapshot.summary?.cwd)} />
-          ) : (
-            <TurnActionsContext.Provider value={turnActions}>
-              <VirtualTranscript
-                rows={transcriptRows}
-                canLoadOlder={snapshot.canLoadOlder}
-                expanded={expanded}
-                registry={registry}
-                onOpenDiff={openDiff}
-                onToggleActivity={(id) =>
-                  setExpanded((current) => {
-                    const next = new Set(current);
-                    if (next.has(id)) next.delete(id);
-                    else next.add(id);
-                    return next;
-                  })
+        {sidebar === "open" && (
+          <button
+            type="button"
+            className="acpmux-sidebar-scrim"
+            aria-label="Close sessions"
+            tabIndex={-1}
+            onClick={closeOverlay}
+          />
+        )}
+        <div className="acpmux-main" data-new-chat={freshChat ? "" : undefined}>
+          <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
+            <header className="acpmux-header">
+              <div>
+                <button
+                  type="button"
+                  className="acpmux-sidebar-toggle"
+                  ref={sidebarToggle}
+                  aria-label="Sessions"
+                  title="Sessions"
+                  aria-controls="acpmux-sidebar"
+                  aria-expanded={sidebarShown}
+                  onClick={toggleSidebar}
+                />
+                <strong className="acpmux-title">{header.title}</strong>
+                {header.status && <span className="acpmux-status">{header.status}</span>}
+              </div>
+              <div className="acpmux-handoff-header-tools">
+                <span
+                  className="acpmux-session-coverage"
+                  title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}
+                >
+                  {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
+                </span>
+                {snapshot.canHandoff && handoffTargets.length > 0 && (
+                  <ContinueMenu
+                    label={handoffLabels.continueIn}
+                    targets={handoffTargets}
+                    disabled={!canContinue}
+                    open={continuing}
+                    setOpen={setContinuing}
+                    onChoose={(harness) => ignoreFailure(callNative("chat.handoff.prepare", { harness }))}
+                  />
+                )}
+              </div>
+            </header>
+            {!reviewing && snapshot.handoff?.error && (
+              <p className="acpmux-handoff-error" role="alert">
+                {snapshot.handoff.error}
+              </p>
+            )}
+            {reviewing && handoff && snapshot.handoff ? (
+              <HandoffReviewMessage
+                key={`${handoff.handoffId}:${reviewReload}`}
+                record={handoff}
+                state={snapshot.handoff}
+                strings={handoffLabels}
+                onSave={(review) => callNative("chat.handoff.draft", { review })}
+                onStart={(review) => callNative("chat.handoff.start", { review })}
+                onReturn={() => selectSession(handoff.source.sessionId)}
+                onDiscard={() => ignoreFailure(callNative("chat.handoff.discard"))}
+                onReload={() =>
+                  ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
                 }
               />
-            </TurnActionsContext.Provider>
+            ) : freshChat ? (
+              <EmptyState project={projectName(snapshot.summary?.cwd)} />
+            ) : (
+              <TurnActionsContext.Provider value={turnActions}>
+                <VirtualTranscript
+                  rows={transcriptRows}
+                  canLoadOlder={snapshot.canLoadOlder}
+                  expanded={expanded}
+                  registry={registry}
+                  onOpenDiff={openDiff}
+                  onToggleActivity={(id) =>
+                    setExpanded((current) => {
+                      const next = new Set(current);
+                      if (next.has(id)) next.delete(id);
+                      else next.add(id);
+                      return next;
+                    })
+                  }
+                />
+              </TurnActionsContext.Provider>
+            )}
+            {diffView && diffFiles && (
+              <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} source={changesSource} />
+            )}
+          </div>
+          {snapshot.permission?.pending && (
+            <div className="acpmux-permission">
+              <PermissionCard permission={snapshot.permission} />
+            </div>
           )}
-          {diffView && diffFiles && (
-            <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} source={changesSource} />
+          {/* Between the hero and the docked composer. */}
+          {freshChat && (
+            <div className="acpmux-home-area">
+              <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
+            </div>
+          )}
+          {!reviewing && !handoffLoading && (
+            <Composer
+              snapshot={composerSnapshot}
+              chips={ComposerChips}
+              draft={draft}
+              onSend={(text) => void callNative("chat.send", { text })}
+              onStop={() => void callNative("chat.cancel")}
+              onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
+              // Without a folder there is nothing to search; the + menu leaves the item out.
+              searchFiles={fileRoot ? searchFiles : undefined}
+            />
           )}
         </div>
-        {snapshot.permission?.pending && (
-          <div className="acpmux-permission">
-            <PermissionCard permission={snapshot.permission} />
-          </div>
+        {searching && (
+          <SearchChats
+            sessions={snapshot.sessions}
+            onClose={() => setSearching(false)}
+            onSelect={(sessionId) => {
+              setSearching(false);
+              selectSession(sessionId);
+            }}
+            onNewChat={() => {
+              setSearching(false);
+              newChat();
+            }}
+          />
         )}
-        {/* Between the hero and the docked composer. */}
-        {freshChat && (
-          <div className="acpmux-home-area">
-            <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
-          </div>
-        )}
-        <Composer
-          snapshot={composerSnapshot}
-          chips={ComposerChips}
-          draft={draft}
-          onSend={(text) => void callNative("chat.send", { text })}
-          onStop={() => void callNative("chat.cancel")}
-          // Without a folder there is nothing to search; the + menu leaves the item out.
-          searchFiles={fileRoot ? searchFiles : undefined}
-        />
-      </div>
-      {searching && (
-        <SearchChats
-          sessions={snapshot.sessions}
-          onClose={() => setSearching(false)}
-          onSelect={(sessionId) => {
-            setSearching(false);
-            selectSession(sessionId);
-          }}
-          onNewChat={() => {
-            setSearching(false);
-            newChat();
-          }}
-        />
-      )}
-    </section>
+      </section>
+    </ShortcutsContext.Provider>
   );
 }
