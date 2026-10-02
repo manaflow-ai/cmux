@@ -9912,6 +9912,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// occlusion `.visible` bit is remembered per window so the rule can tell a
     /// trustworthy occlusion verdict from a virtual display that never sets it.
     private func applyRendererWindowVisibility(for window: NSWindow) {
+        guard let currentWindow = self.window, currentWindow === window else { return }
         let occlusionVisible = window.occlusionState.contains(.visible)
         if occlusionVisible {
             Self.windowsThatReportedVisible.add(window)
