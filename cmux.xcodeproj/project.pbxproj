@@ -630,6 +630,7 @@
 		F0F0CF0E0000000000000001 /* CLINotifyClaudeForkOfForkRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0CF0E0000000000000002 /* CLINotifyClaudeForkOfForkRegressionTests.swift */; };
 		C72280000000000000000004 /* CLINotifyClaudeHookWorkspaceRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72280000000000000000003 /* CLINotifyClaudeHookWorkspaceRoutingTests.swift */; };
 		12A0241DC2D24F149F65E15F /* CLINotifyProcessIntegrationRegressionTests+JSON.swift in Sources */ = {isa = PBXBuildFile; fileRef = A82715B8BDE347A18031067C /* CLINotifyProcessIntegrationRegressionTests+JSON.swift */; };
+		E3F1BBEE4B7A2CCF580C7C1A /* CLINotifyProcessIntegrationRegressionTests+Remotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D0D8465A2711B57EA062003 /* CLINotifyProcessIntegrationRegressionTests+Remotes.swift */; };
 		A5D41203A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41204A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift */; };
 		86D573598C8C1225D24AED5A /* CLINotifyProcessSocketState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E40480ECEC94949BB74D852 /* CLINotifyProcessSocketState.swift */; };
 		A5D41205A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */; };
@@ -637,6 +638,7 @@
 		C11757000000000000000030 /* CLIOmpSupersededCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000017 /* CLIOmpSupersededCleanupTests.swift */; };
 		C117570000000000000000A2 /* CLIPasteCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C117570000000000000000A1 /* CLIPasteCommandTests.swift */; };
 		C11757000000000000000031 /* CLIRelayQueuedHookRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000018 /* CLIRelayQueuedHookRegressionTests.swift */; };
+		C15873000000000000000001 /* CLIRemotesArgumentValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15873000000000000000002 /* CLIRemotesArgumentValidationTests.swift */; };
 		C0F16B000000000000000001 /* CLIRemoteShellStartupPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */; };
 		C11757000000000000000071 /* CLIRestoreSessionTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000070 /* CLIRestoreSessionTransferTests.swift */; };
 		A5D41209A1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */; };
@@ -669,8 +671,6 @@
 		846600000000000000000001 /* CLIWorkspaceGroupSafetyMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 846600000000000000000002 /* CLIWorkspaceGroupSafetyMockServer.swift */; };
 		C11757000000000000000047 /* CLIWorkspaceGroupSafetyMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 846600000000000000000002 /* CLIWorkspaceGroupSafetyMockServer.swift */; };
 		C11757000000000000000036 /* CLIWorkspaceGroupSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1175700000000000000001D /* CLIWorkspaceGroupSafetyTests.swift */; };
-		C15873000000000000000001 /* CLIRemotesArgumentValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15873000000000000000002 /* CLIRemotesArgumentValidationTests.swift */; };
-		C15873000000000000000005 /* RemotesArgumentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15873000000000000000003 /* RemotesArgumentParser.swift */; };
 		FBA17843EE21A7F33B4BD0AD /* CLIWorkspaceRefResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99CD6A76F75825E105715C8C /* CLIWorkspaceRefResolutionTests.swift */; };
 		799100000000000000000001 /* CLIWorkspaceStableIDMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 799100000000000000000002 /* CLIWorkspaceStableIDMockServer.swift */; };
 		C11757000000000000000048 /* CLIWorkspaceStableIDMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 799100000000000000000002 /* CLIWorkspaceStableIDMockServer.swift */; };
@@ -1171,7 +1171,6 @@
 		A1E8DF699F239A8A5A2FC122 /* CMUXCLI+PromptSubmit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B782728C37B72B061710BA7 /* CMUXCLI+PromptSubmit.swift */; };
 		C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */; };
 		REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */; };
-		C15873000000000000000004 /* RemotesArgumentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15873000000000000000003 /* RemotesArgumentParser.swift */; };
 		D7AB12048000000000000001 /* CMUXCLI+RemoteWorkingDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB12048000000000000002 /* CMUXCLI+RemoteWorkingDirectory.swift */; };
 		925800000000000000000002 /* CMUXCLI+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925800000000000000000001 /* CMUXCLI+Restore.swift */; };
 		110435021104350211043502 /* CMUXCLI+RestoreAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110435011104350111043501 /* CMUXCLI+RestoreAdmission.swift */; };
@@ -2686,6 +2685,8 @@
 		A5001640 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
 		B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
 		7989A0017989A0017989A001 /* RemoteResumeBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7989A0027989A0027989A002 /* RemoteResumeBindingTests.swift */; };
+		C15873000000000000000004 /* RemotesArgumentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15873000000000000000003 /* RemotesArgumentParser.swift */; };
+		C15873000000000000000005 /* RemotesArgumentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15873000000000000000003 /* RemotesArgumentParser.swift */; };
 		A5001645 /* RemoteSessionBundledResourceLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001644 /* RemoteSessionBundledResourceLoader.swift */; };
 		B9000029A1B2C3D4E5F60719 /* RemoteSessionBundledResourceLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001644 /* RemoteSessionBundledResourceLoader.swift */; };
 		806100020000000000000001 /* RemoteSessionCleanupLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 806100020000000000000002 /* RemoteSessionCleanupLifecycleTests.swift */; };
@@ -4958,6 +4959,7 @@
 		F0F0CF0E0000000000000002 /* CLINotifyClaudeForkOfForkRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyClaudeForkOfForkRegressionTests.swift; sourceTree = "<group>"; };
 		C72280000000000000000003 /* CLINotifyClaudeHookWorkspaceRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyClaudeHookWorkspaceRoutingTests.swift; sourceTree = "<group>"; };
 		A82715B8BDE347A18031067C /* CLINotifyProcessIntegrationRegressionTests+JSON.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLINotifyProcessIntegrationRegressionTests+JSON.swift"; sourceTree = "<group>"; };
+		2D0D8465A2711B57EA062003 /* CLINotifyProcessIntegrationRegressionTests+Remotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLINotifyProcessIntegrationRegressionTests+Remotes.swift"; sourceTree = "<group>"; };
 		A5D41204A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyProcessIntegrationRegressionTests.swift; sourceTree = "<group>"; };
 		1E40480ECEC94949BB74D852 /* CLINotifyProcessSocketState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLINotifyProcessSocketState.swift"; sourceTree = "<group>"; };
 		A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyProcessTestSupport.swift; sourceTree = "<group>"; };
@@ -4965,6 +4967,7 @@
 		C11757000000000000000017 /* CLIOmpSupersededCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIOmpSupersededCleanupTests.swift; sourceTree = "<group>"; };
 		C117570000000000000000A1 /* CLIPasteCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIPasteCommandTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000018 /* CLIRelayQueuedHookRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRelayQueuedHookRegressionTests.swift; sourceTree = "<group>"; };
+		C15873000000000000000002 /* CLIRemotesArgumentValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRemotesArgumentValidationTests.swift; sourceTree = "<group>"; };
 		C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRemoteShellStartupPerformanceTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000070 /* CLIRestoreSessionTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRestoreSessionTransferTests.swift; sourceTree = "<group>"; };
 		A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRovoDevHookPersistenceTests.swift; sourceTree = "<group>"; };
@@ -4993,7 +4996,6 @@
 		C1175700000000000000001C /* CLIWindowHandleRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWindowHandleRoutingTests.swift; sourceTree = "<group>"; };
 		846600000000000000000002 /* CLIWorkspaceGroupSafetyMockServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWorkspaceGroupSafetyMockServer.swift; sourceTree = "<group>"; };
 		C1175700000000000000001D /* CLIWorkspaceGroupSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWorkspaceGroupSafetyTests.swift; sourceTree = "<group>"; };
-		C15873000000000000000002 /* CLIRemotesArgumentValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRemotesArgumentValidationTests.swift; sourceTree = "<group>"; };
 		99CD6A76F75825E105715C8C /* CLIWorkspaceRefResolutionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIWorkspaceRefResolutionTests.swift"; sourceTree = "<group>"; };
 		799100000000000000000002 /* CLIWorkspaceStableIDMockServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWorkspaceStableIDMockServer.swift; sourceTree = "<group>"; };
 		C1175700000000000000001E /* CLIWorkspaceStableIDTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWorkspaceStableIDTests.swift; sourceTree = "<group>"; };
@@ -5473,7 +5475,6 @@
 		0B782728C37B72B061710BA7 /* CMUXCLI+PromptSubmit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PromptSubmit.swift"; sourceTree = "<group>"; };
 		C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemotePTYErrors.swift"; sourceTree = "<group>"; };
 		REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Remotes.swift"; sourceTree = "<group>"; };
-		C15873000000000000000003 /* RemotesArgumentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotesArgumentParser.swift; sourceTree = "<group>"; };
 		D7AB12048000000000000002 /* CMUXCLI+RemoteWorkingDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemoteWorkingDirectory.swift"; sourceTree = "<group>"; };
 		925800000000000000000001 /* CMUXCLI+Restore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Restore.swift"; sourceTree = "<group>"; };
 		110435011104350111043501 /* CMUXCLI+RestoreAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreAdmission.swift"; sourceTree = "<group>"; };
@@ -6864,6 +6865,7 @@
 		B11049000000000000000004 /* RemoteRelayTmuxCompatAuthorizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelayTmuxCompatAuthorizationTests.swift; sourceTree = "<group>"; };
 		A5001641 /* RemoteRelayZshBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelayZshBootstrap.swift; sourceTree = "<group>"; };
 		7989A0027989A0027989A002 /* RemoteResumeBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteResumeBindingTests.swift; sourceTree = "<group>"; };
+		C15873000000000000000003 /* RemotesArgumentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotesArgumentParser.swift; sourceTree = "<group>"; };
 		A5001644 /* RemoteSessionBundledResourceLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSessionBundledResourceLoader.swift; sourceTree = "<group>"; };
 		806100020000000000000002 /* RemoteSessionCleanupLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSessionCleanupLifecycleTests.swift; sourceTree = "<group>"; };
 		C12813000000000000000102 /* RemoteSessionParkedReconnectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSessionParkedReconnectTests.swift; sourceTree = "<group>"; };
@@ -12764,6 +12766,7 @@
 				C038464D085920513576A927 /* CloudWorkspaceRowOpenTests.swift */,
 				34A1987FFA112D2457B20A9C /* LocalTerminalSizingHostLifecycleTests.swift */,
 				C7A99CD111C8F6166A22186B /* SidebarBoundedDisplayStringTests.swift */,
+				2D0D8465A2711B57EA062003 /* CLINotifyProcessIntegrationRegressionTests+Remotes.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -13516,6 +13519,7 @@
 				C11757000000000000000030 /* CLIOmpSupersededCleanupTests.swift in Sources */,
 				C117570000000000000000A2 /* CLIPasteCommandTests.swift in Sources */,
 				C11757000000000000000031 /* CLIRelayQueuedHookRegressionTests.swift in Sources */,
+				C15873000000000000000001 /* CLIRemotesArgumentValidationTests.swift in Sources */,
 				C11757000000000000000071 /* CLIRestoreSessionTransferTests.swift in Sources */,
 				C11757000000000000000032 /* CLISSHPTYResizeInputTests.swift in Sources */,
 				C11757000000000000000033 /* CLIStdioSIGPIPERegressionTests.swift in Sources */,
@@ -13526,8 +13530,6 @@
 				C11757000000000000000035 /* CLIWindowHandleRoutingTests.swift in Sources */,
 				C11757000000000000000047 /* CLIWorkspaceGroupSafetyMockServer.swift in Sources */,
 				C11757000000000000000036 /* CLIWorkspaceGroupSafetyTests.swift in Sources */,
-				C15873000000000000000001 /* CLIRemotesArgumentValidationTests.swift in Sources */,
-				C15873000000000000000005 /* RemotesArgumentParser.swift in Sources */,
 				C11757000000000000000048 /* CLIWorkspaceStableIDMockServer.swift in Sources */,
 				C11757000000000000000037 /* CLIWorkspaceStableIDTests.swift in Sources */,
 				0CB4E9797AD54D3BB9CF06F9 /* CMUXCLI+AutoNaming.swift in Sources */,
@@ -13543,6 +13545,7 @@
 				C1175700000000000000003D /* CodexTerminalErrorNotificationTests.swift in Sources */,
 				C1175700000000000000003E /* KimiHookConfigLocationTests.swift in Sources */,
 				C11757000000000000000063 /* ProcessExitWait.swift in Sources */,
+				C15873000000000000000005 /* RemotesArgumentParser.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -16181,7 +16184,6 @@
 				A1E8DF699F239A8A5A2FC122 /* CMUXCLI+PromptSubmit.swift in Sources */,
 				C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */,
 					REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */,
-					C15873000000000000000004 /* RemotesArgumentParser.swift in Sources */,
 				D7AB12048000000000000001 /* CMUXCLI+RemoteWorkingDirectory.swift in Sources */,
 				925800000000000000000002 /* CMUXCLI+Restore.swift in Sources */,
 				110435021104350211043502 /* CMUXCLI+RestoreAdmission.swift in Sources */,
@@ -16286,6 +16288,7 @@
 				D7AB12048000000000000005 /* RemoteInteractiveShellBootstrapBuilder+WorkingDirectory.swift in Sources */,
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
+					C15873000000000000000004 /* RemotesArgumentParser.swift in Sources */,
 				B9000029A1B2C3D4E5F60719 /* RemoteSessionBundledResourceLoader.swift in Sources */,
 				A10052000000000000000002 /* SocketClient+StartupWait.swift in Sources */,
 				D1275700D1275700D1275701 /* SocketClient+V2.swift in Sources */,
@@ -16600,6 +16603,7 @@
 				F0F0CF0E0000000000000001 /* CLINotifyClaudeForkOfForkRegressionTests.swift in Sources */,
 				C72280000000000000000004 /* CLINotifyClaudeHookWorkspaceRoutingTests.swift in Sources */,
 				12A0241DC2D24F149F65E15F /* CLINotifyProcessIntegrationRegressionTests+JSON.swift in Sources */,
+				E3F1BBEE4B7A2CCF580C7C1A /* CLINotifyProcessIntegrationRegressionTests+Remotes.swift in Sources */,
 				A5D41203A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift in Sources */,
 				86D573598C8C1225D24AED5A /* CLINotifyProcessSocketState.swift in Sources */,
 				A5D41205A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift in Sources */,
