@@ -1,7 +1,7 @@
 //! Rules the schema cannot express.
 
-use crate::issue::{Issue, escape};
 use crate::KNOWN_INTERFACES;
+use crate::issue::{Issue, escape};
 use serde_json::Value;
 
 /// Publishers reserved for first-party apps.

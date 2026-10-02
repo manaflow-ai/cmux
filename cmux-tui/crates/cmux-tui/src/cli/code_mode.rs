@@ -1,7 +1,6 @@
 //! Runs a catalog-gated TypeScript code-mode script through the bundled runner.
 
 use std::borrow::Cow;
-use std::env;
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
 
