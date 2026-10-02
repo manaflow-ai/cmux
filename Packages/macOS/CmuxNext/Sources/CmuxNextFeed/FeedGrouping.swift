@@ -68,7 +68,9 @@ public nonisolated struct FeedInboxEntry: Sendable, Equatable, Identifiable {
     /// Newest first; the head is the first member.
     public var members: [FeedItem]
 
-    public var id: String { head.thread.map { "thread:" + $0 } ?? head.id }
+    /// Unique across groups: a thread can head an entry in "Today" and
+    /// another in "Earlier", and open requests of one thread stay separate.
+    public var id: String { head.thread.map { "thread:\($0):\(head.id)" } ?? head.id }
     public var isThread: Bool { members.count > 1 }
     public var unread: Int { members.filter(\.isUnread).count }
 }

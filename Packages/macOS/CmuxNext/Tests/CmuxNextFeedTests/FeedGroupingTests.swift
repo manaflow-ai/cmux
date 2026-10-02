@@ -27,6 +27,8 @@ struct FeedGroupingTests {
         let grouped = groups.all.flatMap(\.members).map(\.id)
         #expect(grouped.count == Set(grouped).count)
         #expect(Set(grouped) == Set(model.visibleItems.map(\.id)))
+        let entryIDs = groups.all.map { $0.id }
+        #expect(Set(entryIDs).count == entryIDs.count, "rows of one thread in two groups, or two open requests of one thread, keep distinct ids")
     }
 
     @Test func archivedAndSnoozedItemsLeaveTheGroups() {

@@ -56,13 +56,14 @@ public final class FeedMenubarHostView: NSView {
     public let model: FeedModel
     private let appearanceState = FeedAppearance()
     private let surface: OverlaySurfaceView?
+    private let hosting: NSHostingView<FeedMenubarRoot>
 
     public init(model: FeedModel, backdrop: Bool = false) {
         self.model = model
         surface = backdrop ? OverlaySurfaceView() : nil
-        super.init(frame: NSRect(x: 0, y: 0, width: FeedTunables.menubarWidth.value, height: 320))
         let root = FeedMenubarRoot(model: model, appearance: appearanceState)
-        let hosting = NSHostingView(rootView: root)
+        hosting = NSHostingView(rootView: root)
+        super.init(frame: NSRect(x: 0, y: 0, width: FeedTunables.menubarWidth.value, height: 320))
         if let surface {
             surface.cornerRadius = 14
             embed(surface)
@@ -80,6 +81,12 @@ public final class FeedMenubarHostView: NSView {
     /// The popover's content size: fixed width, height from the rows.
     public override var intrinsicContentSize: NSSize {
         NSSize(width: FeedTunables.menubarWidth.value, height: NSView.noIntrinsicMetric)
+    }
+
+    /// The size the rows need: set it as the popover's `contentSize` after
+    /// the model changes.
+    public var preferredContentSize: NSSize {
+        NSSize(width: FeedTunables.menubarWidth.value, height: hosting.fittingSize.height)
     }
 
     public override func viewDidMoveToWindow() {
