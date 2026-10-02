@@ -628,6 +628,7 @@
 		C11757000000000000000042 /* CLIChildEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95C00A2330C34E7DA7630E4D /* CLIChildEnvironment.swift */; };
 		2E931B5728B0478CB9B4937F /* CLIChildEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC61257DCDCA431A908C55CC /* CLIChildEnvironmentTests.swift */; };
 		C11757000000000000000028 /* CLIClaudeHookTimeoutRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1175700000000000000000F /* CLIClaudeHookTimeoutRegressionTests.swift */; };
+		BB5587000000000000000001 /* CLICodePuppyLiveStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB5587000000000000000002 /* CLICodePuppyLiveStatusTests.swift */; };
 		C11757000000000000000029 /* CLICoderouterBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000010 /* CLICoderouterBootstrapTests.swift */; };
 		C0DE60C0000000000000A032 /* CLICoderouterCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A031 /* CLICoderouterCommandTests.swift */; };
 		C1175700000000000000002A /* CLICodexHookPathQuotingRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000011 /* CLICodexHookPathQuotingRegressionTests.swift */; };
@@ -5130,6 +5131,7 @@
 		95C00A2330C34E7DA7630E4D /* CLIChildEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIChildEnvironment.swift; sourceTree = "<group>"; };
 		AC61257DCDCA431A908C55CC /* CLIChildEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIChildEnvironmentTests.swift; sourceTree = "<group>"; };
 		C1175700000000000000000F /* CLIClaudeHookTimeoutRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIClaudeHookTimeoutRegressionTests.swift; sourceTree = "<group>"; };
+		BB5587000000000000000002 /* CLICodePuppyLiveStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodePuppyLiveStatusTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000010 /* CLICoderouterBootstrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICoderouterBootstrapTests.swift; sourceTree = "<group>"; };
 		C0DE60C0000000000000A031 /* CLICoderouterCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICoderouterCommandTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000011 /* CLICodexHookPathQuotingRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexHookPathQuotingRegressionTests.swift; sourceTree = "<group>"; };
@@ -8956,6 +8958,7 @@
 				C11757000000000000000014 /* CLICodexResumeNotificationTests.swift */,
 				C11757000000000000000015 /* CLIExplicitSurfaceRoutingTests.swift */,
 				C11757000000000000000016 /* CLIHookNoResponseTests.swift */,
+				BB5587000000000000000002 /* CLICodePuppyLiveStatusTests.swift */,
 				C11757000000000000000017 /* CLIOmpSupersededCleanupTests.swift */,
 				C11757000000000000000018 /* CLIRelayQueuedHookRegressionTests.swift */,
 				C117570000000000000000C0 /* ClaudeHookSessionStoreRecoveryTests.swift */,
@@ -14011,6 +14014,7 @@
 				AE55A6E50000000000000005 /* CLIAgentMessageCommandTests.swift in Sources */,
 				C11757000000000000000042 /* CLIChildEnvironment.swift in Sources */,
 				C11757000000000000000028 /* CLIClaudeHookTimeoutRegressionTests.swift in Sources */,
+				BB5587000000000000000001 /* CLICodePuppyLiveStatusTests.swift in Sources */,
 				C11757000000000000000029 /* CLICoderouterBootstrapTests.swift in Sources */,
 				C1175700000000000000002A /* CLICodexHookPathQuotingRegressionTests.swift in Sources */,
 				C1175700000000000000002B /* CLICodexHookTimeoutRegressionTests.swift in Sources */,
