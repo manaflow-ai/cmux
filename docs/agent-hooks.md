@@ -47,7 +47,7 @@ Inside tmux, these hooks report to the cmux workspace attached to the tmux sessi
 | Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` | PreToolUse |
 | Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
 | Kimi Code | `kimi` | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | `kimi --resume <id>` | PreToolUse, PostToolUse |
-| Code Puppy | `code-puppy` | `~/.code_puppy/hooks.json` | `code-puppy --resume <id>` | PreToolUse, PostToolUse |
+| Code Puppy | `code-puppy` | `~/.code_puppy/plugins/cmux-session/register_callbacks.py` | `code-puppy --resume <autosave-name>` | PreToolUse, PostToolUse |
 | Antigravity | `agy` | `~/.gemini/config/hooks.json` (`cmux` hook group) | `agy --conversation <id>` | none |
 
 Kimi Code resumes with the captured executable and working directory, preserving supported
@@ -71,6 +71,33 @@ The sanitizer preserves model, sandbox, config, and cwd-related flags. It drops 
 Claude Code's `PushNotification` tool (model-initiated "notify the user now" pushes) is bridged through a `PostToolUse` hook into cmux notifications. The tool normally delivers via a raw OSC desktop notification, which cmux suppresses on surfaces running a hook-integrated agent, so the bridge is what makes those pushes visible inside cmux. It mirrors the tool's own outcome: a push the tool reports as skipped (user active, channel disabled) is not duplicated.
 
 Grok uses its `Notification` hook for user-facing completion messages. cmux records `Stop` as idle state, but leaves the visible notification text to the `Notification` payload so repeated turns keep Grok's own message instead of a generic completion fallback.
+
+## Code Puppy callback plugin
+
+`cmux hooks setup code-puppy` (or `pup`) installs a cmux-owned Python callback
+module in Code Puppy's discovered `plugins/cmux-session/` directory. Code Puppy
+loads it on the next launch. Install is idempotent; uninstall removes only the
+owned module and registration, keeping other plugins and user hooks. Setup also
+removes cmux's older native `hooks.json` entries to avoid duplicate events.
+
+The plugin reports root agent-run start/end, pre/post tool calls and shutdown
+through the shared cmux hook handlers and Feed. It is inert outside a cmux
+surface or with `CMUX_CODE_PUPPY_HOOKS_DISABLED=1`, emits no prompt/tool context,
+and bounds subprocess calls. A failed run carries an explicit error outcome.
+Managed subagents do not replace the parent's session identity.
+
+Session IDs come from Code Puppy's current **autosave name**, not native-hook
+run UUIDs or the `codepuppy-session` placeholder. cmux only persists a restore
+binding once the corresponding session file exists. A fresh launch therefore
+becomes restorable after Code Puppy saves it, normally by turn completion.
+Explicit `--resume` launches retain the shared resume path.
+
+Code Puppy has no `CODE_PUPPY_HOME` override. With explicitly set XDG variables,
+configuration/plugins live in `$XDG_CONFIG_HOME/code_puppy` and sessions in
+`$XDG_CACHE_HOME/code_puppy/autosaves`; otherwise both use `~/.code_puppy`.
+cmux captures the cache override for restore. `external_plugins.json` records
+cmux ownership; current Code Puppy versions discover the plugin directory
+rather than reading that registry.
 
 ## Workspace auto-naming
 
@@ -223,7 +250,7 @@ notification bridge, rebinding, and hibernation integration for that process.
 | CodeBuddy | `CODEBUDDY_CONFIG_DIR` | `CMUX_CODEBUDDY_HOOKS_DISABLED=1` |
 | Factory | none | `CMUX_FACTORY_HOOKS_DISABLED=1` |
 | Qoder | `QODER_CONFIG_DIR` | `CMUX_QODER_HOOKS_DISABLED=1` |
-| Code Puppy | none | `CMUX_CODE_PUPPY_HOOKS_DISABLED=1` |
+| Code Puppy | `XDG_CONFIG_HOME` (config), `XDG_CACHE_HOME` (sessions) | `CMUX_CODE_PUPPY_HOOKS_DISABLED=1` |
 | Antigravity | none | `CMUX_ANTIGRAVITY_HOOKS_DISABLED=1` |
 
 Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extension is auto-discovered from `~/.pi/agent/extensions/` or `$PI_CODING_AGENT_DIR/extensions/`.
