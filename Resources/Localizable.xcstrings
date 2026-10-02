@@ -609558,6 +609558,419 @@
           }
         }
       }
+    },
+    "cli.help.ssh.hereLimitations": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In-place SSH:\n  --here requires one local terminal pane and interactive SSH; Mosh and Canvas are not supported.\n  Disconnect or exit returns to the original local shell while cmux stays open.\n  After restarting cmux, the session restores as a normal remote SSH workspace."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH في الجزء الحالي:\n  يتطلب --here جزء طرفية محليًا واحدًا وجلسة SSH تفاعلية؛ Mosh وCanvas غير مدعومين.\n  يعيد قطع الاتصال أو الخروج إلى الصدفة المحلية الأصلية ما دام cmux مفتوحًا.\n  بعد إعادة تشغيل cmux، تُستعاد الجلسة كمساحة عمل SSH بعيدة عادية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH im aktuellen Bereich:\n  --here erfordert einen lokalen Terminalbereich und interaktives SSH; Mosh und Canvas werden nicht unterstützt.\n  Trennen oder Beenden führt zur ursprünglichen lokalen Shell zurück, solange cmux geöffnet bleibt.\n  Nach einem Neustart von cmux wird die Sitzung als normaler Remote-SSH-Workspace wiederhergestellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH en el panel actual:\n  --here requiere un único panel de terminal local y SSH interactivo; Mosh y Canvas no son compatibles.\n  Desconectar o salir vuelve al shell local original mientras cmux permanezca abierto.\n  Tras reiniciar cmux, la sesión se restaura como un espacio de trabajo SSH remoto normal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH dans le panneau actuel :\n  --here nécessite un seul panneau de terminal local et SSH interactif ; Mosh et Canvas ne sont pas pris en charge.\n  La déconnexion ou la sortie revient au shell local d’origine tant que cmux reste ouvert.\n  Après le redémarrage de cmux, la session est restaurée comme un espace de travail SSH distant normal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のペインでの SSH：\n  --here にはローカルターミナルペイン1つと対話型 SSH が必要です。Mosh と Canvas は使えません。\n  cmux を開いたまま切断または終了すると、元のローカルシェルに戻ります。\n  cmux を再起動すると、通常のリモート SSH ワークスペースとしてセッションが復元されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 창에서 SSH 사용:\n  --here에는 로컬 터미널 창 하나와 대화형 SSH가 필요하며 Mosh와 Canvas는 지원하지 않습니다.\n  cmux가 열려 있는 동안 연결을 끊거나 종료하면 원래 로컬 셸로 돌아갑니다.\n  cmux를 다시 시작하면 세션이 일반 원격 SSH 작업 공간으로 복원됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前窗格中的 SSH：\n  --here 需要一个本地终端窗格及交互式 SSH；不支持 Mosh 和 Canvas。\n  cmux 保持打开时，断开连接或退出会返回原来的本地 shell。\n  重新启动 cmux 后，会话将恢复为普通远程 SSH 工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前窗格中的 SSH：\n  --here 需要一個本機終端機窗格及互動式 SSH；不支援 Mosh 和 Canvas。\n  cmux 保持開啟時，中斷連線或退出會返回原本的本機 shell。\n  重新啟動 cmux 後，工作階段會還原為一般遠端 SSH 工作區。"
+          }
+        }
+      }
+    },
+    "cli.ssh.here.missingSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here did not receive an in-place session identity from cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتلقَّ ssh --here من cmux معرّف الجلسة في الجزء الحالي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here hat von cmux keine Kennung für die Sitzung im aktuellen Bereich erhalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here no recibió de cmux un identificador de sesión en el panel actual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here n’a pas reçu de cmux l’identifiant de la session dans le panneau actuel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here は現在のペインのセッション識別子を cmux から受信できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here가 cmux에서 현재 창의 세션 식별자를 받지 못했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 未从 cmux 收到当前窗格的会话标识。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 未從 cmux 收到目前窗格的工作階段識別碼。"
+          }
+        }
+      }
+    },
+    "cli.ssh.here.requiresInteractiveSSH": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here requires interactive SSH. Remove --transport mosh and options that disable a terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب ssh --here جلسة SSH تفاعلية. أزل --transport mosh والخيارات التي تعطّل الطرفية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here erfordert interaktives SSH. Entfernen Sie --transport mosh und Optionen, die ein Terminal deaktivieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here requiere SSH interactivo. Elimina --transport mosh y las opciones que deshabilitan el terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here nécessite une session SSH interactive. Supprimez --transport mosh et les options qui désactivent le terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here には対話型 SSH が必要です。--transport mosh とターミナルを無効にするオプションを削除してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here에는 대화형 SSH가 필요합니다. --transport mosh와 터미널을 비활성화하는 옵션을 제거하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 需要交互式 SSH。请移除 --transport mosh 及禁用终端的选项。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 需要互動式 SSH。請移除 --transport mosh 及停用終端機的選項。"
+          }
+        }
+      }
+    },
+    "cli.ssh.here.requiresPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here must be run from an active cmux terminal pane."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب تشغيل ssh --here من جزء طرفية cmux نشط."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here muss in einem aktiven cmux-Terminalbereich ausgeführt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here debe ejecutarse desde un panel de terminal cmux activo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here doit être exécuté depuis un panneau de terminal cmux actif."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here はアクティブな cmux ターミナルペインから実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here는 활성 cmux 터미널 창에서 실행해야 합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 必须从活动的 cmux 终端窗格运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 必須從作用中的 cmux 終端機窗格執行。"
+          }
+        }
+      }
+    },
+    "cli.ssh.here.windowConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here uses the current pane and cannot be combined with --window."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم ssh --here الجزء الحالي ولا يمكن دمجه مع --window."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here verwendet den aktuellen Bereich und kann nicht mit --window kombiniert werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here usa el panel actual y no se puede combinar con --window."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here utilise le panneau actuel et ne peut pas être combiné avec --window."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here は現在のペインを使用するため、--window と併用できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here는 현재 창을 사용하며 --window와 함께 사용할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 使用当前窗格，不能与 --window 同时使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 使用目前的窗格，不能與 --window 同時使用。"
+          }
+        }
+      }
+    },
+    "cli.ssh.here.requiresSingleLocalPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here requires a workspace with one local terminal pane and no remote connection."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب ssh --here مساحة عمل تحتوي على جزء طرفية محلي واحد دون اتصال بعيد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here erfordert einen Workspace mit genau einem lokalen Terminalbereich und ohne Remote-Verbindung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here requiere un espacio de trabajo con un único panel de terminal local y sin conexión remota."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here nécessite un espace de travail avec un seul panneau de terminal local et aucune connexion distante."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here には、ローカルターミナルペインが1つだけで、リモート接続のないワークスペースが必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here에는 로컬 터미널 창이 하나이고 원격 연결이 없는 작업 공간이 필요합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 需要只有一个本地终端窗格且没有远程连接的工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 需要只有一個本機終端機窗格且沒有遠端連線的工作區。"
+          }
+        }
+      }
+    },
+    "cli.ssh.here.callerUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here could not verify the calling process. Run it again from the terminal pane."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على ssh --here التحقق من العملية المستدعية. شغّله مجددًا من جزء الطرفية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here konnte den aufrufenden Prozess nicht verifizieren. Führen Sie den Befehl erneut im Terminalbereich aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here no pudo verificar el proceso que lo invoca. Ejecútalo de nuevo desde el panel de terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here n’a pas pu vérifier le processus appelant. Relancez la commande depuis le panneau de terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here は呼び出し元のプロセスを確認できませんでした。ターミナルペインから再実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here가 호출 프로세스를 확인하지 못했습니다. 터미널 창에서 다시 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 无法验证调用进程。请从终端窗格重新运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 無法驗證呼叫程序。請從終端機窗格重新執行。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

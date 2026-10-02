@@ -3427,6 +3427,7 @@
 		EF70B7123200D1FB6F03DB26 /* SSHStartupManualReconnectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F73A5C0BB93507E18261385 /* SSHStartupManualReconnectTests.swift */; };
 		F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */; };
 		C5CEF76F24FA34BD48C15272 /* SSHTuiAgentStatusProjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F9E6690E10C81DFA480C03 /* SSHTuiAgentStatusProjector.swift */; };
+		1508840B5E5903AEC2586A94 /* SSHTuiHereSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B95FD01116C19FF935FCB24 /* SSHTuiHereSession.swift */; };
 		C7BB9987974451FAD2D5F467 /* SSHTuiLinkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E93262C2928EC5E04F1BD4A0 /* SSHTuiLinkManager.swift */; };
 		2ED21DB7F76E4F2F23FC4292 /* SSHTuiMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AB37AFFC13C8507E428527F /* SSHTuiMigrationTests.swift */; };
 		687509121DABB2ADED3C0E9A /* SSHTuiOpenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266B552D3FBFED20D1EDE625 /* SSHTuiOpenTests.swift */; };
@@ -4198,6 +4199,7 @@
 		A3058015FBA96C778E460B3A /* Workspace+SplitSpace.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFFCEC5E783F29C91BC6A8EE /* Workspace+SplitSpace.swift */; };
 		8300A0040000000000000004 /* Workspace+SSHConnectionBroker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8300A0030000000000000003 /* Workspace+SSHConnectionBroker.swift */; };
 		8694AD6120E0C17F50AE7DC5 /* Workspace+SSHTui.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09F38C6F6416B70783908A20 /* Workspace+SSHTui.swift */; };
+		3C9F3849757349E11CEC1E9C /* Workspace+SSHTuiHere.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FE31524E42FD599F50C6EFA /* Workspace+SSHTuiHere.swift */; };
 		92906758EC368F8D8A989601 /* Workspace+SSHTuiStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 938D1CC0FD9AA3B4F32498BD /* Workspace+SSHTuiStatus.swift */; };
 		F9219DE12AF2E4D9CFFC66CF /* Workspace+SurfaceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BBA1A8703756FDDFD53CF3 /* Workspace+SurfaceCatalog.swift */; };
 		CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */; };
@@ -7735,6 +7737,7 @@
 		4F73A5C0BB93507E18261385 /* SSHStartupManualReconnectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupManualReconnectTests.swift; sourceTree = "<group>"; };
 		F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupSignalLifecycleTests.swift; sourceTree = "<group>"; };
 		A6F9E6690E10C81DFA480C03 /* SSHTuiAgentStatusProjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/SSHTuiAgentStatusProjector.swift"; sourceTree = "<group>"; };
+		3B95FD01116C19FF935FCB24 /* SSHTuiHereSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTui/SSHTuiHereSession.swift; sourceTree = "<group>"; };
 		E93262C2928EC5E04F1BD4A0 /* SSHTuiLinkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/SSHTuiLinkManager.swift"; sourceTree = "<group>"; };
 		0AB37AFFC13C8507E428527F /* SSHTuiMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHTuiMigrationTests.swift"; sourceTree = "<group>"; };
 		266B552D3FBFED20D1EDE625 /* SSHTuiOpenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHTuiOpenTests.swift"; sourceTree = "<group>"; };
@@ -8501,6 +8504,7 @@
 		FFFCEC5E783F29C91BC6A8EE /* Workspace+SplitSpace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SplitSpace.swift"; sourceTree = "<group>"; };
 		8300A0030000000000000003 /* Workspace+SSHConnectionBroker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SSHConnectionBroker.swift"; sourceTree = "<group>"; };
 		09F38C6F6416B70783908A20 /* Workspace+SSHTui.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/Workspace+SSHTui.swift"; sourceTree = "<group>"; };
+		5FE31524E42FD599F50C6EFA /* Workspace+SSHTuiHere.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/Workspace+SSHTuiHere.swift"; sourceTree = "<group>"; };
 		938D1CC0FD9AA3B4F32498BD /* Workspace+SSHTuiStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/Workspace+SSHTuiStatus.swift"; sourceTree = "<group>"; };
 		47BBA1A8703756FDDFD53CF3 /* Workspace+SurfaceCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceCatalog.swift"; sourceTree = "<group>"; };
 		CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceNavigation.swift"; sourceTree = "<group>"; };
@@ -11689,6 +11693,8 @@
 				B4D8C93336B3DC2F9B4299AA /* AgentMessageCenter.swift */,
 				7ED7809AAA226469E36BA9FF /* TerminalController+AgentMessageSettings.swift */,
 				FC151062CCF4CC6D451CD24C /* ContentView+AgentMessagesCommandPalette.swift */,
+				3B95FD01116C19FF935FCB24 /* SSHTuiHereSession.swift */,
+				5FE31524E42FD599F50C6EFA /* Workspace+SSHTuiHere.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15841,6 +15847,7 @@
 				A13387000000000000000005 /* SplitPaneGeometryProjection.swift in Sources */,
 					E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,
 				C5CEF76F24FA34BD48C15272 /* SSHTuiAgentStatusProjector.swift in Sources */,
+				1508840B5E5903AEC2586A94 /* SSHTuiHereSession.swift in Sources */,
 				C7BB9987974451FAD2D5F467 /* SSHTuiLinkManager.swift in Sources */,
 				0754B84093909FD27762E206 /* SSHTuiWorkspaceCoordinator.swift in Sources */,
 				A11C00020000000000000001 /* StackAccountAvatarImageLoader.swift in Sources */,
@@ -16442,6 +16449,7 @@
 				A3058015FBA96C778E460B3A /* Workspace+SplitSpace.swift in Sources */,
 				8300A0040000000000000004 /* Workspace+SSHConnectionBroker.swift in Sources */,
 				8694AD6120E0C17F50AE7DC5 /* Workspace+SSHTui.swift in Sources */,
+				3C9F3849757349E11CEC1E9C /* Workspace+SSHTuiHere.swift in Sources */,
 				92906758EC368F8D8A989601 /* Workspace+SSHTuiStatus.swift in Sources */,
 				F9219DE12AF2E4D9CFFC66CF /* Workspace+SurfaceCatalog.swift in Sources */,
 				CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */,

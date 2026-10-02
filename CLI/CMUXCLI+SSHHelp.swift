@@ -50,7 +50,16 @@ extension CMUXCLI {
               cmux ssh dev@my-host --command 'omp "investigate auth"'
             """
         )
-        return "\(help)\n\n\(initialCommandHelp)\n\n\(moshHelp)\n\n\(openFocusFlagsHelp)"
+        let hereHelp = String(
+            localized: "cli.help.ssh.hereLimitations",
+            defaultValue: """
+            In-place SSH:
+              --here requires one local terminal pane and interactive SSH; Mosh and Canvas are not supported.
+              Disconnect or exit returns to the original local shell while cmux stays open.
+              After restarting cmux, the session restores as a normal remote SSH workspace.
+            """
+        )
+        return "\(help)\n\n\(hereHelp)\n\n\(initialCommandHelp)\n\n\(moshHelp)\n\n\(openFocusFlagsHelp)"
     }
 
     static var moshCommandUsage: String {

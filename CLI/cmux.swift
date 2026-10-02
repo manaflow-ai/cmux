@@ -11991,6 +11991,7 @@ struct CMUXCLI {
             defaultTerminalTransport: defaultTerminalTransport,
             terminalProfile: terminalProfile
         )
+        _ = try sshHereCallerContext(options: sshOptions)
         try runSSHWithOptions(
             sshOptions,
             relayID: relayID,
@@ -12214,6 +12215,11 @@ struct CMUXCLI {
             try runSSHTui(options: sshOptions, configuredRemoteCommand: configuredInteractiveRemoteCommand,
                           client: client, jsonOutput: jsonOutput, idFormat: idFormat)
             return
+        }
+        if sshOptions.reuseCurrentPane {
+            // Host RequestTTY settings can select the legacy path even when
+            // the command-line flags passed the early caller-context check.
+            throw sshHereRequiresInteractiveSSH()
         }
         let sshStartedAt = Date()
         func logSSHTiming(_ stage: String, extra: String = "") {

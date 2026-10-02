@@ -106,6 +106,8 @@ enum SurfacePaneFactory {
     static func closeExited(panelID: UUID, in workspaceID: UUID) {
         guard let appDelegate = AppDelegate.shared,
               let workspace = appDelegate.workspace(containingSurfaceID: panelID) else { return }
+        if workspace.sshTuiHereSession?.reservation.panelID == panelID,
+           workspace.finishSSHTuiHereSession() { return }
         SurfaceCatalog.shared.withProjectionEndReason(for: [panelID], reason: .replaced) {
             // A workspace whose only pane is the dead terminal goes with it, which
             // is what a local workspace does when its last shell exits. Closing
