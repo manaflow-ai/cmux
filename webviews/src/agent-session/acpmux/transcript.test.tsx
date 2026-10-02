@@ -613,3 +613,37 @@ describe("acpmux composer", () => {
     }
   });
 });
+
+describe("acpmux turn counts", () => {
+  /// The fold and the turn summary read "1 tool calls".
+  test("one tool call is counted in the singular", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const turn: AcpmuxRow[] = [
+      { id: "u", version: 1, at: 1, kind: "user", text: "run it" },
+      { id: "a", version: 1, at: 2, kind: "activity", toolCount: 1, items: [{ kind: "tool", text: "Run total.py" }] },
+      { id: "s", version: 1, at: 3, kind: "turnSummary", durationMs: 3000, toolCount: 1 },
+    ];
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: turn, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      expect(dom.window.document.querySelector(".acpmux-activity-toggle")?.textContent).toBe("› Worked with 1 tool call");
+      expect(dom.window.document.querySelector(".acpmux-summary")?.textContent).toBe("Worked for 3s · 1 tool call");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  /// History loaded from mid-turn has no user message to time the turn from.
+  test("a summary without a start time shows only the count", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "s", version: 1, at: 3, kind: "turnSummary", toolCount: 2 }], onToggleActivity: () => {}, expanded: new Set<string>() })));
+      expect(dom.window.document.querySelector(".acpmux-summary")?.textContent).toBe("2 tool calls");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+});
