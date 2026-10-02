@@ -141,7 +141,7 @@ private struct CloudTreeMachineDetailTabButton: View {
 }
 
 /// How much room each tab takes, from roomiest to tightest.
-enum CloudTreeMachineDetailTabDensity {
+enum CloudTreeMachineDetailTabDensity: Equatable {
     case regular, tight, titlesOnly, truncating
 
     var horizontalPadding: CGFloat {
