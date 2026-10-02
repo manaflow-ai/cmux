@@ -95,4 +95,25 @@ describe("agent theme", () => {
       );
     }
   });
+
+  // Over a clear page the composer box is only a tint, so what is drawn with
+  // or inside it must not borrow it: the idle Send arrow needs an opaque
+  // color, the narrow-window session overlay an opaque surface, and the
+  // composer's hover pills a tint rather than the menus' opaque fill.
+  test("nothing in the composer borrows its translucent box color", () => {
+    const acpmux = css("../acpmux/styles.css");
+    const send = acpmux.match(/\.acpmux-send\{[^}]*\}/)?.[0] ?? "";
+    expect(send).not.toBe("");
+    expect(send).not.toMatch(/[;{]color:var\(--acpmux-composer-bg\)/);
+    const overlay = acpmux.match(/\[data-sidebar=open\] \.acpmux-sidebar\{[^}]*\}/)?.[0] ?? "";
+    expect(overlay).toMatch(/background:var\(--acpmux-base\)/);
+    for (const hover of [
+      /\.acpmux-composer-plus:hover:enabled\{[^}]*\}/,
+      /\.acpmux-picker-button:hover[^{]*\{[^}]*\}/,
+    ]) {
+      const rule = acpmux.match(hover)?.[0] ?? "";
+      expect(rule).not.toBe("");
+      expect(rule).not.toMatch(/--acpmux-menu-hover/);
+    }
+  });
 });
