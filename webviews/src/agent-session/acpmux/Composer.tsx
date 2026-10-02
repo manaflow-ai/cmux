@@ -19,17 +19,19 @@ type Props = {
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   onSend(text: string): void;
   onStop(): void;
-  /// Bar buttons between the pickers and Send, such as the dictation mic.
+  /// A button at the bar's left edge, such as attach.
+  leading?: React.ReactNode;
+  /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
 };
 
-/// The prompt box with the agent's `/` command menu, drawn as Codex's composer:
-/// the prompt over a bar with the pickers and a round Send button, which turns
-/// into Stop while a turn runs and the prompt is empty. Enter sends and
+/// The prompt box with the agent's `/` command menu: one rounded bar holding
+/// the prompt and a round Send button, which turns into Stop while a turn runs
+/// and the prompt is empty, with the mode and model as small muted text below. Enter sends and
 /// Shift+Enter breaks the line. The menu opens while the prompt is a single
 /// leading `/word`, filters as it grows, and picking a command writes `/name `
 /// so its arguments can follow.
-export function Composer({ snapshot, chips: Chips, onSend, onStop, accessory }: Props) {
+export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, accessory }: Props) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
@@ -89,20 +91,19 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, accessory }: 
   return <form className="acpmux-composer" onSubmit={submit}>
     {open && <SlashMenu matches={matches} active={selected} empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands} onHover={setActive} onPick={pick} />}
     <div className="acpmux-composer-box">
+      {leading}
       {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
       <textarea ref={textarea} className="acpmux-composer-field" aria-label={COMPOSER_LABELS.prompt} name="prompt" rows={1} placeholder={COMPOSER_LABELS.placeholder} value={text}
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="combobox" aria-expanded={open} aria-controls={open ? "acpmux-slash-menu" : undefined} aria-autocomplete="list"
         aria-activedescendant={open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined}
         onChange={(event) => edit(event.target.value, event.target.selectionStart)} onSelect={track} onKeyDown={keyDown} />
-      <div className="acpmux-composer-bar">
-        <Chips snapshot={snapshot} />
-        {accessory}
-        {stop
-          ? <button type="button" className="acpmux-send acpmux-cancel" aria-label={COMPOSER_LABELS.stop} title={COMPOSER_LABELS.stop} onClick={onStop}><StopIcon /></button>
-          : <button type="submit" className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`} aria-label={COMPOSER_LABELS.send} title={COMPOSER_LABELS.send}><ArrowUpIcon /></button>}
-      </div>
+      {accessory}
+      {stop
+        ? <button type="button" className="acpmux-send acpmux-cancel" aria-label={COMPOSER_LABELS.stop} title={COMPOSER_LABELS.stop} onClick={onStop}><StopIcon /></button>
+        : <button type="submit" className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`} aria-label={COMPOSER_LABELS.send} title={COMPOSER_LABELS.send}><ArrowUpIcon /></button>}
     </div>
+    <div className="acpmux-composer-meta"><Chips snapshot={snapshot} /></div>
   </form>;
 }
 
