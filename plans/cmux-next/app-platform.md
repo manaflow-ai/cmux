@@ -102,6 +102,17 @@ TODO (step 7 of the Swift lane): the sidebar has no `SectionContent.app` / `Side
 - Backend lead: review of `AppDO` and `0002_app_store.sql`; migration label `backend:apply-migrations`.
 - Rust CLI owner: `cmux apps …` verbs (accepted: noun `apps`, because `cmux app` is the running app's scope; exit 0 ok, 2 usage, 3 denied, 4 expired; verbs generated from the cloud catalog). Implementation is a cli/ module PR after #16174 merges.
 
+## 11a. Install states (Lawrence, 2026-10-02)
+
+| State | Runs and answers granted CLI/MCP/automation calls | Sidebar, palette, menus | Change from |
+| --- | --- | --- | --- |
+| installed | yes | yes | App Store, web store |
+| installed + hidden | yes | no | App Store, Settings > Apps, palette ("Unhide <App>"), CLI `cmux apps hide|unhide` |
+| disabled | no | no (listed in Installed only) | App Store, Settings, CLI `cmux apps enable|disable` |
+| removed | no; storage and grants deleted | no | App Store, web store, CLI `cmux apps remove` |
+
+Hidden is per user and synced: a field of the user's install record in `UserDO` (ops `app.hide`, `app.unhide`, risk mutate-own, user origin not required because hiding grants nothing). First-party apps are installed by default; sample apps are opt-in (App Store, or DEV builds); `local/` development apps start sandboxed with read scopes. The macOS prototype registry carries `hidden` and the opt-in default until the cloud install record replaces it.
+
 ## 12. Critique: what the app platform lead would change if starting today (2026-10-02)
 
 Input for the merge with the first-party apps lead's critique (`app-platform-critique.md`). Strongest first.
@@ -117,4 +128,36 @@ Input for the merge with the first-party apps lead's critique (`app-platform-cri
 9. **Servers are implementations of the app's catalog.** `server` gains tenancy (`team | user | machine`), data classes (durable/ephemeral/synced), its own principal with declared scopes, lifecycle (start on demand, idle stop, upgrade with schema migration), per-platform binaries for first-party native servers, and JS servers for third parties later. Catalog-only apps (no UI) are valid.
 10. **Capability scopes for new domains.** The Finder-with-SSH app needs `fs:read:<root>`, `fs:write:<root>`, `ssh:connect:<host pattern>`, streaming listings and drag-and-drop contracts (typed pasteboard items both ways). Scopes become `<domain>:<level>[:<resource pattern>]`, resource patterns checked by the owner.
 
+Accepted as the plan direction by the coordinator (2026-10-02); converging with the first-party apps lead's critique.
+
 Tech debt to remove regardless: the in-app prototype engine path (after 2), the Swift validator (after 3), the `compat-sidebar-data` shim once old sidebars are imported by a one-time converter, sample apps rewritten on 4.
+
+## 13. Platform primitives so first-party and third-party apps fit together (2026-10-02)
+
+Apps coming: Notes, Finder with SSH, Feed email, Integrations, Tasks, Diffs, two editor apps (Monaco-based and CodeMirror-based, separate apps), a usage app for all agent accounts, then likely a git client, PR review, logs viewer, DB client, HTTP client, markdown preview, image viewer, calendar, contacts. Each would otherwise invent files, buffers, embedding, streaming and credentials. The platform owns these once; apps declare and use them.
+
+### 13.1 Resources and URIs
+Every addressable thing is a typed resource with a URI: `file://<host>/<path>` (host = machine id; SSH hosts are machines), `git://<repo>@<rev>/<path>`, `buffer://<id>`, `diff://<id>`, `cmux://tab/<id>`, `app://<app id>/<resource>` for app-owned things (a note, a task, an email). One resolver op (`resource.resolve`) returns kind, mime type, owner, capabilities (read, write, watch, stream). Scopes take resource patterns: `fs:read:file://*/Users/me/src/**`, `fs:write:…`, `ssh:connect:<host pattern>`.
+
+### 13.2 Documents and buffers (shared document model)
+- A **document** is a resource opened for editing; a **buffer** is its in-memory text or bytes. Owner: the workspace store holds the document record (URI, open views, dirty flag, revision, save state); the session host of the resource's machine holds the bytes and the file watcher (single writer per document).
+- Ops: `document.open {uri}`, `document.edit {doc, changes, base_revision}` (text deltas; operational order by revision, rejects stale bases), `document.save {doc}`, `document.revert`, `document.close`, events `document.changed {revision, changes}`, `document.saved`, `document.conflicted {disk_revision}` (file changed on disk while dirty: views show compare / keep mine / take disk).
+- Several views (an editor app, a markdown preview, Diffs) attach to one document and see one dirty state; closing the last view of a dirty document asks once.
+- **Open-with**: apps declare `contributes.openers: [{id, title, mimeTypes, extensions, uriSchemes, render | paneKind, rank}]`. The user picks a default per type in Settings and in the "Open With" menu; `cmux open <uri> [--with <app>#<opener>]`; drag a file onto a pane uses the same resolver.
+
+### 13.3 Composition (embed contract)
+- An app may expose an **embeddable view**: `contributes.embeds: [{id, accepts: {kind: "document" | "diff" | ..., mimeTypes}, props schema, events schema}]`. Diffs embeds "an editor for document X at range R" by asking the platform for the user's default `editor` embed (Monaco app or CodeMirror app); the host mounts the editor app's view inside the Diffs pane with only the props in the contract and a capability for that one document. Neither app sees the other's code or grants.
+- Typed contracts ship in the catalog (`embed.editor.v1`, `embed.diff.v1`, `embed.preview.v1`, `embed.terminal.v1`), versioned like ops. A host renders an embed natively (scene), as a web view (web panes), or as a native view (first-party).
+
+### 13.4 Diffs as data
+`diff` is a resource: `diff.create {left: uri|rev, right: uri|rev|buffer}` returns `diff://<id>` with hunks; sources are git (working tree, index, commits, branches), agents (an ACP agent's proposed edit set), automations (a run's changes) and two arbitrary documents. Hunk actions (`diff.hunk.accept|reject|stage`) are ops owned by the source (git for staging, the agent session for proposals). The Diffs app, PR review and the git client are three views over the same resources.
+
+### 13.5 Streams, tables and credentials
+- **Streams**: logs viewer, Finder listings, HTTP responses, DB results and agent output use one `stream` op class (cursor, backpressure, resume) bound to signals in the runtime; large results page instead of materializing.
+- **Tabular data**: a `Table` component with column schema, sorting and virtualized rows (DB client, logs, usage app, Finder list view).
+- **Credentials by handle** (section 12.8): SSH keys, OAuth tokens (Integrations, calendar, contacts, email), DB passwords and HTTP auth live in the host vault; apps hold handles usable only in host ops (`ssh.connect`, `net.fetch {credential}`, `db.query {credential}`).
+- **Accounts**: the usage app reads `account.list` and `account.usage` ops owned by the accounts and coderouter owners; apps never see provider tokens.
+- **Pasteboard and drag-and-drop**: typed items (`uri`, `text`, `diff hunk`, `task ref`) in both directions through host ops, so dragging a file from Finder into an editor or a task works between apps.
+
+### 13.6 What this changes in the manifest
+`contributes` gains `openers`, `embeds`, `searchProviders`, `paletteScopes`, `statusItems.placement: menuBar`; the catalog fragment (section 12.1) carries the app's ops, events and embed contracts. These land with the merged critique, not piecemeal.
