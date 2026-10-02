@@ -8,19 +8,24 @@ extension PaneController {
     func agentContent(_ key: String) -> TabContent? {
         guard let view = services.agentTabs.view(for: key) else { return nil }
         // Set on each show, so a tab moved to another pane opens files there.
-        view.model.onOpenFile = { [weak self] url, target in self?.openAgentFile(url, target) ?? false }
+        view.model.onOpenFile = { [weak self] url, target in await self?.openAgentFile(url, target) ?? false }
         return .agent(view)
     }
 
-    private func openAgentFile(_ url: URL, _ target: AgentPaneFileTarget) -> Bool {
+    /// False when the file did not open. A tab the browser refuses says why in
+    /// its own notice, so the page hears only that the tab was asked for.
+    private func openAgentFile(_ url: URL, _ target: AgentPaneFileTarget) async -> Bool {
         switch target {
         case .tab:
             newBrowserTab(url: url)
             return true
         case .editor:
             guard let app = AgentPaneFileOpen.editorApplication() else { return false }
-            NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
-            return true
+            return await withCheckedContinuation { opened in
+                NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+                    opened.resume(returning: error == nil)
+                }
+            }
         }
     }
 }
