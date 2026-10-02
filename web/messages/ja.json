@@ -127,11 +127,11 @@
     "workspacePreparationChanged": "別のコマンドがこのワークスペースを作成しました。vm dev を再実行して現在のレイアウトを再利用してください。",
     "permissionModeNeedsValue": "agent: --permission-mode には prompt または full-access が必要です",
     "permissionModeUnsupported": "agent: 対応していない permission mode「%s」です（prompt または full-access を選択してください）",
-    "permissionModeProviderUnsupported": "agent: full-access は Claude と Codex のみ対応しています（%s は非対応）",
+    "permissionModeProviderUnsupported": "agent: --permission-mode full-access は選択したエージェントではサポートされていません",
     "permissionModePassThroughUnsupported": "agent: full-access と provider サブコマンドは併用できません。プロンプトを直接渡してください",
     "peerPermissionModeNeedsValue": "vm agent: --permission-mode には prompt または full-access が必要です",
     "peerPermissionModeUnsupported": "vm agent: 対応していない permission mode「%s」です（prompt または full-access を選択してください）",
-    "peerPermissionModeProviderUnsupported": "vm agent: full-access は Claude と Codex のみ対応しています（%s は非対応）"
+    "peerPermissionModeProviderUnsupported": "vm agent: --permission-mode full-access は選択したエージェントではサポートされていません"
   },
   "billingRecovery": {
     "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください",

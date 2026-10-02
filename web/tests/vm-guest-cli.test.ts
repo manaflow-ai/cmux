@@ -535,7 +535,7 @@ esac
       for (const agent of ["opencode", "pi"]) {
         const run = await runShim(["agent", agent, "--permission-mode", "full-access", "--", "do work"]);
         expect(run.status).toBe(2);
-        expect(run.stderr).toContain("full-access permission mode is only supported for Claude and Codex");
+        expect(run.stderr).toContain("full-access is not supported for the selected agent");
       }
     });
 
@@ -1544,7 +1544,7 @@ describe("in-VM cmux shim: agent primitives", () => {
       for (const agent of ["opencode", "pi"]) {
         const unsupported = await runStateful(dir, ["vm", "agent", peer, "--agent", agent, "--permission-mode", "full-access", "--", "write docs"]);
         expect(unsupported.status).toBe(2);
-        expect(unsupported.stderr).toContain("full-access permission mode is only supported for Claude and Codex");
+        expect(unsupported.stderr).toContain("full-access is not supported for the selected agent");
       }
     });
 
