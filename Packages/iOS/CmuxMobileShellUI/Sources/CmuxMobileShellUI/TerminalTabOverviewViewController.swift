@@ -782,6 +782,10 @@ final class TerminalTabOverviewViewController: UIViewController {
             self.presentationBottomBackdrop?.backgroundColor = self.bottomCanvasColor
             self.view.setNeedsLayout()
             self.view.layoutIfNeeded()
+            UIAccessibility.post(
+                notification: .screenChanged,
+                argument: privateMode ? self.privateBrowsingView : self.groupControl
+            )
         }
         if animated {
             UIView.animate(
@@ -805,6 +809,7 @@ final class TerminalTabOverviewViewController: UIViewController {
             self.view.bringSubviewToFront(self.topBar)
             self.view.bringSubviewToFront(self.bottomBar)
             self.view.bringSubviewToFront(self.privateBrowsingView)
+            UIAccessibility.post(notification: .screenChanged, argument: self.privateBrowsingView)
         }
         guard animated else {
             finish()
@@ -823,6 +828,7 @@ final class TerminalTabOverviewViewController: UIViewController {
         privateLockView.transform = CGAffineTransform(translationX: 0, y: privateLockView.bounds.height)
         presentationBottomBackdrop?.backgroundColor = privateLockColor
         view.bringSubviewToFront(privateLockView)
+        UIAccessibility.post(notification: .screenChanged, argument: privateLockView)
         let animations = {
             self.privateLockView.alpha = 1
             self.privateLockView.transform = .identity
