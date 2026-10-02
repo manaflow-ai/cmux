@@ -56,6 +56,7 @@ public nonisolated enum ActionCatalog {
         all += historyActions()
         all += bookmarkActions()
         for index in all.indices where cliActionIDs.contains(all[index].id) { all[index].cli = true }
+        for index in all.indices where focusActionIDs.contains(all[index].id) { all[index].focuses = true }
         return all
     }
 }
