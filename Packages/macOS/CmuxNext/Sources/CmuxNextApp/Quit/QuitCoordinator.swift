@@ -89,7 +89,7 @@ final class QuitCoordinator {
                 await services.remoteTerminals.saveSnapshots()
                 await services.windows.prepareForTermination()
             },
-            endLocalSessions: { await services.daemon.endSessionsAndStop(deletingWorkspaces: $0) }
+            endLocalSessions: { await services.daemon.endSessionsAndStop($0) }
         ))
         sender.reply(toApplicationShouldTerminate: true)
     }
