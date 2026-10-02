@@ -161,3 +161,49 @@ impl Mux {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const COLUMN: &str = "split_00000000000000000000000000000011";
+
+    fn parse(fields: Value) -> anyhow::Result<ColumnUpdate> {
+        ColumnUpdate::parse(fields.as_object().unwrap())
+    }
+
+    fn code(error: anyhow::Error) -> String {
+        error.downcast_ref::<ResourceError>().map(|error| error.code.clone()).unwrap_or_default()
+    }
+
+    /// The router's catalog check rejects wrong types first, but the parser
+    /// must not read a wrong type as an absent field either.
+    #[test]
+    fn column_update_parse_rejects_wrong_field_types() {
+        for fields in [
+            serde_json::json!({"column": COLUMN, "sticky": "true", "width": 0.5}),
+            serde_json::json!({"column": COLUMN, "sticky": 1, "width": 0.5}),
+            serde_json::json!({"column": COLUMN, "width": "0.5", "sticky": true}),
+            serde_json::json!({"column": COLUMN, "sticky": true, "edge": 1}),
+            serde_json::json!({"column": COLUMN, "sticky": true, "mode": false}),
+            serde_json::json!({"column": COLUMN, "sticky": null, "width": 0.5}),
+        ] {
+            let error = parse(fields.clone()).err().unwrap_or_else(|| panic!("{fields} parsed"));
+            assert_eq!(code(error), "validation.invalid", "{fields}");
+        }
+    }
+
+    #[test]
+    fn column_update_parse_accepts_well_typed_fields() {
+        let update = parse(serde_json::json!({
+            "column": COLUMN,
+            "sticky": true,
+            "edge": "left",
+            "mode": "overlay",
+            "width": 0.5,
+        }))
+        .unwrap();
+        assert!(update.sticky.flatten().is_some());
+        assert_eq!(update.width, Some(0.5));
+    }
+}
