@@ -89,7 +89,8 @@ Managed subagents do not replace the parent's session identity.
 Session IDs come from Code Puppy's current **autosave name**, not native-hook
 run UUIDs or the `codepuppy-session` placeholder. cmux only persists a restore
 binding once the corresponding session file exists. A fresh launch therefore
-becomes restorable after Code Puppy saves it, normally by turn completion.
+becomes restorable after Code Puppy saves it. A post-autosave callback refreshes
+the binding because Code Puppy writes the first autosave after the Stop callback.
 Explicit `--resume` launches retain the shared resume path.
 
 Code Puppy has no `CODE_PUPPY_HOME` override. With explicitly set XDG variables,

@@ -170,6 +170,16 @@ public enum CodePuppyPlugin {
         await _send("post-tool-use", "PostToolUse", **fields)
 
 
+    async def _on_saved(metadata):
+        # Stop precedes the CLI committing its history and autosaving. Bind only
+        # after that write, without replaying another prompt or notification.
+        if not _enabled() or not _session:
+            return
+        if getattr(metadata, "session_name", None) != _session:
+            return
+        await _send("session-update", "PostAutosave")
+
+
     async def _on_shutdown():
         global _session
         await _send("session-end", "SessionEnd")
@@ -181,6 +191,7 @@ public enum CodePuppyPlugin {
     register_callback("agent_run_end", _on_end)
     register_callback("pre_tool_call", _on_pre)
     register_callback("post_tool_call", _on_post)
+    register_callback("post_autosave", _on_saved)
     register_callback("shutdown", _on_shutdown)
     """#
 }

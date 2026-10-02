@@ -147,7 +147,7 @@ extension CMUXCLI {
     private func codePuppyOwnedModule(at url: URL) throws -> Data? {
         guard let data = try codePuppyFileData(at: url) else { return nil }
         guard let text = String(data: data, encoding: .utf8),
-              text.contains("# cmux-managed Code Puppy plugin v1.") else {
+              text.hasPrefix("# cmux-managed Code Puppy plugin v1.") else {
             throw codePuppyOwnershipError(url)
         }
         return data

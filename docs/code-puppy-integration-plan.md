@@ -55,6 +55,7 @@ escaping and registration ownership independently testable.
 | `pre_tool_call` | `pre-tool-use`, Feed `PreToolUse` |
 | `post_tool_call` | `post-tool-use`, Feed `PostToolUse` |
 | Root `agent_run_end` | `stop`, with explicit success/error |
+| `post_autosave` | Binding-only `session-update` after the durable write |
 | `shutdown` | `session-end` |
 
 Nested runs do not replace the root identity. Managed subagents do not publish
@@ -83,7 +84,8 @@ Vault preserves explicit `--resume` detection. Ordinary launches obtain their
 resume identity from the plugin and the existing generic registry hook store
 (`~/.cmuxterm/code-puppy-hook-sessions.json`). cmux rejects the startup
 placeholder, traversal and non-durable run IDs. An autosave file must exist
-before a binding is persisted; completion/subsequent hooks retry after saving.
+before a binding is persisted. Stop precedes the first save, so `post_autosave`
+refreshes the binding afterward without replaying prompt or notification events.
 Old bare autosave suffixes are accepted only when the corresponding persisted
 file proves the full name. No latest-by-directory or timestamp guessing is
 used to match panes.
