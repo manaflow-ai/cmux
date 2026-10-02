@@ -7456,6 +7456,195 @@
       "id" : "bookmark.export",
       "mcp" : "offered",
       "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar add-home",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "id" : "sidebar.home.add",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar remove-home",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "id" : "sidebar.home.remove",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar add-item",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground",
+        "sidebarSection"
+      ],
+      "id" : "sidebar.item.add",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar remove-item",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarItem"
+      ],
+      "id" : "sidebar.item.remove",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar add-section",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground",
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.add",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar rename-section",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.rename",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar move-section-top",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.moveToTop",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar move-section-scrolling",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.moveToScrolling",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar move-section-bottom",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.moveToBottom",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar section-look-built-in",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.useBuiltInLook",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar section-look-list",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.useListLook",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar toggle-section-title",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.toggleTitle",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar toggle-section-room",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.toggleRoomScope",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar set-section-height",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.setMaxRows",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "action sidebar-section-toggle-collapsed",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.toggleCollapsed",
+      "mcp" : "focusMove",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar remove-section",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.remove",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar reset",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "id" : "sidebar.layout.reset",
+      "mcp" : "offered",
+      "palette" : "offered"
     }
   ],
   "version" : 1
