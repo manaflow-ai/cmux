@@ -109,9 +109,11 @@ final class ImportProfileList: NSView {
 }
 
 /// One table row: the name on the left, a bare checkbox on the right, a
-/// hairline under it. Clicking anywhere in the row toggles the box.
+/// hairline under it. Clicking anywhere in the row toggles the box; the
+/// shared hover fill reaches past the row's edges, so the text stays put.
 final class ImportCheckRow: NSView {
     private let box: NSButton
+    private(set) lazy var hover = OnboardingHover(self, outset: NSSize(width: 6, height: 0))
 
     init(title: String, font: NSFont, box: NSButton, separated: Bool) {
         self.box = box
@@ -135,9 +137,34 @@ final class ImportCheckRow: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    override func layout() {
+        super.layout()
+        hover.layout()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        hover.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) { if box.isEnabled { hover.state.hovering = true } }
+    override func mouseExited(with event: NSEvent) { hover.state.hovering = false }
+
     override func mouseDown(with event: NSEvent) {
         guard box.isEnabled else { return }
-        box.performClick(nil)
+        hover.state.pressed = true
+    }
+
+    /// Toggles on release inside the row, as a button does.
+    override func mouseUp(with event: NSEvent) {
+        guard hover.state.pressed else { return }
+        hover.state.pressed = false
+        if box.isEnabled, bounds.contains(convert(event.locationInWindow, from: nil)) { box.performClick(nil) }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        hover.refresh(animated: false)
     }
 }
 
