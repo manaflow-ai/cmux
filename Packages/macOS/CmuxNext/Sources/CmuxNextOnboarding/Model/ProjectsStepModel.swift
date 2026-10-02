@@ -20,6 +20,9 @@ public final class ProjectsStepModel {
     public private(set) var scanned = false
     @ObservationIgnored private let services: any OnboardingServices
     @ObservationIgnored private var task: Task<Void, Never>?
+    /// Folders already opened, so Continue after Back opens only new ones.
+    @ObservationIgnored private var opened: Set<String> = []
+    @ObservationIgnored private var choosing = false
 
     init(services: any OnboardingServices) {
         self.services = services
@@ -32,8 +35,10 @@ public final class ProjectsStepModel {
         task = Task { [weak self, services] in
             let found = await services.scanAgentProjects()
             guard let self, !Task.isCancelled else { return }
-            projects = Array(found.prefix(Self.listed))
-            selected = Set(projects.prefix(Self.preselected).map(\.id))
+            // Folders added during the scan stay first and checked.
+            let best = found.prefix(Self.listed).filter { project in !projects.contains { $0.id == project.id } }
+            projects += best
+            selected.formUnion(best.prefix(Self.preselected).map(\.id))
             isScanning = false
             scanned = true
         }
@@ -56,9 +61,12 @@ public final class ProjectsStepModel {
 
     /// The folder picker (shown when nothing was found).
     public func chooseFolder() {
+        guard !choosing else { return }
+        choosing = true
         Task { [weak self, services] in
-            guard let folder = await services.chooseFolder() else { return }
-            self?.add(folder)
+            let folder = await services.chooseFolder()
+            self?.choosing = false
+            if let folder { self?.add(folder) }
         }
     }
 
@@ -75,10 +83,11 @@ public final class ProjectsStepModel {
         return PrivacyFolder.allCases.filter(found.contains)
     }
 
-    /// Continue: opens the checked folders as workspaces.
+    /// Continue: opens the checked folders as workspaces, each once.
     func commit() {
-        let folders = chosen
+        let folders = chosen.filter { !opened.contains($0.path) }
         guard !folders.isEmpty else { return }
+        opened.formUnion(folders.map(\.path))
         services.openProjects(folders)
     }
 

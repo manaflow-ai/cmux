@@ -43,6 +43,31 @@ import Testing
         #expect(model.step == .defaultBrowser)
     }
 
+    /// Continue, Back, Continue opens only what the first Continue did not.
+    @Test func eachFolderOpensOnceAcrossBackAndContinue() async {
+        let (model, services) = await model([project("/Users/demo/code/app"), project("/Users/demo/code/api")])
+        model.go(to: .projects)
+        model.projects.toggle(model.projects.projects[1])
+        model.next()
+        model.back()
+        model.projects.toggle(model.projects.projects[1])
+        model.next()
+        #expect(services.openedProjects == [[URL(fileURLWithPath: "/Users/demo/code/app", isDirectory: true)],
+                                            [URL(fileURLWithPath: "/Users/demo/code/api", isDirectory: true)]])
+    }
+
+    /// A folder added before the scan finishes stays listed first and checked.
+    @Test func aFolderAddedDuringTheScanIsKept() async {
+        let services = MockOnboardingServices()
+        services.agentProjects = [project("/Users/demo/code/app"), project("/Users/demo/thesis")]
+        let model = OnboardingModel(services: services)
+        model.projects.add(URL(fileURLWithPath: "/Users/demo/thesis", isDirectory: true))
+        model.stepDidAppear()
+        await settle { model.projects.scanned }
+        #expect(model.projects.projects.map(\.id) == ["/Users/demo/thesis", "/Users/demo/code/app"])
+        #expect(model.projects.chosen.count == 2)
+    }
+
     @Test func skipAndAnEmptyChoiceOpenNothing() async {
         let (skipped, skipping) = await model([project("/Users/demo/code/app")])
         skipped.go(to: .projects)
@@ -86,7 +111,7 @@ import Testing
         #expect(ProjectRow.shortPath(URL(fileURLWithPath: "/Users/demolition/app"), home: home) == "/Users/demolition/app")
         let used = AgentProject(folder: URL(fileURLWithPath: "/Users/demo/code/app"), sessions: 148, lastActive: Date(), apps: [.claudeCode, .codex])
         let line = ProjectRow.usage(used, now: Date())
-        #expect(line.hasPrefix(148.formatted(.number)) && line.contains("Claude Code") && line.contains("Codex"))
+        #expect(line.hasPrefix(OnboardingStrings.projectsSessions(148)) && line.contains("Claude Code") && line.contains("Codex"))
         #expect(ProjectRow.usage(AgentProject(folder: home, sessions: 0, lastActive: Date(), apps: []), now: Date()).isEmpty)
     }
 }

@@ -13,6 +13,7 @@ final class ProjectsStepView: NSView {
     private let empty = NSStackView()
     private var rows: [String: ProjectRow] = [:]
     private var shown: [AgentProject]?
+    private var listHeight: NSLayoutConstraint?
     private var loop: RenderLoop?
 
     init(model: ProjectsStepModel) {
@@ -48,14 +49,14 @@ final class ProjectsStepView: NSView {
             stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
             scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            // Five and a half rows: the half row says the list scrolls.
-            scroll.heightAnchor.constraint(equalToConstant: 5.5 * ProjectRow.height + 4),
             document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
             list.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 6),
             list.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -6),
             list.topAnchor.constraint(equalTo: document.topAnchor, constant: 2), list.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -2),
             status.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
+        listHeight = scroll.heightAnchor.constraint(equalToConstant: 0)
+        listHeight?.isActive = true
         registerForDraggedTypes([.fileURL])
         loop = RenderLoop { [weak self] in self?.render() }
     }
@@ -80,6 +81,8 @@ final class ProjectsStepView: NSView {
             }
         }
         for project in projects { rows[project.id]?.update(checked: model.isSelected(project)) }
+        // As tall as the rows, up to five and a half: the half row says the list scrolls.
+        listHeight?.constant = min(CGFloat(projects.count), 5.5) * ProjectRow.height + 4
         let nothing = model.scanned && projects.isEmpty
         scroll.isHidden = nothing
         empty.isHidden = !nothing

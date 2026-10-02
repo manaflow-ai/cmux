@@ -61,6 +61,10 @@ import Testing
         #expect(scan.privacyFolder(of: URL(fileURLWithPath: folder("Library/Mobile Documents/com~apple~CloudDocs/x"))) == .iCloudDrive)
         #expect(scan.privacyFolder(of: URL(fileURLWithPath: folder("code/app"))) == nil)
         #expect(scan.privacyFolder(of: URL(fileURLWithPath: folder("Desktopish/app"))) == nil)
+        // The disk ignores case; other volumes and cloud storage providers prompt too.
+        #expect(scan.privacyFolder(of: URL(fileURLWithPath: folder("desktop/notes"))) == .desktop)
+        #expect(scan.privacyFolder(of: URL(fileURLWithPath: "/Volumes/work/app")) == .volumes)
+        #expect(scan.privacyFolder(of: URL(fileURLWithPath: folder("Library/CloudStorage/Dropbox/app"))) == .cloudStorage)
     }
 
     /// Recency leads; many sessions lift a project only while it is recent.
@@ -73,12 +77,28 @@ import Testing
         #expect(AgentProjectScan(home: home).run(now: now).map(\.id) == [api, app, old])
     }
 
+    /// A first record longer than the 64 KB read still yields its cwd.
+    @Test func aCutOffFirstRecordStillNamesItsFolder() throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let app = folder("code/app")
+        // Written by hand: Codex puts `cwd` ahead of its long instructions.
+        let instructions = String(repeating: #"Say \"cwd\":\"/nope\" never. "#, count: 4000)
+        let file = home.appending(path: ".codex/sessions/2026/09/30/rollout-2026-09-30T10-00-00-z.jsonl")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let record = #"{"type":"session_meta","payload":{"id":"z","cwd":"\#(app)","base_instructions":{"text":"\#(instructions)"}}}"#
+        try (record + "\n").write(to: file, atomically: true, encoding: .utf8)
+        #expect(try Data(contentsOf: file).count > 64 * 1024)
+        #expect(AgentProjectScan.recordedCwd(.codex, file) == app)
+        #expect(AgentProjectScan.cwdField(in: Data(#"{"a":1,"cwd":"/x/\"q\" y","b":"#.utf8)[...]) == #"/x/"q" y"#)
+    }
+
     @Test func emptyWhenNoAgentHasRun() {
         defer { try? FileManager.default.removeItem(at: home) }
         #expect(AgentProjectScan(home: home).run(now: now).isEmpty)
     }
 
     @Test func liveHonorsTheAgentsOwnHomeVariables() {
+        defer { try? FileManager.default.removeItem(at: home) }
         let scan = AgentProjectScan.live(environment: ["CLAUDE_CONFIG_DIR": "/cfg/claude", "CODEX_HOME": "/cfg/codex", "PI_CODING_AGENT_DIR": "",
                                                        "XDG_DATA_HOME": "/data"])
         #expect(scan.claude.path == "/cfg/claude" && scan.codex.path == "/cfg/codex")

@@ -28,6 +28,8 @@ extension OnboardingStrings {
         case .documents: String(localized: "onboarding.projects.folder.documents", defaultValue: "Documents", bundle: .module)
         case .downloads: String(localized: "onboarding.projects.folder.downloads", defaultValue: "Downloads", bundle: .module)
         case .iCloudDrive: String(localized: "onboarding.projects.folder.iCloudDrive", defaultValue: "iCloud Drive", bundle: .module)
+        case .cloudStorage: String(localized: "onboarding.projects.folder.cloudStorage", defaultValue: "cloud storage folders", bundle: .module)
+        case .volumes: String(localized: "onboarding.projects.folder.volumes", defaultValue: "other drives", bundle: .module)
         }
     }
 }

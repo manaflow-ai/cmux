@@ -30,7 +30,6 @@ final class ProjectRow: NSView {
         let usage = OnboardingLabel.make(Self.usage(project, now: now), font: OnboardingMetrics.captionFont, color: Palette.textSecondary)
         usage.alignment = .right
         usage.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
-        usage.toolTip = project.sessions > 0 ? OnboardingStrings.projectsSessions(project.sessions) : nil
         box.target = self
         box.action = #selector(boxPressed)
         box.setAccessibilityLabel(project.folder.lastPathComponent)
@@ -59,12 +58,12 @@ final class ProjectRow: NSView {
         return path.hasPrefix(homePath + "/") ? "~" + path.dropFirst(homePath.count) : path
     }
 
-    /// "148 · 2 days ago · Claude Code, Codex"; a chosen folder has none of these.
+    /// "Sessions: 148 · 2 days ago · Claude Code, Codex"; a chosen folder has none of these.
     static func usage(_ project: AgentProject, now: Date) -> String {
         guard project.sessions > 0 else { return "" }
         let when = RelativeDateTimeFormatter().localizedString(for: project.lastActive, relativeTo: now)
         let apps = ListFormatter.localizedString(byJoining: project.apps.map(\.displayName))
-        return ["\(project.sessions.formatted(.number))", when, apps].filter { !$0.isEmpty }.joined(separator: " · ")
+        return [OnboardingStrings.projectsSessions(project.sessions), when, apps].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     @objc private func boxPressed() { toggle() }
@@ -84,7 +83,7 @@ final class ProjectRow: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) { hover.state.hovering = true }
-    override func mouseExited(with event: NSEvent) { hover.state = OnboardingHover.State() }
+    override func mouseExited(with event: NSEvent) { hover.state.hovering = false }
     override func mouseDown(with event: NSEvent) { hover.state.pressed = true }
 
     /// Toggles on release inside the row, as a button does.

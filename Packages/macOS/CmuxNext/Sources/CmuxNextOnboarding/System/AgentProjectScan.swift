@@ -75,9 +75,10 @@ public nonisolated struct AgentProjectScan: Sendable {
 
     /// The privacy-protected folder `folder` sits in, if any.
     public func privacyFolder(of folder: URL) -> PrivacyFolder? {
-        let path = folder.standardizedFileURL.path
+        // The Mac's disk ignores case, so `~/desktop/x` is on the Desktop too.
+        let path = folder.standardizedFileURL.path.lowercased()
         return PrivacyFolder.allCases.first { kind in
-            let root = home.appending(path: kind.relativePath).path
+            let root = kind.root(home: home).lowercased()
             return path == root || path.hasPrefix(root + "/")
         }
     }
@@ -142,7 +143,13 @@ public nonisolated struct AgentProjectScan: Sendable {
             return nonEmpty(object?["directory"])
         }
         for line in data.split(separator: UInt8(ascii: "\n")) {
-            guard let object = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any] else { continue }
+            guard let object = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any] else {
+                // A first record longer than the read (Codex puts its
+                // instructions in `session_meta`) is cut off; its cwd may
+                // still be in the part that was read.
+                if let cwd = cwdField(in: line) { return cwd }
+                continue
+            }
             let cwd: Any? = switch app {
             case .codex: object["type"] as? String == "session_meta" ? (object["payload"] as? [String: Any])?["cwd"] : nil
             default: object["cwd"]
@@ -150,6 +157,21 @@ public nonisolated struct AgentProjectScan: Sendable {
             if let cwd = nonEmpty(cwd) { return cwd }
         }
         return nil
+    }
+
+    /// The first `"cwd":"..."` string in a record that does not parse.
+    static func cwdField(in line: Data.SubSequence) -> String? {
+        let text = String(decoding: line, as: UTF8.self)
+        guard let key = text.range(of: #""cwd":""#) ?? text.range(of: #""cwd": ""#) else { return nil }
+        var literal = "\""
+        var escaped = false
+        for character in text[key.upperBound...] {
+            literal.append(character)
+            if escaped { escaped = false } else if character == "\\" { escaped = true } else if character == "\"" { break }
+        }
+        guard literal.count > 2, literal.hasSuffix("\""),
+              let value = try? JSONSerialization.jsonObject(with: Data(literal.utf8), options: .fragmentsAllowed) as? String else { return nil }
+        return nonEmpty(value)
     }
 
     private static func nonEmpty(_ value: Any?) -> String? {

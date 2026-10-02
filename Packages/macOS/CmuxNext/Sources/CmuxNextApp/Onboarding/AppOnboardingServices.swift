@@ -74,7 +74,14 @@ final class AppOnboardingServices: OnboardingServices {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        let response = await withCheckedContinuation { done in panel.begin { done.resume(returning: $0) } }
+        // A sheet on the onboarding window, so the step stays in front and one panel opens at a time.
+        let response = await withCheckedContinuation { done in
+            if let window = owner.controller?.window {
+                panel.beginSheetModal(for: window) { done.resume(returning: $0) }
+            } else {
+                panel.begin { done.resume(returning: $0) }
+            }
+        }
         return response == .OK ? panel.url : nil
     }
 
@@ -85,9 +92,14 @@ final class AppOnboardingServices: OnboardingServices {
     func openProjects(_ folders: [URL]) {
         guard let windows = services.windows else { return }
         let target = windows.targetWindow(preferring: windows.active?.state.id)
+        let logger = services.daemon.logger
         Task {
             for folder in folders {
-                _ = try? await windows.createWorkspace(WorkspaceSpawn(cwd: folder.path, name: folder.lastPathComponent), into: target)
+                do {
+                    _ = try await windows.createWorkspace(WorkspaceSpawn(cwd: folder.path, name: folder.lastPathComponent), into: target)
+                } catch {
+                    logger.error("onboarding project workspace failed: \(String(describing: error), privacy: .public)")
+                }
             }
         }
     }
