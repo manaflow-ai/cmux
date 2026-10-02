@@ -233,17 +233,18 @@ jobs:
         if: always()
         env:
           OUTCOMES: |
-            ${{ steps.godfiles-swift.outcome }} God files and types (Swift)
-            ${{ steps.godfiles-rust.outcome }} God files (cmux-tui Rust)
-            ${{ steps.concurrency.outcome }} Main-thread concurrency
-            ${{ steps.crash-safety.outcome }} Crash safety
-            ${{ steps.l10n.outcome }} String tables (21 languages)
-            ${{ steps.module-resources.outcome }} Module resource bundles
-            ${{ steps.checks-structure.outcome }} Checks job structure
+            ${{ steps.godfiles-swift.outcome }}|God files and types (Swift)
+            ${{ steps.godfiles-rust.outcome }}|God files (cmux-tui Rust)
+            ${{ steps.concurrency.outcome }}|Main-thread concurrency
+            ${{ steps.crash-safety.outcome }}|Crash safety
+            ${{ steps.l10n.outcome }}|String tables (21 languages)
+            ${{ steps.module-resources.outcome }}|Module resource bundles
+            ${{ steps.checks-structure.outcome }}|Checks job structure
         run: |
           failed=()
-          while read -r outcome name; do
-            [[ -n "$name" ]] || continue
+          # `outcome|name`: an empty outcome (a check that never ran) still names its step.
+          while IFS='|' read -r outcome name; do
+            [[ -n "$outcome$name" ]] || continue
             [[ "$outcome" == success ]] || failed+=("$name (${outcome:-not run})")
           done <<<"$OUTCOMES"
           if (( ${#failed[@]} == 0 )); then
