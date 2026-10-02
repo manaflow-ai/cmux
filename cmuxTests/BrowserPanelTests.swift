@@ -8,6 +8,7 @@ import Bonsplit
 import UserNotifications
 import Darwin
 import Testing
+import JavaScriptCore
 import CMUXMobileCore
 import CmuxBrowser
 
@@ -1191,6 +1192,57 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelReactGrabBridgeTests: XCTestCase {
+    func testReactGrabInjectionDoesNotAdoptPageOwnedGlobal() throws {
+        let context = try XCTUnwrap(JSContext())
+        context.evaluateScript(
+            """
+            var window = this;
+            var fakeRegistered = false;
+            var fakeActivated = false;
+            var fakeToggled = false;
+            window.__REACT_GRAB__ = {
+                registerPlugin: function() { fakeRegistered = true; },
+                activate: function() { fakeActivated = true; },
+                toggle: function() { fakeToggled = true; }
+            };
+            window.webkit = { messageHandlers: { cmuxReactGrab: { postMessage: function() {} } } };
+            """
+        )
+
+        let toggleName = "__cmuxReactGrabTestToggle"
+        let script = makeReactGrabInjectionScript(
+            handlerName: "cmuxReactGrab",
+            updaterName: "__cmuxReactGrabTestSync",
+            toggleName: toggleName,
+            sessionTokenLiteral: "'test-token'",
+            scriptSource: """
+            if (!window.__REACT_GRAB__) {
+                window.__REACT_GRAB__ = {
+                    registerPlugin: function(plugin) { this.plugin = plugin; },
+                    activate: function() { this.activated = true; },
+                    toggle: function() { this.toggled = true; }
+                };
+            }
+            window.__genuineReactGrab = window.__REACT_GRAB__;
+            """
+        )
+        context.evaluateScript(script)
+
+        XCTAssertNil(context.exception)
+        XCTAssertFalse(context.evaluateScript("fakeRegistered").toBool())
+        XCTAssertFalse(context.evaluateScript("fakeActivated").toBool())
+        XCTAssertTrue(context.evaluateScript("window.__genuineReactGrab.activated").toBool())
+
+        context.evaluateScript(
+            """
+            window.__REACT_GRAB__ = { toggle: function() { fakeToggled = true; } };
+            window['\(toggleName)']();
+            """
+        )
+        XCTAssertFalse(context.evaluateScript("fakeToggled").toBool())
+        XCTAssertTrue(context.evaluateScript("window.__genuineReactGrab.toggled").toBool())
+    }
+
     @MainActor
     func testExplicitWebViewFocusDoesNotSuppressOmnibarAutofocusWhenFocusFails() {
         let panel = BrowserPanel(workspaceId: UUID())

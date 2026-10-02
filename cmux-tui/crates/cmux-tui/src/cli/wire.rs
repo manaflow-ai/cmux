@@ -885,6 +885,14 @@ mod tests {
     }
 
     #[test]
+    fn human_cells_escape_terminal_control_characters() {
+        let output = human_text(&json!([{"title":"\u{1b}[31mowned\u{7}"}]));
+        assert!(!output.contains('\u{1b}'));
+        assert!(!output.contains('\u{7}'));
+        assert!(output.contains(r"\u{1b}[31mowned\u{7}"));
+    }
+
+    #[test]
     fn human_tables_pad_wide_cells_by_terminal_width() {
         let output = human_text(&json!([
             {"name":"界","value":"a"},
