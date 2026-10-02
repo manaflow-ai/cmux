@@ -308,6 +308,20 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         run: swift build --build-tests
 
+      - name: Regenerate action surface export
+        working-directory: Packages/macOS/CmuxNext
+        run: |
+          CMUX_UPDATE_ACTION_SURFACES=1 \
+            swift test --skip-build --filter ActionSurfaceParityTests
+
+      - name: Upload regenerated action surface files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: action-surface-regen
+          path: |
+            plans/cmux-next/action-surfaces.json
+            plans/cmux-next/actions.md
+
       - name: Compile string catalogs into the resource bundles
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
