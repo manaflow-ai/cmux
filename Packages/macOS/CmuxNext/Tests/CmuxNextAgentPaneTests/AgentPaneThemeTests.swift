@@ -33,4 +33,24 @@ import Testing
             #expect(values["accentText"] as? String == AgentPaneTheme.css(opaque))
         }
     }
+
+    /// With background-opacity below 1 the window's backdrop shows through
+    /// the terminal; the pane, its composer and the composer's field must let
+    /// it through too, while text and labels on the accent stay opaque. The
+    /// field was composited to an opaque color, a solid block over the blur.
+    @Test func aTranslucentThemeKeepsThePageTranslucentAndItsTextOpaque() {
+        let translucent = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0x1E1E2E), foreground: ThemeRGB(hex: 0xCDD6F4), backgroundOpacity: 0.8))
+        let values = AgentPaneTheme.values(translucent)
+        for key in ["pageBackground", "surfaceBackground", "inputBackground"] {
+            let css = values[key] as? String ?? ""
+            #expect(css.hasSuffix(", 0.8)"), "\(key) is \(css)")
+        }
+        for key in ["text", "accent", "accentText"] {
+            let css = values[key] as? String ?? ""
+            #expect(css.hasSuffix(", 1.0)"), "\(key) is \(css)")
+        }
+        // An opaque theme keeps its opaque field.
+        let opaqueField = AgentPaneTheme.values(.fallback)["inputBackground"] as? String ?? ""
+        #expect(opaqueField.hasSuffix(", 1.0)"))
+    }
 }
