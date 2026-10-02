@@ -21,7 +21,7 @@ extension TabDragSession {
         } else {
             presentation = .card
             rect = TabDragGeometry.floatingRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize)
-            if drag.winner != nil || drag.workspaceHighlight != nil { scale = 0.9 }
+            if drag.winner != nil || drag.workspaceHighlight != nil { scale = DragTunables.ghostTargetScale.value }
         }
         let jump = presentation != drag.presentation
         drag.presentation = presentation
@@ -97,7 +97,7 @@ extension TabDragSession {
                 let target = winner?.proposal.highlightFrame ?? drag.motion.targetRect
                 let tab = drag.motion.targetRect
                 land(drag, at: CGRect(x: target.midX - tab.width / 2, y: target.midY - tab.height / 2, width: tab.width, height: tab.height),
-                     cardness: 1, opacity: 0, scale: 0.7)
+                     cardness: 1, opacity: 0, scale: DragTunables.ghostLandScale.value)
             }
         }
     }

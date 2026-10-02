@@ -71,8 +71,7 @@ function parseLines(lines: string[]): MdBlock[] {
     }
     if (/^\s*>/.test(line)) {
       const body: string[] = [];
-      while (i < lines.length && /^\s*>/.test(lines[i]))
-        body.push(lines[i++].replace(/^\s*>\s?/, ""));
+      while (i < lines.length && /^\s*>/.test(lines[i])) body.push(lines[i++].replace(/^\s*>\s?/, ""));
       out.push({ type: "blockquote", children: parseLines(body) });
       continue;
     }
@@ -90,18 +89,11 @@ function parseLines(lines: string[]): MdBlock[] {
           .map((c) => c.trim());
       const header = cells(line);
       const align = cells(lines[i + 1]).map<Align>((c) =>
-        c.startsWith(":") && c.endsWith(":")
-          ? "center"
-          : c.endsWith(":")
-            ? "right"
-            : c.startsWith(":")
-              ? "left"
-              : null,
+        c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : c.startsWith(":") ? "left" : null,
       );
       i += 2;
       const rows: string[][] = [];
-      while (i < lines.length && lines[i].includes("|") && lines[i].trim())
-        rows.push(cells(lines[i++]));
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) rows.push(cells(lines[i++]));
       out.push({ type: "table", align, header, rows });
       continue;
     }
@@ -161,8 +153,7 @@ function parseList(lines: string[], start: number): [MdBlock, number] {
       i++;
       // Nested content: lines indented deeper than the marker.
       const nested: string[] = [];
-      while (i < lines.length && lines[i].trim() && indentOf(lines[i]) > base)
-        nested.push(lines[i++]);
+      while (i < lines.length && lines[i].trim() && indentOf(lines[i]) > base) nested.push(lines[i++]);
       if (nested.length) {
         const strip = Math.min(...nested.map(indentOf));
         item.children = parseLines(nested.map((n) => n.slice(strip)));
@@ -196,8 +187,7 @@ export function linkKind(href: string): "github" | "citation" | "file" | "web" {
 
 export const linkIcon = (href: string) => {
   const kind = linkKind(href);
-  if (kind === "github")
-    return <GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />;
+  if (kind === "github") return <GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />;
   if (kind === "citation") return <ArxivMark size={16} className="cv-link__icon" />;
   if (kind === "file") return <FileDoc size={16} className="cv-link__icon" />;
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
@@ -252,15 +242,7 @@ export function renderInline(text: string, opts: InlineOptions = {}): ReactNode[
 
 /* ---------------- Blocks ---------------- */
 
-function Block({
-  block,
-  opts,
-  depth,
-}: {
-  block: MdBlock;
-  opts: InlineOptions;
-  depth: number;
-}): ReactNode {
+function Block({ block, opts, depth }: { block: MdBlock; opts: InlineOptions; depth: number }): ReactNode {
   switch (block.type) {
     case "heading": {
       const H = `h${block.level}` as "h1";
@@ -288,18 +270,14 @@ function Block({
           {block.items.map((it, i) => (
             <li key={i} className={it.task ? "cv-task" : undefined}>
               {block.ordered && <span className="cv-li__num">{block.start + i}.</span>}
-              {!block.ordered && !it.task && (
-                <span className={`cv-li__bullet cv-li__bullet--${depth % 3}`} />
-              )}
+              {!block.ordered && !it.task && <span className={`cv-li__bullet cv-li__bullet--${depth % 3}`} />}
               {it.task && (
                 <span className={`cv-checkbox${it.checked ? " is-checked" : ""}`}>
                   {it.checked && <Check size={12} strokeWidth={1.4} />}
                 </span>
               )}
               <span className="cv-li__text">{renderInline(it.text, opts)}</span>
-              {it.children.length > 0 && (
-                <Blocks blocks={it.children} opts={opts} depth={depth + 1} />
-              )}
+              {it.children.length > 0 && <Blocks blocks={it.children} opts={opts} depth={depth + 1} />}
             </li>
           ))}
         </L>
@@ -308,19 +286,14 @@ function Block({
     case "table": {
       // Codex gives long-text columns a 256px minimum and the rest 128px.
       const plain = (t: string) => t.replace(/[`*_~]|\[|\]\([^)]*\)/g, "");
-      const wide = block.header.map((_, i) =>
-        block.rows.some((r) => plain(r[i] ?? "").length > 40),
-      );
+      const wide = block.header.map((_, i) => block.rows.some((r) => plain(r[i] ?? "").length > 40));
       return (
         <div className="cv-table-wrap">
           <table className="cv-table">
             <thead>
               <tr>
                 {block.header.map((c, i) => (
-                  <th
-                    key={i}
-                    style={{ textAlign: block.align[i] ?? "left", width: wide[i] ? 256 : 128 }}
-                  >
+                  <th key={i} style={{ textAlign: block.align[i] ?? "left", width: wide[i] ? 256 : 128 }}>
                     {renderInline(c, opts)}
                   </th>
                 ))}
@@ -348,15 +321,7 @@ function Block({
   }
 }
 
-function Blocks({
-  blocks,
-  opts,
-  depth,
-}: {
-  blocks: MdBlock[];
-  opts: InlineOptions;
-  depth: number;
-}) {
+function Blocks({ blocks, opts, depth }: { blocks: MdBlock[]; opts: InlineOptions; depth: number }) {
   return (
     <>
       {blocks.map((b, i) => (

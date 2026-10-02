@@ -39,7 +39,6 @@ export function commandText(input: string): string {
   return trimmed.startsWith("!") ? trimmed.slice(1).trim() : trimmed;
 }
 
-
 /**
  * Guards the one in-flight terminal command owned by a composer.
  *

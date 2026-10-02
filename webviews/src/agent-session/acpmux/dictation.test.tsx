@@ -2,9 +2,27 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { DictationUpdate } from "./dictationText";
 
-const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
+const dom = new JSDOM("<!doctype html><div id=root></div>", {
+  pretendToBeVisual: true,
+  virtualConsole: new VirtualConsole(),
+});
 const globals = globalThis as Record<string, unknown>;
-const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "customElements", "Node", "Event", "IntersectionObserver", "ResizeObserver", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
+const saved = Object.fromEntries(
+  [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "customElements",
+    "Node",
+    "Event",
+    "IntersectionObserver",
+    "ResizeObserver",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ].map((key) => [key, globals[key]]),
+);
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
@@ -13,21 +31,34 @@ Object.assign(globals, {
   customElements: dom.window.customElements,
   Node: dom.window.Node,
   Event: dom.window.Event,
-  IntersectionObserver: class { observe() {} unobserve() {} disconnect() {} },
-  ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
+  IntersectionObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+  ResizeObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
   requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
   cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 // App's changes view loads @pierre web components, which reach for DOM classes by their global names.
-const domClasses = Object.getOwnPropertyNames(dom.window).filter((key) => /^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in globals));
+const domClasses = Object.getOwnPropertyNames(dom.window).filter(
+  (key) => /^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in globals),
+);
 for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
 afterAll(() => {
   Object.assign(globals, saved);
   for (const key of domClasses) delete globals[key];
 });
 
-const { act, createElement } = await import("react").then((react) => ({ act: react.act, createElement: react.createElement }));
+const { act, createElement } = await import("react").then((react) => ({
+  act: react.act,
+  createElement: react.createElement,
+}));
 const { createRoot } = await import("react-dom/client");
 const { AcpmuxApp } = await import("./App");
 
@@ -37,12 +68,20 @@ type Posted = { method: string; params: Record<string, unknown> };
 async function mountPane(options: { refuse?: string } = {}) {
   const posted: Posted[] = [];
   const host = dom.window as unknown as Record<string, unknown>;
-  host.webkit = { messageHandlers: { agentSession: { postMessage(message: Posted) {
-    posted.push(message);
-    if (message.method === "ready") return Promise.resolve({ ok: true, value: { protocolVersion: 1, transport: "none" } });
-    if (options.refuse && message.method.startsWith("dictation.")) return Promise.resolve({ ok: false, error: { userMessage: options.refuse } });
-    return Promise.resolve({ ok: true, value: null });
-  } } } };
+  host.webkit = {
+    messageHandlers: {
+      agentSession: {
+        postMessage(message: Posted) {
+          posted.push(message);
+          if (message.method === "ready")
+            return Promise.resolve({ ok: true, value: { protocolVersion: 1, transport: "none" } });
+          if (options.refuse && message.method.startsWith("dictation."))
+            return Promise.resolve({ ok: false, error: { userMessage: options.refuse } });
+          return Promise.resolve({ ok: true, value: null });
+        },
+      },
+    },
+  };
   const root = createRoot(dom.window.document.getElementById("root")!);
   await act(async () => root.render(createElement(AcpmuxApp)));
   const document = dom.window.document;
@@ -102,7 +141,10 @@ describe("composer dictation", () => {
     const pane = await mountPane();
     try {
       await pane.type("keep ", 5);
-      const escape = () => pane.document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      const escape = () =>
+        pane.document.dispatchEvent(
+          new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+        );
       // Idle: Esc is not ours.
       expect(escape()).toBe(true);
       await pane.send({ state: "listening", text: "drop this" });
@@ -120,13 +162,21 @@ describe("composer dictation", () => {
     const pane = await mountPane();
     try {
       await pane.send({ state: "starting" });
-      await pane.send({ state: "denied", permission: "microphone", message: "Dictation needs microphone access.", settingsLabel: "Open System Settings" });
+      await pane.send({
+        state: "denied",
+        permission: "microphone",
+        message: "Dictation needs microphone access.",
+        settingsLabel: "Open System Settings",
+      });
       const notice = pane.document.querySelector(".acpmux-dictation-notice")!;
       expect(notice.getAttribute("role")).toBe("alert");
       expect(notice.textContent).toContain("Dictation needs microphone access.");
       const [settings, dismiss] = [...notice.querySelectorAll("button")];
       await act(async () => settings!.click());
-      expect(pane.posted.at(-1)).toMatchObject({ method: "dictation.openSettings", params: { permission: "microphone" } });
+      expect(pane.posted.at(-1)).toMatchObject({
+        method: "dictation.openSettings",
+        params: { permission: "microphone" },
+      });
       await act(async () => dismiss!.click());
       expect(pane.document.querySelector(".acpmux-dictation-notice")).toBeNull();
       expect(pane.mic().dataset.state).toBe("denied");
@@ -138,7 +188,9 @@ describe("composer dictation", () => {
   test("auto-send is opt-in through layout.json", async () => {
     const pane = await mountPane();
     try {
-      await act(async () => dom.window.cmuxAcpmuxBridge!.applyCustomization({ layout: { dictation: { autoSend: true } } }));
+      await act(async () =>
+        dom.window.cmuxAcpmuxBridge!.applyCustomization({ layout: { dictation: { autoSend: true } } }),
+      );
       await pane.send({ state: "listening", text: "ship it" });
       await pane.send({ state: "idle", text: "ship it" });
       await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -185,7 +237,12 @@ describe("composer dictation", () => {
     const pane = await mountPane();
     try {
       await pane.send({ state: "listening", text: "words" });
-      const composing = new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true, isComposing: true });
+      const composing = new dom.window.KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+        isComposing: true,
+      });
       expect(pane.document.dispatchEvent(composing)).toBe(true);
       expect(pane.methods()).toEqual([]);
     } finally {
@@ -217,8 +274,16 @@ describe("composer dictation", () => {
       expect(pane.prompt.selectionStart).toBe(4);
       expect(pane.prompt.value).toBe("fix the bug now");
       // A rolling waveform: the newest level on the right, earlier ones to its left.
-      const bars = [...pane.mic().querySelectorAll<HTMLElement>(".acpmux-mic-meter span")].map((bar) => bar.style.transform);
-      expect(bars).toEqual(["scaleY(0.18)", "scaleY(0.18)", `scaleY(${0.2 * 1.4})`, `scaleY(${0.7 * 1.4})`, `scaleY(${0.5 * 1.4})`]);
+      const bars = [...pane.mic().querySelectorAll<HTMLElement>(".acpmux-mic-meter span")].map(
+        (bar) => bar.style.transform,
+      );
+      expect(bars).toEqual([
+        "scaleY(0.18)",
+        "scaleY(0.18)",
+        `scaleY(${0.2 * 1.4})`,
+        `scaleY(${0.7 * 1.4})`,
+        `scaleY(${0.5 * 1.4})`,
+      ]);
     } finally {
       await pane.unmount();
     }
@@ -227,7 +292,9 @@ describe("composer dictation", () => {
   test("auto-send does not send a draft typed after the dictated words were sent", async () => {
     const pane = await mountPane();
     try {
-      await act(async () => dom.window.cmuxAcpmuxBridge!.applyCustomization({ layout: { dictation: { autoSend: true } } }));
+      await act(async () =>
+        dom.window.cmuxAcpmuxBridge!.applyCustomization({ layout: { dictation: { autoSend: true } } }),
+      );
       await pane.send({ state: "listening", text: "first message" });
       await pane.type("typing new");
       await pane.send({ state: "idle", text: "first message" });
@@ -259,7 +326,9 @@ describe("composer dictation", () => {
     try {
       await act(async () => pane.mic().click());
       await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-      expect(pane.document.querySelector(".acpmux-dictation-notice")?.textContent).toContain("Dictation is busy in another window.");
+      expect(pane.document.querySelector(".acpmux-dictation-notice")?.textContent).toContain(
+        "Dictation is busy in another window.",
+      );
     } finally {
       await pane.unmount();
     }

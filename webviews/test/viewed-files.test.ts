@@ -35,7 +35,15 @@ test("patchFingerprint hashes the hunk text and ignores the index line", () => {
 
 test("fileDiffFingerprint prefers the streamed patch fingerprint and falls back to hunk content", () => {
   expect(fileDiffFingerprint({ cmuxPatchFingerprint: "deadbeef", hunks: [] })).toBe("deadbeef");
-  const hunks = [{ additionStart: 1, additionCount: 1, deletionStart: 1, deletionCount: 0, hunkContent: [{ type: "change", lines: ["+x"] }] }];
+  const hunks = [
+    {
+      additionStart: 1,
+      additionCount: 1,
+      deletionStart: 1,
+      deletionCount: 0,
+      hunkContent: [{ type: "change", lines: ["+x"] }],
+    },
+  ];
   const fallback = fileDiffFingerprint({ name: "a.txt", hunks });
   expect(fallback).toMatch(/^[0-9a-f]{8}$/);
   expect(fileDiffFingerprint({ name: "a.txt", hunks: [{ ...hunks[0], additionStart: 2 }] })).not.toBe(fallback);
@@ -48,17 +56,28 @@ test("viewedFileState reports viewed, changed since viewed, or unviewed", () => 
 });
 
 test("viewedScopeFor keys typed git sources by repo and source identity", () => {
-  expect(viewedScopeFor({ kind: "unstaged", repoRoot: "/tmp/repo" }, {})).toEqual({ repoRoot: "/tmp/repo", source: "unstaged" });
-  expect(viewedScopeFor({ kind: "staged", repoRoot: "/tmp/repo" }, {})).toEqual({ repoRoot: "/tmp/repo", source: "staged" });
-  expect(viewedScopeFor({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, {}))
-    .toEqual({ repoRoot: "/tmp/repo", source: "branch:main" });
+  expect(viewedScopeFor({ kind: "unstaged", repoRoot: "/tmp/repo" }, {})).toEqual({
+    repoRoot: "/tmp/repo",
+    source: "unstaged",
+  });
+  expect(viewedScopeFor({ kind: "staged", repoRoot: "/tmp/repo" }, {})).toEqual({
+    repoRoot: "/tmp/repo",
+    source: "staged",
+  });
+  expect(viewedScopeFor({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, {})).toEqual({
+    repoRoot: "/tmp/repo",
+    source: "branch:main",
+  });
   // An unresolved branch base has no stable identity yet.
   expect(viewedScopeFor({ kind: "branch", repoRoot: "/tmp/repo" }, {})).toBeNull();
   // Patch sessions and remote PR pages key on the patch path or the external URL.
-  expect(viewedScopeFor({ kind: "patch", path: "/last-turn.patch" }, { repoRoot: "/tmp/repo" }))
-    .toEqual({ repoRoot: "/tmp/repo", source: "patch:/last-turn.patch" });
-  expect(viewedScopeFor(null, { externalURL: "https://github.com/o/r/pull/1", patchURL: "http://127.0.0.1/x.patch" }))
-    .toEqual({ repoRoot: "https://github.com/o/r/pull/1", source: "external" });
+  expect(viewedScopeFor({ kind: "patch", path: "/last-turn.patch" }, { repoRoot: "/tmp/repo" })).toEqual({
+    repoRoot: "/tmp/repo",
+    source: "patch:/last-turn.patch",
+  });
+  expect(
+    viewedScopeFor(null, { externalURL: "https://github.com/o/r/pull/1", patchURL: "http://127.0.0.1/x.patch" }),
+  ).toEqual({ repoRoot: "https://github.com/o/r/pull/1", source: "external" });
   expect(viewedScopeFor(null, {})).toBeNull();
 });
 
@@ -78,8 +97,20 @@ test("viewedProgress counts only files whose stored fingerprint still matches", 
 
 test("toggleViewedItem collapses a viewed file, expands an unviewed one, and reports the persistence change", () => {
   const items = [
-    { id: "a.txt", type: "diff", version: 0, collapsed: false, fileDiff: { name: "a.txt", cmuxPatchFingerprint: "aaa", hunks: [] } },
-    { id: "b.txt", type: "diff", version: 0, collapsed: false, fileDiff: { name: "b.txt", cmuxPatchFingerprint: "bbb", hunks: [] } },
+    {
+      id: "a.txt",
+      type: "diff",
+      version: 0,
+      collapsed: false,
+      fileDiff: { name: "a.txt", cmuxPatchFingerprint: "aaa", hunks: [] },
+    },
+    {
+      id: "b.txt",
+      type: "diff",
+      version: 0,
+      collapsed: false,
+      fileDiff: { name: "b.txt", cmuxPatchFingerprint: "bbb", hunks: [] },
+    },
   ];
   const marked = toggleViewedItem(items, new Map(), "a.txt");
   expect(marked.change).toEqual({ kind: "set", entry: { path: "a.txt", fingerprint: "aaa" } });
@@ -126,7 +157,9 @@ test("a stored-marks reply for an older scope is ignored", () => {
 });
 
 test("starting a scope load drops the previous scope's marks at once", () => {
-  const previous = applyLoadedViewed(beginViewedLoad("repo\nunstaged"), "repo\nunstaged", [{ path: "a.txt", fingerprint: "a" }]);
+  const previous = applyLoadedViewed(beginViewedLoad("repo\nunstaged"), "repo\nunstaged", [
+    { path: "a.txt", fingerprint: "a" },
+  ]);
   expect(previous!.viewedByPath.size).toBe(1);
   const next = beginViewedLoad("repo\nstaged");
   expect(next.viewedByPath.size).toBe(0);
@@ -136,7 +169,14 @@ test("starting a scope load drops the previous scope's marks at once", () => {
 test("the fallback fingerprint is computed once per parsed file diff", () => {
   let reads = 0;
   const hunk = { deletionStart: 1, deletionCount: 1, additionStart: 1, additionCount: 1, hunkContent: [] as unknown[] };
-  const fileDiff = { name: "a.txt", type: "change", get hunks() { reads += 1; return [hunk]; } };
+  const fileDiff = {
+    name: "a.txt",
+    type: "change",
+    get hunks() {
+      reads += 1;
+      return [hunk];
+    },
+  };
   const first = fileDiffFingerprint(fileDiff);
   const readsForFirst = reads;
   expect(readsForFirst).toBeGreaterThan(0);

@@ -73,6 +73,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         claimGeometry: Bool,
         clientName: String = "cmux-next-terminal"
     ) async throws -> TerminalAttachment {
+        DaemonLaunchTimings.shared.mark("terminal.attach_start")
         let transport = try LineTransport(path: endpoint.socketPath)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
         do {
@@ -120,11 +121,13 @@ public actor TerminalAttachment: TerminalByteChannel {
                 }
             }
         )
-        let identity = try await DaemonConnection.perform(IdentifyRequest(), on: transport)
-        _ = try await DaemonConnection.perform(
-            SetClientInfoRequest(name: clientName, kind: "frontend", capabilities: DaemonCapabilities.shared.advertised),
-            on: transport
-        )
+        // Both in one round trip; the attach below needs the identity.
+        let replies = await transport.pipeline([
+            PipelinedLine(IdentifyRequest()),
+            PipelinedLine(SetClientInfoRequest(name: clientName, kind: "frontend", capabilities: DaemonCapabilities.shared.advertised)),
+        ], timeout: DaemonConnection.defaultRequestTimeout)
+        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
+        _ = try replies[1].get()
         let useIdentity = identity.supports("attach-identity-v1") && target.terminalResourceID != nil
             && target.generation == identity.generation
         if target.surface == Self.unresolvedSurface, !useIdentity {
@@ -148,6 +151,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 SetClientSizingRequest(surface: self.surface, enabled: true, exclusive: true), on: transport)
         }
         queue.arm()
+        DaemonLaunchTimings.shared.mark("terminal.attach_end")
     }
 
     // MARK: TerminalByteChannel
