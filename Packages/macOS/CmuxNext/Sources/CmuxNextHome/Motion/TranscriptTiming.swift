@@ -1,5 +1,6 @@
 import Foundation
 import QuartzCore
+import Synchronization
 
 /// The curve of one additive motion component. The send and flight springs
 /// are fitted to the Messages reference recording
@@ -8,7 +9,7 @@ import QuartzCore
 /// `motion-allow` exceptions. `Motion.animatesMovement` (Reduce Motion,
 /// `ui.animationSpeed = off`) decides whether they run at all
 /// (``TranscriptMotionPolicy``).
-nonisolated enum TranscriptTiming: Equatable, Sendable {
+nonisolated enum TranscriptTiming: Hashable, Sendable {
     /// CASpringAnimation: mass, stiffness, damping, initial velocity (distance units per second).
     case spring(mass: Double, stiffness: Double, damping: Double, velocity: Double)
     /// CABasicAnimation over a duration with a cubic Bezier timing function.
@@ -82,15 +83,27 @@ nonisolated enum TranscriptTiming: Equatable, Sendable {
         return 3 * (1 - s) * (1 - s) * s * y1 + 3 * (1 - s) * s * s * y2 + s * s * s
     }
 
-    /// Seconds until the motion is within 0.1 % of its distance.
+    /// Seconds until the motion stays within 0.05 % of its distance (a CA
+    /// spring removed then leaves under 0.1 pt on a 200 pt move). Springs are
+    /// scanned once per curve: the envelope bound undershoots near critical damping.
     var settle: Double {
         switch self {
-        case .spring(let m, let k, let c, _):
-            let w0 = (k / m).squareRoot(), z = c / (2 * (k * m).squareRoot())
-            return min(3, -log(0.001) / (min(z, 1) * w0) + 0.05)
+        case .spring:
+            if let known = Self.settleCache.withLock({ $0[self] }) { return known }
+            var last = 0.0
+            var t = 0.0
+            while t < 3 {
+                if abs(1 - progress(t)) > 0.0005 { last = t }
+                t += 1.0 / 480
+            }
+            let value = min(3, last + 1.0 / 240)
+            Self.settleCache.withLock { $0[self] = value }
+            return value
         case .curve(let d, _, _, _, _), .hold(let d): return d
         }
     }
+
+    private static let settleCache = Mutex<[TranscriptTiming: Double]>([:])
 
     /// The additive Core Animation animation for a component that starts
     /// `delta` (layer units) away from the model value and ends at it.
