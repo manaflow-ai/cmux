@@ -40689,6 +40689,13 @@ export default {
         appendIfExisting(Bundle.main.url(forResource: "opencode-plugin", withExtension: "js"))
         appendIfExisting(Bundle.main.resourceURL?.appendingPathComponent("opencode-plugin.js", isDirectory: false))
 
+        if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"],
+           !runtimeRoot.isEmpty {
+            appendIfExisting(
+                URL(fileURLWithPath: runtimeRoot, isDirectory: true)
+                    .appendingPathComponent("src/Resources/opencode-plugin.js")
+            )
+        }
         if let executableURL = resolvedExecutableURL() {
             let execDir = executableURL.deletingLastPathComponent().standardizedFileURL
             for relativePath in ["opencode-plugin.js", "../opencode-plugin.js", "../../Resources/opencode-plugin.js", "../../../Contents/Resources/opencode-plugin.js"] {
