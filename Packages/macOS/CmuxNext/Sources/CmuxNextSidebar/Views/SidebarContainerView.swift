@@ -2,9 +2,9 @@ public import AppKit
 import CmuxNextDesign
 import Observation
 
-/// The sidebar: a flat surface in the window background's color (the
-/// terminal theme's background) over behind-window vibrancy, with no
-/// panel, border or seam. It owns its width.
+/// The sidebar: a flat tonal step (`Palette.sidebarStep`) over the
+/// window's one backdrop (the solid background, or the root material and
+/// its tint), with no panel, border or seam. It owns its width.
 ///
 /// Pin leading, top, and bottom; the view animates its own width constraint
 /// between the user's width (`SidebarModel.presentation == .shown`) and 0
@@ -22,8 +22,8 @@ public final class SidebarContainerView: NSView {
     /// The width constraint this view drives. Do not add another.
     public private(set) var widthConstraint: NSLayoutConstraint!
 
-    /// Vibrancy tinted with the sidebar color, under the rows.
-    private let backdrop = ChromeBackdropView(material: .sidebar, tint: SidebarContainerView.backdropTint)
+    /// The sidebar's tonal step over the window backdrop, under the rows.
+    private let backdrop = ChromeStepView(step: SidebarContainerView.backdropStep)
     /// Clips the sliding panel to the container's (animating) width.
     private let clip = NSView()
     /// Holds the sidebar at `model.width`, pinned to the clip's trailing edge.
@@ -41,9 +41,9 @@ public final class SidebarContainerView: NSView {
     /// (there is no intermediate width below `Metrics.sidebarMinWidth`).
     public static var hideThreshold: CGFloat { Metrics.sidebarMinWidth / 2 }
 
-    /// The backdrop's tint. theme-scoped: ChromeBackdropView calls it inside
-    /// its performWithTheme.
-    private static func backdropTint() -> NSColor { Palette.sidebarBackground }
+    /// The sidebar's tonal step over the window's one backdrop. theme-scoped:
+    /// ChromeStepView calls it inside its performWithTheme.
+    private static func backdropStep() -> NSColor { Palette.sidebarStep }
 
     public init(model: SidebarModel) {
         self.model = model
@@ -266,18 +266,27 @@ final class SidebarResizeHandle: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        line.frame = CGRect(x: (bounds.width - Metrics.dividerThickness) / 2, y: 0, width: Metrics.dividerThickness, height: bounds.height)
+        let width = Metrics.lineWidth(Metrics.dividerThickness)
+        line.frame = CGRect(x: (bounds.width - width) / 2, y: 0, width: width, height: bounds.height)
         CATransaction.commit()
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        performWithTheme { line.backgroundColor = Palette.separator.cgColor }
+        applyLineTheme()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        applyLineTheme()
+    }
+
+    /// The hairline's color and width both go through the border metric
+    /// (`Palette.separator`, `Metrics.lineWidth`): a borders change repaints
+    /// here, and the relayout picks up the width.
+    private func applyLineTheme() {
         performWithTheme { line.backgroundColor = Palette.separator.cgColor }
+        needsLayout = true
     }
 
     override func updateTrackingAreas() {
