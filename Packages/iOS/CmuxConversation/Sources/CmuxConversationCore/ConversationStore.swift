@@ -450,8 +450,14 @@ public final class ConversationStore {
         notify(.live(insertedRowIDs: [], sentByMe: true))
     }
 
+    /// The previous send's work; each send waits for it so the server numbers
+    /// messages in the order they were sent (it assigns seq on arrival).
+    private var sendTail: Task<Void, Never>?
+
     private func transmit(clientID: String, images: [(data: Data, width: Int, height: Int, mimeType: String)]) {
-        Task { [weak self] in
+        let previous = sendTail
+        sendTail = Task { [weak self] in
+            await previous?.value
             guard let self else { return }
             do {
                 var attachmentIDs: [String] = []
