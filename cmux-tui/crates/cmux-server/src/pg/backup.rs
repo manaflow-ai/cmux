@@ -69,7 +69,13 @@ pub fn archive_wal(wal_dir: &Path, src: &Path, name: &str) -> Result<Archived> {
     let dest = wal_dir.join(name);
     if dest.exists() {
         return match same_content(src, &dest).ctx(dest.display())? {
-            true => Ok(Archived::AlreadyPresent),
+            // A retry after a crash: the earlier link may not be durable
+            // yet, so the file and the directory are synced before success.
+            true => {
+                File::open(&dest).and_then(|f| f.sync_all()).ctx(dest.display())?;
+                sys::fsync_dir(wal_dir).ctx(wal_dir.display())?;
+                Ok(Archived::AlreadyPresent)
+            }
             false => Err(Error::rejected(format!(
                 "{} exists with other content; refusing to overwrite",
                 dest.display()

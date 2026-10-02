@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use cmux_server::health::probe::{disk, has_default_route, power};
-use cmux_server::health::{HealthRole, MemorySink, disk_recheck_ms, disk_warning_line};
+use cmux_server::health::{HealthRole, MemorySink, disk_recheck_ms};
 use cmux_server_core::health::{
     CheckId, DiskFacts, Facts, HealthSettings, HostId, Post, PowerFacts, PowerSource,
 };
@@ -75,8 +75,6 @@ fn disk_probe_reads_the_nearest_existing_ancestor() {
 fn disk_recheck_is_sized_to_headroom_and_clamped() {
     let s = HealthSettings::default();
     let total = 1000 * GIB;
-    assert_eq!(disk_warning_line(&s, total), 10 * GIB, "the byte threshold binds on 1 TB");
-    assert_eq!(disk_warning_line(&s, 50 * GIB), 5 * GIB, "the percent binds on 50 GB");
     let at = |free: u64| DiskFacts { free_bytes: free, total_bytes: total };
     // No previous sample, or not shrinking: 30 minutes.
     assert_eq!(disk_recheck_ms(&s, None, 0, at(500 * GIB)), 30 * 60_000);

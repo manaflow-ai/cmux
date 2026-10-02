@@ -84,6 +84,14 @@ impl<'a> Postgres<'a> {
         config: &mut ServerConfig,
         opts: &PgOptions,
     ) -> Result<Postgres<'a>> {
+        if layout.mode == InstallMode::System {
+            // initdb and pg_ctl must run as the service user `cmux`, never
+            // as root; that belongs to the server role, not this CLI.
+            return Err(Error::rejected(
+                "Postgres in system mode is run by the server role as user cmux; \
+                 this build does not run initdb or pg_ctl from the CLI in system mode",
+            ));
+        }
         let pg_bin = match &opts.pg_bin {
             Some(dir) => absolute(dir)?,
             None => Store::new(layout)
@@ -215,6 +223,11 @@ impl<'a> Postgres<'a> {
         };
         for rel in ["postgres", "postgres/17", "logs", "backups", "backups/wal"] {
             fsx::ensure_dir(&self.state_dir(rel), 0o700)?;
+        }
+        // A pwfile left by an initdb that crashed holds the admin secret in
+        // clear text; it is never needed again.
+        if let Some(pwfile) = self.plan.spec().admin_pwfile.as_ref().map(fsx::local) {
+            fsx::remove_tree(&pwfile)?;
         }
         if !self.initialized() {
             self.init()?;

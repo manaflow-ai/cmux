@@ -8,7 +8,7 @@ use cmux_server_core::pg::{AppDb, AppId, DbMode};
 use cmux_server_core::{InstallMode, Platform};
 use serde_json::{Value, json};
 
-use super::lifecycle::{config, layout, pg_options};
+use super::lifecycle::{config, layout, mutating_layout, pg_options};
 use super::{Args, Context, Output};
 use crate::error::{Error, Result};
 use crate::fsx;
@@ -28,7 +28,7 @@ fn app_id(text: &str) -> Result<(AppId, Option<String>)> {
 }
 
 pub fn create(ctx: &Context<'_>, args: &Args) -> Result<Output> {
-    let layout = layout(ctx, false)?;
+    let layout = mutating_layout(ctx, false)?;
     let mut cfg = config(&layout)?;
     let (id, manifest_id) = app_id(&args.positionals[0])?;
     let mode = match args.value("mode") {
@@ -70,7 +70,7 @@ pub fn archive_wal(ctx: &Context<'_>, args: &Args) -> Result<Output> {
 }
 
 pub fn backup(ctx: &Context<'_>, args: &Args) -> Result<Output> {
-    let layout = layout(ctx, false)?;
+    let layout = mutating_layout(ctx, false)?;
     let mut cfg = config(&layout)?;
     let pg = Postgres::open(&layout, ctx.runner, &mut cfg, &pg_options(args))?;
     pg.ensure_cluster()?;

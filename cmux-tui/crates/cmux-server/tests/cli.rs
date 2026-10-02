@@ -194,3 +194,58 @@ fn archive_wal_verb_copies_into_the_layout() {
         assert!(state_wal.join("000000010000000000000001").is_file());
     }
 }
+
+#[test]
+fn postgres_is_refused_in_system_mode() {
+    use cmux_server::config::ServerConfig;
+    use cmux_server::pg::{PgOptions, Postgres};
+    use cmux_server_core::layout::layout;
+    use cmux_server_core::{InstallMode, Platform};
+    let tmp = tempfile::tempdir().unwrap();
+    let system = layout(InstallMode::System, Platform::Linux, &Default::default()).unwrap();
+    let mut cfg = ServerConfig::load(&tmp.path().join("server.json")).unwrap();
+    let runner = RecordingRunner::new();
+    let opts = PgOptions { pg_bin: Some(tmp.path().to_path_buf()), cmux_bin: None };
+    let err = Postgres::open(&system, &runner, &mut cfg, &opts).err().unwrap();
+    assert_eq!(err.kind, ExitKind::Rejected, "{err}");
+    assert!(runner.commands().is_empty(), "no initdb or pg_ctl ran");
+    assert!(!tmp.path().join("server.json").exists());
+}
+
+#[test]
+fn purge_refuses_a_live_postmaster_it_cannot_stop() {
+    if cmux_server::sys::is_root() {
+        return;
+    }
+    let env = Env::new();
+    env.publish(1, "1.0.0");
+    env.run(&format!("install {CHAN}")).unwrap();
+    let layout = layout_at(env.tmp.path(), cmux_server::host::platform());
+    let data = cmux_server::fsx::local(&layout.postgres_data());
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(data.join("PG_VERSION"), "17\n").unwrap();
+    // A live process (this test) in postmaster.pid, and no Postgres
+    // binaries in the store or on the command line.
+    std::fs::write(data.join("postmaster.pid"), format!("{}\n", std::process::id())).unwrap();
+    let err = env.run("uninstall --purge --no-backup").unwrap_err();
+    assert_eq!(err.kind, ExitKind::Rejected, "{err}");
+    assert!(err.message.contains("cannot stop it"), "{err}");
+    let store = cmux_server::store::Store::new(&layout);
+    assert_eq!(store.current_generation(), Some(1), "nothing was removed");
+    // Without --purge the data stays, so uninstall goes on and warns.
+    let out = env.run("uninstall").unwrap();
+    assert!(out["warnings"][0].as_str().unwrap().contains("left running"), "{out}");
+    assert!(data.join("PG_VERSION").is_file());
+}
+
+#[test]
+fn install_refuses_an_invalid_channel_before_writing_config() {
+    if cmux_server::sys::is_root() {
+        return;
+    }
+    let env = Env::new();
+    let err = env.run(&format!("install --channel Beta {CHAN}")).unwrap_err();
+    assert_eq!(err.kind, ExitKind::Usage);
+    let layout = layout_at(env.tmp.path(), cmux_server::host::platform());
+    assert!(!std::path::Path::new(layout.config_file.as_str()).exists());
+}

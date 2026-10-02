@@ -122,7 +122,11 @@ fn real_cluster_isolation_archive_and_backup() {
     let again = pg.ensure_app(&notes, None).unwrap();
     assert!(!again.created_role && !again.created_database);
     assert_eq!(std::fs::read(&notes_pass).unwrap(), before);
+    // A pwfile left by a crashed initdb is removed by the next ensure.
+    let leftover = PathBuf::from(layout.state.join("postgres/initdb.pw").as_str());
+    std::fs::write(&leftover, "stale-secret\n").unwrap();
     let second = pg.ensure_cluster().unwrap();
+    assert!(!leftover.exists(), "leftover pwfile removed");
     assert!(!second.created && !second.started);
 
     // archive-wal: a WAL switch lands a durable segment in the archive.

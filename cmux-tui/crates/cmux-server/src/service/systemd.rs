@@ -21,6 +21,7 @@ use crate::process::{Cmd, Runner};
 const UPDATE_PATH: &str = "cmux-update.path";
 const UPDATE_SERVICE: &str = "cmux-update.service";
 const APP_TEMPLATE: &str = "cmux-app-server@.service";
+const APP_INSTANCES: &str = "cmux-app-server@*.service";
 
 fn unit_error(e: UnitError) -> Error {
     Error::rejected(format!("cannot render the unit: {e:?}"))
@@ -52,7 +53,9 @@ pub fn files(s: &Services<'_>) -> Result<Vec<(PathBuf, String)>> {
 
 fn systemctl(s: &Services<'_>) -> Cmd {
     if system(s) {
-        return Cmd::new("systemctl");
+        // Never prompt through polkit: the caller already runs as root, and
+        // a prompt from a service-manager call would block an agent.
+        return Cmd::new("systemctl").arg("--no-ask-password");
     }
     let mut cmd = Cmd::new("systemctl").arg("--user");
     if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
@@ -145,9 +148,12 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
     if system(s) {
         s.runner.check(&ctl.clone().args(["start", UPDATE_PATH]))?;
     }
+    // A running server restarts for a new generation or a changed unit
+    // (daemon-reload alone does not apply a unit to a running service).
     // `start` is a no-op when the unit is already active and returns at
     // readiness (`Type=notify`).
-    let verb = if restart && is_active(s) { "restart" } else { "start" };
+    let wants_restart = restart || report.changed;
+    let verb = if wants_restart && is_active(s) { "restart" } else { "start" };
     s.runner.check(&ctl.args([verb, SYSTEMD_UNIT]))?;
     report.restarted = verb == "restart";
     Ok(report)
@@ -174,6 +180,11 @@ pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
     // One unit per call: systemctl aborts the whole call on a missing unit.
     for unit in units {
         let _ = s.runner.run(&ctl.clone().args(["disable", "--now", unit]));
+    }
+    if system(s) {
+        // Every app server instance stops before its template is removed;
+        // systemctl expands the pattern itself (literal argv, no shell).
+        let _ = s.runner.run(&ctl.clone().args(["stop", APP_INSTANCES]));
     }
     let mut removed = Vec::new();
     for (path, _) in files(s)? {

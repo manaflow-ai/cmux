@@ -76,9 +76,24 @@ impl Fetch for HttpsFetcher {
             .client
             .get(url)
             .send()
-            .and_then(reqwest::blocking::Response::error_for_status)
             .map_err(|e| Error::unreachable(format!("download {url}: {e}")))?;
+        let status = response.status().as_u16();
+        if status >= 400 {
+            return Err(status_error(url, status));
+        }
         Ok(Box::new(response))
+    }
+}
+
+/// An HTTP error status: 404 and 410 are "not found" (exit 3, for example
+/// `--version` naming a version the channel does not have); other client
+/// errors are rejected (4); server errors are unreachable (5).
+pub fn status_error(url: &str, status: u16) -> Error {
+    let message = format!("download {url}: HTTP {status}");
+    match status {
+        404 | 410 => Error::not_found(message),
+        400..=499 => Error::rejected(message),
+        _ => Error::unreachable(message),
     }
 }
 
