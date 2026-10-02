@@ -1,6 +1,6 @@
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig } from "vite";
+import { defineConfig } from "vite-plus";
 import { cmuxCheckConfig } from "../config/vite-plus/check";
 
 const outDir = process.env.CMUX_WEBVIEWS_OUT_DIR ?? "../Resources/markdown-viewer/webviews-app";
@@ -37,20 +37,19 @@ export default defineConfig({
   ],
   build: {
     emptyOutDir: true,
-    minify: "esbuild",
     outDir,
     // The macOS app supplies its own host HTML (the CLI builds the diff viewer
     // page; build-webviews-app.sh writes agent-session.html) and loads
     // `main.mjs` as the module entry, so there is no Vite HTML entry. We drive
-    // the build from a single JS entry via `rollupOptions.input` instead of
-    // library mode. Dropping `build.lib` + `inlineDynamicImports` lets Rollup
+    // the build from a single JS entry via `rolldownOptions.input` instead of
+    // library mode. Dropping `build.lib` + `inlineDynamicImports` lets Rolldown
     // split each surface (diff viewer vs agent session) and shared vendor code
     // into separate chunks that load on demand via relative `import()`. Both
     // serving paths already handle sibling chunks: the diff viewer custom
     // scheme registers every emitted `.js`/`.mjs`, and the agent-session file
     // load grants read access to the whole output directory.
     modulePreload: false,
-    rollupOptions: {
+    rolldownOptions: {
       input: { main: "src/main.tsx", "diff-worker": "src/diff-worker.ts" },
       output: {
         format: "es",
@@ -82,66 +81,89 @@ export default defineConfig({
         // shiki core lives once in `shiki-core` (imported by both threads)
         // and the WASM chunk is one file shared by the page and every worker.
         // Grammars are resolved on the main thread and posted to the workers.
-        manualChunks(id: string) {
-          const shikiLanguage = id.match(/\/@shikijs\/langs\/dist\/([^/]+)\.mjs$/);
-          if (shikiLanguage) {
-            return `shiki-lang-${shikiLanguage[1]}`;
-          }
-          const shikiTheme = id.match(/\/@shikijs\/themes\/dist\/([^/]+)\.mjs$/);
-          if (shikiTheme) {
-            return `shiki-theme-${shikiTheme[1]}`;
-          }
-          if (id.includes("/shiki/dist/wasm.mjs") || id.includes("/@shikijs/engine-oniguruma/dist/wasm-inlined.mjs")) {
-            return "shiki-wasm";
-          }
-          const pierreTheme = id.match(/\/@pierre\/theme\/dist\/(pierre-[^/]+)\.mjs$/);
-          if (pierreTheme) {
-            return `pierre-theme-${pierreTheme[1]}`;
-          }
-          // Vite's dynamic-import preload helper is the one module the slim
-          // entry statically imports. Pin it to the always-shared `vendor`
-          // chunk so Rollup never co-locates it with a surface vendor chunk,
-          // which would make the entry statically pull that chunk (e.g. the
-          // agent session eagerly loading the 10MB diff vendor bundle).
-          if (id.includes("vite/preload-helper")) {
-            return "preload-helper";
-          }
-          // The highlight worker entry stays in its own entry chunk; routing it
-          // into `diff-vendor` would make the worker evaluate the main-thread
-          // renderer (and React) on start.
-          if (id.endsWith("/@pierre/diffs/dist/worker/worker.js")) {
-            return undefined;
-          }
-          if (!id.includes("node_modules")) {
-            return undefined;
-          }
-          if (
-            id.includes("/shiki/") ||
-            id.includes("/@shikijs/") ||
-            id.includes("/oniguruma-parser/") ||
-            id.includes("/oniguruma-to-es/") ||
-            id.includes("/node_modules/diff/")
-          ) {
-            return "shiki-core";
-          }
-          if (id.includes("/@pierre/")) {
-            return "diff-vendor";
-          }
-          // Framework code both surfaces share. Pinning it to a stable `vendor`
-          // chunk name keeps the shared chunk from being renamed (and rehashed)
-          // whenever an unrelated shared module changes.
-          if (
-            id.includes("/react/") ||
-            id.includes("/react-dom/") ||
-            id.includes("/react-compiler-runtime/") ||
-            id.includes("/scheduler/") ||
-            id.includes("/@tanstack/")
-          ) {
-            return "vendor";
-          }
-          return undefined;
+        codeSplitting: {
+          groups: [
+            // Lazy chunks take only their own module. Rolldown groups capture
+            // dependencies by default, which would fold a grammar that another
+            // grammar embeds into whichever language chunk claims it first.
+            { name: lazyChunkName, debugName: "lazy", priority: 10, includeDependenciesRecursively: false },
+            // Shared vendor chunks keep Rollup's manualChunks behavior: their
+            // otherwise unassigned dependencies (hast utilities under shiki,
+            // for example) land in the same chunk. One group per chunk, in
+            // this order, so `diff-vendor` cannot capture shiki (which the
+            // worker needs without the renderer) as a dependency.
+            ...["shiki-core", "diff-vendor", "vendor"].map((name, index) => ({
+              name,
+              test: (id: string) => sharedChunkName(id) === name,
+              priority: 3 - index,
+            })),
+          ],
         },
       },
     },
   },
 });
+
+function lazyChunkName(id: string): string | null {
+  const shikiLanguage = id.match(/\/@shikijs\/langs\/dist\/([^/]+)\.mjs$/);
+  if (shikiLanguage) {
+    return `shiki-lang-${shikiLanguage[1]}`;
+  }
+  const shikiTheme = id.match(/\/@shikijs\/themes\/dist\/([^/]+)\.mjs$/);
+  if (shikiTheme) {
+    return `shiki-theme-${shikiTheme[1]}`;
+  }
+  if (id.includes("/shiki/dist/wasm.mjs") || id.includes("/@shikijs/engine-oniguruma/dist/wasm-inlined.mjs")) {
+    return "shiki-wasm";
+  }
+  const pierreTheme = id.match(/\/@pierre\/theme\/dist\/(pierre-[^/]+)\.mjs$/);
+  if (pierreTheme) {
+    return `pierre-theme-${pierreTheme[1]}`;
+  }
+  // Vite's dynamic-import preload helper is the one module the slim
+  // entry statically imports. Pin it to the always-shared `vendor`
+  // chunk so Rollup never co-locates it with a surface vendor chunk,
+  // which would make the entry statically pull that chunk (e.g. the
+  // agent session eagerly loading the 10MB diff vendor bundle).
+  if (id.includes("vite/preload-helper")) {
+    return "preload-helper";
+  }
+  return null;
+}
+
+function sharedChunkName(id: string): string | null {
+  // The highlight worker entry stays in its own entry chunk; routing it
+  // into `diff-vendor` would make the worker evaluate the main-thread
+  // renderer (and React) on start.
+  if (id.endsWith("/@pierre/diffs/dist/worker/worker.js")) {
+    return null;
+  }
+  if (!id.includes("node_modules")) {
+    return null;
+  }
+  if (
+    id.includes("/shiki/") ||
+    id.includes("/@shikijs/") ||
+    id.includes("/oniguruma-parser/") ||
+    id.includes("/oniguruma-to-es/") ||
+    id.includes("/node_modules/diff/")
+  ) {
+    return "shiki-core";
+  }
+  if (id.includes("/@pierre/")) {
+    return "diff-vendor";
+  }
+  // Framework code both surfaces share. Pinning it to a stable `vendor`
+  // chunk name keeps the shared chunk from being renamed (and rehashed)
+  // whenever an unrelated shared module changes.
+  if (
+    id.includes("/react/") ||
+    id.includes("/react-dom/") ||
+    id.includes("/react-compiler-runtime/") ||
+    id.includes("/scheduler/") ||
+    id.includes("/@tanstack/")
+  ) {
+    return "vendor";
+  }
+  return null;
+}
