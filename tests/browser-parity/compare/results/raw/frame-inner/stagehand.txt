@@ -1,5 +1,0 @@
-[0-3] RootWebArea: Inner
-  [0-5] scrollable, html
-    [0-10] body
-      [0-11] button: Inside frame
-      [0-2] textbox: Frame field

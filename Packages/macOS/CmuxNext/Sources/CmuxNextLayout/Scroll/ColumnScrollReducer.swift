@@ -2,8 +2,8 @@ public import CoreGraphics
 public import CmuxNextDesign
 public import Foundation
 
-/// The column scroll rules (plans/cmux-next/niri.md): minimal reveal of the
-/// focused column, niri's `center-focused-column` modes, a camera anchored on
+/// The column scroll rules (plans/cmux-next/column-scroll.md): minimal reveal of the
+/// focused column, the column centering modes, a camera anchored on
 /// the focused column across layout and window changes, the restore of the
 /// previous offset when a just-opened column closes, and trackpad and wheel
 /// snapping that never fights the automatic reveal. Pure: no AppKit.
@@ -21,7 +21,7 @@ nonisolated extension ColumnScrollState {
             finish(animated: animated, into: &effects)
         case .gestureBegan:
             // The gesture takes over from the presented value: an automatic
-            // scroll in flight stops where it is (niri `view_offset_gesture_begin`).
+            // scroll in flight stops where it is.
             gesture = Gesture(raw: spring.value)
             spring.velocity = 0
             spring.target = spring.value
@@ -97,9 +97,8 @@ nonisolated extension ColumnScrollState {
         }
 
         // 1. Camera: keep the previously focused column where it is on screen
-        //    across insertions, removals, width and window changes (niri keeps
-        //    the view offset relative to the active column). A reorder (move
-        //    column) keeps the camera itself (niri `move_column_to`).
+        //    across insertions, removals, width and window changes. A reorder (move
+        //    column) keeps the camera itself.
         var delta: CGFloat = 0
         if new.keepsOrder(of: old) || old.viewportWidth != new.viewportWidth,
            let anchor = oldColumn,

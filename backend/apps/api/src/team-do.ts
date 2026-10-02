@@ -6,6 +6,7 @@ import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { complianceFor, devicePolicyFor, publicToken } from "./domains/team-enrollment.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
+import { domainExternal, type DomainReply, type Http } from "./team-domain-external.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export class TeamDO extends OwnerDO<TeamState> {
@@ -48,6 +49,10 @@ export class TeamDO extends OwnerDO<TeamState> {
           value: { team: state.team?.id, tokens: Object.values(state.enrollment_tokens ?? {}).map(publicToken), devices: Object.values(state.managed_devices ?? {}) },
           revision: ""
         }
+      }
+      case "domain.list": {
+        if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may list domains" }
+        return { ok: true, value: { team: state.team?.id, domains: Object.values(state.domains ?? {}) }, revision: "" }
       }
       case "team.device.compliance": {
         if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may read device compliance" }
@@ -149,6 +154,27 @@ export class TeamDO extends OwnerDO<TeamState> {
     const res = this.submitSystem("team.policy.integration_lock", { managed_by: managedBy, version, epoch }, `integration-lock:${epoch}:${version}`)
     const rej = res.frames.find((f) => f.t === "reject")
     return rej && rej.t === "reject" ? { ok: false, message: rej.message } : { ok: true }
+  }
+
+  /** Outbound fetch for DNS over HTTPS; tests replace it. */
+  http: Http = (r) => fetch(r)
+
+  /** RPC from the Worker: domain.verify and domain.release (DNS and DomainDO, then a system op). */
+  async domainOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
+    const engine = this.bind(entity)
+    return domainExternal(
+      {
+        state: engine.currentState,
+        team: entity,
+        stream: engine.stream,
+        http: this.http,
+        domainStub: (domain) => this.env.DOMAIN_DO.get(this.env.DOMAIN_DO.idFromName(domain)),
+        submitSystem: (op, params, key) => this.submitSystem(op, params, key),
+        now: Date.now()
+      },
+      principal,
+      frame
+    )
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {

@@ -20,7 +20,7 @@ final class PaletteShortcutEditor: PaletteShortcutEditing {
         self.settings = settings
     }
 
-    /// The chord's meaning in a page (Chrome's table) and in a terminal
+    /// The chord's meaning in a page (`BrowserChordTable`) and in a terminal
     /// (the user's Ghostty keybind for window, tab and split actions, named
     /// by the cmux action it runs).
     func environment(for event: NSEvent?) -> ShortcutEditEnvironment {

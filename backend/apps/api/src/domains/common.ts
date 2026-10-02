@@ -70,6 +70,34 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
   ],
+  ...(["domain.mark_verified", "domain.mark_released", "domain.mark_lost"] as const).map(
+    (name) =>
+      [
+        name,
+        {
+          name,
+          owner: "cloud:TeamDO",
+          class: "mutation",
+          risk: "mutate-shared",
+          target: "team",
+          principals: ["system"],
+          params:
+            name === "domain.mark_verified"
+              ? Schema.Struct({ domain: Schema.String, record_value: Schema.String, verified_at: Schema.Number, by: Schema.optionalKey(Schema.String) })
+              : Schema.Struct({ domain: Schema.String, by: Schema.optionalKey(Schema.String) }),
+          result: Schema.Unknown,
+          errors: [],
+          docs:
+            name === "domain.mark_verified"
+              ? "Internal: DomainDO made this team the domain's owner."
+              : name === "domain.mark_lost"
+                ? "Internal: DomainDO refused a re-check; another team owns the domain."
+                : "Internal: DomainDO dropped this team's claim.",
+          cli: { path: "", visible: false },
+          mcp: { expose: "never", group: "internal" }
+        } as CloudOpDef
+      ] as const
+  ),
   ...(["team.policy.integration_lock", "team.integration.release_done"] as const).map(
     (name) =>
       [

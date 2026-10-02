@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { INVITE_CODE } from "../lib/invites"
-import { renderInviteCard, type InviteCard } from "../lib/invite-card"
+import { CARD_VARIANTS, DEFAULT_CARD_VARIANT, renderInviteCard, type CardVariant, type InviteCard } from "../lib/invite-card"
 
 /**
  * GET /og/invite/<code>.png: the per-invite thumbnail for iMessage and other unfurlers.
@@ -51,7 +51,11 @@ export const Route = createFileRoute("/og/invite/$code")({
       GET: async ({ params, request }) => {
         const code = params.code.replace(/\.png$/, "")
         const card = INVITE_CODE.test(code) ? await loadCard(code) : null
-        const png = await renderInviteCard(card, new URL(request.url).origin)
+        const url = new URL(request.url)
+        // `?v=` picks a design for side-by-side review; `?s=square` renders 1200x1200.
+        const asked = url.searchParams.get("v") as CardVariant | null
+        const variant: CardVariant = asked && CARD_VARIANTS.includes(asked) ? asked : DEFAULT_CARD_VARIANT
+        const png = await renderInviteCard(card, url.origin, variant, url.searchParams.get("s") === "square")
         return new Response(png as Uint8Array<ArrayBuffer>, {
           status: 200,
           headers: {

@@ -66,7 +66,7 @@ final class ScreenContentView: NSView {
     }
 
     /// A window resize: frames snap, and the scroll keeps the focused column
-    /// in place on screen, then fits it (niri `update_config`).
+    /// in place on screen, then fits it (L7).
     private func reconcileAndScroll() {
         reconcile(animated: false)
         syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: false)

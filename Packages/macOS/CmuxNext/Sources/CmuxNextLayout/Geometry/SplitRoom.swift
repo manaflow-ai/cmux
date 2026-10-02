@@ -12,8 +12,8 @@ public nonisolated enum SplitPlacement: Hashable, Sendable {
     case split
     /// Columns screen, side-by-side split, and the pane's column has no room
     /// for two panes across: open a new column after it instead. Horizontal
-    /// space in a niri strip is unbounded, so the column strip grows rather
-    /// than squeezing panes (niri itself never splits a column sideways).
+    /// space in a column strip is unbounded, so the column strip grows rather
+    /// than squeezing panes.
     case newColumn
     /// The split cannot fit. Stacked splits in a column and every split on a
     /// plain split screen have a fixed container, so they refuse.

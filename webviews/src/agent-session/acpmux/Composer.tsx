@@ -41,7 +41,7 @@ type Props = {
   onAttach?(): void;
 };
 
-/// The prompt box with the agent's `/` command menu, drawn as Codex's composer:
+/// The prompt box with the agent's `/` command menu:
 /// the prompt over a bar with + at the left, the mode and model chips, and a
 /// round Send button at the right, which turns into Stop while a turn runs and
 /// the prompt is empty. Enter sends and

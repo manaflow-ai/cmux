@@ -201,7 +201,7 @@ class StoreRun:
             return
         prefix = f"chrome-extension://{entry['id']}/"
         # Extensions open welcome tabs after install; a new foreground tab
-        # closes an open action popup (as in Chrome). Click once the shown
+        # closes an open action popup. Click once the shown
         # tabs stopped changing.
         self.wait_tabs_settled(app)
         before = {t.get("id") for t in cdp.targets(app.cdp_port)}

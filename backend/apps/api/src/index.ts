@@ -5,6 +5,7 @@ import { handleAutomationHook } from "./ingress/automation-hook.ts"
 import { handleProviderHook } from "./ingress/provider-hook.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
+export { DomainDO } from "./domain-do.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { ConnectionDO } from "./connection-do.ts"
 export { FeedDO } from "./feed-do.ts"

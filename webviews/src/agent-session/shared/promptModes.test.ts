@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { promptTextWithPlanMode } from "./promptModes";
 
-test("plan mode appends the Codex skill mention without changing visible input", () => {
+test("plan mode appends the plan skill mention without changing visible input", () => {
   expect(promptTextWithPlanMode("write a plan", true)).toBe("write a plan\n\n[$plan](skill://plan)");
 });
 

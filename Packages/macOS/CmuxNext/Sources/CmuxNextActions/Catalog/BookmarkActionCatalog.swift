@@ -1,7 +1,7 @@
 // Bookmarks (plans/cmux-next/bookmarks.md section 3). Titles live in
 // BookmarkActions.xcstrings. Cmd-D stays Split Right (round 3 decision), so
-// Bookmark This Page has no default chord; Cmd-Shift-B (Chrome's bookmarks
-// bar) is free in cmux and toggles the bar.
+// Bookmark This Page has no default chord; Cmd-Shift-B is free in cmux and
+// toggles the bookmarks bar.
 
 nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {

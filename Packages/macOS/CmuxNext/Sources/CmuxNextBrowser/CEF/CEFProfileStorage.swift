@@ -5,7 +5,7 @@ public import Foundation
 ///
 /// `root_cache_path` is `<Application Support>/<bundle id>/Chromium`. Every
 /// cmux profile, the default one included, gets its own request context in
-/// `Profile-<uuid>`: Chrome 136+ refuses remote debugging on the default user
+/// `Profile-<uuid>`: Chromium 136+ refuses remote debugging on the default user
 /// data dir, and it keeps extensions and cookies per profile. Chrome style
 /// requires each profile directory to be a direct child of the root; any
 /// other path silently becomes an off-the-record profile.

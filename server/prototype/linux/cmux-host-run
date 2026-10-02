@@ -1,0 +1,29 @@
+#!/bin/sh
+# cmux-host-run (PROTOTYPE stand-in for the frozen unit command `cmux host run`).
+# Shipped as its own store package so the test channel can change it between
+# manifest versions. Starts the session host role and returns once it answers
+# identify with lifecycle_ready; writes the PID file for Type=forking.
+set -u
+CMUX_HOST_RUN_VERSION='@VERSION@'
+bin_dir=$(dirname "$0")
+runtime=${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is not set}
+case "${1:-start}" in
+  start)
+    out=$("$bin_dir/cmux" server ensure --session server --json) || {
+      printf '%s\n' "$out" >&2
+      exit 1
+    }
+    pid=$(printf '%s\n' "$out" | sed -n 's/.*"pid":\([0-9][0-9]*\).*/\1/p' | head -n 1)
+    [ -n "$pid" ] || {
+      printf 'cmux-host-run: no pid in: %s\n' "$out" >&2
+      exit 1
+    }
+    printf '%s\n' "$pid" >"$runtime/cmux-server.pid"
+    printf 'cmux-host-run %s: session host ready, pid %s\n' "$CMUX_HOST_RUN_VERSION" "$pid"
+    ;;
+  version) printf '%s\n' "$CMUX_HOST_RUN_VERSION" ;;
+  *)
+    printf 'usage: cmux-host-run start|version\n' >&2
+    exit 2
+    ;;
+esac

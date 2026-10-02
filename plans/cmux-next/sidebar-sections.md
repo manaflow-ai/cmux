@@ -49,7 +49,7 @@ too". Candidates:
 | shelves | pairs with rooms ("this room's shelves"); playful, ownable | a second invented noun next to rooms; "shelf" also suggests a drawer that slides out (Yoink, Dropover); translators need a metaphor |
 | docks | sticky feel | collides with the macOS Dock |
 | zones / areas | neutral | read as regions, not as named lists |
-| stacks | Arc-like | collides with Leo's "stack of workspaces" |
+| stacks | switchable sets | collides with Leo's "stack of workspaces" |
 | groups / folders | familiar | taken by workspace groups and bookmark folders |
 
 Recommendation: **sections** for the user-facing noun, **regions** for top/middle/bottom (shown in
@@ -65,8 +65,8 @@ A room (wire `profile`) chooses which workspaces a window shows. Two models:
   section has `scope`: `allRooms` (default) or `room(id)`. Room-scoped sections show only while
   their room is shown; the Workspaces section always lists the shown room's workspaces (today's
   behavior). Home, Settings and the account stay put when you switch rooms, which is what built-in
-  chrome should do; a "Project X" section with pinned tabs can belong to one room (Arc's per-space
-  pinned tabs, while global sections behave like Arc's favorites).
+  chrome should do; a "Project X" section with pinned tabs can belong to one room
+  (per-room pinned tabs), while global sections stay the same in every room.
 - **B. One layout per room.** Every room owns a complete layout, copied from the default when the
   room is created. Maximal freedom, but adding Home back or moving Settings must be repeated in
   every room, and a new room starts from a stale copy.
@@ -95,7 +95,7 @@ both reducers (Swift and cmux-tui-core).
 
 Arrangement is a small flexbox (Lawrence, 2026-10-02): `list` puts one item per row; `inline` puts
 items on one line with icon and label while they fit (an item with `shows_label: false` shows its icon
-only), then icons only, then wraps; `grid` puts tiles in columns (Arc's pinned tiles). `align` places
+only), then icons only, then wraps; `grid` puts tiles in columns. `align` places
 the leftover space on a line (`fill` spreads it between items, so two items sit at both edges; one
 item stays leading). `align` defaults to leading for every layout; a grid with fitted columns
 stretches its tiles, and a grid with fixed columns places every line by the leftover of a full

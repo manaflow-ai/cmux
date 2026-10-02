@@ -58,7 +58,7 @@ nonisolated extension OmnibarStep {
         state.edit = .init(userText: text, selection: selection, suppressCompletion: kind != .insert || !atEnd)
 
         // Typing the next characters of a shown completion keeps the rest
-        // of it on screen until fresh rows arrive (no flicker, Chrome).
+        // of it on screen until fresh rows arrive (no flicker).
         if hadCompletion, kind == .insert, atEnd, !wasComposing,
            previous.count > text.count, previous.lowercased().hasPrefix(text.lowercased()) {
             state.edit.inlineCompletion = String(previous.dropFirst(text.count))
@@ -94,7 +94,7 @@ nonisolated extension OmnibarStep {
         if state.phase == .focused {
             state.edit.selection = OmnibarRules.clamped(field.selection, length: OmnibarRules.length(state.fieldText))
             state.edit.marked = nil
-            // Chrome `OnAfterPossibleChange`: a keystroke or caret move
+            // Chromium `OnAfterPossibleChange`: a keystroke or caret move
             // unelides; a press defers it to the release.
             if state.mouse == nil { unelide(.other) }
             return

@@ -735,7 +735,7 @@
         configurable: true,
       });
     }
-    // browser-use parity tools (agent-tools.js): secrets, domain policy,
+    // Agent tools (agent-tools.js): secrets, domain policy,
     // storage state, downloads, recording, search, custom tools, Markdown and
     // structured extraction.
     if (ns.agentTools) ns.agentTools.install({ session, host, globals, sessionApi, fetch: fetchWithCookies, fs, path, currentPage, tabs, show });

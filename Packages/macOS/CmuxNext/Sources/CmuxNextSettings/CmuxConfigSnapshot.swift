@@ -61,7 +61,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserDefaultEngine: BrowserDefaultEngine = .fallback
     /// `browser.newTabPage`; nil opens a blank page.
     public var browserNewTabPage: URL?
-    /// `browser.showBookmarksBar`; off when unset (Chrome's default).
+    /// `browser.showBookmarksBar`; off when unset.
     public var browserShowBookmarksBar = false
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback

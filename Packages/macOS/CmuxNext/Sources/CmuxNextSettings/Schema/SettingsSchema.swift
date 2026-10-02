@@ -98,7 +98,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.text("settings.layout.fixedColumnWidth", "Fixed Column Width"),
                 help: SettingsText.text("settings.layout.fixedColumnWidth.help", "A share of the window width, for Fixed Width new columns."),
                 kind: .number(SettingNumber(DefaultColumnWidthSetting.range, step: 0.05, unit: .fraction)),
-                default: .number(DefaultColumnWidthSetting.fallback), keywords: ["niri", "width"]
+                default: .number(DefaultColumnWidthSetting.fallback), keywords: ["width"]
             ),
             SettingDescriptor(
                 CenterFocusedColumnSetting.configPath, section: .general, group: columns,
@@ -108,7 +108,7 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(CenterFocusedColumn.always.rawValue, SettingsText.text("settings.choice.always", "Always")),
                     SettingChoice(CenterFocusedColumn.onOverflow.rawValue, SettingsText.text("settings.choice.onOverflow", "When It Does Not Fit")),
                 ]),
-                default: .string(CenterFocusedColumnSetting.fallback.rawValue), keywords: ["niri", "scroll"]
+                default: .string(CenterFocusedColumnSetting.fallback.rawValue), keywords: ["scroll"]
             ),
             SettingDescriptor(
                 StripScrollbarSetting.configPath, section: .general, group: columns,
@@ -119,7 +119,7 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(StripScrollbarMode.always.rawValue, SettingsText.text("settings.choice.always", "Always")),
                     SettingChoice(StripScrollbarMode.off.rawValue, SettingsText.text("settings.choice.off", "Off")),
                 ]),
-                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["niri", "scroll", "scrollbar", "minimap"]
+                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["scroll", "scrollbar", "minimap"]
             ),
             SettingDescriptor(
                 CloseFocusSetting.configPath, section: .general, group: columns,

@@ -1972,127 +1972,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hosts such as mail.google.com or *.figma.com."
+            "value": "Hosts such as mail.google.com or *.example.com."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "mail.google.com や *.figma.com などのホスト。"
+            "value": "mail.google.com や *.example.com などのホスト。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "مضيفون مثل mail.google.com أو *.figma.com."
+            "value": "مضيفون مثل mail.google.com أو *.example.com."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hostovi poput mail.google.com ili *.figma.com."
+            "value": "Hostovi poput mail.google.com ili *.example.com."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Værter som mail.google.com eller *.figma.com."
+            "value": "Værter som mail.google.com eller *.example.com."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hosts wie mail.google.com oder *.figma.com."
+            "value": "Hosts wie mail.google.com oder *.example.com."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hosts como mail.google.com o *.figma.com."
+            "value": "Hosts como mail.google.com o *.example.com."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hôtes comme mail.google.com ou *.figma.com."
+            "value": "Hôtes comme mail.google.com ou *.example.com."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Host come mail.google.com o *.figma.com."
+            "value": "Host come mail.google.com o *.example.com."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីនដូចជា mail.google.com ឬ *.figma.com។"
+            "value": "ម៉ាស៊ីនដូចជា mail.google.com ឬ *.example.com។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "mail.google.com 또는 *.figma.com 같은 호스트."
+            "value": "mail.google.com 또는 *.example.com 같은 호스트."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Verter som mail.google.com eller *.figma.com."
+            "value": "Verter som mail.google.com eller *.example.com."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hosty, np. mail.google.com lub *.figma.com."
+            "value": "Hosty, np. mail.google.com lub *.example.com."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hosts como mail.google.com ou *.figma.com."
+            "value": "Hosts como mail.google.com ou *.example.com."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Хосты вида mail.google.com или *.figma.com."
+            "value": "Хосты вида mail.google.com или *.example.com."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "โฮสต์ เช่น mail.google.com หรือ *.figma.com"
+            "value": "โฮสต์ เช่น mail.google.com หรือ *.example.com"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "mail.google.com veya *.figma.com gibi ana makineler."
+            "value": "mail.google.com veya *.example.com gibi ana makineler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Хости на кшталт mail.google.com або *.figma.com."
+            "value": "Хости на кшталт mail.google.com або *.example.com."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy chủ như mail.google.com hoặc *.figma.com."
+            "value": "Máy chủ như mail.google.com hoặc *.example.com."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "例如 mail.google.com 或 *.figma.com 等主机。"
+            "value": "例如 mail.google.com 或 *.example.com 等主机。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "例如 mail.google.com 或 *.figma.com 等主機。"
+            "value": "例如 mail.google.com 或 *.example.com 等主機。"
           }
         }
       }
