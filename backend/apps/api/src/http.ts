@@ -10,24 +10,27 @@ import {
   Forbidden,
   OwnerUnreachable,
   providerOpNames,
+  resolveOwner,
   Unauthenticated,
   type Connection,
-  type CurrentPrincipalShape
+  type CurrentPrincipalShape,
+  type DoOwner
 } from "@cmux/protocol"
 import { Effect, Layer, Redacted } from "effect"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
-import { authenticate, mintAccessToken, publicJwks, withGrantClasses } from "./auth.ts"
+import { authenticate, mintAccessToken, publicJwks } from "./auth.ts"
 import type { Env } from "./env.ts"
 import type { ExternalReply } from "./connection-do.ts"
 import { automationHookPath, automationHookSecret } from "./ingress/automation-hook.ts"
 import { providers } from "./integrations/providers.ts"
 import { signState, verifyState } from "./integrations/state.ts"
+import { appStoreRead } from "./app-store-http.ts"
+import { installCount } from "./app-store.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
+import { ownerRoute, principalFor, rpc, unreachable } from "./routing.ts"
 import type { RedeemResult } from "./user-do.ts"
 
-/** DO RPC stubs erase union result types; the DO methods define them. */
-const rpc = <T>(p: unknown) => p as Promise<T>
 type ChallengeResult = { ok: true; nonce: string; expires_at: number } | { ok: false; message: string }
 
 const env = workerEnv as unknown as Env
@@ -46,51 +49,15 @@ const toPrincipal = (p: CurrentPrincipalShape): Principal => ({
 
 const userStub = (user: string) => env.USER_DO.get(env.USER_DO.idFromName(user))
 
-/** Shape every owner DO exposes over RPC (OwnerDO). */
-interface OwnerStub {
-  submit(entity: string, principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin?: string; expected_revision?: string }): Promise<unknown>
-  readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<unknown>
-}
+const noEntity = (op: string) => new BadRequest({ code: "validation.invalid", message: `${op}: params name no owner entity` })
 
-/**
- * Owner routing: which object owns an op for this principal. UserDO is keyed by
- * the user; TeamDO and SchedulerDO by the principal's team (phase 1: the
- * personal team from the token; Stack teams will need a TeamDO membership check
- * before routing to a team other than the token's).
- */
-const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: string; stream: string } => {
-  switch (owner) {
-    case "cloud:UserDO":
-      return { stub: userStub(p.user!) as unknown as OwnerStub, entity: p.user!, stream: `user:${p.user}` }
-    case "cloud:TeamDO":
-      return { stub: env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `team:${p.team}` }
-    case "cloud:SchedulerDO":
-      return { stub: env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `scheduler:${p.team}` }
-    case "cloud:ConnectionDO":
-      return { stub: env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `connections:${p.team}` }
-    default:
-      throw new Error(`no route for owner ${owner}`)
-  }
-}
-
-const unreachable = (e: unknown) => new OwnerUnreachable({ code: "owner.unreachable", message: String(e), retryable: true })
-
-/** Principal for a given owner: TeamDO calls carry the grant classes UserDO resolved. */
-const principalFor = (owner: string, p: Principal) =>
-  owner === "cloud:UserDO"
-    ? Effect.succeed(p)
-    : Effect.tryPromise({ try: () => withGrantClasses(env, p), catch: unreachable }).pipe(
-        Effect.flatMap((q) => (q ? Effect.succeed(q) : Effect.fail(new Forbidden({ code: "auth.forbidden", message: "install revoked or grant invalid" }))))
-      )
-
-const submitTo = (owner: string, principalIn: Principal, frame: { op: string; params: unknown; idempotency_key: string; origin?: string; expected_revision?: string }) =>
-  Effect.flatMap(principalFor(owner, principalIn), (principal) => Effect.tryPromise({
-    try: (): Promise<SubmitResult> => {
-      const route = ownerRoute(owner, principal)
-      return rpc<SubmitResult>(route.stub.submit(route.entity, principal, { t: "op" as const, ...frame }))
-    },
-    catch: unreachable
-  }))
+const submitTo = (owner: DoOwner, principalIn: Principal, frame: { op: string; params: unknown; idempotency_key: string; origin?: string; expected_revision?: string }) =>
+  Effect.gen(function* () {
+    const principal = yield* principalFor(owner, principalIn)
+    const route = ownerRoute(owner, principal, frame.params)
+    if (!route) return yield* noEntity(frame.op)
+    return yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(route.stub.submit(route.entity, principal, { t: "op" as const, ...frame })), catch: unreachable })
+  })
 
 const callbackUrl = () => `${(env.DASHBOARD_ORIGIN ?? "").replace(/\/$/, "")}/integrations/callback`
 
@@ -183,7 +150,9 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
             return { ok: false, op: payload.op, error: { code: "integration.not_configured", message: `${provider} is not configured on this deployment`, retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
           }
         }
-        const { frames } = yield* submitTo(def.owner, principal, frame)
+        const owner = resolveOwner(def, frame.params)
+        if (owner === "cloud:planetscale") return yield* new BadRequest({ code: "validation.invalid", message: `${payload.op} has no writer` })
+        const { frames } = yield* submitTo(owner, principal, frame)
         const response = toResponse(payload.op, frames)
         if (payload.op === "integration.connect" && response.ok) {
           const c = response.value as Connection
@@ -214,8 +183,13 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
         // Reads honor the op's principal kinds too (automation.webhook.get is session-only: its secret starts runs).
         if (!def.principals.includes(principal.kind === "session" ? "session" : "install")) return yield* new Forbidden({ code: "auth.forbidden", message: `${payload.op} is not allowed for ${principal.kind} principals` })
-        const reader = yield* principalFor(def.owner, principal)
-        const route = ownerRoute(def.owner, reader)
+        // App store reads with their own shape: the PlanetScale projection, the merged install list.
+        const appRead = yield* appStoreRead(def, principal, payload.params)
+        if (appRead) return { op: payload.op, ...appRead }
+        const owner = resolveOwner(def, payload.params) as DoOwner
+        const reader = yield* principalFor(owner, principal)
+        const route = ownerRoute(owner, reader, payload.params)
+        if (!route) return yield* noEntity(payload.op)
         const r = yield* Effect.tryPromise({ try: () => rpc<ReadResult>(route.stub.readOp(route.entity, reader, payload.op, payload.params)), catch: unreachable })
         if (!r.ok) {
           if (r.code === "selector.not_found" || r.code === "validation.invalid") return yield* new BadRequest({ code: r.code, message: r.message })
@@ -234,6 +208,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           }
           return { op: payload.op, value, stream: route.stream, revision: r.revision }
         }
+        if (payload.op === "app.info") return { op: payload.op, value: { ...(r.value as object), install_count: yield* Effect.promise(() => installCount(env, route.entity)) }, stream: route.stream, revision: r.revision }
         return { op: payload.op, value: r.value, stream: route.stream, revision: r.revision }
       })
     )

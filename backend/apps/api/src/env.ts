@@ -1,4 +1,5 @@
 import type { AccountIndexDO } from "./account-index-do.ts"
+import type { AppDO } from "./app-do.ts"
 import type { ConnectionDO } from "./connection-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
 import type { TeamDO } from "./team-do.ts"
@@ -41,6 +42,16 @@ export interface Env {
   readonly SLACK_CLIENT_ID?: string
   readonly SLACK_CLIENT_SECRET?: string
   readonly SLACK_SIGNING_SECRET?: string
+  /** One AppDO per app id: listing, versions, tier, yanks. */
+  readonly APP_DO: DurableObjectNamespace<AppDO>
+  /** Comma-separated user ids of cmux staff for the app store (claim any id, yank, set tiers). */
+  readonly APP_STORE_STAFF?: string
   /** PlanetScale `cmux-next` through Hyperdrive (projection writes only). */
   readonly HYPERDRIVE?: Hyperdrive
+  /**
+   * PlanetScale `cmux-next` through a second Hyperdrive config whose role may
+   * only SELECT (owner `cloud:planetscale`: app.search). Absent = those reads
+   * answer `owner.unreachable`.
+   */
+  readonly HYPERDRIVE_READ?: Hyperdrive
 }

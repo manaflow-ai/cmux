@@ -11,9 +11,705 @@
     "host",
     "automation",
     "run",
-    "connection"
+    "connection",
+    "app"
   ],
   "types": {
+    "AppApproval": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ApprovalId"
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "install",
+              "update"
+            ]
+          }
+        },
+        "app": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AppId"
+          }
+        },
+        "scope": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "InstallScope"
+          }
+        },
+        "version": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AppVersion"
+          }
+        },
+        "version_range": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "VersionRange"
+          }
+        },
+        "scopes": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "added": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "requested_by": {
+          "required": true,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "identity": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "install": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "agent": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "origin": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        },
+        "status": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "pending",
+              "approved",
+              "denied",
+              "expired"
+            ]
+          }
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "expires_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "decided_by": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "decided_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        }
+      }
+    },
+    "AppId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+      "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+    },
+    "AppInstall": {
+      "kind": "object",
+      "fields": {
+        "app": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AppId"
+          }
+        },
+        "scope": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "InstallScope"
+          }
+        },
+        "version": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AppVersion"
+          }
+        },
+        "version_range": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "VersionRange"
+          }
+        },
+        "tier": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AppTier"
+          }
+        },
+        "scopes_granted": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "version_scopes": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "version_optional_scopes": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "bundle_url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "bundle_sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "app_revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "installed_by": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "installed_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "updated_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
+    },
+    "AppInstallOutcome": {
+      "kind": "union",
+      "variants": [
+        {
+          "kind": "object",
+          "fields": {
+            "status": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "installed"
+                ]
+              }
+            },
+            "install": {
+              "required": true,
+              "type": {
+                "kind": "ref",
+                "name": "AppInstall"
+              }
+            }
+          }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "status": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "approval_required"
+                ]
+              }
+            },
+            "approval": {
+              "required": true,
+              "type": {
+                "kind": "ref",
+                "name": "AppApproval"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AppInstallsView": {
+      "kind": "object",
+      "fields": {
+        "installs": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "AppInstall"
+            }
+          }
+        },
+        "approvals": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "AppApproval"
+            }
+          }
+        },
+        "policy": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "AppPolicy"
+            }
+          }
+        },
+        "revisions": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "user": {
+                "required": false,
+                "type": {
+                  "kind": "ref",
+                  "name": "Revision"
+                }
+              },
+              "team": {
+                "required": false,
+                "type": {
+                  "kind": "ref",
+                  "name": "Revision"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "AppListing": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AppId"
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "description": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "publisher": {
+          "required": true,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "name": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "github_owner": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "verified": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "repository": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "icon_url": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "categories": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "tier": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AppTier"
+          }
+        },
+        "latest_version": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "AppVersion"
+            }
+          }
+        },
+        "install_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "versions": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "AppVersionRecord"
+            }
+          }
+        }
+      }
+    },
+    "AppPolicy": {
+      "kind": "object",
+      "fields": {
+        "allowed_tiers": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "AppTier"
+              }
+            }
+          }
+        },
+        "allowlist": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "AppId"
+              }
+            }
+          }
+        },
+        "blocklist": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "AppId"
+            }
+          }
+        }
+      }
+    },
+    "ApprovalId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^appr_[a-z0-9]{20}$",
+      "description": "A pending request by an agent that a human decides (D48)."
+    },
+    "AppScope": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,31}:[A-Za-z0-9._*/-]{1,200}$",
+      "description": "A scope an app requests, `family:detail` (spec section 10, contract scopes.json)."
+    },
+    "AppTier": {
+      "kind": "enum",
+      "values": [
+        "first-party",
+        "verified",
+        "community",
+        "unverified"
+      ],
+      "description": "Review tier (D45). `unverified` apps are never searchable."
+    },
+    "AppVersion": {
+      "kind": "primitive",
+      "name": "string",
+      "max_length": 64,
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+      "description": "Semantic version; equals the release tag without the leading v."
+    },
+    "AppVersionRecord": {
+      "kind": "object",
+      "fields": {
+        "version": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AppVersion"
+          }
+        },
+        "tag": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "engines": {
+          "required": true,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "cmux": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        },
+        "scopes": {
+          "required": true,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "optional_scopes": {
+          "required": true,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "added_scopes": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "bundle_url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "bundle_sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "attestation_digest": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "published_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "published_by": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "yanked": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "yanked_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "yank_reason": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      }
+    },
     "Automation": {
       "kind": "object",
       "fields": {
@@ -754,6 +1450,14 @@
         "vm"
       ]
     },
+    "InstallScope": {
+      "kind": "enum",
+      "values": [
+        "user",
+        "team"
+      ],
+      "description": "Whose set: the caller's (user, default) or the caller's team (team; team admins)."
+    },
     "IntegrationProvider": {
       "kind": "enum",
       "values": [
@@ -830,6 +1534,12 @@
       "kind": "primitive",
       "name": "string",
       "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+    },
+    "Revision": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[0-9]+$",
+      "description": "Decimal per-object revision (the owner's event sequence)."
     },
     "Run": {
       "kind": "object",
@@ -1573,6 +2283,12 @@
           }
         }
       }
+    },
+    "VersionRange": {
+      "kind": "primitive",
+      "name": "string",
+      "min_length": 1,
+      "max_length": 64
     }
   },
   "generics": {
@@ -1645,6 +2361,4093 @@
     }
   },
   "operations": {
+    "app.approval.decide": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "app",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "approval": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ApprovalId"
+            }
+          },
+          "decision": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "approve",
+                "deny"
+              ]
+            }
+          },
+          "scope": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "InstallScope"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "approval": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "AppApproval"
+                }
+              },
+              "install": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "ref",
+                    "name": "AppInstall"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "app.yanked",
+        "approval.decided",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "policy.denied",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "scope_owners": {
+        "user": "cloud:UserDO",
+        "team": "cloud:TeamDO"
+      },
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "app approval decide",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "app"
+      },
+      "docs": "Approve or deny an agent's pending app install or scope growth. Human sessions only, never from an MCP client; an expired request is marked expired.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "approval": {
+            "$ref": "#/$defs/ApprovalId"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "deny"
+            ]
+          },
+          "scope": {
+            "$ref": "#/$defs/InstallScope"
+          }
+        },
+        "required": [
+          "approval",
+          "decision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ApprovalId": {
+            "type": "string",
+            "pattern": "^appr_[a-z0-9]{20}$",
+            "description": "A pending request by an agent that a human decides (D48)."
+          },
+          "InstallScope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "team"
+            ],
+            "description": "Whose set: the caller's (user, default) or the caller's team (team; team admins)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "approval": {
+            "$ref": "#/$defs/AppApproval"
+          },
+          "install": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AppInstall"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "approval",
+          "install"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ApprovalId": {
+            "type": "string",
+            "pattern": "^appr_[a-z0-9]{20}$",
+            "description": "A pending request by an agent that a human decides (D48)."
+          },
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "InstallScope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "team"
+            ]
+          },
+          "AppVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "description": "Semantic version; equals the release tag without the leading v."
+          },
+          "VersionRange": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "AppApproval": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ApprovalId"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "install",
+                  "update"
+                ]
+              },
+              "app": {
+                "$ref": "#/$defs/AppId"
+              },
+              "scope": {
+                "$ref": "#/$defs/InstallScope"
+              },
+              "version": {
+                "$ref": "#/$defs/AppVersion"
+              },
+              "version_range": {
+                "$ref": "#/$defs/VersionRange"
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "added": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requested_by": {
+                "type": "object",
+                "properties": {
+                  "identity": {
+                    "type": "string"
+                  },
+                  "install": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "agent": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "origin": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "identity",
+                  "install",
+                  "agent",
+                  "origin"
+                ],
+                "additionalProperties": true
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "approved",
+                  "denied",
+                  "expired"
+                ]
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "expires_at": {
+                "type": "integer"
+              },
+              "decided_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "decided_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "app",
+              "scope",
+              "version",
+              "version_range",
+              "scopes",
+              "added",
+              "requested_by",
+              "status",
+              "created_at",
+              "expires_at",
+              "decided_by",
+              "decided_at"
+            ],
+            "additionalProperties": true
+          },
+          "AppTier": {
+            "type": "string",
+            "enum": [
+              "first-party",
+              "verified",
+              "community",
+              "unverified"
+            ],
+            "description": "Review tier (D45). `unverified` apps are never searchable."
+          },
+          "AppInstall": {
+            "type": "object",
+            "properties": {
+              "app": {
+                "$ref": "#/$defs/AppId"
+              },
+              "scope": {
+                "$ref": "#/$defs/InstallScope"
+              },
+              "version": {
+                "$ref": "#/$defs/AppVersion"
+              },
+              "version_range": {
+                "$ref": "#/$defs/VersionRange"
+              },
+              "tier": {
+                "$ref": "#/$defs/AppTier"
+              },
+              "scopes_granted": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "version_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "version_optional_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "bundle_url": {
+                "type": "string"
+              },
+              "bundle_sha256": {
+                "type": "string"
+              },
+              "app_revision": {
+                "type": "string"
+              },
+              "installed_by": {
+                "type": "string"
+              },
+              "installed_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "app",
+              "scope",
+              "version",
+              "version_range",
+              "tier",
+              "scopes_granted",
+              "version_scopes",
+              "version_optional_scopes",
+              "bundle_url",
+              "bundle_sha256",
+              "app_revision",
+              "installed_by",
+              "installed_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "app.grant.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "app",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppId"
+            }
+          },
+          "scopes": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "AppScope"
+              }
+            }
+          },
+          "scope": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "InstallScope"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AppInstall"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "scope.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "scope_owners": {
+        "user": "cloud:UserDO",
+        "team": "cloud:TeamDO"
+      },
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "app grant",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "app"
+      },
+      "docs": "Set an installed app's granted scopes (every required scope, plus optional ones). Human sessions with origin user only.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppId"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AppScope"
+            },
+            "maxItems": 64
+          },
+          "scope": {
+            "$ref": "#/$defs/InstallScope"
+          }
+        },
+        "required": [
+          "app",
+          "scopes"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "AppScope": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,31}:[A-Za-z0-9._*/-]{1,200}$",
+            "description": "A scope an app requests, `family:detail` (spec section 10, contract scopes.json)."
+          },
+          "InstallScope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "team"
+            ],
+            "description": "Whose set: the caller's (user, default) or the caller's team (team; team admins)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AppInstall",
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "InstallScope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "team"
+            ]
+          },
+          "AppVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "description": "Semantic version; equals the release tag without the leading v."
+          },
+          "VersionRange": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "AppTier": {
+            "type": "string",
+            "enum": [
+              "first-party",
+              "verified",
+              "community",
+              "unverified"
+            ],
+            "description": "Review tier (D45). `unverified` apps are never searchable."
+          },
+          "AppInstall": {
+            "type": "object",
+            "properties": {
+              "app": {
+                "$ref": "#/$defs/AppId"
+              },
+              "scope": {
+                "$ref": "#/$defs/InstallScope"
+              },
+              "version": {
+                "$ref": "#/$defs/AppVersion"
+              },
+              "version_range": {
+                "$ref": "#/$defs/VersionRange"
+              },
+              "tier": {
+                "$ref": "#/$defs/AppTier"
+              },
+              "scopes_granted": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "version_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "version_optional_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "bundle_url": {
+                "type": "string"
+              },
+              "bundle_sha256": {
+                "type": "string"
+              },
+              "app_revision": {
+                "type": "string"
+              },
+              "installed_by": {
+                "type": "string"
+              },
+              "installed_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "app",
+              "scope",
+              "version",
+              "version_range",
+              "tier",
+              "scopes_granted",
+              "version_scopes",
+              "version_optional_scopes",
+              "bundle_url",
+              "bundle_sha256",
+              "app_revision",
+              "installed_by",
+              "installed_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "app.info": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "app",
+      "ancestors": [
+        "app"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppId"
+            }
+          },
+          "version": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "AppVersion"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "AppListing"
+      },
+      "errors": [
+        "auth.unauthenticated",
+        "selector.not_found"
+      ],
+      "owner": "cloud:AppDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "app info",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "app"
+      },
+      "docs": "Read one app's listing with its versions (scopes with reasons, engines, yanks). `version` narrows `versions` to that one.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppId"
+          },
+          "version": {
+            "$ref": "#/$defs/AppVersion"
+          }
+        },
+        "required": [
+          "app"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "AppVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "description": "Semantic version; equals the release tag without the leading v."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AppListing",
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "AppTier": {
+            "type": "string",
+            "enum": [
+              "first-party",
+              "verified",
+              "community",
+              "unverified"
+            ],
+            "description": "Review tier (D45). `unverified` apps are never searchable."
+          },
+          "AppVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "description": "Semantic version; equals the release tag without the leading v."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "AppVersionRecord": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "$ref": "#/$defs/AppVersion"
+              },
+              "tag": {
+                "type": "string"
+              },
+              "engines": {
+                "type": "object",
+                "properties": {
+                  "cmux": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "cmux"
+                ],
+                "additionalProperties": true
+              },
+              "scopes": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "optional_scopes": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "added_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "bundle_url": {
+                "type": "string"
+              },
+              "bundle_sha256": {
+                "type": "string"
+              },
+              "attestation_digest": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "published_at": {
+                "type": "integer"
+              },
+              "published_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "yanked": {
+                "type": "boolean"
+              },
+              "yanked_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "yank_reason": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "tag",
+              "engines",
+              "scopes",
+              "optional_scopes",
+              "added_scopes",
+              "bundle_url",
+              "bundle_sha256",
+              "attestation_digest",
+              "published_at",
+              "published_by",
+              "yanked",
+              "yanked_at",
+              "yank_reason"
+            ],
+            "additionalProperties": true
+          },
+          "AppListing": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/AppId"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "publisher": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "github_owner": {
+                    "type": "string"
+                  },
+                  "verified": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "github_owner",
+                  "verified"
+                ],
+                "additionalProperties": true
+              },
+              "repository": {
+                "type": "string"
+              },
+              "icon_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tier": {
+                "$ref": "#/$defs/AppTier"
+              },
+              "latest_version": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AppVersion"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "install_count": {
+                "type": "integer"
+              },
+              "versions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AppVersionRecord"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "description",
+              "publisher",
+              "repository",
+              "categories",
+              "tier",
+              "latest_version",
+              "install_count"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "app.install": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "app",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppId"
+            }
+          },
+          "version_range": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "VersionRange"
+            }
+          },
+          "scopes": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "AppScope"
+              }
+            }
+          },
+          "scope": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "InstallScope"
+            }
+          },
+          "accept_unverified": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AppInstallOutcome"
+          }
+        ]
+      },
+      "errors": [
+        "app.unverified",
+        "app.yanked",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "policy.denied",
+        "revision.conflict",
+        "scope.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "scope_owners": {
+        "user": "cloud:UserDO",
+        "team": "cloud:TeamDO"
+      },
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "app install",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "app"
+      },
+      "docs": "Install an app: the newest non-yanked version in `version_range` (default any), granting `scopes` (every required scope, plus any optional ones). Team installs need a team admin and pass the team app policy. An agent's install returns `approval_required` and waits for the user.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppId"
+          },
+          "version_range": {
+            "$ref": "#/$defs/VersionRange"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AppScope"
+            },
+            "maxItems": 64
+          },
+          "scope": {
+            "$ref": "#/$defs/InstallScope"
+          },
+          "accept_unverified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "app",
+          "scopes"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "VersionRange": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "AppScope": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,31}:[A-Za-z0-9._*/-]{1,200}$",
+            "description": "A scope an app requests, `family:detail` (spec section 10, contract scopes.json)."
+          },
+          "InstallScope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "team"
+            ],
+            "description": "Whose set: the caller's (user, default) or the caller's team (team; team admins)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AppInstallOutcome",
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "InstallScope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "team"
+            ]
+          },
+          "AppVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "description": "Semantic version; equals the release tag without the leading v."
+          },
+          "VersionRange": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "AppTier": {
+            "type": "string",
+            "enum": [
+              "first-party",
+              "verified",
+              "community",
+              "unverified"
+            ],
+            "description": "Review tier (D45). `unverified` apps are never searchable."
+          },
+          "AppInstall": {
+            "type": "object",
+            "properties": {
+              "app": {
+                "$ref": "#/$defs/AppId"
+              },
+              "scope": {
+                "$ref": "#/$defs/InstallScope"
+              },
+              "version": {
+                "$ref": "#/$defs/AppVersion"
+              },
+              "version_range": {
+                "$ref": "#/$defs/VersionRange"
+              },
+              "tier": {
+                "$ref": "#/$defs/AppTier"
+              },
+              "scopes_granted": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "version_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "version_optional_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "bundle_url": {
+                "type": "string"
+              },
+              "bundle_sha256": {
+                "type": "string"
+              },
+              "app_revision": {
+                "type": "string"
+              },
+              "installed_by": {
+                "type": "string"
+              },
+              "installed_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "app",
+              "scope",
+              "version",
+              "version_range",
+              "tier",
+              "scopes_granted",
+              "version_scopes",
+              "version_optional_scopes",
+              "bundle_url",
+              "bundle_sha256",
+              "app_revision",
+              "installed_by",
+              "installed_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          },
+          "ApprovalId": {
+            "type": "string",
+            "pattern": "^appr_[a-z0-9]{20}$",
+            "description": "A pending request by an agent that a human decides (D48)."
+          },
+          "AppApproval": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ApprovalId"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "install",
+                  "update"
+                ]
+              },
+              "app": {
+                "$ref": "#/$defs/AppId"
+              },
+              "scope": {
+                "$ref": "#/$defs/InstallScope"
+              },
+              "version": {
+                "$ref": "#/$defs/AppVersion"
+              },
+              "version_range": {
+                "$ref": "#/$defs/VersionRange"
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "added": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requested_by": {
+                "type": "object",
+                "properties": {
+                  "identity": {
+                    "type": "string"
+                  },
+                  "install": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "agent": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "origin": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "identity",
+                  "install",
+                  "agent",
+                  "origin"
+                ],
+                "additionalProperties": true
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "approved",
+                  "denied",
+                  "expired"
+                ]
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "expires_at": {
+                "type": "integer"
+              },
+              "decided_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "decided_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "app",
+              "scope",
+              "version",
+              "version_range",
+              "scopes",
+              "added",
+              "requested_by",
+              "status",
+              "created_at",
+              "expires_at",
+              "decided_by",
+              "decided_at"
+            ],
+            "additionalProperties": true
+          },
+          "AppInstallOutcome": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "installed"
+                    ]
+                  },
+                  "install": {
+                    "$ref": "#/$defs/AppInstall"
+                  }
+                },
+                "required": [
+                  "status",
+                  "install"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "approval_required"
+                    ]
+                  },
+                  "approval": {
+                    "$ref": "#/$defs/AppApproval"
+                  }
+                },
+                "required": [
+                  "status",
+                  "approval"
+                ],
+                "additionalProperties": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    "app.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "app",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "scope": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "team",
+                "all"
+              ]
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "AppInstallsView"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:UserDO",
+      "scope_owners": {
+        "user": "cloud:UserDO",
+        "team": "cloud:TeamDO"
+      },
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "app list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "app"
+      },
+      "docs": "List installed apps and pending approvals: the caller's (user), the team's (team, with the team app policy) or both (all, default).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "team",
+              "all"
+            ]
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AppInstallsView",
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "InstallScope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "team"
+            ]
+          },
+          "AppVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "description": "Semantic version; equals the release tag without the leading v."
+          },
+          "VersionRange": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "AppTier": {
+            "type": "string",
+            "enum": [
+              "first-party",
+              "verified",
+              "community",
+              "unverified"
+            ],
+            "description": "Review tier (D45). `unverified` apps are never searchable."
+          },
+          "AppInstall": {
+            "type": "object",
+            "properties": {
+              "app": {
+                "$ref": "#/$defs/AppId"
+              },
+              "scope": {
+                "$ref": "#/$defs/InstallScope"
+              },
+              "version": {
+                "$ref": "#/$defs/AppVersion"
+              },
+              "version_range": {
+                "$ref": "#/$defs/VersionRange"
+              },
+              "tier": {
+                "$ref": "#/$defs/AppTier"
+              },
+              "scopes_granted": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "version_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "version_optional_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "bundle_url": {
+                "type": "string"
+              },
+              "bundle_sha256": {
+                "type": "string"
+              },
+              "app_revision": {
+                "type": "string"
+              },
+              "installed_by": {
+                "type": "string"
+              },
+              "installed_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "app",
+              "scope",
+              "version",
+              "version_range",
+              "tier",
+              "scopes_granted",
+              "version_scopes",
+              "version_optional_scopes",
+              "bundle_url",
+              "bundle_sha256",
+              "app_revision",
+              "installed_by",
+              "installed_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          },
+          "ApprovalId": {
+            "type": "string",
+            "pattern": "^appr_[a-z0-9]{20}$",
+            "description": "A pending request by an agent that a human decides (D48)."
+          },
+          "AppApproval": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ApprovalId"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "install",
+                  "update"
+                ]
+              },
+              "app": {
+                "$ref": "#/$defs/AppId"
+              },
+              "scope": {
+                "$ref": "#/$defs/InstallScope"
+              },
+              "version": {
+                "$ref": "#/$defs/AppVersion"
+              },
+              "version_range": {
+                "$ref": "#/$defs/VersionRange"
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "added": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requested_by": {
+                "type": "object",
+                "properties": {
+                  "identity": {
+                    "type": "string"
+                  },
+                  "install": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "agent": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "origin": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "identity",
+                  "install",
+                  "agent",
+                  "origin"
+                ],
+                "additionalProperties": true
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "approved",
+                  "denied",
+                  "expired"
+                ]
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "expires_at": {
+                "type": "integer"
+              },
+              "decided_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "decided_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "app",
+              "scope",
+              "version",
+              "version_range",
+              "scopes",
+              "added",
+              "requested_by",
+              "status",
+              "created_at",
+              "expires_at",
+              "decided_by",
+              "decided_at"
+            ],
+            "additionalProperties": true
+          },
+          "AppPolicy": {
+            "type": "object",
+            "properties": {
+              "allowed_tiers": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/AppTier"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "allowlist": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/AppId"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "blocklist": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AppId"
+                }
+              }
+            },
+            "required": [
+              "allowed_tiers",
+              "allowlist",
+              "blocklist"
+            ],
+            "additionalProperties": true
+          },
+          "Revision": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Decimal per-object revision (the owner's event sequence)."
+          },
+          "AppInstallsView": {
+            "type": "object",
+            "properties": {
+              "installs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AppInstall"
+                }
+              },
+              "approvals": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AppApproval"
+                }
+              },
+              "policy": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AppPolicy"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revisions": {
+                "type": "object",
+                "properties": {
+                  "user": {
+                    "$ref": "#/$defs/Revision"
+                  },
+                  "team": {
+                    "$ref": "#/$defs/Revision"
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "installs",
+              "approvals",
+              "policy"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "app.listing.set_tier": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "app",
+      "ancestors": [
+        "app"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppId"
+            }
+          },
+          "tier": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppTier"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AppListing"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:AppDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "app tier",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "app"
+      },
+      "docs": "Set an app's review tier. cmux staff only (APP_STORE_STAFF); first-party only for reserved publishers.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppId"
+          },
+          "tier": {
+            "$ref": "#/$defs/AppTier"
+          }
+        },
+        "required": [
+          "app",
+          "tier"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "AppTier": {
+            "type": "string",
+            "enum": [
+              "first-party",
+              "verified",
+              "community",
+              "unverified"
+            ],
+            "description": "Review tier (D45). `unverified` apps are never searchable."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AppListing",
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "AppTier": {
+            "type": "string",
+            "enum": [
+              "first-party",
+              "verified",
+              "community",
+              "unverified"
+            ],
+            "description": "Review tier (D45). `unverified` apps are never searchable."
+          },
+          "AppVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "description": "Semantic version; equals the release tag without the leading v."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "AppVersionRecord": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "$ref": "#/$defs/AppVersion"
+              },
+              "tag": {
+                "type": "string"
+              },
+              "engines": {
+                "type": "object",
+                "properties": {
+                  "cmux": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "cmux"
+                ],
+                "additionalProperties": true
+              },
+              "scopes": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "optional_scopes": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "added_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "bundle_url": {
+                "type": "string"
+              },
+              "bundle_sha256": {
+                "type": "string"
+              },
+              "attestation_digest": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "published_at": {
+                "type": "integer"
+              },
+              "published_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "yanked": {
+                "type": "boolean"
+              },
+              "yanked_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "yank_reason": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "tag",
+              "engines",
+              "scopes",
+              "optional_scopes",
+              "added_scopes",
+              "bundle_url",
+              "bundle_sha256",
+              "attestation_digest",
+              "published_at",
+              "published_by",
+              "yanked",
+              "yanked_at",
+              "yank_reason"
+            ],
+            "additionalProperties": true
+          },
+          "AppListing": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/AppId"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "publisher": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "github_owner": {
+                    "type": "string"
+                  },
+                  "verified": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "github_owner",
+                  "verified"
+                ],
+                "additionalProperties": true
+              },
+              "repository": {
+                "type": "string"
+              },
+              "icon_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tier": {
+                "$ref": "#/$defs/AppTier"
+              },
+              "latest_version": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AppVersion"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "install_count": {
+                "type": "integer"
+              },
+              "versions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AppVersionRecord"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "description",
+              "publisher",
+              "repository",
+              "categories",
+              "tier",
+              "latest_version",
+              "install_count"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "app.policy.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "allowed_tiers": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "array",
+                "items": {
+                  "kind": "ref",
+                  "name": "AppTier"
+                }
+              }
+            }
+          },
+          "allowlist": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "array",
+                "items": {
+                  "kind": "ref",
+                  "name": "AppId"
+                }
+              }
+            }
+          },
+          "blocklist": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "AppId"
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AppPolicy"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "app policy set",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "app"
+      },
+      "docs": "Change the team app policy (team admins): allowed tiers, allowlist, blocklist. Applies to later team installs, updates and approvals.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "allowed_tiers": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AppTier"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "allowlist": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AppId"
+                },
+                "maxItems": 500
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "blocklist": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AppId"
+            },
+            "maxItems": 500
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "AppTier": {
+            "type": "string",
+            "enum": [
+              "first-party",
+              "verified",
+              "community",
+              "unverified"
+            ],
+            "description": "Review tier (D45). `unverified` apps are never searchable."
+          },
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AppPolicy",
+        "$defs": {
+          "AppTier": {
+            "type": "string",
+            "enum": [
+              "first-party",
+              "verified",
+              "community",
+              "unverified"
+            ],
+            "description": "Review tier (D45). `unverified` apps are never searchable."
+          },
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "AppPolicy": {
+            "type": "object",
+            "properties": {
+              "allowed_tiers": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/AppTier"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "allowlist": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/AppId"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "blocklist": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AppId"
+                }
+              }
+            },
+            "required": [
+              "allowed_tiers",
+              "allowlist",
+              "blocklist"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "app.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "app",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppId"
+            }
+          },
+          "scope": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "InstallScope"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "app": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "AppId"
+                }
+              },
+              "removed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "scope_owners": {
+        "user": "cloud:UserDO",
+        "team": "cloud:TeamDO"
+      },
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "app remove",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "app"
+      },
+      "docs": "Remove an installed app and its grant.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppId"
+          },
+          "scope": {
+            "$ref": "#/$defs/InstallScope"
+          }
+        },
+        "required": [
+          "app"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "InstallScope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "team"
+            ],
+            "description": "Whose set: the caller's (user, default) or the caller's team (team; team admins)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppId"
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "app",
+          "removed"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          }
+        }
+      }
+    },
+    "app.search": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "app",
+      "ancestors": [],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "query": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 200
+            }
+          },
+          "category": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 32
+            }
+          },
+          "tier": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "AppTier"
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 32
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "apps": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "AppListing"
+              }
+            }
+          },
+          "next_cursor": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.unauthenticated",
+        "owner.unreachable",
+        "validation.invalid"
+      ],
+      "owner": "cloud:planetscale",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "app search",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "app"
+      },
+      "docs": "Search the app store (word-prefix match on name, id, publisher and description). Unverified apps are never listed. Reads the PlanetScale projection, so a new release can take a moment to appear.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "tier": {
+            "$ref": "#/$defs/AppTier"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 32
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "AppTier": {
+            "type": "string",
+            "enum": [
+              "first-party",
+              "verified",
+              "community",
+              "unverified"
+            ],
+            "description": "Review tier (D45). `unverified` apps are never searchable."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AppListing"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "apps",
+          "next_cursor"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "AppTier": {
+            "type": "string",
+            "enum": [
+              "first-party",
+              "verified",
+              "community",
+              "unverified"
+            ],
+            "description": "Review tier (D45). `unverified` apps are never searchable."
+          },
+          "AppVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "description": "Semantic version; equals the release tag without the leading v."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "AppVersionRecord": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "$ref": "#/$defs/AppVersion"
+              },
+              "tag": {
+                "type": "string"
+              },
+              "engines": {
+                "type": "object",
+                "properties": {
+                  "cmux": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "cmux"
+                ],
+                "additionalProperties": true
+              },
+              "scopes": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "optional_scopes": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "added_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "bundle_url": {
+                "type": "string"
+              },
+              "bundle_sha256": {
+                "type": "string"
+              },
+              "attestation_digest": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "published_at": {
+                "type": "integer"
+              },
+              "published_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "yanked": {
+                "type": "boolean"
+              },
+              "yanked_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "yank_reason": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "tag",
+              "engines",
+              "scopes",
+              "optional_scopes",
+              "added_scopes",
+              "bundle_url",
+              "bundle_sha256",
+              "attestation_digest",
+              "published_at",
+              "published_by",
+              "yanked",
+              "yanked_at",
+              "yank_reason"
+            ],
+            "additionalProperties": true
+          },
+          "AppListing": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/AppId"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "publisher": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "github_owner": {
+                    "type": "string"
+                  },
+                  "verified": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "github_owner",
+                  "verified"
+                ],
+                "additionalProperties": true
+              },
+              "repository": {
+                "type": "string"
+              },
+              "icon_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tier": {
+                "$ref": "#/$defs/AppTier"
+              },
+              "latest_version": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AppVersion"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "install_count": {
+                "type": "integer"
+              },
+              "versions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AppVersionRecord"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "description",
+              "publisher",
+              "repository",
+              "categories",
+              "tier",
+              "latest_version",
+              "install_count"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "app.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "app",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppId"
+            }
+          },
+          "version": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "AppVersion"
+            }
+          },
+          "accept_scopes": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "AppScope"
+              }
+            }
+          },
+          "scope": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "InstallScope"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AppInstallOutcome"
+          }
+        ]
+      },
+      "errors": [
+        "app.yanked",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "policy.denied",
+        "revision.conflict",
+        "scope.consent_required",
+        "scope.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "scope_owners": {
+        "user": "cloud:UserDO",
+        "team": "cloud:TeamDO"
+      },
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "app update",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "app"
+      },
+      "docs": "Move an installed app to `version` (default: newest non-yanked in its range). New required scopes must be in `accept_scopes`. An agent's update that grows the scope set returns `approval_required`.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppId"
+          },
+          "version": {
+            "$ref": "#/$defs/AppVersion"
+          },
+          "accept_scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AppScope"
+            },
+            "maxItems": 64
+          },
+          "scope": {
+            "$ref": "#/$defs/InstallScope"
+          }
+        },
+        "required": [
+          "app"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "AppVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "description": "Semantic version; equals the release tag without the leading v."
+          },
+          "AppScope": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,31}:[A-Za-z0-9._*/-]{1,200}$",
+            "description": "A scope an app requests, `family:detail` (spec section 10, contract scopes.json)."
+          },
+          "InstallScope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "team"
+            ],
+            "description": "Whose set: the caller's (user, default) or the caller's team (team; team admins)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AppInstallOutcome",
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "InstallScope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "team"
+            ]
+          },
+          "AppVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "description": "Semantic version; equals the release tag without the leading v."
+          },
+          "VersionRange": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "AppTier": {
+            "type": "string",
+            "enum": [
+              "first-party",
+              "verified",
+              "community",
+              "unverified"
+            ],
+            "description": "Review tier (D45). `unverified` apps are never searchable."
+          },
+          "AppInstall": {
+            "type": "object",
+            "properties": {
+              "app": {
+                "$ref": "#/$defs/AppId"
+              },
+              "scope": {
+                "$ref": "#/$defs/InstallScope"
+              },
+              "version": {
+                "$ref": "#/$defs/AppVersion"
+              },
+              "version_range": {
+                "$ref": "#/$defs/VersionRange"
+              },
+              "tier": {
+                "$ref": "#/$defs/AppTier"
+              },
+              "scopes_granted": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "version_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "version_optional_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "bundle_url": {
+                "type": "string"
+              },
+              "bundle_sha256": {
+                "type": "string"
+              },
+              "app_revision": {
+                "type": "string"
+              },
+              "installed_by": {
+                "type": "string"
+              },
+              "installed_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "app",
+              "scope",
+              "version",
+              "version_range",
+              "tier",
+              "scopes_granted",
+              "version_scopes",
+              "version_optional_scopes",
+              "bundle_url",
+              "bundle_sha256",
+              "app_revision",
+              "installed_by",
+              "installed_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          },
+          "ApprovalId": {
+            "type": "string",
+            "pattern": "^appr_[a-z0-9]{20}$",
+            "description": "A pending request by an agent that a human decides (D48)."
+          },
+          "AppApproval": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ApprovalId"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "install",
+                  "update"
+                ]
+              },
+              "app": {
+                "$ref": "#/$defs/AppId"
+              },
+              "scope": {
+                "$ref": "#/$defs/InstallScope"
+              },
+              "version": {
+                "$ref": "#/$defs/AppVersion"
+              },
+              "version_range": {
+                "$ref": "#/$defs/VersionRange"
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "added": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requested_by": {
+                "type": "object",
+                "properties": {
+                  "identity": {
+                    "type": "string"
+                  },
+                  "install": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "agent": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "origin": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "identity",
+                  "install",
+                  "agent",
+                  "origin"
+                ],
+                "additionalProperties": true
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "approved",
+                  "denied",
+                  "expired"
+                ]
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "expires_at": {
+                "type": "integer"
+              },
+              "decided_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "decided_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "app",
+              "scope",
+              "version",
+              "version_range",
+              "scopes",
+              "added",
+              "requested_by",
+              "status",
+              "created_at",
+              "expires_at",
+              "decided_by",
+              "decided_at"
+            ],
+            "additionalProperties": true
+          },
+          "AppInstallOutcome": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "installed"
+                    ]
+                  },
+                  "install": {
+                    "$ref": "#/$defs/AppInstall"
+                  }
+                },
+                "required": [
+                  "status",
+                  "install"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "approval_required"
+                    ]
+                  },
+                  "approval": {
+                    "$ref": "#/$defs/AppApproval"
+                  }
+                },
+                "required": [
+                  "status",
+                  "approval"
+                ],
+                "additionalProperties": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    "app.version.submit": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "app",
+      "ancestors": [
+        "app"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "repo": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 300
+            }
+          },
+          "tag": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 80
+            }
+          },
+          "manifest": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "json"
+            }
+          },
+          "bundle_url": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 1000
+            }
+          },
+          "bundle_sha256": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "attestation_digest": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 200
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AppListing"
+          }
+        ]
+      },
+      "errors": [
+        "app.claim_forbidden",
+        "app.not_publisher",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "manifest.invalid",
+        "revision.conflict",
+        "validation.invalid",
+        "version.exists"
+      ],
+      "owner": "cloud:AppDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "app publish",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "app"
+      },
+      "docs": "Register a release: the manifest at tag `v<version>` of a public GitHub repository owned by the app's publisher. A version is never reused, even after a yank.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "tag": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "manifest": {},
+          "bundle_url": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "bundle_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "attestation_digest": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "repo",
+          "tag",
+          "manifest",
+          "bundle_url",
+          "bundle_sha256"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AppListing",
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "AppTier": {
+            "type": "string",
+            "enum": [
+              "first-party",
+              "verified",
+              "community",
+              "unverified"
+            ],
+            "description": "Review tier (D45). `unverified` apps are never searchable."
+          },
+          "AppVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "description": "Semantic version; equals the release tag without the leading v."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "AppVersionRecord": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "$ref": "#/$defs/AppVersion"
+              },
+              "tag": {
+                "type": "string"
+              },
+              "engines": {
+                "type": "object",
+                "properties": {
+                  "cmux": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "cmux"
+                ],
+                "additionalProperties": true
+              },
+              "scopes": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "optional_scopes": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "added_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "bundle_url": {
+                "type": "string"
+              },
+              "bundle_sha256": {
+                "type": "string"
+              },
+              "attestation_digest": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "published_at": {
+                "type": "integer"
+              },
+              "published_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "yanked": {
+                "type": "boolean"
+              },
+              "yanked_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "yank_reason": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "tag",
+              "engines",
+              "scopes",
+              "optional_scopes",
+              "added_scopes",
+              "bundle_url",
+              "bundle_sha256",
+              "attestation_digest",
+              "published_at",
+              "published_by",
+              "yanked",
+              "yanked_at",
+              "yank_reason"
+            ],
+            "additionalProperties": true
+          },
+          "AppListing": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/AppId"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "publisher": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "github_owner": {
+                    "type": "string"
+                  },
+                  "verified": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "github_owner",
+                  "verified"
+                ],
+                "additionalProperties": true
+              },
+              "repository": {
+                "type": "string"
+              },
+              "icon_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tier": {
+                "$ref": "#/$defs/AppTier"
+              },
+              "latest_version": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AppVersion"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "install_count": {
+                "type": "integer"
+              },
+              "versions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AppVersionRecord"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "description",
+              "publisher",
+              "repository",
+              "categories",
+              "tier",
+              "latest_version",
+              "install_count"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "app.version.yank": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "app",
+      "ancestors": [
+        "app"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppId"
+            }
+          },
+          "version": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppVersion"
+            }
+          },
+          "reason": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 500
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AppListing"
+          }
+        ]
+      },
+      "errors": [
+        "app.not_publisher",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:AppDO",
+      "risk": "destructive",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "app yank",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "app"
+      },
+      "docs": "Yank a version (its publisher or cmux staff). Clients on it move to the newest non-yanked compatible version or disable the app with the reason.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppId"
+          },
+          "version": {
+            "$ref": "#/$defs/AppVersion"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "app",
+          "version",
+          "reason"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "AppVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "description": "Semantic version; equals the release tag without the leading v."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AppListing",
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          },
+          "AppTier": {
+            "type": "string",
+            "enum": [
+              "first-party",
+              "verified",
+              "community",
+              "unverified"
+            ],
+            "description": "Review tier (D45). `unverified` apps are never searchable."
+          },
+          "AppVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "description": "Semantic version; equals the release tag without the leading v."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "AppVersionRecord": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "$ref": "#/$defs/AppVersion"
+              },
+              "tag": {
+                "type": "string"
+              },
+              "engines": {
+                "type": "object",
+                "properties": {
+                  "cmux": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "cmux"
+                ],
+                "additionalProperties": true
+              },
+              "scopes": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "optional_scopes": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "added_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "bundle_url": {
+                "type": "string"
+              },
+              "bundle_sha256": {
+                "type": "string"
+              },
+              "attestation_digest": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "published_at": {
+                "type": "integer"
+              },
+              "published_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "yanked": {
+                "type": "boolean"
+              },
+              "yanked_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "yank_reason": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "tag",
+              "engines",
+              "scopes",
+              "optional_scopes",
+              "added_scopes",
+              "bundle_url",
+              "bundle_sha256",
+              "attestation_digest",
+              "published_at",
+              "published_by",
+              "yanked",
+              "yanked_at",
+              "yank_reason"
+            ],
+            "additionalProperties": true
+          },
+          "AppListing": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/AppId"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "publisher": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "github_owner": {
+                    "type": "string"
+                  },
+                  "verified": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "github_owner",
+                  "verified"
+                ],
+                "additionalProperties": true
+              },
+              "repository": {
+                "type": "string"
+              },
+              "icon_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tier": {
+                "$ref": "#/$defs/AppTier"
+              },
+              "latest_version": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AppVersion"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "install_count": {
+                "type": "integer"
+              },
+              "versions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AppVersionRecord"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "description",
+              "publisher",
+              "repository",
+              "categories",
+              "tier",
+              "latest_version",
+              "install_count"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "automation.create": {
       "class": "mutation",
       "idempotency": "required",

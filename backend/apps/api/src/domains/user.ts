@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto"
 import type { Domain, Principal } from "@cmux/ownership"
 import { InstallRegister, InstallRename, InstallRevoke, type Grant, type Install, type UserProfile as UserProfileSchema } from "@cmux/protocol"
-import { admit, decodeParams, reject } from "./common.ts"
+import { type AppsSlice, emptyApps, reduceApps } from "./app-installs.ts"
+import { admit, decodeParams, reject, scopeMismatch } from "./common.ts"
 
 type UserProfile = typeof UserProfileSchema.Type
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
@@ -10,6 +11,8 @@ export interface UserState {
   readonly user: UserProfile | null
   readonly installs: Readonly<Record<string, typeof Install.Type>>
   readonly grants: Readonly<Record<string, typeof Grant.Type>>
+  /** Personal app installs, grants and agent approvals (absent in objects created before the app store). */
+  readonly apps?: AppsSlice
 }
 
 const hex20 = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 20)
@@ -46,6 +49,13 @@ export const userDomain: Domain<UserState> = {
 
   reduce: (state, op, params, ctx) => {
     const p = ctx.principal
+    if (op.startsWith("app.")) {
+      if (!state.user) return reject("validation.invalid", "call user.ensure first")
+      const wrong = scopeMismatch(op, params, "user")
+      if (wrong) return wrong
+      const r = reduceApps(state.apps ?? emptyApps, op, params, ctx, { scope: "user", scopeId: state.user.id, canManage: true })
+      return r.ok ? { ...r, state: { ...state, apps: r.state } } : r
+    }
     switch (op) {
       case "user.ensure": {
         if (!p.user || !p.stack_user_id || !p.team) return reject("auth.forbidden", "user.ensure needs a Stack session")

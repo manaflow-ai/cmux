@@ -79,6 +79,15 @@ const jsonSchemaOf = (schema: Schema.Top) => {
   return { schema: doc.schema, defs: doc.definitions ?? {} }
 }
 
+const ancestorsOf: Record<CloudOpDef["owner"], Array<string>> = {
+  "cloud:UserDO": ["user"],
+  "cloud:TeamDO": ["team"],
+  "cloud:SchedulerDO": ["user"],
+  "cloud:ConnectionDO": ["user"],
+  "cloud:AppDO": ["app"],
+  "cloud:planetscale": []
+}
+
 const entry = (op: CloudOpDef) => {
   const params = jsonSchemaOf(op.params)
   const result = jsonSchemaOf(op.result)
@@ -96,11 +105,12 @@ const entry = (op: CloudOpDef) => {
     class: op.class,
     idempotency: op.class === "mutation" ? "required" : "forbidden",
     target: op.target,
-    ancestors: op.owner === "cloud:TeamDO" ? ["team"] : ["user"],
+    ancestors: ancestorsOf[op.owner],
     params: { selectors: {}, fields, extra: false },
     result: op.class === "mutation" ? { kind: "apply", name: "MutationResult", arguments: [resultType] } : resultType,
     errors: [...op.errors].sort(),
     owner: op.owner,
+    ...(op.scopeOwners ? { scope_owners: { user: op.scopeOwners.user, team: op.scopeOwners.team } } : {}),
     risk: op.risk,
     principals: op.principals,
     focuses: false,
@@ -122,7 +132,7 @@ const catalog = {
   $schema: "./cloud-operations.schema.json",
   schema_version: 1,
   protocol: "cmux.wire/1",
-  resource_scopes: ["team", "user", "device", "install", "grant", "host", "automation", "run", "connection"],
+  resource_scopes: ["team", "user", "device", "install", "grant", "host", "automation", "run", "connection", "app"],
   types: Object.fromEntries(Object.entries(types).sort(([a], [b]) => a.localeCompare(b))),
   generics: {
     MutationResult: {

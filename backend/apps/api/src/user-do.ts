@@ -1,6 +1,8 @@
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import { challengeMessagePrefix } from "@cmux/protocol"
 import { verifyInstallSignature, type InstallClaims } from "./auth.ts"
+import { resolveAppRelease } from "./app-do.ts"
+import { appsView } from "./domains/app-installs.ts"
 import { installActive, userDomain, type UserState } from "./domains/user.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
@@ -23,8 +25,14 @@ export class UserDO extends OwnerDO<UserState> {
 
   protected read(state: UserState, op: string, _params: unknown, principal: Principal): ReadResult {
     if (state.user && principal.user !== state.user.id) return { ok: false, code: "auth.forbidden", message: "not this user" }
+    if (op === "app.list") return { ok: true, value: appsView(state.apps, Date.now(), "user"), revision: "" }
     if (op !== "install.list") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     return { ok: true, value: { user: state.user, installs: Object.values(state.installs), grants: Object.values(state.grants) }, revision: "" }
+  }
+
+  /** Installs, updates and approvals decide against the release AppDO resolves now. */
+  protected override resolve(_entity: string, state: UserState, op: string, params: unknown): Promise<unknown> {
+    return resolveAppRelease(this.env, state.apps, op, params)
   }
 
   protected maySubscribe(state: UserState, principal: Principal): boolean {

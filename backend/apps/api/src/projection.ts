@@ -7,7 +7,7 @@ import type { Env } from "./env.ts"
  * them with upserts guarded by `(source_stream, source_seq)`, so a replayed or
  * reordered batch never moves a row backwards (the DO stays the single writer).
  */
-const statements: Record<string, (p: Record<string, unknown>, stream: string, seq: number) => [string, Array<unknown>]> = {
+export const projectionStatements: Record<string, (p: Record<string, unknown>, stream: string, seq: number) => [string, Array<unknown>]> = {
   "user.upsert": (p, stream, seq) => [
     `INSERT INTO users (id, stack_user_id, email, display_name, personal_team, source_stream, source_seq, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, now())
@@ -91,6 +91,40 @@ const statements: Record<string, (p: Record<string, unknown>, stream: string, se
       ]
     ]
   },
+  // App store (0005_app_store.sql). AppDO writes apps + app_versions; UserDO/TeamDO write app_installs.
+  "app.upsert": (p, stream, seq) => {
+    const pub = p.publisher as { name: string; github_owner: string; verified: boolean }
+    return [
+      `INSERT INTO apps (id, publisher, publisher_name, publisher_verified, publisher_team, repository, name, description, categories, tier, latest_version, created_at, updated_at, source_stream, source_seq)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, to_timestamp($12 / 1000.0), to_timestamp($13 / 1000.0), $14, $15)
+       ON CONFLICT (id) DO UPDATE SET publisher_name = excluded.publisher_name, publisher_verified = excluded.publisher_verified, publisher_team = excluded.publisher_team,
+         repository = excluded.repository, name = excluded.name, description = excluded.description, categories = excluded.categories, tier = excluded.tier,
+         latest_version = excluded.latest_version, updated_at = excluded.updated_at, source_stream = excluded.source_stream, source_seq = excluded.source_seq
+       WHERE apps.source_seq < excluded.source_seq`,
+      [p.id, pub.github_owner, pub.name, pub.verified, p.publisher_team, p.repository, p.name, p.description, p.categories ?? [], p.tier, p.latest_version ?? null, p.created_at, p.updated_at, stream, seq]
+    ]
+  },
+  "app_version.upsert": (p, stream, seq) => [
+    // The manifest is written once (submit); a yank row carries none and keeps the stored one.
+    `INSERT INTO app_versions (app_id, version, tag, bundle_url, bundle_sha256, attestation_digest, manifest, scopes, optional_scopes, engines, published_by, published_at, yanked_at, yank_reason, source_stream, source_seq)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, to_timestamp($12 / 1000.0), CASE WHEN $13::bigint IS NULL THEN NULL ELSE to_timestamp($13 / 1000.0) END, $14, $15, $16)
+     ON CONFLICT (app_id, version) DO UPDATE SET yanked_at = excluded.yanked_at, yank_reason = excluded.yank_reason,
+       manifest = COALESCE(excluded.manifest, app_versions.manifest), source_stream = excluded.source_stream, source_seq = excluded.source_seq
+     WHERE app_versions.source_seq < excluded.source_seq`,
+    [
+      p.app, p.version, p.tag, p.bundle_url, p.bundle_sha256, p.attestation_digest ?? null, p.manifest === undefined ? null : JSON.stringify(p.manifest),
+      Object.keys((p.scopes ?? {}) as object), Object.keys((p.optional_scopes ?? {}) as object), (p.engines as { cmux: string }).cmux,
+      p.published_by, p.published_at, p.yanked_at ?? null, p.yank_reason ?? null, stream, seq
+    ]
+  ],
+  "app_install.upsert": (p, stream, seq) => [
+    `INSERT INTO app_installs (app_id, scope_kind, scope_id, version, installed_at, removed_at, source_stream, source_seq, updated_at)
+     VALUES ($1, $2, $3, $4, to_timestamp($5 / 1000.0), CASE WHEN $6::bigint IS NULL THEN NULL ELSE to_timestamp($6 / 1000.0) END, $7, $8, now())
+     ON CONFLICT (app_id, scope_kind, scope_id) DO UPDATE SET version = excluded.version, installed_at = excluded.installed_at, removed_at = excluded.removed_at,
+       source_stream = excluded.source_stream, source_seq = excluded.source_seq, updated_at = now()
+     WHERE app_installs.source_seq < excluded.source_seq`,
+    [p.app, p.scope_kind, p.scope_id, p.version, p.installed_at, p.removed_at ?? null, stream, seq]
+  ],
   "host.delete": (p, stream, seq) => [
     `UPDATE hosts SET deleted_at = now(), source_stream = $2, source_seq = $3, updated_at = now() WHERE id = $1 AND source_seq < $3`,
     [p.id, stream, seq]
@@ -106,7 +140,7 @@ export const drainOutbox = async (env: Env, stream: string, rows: ReadonlyArray<
   try {
     await client.query("BEGIN")
     for (const row of rows) {
-      const make = statements[row.kind]
+      const make = projectionStatements[row.kind]
       // An unknown kind (newer writer than this drain) must not block every later row.
       if (!make) {
         console.error(JSON.stringify({ msg: "outbox row skipped: no projection", stream, seq: row.seq, kind: row.kind }))

@@ -1,11 +1,20 @@
 import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
-import { admit, decodeParams, reject } from "./common.ts"
+import { type AppsSlice, emptyApps, reduceApps } from "./app-installs.ts"
+import { admit, decodeParams, reject, scopeMismatch } from "./common.ts"
 
 export interface TeamState {
   readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
   readonly members: Readonly<Record<string, typeof TeamMember.Type>>
   readonly hosts: Readonly<Record<string, typeof Host.Type>>
+  /** Team app installs, grants, approvals and the team app policy (absent in objects created before the app store). */
+  readonly apps?: AppsSlice
+}
+
+/** Team owners and admins manage the team's apps and decide its approvals. */
+export const isTeamAdmin = (state: TeamState, user: string | undefined) => {
+  const role = user ? state.members[user]?.role : undefined
+  return role === "owner" || role === "admin"
 }
 
 /**
@@ -28,6 +37,13 @@ export const teamDomain: Domain<TeamState> = {
 
   reduce: (state, op, params, ctx) => {
     const p = ctx.principal
+    if (op.startsWith("app.")) {
+      if (!state.team) return reject("validation.invalid", "team not initialized")
+      const wrong = op === "app.policy.set" ? undefined : scopeMismatch(op, params, "team")
+      if (wrong) return wrong
+      const r = reduceApps(state.apps ?? emptyApps, op, params, ctx, { scope: "team", scopeId: state.team.id, canManage: isTeamAdmin(state, p.user) })
+      return r.ok ? { ...r, state: { ...state, apps: r.state } } : r
+    }
     switch (op) {
       case "team.ensure_personal": {
         if (!p.user || !p.team) return reject("auth.forbidden", "needs a user session")

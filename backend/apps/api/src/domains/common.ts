@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudOpByName, connectionInternalOps, schedulerInternalOps, type CloudOpDef } from "@cmux/protocol"
+import { cloudOpByName, connectionInternalOps, heldBy, schedulerInternalOps, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
@@ -34,7 +34,7 @@ export const admit = (
   now: number
 ): Reject | undefined => {
   const def = cloudOpByName.get(opName) ?? internalOps.get(opName)
-  if (!def || def.owner !== owner) return { code: "validation.invalid", message: `unknown op ${opName} for ${owner}` }
+  if (!def || !heldBy(def, owner)) return { code: "validation.invalid", message: `unknown op ${opName} for ${owner}` }
   const kind = principal.kind ?? "install"
   if (!def.principals.includes(kind === "agent" ? "install" : kind)) {
     return { code: "auth.forbidden", message: `${opName} is not allowed for ${kind} principals` }
@@ -73,3 +73,14 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
   ...schedulerInternalOps.map((d) => [d.name, d] as const),
   ...connectionInternalOps.map((d) => [d.name, d] as const)
 ])
+
+/**
+ * For ops with scope owners (apps): the request's `scope` must name this
+ * owner, so a frame sent straight to the wrong stream cannot act on it.
+ */
+export const scopeMismatch = (op: string, params: unknown, scope: "user" | "team"): ({ ok: false } & Reject) | undefined => {
+  const def = cloudOpByName.get(op)
+  if (!def?.scopeOwners) return undefined
+  const asked = (params as { scope?: unknown } | null)?.scope ?? "user"
+  return asked === scope ? undefined : reject("validation.invalid", `${op} with scope ${String(asked)} belongs to the ${asked === "team" ? "team" : "user"} owner`)
+}

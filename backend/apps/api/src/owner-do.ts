@@ -111,6 +111,29 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return null
   }
 
+  /**
+   * Inputs this owner looks up before deciding an op, for example a release
+   * read from AppDO (ownership engine `SubmitOptions.resolved`: the reducer
+   * sees them as `params.resolved` and the event records them). Undefined =
+   * none. Runs before every op, also over the WebSocket; state may change
+   * while it awaits, so the reducer re-checks against committed state.
+   */
+  protected async resolve(_entity: string, _state: S, _op: string, _params: unknown, _principal: Principal): Promise<unknown> {
+    return undefined
+  }
+
+  /** Runs `resolve`; a failed lookup answers the requester with a retryable reject (nothing recorded). */
+  private async resolveFor(entity: string, engine: OwnerEngine<S>, principal: Principal, frame: OpFrame, deliver: (f: OwnerFrame) => void): Promise<{ ok: true; resolved: unknown } | { ok: false }> {
+    try {
+      return { ok: true, resolved: await this.resolve(entity, engine.currentState, frame.op, frame.params, principal) }
+    } catch (e) {
+      const key = typeof frame.idempotency_key === "string" ? frame.idempotency_key : ""
+      deliver({ t: "reject", tx: "", idempotency_key: key, code: "owner.unreachable", message: `lookup failed: ${String(e)}`, retryable: true, replayed: false })
+      deliver({ t: "request-settled", tx: "", idempotency_key: key, stream: engine.stream, sequence: 0, ok: false })
+      return { ok: false }
+    }
+  }
+
   /** Subclasses prune their own side tables older than `before` (same replay window). */
   protected onPrune(_before: number): void {}
 
@@ -170,7 +193,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
     const engine = this.bind(entity)
     const frames: Array<OwnerFrame> = []
-    engine.submit(principal, frame, (target, f) => (target === "all" ? this.broadcast(f) : frames.push(f)))
+    const r = await this.resolveFor(entity, engine, principal, frame, (f) => frames.push(f))
+    if (!r.ok) return { frames }
+    engine.submit(principal, frame, (target, f) => (target === "all" ? this.broadcast(f) : frames.push(f)), r.resolved === undefined ? {} : { resolved: r.resolved })
     this.afterCommit()
     this.afterOp(principal, frame.op, frames)
     return { frames }
@@ -237,7 +262,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         return
       case "op": {
         const frames: Array<OwnerFrame> = []
-        engine.submit(a.principal, frame as OpFrame, (target, f) => (target === "all" ? this.broadcast(f) : (frames.push(f), safeSend(ws, JSON.stringify(f)))))
+        const r = await this.resolveFor(row.entity, engine, a.principal, frame as OpFrame, (f) => safeSend(ws, JSON.stringify(f)))
+        if (!r.ok) return
+        engine.submit(a.principal, frame as OpFrame, (target, f) => (target === "all" ? this.broadcast(f) : (frames.push(f), safeSend(ws, JSON.stringify(f)))), r.resolved === undefined ? {} : { resolved: r.resolved })
         this.afterCommit()
         this.afterOp(a.principal, (frame as OpFrame).op, frames)
         return
