@@ -198,7 +198,7 @@ impl Shared {
         state.exit = Some(code);
         let exit = Frame::new(protocol::EXIT, code, 0, 0).encode();
         for client in &state.clients {
-            if win_io::write_all(client.pipe.0, &exit).is_ok() {
+            if win_io::write_all(&client.pipe, &exit).is_ok() {
                 client.exit_sent.store(true, std::sync::atomic::Ordering::SeqCst);
             }
         }
@@ -239,7 +239,7 @@ impl Shared {
             return;
         }
         let mut buf = [0u8; FRAME_LEN];
-        while win_io::read_exact(client.pipe.0, &mut buf).is_ok() {
+        while win_io::read_exact(&client.pipe, &mut buf).is_ok() {
             let Some(frame) = Frame::decode(&buf) else { break };
             match frame.kind {
                 protocol::RESIZE => {
@@ -278,12 +278,12 @@ impl Shared {
             Some(_) => (0, 0),
         };
         let hello = Frame::new(protocol::HELLO, self.child_pid, input, output).encode();
-        if win_io::write_all(client.pipe.0, &hello).is_err() {
+        if win_io::write_all(&client.pipe, &hello).is_err() {
             return false;
         }
         if let Some(code) = state.exit {
             let sent =
-                win_io::write_all(client.pipe.0, &Frame::new(protocol::EXIT, code, 0, 0).encode())
+                win_io::write_all(&client.pipe, &Frame::new(protocol::EXIT, code, 0, 0).encode())
                     .is_ok();
             client.exit_sent.store(sent, std::sync::atomic::Ordering::SeqCst);
         }
@@ -311,7 +311,7 @@ fn duplicate_into(process: HANDLE, source: HANDLE) -> u64 {
 
 fn accept_loop(shared: Arc<Shared>, name: Vec<u16>, security: Security, mut instance: Handle) {
     loop {
-        let connected = win_io::connect(instance.0);
+        let connected = win_io::connect(&instance);
         // Create the next instance first so the pipe name never disappears.
         let next = create_instance(&name, &security, false);
         if connected.is_ok() {

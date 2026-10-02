@@ -69,20 +69,21 @@ impl Pending {
 }
 
 /// Reads up to `buf.len()` bytes. Returns 0 at end of stream.
-pub fn read(handle: HANDLE, buf: &mut [u8]) -> io::Result<usize> {
+pub fn read(handle: &Handle, buf: &mut [u8]) -> io::Result<usize> {
     let mut pending = Pending::new()?;
     let mut done = 0u32;
     let len = u32::try_from(buf.len()).unwrap_or(u32::MAX);
     // SAFETY: `buf` and `pending` outlive the operation, which `finish` waits for.
-    let ok = unsafe { ReadFile(handle, buf.as_mut_ptr(), len, &mut done, &mut pending.overlapped) };
-    match pending.finish(handle, ok, done) {
+    let ok =
+        unsafe { ReadFile(handle.0, buf.as_mut_ptr(), len, &mut done, &mut pending.overlapped) };
+    match pending.finish(handle.0, ok, done) {
         Ok(n) => Ok(n as usize),
         Err(error) if error.raw_os_error() == Some(ERROR_BROKEN_PIPE as i32) => Ok(0),
         Err(error) => Err(error),
     }
 }
 
-pub fn read_exact(handle: HANDLE, mut buf: &mut [u8]) -> io::Result<()> {
+pub fn read_exact(handle: &Handle, mut buf: &mut [u8]) -> io::Result<()> {
     while !buf.is_empty() {
         let n = read(handle, buf)?;
         if n == 0 {
@@ -93,15 +94,15 @@ pub fn read_exact(handle: HANDLE, mut buf: &mut [u8]) -> io::Result<()> {
     Ok(())
 }
 
-pub fn write_all(handle: HANDLE, mut buf: &[u8]) -> io::Result<()> {
+pub fn write_all(handle: &Handle, mut buf: &[u8]) -> io::Result<()> {
     while !buf.is_empty() {
         let mut pending = Pending::new()?;
         let mut done = 0u32;
         let len = u32::try_from(buf.len()).unwrap_or(u32::MAX);
         // SAFETY: `buf` and `pending` outlive the operation, which `finish` waits for.
         let ok =
-            unsafe { WriteFile(handle, buf.as_ptr(), len, &mut done, &mut pending.overlapped) };
-        let n = pending.finish(handle, ok, done)? as usize;
+            unsafe { WriteFile(handle.0, buf.as_ptr(), len, &mut done, &mut pending.overlapped) };
+        let n = pending.finish(handle.0, ok, done)? as usize;
         if n == 0 {
             return Err(io::ErrorKind::WriteZero.into());
         }
@@ -111,11 +112,11 @@ pub fn write_all(handle: HANDLE, mut buf: &[u8]) -> io::Result<()> {
 }
 
 /// Waits for a client on a server pipe instance.
-pub fn connect(handle: HANDLE) -> io::Result<()> {
+pub fn connect(handle: &Handle) -> io::Result<()> {
     let mut pending = Pending::new()?;
     // SAFETY: `pending` outlives the operation, which `finish` waits for.
-    let ok = unsafe { ConnectNamedPipe(handle, &mut pending.overlapped) };
-    match pending.finish(handle, ok, 0) {
+    let ok = unsafe { ConnectNamedPipe(handle.0, &mut pending.overlapped) };
+    match pending.finish(handle.0, ok, 0) {
         Ok(_) => Ok(()),
         Err(error) if error.raw_os_error() == Some(ERROR_PIPE_CONNECTED as i32) => Ok(()),
         Err(error) => Err(error),

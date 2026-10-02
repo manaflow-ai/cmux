@@ -251,7 +251,7 @@ mod sys {
             msg.msg_iov = &mut iov;
             msg.msg_iovlen = 1;
             msg.msg_control = control.as_mut_ptr().cast();
-            msg.msg_controllen = mem::size_of_val(&control) as _;
+            msg.msg_controllen = size_of_val(&control) as _;
             // SAFETY: every buffer referenced by `msg` outlives the call.
             let n = unsafe { libc::recvmsg(stream.as_raw_fd(), &mut msg, 0) };
             if n < 0 {
@@ -274,7 +274,7 @@ mod sys {
                     {
                         let data_len = (*cmsg).cmsg_len as usize - libc::CMSG_LEN(0) as usize;
                         let data = libc::CMSG_DATA(cmsg).cast::<RawFd>();
-                        for index in 0..data_len / mem::size_of::<RawFd>() {
+                        for index in 0..data_len / size_of::<RawFd>() {
                             let fd = ptr::read_unaligned(data.add(index));
                             libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
                             let owned = OwnedFd::from_raw_fd(fd);
@@ -354,12 +354,12 @@ mod sys {
         }
 
         pub fn send(&self, frame: &Frame) -> io::Result<()> {
-            win_io::write_all(self.0.0, &frame.encode())
+            win_io::write_all(&self.0, &frame.encode())
         }
 
         pub fn recv(&self) -> io::Result<Frame> {
             let mut buf = [0u8; protocol::FRAME_LEN];
-            win_io::read_exact(self.0.0, &mut buf)?;
+            win_io::read_exact(&self.0, &mut buf)?;
             Frame::decode(&buf).ok_or_else(bad_frame)
         }
     }
