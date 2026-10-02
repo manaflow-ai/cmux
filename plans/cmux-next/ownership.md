@@ -340,8 +340,16 @@ COORDINATION.md line.
    (`apply(&LayoutState, &LayoutOp) -> Result<(LayoutState, Vec<LayoutEvent>), Reject>`)
    with the first op set MoveTab, MoveTabToSplit, MoveTabToColumn,
    MoveTabToNewWorkspace, MoveTabToWorkspace, CloseTab (each with an idempotency key);
-   `mux/tab_drag.rs` validates through it. This stream then adds kani, tab-group ops and
-   the remaining layout ops.
+   `mux/tab_drag.rs` validates through it. This stream then adds tab-group ops and the
+   remaining layout ops. Kani result (2026-10-01, branch `feat-cmux-next-kani`
+   28ec1c620f5, harnesses in `src/proofs.rs`): infeasible on the crate as written. Kani
+   0.68.0 on a 32 vCPU Testbox finished no harness, not even a concrete one-tab layout
+   (timeouts at 7 and 8 minutes, unwind 8 and 3), because symbolic execution cannot rule
+   out `BTreeMap`/`BTreeSet` internal-node paths. Evidence for invariants 1-3 and 5 is
+   therefore the reducer proptest (20,000 reducer cases, 5,000 daemon sequences) plus
+   `TabLayout.tla` and `OwnershipConvergence.tla`. Kani becomes feasible only with a
+   fixed-capacity array representation checked equal to the real reducer by proptest;
+   not scheduled.
 3. `mutation-echo-v1` in the dispatcher: central transaction tag on every caused event,
    `request-settled` for every request; additive capability, advertised in
    `awaitingPin` until the pin carries it.

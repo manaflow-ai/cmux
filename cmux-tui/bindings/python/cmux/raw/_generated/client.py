@@ -444,6 +444,9 @@ class GeneratedClientMixin:
     def set_client_sizing(self, surface: Id, enabled: bool, *, client: Union[int, None, MissingType] = MISSING, exclusive: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-client-sizing', SetClientSizingRequest(surface=surface, enabled=enabled, client=client, exclusive=exclusive))
 
+    def set_column_sticky(self, pane: Id, sticky: bool, *, edge: Union[str, None, MissingType] = MISSING, mode: Union[str, None, MissingType] = MISSING, transaction: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('set-column-sticky', SetColumnStickyRequest(pane=pane, sticky=sticky, edge=edge, mode=mode, transaction=transaction))
+
     def set_default_colors(self, fg: Union[ColorHex, None, MissingType] = MISSING, *, bg: Union[ColorHex, None, MissingType] = MISSING, cursor: Union[ColorHex, None, MissingType] = MISSING, selection_bg: Union[ColorHex, None, MissingType] = MISSING, selection_fg: Union[ColorHex, None, MissingType] = MISSING, cursor_style: Union[CursorStyle, None, MissingType] = MISSING, cursor_blink: Union[bool, None, MissingType] = MISSING, palette: Union[Dict[str, ColorHex], None, MissingType] = MISSING, complete: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-default-colors', SetDefaultColorsRequest(fg=fg, bg=bg, cursor=cursor, selection_bg=selection_bg, selection_fg=selection_fg, cursor_style=cursor_style, cursor_blink=cursor_blink, palette=palette, complete=complete))
 
@@ -724,6 +727,7 @@ GeneratedClientMixin.server_stats.__cmux_command__ = COMMANDS['server-stats']
 GeneratedClientMixin.set_cell_pixels.__cmux_command__ = COMMANDS['set-cell-pixels']
 GeneratedClientMixin.set_client_info.__cmux_command__ = COMMANDS['set-client-info']
 GeneratedClientMixin.set_client_sizing.__cmux_command__ = COMMANDS['set-client-sizing']
+GeneratedClientMixin.set_column_sticky.__cmux_command__ = COMMANDS['set-column-sticky']
 GeneratedClientMixin.set_default_colors.__cmux_command__ = COMMANDS['set-default-colors']
 GeneratedClientMixin.set_personal_terminal.__cmux_command__ = COMMANDS['set-personal-terminal']
 GeneratedClientMixin.set_personal_workspace.__cmux_command__ = COMMANDS['set-personal-workspace']
