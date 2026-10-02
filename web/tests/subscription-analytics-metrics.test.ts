@@ -137,6 +137,17 @@ describe("net revenue", () => {
     expect(stripeNetMonthlyUsd(yearly.intervals[0]!)).toBeCloseTo(97.075, 1);
   });
 
+  test("a Stripe price that cannot be read counts at the plan list price, as an estimate", () => {
+    const at = d("2026-03-01T00:00:00Z");
+    const noPrice = stripeSubscriptionRecord(stripeRow({ id: "n", unitAmount: null }))!;
+    const unknownCurrency = stripeSubscriptionRecord(stripeRow({ id: "c", plan: "max", unitAmount: 99_00, currency: "xyz" }))!;
+    const team = stripeSubscriptionRecord(stripeRow({ id: "t", plan: "team", unitAmount: null, quantity: 3 }))!;
+    expect(mrrAt([noPrice], at).grossUsd).toBe(50);
+    expect(mrrAt([unknownCurrency], at).grossUsd).toBe(200);
+    expect(mrrAt([team], at).grossUsd).toBe(180);
+    expect([noPrice, unknownCurrency, team].map((record) => record.fxFallbacks)).toEqual([1, 1, 1]);
+  });
+
   test("Stripe team MRR multiplies the unit price by seats", () => {
     const team = stripeSubscriptionRecord(stripeRow({ id: "t", plan: "team", unitAmount: 6000, quantity: 3 }))!;
     expect(mrrAt([team], d("2026-03-01T00:00:00Z")).grossUsd).toBe(180);
