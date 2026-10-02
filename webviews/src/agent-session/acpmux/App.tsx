@@ -878,6 +878,9 @@ function AcpmuxPane() {
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
     const RECONNECT_MAX_DELAY_MS = 2_000;
     let reconnect = false;
+    // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
+    // here until a connect succeeds: a first connect that fails retries without it.
+    let pendingPrompt: string | undefined;
     const connectHost = async () => {
       try {
         const host = await callNative<{
@@ -897,6 +900,7 @@ function AcpmuxPane() {
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
+        pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
         setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
@@ -954,10 +958,11 @@ function AcpmuxPane() {
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
         client.snapshot();
-        // Onboarding's first task runs without a Send press. Swift hands the prompt out once,
-        // so a reconnect or reload does not run it again.
-        const prompt = composerDraft(host.prompt);
-        if (prompt) void send(prompt).catch(() => undefined);
+        // Onboarding's first task runs without a Send press, once. If the chat cannot start,
+        // the prompt waits in the composer instead of vanishing.
+        const prompt = pendingPrompt;
+        pendingPrompt = undefined;
+        if (prompt) void send(prompt).catch(() => setDraft(prompt));
       } catch (error) {
         if (!cancelled) {
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));

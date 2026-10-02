@@ -896,8 +896,13 @@ export class AcpmuxDirectClient {
   snapshot(): void {
     this.emit();
   }
+  /** A `session/new` in flight, so a Send during the first prompt's start joins it. */
+  private creating?: Promise<string | undefined>;
   async ensureSession(): Promise<string | undefined> {
-    if (!this.selectedSessionId) await this.create();
+    if (!this.selectedSessionId) {
+      this.creating ??= this.create().finally(() => (this.creating = undefined));
+      await this.creating;
+    }
     return this.selectedSessionId;
   }
   async send(text: string): Promise<string | undefined> {

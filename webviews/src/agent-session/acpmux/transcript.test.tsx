@@ -872,12 +872,26 @@ describe("acpmux host handshake", () => {
   });
 
   /// Onboarding's first task: the handshake's prompt starts the chat in its cwd without a Send press,
-  /// and the composer stays empty.
-  test("a seeded prompt creates the chat in its cwd and sends once", async () => {
+  /// and the composer stays empty. Swift hands the prompt out once, so it survives a first connect
+  /// that fails (a daemon still starting) and is sent after the retry.
+  test("a seeded prompt creates the chat in its cwd and sends once, even after a failed connect", async () => {
     const sent: { method: string; params: Record<string, unknown> }[] = [];
+    let readies = 0;
     class PromptSocket extends FakeSocket {
+      constructor(url: URL) {
+        super(url);
+        // The first daemon connect fails before it opens.
+        if (FakeSocket.made.length === 1) {
+          Object.defineProperty(this, "onopen", { get: () => undefined, set: () => undefined });
+          queueMicrotask(() => this.onerror?.());
+        }
+      }
       override send(raw: string) {
-        const { id, method, params } = JSON.parse(raw) as { id: number; method: string; params: Record<string, unknown> };
+        const { id, method, params } = JSON.parse(raw) as {
+          id: number;
+          method: string;
+          params: Record<string, unknown>;
+        };
         sent.push({ method, params });
         const result =
           method === "_acpmux/watch"
@@ -899,6 +913,7 @@ describe("acpmux host handshake", () => {
         agentSession: {
           postMessage(message: { method: string }) {
             if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
+            readies += 1;
             return Promise.resolve({
               ok: true,
               value: {
@@ -908,7 +923,7 @@ describe("acpmux host handshake", () => {
                 token: "t",
                 newSession: true,
                 cwd: "/tmp/first-task",
-                prompt: "Leave a note on my Desktop",
+                ...(readies === 1 ? { prompt: "Leave a note on my Desktop" } : {}),
               },
             });
           },
@@ -920,6 +935,7 @@ describe("acpmux host handshake", () => {
       await act(async () => root.render(createElement(AcpmuxApp)));
       for (let tries = 0; tries < 100 && prompts().length === 0; tries += 1)
         await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      expect(readies).toBe(2);
       expect(sent.find((message) => message.method === "session/new")?.params.cwd).toBe("/tmp/first-task");
       expect(prompts().map((message) => message.params.sessionId)).toEqual(["s-new"]);
       expect(prompts()[0]!.params.prompt).toEqual([{ type: "text", text: "Leave a note on my Desktop" }]);

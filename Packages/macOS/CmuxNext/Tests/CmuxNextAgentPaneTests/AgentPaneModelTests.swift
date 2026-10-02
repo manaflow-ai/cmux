@@ -90,7 +90,6 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect(attached["cwd"] == nil)
     }
 
-    /// A chat that reopens a session ignores the seed.
     /// Onboarding's first task: the prompt goes to the page once, so a
     /// reload does not run the task again.
     @Test func aSeededPromptIsHandedOutOnce() async throws {
@@ -102,6 +101,7 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect(reload["prompt"] == nil)
     }
 
+    /// A chat that reopens a session ignores the seed.
     @Test func aSessionTabIgnoresTheSeed() async throws {
         let model = AgentPaneModel(host: RecordingHost(), sessionId: "s-2", seed: AgentPaneSeedSource(AgentPaneSeed(cwd: "/tmp/w", draft: "hi")))
         let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
