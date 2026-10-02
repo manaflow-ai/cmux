@@ -169,8 +169,12 @@ test("search narrows the list, shows every match, and Escape clears it before cl
   const field = container.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
   const type = async (value: string) =>
     act(async () => {
+      // react-dom first loaded by another test file may have found no DOM and fall back to
+      // watching keyup on the focused field instead of input events, so send both.
+      field.focus();
       Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(field, value);
       field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      field.dispatchEvent(new dom.window.KeyboardEvent("keyup", { bubbles: true }));
     });
   const titles = () => [...container.querySelectorAll(".acpmux-session-row")].map((node) => node.textContent);
 

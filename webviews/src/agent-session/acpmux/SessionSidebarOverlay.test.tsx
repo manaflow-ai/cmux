@@ -185,8 +185,12 @@ test("reopening the overlay with a leftover search that hides every row focuses 
     await act(async () => toggle().click());
     const field = container.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
     await act(async () => {
+      // react-dom first loaded by another test file may have found no DOM and fall back to
+      // watching keyup on the focused field instead of input events, so send both.
+      field.focus();
       Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(field, "zzz");
       field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      field.dispatchEvent(new dom.window.KeyboardEvent("keyup", { bubbles: true }));
     });
     await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-sidebar-scrim")!.click());
     await act(async () => toggle().click());
