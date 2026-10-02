@@ -1,6 +1,6 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { useCallback } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { CmuxClient, ReadScrollbackResult, RenderAttachEvent, RenderCursor } from "cmux/raw";
 import { useRenderTerminal } from "../src/hooks/useRenderTerminal";
 

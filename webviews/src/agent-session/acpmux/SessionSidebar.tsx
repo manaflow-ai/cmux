@@ -6,6 +6,7 @@ import {
   type AcpmuxSessionEntry,
   type SessionMark,
 } from "./sessionList";
+import { DisconnectedIcon, NeedsInputIcon, WorkingIcon } from "./sidebarIcons";
 
 const MARK_LABELS: Record<Exclude<SessionMark, undefined>, string> = {
   input: "Needs input",
@@ -13,11 +14,11 @@ const MARK_LABELS: Record<Exclude<SessionMark, undefined>, string> = {
   error: "Disconnected",
   unread: "New activity",
 };
-const MARK_GLYPHS: Record<Exclude<SessionMark, undefined>, string> = {
-  input: "?",
-  running: "",
-  error: "!",
-  unread: "",
+const MARK_GLYPHS: Record<Exclude<SessionMark, undefined>, React.ReactNode> = {
+  input: <NeedsInputIcon />,
+  running: <WorkingIcon />,
+  error: <DisconnectedIcon />,
+  unread: null,
 };
 
 /** The pane's session list: pinned sessions, then every other acpmux session grouped by folder, newest first. */

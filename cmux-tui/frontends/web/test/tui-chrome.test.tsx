@@ -1,5 +1,5 @@
 import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { Sidebar } from "../src/components/Sidebar";
 import { StatusBar } from "../src/components/StatusBar";
 import type { WorkspaceView } from "../src/lib/tree";
