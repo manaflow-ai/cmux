@@ -1,4 +1,4 @@
-import type { Principal } from "@cmux/ownership"
+import type { EventFrame, Principal } from "@cmux/ownership"
 import { feedKindSchemas, FeedList, type FeedItem } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
 import { listItems } from "./domains/feed-query.ts"
@@ -64,6 +64,20 @@ export class FeedDO extends OwnerDO<FeedState> {
   /** Only the user's own clients subscribe to the whole feed; agents watch through their daemon. */
   protected maySubscribe(state: FeedState, principal: Principal): boolean {
     return isUserClient(principal) && (!state.user || state.user === principal.user)
+  }
+
+  /**
+   * Each live event carries the items its commit changed (every reducer change
+   * stamps `updated_at` with the commit time, the event's `at`), and, for ops
+   * that can remove items (post and adopt evict, prune drops), every id still
+   * present. Clients mirror these owner-written items; they never replay ops.
+   */
+  protected override eventExtras(event: EventFrame): Record<string, unknown> | undefined {
+    const state = this.boundEngine?.currentState
+    if (!state) return undefined
+    const items = Object.values(state.items).filter((i) => i.updated_at === event.at)
+    const removes = event.op === "feed.post" || event.op === "feed.adopt" || event.op === "feed.prune"
+    return { items, ...(removes ? { present: Object.keys(state.items) } : {}) }
   }
 
   protected override nextWakeAt(state: FeedState): number | null {

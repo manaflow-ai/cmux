@@ -30,6 +30,8 @@ final class AppServices {
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
     private(set) var cloud: CloudService!
+    /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
+    private(set) var feed: FeedService!
     /// SSH machines (Connect to Machine…).
     private(set) var ssh: SSHService!
     /// Phone access; started by the account layer once signed in.
@@ -155,6 +157,7 @@ final class AppServices {
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         machines = MachineRegistry(local: daemon)
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
+        feed = FeedService(auth: cloud.auth)
         ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
