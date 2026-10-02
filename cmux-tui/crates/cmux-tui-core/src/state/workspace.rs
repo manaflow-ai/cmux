@@ -15,7 +15,13 @@ use crate::workspace_registry::WorkspacePresentationUpdate;
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "change", rename_all = "snake_case")]
 pub(crate) enum WorkspaceStatusChange {
-    Set { key: String, text: String, icon: Option<String>, color: Option<String> },
+    Set {
+        key: String,
+        text: String,
+        icon: Option<String>,
+        color: Option<String>,
+        meta: crate::state::status_meta::StatusMeta,
+    },
     Clear { key: Option<String> },
     Progress { value: Option<f64>, label: Option<String> },
     ProgressClear,
@@ -73,6 +79,8 @@ impl Mux {
             "selectors": selectors,
             "change": change,
         });
+        // A process owner is honored only on the machine that accepted it.
+        let machine = self.workspace_registry.lock().unwrap().machine_id().as_str().to_owned();
         self.commit_state(
             mutation,
             operation,
@@ -86,15 +94,26 @@ impl Mux {
                 let workspace = public_id.as_str();
                 let now = now_ms();
                 match &change {
-                    WorkspaceStatusChange::Set { key, text, icon, color } => status::set_status(
-                        transaction,
-                        workspace,
-                        key,
-                        text,
-                        icon.as_deref(),
-                        color.as_deref(),
-                        now,
-                    )?,
+                    WorkspaceStatusChange::Set { key, text, icon, color, meta } => {
+                        meta.validate(|id| state.terminal_catalog.contains_key(id))?;
+                        status::set_status(
+                            transaction,
+                            workspace,
+                            key,
+                            text,
+                            icon.as_deref(),
+                            color.as_deref(),
+                            now,
+                        )?;
+                        crate::state::status_meta::write_meta(
+                            transaction,
+                            workspace,
+                            key,
+                            meta,
+                            &machine,
+                            now,
+                        )?;
+                    }
                     WorkspaceStatusChange::Clear { key } => {
                         status::clear_status(transaction, workspace, key.as_deref())?;
                     }
@@ -171,6 +190,9 @@ impl Mux {
     /// Close every ephemeral workspace left by an earlier run, and end the
     /// terminals that only it showed. Runs once at daemon start.
     pub(crate) fn close_ephemeral_workspaces(self: &Arc<Self>) -> anyhow::Result<()> {
+        // Owned status entries a previous run left: re-arm their watches and
+        // drop the ones whose TTL passed while the daemon was down.
+        crate::state::status_owners::resume(self);
         let ephemeral = self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
         for workspace_id in ephemeral {
             let target = self.with_state(|state| {

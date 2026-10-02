@@ -21,6 +21,8 @@ mod prelude;
 pub(crate) mod router;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
+pub(crate) mod status_meta;
+pub(crate) mod status_owners;
 pub(crate) mod store;
 pub(crate) mod tab_state_store;
 pub(crate) mod tabs;

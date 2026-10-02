@@ -95,6 +95,8 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod bookmarks;
+mod capabilities;
+use capabilities::advertised_capabilities;
 mod browser_profiles;
 mod launch_snapshot;
 mod personal;
@@ -361,78 +363,6 @@ fn machine_listening_tcp_json() -> anyhow::Result<Value> {
         };
         anyhow::bail!("machine listening TCP inventory failed: {detail}");
     }
-}
-
-fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
-    let mut capabilities = vec![
-        ATTACH_INITIAL_SIZE_CAPABILITY,
-        "attach-identity-v1",
-        WORKSPACE_REGISTRY_CAPABILITY,
-        DAEMON_HANDOFF_FORCE_CAPABILITY,
-        GUARDED_BROWSER_POINTER_CAPABILITY,
-        VIEWPORT_SPLITS_CAPABILITY,
-        VIEWPORT_COLUMN_RESIZE_CAPABILITY,
-        STICKY_COLUMNS_CAPABILITY,
-        LAYOUT_UNDO_CAPABILITY,
-        TAB_WORKSPACE_MOVE_CAPABILITY,
-        CLEAR_HISTORY_CAPABILITY,
-        TERMINAL_COMMAND_JOURNAL_CAPABILITY,
-        SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
-        SESSION_JOURNAL_CAPABILITY,
-        FRONTEND_JOURNAL_CAPABILITY,
-        VIEW_ATTACHMENT_LEASE_CAPABILITY,
-        VIEW_ATTACHMENT_DETACH_CAPABILITY,
-        SHARED_SIZING_CAPABILITY,
-        SIZING_VIEW_DETACH_CAPABILITY,
-        TERMINAL_COLOR_OVERRIDES_CAPABILITY,
-        TERMINAL_PENDING_SEQUENCE_CAPABILITY,
-        CREATION_RECEIPTS_CAPABILITY,
-        CREATION_ATTEMPT_KEYS_CAPABILITY,
-        CREATION_SELECTOR_FALLBACKS_CAPABILITY,
-        PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
-        BROWSER_PROVIDER_CAPABILITY,
-        CLIENT_FOCUS_CAPABILITY,
-        MACHINE_USAGE_CAPABILITY,
-        MACHINE_LISTENING_TCP_CAPABILITY,
-        SERVER_STATS_CAPABILITY,
-        TERMINAL_IDLE_CLOSE_CAPABILITY,
-        TERMINAL_REAP_CAPABILITY,
-        END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
-        BATCH_CLOSE_CAPABILITY,
-        TERMINAL_RESOURCES_CAPABILITY,
-        TERMINAL_PLACEMENT_ENV_CAPABILITY,
-        WORKSPACE_GROUPS_CAPABILITY,
-        WORKSPACE_METADATA_CAPABILITY,
-        WORKSPACE_PIN_CAPABILITY,
-        NOTIFICATION_MARK_UNREAD_CAPABILITY,
-        TAB_METADATA_CAPABILITY,
-        FRONTEND_BROWSER_TABS_CAPABILITY,
-        TAB_DRAG_CAPABILITY,
-        NOTIFICATION_ACK_CAPABILITY,
-        TAB_GROUPS_CAPABILITY,
-        SAVED_TAB_GROUPS_CAPABILITY,
-        TERMINAL_ENV_CAPABILITY,
-        LOOPBACK_FORWARD_CAPABILITY,
-        SESSION_IDENTITY_CAPABILITY,
-        PROFILES_CAPABILITY,
-        PERSONAL_TERMINALS_CAPABILITY,
-        BROWSER_PROFILES_CAPABILITY,
-        BOOKMARKS_CAPABILITY,
-        SCREEN_METADATA_CAPABILITY,
-        SCREEN_GROUPS_CAPABILITY,
-        NOTIFICATION_SOURCE_CAPABILITY,
-        TERMINAL_SHELL_ARGS_CAPABILITY,
-        LAUNCH_SNAPSHOT_CAPABILITY,
-        STATE_RESOURCES_CAPABILITY,
-        WINDOW_RECORDS_CAPABILITY,
-        FRONTEND_BROWSER_OWNER_CAPABILITY,
-    ];
-    if bounded_clear_history_fallback_writes {
-        capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
-    }
-    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-    capabilities.push(crate::image_paste::CAPABILITY);
-    capabilities
 }
 
 macro_rules! protocol_keys {
@@ -7992,6 +7922,12 @@ fn handle_resource_connection_message(
                 !crate::resource_router::requires_connection_context(request.envelope.operation),
                 "connection-owned operation fell through to the transport-independent router"
             );
+            // A process may own a status entry only over a trusted local connection.
+            if crate::state::status_owners::names_process_owner(&request)
+                && let Err(error) = trusted_local_resource_client(mux, client, operation)
+            {
+                return send_resource_response(writer, id, operation, Err(error));
+            }
             match crate::resource_router::handle_parsed_resource_request(mux, request) {
                 Ok(response) => writer.send_control(&response).is_ok(),
                 Err(error) => {

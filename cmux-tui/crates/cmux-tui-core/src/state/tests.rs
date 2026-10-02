@@ -44,7 +44,7 @@ impl Drop for Session {
     }
 }
 
-fn send(
+pub(super) fn send(
     mux: &Arc<Mux>,
     operation: &str,
     params: Value,
@@ -72,7 +72,7 @@ fn send(
 }
 
 /// A committed mutation's value.
-fn mutate(mux: &Arc<Mux>, operation: &str, params: Value, key: &str) -> Value {
+pub(super) fn mutate(mux: &Arc<Mux>, operation: &str, params: Value, key: &str) -> Value {
     let result = send(mux, operation, params, Some(key))
         .unwrap_or_else(|error| panic!("{operation} failed: {error:?}"));
     assert_eq!(result["replayed"], false, "{operation} unexpectedly replayed");
@@ -84,12 +84,12 @@ fn read(mux: &Arc<Mux>, operation: &str, params: Value) -> Value {
         .unwrap_or_else(|error| panic!("{operation} failed: {error:?}"))
 }
 
-fn error_code(result: Result<Value, ResourceError>) -> String {
+pub(super) fn error_code(result: Result<Value, ResourceError>) -> String {
     result.expect_err("request unexpectedly succeeded").code
 }
 
 /// Every change of every resource batch after `revision`.
-fn changes_after(mux: &Mux, revision: u64) -> Vec<Value> {
+pub(super) fn changes_after(mux: &Mux, revision: u64) -> Vec<Value> {
     mux.resource_events_after(revision)
         .unwrap()
         .batches
@@ -98,7 +98,7 @@ fn changes_after(mux: &Mux, revision: u64) -> Vec<Value> {
         .collect()
 }
 
-fn revision(mux: &Mux) -> u64 {
+pub(super) fn revision(mux: &Mux) -> u64 {
     mux.with_state(|state| state.resource_revision)
 }
 
@@ -106,7 +106,7 @@ fn snapshot(mux: &Mux) -> Value {
     crate::resource_api::public_session_snapshot(mux).unwrap()
 }
 
-fn empty_workspace(mux: &Arc<Mux>, name: &str) -> String {
+pub(super) fn empty_workspace(mux: &Arc<Mux>, name: &str) -> String {
     let created = mutate(
         mux,
         "workspace.create",

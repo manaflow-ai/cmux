@@ -86,6 +86,24 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
 
 /// Map a state failure to its typed protocol error. Registry validation
 /// failures are `bad request: ...`.
+/// The loading-indicator fields of `workspace_status.set`. A process owner
+/// must be running when the entry is set (local trust is checked by the
+/// transport, which alone knows the connection).
+fn status_set_meta(
+    fields: &Map<String, Value>,
+) -> Result<crate::state::status_meta::StatusMeta, ResourceError> {
+    let meta = crate::state::status_meta::StatusMeta::from_fields(fields).map_err(state_error)?;
+    if let Some(pid) = meta.owner_pid
+        && !crate::state::status_owners::process_is_running(pid)
+    {
+        return Err(ResourceError::validation_invalid(
+            Some("owner.pid"),
+            format!("process {pid} is not running"),
+        ));
+    }
+    Ok(meta)
+}
+
 fn state_error(error: anyhow::Error) -> ResourceError {
     if error.downcast_ref::<ResourceError>().is_none()
         && let Some(reason) = error.to_string().strip_prefix("bad request: ")
@@ -500,12 +518,17 @@ pub(crate) fn dispatch(
         | Op::WorkspaceProgressClear
         | Op::WorkspaceLogAppend
         | Op::WorkspaceLogClear => {
+            let meta = match operation {
+                Op::WorkspaceStatusSet => Some(status_set_meta(fields)?),
+                _ => None,
+            };
             let change = match operation {
                 Op::WorkspaceStatusSet => WorkspaceStatusChange::Set {
                     key: string(fields, "key").unwrap_or_default(),
                     text: string(fields, "text").unwrap_or_default(),
                     icon: string(fields, "icon"),
                     color: string(fields, "color"),
+                    meta: meta.clone().unwrap_or_default(),
                 },
                 Op::WorkspaceStatusClear => {
                     WorkspaceStatusChange::Clear { key: string(fields, "key") }
@@ -531,6 +554,14 @@ pub(crate) fn dispatch(
                     change,
                 )
                 .map_err(state_error)?;
+            if let Some(meta) = meta {
+                crate::state::status_owners::watch_owners(
+                    mux,
+                    meta.owner_terminal.as_deref(),
+                    meta.owner_pid,
+                    meta.ttl_ms.is_some(),
+                );
+            }
             state_result(mux, commit)
         }
         operation => Err(ResourceError::operation_failed(

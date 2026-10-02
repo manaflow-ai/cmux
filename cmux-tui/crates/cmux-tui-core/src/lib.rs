@@ -53,6 +53,7 @@ pub mod sizing_policy;
 mod state;
 mod stream_interrupt;
 mod surface;
+mod terminal_activity;
 mod terminal_metadata;
 mod workspace_registry;
 
