@@ -25,39 +25,6 @@ struct CloudTreeCreateActionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        if action.isTrailing { trailingBody } else { rowBody }
-    }
-
-    /// Fit to its label at the row's trailing edge; the fill hugs the label.
-    private var trailingBody: some View {
-        HStack(spacing: 0) {
-            Spacer(minLength: 0)
-            Button {
-                action.perform(nodeActions)
-            } label: {
-                CloudTreeCreateActionLabel(action: action, style: style, isHovered: isHovered)
-                    .fixedSize()
-                    .padding(.horizontal, GlobalFontMagnification.scaledSize(Self.trailingHorizontalPadding, percent: magnification))
-                    .frame(minHeight: style.rowHeight)
-                    .background(
-                        RoundedRectangle(cornerRadius: CloudTreeHoverStyle.cornerRadius, style: .continuous)
-                            .fill(isHovered ? Color.primary.opacity(CloudTreeHoverStyle.hoverOpacity) : Color.clear)
-                            .padding(.vertical, CloudTreeHoverStyle.verticalInset)
-                    )
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.trailing, CloudTreeHoverStyle.horizontalInset)
-        .animation(reduceMotion || !animatesHover ? nil : .easeOut(duration: isHovered ? CloudTreeHoverStyle.fadeIn : CloudTreeHoverStyle.fadeOut), value: isHovered)
-        .help(action.title)
-        .accessibilityLabel(action.title)
-        .accessibilityIdentifier(action.accessibilityIdentifier)
-    }
-
-    private static let trailingHorizontalPadding: CGFloat = 6
-
-    private var rowBody: some View {
         Button {
             action.perform(nodeActions)
         } label: {

@@ -48,14 +48,9 @@ struct CloudTreeMachineDetailLayout {
         let spacerID = "cloud-machines-section/end-spacer"
         let existing = section.children.first { $0.id == spacerID }
         section.children.removeAll { $0.id == spacerID }
-        guard let lastIndex = section.children.lastIndex(where: { if case .machine = $0.kind { return true }; return false }) else { return }
-        section.children[lastIndex].children.removeAll { if case .machineEndSpacer = $0.kind { return true }; return false }
-        // Right after the last machine, so rows that close the section
-        // (Refresh Cloud Machines) sit below the gap.
-        section.children.insert(
-            existing ?? CloudTreeNode(id: spacerID, kind: .machineEndSpacer(machine: .cloud("cloud-machines-section"))),
-            at: lastIndex + 1
-        )
+        guard let last = section.children.last(where: { if case .machine = $0.kind { return true }; return false }) else { return }
+        last.children.removeAll { if case .machineEndSpacer = $0.kind { return true }; return false }
+        section.children.append(existing ?? CloudTreeNode(id: spacerID, kind: .machineEndSpacer(machine: .cloud("cloud-machines-section"))))
     }
 
     private func machineChildren(_ node: CloudTreeNode) -> [CloudTreeNode] {

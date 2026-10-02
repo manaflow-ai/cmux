@@ -13,7 +13,7 @@ import Testing
 @MainActor
 @Suite("Cloud sidebar category create rows")
 struct CloudTreeCategoryCreateActionTests {
-    @Test("Cloud Machines has no New Cloud Machine row and ends with Refresh Cloud Machines", arguments: [0, 1, 3])
+    @Test("Cloud Machines has no New Cloud Machine row; the panel's button owns creation", arguments: [0, 1, 3])
     func cloudMachinesCategoryHasNoMachineRow(machineCount: Int) throws {
         let fixture = Fixture()
         defer { fixture.close() }
@@ -23,28 +23,10 @@ struct CloudTreeCategoryCreateActionTests {
         // New Cloud Machine is `CloudNewMachineButton` above the tree, and the
         // empty fleet's double-click-only placeholder goes with the row.
         #expect(section.children.allSatisfy { $0.id != "cloud-machines-section/empty" })
-        // The section's only action row is Refresh Cloud Machines, last,
-        // below the gap after the last machine and only once a machine is listed.
-        let actions = section.children.filter { $0.structureTag == "createAction" }
-        if machineCount == 0 {
-            #expect(section.children.isEmpty)
-        } else {
-            #expect(actions.map(\.kind) == [.createAction(.refreshCloudMachines)])
-            #expect(section.children.last?.kind == .createAction(.refreshCloudMachines))
-            #expect(section.children.dropLast().last?.structureTag == "machineEndSpacer")
-        }
-    }
-
-    @Test("Refresh Cloud Machines runs the panel's refresh")
-    func refreshRowRefreshes() throws {
-        let fixture = Fixture()
-        defer { fixture.close() }
-        fixture.apply(machines: fixture.machines(2))
-        let section = try #require(fixture.cloudSection)
-        let refresh = try #require(section.children.first { $0.kind == .createAction(.refreshCloudMachines) })
-        fixture.coordinator.open(refresh)
-        #expect(fixture.events.refreshCalled)
-        #expect(try fixture.cell(for: refresh).accessibilityLabel() == CloudTreeCreateAction.refreshCloudMachines.title)
+        // The section has no create row of its own: each machine's
+        // workspaces start with their New Workspace.
+        #expect(section.children.allSatisfy { $0.structureTag != "createAction" })
+        if machineCount == 0 { #expect(section.children.isEmpty) }
     }
 
     @Test("Each Cloud machine's workspaces start with New Workspace")
@@ -160,7 +142,7 @@ struct CloudTreeCategoryCreateActionTests {
                 newWorkspace: { eventBox.workspaceMachine = $0 },
                 closeTerminal: { _ in }, closeWorkspace: { _, _ in },
                 renameWorkspace: { _, _ in }, renameTerminal: { _, _ in },
-                selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, copyPortLink: { _ in }, refresh: { eventBox.refreshCalled = true },
+                selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, copyPortLink: { _ in }, refresh: {},
                 newMachine: { eventBox.cloudVMActionCalled = true }
             )
             coordinator = CloudTreeOutlineView.Coordinator(
@@ -235,7 +217,6 @@ struct CloudTreeCategoryCreateActionTests {
         final class Events {
             var workspaceMachine: SurfaceMachineID?
             var cloudVMActionCalled = false
-            var refreshCalled = false
         }
     }
 }

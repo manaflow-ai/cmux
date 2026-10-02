@@ -232,6 +232,12 @@ struct MachinesPanelView: View {
             teamScopeLoading
         } else {
             content
+            if includesCloud {
+                CloudRefreshMachinesButton(
+                    isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
+                    action: refreshMachines
+                )
+            }
         }
     }
 
