@@ -122,10 +122,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         // Localized once per snapshot, not once per action.
         let categoryTitles = Dictionary(uniqueKeysWithValues: ActionCategory.allCases.map { ($0, $0.title) })
         let actions = registry.entries.map { entry in info(for: entry, in: registry, categoryTitles: categoryTitles) }
-        var debugAvailable = false
-        #if DEBUG
-        debugAvailable = true
-        #endif
+        let debugAvailable = DevTools.isEnabled
         return ControlCatalog(
             actions: actions,
             contextMask: registry.context.rawValue,

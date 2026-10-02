@@ -52,18 +52,9 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// Floating panel open: palette scale-in, hover card slide.
     case panel
 
-    /// Values at `MotionSpeed.fast`.
+    /// Values at `MotionSpeed.fast`: the code default (`MotionTunables`),
+    /// or its Debug Settings override in DEV and NIGHTLY builds.
     public var base: SpringParameters {
-        switch self {
-        case .move: SpringParameters(response: 0.2, dampingFraction: 0.9)
-        case .appear: SpringParameters(response: 0.18, dampingFraction: 0.9)
-        case .disappear: SpringParameters(response: 0.15, dampingFraction: 0.9)
-        case .settle: SpringParameters(response: 0.22, dampingFraction: 0.85)
-        case .scroll: SpringParameters(response: 0.22, dampingFraction: 0.9)
-        case .screen: SpringParameters(response: 0.22, dampingFraction: 0.9)
-        case .track: SpringParameters(response: 0.12, dampingFraction: 0.9)
-        case .selection: SpringParameters(response: 0.15, dampingFraction: 0.9)
-        case .panel: SpringParameters(response: 0.18, dampingFraction: 0.85)
-        }
+        MotionTunables.springs[self]?.value ?? SpringParameters(response: 0.2, dampingFraction: 0.9)
     }
 }
