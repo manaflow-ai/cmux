@@ -1,4 +1,4 @@
 Not copied into CmuxNextApps resources by scripts/cmux-next/sync-app-runtime.sh:
-the Swift manifest validator does not decode contributes.paletteScopes yet, and the
+the Swift manifest validator does not accept its onPaletteScope activation yet, and the
 Swift registry and App Store tests assert the exact bundled app list.
 Delete this file when the Swift side supports palette scopes (palette-scopes.md step 6).
