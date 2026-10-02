@@ -716,6 +716,7 @@ class MintTerminalRendererResult:
     rights: int
     token: str
     ttl_ms: int
+    supports_viewer_size_priority: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

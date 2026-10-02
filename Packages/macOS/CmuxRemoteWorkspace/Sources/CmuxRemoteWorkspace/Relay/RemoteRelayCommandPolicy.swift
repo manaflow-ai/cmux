@@ -93,6 +93,13 @@ public struct RemoteRelayCommandPolicy: Sendable {
                 return .deny(reason: "relay browser URLs are not permitted")
             }
         }
+        if method == "terminal.paste" {
+            guard params["text"] is String,
+                  let submitKey = params["submit_key"] as? String,
+                  ["none", "return"].contains(submitKey) else {
+                return .deny(reason: "terminal.paste requires text and submit_key none|return")
+            }
+        }
         if method == "agent.resolve_delivery_target" {
             if firstKey(in: params, matching: ["pid", "pid_resolution"]) != nil {
                 return .deny(reason: "agent PID resolution is not permitted through a remote relay")

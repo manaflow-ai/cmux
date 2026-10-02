@@ -93,6 +93,13 @@ fi
 if [ -n "${GITHUB_ACTIONS:-}" ]; then
   app_host_test_runner_environment+=("TEST_RUNNER_GITHUB_ACTIONS=$GITHUB_ACTIONS")
 fi
+# Source-backed test fixtures resolve their repository files through this
+# runtime root. Xcode does not inherit the driver's environment, so forward
+# the path through the TEST_RUNNER_ channel when app-host tests are restored
+# from a canonical build product.
+if [ -n "${CMUX_CI_RUNTIME_SOURCE_ROOT:-}" ]; then
+  app_host_test_runner_environment+=("TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT=$CMUX_CI_RUNTIME_SOURCE_ROOT")
+fi
 # Focused app-host suites invoke Node/Bun-backed helpers from the test process.
 # Xcode does not inherit these driver variables, so carry them through the
 # TEST_RUNNER_ channel when the caller supplied them.
@@ -101,6 +108,12 @@ if [ -n "${TEST_RUNNER_PATH:-}" ]; then
 fi
 if [ -n "${TEST_RUNNER_BUN_INSTALL:-}" ]; then
   app_host_test_runner_environment+=("TEST_RUNNER_BUN_INSTALL=$TEST_RUNNER_BUN_INSTALL")
+fi
+# SwiftTestingAssertions.sourceURL() resolves source fixtures through this
+# root; without the prefix the test host never sees it and falls back to the
+# producer's #filePath, which a consumer runner does not have.
+if [ -n "${CMUX_CI_RUNTIME_SOURCE_ROOT:-}" ]; then
+  app_host_test_runner_environment+=("TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT=$CMUX_CI_RUNTIME_SOURCE_ROOT")
 fi
 # Focused opt-in suites (renderer memory regression, benchmarks) are gated on a
 # plain variable the driver receives. Xcode does not inherit it, so a caller that
