@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import type { Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
 import type { Body, Run } from "@cmux/protocol"
-import { dispatchable, dueFires, matchingEventTriggers, publicRun, schedulerDomain, TERMINAL, type SchedulerState } from "./domains/scheduler.ts"
+import { deadlineOf, dispatchable, dueFires, matchingEventTriggers, publicRun, schedulerDomain, TERMINAL, type SchedulerState } from "./domains/scheduler.ts"
 import type { Env } from "./env.ts"
 import type { DeliverResult } from "./ingress/automation-hook.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
@@ -44,8 +44,6 @@ const alreadyExists = (e: unknown) => /already exists|already_exists|duplicate/i
  * a system op with a deterministic key, so a repeated alarm replays.
  */
 export class SchedulerDO extends OwnerDO<SchedulerState> {
-  /** Backoff for fires and dispatches that failed in this instance's lifetime (a scheduling hint, not entity state). */
-
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, schedulerDomain, "scheduler", (p) => ({
       identity: p.kind === "system" ? p.identity : (p.install ?? `user:${p.user}`),
@@ -133,9 +131,14 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     this.ctx.storage.sql.exec(`DELETE FROM retry_state WHERE key = ?`, key)
   }
 
-  /** Inputs of runs that never dispatched, and stale backoff rows, leave with the replay window. */
+  /** Inputs of runs that are gone or finished, and stale backoff rows, leave with the replay window. */
   protected override onPrune(before: number): void {
-    this.ctx.storage.sql.exec(`DELETE FROM run_inputs WHERE created_at < ?`, before)
+    const runs = this.boundEngine?.currentState.runs ?? {}
+    for (const row of this.ctx.storage.sql.exec<{ run: string }>(`SELECT run FROM run_inputs WHERE created_at < ?`, before).toArray()) {
+      const r = runs[row.run]
+      // A queued run may wait for weeks behind a long one; its input stays until it ends.
+      if (!r || TERMINAL.has(r.state)) this.ctx.storage.sql.exec(`DELETE FROM run_inputs WHERE run = ?`, row.run)
+    }
     this.ctx.storage.sql.exec(`DELETE FROM retry_state WHERE at < ?`, before)
     this.ctx.storage.sql.exec(`DELETE FROM seen_deliveries WHERE at < ?`, Date.now() - DELIVERY_RETENTION_MS)
   }
@@ -156,7 +159,10 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     const oldestSeen = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM seen_deliveries`).toArray()[0]?.at
     if (oldestSeen !== null && oldestSeen !== undefined) take(Number(oldestSeen) + DELIVERY_RETENTION_MS)
     // One wake per open run at its deadline; a run that reports its end never causes it.
-    for (const r of Object.values(state.runs)) if (r.deadline_at !== undefined && !TERMINAL.has(r.state)) take(this.retryAt(deadlineKey(r.id)) ?? r.deadline_at)
+    for (const r of Object.values(state.runs)) {
+      const deadline = deadlineOf(r)
+      if (deadline !== undefined && !TERMINAL.has(r.state)) take(this.retryAt(deadlineKey(r.id)) ?? deadline)
+    }
     return at
   }
 
@@ -167,10 +173,13 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
    */
   private async enforceDeadlines(now: number) {
     const engine = this.boundEngine!
-    const due = Object.values(engine.currentState.runs).filter((r) => r.deadline_at !== undefined && r.deadline_at <= now && !TERMINAL.has(r.state))
+    // Runs in backoff are filtered before the batch cap, so the rest always get their check.
+    const due = Object.values(engine.currentState.runs).filter((r) => {
+      const deadline = deadlineOf(r)
+      return deadline !== undefined && deadline <= now && !TERMINAL.has(r.state) && (this.retryAt(deadlineKey(r.id)) ?? 0) <= now
+    })
     for (const r of due.slice(0, 20)) {
       const key = deadlineKey(r.id)
-      if ((this.retryAt(key) ?? 0) > now) continue
       let status: string
       try {
         const instance = await this.env.AUTOMATION_RUN.get(r.id)
@@ -186,7 +195,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
         }
         status = "unknown"
       }
-      const budget = engine.currentState.automations[r.automation]?.budget.wall_clock_seconds
+      const budget = r.wall_clock_seconds
       const report =
         status === "terminated_at_deadline"
           ? { run: r.id, state: "failed", step: r.step, error: budget !== undefined ? { code: "budget.wall_clock", message: `ran longer than ${budget} s` } : { code: "run.deadline", message: "ran past its deadline" } }

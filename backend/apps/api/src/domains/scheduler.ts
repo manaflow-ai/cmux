@@ -33,16 +33,24 @@ export interface RunRecord extends Run {
    * instant for a run still open; a run that reports its end never wakes it.
    */
   readonly deadline_at?: number
+  /** The wall-clock budget of the automation version that fired (seconds), like `body`. */
+  readonly wall_clock_seconds?: number
 }
 
-/** Slack added to a body's sleeps for its steps and reports. */
-export const RUN_GRACE_MS = 60 * 60_000
+/** A run's deadline; runs from before deadlines existed fall back to created_at. */
+export const deadlineOf = (r: RunRecord): number | undefined =>
+  r.deadline_at ?? (r.dispatched ? r.created_at + runLimitMs(r.body, r.wall_clock_seconds) : undefined)
 
-/** Longest a run may take (ms): the budget when set, else the body's sleeps plus grace. */
-export const runLimitMs = (body: Body, budget: Automation["budget"] | undefined): number => {
-  if (budget?.wall_clock_seconds !== undefined) return budget.wall_clock_seconds * 1000
-  const sleeps = body.type === "steps" ? body.steps.reduce((n, s) => n + (s.type === "sleep" ? s.seconds * 1000 : 0), 0) : 0
-  return sleeps + RUN_GRACE_MS
+/** Slack added to a steps body's sleeps for its steps and reports. */
+export const RUN_GRACE_MS = 60 * 60_000
+/** Default limit of an agent_prompt run without a wall-clock budget (agents may work for hours). */
+export const AGENT_RUN_DEFAULT_MS = 24 * 3600_000
+
+/** Longest a run may take (ms): the budget when set, else the body's sleeps plus grace (agent runs: 24 h). */
+export const runLimitMs = (body: Body, wallClockSeconds: number | undefined): number => {
+  if (wallClockSeconds !== undefined) return wallClockSeconds * 1000
+  if (body.type === "agent_prompt") return AGENT_RUN_DEFAULT_MS
+  return body.steps.reduce((n, s) => n + (s.type === "sleep" ? s.seconds * 1000 : 0), 0) + RUN_GRACE_MS
 }
 
 export interface SchedulerState {
@@ -99,7 +107,7 @@ export const matchingEventTriggers = (
 const internalByName = new Map(schedulerInternalOps.map((d) => [d.name, d]))
 
 export const publicRun = (r: RunRecord): Run => {
-  const { dispatched: _d, body: _b, deadline_at: _dl, ...run } = r
+  const { dispatched: _d, body: _b, deadline_at: _dl, wall_clock_seconds: _w, ...run } = r
   return run
 }
 
@@ -218,7 +226,8 @@ const startRun = (
     error: skip ? { code: "concurrency.limit", message: `${active} runs active (max ${a.concurrency.max}, on_limit skip)` } : null,
     outcome: null,
     dispatched: false,
-    body: a.body
+    body: a.body,
+    ...(a.budget.wall_clock_seconds !== undefined ? { wall_clock_seconds: a.budget.wall_clock_seconds } : {})
   }
   // A run from any trigger other than continue starts a new continue chain.
   const continueTrigger = a.triggers.find((t) => t.spec.type === "continue")
@@ -404,8 +413,10 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const d = decodeParams<{ run: string }>(internalByName.get(op)!, params)
         if (!d.ok) return d
         const r = state.runs[d.value.run]
-        if (!r || r.dispatched || TERMINAL.has(r.state)) return { ok: true, state, value: { run: d.value.run }, changed: false }
-        const next: RunRecord = { ...r, dispatched: true, deadline_at: ctx.now + runLimitMs(r.body, state.automations[r.automation]?.budget) }
+        // A report may have marked the run dispatched first (it raced the create, or a create retry
+        // found the instance); the deadline is still set exactly once here or in run.report.
+        if (!r || TERMINAL.has(r.state) || (r.dispatched && r.deadline_at !== undefined)) return { ok: true, state, value: { run: d.value.run }, changed: false }
+        const next: RunRecord = { ...r, dispatched: true, deadline_at: r.deadline_at ?? ctx.now + runLimitMs(r.body, r.wall_clock_seconds) }
         return { ok: true, state: { ...state, runs: { ...state.runs, [r.id]: next } }, value: { run: r.id } }
       }
 
@@ -429,7 +440,8 @@ export const schedulerDomain: Domain<SchedulerState> = {
           finished_at: terminal ? ctx.now : null,
           error: v.error ?? (terminal ? r.error : null),
           outcome: v.outcome ?? r.outcome,
-          dispatched: true
+          dispatched: true,
+          deadline_at: r.deadline_at ?? ctx.now + runLimitMs(r.body, r.wall_clock_seconds)
         }
         if (canonicalJson(next) === canonicalJson(r)) return { ok: true, state, value: publicRun(r), changed: false }
         let s: SchedulerState = { ...state, runs: { ...state.runs, [r.id]: next } }

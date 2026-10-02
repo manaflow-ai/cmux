@@ -191,6 +191,17 @@ describe("SchedulerDO reducer", () => {
     expect((loose.value as any).triggers[0].status).toBe("not_yet_supported")
   })
 
+  it("a run gets its deadline even when a report arrives before run.dispatched", () => {
+    let { state, a } = created()
+    const r = apply(state, user, "automation.run", { automation: a.id }, T0)
+    const id = (r.value as any).id
+    state = apply(r.state, system, "run.report", { run: id, state: "running", step: -1 }, T0 + 10).state
+    expect(state.runs[id]!.deadline_at).toBe(T0 + 10 + 60 * 60_000)
+    const late = apply(state, system, "run.dispatched", { run: id }, T0 + 20)
+    expect(late.changed).toBe(false)
+    expect(late.state.runs[id]!.deadline_at).toBe(T0 + 10 + 60 * 60_000)
+  })
+
   it("keeps every active run and only the newest finished runs", () => {
     let { state, a } = created()
     state = apply(state, user, "automation.update", { automation: a.id, concurrency: { max: 10, on_limit: "queue" } }, T0).state
