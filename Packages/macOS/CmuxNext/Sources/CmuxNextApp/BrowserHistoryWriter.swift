@@ -43,8 +43,11 @@ final class BrowserHistoryWriter {
         pending = nil
         guard let page else { return }
         let measured = await Self.within(Self.measureBudget, sleep: sleep) { await page.savedSession(measuringScroll: true) }
-        guard let session = measured ?? (await page.savedSession(measuringScroll: false)) else { return }
-        await write(session)
+        if let measured {
+            await write(measured)
+        } else if let session = await page.savedSession(measuringScroll: false) {
+            await write(session)
+        }
     }
 
     func cancel() {

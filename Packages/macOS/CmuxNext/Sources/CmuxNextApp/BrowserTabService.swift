@@ -208,10 +208,8 @@ final class BrowserTabService {
     func flushRecords() async {
         for writer in writers.values { await writer.flushNow() }
         // Each page is asked for its scroll position at once, not in turn.
-        await withTaskGroup(of: Void.self) { group in
-            for writer in historyWriters.values {
-                group.addTask { @MainActor in await writer.flushNow() }
-            }
-        }
+        // task-owner: every flush is awaited before quit goes on.
+        let flushes = historyWriters.values.map { writer in Task { await writer.flushNow() } }
+        for flush in flushes { await flush.value }
     }
 }
