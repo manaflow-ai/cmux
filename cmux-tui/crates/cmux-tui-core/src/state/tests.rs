@@ -766,6 +766,47 @@ fn closed_tabs_and_workspaces_are_recorded_and_reopen() {
     );
 }
 
+/// Closed history records what a user or client closed, not what ended on
+/// its own: an explicit tab close leaves a record, a terminal whose process
+/// exited (its tab detaches) leaves none. Follow-up with the host-death
+/// branch: a lost host (`TerminalEnd::HostLost`, including signal exits
+/// during owner shutdown) keeps its tab and must leave no record either.
+#[cfg(unix)]
+#[test]
+fn closed_history_records_explicit_closes_but_not_process_exits() {
+    const TERMINAL: &str = "0000000000004000800000000000c105";
+    const INCARNATION: &str = "1000000000004000800000000000c105";
+    let mux = Mux::new_for_test("state-closed-exit", SurfaceOptions::default());
+    let workspace = mux
+        .create_empty_workspace(
+            Some("exits".into()),
+            Some("018f6e21-7b70-7e70-8000-00000000c105".into()),
+            None,
+        )
+        .unwrap();
+    let exited = mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(exited).unwrap());
+    let closed = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap().id;
+    let kept = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap().id;
+    let terminal =
+        mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+    let exit = crate::terminal_host_protocol::TerminalExit {
+        outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+        exited_at_ms: 1_000,
+    };
+    assert!(mux.persist_terminal_exit_for_test(&terminal, &exit).unwrap());
+    mux.surface_exited(exited);
+    mux.with_state(|state| assert!(!state.surfaces.contains_key(&exited)));
+    assert_eq!(read(&mux, "closed.list", json!({})), json!([]), "a process exit is not a close");
+
+    assert!(mux.close_surface(closed).unwrap());
+    let records = read(&mux, "closed.list", json!({}));
+    assert_eq!(records.as_array().unwrap().len(), 1, "{records}");
+    assert_eq!(records[0]["kind"], "tab");
+    mux.with_state(|state| assert!(state.surfaces.contains_key(&kept)));
+    mux.shutdown();
+}
+
 #[test]
 fn closed_history_keeps_the_newest_fifty_items() {
     let mux = Mux::new_for_test("state-closed-bound", SurfaceOptions::default());
