@@ -217,9 +217,6 @@ def test_ci_failfast_keeps_failure_rollups_and_bounds_observed_tails() -> None:
     assert "timeout-minutes: 60" in job_block(
         ".github/workflows/ci-macos.yml", "swift-package-tests"
     )
-    assert "timeout-minutes: 25" in job_block(
-        ".github/workflows/test-ios.yml", "ios-simulator"
-    )
 
 
 def main() -> int:

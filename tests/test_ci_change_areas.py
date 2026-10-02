@@ -1059,16 +1059,16 @@ def test_macos_ios_package_closure_matches_current_desktop_graph() -> None:
 
 
 def test_ios_package_tests_skip_macos_compile_but_keep_package_lane() -> None:
-    # Tests are never compiled into the desktop app target. Shared iOS
-    # packages still need their dedicated package-test lane, so only the
-    # macOS area is neutralized here. CmuxMobileShellModel is shared with the
-    # desktop graph and its tests are selected by this branch's package lane.
+    # Tests are never compiled into the desktop app target, so the macOS area
+    # is neutralized here. No package in the macOS package lane depends on
+    # CmuxMobileShellModel since the legacy iOS packages were deleted; its own
+    # suite runs in test-ios.yml's mobile-core-package job instead.
     actual = module.classify_files([
         "Packages/iOS/CmuxMobileShellModel/Tests/CmuxMobileShellModelTests/MacSurfaceRendererTests.swift"
     ])
     assert actual.macos is False, actual
     assert actual.release_build is False, actual
-    assert actual.swift_packages is True, actual
+    assert actual.swift_packages is False, actual
 
 
 def test_ios_package_routing_follows_desktop_dependency_closure() -> None:

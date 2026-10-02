@@ -3502,7 +3502,7 @@ class E2EQueueRounds(unittest.TestCase):
 
 
 class IrohReleaseGateWiring(unittest.TestCase):
-    """iroh-release-gate.yml offers its Tailscale job to the owned Macs; simulator-e2e stays on Blacksmith."""
+    """iroh-release-gate.yml offers its Tailscale job to the owned Macs."""
 
     BLACKSMITH = "(vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15')"
 
@@ -3536,12 +3536,6 @@ class IrohReleaseGateWiring(unittest.TestCase):
             {"run_attempt": 1, "event": "workflow_dispatch", "path": ".github/workflows/iroh-release-gate.yml",
              "head_repository": {"id": 1}, "repository": {"id": 1}}, []))
 
-    def test_simulator_e2e_stays_on_blacksmith(self):
-        job = self.jobs["simulator-e2e"]
-        self.assertEqual(job["needs"], "resolve-ref")
-        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                         f"{self.BLACKSMITH} }}}}")
-
 
 class IOSWiring(unittest.TestCase):
     """The unsigned iOS jobs read ios_runner_pool.py; everything that signs or leaks stays on Blacksmith."""
@@ -3569,9 +3563,8 @@ class IOSWiring(unittest.TestCase):
         jobs = self.workflow("test-ios.yml")["jobs"]
         self.assertEqual(jobs["mobile-core-package"]["runs-on"], self.RUNS_ON.replace(
             "needs.runner.outputs.runs_on", "needs.runner.outputs.package_runs_on"))
-        for name in ("ios-simulator-build", "ios-simulator"):
-            self.assertEqual(jobs[name]["runs-on"], self.RUNS_ON, name)
-        for name in ("mobile-core-package", "ios-simulator-build", "ios-simulator"):
+        self.assertEqual(jobs["ios-simulator-build"]["runs-on"], self.RUNS_ON)
+        for name in ("mobile-core-package", "ios-simulator-build"):
             self.assertIn("runner", jobs[name]["needs"], name)
             self.assertIn("needs.runner.result == 'success'", jobs[name]["if"], name)
         self.assertIn("runner", jobs["ios-tests"]["needs"])
@@ -3588,7 +3581,7 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(step["env"]["SEED_CACHE"], "${{ inputs.seed_cache }}")
         self.assertIn('--seed-cache "$SEED_CACHE"', step["run"])
         pin = IOS_XCODE_PIN
-        for name in ("mobile-core-package", "ios-simulator-build", "ios-simulator"):
+        for name in ("mobile-core-package", "ios-simulator-build"):
             self.assertEqual(jobs[name]["env"]["CMUX_CI_XCODE_APP"], pin, name)
         # PyYAML reads the `on:` key as True.
         options = self.workflow("test-ios.yml")[True]["workflow_dispatch"]["inputs"]["runner"]["options"]
@@ -3655,7 +3648,7 @@ class IOSWiring(unittest.TestCase):
                                  and f'rm -f "$HOME/{secret}"' in str(other.get("run") or "")]
                         self.assertTrue(later, f"{path.name} {job_name}: {secret} is never removed")
                         checked.add(path.name)
-        self.assertTrue({"ios-streamed-validate.yml", "iroh-release-gate.yml"} <= checked, checked)
+        self.assertTrue({"ios-streamed-validate.yml"} <= checked, checked)
 
 
 class LiveIdleRunners(unittest.TestCase):
