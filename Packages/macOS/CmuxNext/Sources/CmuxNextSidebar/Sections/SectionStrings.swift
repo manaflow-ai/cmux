@@ -14,6 +14,7 @@ enum SectionStrings {
     static var newAgentChat: String { String(localized: "sidebar.builtin.newAgentChat", defaultValue: "New Agent Chat", bundle: .module) }
     /// The rail's button for items that do not fit.
     static var more: String { String(localized: "sidebar.rail.more", defaultValue: "More…", bundle: .module) }
+    static var customize: String { String(localized: "sidebar.builtin.customize", defaultValue: "Customize Appearance", bundle: .module) }
     static var collapse: String { String(localized: "sidebar.sections.collapse", defaultValue: "Collapse", bundle: .module) }
     static var expand: String { String(localized: "sidebar.sections.expand", defaultValue: "Expand", bundle: .module) }
 }

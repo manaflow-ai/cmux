@@ -20,7 +20,7 @@ import Testing
 
     @Test func eachItemIsAnIconButtonAtItsLaidOutFrame() throws {
         let view = rail(.defaults)
-        #expect(view.subviews.count == 4)
+        #expect(view.subviews.count == 5)
         for button in view.layoutResult.buttons {
             let item = try #require(view.itemView(button.item))
             #expect(item.frame == button.frame)
@@ -53,7 +53,7 @@ import Testing
         view.update(.init(document: doc, room: nil, infos: [:], toolTips: [:], metrics: m))
         view.layoutSubtreeIfNeeded()
         #expect(view.itemView(LayoutItemID("itm_app_store")) == nil)
-        #expect(view.subviews.count == 3)
+        #expect(view.subviews.count == 4)
 
         view.frame.size.height = 130
         view.layoutSubtreeIfNeeded()

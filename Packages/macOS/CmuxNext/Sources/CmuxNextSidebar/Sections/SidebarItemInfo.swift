@@ -44,6 +44,7 @@ extension SidebarBuiltIn {
         case .newTerminal: "apple.terminal"
         case .newBrowser: "globe"
         case .newAgentChat: "bubble.left.and.text.bubble.right"
+        case .customize: "paintbrush"
         }
     }
 
@@ -60,6 +61,7 @@ extension SidebarBuiltIn {
         case .newTerminal: SectionStrings.newTerminal
         case .newBrowser: SectionStrings.newBrowser
         case .newAgentChat: SectionStrings.newAgentChat
+        case .customize: SectionStrings.customize
         }
     }
 

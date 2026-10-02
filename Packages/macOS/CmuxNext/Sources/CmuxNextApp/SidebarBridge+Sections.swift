@@ -24,6 +24,7 @@ extension SidebarBridge {
         .newTerminal: "newSurface",
         .newBrowser: "openBrowser",
         .newAgentChat: "palette.newAgentChat",
+        .customize: "appearance.customize",
     ]
 
     func activateLayoutItem(_ id: LayoutItemID) {
