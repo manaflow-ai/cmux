@@ -25,6 +25,11 @@ on:
         required: false
         default: feat-cmux-next
         type: string
+      flings:
+        description: Measured flings per render rate
+        required: false
+        default: "3"
+        type: string
 
 permissions:
   contents: read
@@ -217,7 +222,9 @@ jobs:
         if: steps.gui.outputs.taken == 'true'
         continue-on-error: true
         timeout-minutes: 15
-        run: scripts/ci/run-in-console-session.sh scripts/ci/frame-pacing/bench.sh "$RUNNER_TEMP/frame-pacing"
+        env:
+          FLINGS: ${{ inputs.flings || '3' }}
+        run: scripts/ci/run-in-console-session.sh scripts/ci/frame-pacing/bench.sh "$RUNNER_TEMP/frame-pacing" "$FLINGS"
 
       # bench.sh tears both down on exit; this covers a step killed by its timeout.
       - name: Remove the virtual display and the app
