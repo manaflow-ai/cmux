@@ -19,13 +19,18 @@ public enum CloudPortShareService {
         if let publicPublication = matches.first(where: { $0.accessMode == .public }), protected == nil {
             throw CloudPortShareError.publicPublication(hostname: publicPublication.hostname)
         }
-        var publication = try await protected ?? client.createPublication(
-            vmID: vmID,
-            port: port,
-            hostname: nil,
-            accessMode: nil,
-            teamID: nil
-        )
+        var publication: VMPublication
+        if let protected {
+            publication = protected
+        } else {
+            publication = try await client.createPublication(
+                vmID: vmID,
+                port: port,
+                hostname: nil,
+                accessMode: nil,
+                teamID: nil
+            )
+        }
         if publication.state != "active" {
             publication = try await client.verifyPublication(id: publication.id)
         }
