@@ -1609,6 +1609,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         AppIconSettings.setLiveEnvironmentProviderForTesting {
             AppIconSettings.Environment(
                 isApplicationFinishedLaunching: { false },
+                systemStylesAppIcon: { false },
                 imageForMode: { _ in
                     imageRequestCount += 1
                     return nil
@@ -1687,6 +1688,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         AppIconSettings.setLiveEnvironmentProviderForTesting {
             AppIconSettings.Environment(
                 isApplicationFinishedLaunching: { false },
+                systemStylesAppIcon: { false },
                 imageForMode: { _ in
                     imageRequestCount += 1
                     return nil

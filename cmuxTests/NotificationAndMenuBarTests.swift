@@ -786,6 +786,7 @@ final class AppIconSettingsTests: XCTestCase {
 
         let environment = AppIconSettings.Environment(
             isApplicationFinishedLaunching: { true },
+            systemStylesAppIcon: { false },
             imageForMode: { mode in
                 XCTAssertEqual(mode, .dark)
                 return expectedIcon
@@ -813,7 +814,7 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertEqual(stopObservationCallCount, 1)
     }
 
-    func testApplySystemLeavesRuntimeIconUntouched() {
+    func testApplyAutomaticLeavesBundleIconToSystemThatStylesAppIcons() {
         var dockTileNotificationCount = 0
         var startObservationCallCount = 0
         var stopObservationCallCount = 0
@@ -821,12 +822,13 @@ final class AppIconSettingsTests: XCTestCase {
 
         let environment = AppIconSettings.Environment(
             isApplicationFinishedLaunching: { true },
+            systemStylesAppIcon: { true },
             imageForMode: { mode in
-                XCTFail("System mode should not request an icon image: \(mode.rawValue)")
+                XCTFail("Automatic mode should not request a manual icon image: \(mode.rawValue)")
                 return nil
             },
             setApplicationIconImage: { _ in
-                XCTFail("System mode must not assign applicationIconImage, or macOS drops the layered icon's appearance treatment")
+                XCTFail("A runtime icon opts out of the system's icon styles")
             },
             restoreBundleIconImage: {
                 restoreBundleIconCallCount += 1
@@ -842,17 +844,15 @@ final class AppIconSettingsTests: XCTestCase {
             }
         )
 
-        AppIconSettings.applyIcon(.system, environment: environment)
+        AppIconSettings.applyIcon(.automatic, environment: environment)
 
         XCTAssertEqual(dockTileNotificationCount, 1)
         XCTAssertEqual(startObservationCallCount, 0)
         XCTAssertEqual(stopObservationCallCount, 1)
-        // A previous light/dark selection leaves a runtime icon installed;
-        // switching to system has to drop it, not just stop observing.
         XCTAssertEqual(restoreBundleIconCallCount, 1)
     }
 
-    func testSwitchingFromLightToSystemClearsTheRuntimeOverride() {
+    func testSwitchingFromLightToAutomaticClearsTheRuntimeOverride() {
         let lightIcon = NSImage(size: NSSize(width: 16, height: 16))
         var runtimeIcon: NSImage?
         var restoreCallCount = 0
@@ -860,6 +860,7 @@ final class AppIconSettingsTests: XCTestCase {
 
         let environment = AppIconSettings.Environment(
             isApplicationFinishedLaunching: { true },
+            systemStylesAppIcon: { true },
             imageForMode: { _ in lightIcon },
             setApplicationIconImage: { icon in
                 runtimeIcon = icon
@@ -878,22 +879,23 @@ final class AppIconSettingsTests: XCTestCase {
         AppIconSettings.applyIcon(.light, environment: environment)
         XCTAssertTrue(runtimeIcon === lightIcon)
 
-        AppIconSettings.applyIcon(.system, environment: environment)
+        AppIconSettings.applyIcon(.automatic, environment: environment)
 
-        // Without the reset the app keeps the flat light bitmap and macOS has
-        // nothing layered to treat until the next launch.
+        // Without the reset the flat light bitmap stays installed and the
+        // system has nothing to style until the next launch.
         XCTAssertNil(runtimeIcon)
         XCTAssertEqual(restoreCallCount, 1)
         XCTAssertEqual(stopObservationCallCount, 2)
     }
 
-    func testApplyAutomaticStartsObservationAndNotifiesDockTilePlugin() {
+    func testApplyAutomaticObservesAppearanceOnSystemsWithoutIconStyles() {
         var dockTileNotificationCount = 0
         var startObservationCallCount = 0
         var stopObservationCallCount = 0
 
         let environment = AppIconSettings.Environment(
             isApplicationFinishedLaunching: { true },
+            systemStylesAppIcon: { false },
             imageForMode: { mode in
                 XCTFail("Automatic mode should not request a manual icon image: \(mode.rawValue)")
                 return nil
@@ -929,6 +931,7 @@ final class AppIconSettingsTests: XCTestCase {
 
         let environment = AppIconSettings.Environment(
             isApplicationFinishedLaunching: { false },
+            systemStylesAppIcon: { false },
             imageForMode: { _ in
                 imageRequestCount += 1
                 return NSImage(size: NSSize(width: 16, height: 16))

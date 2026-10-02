@@ -4975,6 +4975,7 @@ enum AppIconSettings {
 
     struct Environment {
         let isApplicationFinishedLaunching: () -> Bool
+        let systemStylesAppIcon: () -> Bool
         let imageForMode: (AppIconMode) -> NSImage?
         let setApplicationIconImage: (NSImage) -> Void
         let restoreBundleIconImage: () -> Void
@@ -4986,6 +4987,11 @@ enum AppIconSettings {
             Self(
                 isApplicationFinishedLaunching: {
                     AppIconLaunchState.isApplicationFinishedLaunching()
+                },
+                systemStylesAppIcon: {
+                    // macOS 26 introduced the Dark, Clear and Tinted icon styles.
+                    if #available(macOS 26.0, *) { return true }
+                    return false
                 },
                 imageForMode: { mode in
                     guard let imageName = mode.imageName else { return nil }
