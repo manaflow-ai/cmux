@@ -537,24 +537,53 @@ describe("direct client session state", () => {
     expect(await outcome).toBe("rejected");
   });
 
-  const commandsEvent = (sessionId: string, seq: number, names: string[]): EventRecord => ({ sessionId, seq, at: seq, dir: "in", kind: "available_commands_update", msg: { method: "session/update", params: { update: { sessionUpdate: "available_commands_update", availableCommands: names.map((name) => ({ name, description: `${name} help` })) } } } });
+  const commandsEvent = (sessionId: string, seq: number, names: string[]): EventRecord => ({
+    sessionId,
+    seq,
+    at: seq,
+    dir: "in",
+    kind: "available_commands_update",
+    msg: {
+      method: "session/update",
+      params: {
+        update: {
+          sessionUpdate: "available_commands_update",
+          availableCommands: names.map((name) => ({ name, description: `${name} help` })),
+        },
+      },
+    },
+  });
 
   test("attach asks for the commands with the transcript and keeps them out of the rows", async () => {
-    ScriptedSocket.respond = ({ method, params }) => method === "_acpmux/attach" ? { ...attachReply(params.sessionId), events: [userEvent("a", 5, "a five"), commandsEvent("a", 6, ["review"])], lastSeq: 6 } : method === "_acpmux/watch" ? { sessions: [{ sessionId: "a" }] } : {};
+    ScriptedSocket.respond = ({ method, params }) =>
+      method === "_acpmux/attach"
+        ? {
+            ...attachReply(params.sessionId),
+            events: [userEvent("a", 5, "a five"), commandsEvent("a", 6, ["review"])],
+            lastSeq: 6,
+          }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
     await connect();
     const attach = ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/attach")!;
     expect(attach.params.kinds).toEqual(["transcript", "available_commands_update"]);
     expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/events")).toBe(false);
     expect(texts()).toEqual(["a five"]);
     expect(latest().commands).toEqual([{ name: "review", description: "review help", hint: undefined }]);
-    ScriptedSocket.current.notify("session/update", { sessionId: "a", update: { sessionUpdate: "available_commands_update", availableCommands: [{ name: "compact", description: "" }] }, _meta: { acpmux: { seq: 7 } } });
+    ScriptedSocket.current.notify("session/update", {
+      sessionId: "a",
+      update: { sessionUpdate: "available_commands_update", availableCommands: [{ name: "compact", description: "" }] },
+      _meta: { acpmux: { seq: 7 } },
+    });
     expect(latest().commands?.map((command) => command.name)).toEqual(["compact"]);
   });
 
   test("commands older than the attach page are fetched by kind, and a session switch drops them", async () => {
     ScriptedSocket.respond = ({ method, params }) => {
       if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
-      if (method === "_acpmux/attach") return { ...attachReply(params.sessionId), lastSeq: params.sessionId === "a" ? 900 : 0 };
+      if (method === "_acpmux/attach")
+        return { ...attachReply(params.sessionId), lastSeq: params.sessionId === "a" ? 900 : 0 };
       if (method === "_acpmux/events") return { events: [commandsEvent("a", 2, ["init", "review"])] };
       return {};
     };
@@ -569,10 +598,19 @@ describe("direct client session state", () => {
 
   test("a live update that lands while the fetch is in flight wins, even when it empties the list", async () => {
     ScriptedSocket.held.add("_acpmux/events");
-    ScriptedSocket.respond = ({ method, params }) => method === "_acpmux/attach" ? { ...attachReply(params.sessionId), lastSeq: 900 } : method === "_acpmux/watch" ? { sessions: [{ sessionId: "a" }] } : {};
+    ScriptedSocket.respond = ({ method, params }) =>
+      method === "_acpmux/attach"
+        ? { ...attachReply(params.sessionId), lastSeq: 900 }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
     await connect();
     await settle();
-    ScriptedSocket.current.notify("session/update", { sessionId: "a", update: { sessionUpdate: "available_commands_update", availableCommands: [] }, _meta: { acpmux: { seq: 901 } } });
+    ScriptedSocket.current.notify("session/update", {
+      sessionId: "a",
+      update: { sessionUpdate: "available_commands_update", availableCommands: [] },
+      _meta: { acpmux: { seq: 901 } },
+    });
     ScriptedSocket.current.release("_acpmux/events", { events: [commandsEvent("a", 2, ["init"])] });
     await settle();
     expect(latest().commands).toEqual([]);

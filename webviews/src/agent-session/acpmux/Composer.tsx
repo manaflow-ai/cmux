@@ -55,7 +55,10 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     if (!refocusSend.current) return;
     const focused = document.activeElement;
     // The user moved on before the turn started: leave their focus alone.
-    if (focused && focused !== document.body && focused !== sendButton.current) { refocusSend.current = false; return; }
+    if (focused && focused !== document.body && focused !== sendButton.current) {
+      refocusSend.current = false;
+      return;
+    }
     sendButton.current?.focus();
     if (snapshot.isWorking) refocusSend.current = false;
   });
@@ -73,7 +76,11 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     pendingCaret.current = undefined;
   });
 
-  const edit = (value: string, at: number) => { setText(value); setCaret(at); setDismissed(undefined); };
+  const edit = (value: string, at: number) => {
+    setText(value);
+    setCaret(at);
+    setDismissed(undefined);
+  };
   const pick = (command: SlashCommand) => {
     const next = applyCommand(text, caret, command);
     pendingCaret.current = next.caret;
@@ -109,7 +116,9 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     edit(next, 1);
     textarea.current?.focus();
   };
-  const stopTurn = () => { if (Date.now() - sentAt.current > STOP_GUARD_MS) onStop(); };
+  const stopTurn = () => {
+    if (Date.now() - sentAt.current > STOP_GUARD_MS) onStop();
+  };
   const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
@@ -118,14 +127,21 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     // to pick (an unknown command or a pasted path), or on a command already
     // typed in full that takes no arguments.
     const typedInFull = matches[selected]?.command.name === query && !matches[selected]?.command.hint;
-    if (event.key === "Enter" && plain && (!open || matches.length === 0 || typedInFull)) { submit(event); return; }
+    if (event.key === "Enter" && plain && (!open || matches.length === 0 || typedInFull)) {
+      submit(event);
+      return;
+    }
     if (!open) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
       const plus = plusDraft.current;
       plusDraft.current = undefined;
-      if (plus && plus.written === text) { edit(plus.original, plus.original.length); pendingCaret.current = plus.original.length; return; }
+      if (plus && plus.written === text) {
+        edit(plus.original, plus.original.length);
+        pendingCaret.current = plus.original.length;
+        return;
+      }
       setDismissed(text);
       return;
     }
@@ -150,49 +166,158 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     if (original !== text) edit(original, original.length);
     else if (open) setDismissed(text);
   };
-  return <form className="acpmux-composer" onSubmit={submit} onBlur={blur}>
-    {open && <SlashMenu matches={matches} active={selected} empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands} onHover={setActive} onPick={pick} />}
-    <div className="acpmux-composer-box">
-      {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
-      <textarea ref={textarea} className="acpmux-composer-field" aria-label={COMPOSER_LABELS.prompt} name="prompt" rows={1} placeholder={COMPOSER_LABELS.placeholder} value={text}
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        role="combobox" aria-expanded={open} aria-controls={open ? "acpmux-slash-menu" : undefined} aria-autocomplete="list"
-        aria-activedescendant={open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined}
-        onChange={(event) => edit(event.target.value, event.target.selectionStart)} onSelect={track} onKeyDown={keyDown}
-        onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} />
-      <div className="acpmux-composer-bar">
-        {leading !== undefined ? leading : <button type="button" className="acpmux-composer-plus" aria-label={COMPOSER_LABELS.commands} title={COMPOSER_LABELS.commands} disabled={!commands?.length} onClick={openCommands}><PlusIcon /></button>}
-        <Chips snapshot={snapshot} />
-        <span className="acpmux-composer-actions">
-        {accessory}
-        {stop
-          ? <button key="stop" ref={sendButton} type="button" className="acpmux-send acpmux-cancel" aria-label={COMPOSER_LABELS.stop} title={COMPOSER_LABELS.stop} onClick={stopTurn}><StopIcon /></button>
-          : <button key="send" ref={sendButton} type="submit" className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`} aria-label={COMPOSER_LABELS.send} title={COMPOSER_LABELS.send}><ArrowUpIcon /></button>}
-        </span>
+  return (
+    <form className="acpmux-composer" onSubmit={submit} onBlur={blur}>
+      {open && (
+        <SlashMenu
+          matches={matches}
+          active={selected}
+          empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands}
+          onHover={setActive}
+          onPick={pick}
+        />
+      )}
+      <div className="acpmux-composer-box">
+        {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
+        <textarea
+          ref={textarea}
+          className="acpmux-composer-field"
+          aria-label={COMPOSER_LABELS.prompt}
+          name="prompt"
+          rows={1}
+          placeholder={COMPOSER_LABELS.placeholder}
+          value={text}
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={open ? "acpmux-slash-menu" : undefined}
+          aria-autocomplete="list"
+          aria-activedescendant={open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined}
+          onChange={(event) => edit(event.target.value, event.target.selectionStart)}
+          onSelect={track}
+          onKeyDown={keyDown}
+          onCompositionStart={() => {
+            composing.current = true;
+          }}
+          onCompositionEnd={() => {
+            composing.current = false;
+          }}
+        />
+        <div className="acpmux-composer-bar">
+          {leading !== undefined ? (
+            leading
+          ) : (
+            <button
+              type="button"
+              className="acpmux-composer-plus"
+              aria-label={COMPOSER_LABELS.commands}
+              title={COMPOSER_LABELS.commands}
+              disabled={!commands?.length}
+              onClick={openCommands}
+            >
+              <PlusIcon />
+            </button>
+          )}
+          <Chips snapshot={snapshot} />
+          <span className="acpmux-composer-actions">
+            {accessory}
+            {stop ? (
+              <button
+                key="stop"
+                ref={sendButton}
+                type="button"
+                className="acpmux-send acpmux-cancel"
+                aria-label={COMPOSER_LABELS.stop}
+                title={COMPOSER_LABELS.stop}
+                onClick={stopTurn}
+              >
+                <StopIcon />
+              </button>
+            ) : (
+              <button
+                key="send"
+                ref={sendButton}
+                type="submit"
+                className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`}
+                aria-label={COMPOSER_LABELS.send}
+                title={COMPOSER_LABELS.send}
+              >
+                <ArrowUpIcon />
+              </button>
+            )}
+          </span>
+        </div>
       </div>
-    </div>
-  </form>;
+    </form>
+  );
 }
 
-function SlashMenu({ matches, active, empty, onHover, onPick }: { matches: SlashMatch[]; active: number; empty: string; onHover(index: number): void; onPick(command: SlashCommand): void }) {
+function SlashMenu({
+  matches,
+  active,
+  empty,
+  onHover,
+  onPick,
+}: {
+  matches: SlashMatch[];
+  active: number;
+  empty: string;
+  onHover(index: number): void;
+  onPick(command: SlashCommand): void;
+}) {
   const list = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => { list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" }); }, [active]);
+  useLayoutEffect(() => {
+    list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [active]);
   // A native select or datalist cannot hold the matched-name bolding and descriptions.
-  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-  if (matches.length === 0) return <div className="acpmux-slash-menu acpmux-slash-empty" id="acpmux-slash-menu" role="listbox" aria-label={COMPOSER_LABELS.commands}>{empty}</div>;
-  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-  return <div ref={list} className="acpmux-slash-menu" id="acpmux-slash-menu" role="listbox" aria-label={COMPOSER_LABELS.commands}>
-    {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
-    {matches.map((match, index) => <div key={match.command.name} id={`acpmux-slash-${index}`}
+  if (matches.length === 0)
+    return (
+      <div
+        className="acpmux-slash-menu acpmux-slash-empty"
+        id="acpmux-slash-menu"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+        role="listbox"
+        aria-label={COMPOSER_LABELS.commands}
+      >
+        {empty}
+      </div>
+    );
+  return (
+    <div
+      ref={list}
+      className="acpmux-slash-menu"
+      id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-      role="option" tabIndex={-1} aria-selected={index === active}
-      className={index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row"}
-      onMouseMove={() => { if (index !== active) onHover(index); }} onMouseDown={(event) => { event.preventDefault(); onPick(match.command); }}>
-      <span className="acpmux-slash-name">/<Highlighted name={match.command.name} ranges={match.ranges} /></span>
-      {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-      <span className="acpmux-slash-description">{match.command.description}</span>
-    </div>)}
-  </div>;
+      role="listbox"
+      aria-label={COMPOSER_LABELS.commands}
+    >
+      {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
+      {matches.map((match, index) => (
+        <div
+          key={match.command.name}
+          id={`acpmux-slash-${index}`}
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+          role="option"
+          tabIndex={-1}
+          aria-selected={index === active}
+          className={index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row"}
+          onMouseMove={() => {
+            if (index !== active) onHover(index);
+          }}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            onPick(match.command);
+          }}
+        >
+          <span className="acpmux-slash-name">
+            /<Highlighted name={match.command.name} ranges={match.ranges} />
+          </span>
+          {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
+          <span className="acpmux-slash-description">{match.command.description}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function Highlighted({ name, ranges }: { name: string; ranges: [number, number][] }) {
