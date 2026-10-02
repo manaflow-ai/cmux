@@ -1570,9 +1570,6 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var wasAgentRunning: Bool?
     /// Whether the terminal has received user input. Nil means unknown in older snapshots.
     var hasReceivedExplicitInput: Bool?
-    /// Whether an update relaunch cut this panel's agent off mid-task, so its automatic resume
-    /// asks it to continue. Only the update relaunch saves set it; nil otherwise.
-    var resumeWithContinuation: Bool?
 
     init(
         workingDirectory: String? = nil,
@@ -1588,8 +1585,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil,
-        hasReceivedExplicitInput: Bool? = nil,
-        resumeWithContinuation: Bool? = nil
+        hasReceivedExplicitInput: Bool? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1605,7 +1601,6 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
         self.hasReceivedExplicitInput = hasReceivedExplicitInput
-        self.resumeWithContinuation = resumeWithContinuation
     }
 }
 
