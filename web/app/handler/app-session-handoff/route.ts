@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "../../env";
 import { stackServerApp } from "../../lib/stack";
 import { requestOrigin } from "../../lib/request-origin";
+import { SIGN_IN_PATH } from "../../lib/auth-paths";
 import {
   createStackBrowserSessionHandoffAdapter,
   type StackBrowserSessionHandoffAdapter,
@@ -46,7 +47,7 @@ function sanitizedAfterPath(value: string | null): string | null {
 }
 
 function signInRedirect(request: NextRequest, afterPath: string): NextResponse {
-  const target = new URL("/handler/sign-in", requestOrigin(request));
+  const target = new URL(SIGN_IN_PATH, requestOrigin(request));
   target.searchParams.set("after_auth_return_to", afterPath);
   return NextResponse.redirect(target, 303);
 }

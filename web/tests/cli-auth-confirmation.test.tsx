@@ -69,7 +69,7 @@ describe("CLI authorization account identity", () => {
       switchURL.searchParams.get("after_auth_return_to")!,
       "https://cmux.test",
     );
-    expect(signInURL.pathname).toBe("/handler/sign-in");
+    expect(signInURL.pathname).toBe("/sign-in");
 
     const confirmationURL = new URL(
       signInURL.searchParams.get("after_auth_return_to")!,

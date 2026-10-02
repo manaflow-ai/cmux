@@ -382,7 +382,7 @@ describe("TestFlight route", () => {
     );
 
     expect(response.status).toBe(303);
-    expect(location.pathname).toBe("/handler/sign-in");
+    expect(location.pathname).toBe("/sign-in");
     expect(afterSignIn.searchParams.get("after_auth_return_to")).toBe(
       "/ja/dashboard/testflight",
     );

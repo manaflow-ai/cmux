@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { poweredByHeader, securityHeaderRules } from "./security-headers";
 import { directDevBackendHost } from "./app/lib/direct-dev-backend-origin";
+import { authPathRedirects } from "./app/lib/auth-paths";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const webRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -183,7 +184,12 @@ const nextConfig: NextConfig = {
         },
       ]),
     );
-    return [...(isDocsZone ? [] : baseNightlyMoves), ...agentRedirects];
+    return [
+      ...(isDocsZone ? [] : baseNightlyMoves),
+      // /login, /signup, /handler/sign-in and friends → /sign-in or /sign-up.
+      ...(isDocsZone ? [] : authPathRedirects()),
+      ...agentRedirects,
+    ];
   },
   async headers() {
     const channelSecurityHeaders =

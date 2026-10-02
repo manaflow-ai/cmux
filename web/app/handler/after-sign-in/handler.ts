@@ -15,6 +15,7 @@ import {
   NATIVE_HANDOFF_QUERY_PARAM,
 } from "../native-handoff-cookie";
 import { requestOrigin } from "../../lib/request-origin";
+import { SIGN_IN_PATH } from "../../lib/auth-paths";
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
@@ -306,7 +307,7 @@ function anonymousPromotionFailureResponse(
   localized: LocalizedAfterSignInMessages,
   retryHref: string | null,
 ): NextResponse {
-  const href = retryHref ?? new URL("/handler/sign-in", requestOrigin(request)).toString();
+  const href = retryHref ?? new URL(SIGN_IN_PATH, requestOrigin(request)).toString();
   const response = new NextResponse(
     `<!doctype html>
 <html lang="${escapeHtml(localized.locale)}">

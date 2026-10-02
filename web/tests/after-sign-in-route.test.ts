@@ -546,7 +546,7 @@ describe("sign out and sign back in", () => {
 
   function publicationSignIn(access: string): string {
     const afterSignIn = `/handler/after-sign-in?after_auth_return_to=${encodeURIComponent(access)}`;
-    return `/handler/sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+    return `/sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
   }
 
   test("signs out and redirects into sign-in for a protected Cloud VM domain transaction", async () => {
@@ -565,7 +565,7 @@ describe("sign out and sign back in", () => {
 
   test("signs out and redirects into sign-in for CLI authorization", async () => {
     const confirmation = "/handler/cli-auth-confirm?login_code=test-login-code";
-    const signIn = `/handler/sign-in?after_auth_return_to=${encodeURIComponent(confirmation)}`;
+    const signIn = `/sign-in?after_auth_return_to=${encodeURIComponent(confirmation)}`;
 
     const response = await GET(switchRequest(signIn));
 
@@ -577,6 +577,16 @@ describe("sign out and sign back in", () => {
     );
   });
 
+  test("still accepts a CLI sign-in target on the legacy /handler/sign-in path", async () => {
+    const confirmation = "/handler/cli-auth-confirm?login_code=test-login-code";
+    const signIn = `/handler/sign-in?after_auth_return_to=${encodeURIComponent(confirmation)}`;
+
+    const response = await GET(switchRequest(signIn));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(`https://cmux.test${signIn}`);
+  });
+
   test("rejects CLI sign-in targets that are not one exact authorization code", async () => {
     const malformedConfirmations = [
       "/handler/cli-auth-confirm",
@@ -586,7 +596,7 @@ describe("sign out and sign back in", () => {
     ];
 
     for (const confirmation of malformedConfirmations) {
-      const signIn = `/handler/sign-in?after_auth_return_to=${encodeURIComponent(confirmation)}`;
+      const signIn = `/sign-in?after_auth_return_to=${encodeURIComponent(confirmation)}`;
       const response = await GET(switchRequest(signIn));
       expect(signOut).not.toHaveBeenCalled();
       expect(response.status).toBe(307);
@@ -610,7 +620,7 @@ describe("sign out and sign back in", () => {
       expect(response.headers.get("location")).toBe("https://cmux.test/");
     }
 
-    const extraSignInParam = `/handler/sign-in?after_auth_return_to=${encodeURIComponent(
+    const extraSignInParam = `/sign-in?after_auth_return_to=${encodeURIComponent(
       `/handler/after-sign-in?after_auth_return_to=${encodeURIComponent(`/cloud/access?transaction=${publicationTransaction}&state=${publicationState}`)}`,
     )}&prompt=none`;
     const response = await GET(switchRequest(extraSignInParam));

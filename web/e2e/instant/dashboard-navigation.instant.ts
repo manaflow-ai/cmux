@@ -17,12 +17,12 @@ for (const destination of [
     });
     expect(serverResponse.status()).toBe(307);
     const location = serverResponse.headers().location ?? "";
-    expect(location).toContain("/handler/sign-in?");
+    expect(location).toContain("/sign-in?");
     expect(decodeURIComponent(decodeURIComponent(location))).toContain(destination);
     expect(await serverResponse.text()).not.toContain("dashboard-shell");
 
     await page.goto(destination);
-    await page.waitForURL((url) => url.pathname.startsWith("/handler/sign-in"));
+    await page.waitForURL((url) => url.pathname.startsWith("/sign-in"));
     expect(await page.locator('[data-testid="dashboard-shell"]').count()).toBe(0);
   });
 }

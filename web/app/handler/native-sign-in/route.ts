@@ -5,6 +5,7 @@ import {
   NATIVE_HANDOFF_QUERY_PARAM,
 } from "../native-handoff-cookie";
 import { requestOrigin } from "../../lib/request-origin";
+import { SIGN_IN_PATH } from "../../lib/auth-paths";
 import { SELECT_ACCOUNT_PROMPT } from "../sign-in-entry";
 
 
@@ -25,7 +26,7 @@ function sameOriginURL(value: string, request: NextRequest): URL | null {
 
 export function GET(request: NextRequest) {
   const afterAuthReturnTo = request.nextUrl.searchParams.get("after_auth_return_to");
-  if (!afterAuthReturnTo) return NextResponse.redirect(new URL("/handler/sign-in", requestOrigin(request)));
+  if (!afterAuthReturnTo) return NextResponse.redirect(new URL(SIGN_IN_PATH, requestOrigin(request)));
 
   const afterSignInURL = sameOriginURL(afterAuthReturnTo, request);
   if (!afterSignInURL || afterSignInURL.pathname !== "/handler/after-sign-in") {
@@ -40,7 +41,7 @@ export function GET(request: NextRequest) {
     afterSignInURL.searchParams.set(NATIVE_HANDOFF_QUERY_PARAM, nonce);
   }
 
-  const stackSignInURL = new URL("/handler/sign-in", requestOrigin(request));
+  const stackSignInURL = new URL(SIGN_IN_PATH, requestOrigin(request));
   stackSignInURL.searchParams.set("after_auth_return_to", afterSignInURL.toString());
   // The app's Switch Account asks the page to confirm the account even when
   // this browser is already signed in. Only that one value is passed on.

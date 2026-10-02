@@ -6,6 +6,7 @@ import { preferredLocaleFromAcceptLanguage } from "../../../i18n/accept-language
 import { loadMessages } from "../../../i18n/messages";
 import type { Locale } from "../../../i18n/routing";
 import { DemoteFailedProvider } from "../demote-failed-provider";
+import { SIGN_IN_PATH } from "../../lib/auth-paths";
 
 type AuthErrorMessageKey = "emailUnverified" | "signupPending" | "generic";
 
@@ -135,5 +136,5 @@ function signInHrefForParams(
     if (value) query.set(name, value);
   }
   const serialized = query.toString();
-  return serialized ? `/handler/sign-in?${serialized}` : "/handler/sign-in";
+  return serialized ? `${SIGN_IN_PATH}?${serialized}` : SIGN_IN_PATH;
 }

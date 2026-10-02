@@ -192,7 +192,7 @@ describe("billing checkout route", () => {
       userResponses = [null, anonymousUser];
       const response = await GET(new NextRequest(`https://cmux.test/api/billing/checkout?plan=${plan}&cmux_source=pricing_page&cmux_placement=pricing_compare_header&utm_campaign=launch&format=json`));
       const signIn = new URL((await response.json()).url);
-      expect(signIn.pathname).toBe("/handler/sign-in");
+      expect(signIn.pathname).toBe("/sign-in");
       const afterAuth = new URL(signIn.searchParams.get("after_auth_return_to")!, signIn);
       const checkout = new URL(afterAuth.searchParams.get("after_auth_return_to")!, signIn);
       expect(checkout.pathname).toBe("/api/billing/checkout");

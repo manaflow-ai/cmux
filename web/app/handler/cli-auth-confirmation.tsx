@@ -1,6 +1,7 @@
 "use client";
 
 import { MessageCard, useCliAuthConfirmation, useUser, type CliAuthConfirmationState } from "@hexclave/next";
+import { SIGN_IN_PATH } from "../lib/auth-paths";
 
 export type CliAuthIdentityMessages = {
   email: string;
@@ -60,7 +61,7 @@ export function cliAuthSwitchAccountHref(loginCode: string): string {
   const confirmation = new URL("/handler/cli-auth-confirm", "https://cmux.com");
   confirmation.searchParams.set("login_code", loginCode);
 
-  const signIn = new URL("/handler/sign-in", "https://cmux.com");
+  const signIn = new URL(SIGN_IN_PATH, "https://cmux.com");
   signIn.searchParams.set("after_auth_return_to", `${confirmation.pathname}${confirmation.search}`);
 
   const signOut = new URL("/handler/sign-out-and-sign-in", "https://cmux.com");

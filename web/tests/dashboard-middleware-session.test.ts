@@ -29,7 +29,7 @@ describe("dashboard session middleware", () => {
 
     expect(response.status).toBe(307);
     const location = new URL(response.headers.get("location") ?? "");
-    expect(location.pathname).toBe("/handler/sign-in");
+    expect(location.pathname).toBe("/sign-in");
     const afterSignIn = new URL(
       location.searchParams.get("after_auth_return_to") ?? "",
       "https://cmux.com",

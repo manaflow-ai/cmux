@@ -17,6 +17,7 @@ import {
   type PublicationAccessView,
 } from "./access-card";
 import { publicationAccessLocale } from "./locale";
+import { SIGN_IN_PATH } from "../../lib/auth-paths";
 
 type CloudPublicationAccessPageProps = {
   readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -138,7 +139,7 @@ function publicationSignInHref(transaction: string, state: string): string {
     "after_auth_return_to",
     `${access.pathname}${access.search}`,
   );
-  const signIn = new URL("/handler/sign-in", "https://cmux.com");
+  const signIn = new URL(SIGN_IN_PATH, "https://cmux.com");
   signIn.searchParams.set(
     "after_auth_return_to",
     `${afterSignIn.pathname}${afterSignIn.search}`,

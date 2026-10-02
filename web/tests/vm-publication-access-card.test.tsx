@@ -23,7 +23,7 @@ describe("Cloud VM publication access card", () => {
         hostname="prickly-lavender-minnow.cmux.sh"
         locale="en"
         messages={messages}
-        signInHref="/handler/sign-in?return=opaque"
+        signInHref="/sign-in?return=opaque"
         view="signed-out"
       />,
     );
@@ -31,7 +31,7 @@ describe("Cloud VM publication access card", () => {
     expect(html).toContain('data-publication-access="signed-out"');
     expect(html).toContain("You don&#x27;t have access");
     expect(html).toContain("prickly-lavender-minnow.cmux.sh");
-    expect(html).toContain('href="/handler/sign-in?return=opaque"');
+    expect(html).toContain('href="/sign-in?return=opaque"');
     expect(html).toContain("Sign in to cmux");
     expect(html).toContain("Access is managed by cmux.");
     expect(html).toMatch(/<img[^>]*logo\.png/);
@@ -105,7 +105,7 @@ describe("Cloud VM publication access card", () => {
         hostname="prickly-lavender-minnow.cmux.sh"
         locale="en"
         messages={messages}
-        signInHref="/handler/sign-in?return=opaque"
+        signInHref="/sign-in?return=opaque"
         view="invalid"
       />,
     );
