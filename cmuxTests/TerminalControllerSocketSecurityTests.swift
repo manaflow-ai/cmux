@@ -294,7 +294,7 @@ final class TerminalControllerSocketSecurityTests {
             accessMode: .allowAll
         )
         try waitForSocket(at: allowAllPath)
-        XCTAssertEqual(try socketMode(at: allowAllPath), 0o666)
+        XCTAssertEqual(try socketMode(at: allowAllPath), 0o600)
 
         TerminalController.shared.stop(cleanupDiscoveryState: true)
 
