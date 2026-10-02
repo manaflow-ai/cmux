@@ -82,7 +82,10 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
     private let minFieldHeight: CGFloat = 32
     private let attachmentHeight: CGFloat = 80
 
-    var preferredHeight: CGFloat { fieldHeight + 11.5 + 8 }
+    /// Just the pill: the accessory adds its own bottom padding, and layout
+    /// solves the remaining window-relative gap. A taller accessory would push
+    /// its edge effect up over the newest message.
+    var preferredHeight: CGFloat { fieldHeight + 2 }
 
     var text: String {
         get { textView.string }

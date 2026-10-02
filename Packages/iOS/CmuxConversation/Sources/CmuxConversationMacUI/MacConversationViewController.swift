@@ -134,7 +134,9 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             // The content pane extends under the floating sidebar; the transcript starts beside it.
-            scrollView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            // Measured: Messages' transcript column starts 15 pt inside the
+            // floating sidebar's safe-area edge (the panel's shadow inset).
+            scrollView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: -15),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             replyBanner.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
@@ -164,7 +166,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         super.viewDidLayout()
         let edgeHeight = view.safeAreaInsets.top + 18
         // Starts above the view so the band reaches the window's top edge.
-        let edgeFrame = CGRect(x: view.safeAreaInsets.left, y: -40, width: view.bounds.width - view.safeAreaInsets.left, height: edgeHeight + 40)
+        let edgeFrame = CGRect(x: view.safeAreaInsets.left - 15, y: -40, width: view.bounds.width - view.safeAreaInsets.left + 15, height: edgeHeight + 40)
         topEdge.frame = edgeFrame
         topEdgeTint.frame = edgeFrame
         topEdgeMask.frame = topEdge.bounds
@@ -191,7 +193,11 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     private func updateInsets() {
         // The toolbar and the composer accessory arrive as safe-area insets.
         let top = view.safeAreaInsets.top
-        let bottom = view.safeAreaInsets.bottom + (replyBanner.isHidden ? 0 : 30) + 8
+        // Measured: Messages leaves 60 pt from the window bottom to the newest
+        // bubble with a one-line composer (pill top + 17 pt); the last row
+        // already carries 16.5 pt of trailing space. It grows with the field.
+        let composerGrowth = max(0, composer.fieldHeight - 32)
+        let bottom = 43.5 + composerGrowth + (replyBanner.isHidden ? 0 : 30)
         let content = tableView.bounds.height
         let visible = scrollView.bounds.height - top - bottom
         // Short transcripts sit at the bottom, like Messages.

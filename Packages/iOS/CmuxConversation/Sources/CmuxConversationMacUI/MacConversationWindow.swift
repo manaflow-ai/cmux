@@ -59,6 +59,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
             contentItem.automaticallyAdjustsSafeAreaInsets = true
             let accessory = NSSplitViewItemAccessoryViewController()
             accessory.view = composerHost
+            if #available(macOS 26.1, *) { accessory.preferredScrollEdgeEffectStyle = .soft }
             contentItem.addBottomAlignedAccessoryViewController(accessory)
             composerAccessory = accessory
         } else {
@@ -128,6 +129,22 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
     static let titleItem = NSToolbarItem.Identifier("conversation.title")
     static let videoItem = NSToolbarItem.Identifier("conversation.video")
 
+    /// Measured: Messages' toolbar glyphs are ~15 pt wide.
+    private static let toolbarSymbol = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+
+    private static func offsetGlyph(_ symbol: String, label: String, offset: CGFloat, lift: CGFloat = 1.5) -> NSView {
+        let slot = NSView(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
+        slot.translatesAutoresizingMaskIntoConstraints = false
+        slot.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        slot.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        let button = MacToolbarGlyphButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: label)?.withSymbolConfiguration(toolbarSymbol) ?? NSImage(), target: nil, action: nil)
+        button.isBordered = false
+        button.frame = NSRect(x: offset, y: lift, width: 28, height: 28)
+        button.setAccessibilityLabel(label)
+        slot.addSubview(button)
+        return slot
+    }
+
     func makeToolbar() -> NSToolbar {
         let toolbar = NSToolbar(identifier: "cmux.conversation")
         toolbar.delegate = self
@@ -149,18 +166,19 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         let item = NSToolbarItem(itemIdentifier: identifier)
         switch identifier {
         case Self.filterItem:
-            item.image = NSImage(systemSymbolName: "line.3.horizontal.decrease", accessibilityDescription: nil)
+            item.image = NSImage(systemSymbolName: "line.3.horizontal.decrease", accessibilityDescription: nil)?.withSymbolConfiguration(Self.toolbarSymbol)
             item.label = String(localized: "conversation.toolbar.filter", defaultValue: "Filter", bundle: .module)
             item.isBordered = false
             if #available(macOS 26.0, *) { item.style = .plain }
         case Self.composeItem:
-            item.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: nil)
             item.label = String(localized: "conversation.toolbar.compose", defaultValue: "New Message", bundle: .module)
+            item.view = Self.offsetGlyph("square.and.pencil", label: item.label, offset: 0)
             item.isBordered = false
             if #available(macOS 26.0, *) { item.style = .plain }
         case Self.videoItem:
-            item.image = NSImage(systemSymbolName: "video", accessibilityDescription: nil)
             item.label = String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module)
+            // Messages' video glyph sits 2.5 pt inboard of the toolbar's trailing slot.
+            item.view = Self.offsetGlyph("video", label: item.label, offset: -2.5, lift: 0.5)
             item.isBordered = false
             if #available(macOS 26.0, *) { item.style = .plain }
         case Self.titleItem:
@@ -236,7 +254,7 @@ final class MacToolbarTitleView: MacFlippedView {
             .font: NSFont.systemFont(ofSize: 13, weight: .bold), .foregroundColor: NSColor.labelColor, .paragraphStyle: centered,
         ])
         title.append(NSAttributedString(string: " \u{203A}", attributes: [
-            .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.tertiaryLabelColor, .paragraphStyle: centered,
+            .font: NSFont.systemFont(ofSize: 16, weight: .bold), .foregroundColor: NSColor.tertiaryLabelColor, .paragraphStyle: centered, .baselineOffset: -1,
         ]))
         nameLabel.attributedStringValue = title
         nameLabel.toolTip = connected ? nil : String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module)
@@ -246,18 +264,19 @@ final class MacToolbarTitleView: MacFlippedView {
     override func layout() {
         super.layout()
         let cx = bounds.midX
-        // Measured: a faint ~40 pt disc; avatars 19, 15 and 12 pt.
-        disc.frame = CGRect(x: cx - 20, y: 0, width: 40, height: 40)
-        disc.layer?.cornerRadius = 20
-        disc.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor
+        // Measured against Messages: a barely visible ~36 pt dark disc behind
+        // avatars of 19, 14.5 and 11.5 pt.
+        disc.frame = CGRect(x: cx - 17.5, y: 4, width: 36, height: 36)
+        disc.layer?.cornerRadius = 18
+        disc.layer?.backgroundColor = effectiveAppearance.isDarkMac ? NSColor.black.withAlphaComponent(0.12).cgColor : NSColor.black.withAlphaComponent(0.04).cgColor
         disc.isHidden = avatars.count < 2
         switch avatars.count {
         case 0: break
         case 1: avatars[0].frame = CGRect(x: cx - 17, y: 3, width: 34, height: 34)
         default:
-            avatars[0].frame = CGRect(x: cx - 16, y: 3, width: 19, height: 19)
-            avatars[1].frame = CGRect(x: cx + 1, y: 12, width: 15, height: 15)
-            if avatars.count > 2 { avatars[2].frame = CGRect(x: cx - 9, y: 24, width: 12, height: 12) }
+            avatars[0].frame = CGRect(x: cx - 14.25, y: 6.25, width: 19, height: 19)
+            avatars[1].frame = CGRect(x: cx + 3, y: 17.5, width: 14.5, height: 14.5)
+            if avatars.count > 2 { avatars[2].frame = CGRect(x: cx - 8, y: 26, width: 11.5, height: 11.5) }
         }
     }
 }
@@ -277,7 +296,7 @@ final class MacTitleNameAccessoryView: MacFlippedView {
 
     override func layout() {
         super.layout()
-        label.frame = CGRect(x: 0, y: 1, width: bounds.width, height: 17)
+        label.frame = CGRect(x: 0, y: -2, width: bounds.width, height: 17)
     }
 }
 
@@ -484,7 +503,8 @@ final class MacConversationListRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
         let dark = effectiveAppearance.isDarkMac
         (dark ? NSColor(white: 1, alpha: 0.08) : NSColor(white: 0, alpha: 0.06)).setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10).fill()
+        // Measured: the fill is inset 10 pt from the sidebar panel's edges.
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 10, dy: 0), xRadius: 10, yRadius: 10).fill()
     }
 
     override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
@@ -551,6 +571,31 @@ public enum MacConversationLab {
         guard let split = windows.last?.window?.contentViewController as? MacConversationSplitController,
               let entry = split.entries.first(where: { $0.id == id }) else { return }
         split.select(entry)
+    }
+}
+#endif
+
+#if os(macOS)
+/// Toolbar glyph that dims with its window like Messages' plain toolbar items.
+final class MacToolbarGlyphButton: NSButton {
+    private var observers: [any NSObjectProtocol] = []
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
+        guard let window else { return }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateKeyState() }
+            })
+        }
+        updateKeyState()
+    }
+
+    private func updateKeyState() {
+        // Measured: inactive glyphs drop to ~46% of their key-window contrast.
+        alphaValue = window?.isKeyWindow == true ? 1 : 0.46
     }
 }
 #endif
