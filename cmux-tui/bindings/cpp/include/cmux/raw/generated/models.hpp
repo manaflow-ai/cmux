@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b";
+inline constexpr std::string_view kProtocolIrSha256 = "b2d60c381f0a67c0f731fca2c28d515815f7975b05c7073ac8c08ec1f57c03d5";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -198,6 +198,7 @@ struct ConversationCreateRequest;
 struct ConversationHistoryRequest;
 struct ConversationListRequest;
 struct ConversationOpRequest;
+struct ConversationSearchRequest;
 struct ConversationSnapshotRequest;
 struct ConversationTypingRequest;
 struct CopyRequest;
@@ -1205,6 +1206,12 @@ struct ConversationOpRequest {
     std::optional<JsonValue> op{};
     Field<std::string> transaction{};
     friend bool operator==(const ConversationOpRequest&, const ConversationOpRequest&) = default;
+};
+
+struct ConversationSearchRequest {
+    std::uint32_t limit{};
+    std::string query{};
+    friend bool operator==(const ConversationSearchRequest&, const ConversationSearchRequest&) = default;
 };
 
 struct ConversationSnapshotRequest {
@@ -5000,6 +5007,12 @@ template <>
 struct Codec<ConversationOpRequest> {
     static Result<Json> encode(const ConversationOpRequest& value);
     static Result<ConversationOpRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationSearchRequest> {
+    static Result<Json> encode(const ConversationSearchRequest& value);
+    static Result<ConversationSearchRequest> decode(const Json& value);
 };
 
 template <>

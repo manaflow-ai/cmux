@@ -59,6 +59,14 @@ pub(super) struct OpParams {
     op: Value,
 }
 
+/// `conversation-search`: Home-only search over the text of every message
+/// that is not retracted; every word matches as a prefix.
+#[derive(Deserialize)]
+pub(super) struct SearchParams {
+    query: String,
+    limit: u32,
+}
+
 /// `conversation-typing`: a typing indicator. Never stored.
 #[derive(Deserialize)]
 pub(super) struct TypingParams {
@@ -168,6 +176,13 @@ pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::
     let messages =
         mux.with_conversations(|store| store.history(&conversation, before_seq, limit))?;
     Ok(json!({"messages": messages}))
+}
+
+pub(super) fn search(mux: &Mux, client: u64, params: SearchParams) -> anyhow::Result<Value> {
+    require_local(mux, client)?;
+    let SearchParams { query, limit } = params;
+    let hits = mux.with_conversations(|store| store.search(&query, limit))?;
+    Ok(json!({"hits": hits}))
 }
 
 pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {

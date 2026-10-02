@@ -187,6 +187,20 @@ impl ConversationStore {
                token_hash TEXT NOT NULL
              ) WITHOUT ROWID;",
         )?;
+        // The search index is additive (no schema version change, so an older
+        // binary still opens the store); a store without it is indexed once.
+        let indexed = transaction
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'message_search_row'",
+                [],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        crate::conversation_search::create_search_schema(&transaction)?;
+        if !indexed {
+            crate::conversation_search::rebuild_search_index(&transaction)?;
+        }
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -230,6 +244,16 @@ impl ConversationStore {
             )
             .optional()?;
         Ok(stored.is_some_and(|stored| stored == token_digest(token)))
+    }
+
+    /// `conversation-search`: the best `limit` hits for `query` over the text
+    /// of every message that is not retracted.
+    pub(crate) fn search(
+        &mut self,
+        query: &str,
+        limit: u32,
+    ) -> anyhow::Result<Vec<crate::conversation_search::SearchHit>> {
+        crate::conversation_search::search(&self.connection, query, limit)
     }
 
     /// Every conversation, newest `updated_at` first.
@@ -542,6 +566,7 @@ fn write_head(transaction: &Transaction<'_>, head: &ConversationHead) -> anyhow:
 }
 
 fn write_message(transaction: &Transaction<'_>, message: &Message) -> anyhow::Result<()> {
+    crate::conversation_search::index_message(transaction, message)?;
     transaction.execute(
         "INSERT INTO message(conversation, seq, id, message_json) VALUES(?1, ?2, ?3, ?4)
          ON CONFLICT(conversation, seq) DO UPDATE SET message_json = excluded.message_json",
