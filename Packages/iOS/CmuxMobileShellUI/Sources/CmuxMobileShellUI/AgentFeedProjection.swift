@@ -43,7 +43,8 @@ final class AgentFeedProjection {
     @ObservationIgnored private var sourceItems: [MobileAgentFeedItem]
     @ObservationIgnored private var rowModelCache: AgentFeedRowModelCache
     @ObservationIgnored private var requestedItemsRevision: AgentFeedItemsRevision
-    private(set) var publishedItemsRevision: AgentFeedItemsRevision
+    private(set) var publishedSourceRevision: UInt64
+    private(set) var publishedScopeRevision: AgentFeedScopeRevision?
     @ObservationIgnored private var sourceRevision = 0
     @ObservationIgnored private var rebuildRevision = 0
     @ObservationIgnored private var rebuildTask: Task<Void, Never>?
@@ -58,7 +59,8 @@ final class AgentFeedProjection {
         self.searchText = searchText
         sourceItems = items
         requestedItemsRevision = itemsRevision
-        publishedItemsRevision = itemsRevision
+        publishedSourceRevision = itemsRevision.sourceRevision
+        publishedScopeRevision = itemsRevision.scopeRevision
 
         var rowModelCache = AgentFeedRowModelCache()
         let preparedRows = rowModelCache.update(items: items)
@@ -84,12 +86,12 @@ final class AgentFeedProjection {
     }
 
     func rows(for itemsRevision: AgentFeedItemsRevision) -> [AgentFeedRowModel] {
-        guard publishedItemsRevision == itemsRevision else { return [] }
+        guard publishedScopeRevision == itemsRevision.scopeRevision else { return [] }
         return rows
     }
 
     func needsInputCount(for itemsRevision: AgentFeedItemsRevision) -> Int {
-        guard publishedItemsRevision == itemsRevision else { return 0 }
+        guard publishedScopeRevision == itemsRevision.scopeRevision else { return 0 }
         return needsInputCount
     }
 
@@ -143,7 +145,8 @@ final class AgentFeedProjection {
             self.rowModelCache = output.rowModelCache
             self.rows = output.projection.rows
             self.needsInputCount = output.projection.needsInputCount
-            self.publishedItemsRevision = requestedItemsRevision
+            self.publishedSourceRevision = requestedItemsRevision.sourceRevision
+            self.publishedScopeRevision = requestedItemsRevision.scopeRevision
         }
     }
 }

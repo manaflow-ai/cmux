@@ -42,6 +42,29 @@ import Testing
         #expect(projection.rows(for: nextRevision).count == originalItems.count)
     }
 
+    @Test @MainActor func projectionKeepsRowsVisibleDuringContentRefresh() async {
+        let originalItems = (0..<40).map { makeItem(id: "row-\($0)") }
+        let initialRevision = AgentFeedItemsRevision(
+            sourceRevision: 1,
+            scopeRevision: AgentFeedScopeRevision(selection: .all, selectedMachineIDs: nil)
+        )
+        let nextRevision = AgentFeedItemsRevision(
+            sourceRevision: 2,
+            scopeRevision: initialRevision.scopeRevision
+        )
+        let projection = AgentFeedProjection(
+            items: originalItems,
+            itemsRevision: initialRevision
+        )
+        let inserted = makeItem(id: "new-row")
+
+        projection.update(items: [inserted] + originalItems, itemsRevision: nextRevision)
+
+        #expect(projection.rows(for: nextRevision).count == originalItems.count)
+        await projection.waitForPendingRebuild()
+        #expect(projection.rows(for: nextRevision).first?.id == inserted.id)
+    }
+
     @Test func reusesUnchangedRowsAndRebuildsOnlyChangedRows() {
         let originalItems = (0..<120).map { makeItem(id: "row-\($0)") }
         var cache = AgentFeedRowModelCache()
