@@ -774,6 +774,10 @@ path = "tests/test_localize_changes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_localization_defaults.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_package_resolved_policy_remote_inputs.py"
 lane = "linux-guard"
 

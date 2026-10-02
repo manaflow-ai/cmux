@@ -47,12 +47,14 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
                         isBusy: isRefreshing,
                         action: onRefresh
                     )
+                    .accessibilityIdentifier("CloudHeaderRefreshButton")
                     MachinesChromeIconButton(
                         symbolName: "plus",
                         accessibilityLabel: newMachineLabel,
                         isBusy: false,
                         action: onNewMachine
                     )
+                    .accessibilityIdentifier("CloudHeaderNewMachineButton")
                 }
                 HStack(spacing: 6) {
                     if let accountFlow {
