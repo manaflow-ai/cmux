@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "06426902f6b840fe5bda861cd89adf95557247009953da568266a7381b1a1f9c";
+inline constexpr std::string_view kProtocolIrSha256 = "68f320c61aea43c8086b6eb581a5d4f6411714c3749b5177b44c3806a2e34d87";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -262,6 +262,7 @@ struct MoveWorkspaceRequest;
 struct MoveWorkspaceGroupRequest;
 struct MoveWorkspaceToGroupRequest;
 struct NewBrowserTabRequest;
+struct NewConversationTabRequest;
 struct NewFrontendBrowserTabRequest;
 struct NewPaneRequest;
 struct NewPaneRightRequest;
@@ -1974,6 +1975,7 @@ enum class TabBrowserStatus {
 enum class TabKind {
     pty,
     browser,
+    conversation,
 };
 
 struct Tab {
@@ -2254,6 +2256,17 @@ struct NewBrowserTabRequest {
     Field<std::uint16_t> rows{};
     std::string url{};
     friend bool operator==(const NewBrowserTabRequest&, const NewBrowserTabRequest&) = default;
+};
+
+struct NewConversationTabRequest {
+    Field<std::uint16_t> cols{};
+    std::string conversation{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
+    std::string owner{};
+    Field<Id> pane{};
+    Field<std::uint16_t> rows{};
+    friend bool operator==(const NewConversationTabRequest&, const NewConversationTabRequest&) = default;
 };
 
 struct NewFrontendBrowserTabRequest {
@@ -5295,6 +5308,12 @@ template <>
 struct Codec<NewBrowserTabRequest> {
     static Result<Json> encode(const NewBrowserTabRequest& value);
     static Result<NewBrowserTabRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<NewConversationTabRequest> {
+    static Result<Json> encode(const NewConversationTabRequest& value);
+    static Result<NewConversationTabRequest> decode(const Json& value);
 };
 
 template <>

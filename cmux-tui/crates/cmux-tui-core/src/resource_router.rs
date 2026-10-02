@@ -630,7 +630,7 @@ fn validate_operation_constraints(
     }
     match operation {
         ResourceOperation::ClientMetadataUpdate => {
-            require_any(supplied, operation, &["name", "kind"])?;
+            require_any(supplied, operation, &["name", "kind", "capabilities"])?;
         }
         ResourceOperation::SessionTerminalDefaultsUpdate => {
             require_any(

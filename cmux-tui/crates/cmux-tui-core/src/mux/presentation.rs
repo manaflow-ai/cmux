@@ -739,7 +739,7 @@ impl Mux {
         let browser_id = BrowserPublicId::random()?;
         {
             let mut registry = self.workspace_registry.lock().unwrap();
-            registry.put_frontend_browser(browser_id.as_str(), &record)?;
+            registry.put_frontend_browser(browser_id.as_str(), &record, None)?;
             self.reload_presentation(&registry)?;
         }
         let fields = Map::from_iter([(

@@ -13,6 +13,8 @@
 pub(crate) mod closed_history;
 pub(crate) mod closed_history_store;
 pub(crate) mod commit;
+pub(crate) mod conversation_tabs;
+pub(crate) mod conversation_tabs_store;
 pub(crate) mod home;
 pub(crate) mod home_store;
 #[cfg(test)]

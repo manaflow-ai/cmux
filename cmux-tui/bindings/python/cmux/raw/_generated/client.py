@@ -309,6 +309,9 @@ class GeneratedClientMixin:
     def new_browser_tab(self, url: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-browser-tab', NewBrowserTabRequest(url=url, pane=pane, cols=cols, rows=rows))
 
+    def new_conversation_tab(self, conversation: str, owner: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('new-conversation-tab', NewConversationTabRequest(conversation=conversation, owner=owner, pane=pane, cols=cols, mutation_id=mutation_id, origin=origin, rows=rows))
+
     def new_frontend_browser_tab(self, engine: str, url: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, favicon_url: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, profile_id: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('new-frontend-browser-tab', NewFrontendBrowserTabRequest(engine=engine, url=url, pane=pane, cols=cols, favicon_url=favicon_url, owner=owner, profile_id=profile_id, rows=rows, title=title))
 
@@ -700,6 +703,7 @@ GeneratedClientMixin.move_workspace.__cmux_command__ = COMMANDS['move-workspace'
 GeneratedClientMixin.move_workspace_group.__cmux_command__ = COMMANDS['move-workspace-group']
 GeneratedClientMixin.move_workspace_to_group.__cmux_command__ = COMMANDS['move-workspace-to-group']
 GeneratedClientMixin.new_browser_tab.__cmux_command__ = COMMANDS['new-browser-tab']
+GeneratedClientMixin.new_conversation_tab.__cmux_command__ = COMMANDS['new-conversation-tab']
 GeneratedClientMixin.new_frontend_browser_tab.__cmux_command__ = COMMANDS['new-frontend-browser-tab']
 GeneratedClientMixin.new_pane.__cmux_command__ = COMMANDS['new-pane']
 GeneratedClientMixin.new_pane_right.__cmux_command__ = COMMANDS['new-pane-right']

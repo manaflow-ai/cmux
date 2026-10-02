@@ -15035,7 +15035,7 @@ impl Mux {
         self.new_browser_tab_with_fields(url, pane, size, Map::new())
     }
 
-    fn new_browser_tab_with_fields(
+    pub(crate) fn new_browser_tab_with_fields(
         self: &Arc<Self>,
         url: String,
         pane: Option<PaneId>,
