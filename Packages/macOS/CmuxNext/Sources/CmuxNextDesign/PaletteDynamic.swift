@@ -10,6 +10,7 @@ enum PaletteDynamic {
     static let pageBackground = token(\.contentBackground, opaque: true)
     static let chromeBackground = token(\.chromeBackground)
     static let elevatedBackground = token(\.elevatedBackground)
+    static let stripBackground = token(\.stripBackground)
     static let textPrimary = token(\.textPrimary)
     static let textSecondary = token(\.textSecondary)
     static let textTertiary = token(\.textTertiary)
