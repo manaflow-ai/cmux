@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
-import { registerPicker } from "./pickerOpeners";
+import { EffortSlider } from "./EffortSlider";
+import { openPicker, registerPicker } from "./pickerOpeners";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -235,17 +236,14 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
         />
       )}
       {effort && efforts.length > 0 && (
-        <Picker
+        <EffortSlider
           label={PICKER_LABELS.effort}
-          className="acpmux-effort"
-          button={
-            <>
-              <span>{effortName ?? PICKER_LABELS.effort}</span>
-              <ChevronIcon />
-            </>
-          }
-          sections={[{ choices: efforts, current: effort.currentValue, onPick: (value) => onEffort(effort.id, value) }]}
-          align="end"
+          levels={efforts}
+          current={effort.currentValue}
+          modelName={model?.name ?? summary?.model}
+          chevron={<ChevronIcon />}
+          onEffort={(value) => onEffort(effort.id, value)}
+          onModel={models.length > 0 ? () => openPicker(PICKER_LABELS.model) : undefined}
         />
       )}
       {usage && usage.size > 0 && <ContextRing used={usage.used} size={usage.size} />}

@@ -1,0 +1,176 @@
+import React, { useEffect, useId, useRef, useState } from "react";
+import { registerPicker } from "./pickerOpeners";
+
+// The effort control, after Codex's (codex-atlas-clone reference model-menu): the chip
+// opens a popover with the effort's name, the model it applies to (which opens the
+// model menu), and a slider with a stop per level. A native range input, so arrows,
+// Home and End, and assistive tech work as on any slider.
+
+export type EffortLevel = { id: string; name: string };
+
+export function EffortSlider({
+  label,
+  levels,
+  current,
+  modelName,
+  chevron,
+  onEffort,
+  onModel,
+}: {
+  label: string;
+  levels: EffortLevel[];
+  current?: string;
+  modelName?: string;
+  chevron: React.ReactNode;
+  onEffort(id: string): void;
+  /// Opens the model menu from the popover's model line.
+  onModel?(): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const at = Math.max(
+    0,
+    levels.findIndex((level) => level.id === current),
+  );
+  // The level under the thumb; it is sent when the drag or key press ends, not at each step.
+  const [pending, setPending] = useState<number | undefined>(undefined);
+  const shown = pending ?? at;
+  const root = useRef<HTMLSpanElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const slider = useRef<HTMLInputElement>(null);
+  const popId = useId();
+
+  const show = () => {
+    setPending(undefined);
+    setOpen(true);
+  };
+  const showRef = useRef(show);
+  showRef.current = show;
+  useEffect(() => registerPicker(label, () => showRef.current()), [label]);
+
+  useEffect(() => {
+    if (!open) return;
+    slider.current?.focus();
+    const away = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const blur = () => setOpen(false);
+    // Escape inside the popover closes it and hands focus back to the chip.
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !root.current?.contains(event.target as Node)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeRef.current();
+    };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", escape, true);
+    window.addEventListener("blur", blur);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", escape, true);
+      window.removeEventListener("blur", blur);
+    };
+  }, [open]);
+
+  const commit = () => {
+    if (pending === undefined) return;
+    const level = levels[pending];
+    setPending(undefined);
+    if (level && level.id !== current) onEffort(level.id);
+  };
+  const close = () => {
+    commit();
+    setOpen(false);
+    trigger.current?.focus();
+  };
+  const closeRef = useRef(close);
+  closeRef.current = close;
+
+  return (
+    <span
+      ref={root}
+      className="acpmux-picker acpmux-effort"
+      onBlur={(event) => {
+        if (open && !root.current?.contains(event.relatedTarget as Node | null)) {
+          commit();
+          setOpen(false);
+        }
+      }}
+    >
+      <button
+        ref={trigger}
+        type="button"
+        className="acpmux-picker-button"
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? popId : undefined}
+        onClick={() => (open ? close() : show())}
+      >
+        <span>{levels[at]?.name ?? label}</span>
+        {chevron}
+      </button>
+      {open && (
+        <dialog id={popId} className="acpmux-effort-pop" open aria-label={label}>
+          <div className="acpmux-effort-name">{levels[shown]?.name}</div>
+          {modelName && (
+            <button
+              type="button"
+              className="acpmux-effort-model"
+              onClick={() => {
+                commit();
+                setOpen(false);
+                onModel?.();
+              }}
+            >
+              {modelName}
+              <svg width={10} height={10} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path
+                  d="M6.3 3.4 10.6 8l-4.3 4.6"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.6}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          )}
+          <div
+            className="acpmux-effort-track"
+            // The track fills up to the thumb.
+            style={
+              {
+                "--acpmux-effort-stops": levels.length,
+                "--acpmux-effort-fill": levels.length > 1 ? shown / (levels.length - 1) : 0,
+              } as React.CSSProperties
+            }
+          >
+            {levels.map((level, index) => (
+              <span
+                key={level.id}
+                className="acpmux-effort-stop"
+                aria-hidden="true"
+                data-reached={index <= shown ? "" : undefined}
+              />
+            ))}
+            <input
+              ref={slider}
+              type="range"
+              min={0}
+              max={Math.max(levels.length - 1, 0)}
+              step={1}
+              value={shown}
+              aria-label={label}
+              aria-valuetext={levels[shown]?.name}
+              onChange={(event) => setPending(Number(event.target.value))}
+              onPointerUp={commit}
+              onKeyUp={(event) => {
+                if (event.key !== "Escape" && event.key !== "Tab") commit();
+              }}
+            />
+          </div>
+        </dialog>
+      )}
+    </span>
+  );
+}

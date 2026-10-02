@@ -104,6 +104,17 @@ describe("acpmux composer pickers", () => {
     [...doc.querySelectorAll("[role=option]")].map(
       (option) => `${option.textContent}${option.getAttribute("aria-checked") === "true" ? " *" : ""}`,
     );
+  const slider = () => doc.querySelector<HTMLInputElement>(".acpmux-effort-pop input[type=range]");
+  // Moves the thumb as a drag or arrow key would, through React's onChange as typeInto does.
+  const slide = async (to: number) =>
+    act(async () => {
+      const node = slider()!;
+      node.value = String(to);
+      const props = (node as unknown as Record<string, { onChange(event: { target: HTMLInputElement }): void }>)[
+        Object.keys(node).find((key) => key.startsWith("__reactProps$"))!
+      ]!;
+      props.onChange({ target: node });
+    });
   const key = async (target: Element, name: string) =>
     act(async () => {
       target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
@@ -117,7 +128,7 @@ describe("acpmux composer pickers", () => {
     await act(async () => root.unmount());
   });
 
-  test("the model and the effort are two dropdowns, each with its current choice checked", async () => {
+  test("the model is a dropdown with its current choice checked, and the effort a slider on its current level", async () => {
     await render(snapshot({ configOptions: [effort] }));
     expect(button("Model")!.textContent).toBe("6 Astra");
     expect(button("Effort")!.textContent).toBe("High");
@@ -132,7 +143,44 @@ describe("acpmux composer pickers", () => {
     expect(calls).toEqual(["model sol"]);
     expect(doc.querySelector("[role=listbox]")).toBeNull();
     await act(async () => button("Effort")!.click());
-    expect(options()).toEqual(["Medium", "High *"]);
+    expect(slider()!.value).toBe("1");
+    expect(slider()!.getAttribute("aria-valuetext")).toBe("High");
+    expect(doc.querySelector(".acpmux-effort-name")!.textContent).toBe("High");
+  });
+
+  test("the effort slider sends a level once the key or drag ends, and Escape closes it back to the chip", async () => {
+    await render(snapshot({ configOptions: [effort] }));
+    await act(async () => button("Effort")!.click());
+    expect(doc.activeElement).toBe(slider());
+    const fill = () =>
+      doc.querySelector<HTMLElement>(".acpmux-effort-track")!.style.getPropertyValue("--acpmux-effort-fill");
+    expect(fill()).toBe("1");
+    await slide(0);
+    // The popover names the level under the thumb before it is sent.
+    expect(doc.querySelector(".acpmux-effort-name")!.textContent).toBe("Medium");
+    expect(calls).toEqual([]);
+    // The track fills to the thumb as it moves.
+    expect(fill()).toBe("0");
+    await act(async () => {
+      slider()!.dispatchEvent(new dom.window.KeyboardEvent("keyup", { key: "ArrowLeft", bubbles: true }));
+    });
+    expect(calls).toEqual(["effort reasoning_effort medium"]);
+    // Escape commits nothing more and hands focus back to the chip.
+    await key(slider()!, "Escape");
+    expect(doc.querySelector(".acpmux-effort-pop")).toBeNull();
+    expect(doc.activeElement).toBe(button("Effort"));
+    expect(calls).toEqual(["effort reasoning_effort medium"]);
+  });
+
+  test("the effort popover's model line opens the model menu", async () => {
+    await render(snapshot({ configOptions: [effort] }));
+    await act(async () => button("Effort")!.click());
+    const model = doc.querySelector<HTMLButtonElement>(".acpmux-effort-model")!;
+    expect(model.textContent).toBe("6 Astra");
+    await act(async () => model.click());
+    expect(doc.querySelector(".acpmux-effort-pop")).toBeNull();
+    expect(button("Model")!.getAttribute("aria-expanded")).toBe("true");
+    expect(options()).toEqual(["6 Astra *", "6.1 Sol"]);
   });
 
   test("arrows and Enter pick from the menu, and Escape closes it back to the button", async () => {
@@ -153,14 +201,20 @@ describe("acpmux composer pickers", () => {
   });
 
   test("Space picks on keyup without the button's click reopening the menu, and a shrunk list keeps a row highlighted", async () => {
-    await render(snapshot({ configOptions: [effort] }));
-    const level = button("Effort")!;
-    // The highlight opens on the current effort, the last one.
+    const withModels = (models: { id: string; name: string }[]) => ({
+      ...snapshot(),
+      catalog: [{ id: "codex", name: "Codex", models }],
+    });
+    const astra = { id: "astra", name: "6 Astra" };
+    const sol = { id: "sol", name: "6.1 Sol" };
+    await render(withModels([astra, sol, { id: "luna", name: "6 Luna" }]));
+    const level = button("Model")!;
     await key(level, "ArrowDown");
-    expect(doc.getElementById(level.getAttribute("aria-activedescendant")!)!.textContent).toBe("High");
+    await key(level, "ArrowUp");
+    expect(doc.getElementById(level.getAttribute("aria-activedescendant")!)!.textContent).toBe("6 Luna");
     // A live update drops that option while it is highlighted.
-    await render(snapshot({ configOptions: [{ ...effort, options: [effort.options[0]!] }] }));
-    expect(doc.getElementById(level.getAttribute("aria-activedescendant")!)!.textContent).toBe("Medium");
+    await render(withModels([astra, sol]));
+    expect(doc.getElementById(level.getAttribute("aria-activedescendant")!)!.textContent).toBe("6.1 Sol");
     await key(level, " ");
     expect(level.getAttribute("aria-expanded")).toBe("true");
     const up = new dom.window.KeyboardEvent("keyup", { key: " ", bubbles: true, cancelable: true });
@@ -168,7 +222,7 @@ describe("acpmux composer pickers", () => {
       level.dispatchEvent(up);
     });
     expect(up.defaultPrevented).toBe(true);
-    expect(calls).toEqual(["effort reasoning_effort medium"]);
+    expect(calls).toEqual(["model sol"]);
     expect(level.getAttribute("aria-expanded")).toBe("false");
   });
 
@@ -343,12 +397,13 @@ describe("acpmux composer pickers", () => {
     await key(button("Model")!, "ArrowDown");
     await key(button("Model")!, "Enter");
     expect(calls).toEqual(["model sol"]);
-    // Opening an open menu keeps it open rather than toggling it shut.
+    // Opening an open menu keeps it open rather than toggling it shut; the effort opens its slider.
     await act(async () => {
       openPicker("Effort");
       openPicker("Effort");
     });
-    expect(options()).toEqual(["Medium", "High *"]);
+    expect(button("Effort")!.getAttribute("aria-expanded")).toBe("true");
+    expect(doc.activeElement).toBe(slider());
   });
 
   test("an unmounted menu is no longer openable", async () => {
