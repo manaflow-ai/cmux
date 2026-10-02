@@ -67,6 +67,11 @@ struct ShortcutListStableLazyView: View {
         .onChange(of: query, initial: true) { _, query in
             matchedActions = query.isEmpty ? nil : model.actions(matching: query)
         }
+        // A binding edit can give another action the searched keys (a legacy
+        // conflict lifting, say), so add new matches without dropping shown rows.
+        .onChange(of: model.latestBindings) { refreshMatchesAfterBindingChange() }
+        .onChange(of: model.legacyBindings) { refreshMatchesAfterBindingChange() }
+        .onChange(of: model.managedBindingActionIDs) { refreshMatchesAfterBindingChange() }
         .onChange(of: controlActiveState) { _, state in
             // A filter can shrink the list while inactive; drop the held
             // height once the window is active again.
@@ -74,6 +79,11 @@ struct ShortcutListStableLazyView: View {
                 updateMeasuredHeight(to: lastReportedHeight)
             }
         }
+    }
+
+    private func refreshMatchesAfterBindingChange() {
+        guard let shown = matchedActions else { return }
+        matchedActions = model.actions(matching: query, keeping: shown)
     }
 
     private func updateMeasuredHeight(to height: CGFloat) {

@@ -112,6 +112,23 @@ struct ShortcutListSearchTests {
         #expect(model.actions(matching: ShortcutListSearchQuery(text: "zzz no such action", keys: keys)).isEmpty)
     }
 
+    @Test func refreshKeepsShownRowsAndAddsNewMatches() {
+        let model = makeModel()
+        let query = ShortcutListSearchQuery(keys: StoredShortcut(first: commandT))
+        let shown = model.actions(matching: query)
+        #expect(!shown.contains(.openSettings))
+
+        // Unbind a shown row and give another action the searched keys.
+        model.bindings[ShortcutAction.newSurface.rawValue] = .unbound
+        model.bindings[ShortcutAction.openSettings.rawValue] = StoredShortcut(first: commandT)
+        let refreshed = model.actions(matching: query, keeping: shown)
+
+        #expect(Array(refreshed.prefix(shown.count)) == shown)
+        #expect(refreshed.contains(.newSurface))
+        #expect(refreshed.contains(.openSettings))
+        #expect(Set(refreshed).count == refreshed.count)
+    }
+
     @Test func detectorWaitsForSecondStrokeOnlyWhenAChordStartsWithTheFirst() throws {
         let button = RecorderHostButton(frame: .zero)
         defer { button.cancelRecordingIfActive() }

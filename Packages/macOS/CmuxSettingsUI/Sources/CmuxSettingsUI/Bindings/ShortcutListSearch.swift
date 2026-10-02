@@ -97,6 +97,14 @@ extension ShortcutListModel {
             .map(\.action)
     }
 
+    /// Refreshes shown matches after a binding change: keeps every row in
+    /// `shown` (so an edited row stays put) and appends actions that now match
+    /// `query`, in ranked order.
+    func actions(matching query: ShortcutListSearchQuery, keeping shown: [ShortcutAction]) -> [ShortcutAction] {
+        let shownSet = Set(shown)
+        return shown + actions(matching: query).filter { !shownSet.contains($0) }
+    }
+
     /// Whether some settings-visible binding is a chord that starts with `stroke`.
     func hasChord(startingWith stroke: ShortcutStroke) -> Bool {
         ShortcutListSearch.chordStarts(
