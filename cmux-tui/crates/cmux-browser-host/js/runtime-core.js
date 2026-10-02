@@ -1404,7 +1404,7 @@
         const value = await this._page._inputText(frame, text, title);
         // A secret handle goes to the host whole; it resolves the value for
         // the focused frame and types it key by key ("typing": "keys").
-        if (this._page._isSecret(value)) return this._page._input("input.insertText", { targetId: this._page._targetId, text: value, typing: "keys" });
+        if (this._page._isSecret(value)) return this._page._input("input.insertText", { targetId: this._page._targetId, text: value, typing: "keys", title, delayMs: options.delay || 0 });
         return this._page.keyboard.type(value, options);
       });
     }

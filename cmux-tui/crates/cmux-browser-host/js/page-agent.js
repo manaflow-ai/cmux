@@ -1201,56 +1201,6 @@
     return "done";
   }
 
-  // For the host (browser-host.md section 4), which resolves a secret
-  // handle only into the frame that holds focus: where focus is in this
-  // frame's document. activeIsFrame means focus continues in a child frame.
-  function focusInfo() {
-    const active = deepActiveElement(document);
-    const tag = active ? active.tagName : "";
-    const editable = !!active && (active.isContentEditable || (active instanceof HTMLInputElement && !["button", "submit", "reset", "checkbox", "radio", "file", "image", "range", "color", "hidden"].includes(active.type)) || active instanceof HTMLTextAreaElement);
-    return { url: location.href, activeIsFrame: tag === "IFRAME" || tag === "FRAME", activeEditable: editable, hasFocus: document.hasFocus() };
-  }
-
-  // Capture masking, ordered by the host around tab.screenshot and tab.pdf:
-  // every field whose value holds one of `values`, and every element whose
-  // own text holds one, renders with -webkit-text-security: disc for the
-  // length of the capture, as a password field does. on=false undoes it.
-  function maskSecrets(values, on) {
-    const key = Symbol.for("cmux.browserRepl.secretMask");
-    const prop = "-webkit-text-security";
-    if (!on) {
-      for (const [el, value, priority] of global[key] || []) {
-        if (value) el.style.setProperty(prop, value, priority);
-        else el.style.removeProperty(prop);
-      }
-      global[key] = null;
-      return 0;
-    }
-    const hits = new Set();
-    const has = (text) => typeof text === "string" && values.some((v) => text.includes(v));
-    const visit = (root) => {
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
-      for (let n = walker.currentNode; n; n = walker.nextNode()) {
-        if (n.nodeType === 3) {
-          if (n.parentElement && has(n.data)) hits.add(n.parentElement);
-          continue;
-        }
-        if ((n instanceof HTMLInputElement && n.type !== "password") || n instanceof HTMLTextAreaElement) {
-          if (has(n.value)) hits.add(n);
-        }
-        if (n.shadowRoot) visit(n.shadowRoot);
-      }
-    };
-    visit(document.documentElement || document);
-    const saved = [];
-    for (const el of hits) {
-      saved.push([el, el.style.getPropertyValue(prop), el.style.getPropertyPriority(prop)]);
-      el.style.setProperty(prop, "disc", "important");
-    }
-    global[key] = saved;
-    return saved.length;
-  }
-
   const agent = {
     version: 2,
     ping: () => "pong",
@@ -1286,8 +1236,6 @@
     contentBox,
     annotate,
     clearAnnotations,
-    focusInfo,
-    maskSecrets,
     injected,
   };
   Object.defineProperty(global, KEY, { value: agent, enumerable: false, configurable: true, writable: false });

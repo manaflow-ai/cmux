@@ -799,7 +799,7 @@ export function createNodeHost({ workDir, sessionId = "dev", print, readable = n
     },
     fsOp: createFsOp({ workDir, tmpdir, readable }),
     async fetch(url, init = {}) {
-      const res = await fetch(url, { method: init.method, headers: init.headers, body: init.body === undefined ? undefined : Buffer.from(init.body, "base64") });
+      const res = await fetch(url, { method: init.method, headers: init.headers, body: init.body === undefined ? undefined : Buffer.from(init.body, "base64"), redirect: init.redirect || "follow" });
       const body = Buffer.from(await res.arrayBuffer());
       return { status: res.status, statusText: res.statusText, url: res.url, headers: Object.fromEntries(res.headers), base64: body.toString("base64"), redirected: res.redirected };
     },
