@@ -9,9 +9,12 @@
 //! - The home workspace is never closed: every close path refuses it with
 //!   `home.not_closable` before it ends a terminal, and the tombstone of
 //!   the durable row refuses it too.
-//! - It stays first in the personal order: a placement that moves it away
-//!   from index 0 or into a group, or puts another workspace before it, is
-//!   refused with `home.pinned_first`.
+//! - It stays first in the top (ungrouped) section of the personal order:
+//!   a placement that moves it into a group or behind another ungrouped
+//!   workspace is refused with `home.pinned_first`. Grouped workspaces may
+//!   take any index.
+//! - The creation commit writes the workspace row, the kind row and the
+//!   personal placement in one transaction.
 //!
 //! The store never reads conversation content.
 
@@ -20,6 +23,7 @@ use std::fmt;
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
 use crate::workspace_registry::personal_store::read_workspaces;
+use crate::workspace_registry::{PersonalWorkspaceUpdate, WorkspaceRegistry};
 
 pub(crate) const WORKSPACE_KIND_CAPABILITY: &str = "workspace-kind-v1";
 pub(crate) const HOME_KIND: &str = "home";
@@ -64,17 +68,23 @@ impl EmptyWorkspaceMark {
         }
     }
 
+    /// The rows this mark writes in the transaction that creates the
+    /// workspace.
     pub(crate) fn write(
         self,
         transaction: &Transaction<'_>,
         workspace_id: &str,
+        workspace_key: &str,
     ) -> anyhow::Result<()> {
         match self {
             Self::None => Ok(()),
             Self::Ephemeral => {
                 crate::state::store::mark_workspace_ephemeral(transaction, workspace_id)
             }
-            Self::Home => mark_workspace_home(transaction, workspace_id),
+            Self::Home => {
+                mark_workspace_home(transaction, workspace_id)?;
+                place_home_first(transaction, workspace_key)
+            }
         }
     }
 }
@@ -88,6 +98,29 @@ fn mark_workspace_home(transaction: &Transaction<'_>, workspace_id: &str) -> any
         "INSERT INTO workspace_kind(workspace_id, kind) VALUES(?1, 'home')",
         [workspace_id],
     )?;
+    Ok(())
+}
+
+/// The personal placement of the new home workspace: first and ungrouped,
+/// with its `workspace_placement` changes queued into the creation's
+/// `session.events` batch. The personal store shares the registry
+/// transaction, so `personal_revision` and its journal fact move with it.
+fn place_home_first(transaction: &Transaction<'_>, workspace_key: &str) -> anyhow::Result<()> {
+    let local = crate::state::values::local_registry_id(transaction)?;
+    WorkspaceRegistry::set_personal_workspace_in(
+        transaction,
+        &local,
+        workspace_key,
+        PersonalWorkspaceUpdate { index: Some(0), group: Some(None), ..Default::default() },
+    )?;
+    for placement in crate::state::personal_state_store::placement_snapshots(transaction)? {
+        let id = crate::state::personal_state_store::placement_id(
+            placement["workspace"]["session_id"].as_str().unwrap_or_default(),
+            placement["workspace"]["workspace_ref"].as_str().unwrap_or_default(),
+        );
+        let change = crate::state::store::state_upsert("workspace_placement", &id, placement);
+        crate::state::closed_history_store::queue_change(transaction, &change)?;
+    }
     Ok(())
 }
 
@@ -170,7 +203,7 @@ impl fmt::Display for HomeRule {
             }
             HomeRuleKind::PinnedFirst => write!(
                 formatter,
-                "{code}: the home workspace {workspace} stays first in the personal order"
+                "{code}: the home workspace {workspace} stays first in the top section"
             ),
         }
     }
@@ -212,28 +245,22 @@ pub(crate) fn refuse_close_id(connection: &Connection, workspace_id: &str) -> an
 }
 
 /// After a personal order change: the home row of the local session must be
-/// the first row and ungrouped. A home without a row yet (the placement
-/// commit of `workspace.ensure_home` has not run) is not checked.
+/// ungrouped and the first ungrouped row (the top section). Grouped rows may
+/// precede it. A store without a home, or a home without a row, is not
+/// checked.
 pub(crate) fn require_home_first(connection: &Connection) -> anyhow::Result<()> {
     let Some((workspace, key)) = live_home(connection)? else { return Ok(()) };
     let local = crate::state::values::local_registry_id(connection)?;
     let rows = read_workspaces(connection)?;
-    let Some(home) = rows.iter().find(|row| row.session_id == local && row.workspace_key == key)
+    let Some(home) =
+        rows.iter().position(|row| row.session_id == local && row.workspace_key == key)
     else {
         return Ok(());
     };
-    if home.index == 0 && home.group.is_none() {
+    let first_ungrouped = rows.iter().position(|row| row.group.is_none());
+    if rows[home].group.is_none() && first_ungrouped == Some(home) {
         Ok(())
     } else {
         Err(HomeRule::new(HomeRuleKind::PinnedFirst, workspace).into())
     }
-}
-
-/// Whether the home row of the local session is first and ungrouped.
-pub(crate) fn home_is_first(connection: &Connection, workspace_key: &str) -> anyhow::Result<bool> {
-    let local = crate::state::values::local_registry_id(connection)?;
-    Ok(read_workspaces(connection)?
-        .iter()
-        .find(|row| row.session_id == local && row.workspace_key == workspace_key)
-        .is_some_and(|row| row.index == 0 && row.group.is_none()))
 }

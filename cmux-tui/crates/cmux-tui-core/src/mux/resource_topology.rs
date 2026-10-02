@@ -457,8 +457,8 @@ impl Mux {
         {
             *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
         }
-        let marked = public_id.as_str().to_string();
-        let write_mark = move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked);
+        let (marked, marked_key) = (public_id.as_str().to_string(), key.clone());
+        let write_mark = move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
         let (commit, workspace_revision) = registry.commit_resource_creation_patch(
             correlation_key,
             mutation,

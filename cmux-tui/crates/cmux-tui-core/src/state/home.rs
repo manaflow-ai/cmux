@@ -4,15 +4,15 @@
 //! writes `kind: home`: clients cannot pass `kind` to `workspace.create`, and
 //! sessions whose app never asks (the TUI, the CLI) never get a home.
 //!
-//! Two commits, both idempotent: the empty workspace with its kind row
-//! (fixed idempotency and correlation key `home`), then its personal
-//! placement at index 0. A crash between them leaves a home without a
-//! placement row, which the next `ensure_home` places.
+//! One commit through the normal empty-creation path (fixed idempotency and
+//! correlation key `home`): the workspace row, its kind row and its personal
+//! placement first in the top section, with the placement changes in the
+//! same `session.events` batch.
 
 use crate::mux::*;
-use crate::state::PersonalChange;
 use crate::state::home_store::{self, EmptyWorkspaceMark, HOME_CREATION_KEY};
 use crate::state::prelude::*;
+use crate::workspace_registry::personal_store::personal_revision;
 
 /// The stored name of the home workspace. Clients show their own localized
 /// title for `extra.kind == "home"`; a rename by the user replaces this.
@@ -28,44 +28,29 @@ pub(crate) struct EnsuredHome {
 
 impl Mux {
     pub(crate) fn state_ensure_home(self: &Arc<Self>) -> anyhow::Result<EnsuredHome> {
-        let (workspace_id, key, mut revision, mut replayed) =
-            match self.read_registry_state(home_store::live_home)? {
-                Some((workspace_id, key)) => {
-                    (workspace_id, key, self.with_state(|state| state.resource_revision), true)
-                }
-                None => {
-                    let mutation = WorkspaceMutation::new(HOME_CREATION_KEY, HOME_MUTATION_ORIGIN)?;
-                    let commit = self.resource_create_empty_workspace_selected(
-                        Self::ordinary_resource_selectors(),
-                        Some(HOME_DEFAULT_NAME.to_string()),
-                        HOME_CREATION_KEY,
-                        None,
-                        &mutation,
-                        EmptyWorkspaceMark::Home,
-                    )?;
-                    let (workspace_id, key) = self
-                        .read_registry_state(home_store::live_home)?
-                        .context("the created home workspace has no kind row")?;
-                    (workspace_id, key, commit.revision, commit.replayed)
-                }
-            };
-        if !self.read_registry_state(|connection| home_store::home_is_first(connection, &key))? {
-            let mutation =
-                WorkspaceMutation::new(format!("home-place-{revision}"), HOME_MUTATION_ORIGIN)?;
-            let selectors = crate::ResourceSelectors {
-                workspace: Some(workspace_id.clone()),
-                ..Self::ordinary_resource_selectors()
-            };
-            let commit = self.state_personal(
-                &mutation,
-                "workspace.place",
-                None,
-                &selectors,
-                PersonalChange::Place { group: Some(None), index: Some(0) },
-            )?;
-            revision = commit.revision;
-            replayed = false;
+        if let Some((workspace_id, _)) = self.read_registry_state(home_store::live_home)? {
+            let revision = self.with_state(|state| state.resource_revision);
+            return Ok(EnsuredHome { workspace_id, revision, replayed: true });
         }
-        Ok(EnsuredHome { workspace_id, revision, replayed })
+        let personal_before = self.read_registry_state(personal_revision)?;
+        let mutation = WorkspaceMutation::new(HOME_CREATION_KEY, HOME_MUTATION_ORIGIN)?;
+        let commit = self.resource_create_empty_workspace_selected(
+            Self::ordinary_resource_selectors(),
+            Some(HOME_DEFAULT_NAME.to_string()),
+            HOME_CREATION_KEY,
+            None,
+            &mutation,
+            EmptyWorkspaceMark::Home,
+        )?;
+        let (workspace_id, _) = self
+            .read_registry_state(home_store::live_home)?
+            .context("the created home workspace has no kind row")?;
+        // The creation commit moved the personal order too; raw
+        // `personal-changed` readers refetch on this event.
+        let personal_after = self.read_registry_state(personal_revision)?;
+        if personal_after != personal_before {
+            self.emit(MuxEvent::PersonalChanged { personal_revision: personal_after });
+        }
+        Ok(EnsuredHome { workspace_id, revision: commit.revision, replayed: commit.replayed })
     }
 }

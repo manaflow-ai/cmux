@@ -121,6 +121,7 @@ fn home_ensure_creates_one_home_first_and_replays() {
     let other = empty_workspace(&mux, "work");
     assert!(workspaces(&mux).iter().all(|value| value["extra"].get("kind").is_none()));
 
+    let before = mux.with_state(|state| state.resource_revision);
     let created = ensure_home(&mux, "connect-1");
     assert_eq!(created["replayed"], false);
     assert_eq!(created["value"]["kind"], "workspace");
@@ -130,6 +131,17 @@ fn home_ensure_creates_one_home_first_and_replays() {
     let first = &placements(&mux)[0];
     assert_eq!(first["workspace"]["workspace_id"], home);
     assert_eq!((first["index"].as_u64(), first["group_id"].is_null()), (Some(0), true));
+    // One commit: the workspace, its kind and its placement in one batch.
+    let batches = mux.resource_events_after(before).unwrap().batches;
+    assert_eq!(batches.len(), 1, "ensure_home committed more than once");
+    let changes = batches[0].changes.as_array().unwrap();
+    assert!(changes.iter().any(|change| change["kind"] == "upsert"
+        && change["resource"] == "workspace"
+        && change["value"]["extra"]["kind"] == "home"));
+    assert!(changes.iter().any(|change| change["kind"] == "state_upsert"
+        && change["resource"] == "workspace_placement"
+        && change["value"]["workspace"]["workspace_id"] == home.as_str()
+        && change["value"]["index"] == 0));
 
     let again = ensure_home(&mux, "connect-2");
     assert_eq!(again["replayed"], true);
@@ -206,10 +218,10 @@ fn home_refuses_every_close_path() {
     mux.shutdown();
 }
 
-/// The personal order keeps the home workspace first and ungrouped; other
-/// placements behind it still work.
+/// The top (ungrouped) section of the personal order keeps the home
+/// workspace first; grouped workspaces may take any index, also index 0.
 #[test]
-fn home_stays_first_in_the_personal_order() {
+fn home_stays_first_in_the_top_section() {
     let session = Session::new("order");
     let mux = session.open();
     let home = ensure_home(&mux, "connect")["value"]["workspace_id"].as_str().unwrap().to_string();
@@ -220,6 +232,7 @@ fn home_stays_first_in_the_personal_order() {
         .as_str()
         .unwrap()
         .to_string();
+    send(&mux, "workspace.place", json!({"workspace": b, "index": 1}), Some("place-b")).unwrap();
 
     for (params, key) in [
         (json!({"workspace": a, "index": 0}), "place-a-first"),
@@ -231,14 +244,23 @@ fn home_stays_first_in_the_personal_order() {
     }
     let order = placements(&mux);
     assert_eq!(order[0]["workspace"]["workspace_id"], home);
-
-    send(&mux, "workspace.place", json!({"workspace": b, "index": 1}), Some("place-b")).unwrap();
-    send(&mux, "workspace.place", json!({"workspace": a, "group": group}), Some("group-a"))
-        .unwrap();
-    let order = placements(&mux);
-    assert_eq!(order[0]["workspace"]["workspace_id"], home);
     assert_eq!(order[1]["workspace"]["workspace_id"], b);
-    // Placing home where it already is stays allowed.
+
+    // A grouped workspace at index 0 is outside the top section.
+    send(
+        &mux,
+        "workspace.place",
+        json!({"workspace": a, "group": group, "index": 0}),
+        Some("group-a-first"),
+    )
+    .unwrap();
+    let order = placements(&mux);
+    assert_eq!(order[0]["workspace"]["workspace_id"], a);
+    assert_eq!(order[0]["group_id"], group);
+    assert_eq!(order[1]["workspace"]["workspace_id"], home);
+    assert!(order[1]["group_id"].is_null());
+    assert_eq!(order[2]["workspace"]["workspace_id"], b);
+    // Moving home within the top section's first slot stays allowed.
     send(&mux, "workspace.place", json!({"workspace": home, "index": 0}), Some("place-home"))
         .unwrap();
     mux.shutdown();
