@@ -261,6 +261,7 @@ final class ScreenContentView: NSView {
                 // With appearance.borders none the ring is off and the dim is the focus cue.
                 dim: multiple && (dimsInactive || !style.drawsLines) && !isFocused ? style.inactivePaneDimming : 0,
                 focusRing: style.focusRing,
+                ringAlphaOverride: style.focusRingAlphaOverride,
                 border: PaneOverlayView.Border(shows: style.showsPaneBorder, width: style.paneBorderWidth, color: style.paneBorderColor),
                 attention: attention[pane],
                 attentionSettings: style.attention,

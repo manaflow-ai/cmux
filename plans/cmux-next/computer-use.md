@@ -127,10 +127,10 @@ Retention (one pure planner, `retention::plan(now, sessions, blobs, caps) -> Del
 | --- | --- |
 | events and session records | 30 days after `ended_at` (live sessions never expire) |
 | frames and thumbnails | 7 days after capture, or earlier to keep the machine total at or under 2 GB (oldest frames of ended sessions first, then oldest frames of live sessions; full frames before thumbnails) |
-| per session | 20,000 events and 500 MB frames; past the cap the oldest frames go first, events are kept until the 30-day rule |
+| per session | 500 MB frames (full frames first, then thumbnails, oldest first) and 20,000 events (past it the oldest prefix of events goes, with their frames; seq stays gap-free from the new first event) |
 | export bundles | written where the user asks; not counted, not deleted |
 
-Frames go before events (spec). A frame removed by retention leaves its event with `frame: expired`.
+Frames go before events (spec): only the 30-day rule and the per-session event cap delete events. A frame removed by retention leaves its event with `frame: expired`.
 
 Redaction at write time (C5). The spec says typed text is never stored in clear; this note applies that to everything an agent can make the machine type or inject:
 
@@ -214,3 +214,13 @@ Performance: idle pane with no live session: zero wakeups. Live session: one wak
 | i | cmux-cua | Linux headless display through the session host; `delivery` field; per-workspace displays | hosted Linux e2e |
 
 Not decided here, or UNVERIFIED: ScreenCaptureKit content filters for "authentication UI" need a concrete window list (Keychain, SecurityAgent, 1Password, Bitwarden, ...); SCStream on a backgrounded or occluded window may deliver no frames (pane shows "window hidden"); the Codex-compat daemon's tool names differ, so its events map to the same `tool` vocabulary through a table in step b.
+
+## 11. Progress
+
+| Step | State | Where |
+| --- | --- | --- |
+| a | implemented; tests red then green on hosted Linux CI (`Run activity store tests` step) | https://github.com/manaflow-ai/cmux-cua/pull/28 (draft, base `cmux-cua-native`) |
+| e | landed: `CmuxNextAgentActivity` (model, mock source, split/lanes/grid behind `agentActivity.layout`, snapshot test) | feat-cmux-next |
+| b, c, d, f, g, h, i | not started | |
+
+Notes: user stop, pause and resume are enforced by the connection's authenticated class (`user`), not by the claimed `origin` channel. `StopAgent {actor}` stops every live session of one agent and refuses its new sessions until the user allows it again (an agent could otherwise dodge a stop with a new label). cmux-cua's full Linux test step is red on trunk (6 pre-existing failures in `bundle`, `telemetry`, `version_check`), so the activity tests run in their own step first.

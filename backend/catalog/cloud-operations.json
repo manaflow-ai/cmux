@@ -1,0 +1,2319 @@
+{
+  "$schema": "./cloud-operations.schema.json",
+  "schema_version": 1,
+  "protocol": "cmux.wire/1",
+  "resource_scopes": [
+    "team",
+    "user",
+    "device",
+    "install",
+    "grant",
+    "host"
+  ],
+  "types": {
+    "DeviceId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^dev_[a-z0-9]{20}$",
+      "description": "A device (hardware) that groups installs."
+    },
+    "Grant": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GrantId"
+          }
+        },
+        "grantee": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "op_classes": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "OpClass"
+            }
+          }
+        },
+        "approval": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "none",
+              "per_call",
+              "per_session"
+            ]
+          }
+        },
+        "expires_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "revoked_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "created_from": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "install",
+              "ui",
+              "automation",
+              "standing_rule"
+            ]
+          }
+        }
+      }
+    },
+    "GrantId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^grant_[a-z0-9]{20}$",
+      "description": "A server-side grant; tokens carry only its id."
+    },
+    "Host": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "HostId"
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 80
+          }
+        },
+        "platform": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "Platform"
+          }
+        },
+        "owner_user": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "enrolled_by": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "InstallId"
+          }
+        },
+        "enrolled_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
+    },
+    "HostId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^host_[a-z0-9]{20}$",
+      "description": "A machine's session host, enrolled by its link."
+    },
+    "Install": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "InstallId"
+          }
+        },
+        "device": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "DeviceId"
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "InstallKind"
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 80
+          }
+        },
+        "device_name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 80
+          }
+        },
+        "platform": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "Platform"
+          }
+        },
+        "public_jwk": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "PublicJwk"
+          }
+        },
+        "thumbprint": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "grant": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GrantId"
+          }
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "revoked_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        }
+      }
+    },
+    "InstallId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^inst_[a-z0-9]{20}$",
+      "description": "One app, CLI or daemon install with its own keypair."
+    },
+    "InstallKind": {
+      "kind": "enum",
+      "values": [
+        "mac",
+        "ios",
+        "cli",
+        "daemon",
+        "web",
+        "vm"
+      ]
+    },
+    "OpClass": {
+      "kind": "enum",
+      "values": [
+        "read",
+        "mutate-own",
+        "mutate-shared",
+        "execute",
+        "send-external",
+        "money",
+        "destructive"
+      ]
+    },
+    "Platform": {
+      "kind": "enum",
+      "values": [
+        "macos",
+        "ios",
+        "linux",
+        "windows",
+        "web"
+      ]
+    },
+    "PublicJwk": {
+      "kind": "object",
+      "fields": {
+        "kty": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "EC"
+            ]
+          }
+        },
+        "crv": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "P-256"
+            ]
+          }
+        },
+        "x": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 43,
+            "max_length": 43
+          }
+        },
+        "y": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 43,
+            "max_length": 43
+          }
+        }
+      },
+      "description": "ES256 (P-256) public key of an install."
+    },
+    "TeamId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^team_[a-z0-9]{20}$",
+      "description": "A team; a personal account is a team of one."
+    },
+    "TeamMember": {
+      "kind": "object",
+      "fields": {
+        "user": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "role": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "owner",
+              "admin",
+              "member"
+            ]
+          }
+        },
+        "display_name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      }
+    },
+    "UserId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^user_[a-z0-9]{20}$",
+      "description": "A cmux user (Stack user id kept as an external id)."
+    },
+    "UserProfile": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "stack_user_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "email": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "display_name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "personal_team": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
+        }
+      }
+    }
+  },
+  "generics": {
+    "MutationResult": {
+      "parameters": [
+        "T"
+      ],
+      "type": {
+        "kind": "object",
+        "fields": {
+          "value": {
+            "required": true,
+            "type": {
+              "kind": "parameter",
+              "name": "T"
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "transaction": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "replayed": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          }
+        }
+      }
+    }
+  },
+  "errors": {
+    "validation.invalid": {
+      "retryable": false
+    },
+    "idempotency.conflict": {
+      "retryable": false
+    },
+    "revision.conflict": {
+      "retryable": false
+    },
+    "selector.not_found": {
+      "retryable": false
+    },
+    "operation.failed": {
+      "retryable": false
+    },
+    "auth.unauthenticated": {
+      "retryable": false
+    },
+    "auth.forbidden": {
+      "retryable": false
+    },
+    "owner.unreachable": {
+      "retryable": true
+    },
+    "mutation.indeterminate": {
+      "retryable": false
+    }
+  },
+  "operations": {
+    "host.enroll": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "host",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 80
+            }
+          },
+          "platform": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "Platform"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "Host"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "host enroll",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Enroll the calling install's machine as a host in the team directory.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "platform": {
+            "$ref": "#/$defs/Platform"
+          }
+        },
+        "required": [
+          "name",
+          "platform"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "macos",
+              "ios",
+              "linux",
+              "windows",
+              "web"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/Host",
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "macos",
+              "ios",
+              "linux",
+              "windows",
+              "web"
+            ]
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "Host": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/HostId"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "platform": {
+                "$ref": "#/$defs/Platform"
+              },
+              "owner_user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "enrolled_by": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "enrolled_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "platform",
+              "owner_user",
+              "enrolled_by",
+              "enrolled_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "host.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "host",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "host": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HostId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "host": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "HostId"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "host remove",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Remove a host from the team directory (its owner or a team admin).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          }
+        }
+      }
+    },
+    "install.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "install",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "user": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "ref",
+                "name": "UserProfile"
+              }
+            }
+          },
+          "installs": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "Install"
+              }
+            }
+          },
+          "grants": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "Grant"
+              }
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "install list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "account"
+      },
+      "docs": "List the caller's installs and grants.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/UserProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "installs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Install"
+            }
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Grant"
+            }
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user",
+          "installs",
+          "grants",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserProfile": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/UserId"
+              },
+              "stack_user_id": {
+                "type": "string"
+              },
+              "email": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "display_name": {
+                "type": "string"
+              },
+              "personal_team": {
+                "$ref": "#/$defs/TeamId"
+              }
+            },
+            "required": [
+              "id",
+              "stack_user_id",
+              "email",
+              "display_name",
+              "personal_team"
+            ],
+            "additionalProperties": true
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "DeviceId": {
+            "type": "string",
+            "pattern": "^dev_[a-z0-9]{20}$",
+            "description": "A device (hardware) that groups installs."
+          },
+          "InstallKind": {
+            "type": "string",
+            "enum": [
+              "mac",
+              "ios",
+              "cli",
+              "daemon",
+              "web",
+              "vm"
+            ]
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "macos",
+              "ios",
+              "linux",
+              "windows",
+              "web"
+            ]
+          },
+          "PublicJwk": {
+            "type": "object",
+            "properties": {
+              "kty": {
+                "type": "string",
+                "enum": [
+                  "EC"
+                ]
+              },
+              "crv": {
+                "type": "string",
+                "enum": [
+                  "P-256"
+                ]
+              },
+              "x": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 43
+              },
+              "y": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 43
+              }
+            },
+            "required": [
+              "kty",
+              "crv",
+              "x",
+              "y"
+            ],
+            "additionalProperties": true,
+            "description": "ES256 (P-256) public key of an install."
+          },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
+          "Install": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "device": {
+                "$ref": "#/$defs/DeviceId"
+              },
+              "kind": {
+                "$ref": "#/$defs/InstallKind"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "device_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "platform": {
+                "$ref": "#/$defs/Platform"
+              },
+              "public_jwk": {
+                "$ref": "#/$defs/PublicJwk"
+              },
+              "thumbprint": {
+                "type": "string"
+              },
+              "grant": {
+                "$ref": "#/$defs/GrantId"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "revoked_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "device",
+              "kind",
+              "name",
+              "device_name",
+              "platform",
+              "public_jwk",
+              "thumbprint",
+              "grant",
+              "created_at",
+              "revoked_at"
+            ],
+            "additionalProperties": true
+          },
+          "OpClass": {
+            "type": "string",
+            "enum": [
+              "read",
+              "mutate-own",
+              "mutate-shared",
+              "execute",
+              "send-external",
+              "money",
+              "destructive"
+            ]
+          },
+          "Grant": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/GrantId"
+              },
+              "grantee": {
+                "type": "string"
+              },
+              "op_classes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/OpClass"
+                }
+              },
+              "approval": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "per_call",
+                  "per_session"
+                ]
+              },
+              "expires_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revoked_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "created_from": {
+                "type": "string",
+                "enum": [
+                  "install",
+                  "ui",
+                  "automation",
+                  "standing_rule"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "grantee",
+              "op_classes",
+              "approval",
+              "expires_at",
+              "revoked_at",
+              "created_from"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "install.register": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "install",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "public_jwk": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "PublicJwk"
+            }
+          },
+          "kind": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "InstallKind"
+            }
+          },
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 80
+            }
+          },
+          "device_name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 80
+            }
+          },
+          "platform": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "Platform"
+            }
+          },
+          "device": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "DeviceId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "Install"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "install register",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Register an install's public key under the signed-in user; returns the install with its default grant.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "public_jwk": {
+            "$ref": "#/$defs/PublicJwk"
+          },
+          "kind": {
+            "$ref": "#/$defs/InstallKind"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "device_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "platform": {
+            "$ref": "#/$defs/Platform"
+          },
+          "device": {
+            "$ref": "#/$defs/DeviceId"
+          }
+        },
+        "required": [
+          "public_jwk",
+          "kind",
+          "name",
+          "device_name",
+          "platform"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "PublicJwk": {
+            "type": "object",
+            "properties": {
+              "kty": {
+                "type": "string",
+                "enum": [
+                  "EC"
+                ]
+              },
+              "crv": {
+                "type": "string",
+                "enum": [
+                  "P-256"
+                ]
+              },
+              "x": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 43
+              },
+              "y": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 43
+              }
+            },
+            "required": [
+              "kty",
+              "crv",
+              "x",
+              "y"
+            ],
+            "additionalProperties": true,
+            "description": "ES256 (P-256) public key of an install."
+          },
+          "InstallKind": {
+            "type": "string",
+            "enum": [
+              "mac",
+              "ios",
+              "cli",
+              "daemon",
+              "web",
+              "vm"
+            ]
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "macos",
+              "ios",
+              "linux",
+              "windows",
+              "web"
+            ]
+          },
+          "DeviceId": {
+            "type": "string",
+            "pattern": "^dev_[a-z0-9]{20}$",
+            "description": "A device (hardware) that groups installs."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/Install",
+        "$defs": {
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "DeviceId": {
+            "type": "string",
+            "pattern": "^dev_[a-z0-9]{20}$",
+            "description": "A device (hardware) that groups installs."
+          },
+          "InstallKind": {
+            "type": "string",
+            "enum": [
+              "mac",
+              "ios",
+              "cli",
+              "daemon",
+              "web",
+              "vm"
+            ]
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "macos",
+              "ios",
+              "linux",
+              "windows",
+              "web"
+            ]
+          },
+          "PublicJwk": {
+            "type": "object",
+            "properties": {
+              "kty": {
+                "type": "string",
+                "enum": [
+                  "EC"
+                ]
+              },
+              "crv": {
+                "type": "string",
+                "enum": [
+                  "P-256"
+                ]
+              },
+              "x": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 43
+              },
+              "y": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 43
+              }
+            },
+            "required": [
+              "kty",
+              "crv",
+              "x",
+              "y"
+            ],
+            "additionalProperties": true,
+            "description": "ES256 (P-256) public key of an install."
+          },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
+          "Install": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "device": {
+                "$ref": "#/$defs/DeviceId"
+              },
+              "kind": {
+                "$ref": "#/$defs/InstallKind"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "device_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "platform": {
+                "$ref": "#/$defs/Platform"
+              },
+              "public_jwk": {
+                "$ref": "#/$defs/PublicJwk"
+              },
+              "thumbprint": {
+                "type": "string"
+              },
+              "grant": {
+                "$ref": "#/$defs/GrantId"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "revoked_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "device",
+              "kind",
+              "name",
+              "device_name",
+              "platform",
+              "public_jwk",
+              "thumbprint",
+              "grant",
+              "created_at",
+              "revoked_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "install.rename": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "install",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "install": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "InstallId"
+            }
+          },
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 80
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "Install"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "install rename",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "account"
+      },
+      "docs": "Rename an install. An install may rename only itself; the user's session may rename any of its installs.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "install": {
+            "$ref": "#/$defs/InstallId"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "install",
+          "name"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/Install",
+        "$defs": {
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "DeviceId": {
+            "type": "string",
+            "pattern": "^dev_[a-z0-9]{20}$",
+            "description": "A device (hardware) that groups installs."
+          },
+          "InstallKind": {
+            "type": "string",
+            "enum": [
+              "mac",
+              "ios",
+              "cli",
+              "daemon",
+              "web",
+              "vm"
+            ]
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "macos",
+              "ios",
+              "linux",
+              "windows",
+              "web"
+            ]
+          },
+          "PublicJwk": {
+            "type": "object",
+            "properties": {
+              "kty": {
+                "type": "string",
+                "enum": [
+                  "EC"
+                ]
+              },
+              "crv": {
+                "type": "string",
+                "enum": [
+                  "P-256"
+                ]
+              },
+              "x": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 43
+              },
+              "y": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 43
+              }
+            },
+            "required": [
+              "kty",
+              "crv",
+              "x",
+              "y"
+            ],
+            "additionalProperties": true,
+            "description": "ES256 (P-256) public key of an install."
+          },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
+          "Install": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "device": {
+                "$ref": "#/$defs/DeviceId"
+              },
+              "kind": {
+                "$ref": "#/$defs/InstallKind"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "device_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "platform": {
+                "$ref": "#/$defs/Platform"
+              },
+              "public_jwk": {
+                "$ref": "#/$defs/PublicJwk"
+              },
+              "thumbprint": {
+                "type": "string"
+              },
+              "grant": {
+                "$ref": "#/$defs/GrantId"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "revoked_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "device",
+              "kind",
+              "name",
+              "device_name",
+              "platform",
+              "public_jwk",
+              "thumbprint",
+              "grant",
+              "created_at",
+              "revoked_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "install.revoke": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "install",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "install": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "InstallId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "Install"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "install revoke",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Revoke an install: its tokens stop working within one token lifetime and new tokens are refused.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "install": {
+            "$ref": "#/$defs/InstallId"
+          }
+        },
+        "required": [
+          "install"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/Install",
+        "$defs": {
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "DeviceId": {
+            "type": "string",
+            "pattern": "^dev_[a-z0-9]{20}$",
+            "description": "A device (hardware) that groups installs."
+          },
+          "InstallKind": {
+            "type": "string",
+            "enum": [
+              "mac",
+              "ios",
+              "cli",
+              "daemon",
+              "web",
+              "vm"
+            ]
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "macos",
+              "ios",
+              "linux",
+              "windows",
+              "web"
+            ]
+          },
+          "PublicJwk": {
+            "type": "object",
+            "properties": {
+              "kty": {
+                "type": "string",
+                "enum": [
+                  "EC"
+                ]
+              },
+              "crv": {
+                "type": "string",
+                "enum": [
+                  "P-256"
+                ]
+              },
+              "x": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 43
+              },
+              "y": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 43
+              }
+            },
+            "required": [
+              "kty",
+              "crv",
+              "x",
+              "y"
+            ],
+            "additionalProperties": true,
+            "description": "ES256 (P-256) public key of an install."
+          },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
+          "Install": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "device": {
+                "$ref": "#/$defs/DeviceId"
+              },
+              "kind": {
+                "$ref": "#/$defs/InstallKind"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "device_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "platform": {
+                "$ref": "#/$defs/Platform"
+              },
+              "public_jwk": {
+                "$ref": "#/$defs/PublicJwk"
+              },
+              "thumbprint": {
+                "type": "string"
+              },
+              "grant": {
+                "$ref": "#/$defs/GrantId"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "revoked_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "device",
+              "kind",
+              "name",
+              "device_name",
+              "platform",
+              "public_jwk",
+              "thumbprint",
+              "grant",
+              "created_at",
+              "revoked_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team.directory": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "members": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "TeamMember"
+              }
+            }
+          },
+          "hosts": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "Host"
+              }
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team directory",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "team"
+      },
+      "docs": "Read a team's directory: members and enrolled hosts (U2).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/TeamMember"
+            }
+          },
+          "hosts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Host"
+            }
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team",
+          "members",
+          "hosts",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "TeamMember": {
+            "type": "object",
+            "properties": {
+              "user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "owner",
+                  "admin",
+                  "member"
+                ]
+              },
+              "display_name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "user",
+              "role",
+              "display_name"
+            ],
+            "additionalProperties": true
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "macos",
+              "ios",
+              "linux",
+              "windows",
+              "web"
+            ]
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "Host": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/HostId"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "platform": {
+                "$ref": "#/$defs/Platform"
+              },
+              "owner_user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "enrolled_by": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "enrolled_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "platform",
+              "owner_user",
+              "enrolled_by",
+              "enrolled_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "user.ensure": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "UserProfile"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "account ensure",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Create or refresh the caller's user record from the Stack session.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/UserProfile",
+        "$defs": {
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserProfile": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/UserId"
+              },
+              "stack_user_id": {
+                "type": "string"
+              },
+              "email": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "display_name": {
+                "type": "string"
+              },
+              "personal_team": {
+                "$ref": "#/$defs/TeamId"
+              }
+            },
+            "required": [
+              "id",
+              "stack_user_id",
+              "email",
+              "display_name",
+              "personal_team"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  }
+}

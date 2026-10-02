@@ -87,6 +87,7 @@ done
   "$OUT_DIR/obj/shim/shim_windows.mm.o" "$OUT_DIR/obj/shim/shim_proxy.mm.o" \
   "$OUT_DIR/obj/shim/shim_extensions_ui.mm.o" "$OUT_DIR/obj/shim/shim_webstore.mm.o" \
   "$OUT_DIR/obj/shim/shim_cookie_import.mm.o" \
+  "$OUT_DIR/obj/shim/shim_password_import.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -lobjc
 
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \

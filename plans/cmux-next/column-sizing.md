@@ -45,8 +45,7 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
 - `layout.closeSizing`: `even` (default) | `neighbor`. Closing a column's last pane removes the
   column; other columns keep their widths; the viewport keeps the newly focused column visible
   without a jump when possible.
-- `layout.closeFocus`: previous-in-column, else the column to the left (default) | `mostRecent`
-  (owned by the focus-after-close lead).
+- `layout.closeFocus`: previous-in-column, else the column to the left (default) | `mostRecent`. Owned by the close-focus work (client view state, not a store op): see close-focus.md.
 - Every default (also minimum pane and column widths, sticky defaults) is a setting in Settings and
   cmux.json, documented, with a test that the default matches the documented value. Sticky columns
   follow the same rules.

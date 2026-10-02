@@ -17,8 +17,8 @@ import Testing
         #expect(personal.availability(of: .bookmarks) == .available)
         #expect(personal.availability(of: .history) == .available)
         #expect(personal.availability(of: .openTabs) == .absent)
-        #expect(personal.availability(of: .passwords) == .unsupported(.exportFromSource))
-        #expect(personal.importableKinds == [.bookmarks, .history])
+        #expect(personal.availability(of: .passwords) == .available, "read only after the consent step")
+        #expect(personal.importableKinds == [.bookmarks, .history, .passwords])
     }
 
     @Test func readsTheProfilePictureLocalStateNames() throws {

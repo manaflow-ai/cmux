@@ -151,7 +151,10 @@ export function mergeToolItem(
       kind: update.kind ?? before?.kind,
       status: String(update.status ?? before?.status ?? "in_progress"),
       inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
-      output: output || (update.content === undefined ? before?.output : undefined),
+      output:
+        output || formattedOutput(update.rawOutput) || (update.content === undefined ? before?.output : undefined),
+      command: shellCommand(update.rawInput) ?? before?.command,
+      exitCode: exitCode(update.rawOutput) ?? before?.exitCode,
       locations: Array.isArray(update.locations) ? update.locations : before?.locations,
       diffs:
         update.content === undefined
@@ -161,9 +164,37 @@ export function mergeToolItem(
   };
 }
 
+/// The command line a shell call ran, from `rawInput.command`: a string, or an argv array. An
+/// argv that runs a script through a shell (`zsh -lc "cd x && bun test"`) shows the script;
+/// otherwise a part with spaces or quotes is single-quoted, so the line reads as typed.
+export function shellCommand(rawInput: any): string | undefined {
+  const command = rawInput?.command;
+  if (typeof command === "string") return command;
+  if (!Array.isArray(command) || !command.every((part) => typeof part === "string") || !command.length)
+    return undefined;
+  const [program, flag, script] = command as string[];
+  if (command.length === 3 && /(^|\/)(ba|z|da|fi)?sh$/.test(program!) && /^-l?c$/.test(flag!)) return script;
+  return (command as string[])
+    .map((part) => (/^[\w@%+=:,./-]+$/.test(part) ? part : `'${part.replace(/'/g, "'\\''")}'`))
+    .join(" ");
+}
+
+function exitCode(rawOutput: any): number | undefined {
+  const code = rawOutput?.exit_code ?? rawOutput?.exitCode;
+  return typeof code === "number" ? code : undefined;
+}
+
+/// Codex reports a shell call's output in `rawOutput` when the call carries no content.
+function formattedOutput(rawOutput: any): string {
+  const text = rawOutput?.formatted_output;
+  return typeof text === "string" ? text : "";
+}
+
 function textFromContent(content: any): string {
   if (typeof content === "string") return content;
   if (content?.type === "text") return String(content.text ?? "");
+  // A tool call's content blocks wrap their text: `{ type: "content", content: { type: "text" } }`.
+  if (content?.type === "content") return textFromContent(content.content);
   if (Array.isArray(content)) return content.map(textFromContent).join("");
   return "";
 }

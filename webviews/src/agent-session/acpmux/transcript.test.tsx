@@ -1858,3 +1858,52 @@ describe("acpmux tool runs", () => {
     }
   });
 });
+
+describe("acpmux shell calls", () => {
+  /// A shell call opens to its Shell block; Codex's MCP calls also say "execute" but run no
+  /// command, so they open to the plain output.
+  test("a shell call opens to the Shell block and an MCP call to plain output", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const items = [
+      {
+        kind: "tool",
+        text: "Run bun test",
+        tool: {
+          id: "s",
+          title: "Run bun test",
+          kind: "execute",
+          status: "failed",
+          command: "bun test",
+          exitCode: 1,
+          output: "1 fail",
+        },
+      },
+      {
+        kind: "tool",
+        text: "mcp.cua_repl.js",
+        tool: { id: "m", title: "mcp.cua_repl.js", kind: "execute", status: "completed", output: "{ apps: [] }" },
+      },
+    ];
+    try {
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [{ id: "a", version: 1, at: 1, kind: "activity", items }],
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      const rows = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".cv-tool.is-toggle")];
+      await act(async () => rows.forEach((row) => row.click()));
+      const shell = dom.window.document.querySelector(".cv-shell");
+      expect(shell?.textContent).toBe("Shell$ bun test1 failExit code 1");
+      expect(dom.window.document.querySelector(".cv-tool-output")?.textContent).toBe("{ apps: [] }");
+      expect(dom.window.document.querySelectorAll(".cv-shell")).toHaveLength(1);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+});

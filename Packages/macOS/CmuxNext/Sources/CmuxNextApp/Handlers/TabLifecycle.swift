@@ -81,9 +81,16 @@ enum TabLifecycle {
         }
         guard let pane = ctx.daemonPane(invocation) else { return }
         let engine = invocation["engine"]?.stringValue
+        // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md).
+        let cache: TabContentCache? = ctx.services.cache
+        var agentTab: (@MainActor (SurfaceID) -> Void)?
+        if [.cli, .mcp, .script].contains(invocation.origin) {
+            agentTab = { @MainActor [weak cache] surface in cache?.markAgentDriven(surface: surface) }
+        }
         if let controller = ctx.services.paneController(for: pane) {
             // No URL given: what the selected tab works on (#16620).
-            return url == nil ? controller.newBrowserTabFromSelectedTab(engine: engine) : controller.newBrowserTab(url: url, engine: engine)
+            return url == nil ? controller.newBrowserTabFromSelectedTab(engine: engine, then: agentTab)
+                : controller.newBrowserTab(url: url, engine: engine, then: agentTab)
         }
         let browserTabs = ctx.services.cache.browserTabs!
         guard browserTabs.isAvailable() else { return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs)) }
@@ -96,7 +103,8 @@ enum TabLifecycle {
         let logger = ctx.services.daemon.logger
         ctx.registry.track(Task {
             do {
-                _ = try await browserTabs.open(choice, in: handle, url: address)
+                let surface = try await browserTabs.open(choice, in: handle, url: address)
+                agentTab?(surface)
                 return nil
             } catch {
                 logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")

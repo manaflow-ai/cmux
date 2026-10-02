@@ -73,6 +73,24 @@ struct TabSelectionMemoryTests {
         #expect(memory.resolve(pane: "p", tabs: ["a"], defaultIndex: 0) == "a")
     }
 
+    // close-focus.md: a collapsed group's members are skipped while a shown tab survives.
+    @Test func closingTheSelectedTabSkipsCollapsedGroupMembers() {
+        var memory = TabSelectionMemory()
+        memory.select("b", in: "p")
+        _ = memory.resolve(pane: "p", tabs: ["a", "b", "g1", "g2", "c"], defaultIndex: 0, hidden: ["g1", "g2"])
+        #expect(memory.resolve(pane: "p", tabs: ["a", "g1", "g2", "c"], defaultIndex: 0, hidden: ["g1", "g2"]) == "c")
+        memory.select("c", in: "p")
+        _ = memory.resolve(pane: "p", tabs: ["a", "g1", "g2", "c"], defaultIndex: 0, hidden: ["g1", "g2"])
+        #expect(memory.resolve(pane: "p", tabs: ["a", "g1", "g2"], defaultIndex: 0, hidden: ["g1", "g2"]) == "a")
+    }
+
+    @Test func onlyHiddenTabsLeftSelectsTheNeighborAnyway() {
+        var memory = TabSelectionMemory()
+        memory.select("a", in: "p")
+        _ = memory.resolve(pane: "p", tabs: ["a", "g1", "g2"], defaultIndex: 0, hidden: ["g1", "g2"])
+        #expect(memory.resolve(pane: "p", tabs: ["g1", "g2"], defaultIndex: 0, hidden: ["g1", "g2"]) == "g1")
+    }
+
     @Test func unknownPaneUsesTheDaemonDefault() {
         var memory = TabSelectionMemory()
         #expect(memory.resolve(pane: "p", tabs: ["a", "b"], defaultIndex: 1) == "b")

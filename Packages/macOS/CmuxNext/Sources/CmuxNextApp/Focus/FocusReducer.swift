@@ -1,3 +1,5 @@
+import CmuxNextDesign
+
 /// The pure focus transition function (plans/cmux-next/focus.md section 4):
 /// `(state, event) -> (state, effects)`. No AppKit, no side effects; the
 /// coordinator applies the effects after it returns.
@@ -132,8 +134,7 @@ nonisolated enum FocusReducer {
             if state.target != .sidebar(keyboard: true) || state.sidebarHidden { state.target = .content }
             state.drag = nil
         } else if let pane = state.pane, !topology.contains(pane: pane) {
-            state.pane = successor(of: pane, history: state.recentPanes, in: old.panes.map(\.id), surviving: topology)
-                ?? topology.panes.first?.id
+            state.pane = successor(of: pane, history: state.recentPanes, old: old, new: topology, policy: state.closeFocus)
             if state.target.isPaneScoped { state.target = .content }
         } else if state.pane == nil {
             state.pane = topology.panes.first?.id
@@ -155,15 +156,23 @@ nonisolated enum FocusReducer {
         land(&state, effects: &effects)
     }
 
-    /// The most recently focused surviving pane (closing a split you just
-    /// made returns to where you were), else the next surviving pane after
-    /// `pane` in the old layout order, else the previous one.
-    /// Deterministic (never dictionary order).
-    static func successor(of pane: String, history: [String], in oldOrder: [String], surviving topology: FocusTopology) -> String? {
-        if let recent = history.first(where: { $0 != pane && topology.contains(pane: $0) }) { return recent }
-        guard let index = oldOrder.firstIndex(of: pane) else { return nil }
-        if let after = oldOrder[(index + 1)...].first(where: topology.contains(pane:)) { return after }
-        return oldOrder[..<index].last(where: topology.contains(pane:))
+    /// The pane that takes focus after the focused `pane` left the
+    /// topology (closed, moved away, removed by another client or the
+    /// daemon): `FocusAfterClose.pane` over the columns of the screen that
+    /// showed it (close-focus.md), so a successor on another (hidden)
+    /// screen is chosen only when that screen has no pane left. Then the
+    /// newest surviving pane in the history, else the first pane.
+    static func successor(of pane: String, history: [String], old: FocusTopology, new: FocusTopology,
+                          policy: CloseFocusPolicy) -> String? {
+        let before = old.columns(containing: pane) ?? [old.panes.map(\.id)]
+        let after = before.map { $0.filter(new.contains(pane:)) }
+        let onScreen = Set(before.flatMap { $0 })
+        if let pick = FocusAfterClose.pane(focused: pane, before: before, after: after,
+                                          history: history.filter(onScreen.contains), policy: policy),
+           new.contains(pane: pick) {
+            return pick
+        }
+        return history.first(where: new.contains(pane:)) ?? new.panes.first?.id
     }
 
     // MARK: Helpers
