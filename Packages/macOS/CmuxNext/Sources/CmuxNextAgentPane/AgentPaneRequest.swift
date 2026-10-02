@@ -19,6 +19,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// or `dictation.openSettings` with `{permission}`.
     case dictation(AgentPaneDictationCommand)
+    /// `file.open` with `{path, where}`: a changed file from the changes view,
+    /// in a tab beside the agent or in the text editor.
+    case openFile(path: String, target: AgentPaneFileTarget)
     case unsupported(String)
 
     public static let maximumPacingFrames = 640
