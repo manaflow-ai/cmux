@@ -379,7 +379,15 @@ fn random_op(rng: &mut Rng, step: usize) -> Op {
         .pick(&["sec_top", "sec_workspaces", "sec_bottom", "sec_r0", "sec_r1", "sec_ghost"])
         .to_string();
     let item = rng
-        .pick(&["itm_home", "itm_settings", "itm_customize", "itm_account", "itm_r0", "itm_r1", "itm_ghost"])
+        .pick(&[
+            "itm_home",
+            "itm_settings",
+            "itm_customize",
+            "itm_account",
+            "itm_r0",
+            "itm_r1",
+            "itm_ghost",
+        ])
         .to_string();
     let region = [Region::Top, Region::Middle, Region::Bottom][rng.below(3) as usize];
     let reference = rng.pick(&["home", "settings", "history", "ws_1"]).to_string();

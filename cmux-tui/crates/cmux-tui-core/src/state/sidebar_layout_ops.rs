@@ -41,10 +41,15 @@ impl Mux {
                     return Ok(StateChanges::new(value, Vec::new()));
                 }
                 store::write_document(transaction, &next)?;
-            // Raw-protocol clients (the Mac app today) follow personal state
-            // through `personal-changed`; bump `personal_revision` so they
-            // refetch the layout (v2 clients read the state_upsert).
-            commit_personal(transaction, "personal.sidebar_layout.updated", Vec::new(), &json!({"revision": next.revision}))?;
+                // Raw-protocol clients (the Mac app today) follow personal state
+                // through `personal-changed`; bump `personal_revision` so they
+                // refetch the layout (v2 clients read the state_upsert).
+                commit_personal(
+                    transaction,
+                    "personal.sidebar_layout.updated",
+                    Vec::new(),
+                    &json!({"revision": next.revision}),
+                )?;
                 Ok(StateChanges::new(value.clone(), vec![state_upsert(RESOURCE, ID, value)]))
             },
         )
