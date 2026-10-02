@@ -278,6 +278,50 @@ test("storage state: cookies and localStorage round-trip through a file", async 
   }
 });
 
+test("storage state: scoped to the current tab's site unless { all: true }", async () => {
+  const servers = await startFixtureServers();
+  const { primary, peer } = servers.origins;
+  try {
+    await withRepl(async ({ run, dir }) => {
+      const r = await run(`
+        let noTab;
+        try { await session.storageState(); } catch (e) { noTab = e.message; }
+        await page.goto("${primary}/set-cookie");
+        await page.goto("${primary}/agent-tools.html");
+        await page.evaluate(() => localStorage.setItem("site", "primary"));
+        const other = await tabs.open("${peer}/set-cookie");
+        await other.goto("${peer}/agent-tools.html");
+        await other.evaluate(() => localStorage.setItem("site", "peer"));
+        const view = (s) => [s.cookies.map((c) => c.domain).sort(), s.origins.map((o) => o.origin).sort()];
+        const out = [noTab, view(await session.storageState()), view(await session.storageState({ all: true })), view(await other.context().storageState()), view(await session.storageState({ urls: ["${peer}/"] }))];
+        await other.close();
+        fs.writeFileSync("./scope.json", JSON.stringify(out));
+      `);
+      assert.equal(r.error, null);
+      const [noTab, scoped, all, otherScoped, byUrl] = JSON.parse(fs.readFileSync(path.join(dir, "scope.json"), "utf8"));
+      assert.match(noTab, /session\.storageState: .*\{ all: true \}/);
+      const host = (o) => new URL(o).hostname;
+      assert.deepEqual(scoped, [[host(primary)], [primary]]);
+      assert.deepEqual(all, [[host(primary), host(peer)].sort(), [primary, peer].sort()]);
+      assert.deepEqual(otherScoped, [[host(peer)], [peer]]);
+      assert.deepEqual(byUrl, [[host(peer)], [peer]]);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("storage state: registrable domains", () => {
+  const d = T.registrableDomain;
+  assert.equal(d("www.example.com"), "example.com");
+  assert.equal(d("a.b.example.co.uk"), "example.co.uk");
+  assert.equal(d("ada.github.io"), "ada.github.io");
+  assert.equal(d("localhost"), "localhost");
+  assert.equal(d("127.0.0.1"), "127.0.0.1");
+  assert.equal(d("[::1]"), "[::1]");
+  assert.equal(d(".docs.google.com"), "google.com");
+});
+
 test("markdown: chunks cut at block boundaries, repeat a table's header and cover the page", async () => {
   const servers = await startFixtureServers();
   try {
