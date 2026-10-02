@@ -102,6 +102,21 @@ TODO (step 7 of the Swift lane): the sidebar has no `SectionContent.app` / `Side
 - Backend lead: review of `AppDO` and `0002_app_store.sql`; migration label `backend:apply-migrations`.
 - Rust CLI owner: `cmux apps …` verbs (accepted: noun `apps`, because `cmux app` is the running app's scope; exit 0 ok, 2 usage, 3 denied, 4 expired; verbs generated from the cloud catalog). Implementation is a cli/ module PR after #16174 merges.
 
+## 10. Tiers, sandboxing and grants (Lawrence, 2026-10-02)
+
+- Three tiers: **first-party** (publisher `cmux`), **Verified** (publisher identity verified, signed bundle, review for execute/external scopes), **unverified third-party** (everything else, including sideloads; never in search until a tier is set). There is no fourth tier.
+- Security is central. Scopes are enforced by the host and the op owners, never by app code. Any app can be run **fully sandboxed** by the user: no network (`net:` and `integration:` calls refused), no file system, no cmux ops beyond its explicit grants. Per-tier defaults: first-party runs with its granted scopes; Verified with its granted scopes, network limited to declared hosts; unverified third-party starts fully sandboxed with only read scopes granted, and the user widens grants one by one.
+- Grants are always visible and revocable: the App Store Installed tab and Settings > Apps list each app's granted scopes with the reason the app gave, and each scope has a revoke control; revocation takes effect immediately (the host refuses the next call) without reinstalling.
+
+## 11. Stable surface for first-party apps
+
+First-party apps (search, inbox, notes, a coderouter app, a usage and limits menu-bar app) are built on this platform by another lead. The following are the stable contract; changes need a version bump and a note to that lead:
+- Manifest: `cmux-tui/crates/cmux-app-host/schema/cmux-app.schema.json` (`manifestVersion: 1`); new fields are additive.
+- Runtime ABI: `cmux-tui/crates/cmux-app-host/js/ABI.md` (runtime 1.0.0): host functions, entry points, scene ops, props and tokens.
+- The `cmux` global and view builders: `generated/cmux-app.d.ts` (API 1.0.0); op names are catalog names and stay stable; scopes come from `generated/scopes.json`.
+- Samples in `samples/apps/` are the reference for structure, packing (`tools/pack.ts`) and validation (`tools/validate-manifest.ts`).
+- A menu-bar app is a `statusItems` contribution; a needed placement (`menuBar`) is added to the schema on request.
+
 ## 11a. Install states (Lawrence, 2026-10-02)
 
 | State | Runs and answers granted CLI/MCP/automation calls | Sidebar, palette, menus | Change from |
