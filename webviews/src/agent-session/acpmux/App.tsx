@@ -8,6 +8,7 @@ import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { startMockHost } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
+import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
 import { turnFiles, turnRows } from "./diff";
@@ -345,6 +346,7 @@ function AcpmuxPane() {
         setSnapshot((current) => ({ ...current, rows, connection: "debug", isWorking: false, canLoadOlder: false }));
       },
       rowCount: () => rowsRef.current.size,
+      sessionId: () => directClient.current?.selectedSession,
     });
     let cancelled = false;
     let retryTimer: number | undefined;
@@ -355,6 +357,7 @@ function AcpmuxPane() {
     let reconnect = false;
     const connectHost = async () => {
       try {
+        acpWire.lifecycle("handshake", { reconnect });
         const host = await callNative<{ protocolVersion: number; transport?: string; endpoint?: string; token?: string; sessionId?: string; newSession?: boolean }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         if (host.transport === "mock") {
@@ -394,6 +397,7 @@ function AcpmuxPane() {
         client.snapshot();
       } catch (error) {
         if (!cancelled) {
+          acpWire.lifecycle("handshake failed", { message: String(error) });
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
           // Back off so a host without a daemon is not asked four times a second.
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);

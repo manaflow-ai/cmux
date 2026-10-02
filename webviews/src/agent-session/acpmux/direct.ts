@@ -1,4 +1,5 @@
 import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
+import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -147,16 +148,19 @@ export class AcpmuxDirectClient {
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
+  /// Every message on the socket and its lifecycle, for the ACP inspector.
+  private readonly wire: AcpWireLog;
 
-  private constructor(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void) {
+  private constructor(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void, wire: AcpWireLog = acpWire) {
     this.host = host;
     this.listener = listener;
     this.onLost = onLost;
+    this.wire = wire;
     this.selectedSessionId = host.sessionId;
   }
 
-  static async connect(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void): Promise<AcpmuxDirectClient> {
-    const client = new AcpmuxDirectClient(host, listener, onLost);
+  static async connect(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void, wire?: AcpWireLog): Promise<AcpmuxDirectClient> {
+    const client = new AcpmuxDirectClient(host, listener, onLost, wire);
     await client.open();
     return client;
   }
@@ -166,19 +170,21 @@ export class AcpmuxDirectClient {
     this.opening = true;
     const url = new URL(this.host.endpoint);
     url.searchParams.set("token", this.host.token);
+    this.wire.lifecycle("connecting", { endpoint: redactEndpoint(this.host.endpoint), sessionId: this.selectedSessionId });
     await new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(url);
       this.socket = socket;
       let opened = false;
-      socket.onopen = () => { opened = true; resolve(); };
-      socket.onerror = () => { this.opening = false; reject(new Error("Unable to connect to acpmux WebSocket")); };
-      socket.onclose = () => {
+      socket.onopen = () => { opened = true; this.wire.lifecycle("open"); resolve(); };
+      socket.onerror = () => { this.wire.lifecycle("error", { message: opened ? "WebSocket error" : "Unable to connect" }); this.opening = false; reject(new Error("Unable to connect to acpmux WebSocket")); };
+      socket.onclose = (event?: CloseEvent) => {
         if (this.socket !== socket) return;
+        this.wire.lifecycle("close", { code: event?.code, reason: event?.reason || undefined, wasClean: event?.wasClean, established: opened });
         if (!opened) { this.opening = false; reject(new Error("acpmux WebSocket closed before connect")); return; }
         this.rejectPending();
         this.emit("disconnected");
         if (!this.hasConnected || this.closed) return;
-        if (this.onLost) { const onLost = this.onLost; this.close(); onLost(); } else this.scheduleReconnect();
+        if (this.onLost) { this.wire.lifecycle("lost", { message: "asking for a fresh handshake" }); const onLost = this.onLost; this.close(); onLost(); } else this.scheduleReconnect();
       };
       socket.onmessage = (message) => this.receive(String(message.data));
     });
@@ -203,8 +209,10 @@ export class AcpmuxDirectClient {
       }
       this.hasConnected = true;
       this.reconnectDelay = 250;
+      this.wire.lifecycle("connected", { sessionId: this.selectedSessionId, sessions: this.sessions.length });
       this.emit("connected");
     } catch (error) {
+      this.wire.lifecycle("connect failed", { message: error instanceof Error ? error.message : String(error) });
       this.socket?.close();
       throw error;
     } finally {
@@ -237,6 +245,7 @@ export class AcpmuxDirectClient {
     if (this.reconnectTimer !== undefined || this.closed) return;
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(delay * 2, 30_000);
+    this.wire.lifecycle("reconnect scheduled", { delayMs: delay });
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = undefined;
       void this.open().catch(() => this.scheduleReconnect());
@@ -244,6 +253,7 @@ export class AcpmuxDirectClient {
   }
 
   private receive(raw: string): void {
+    this.wire.received(raw);
     let message: Reply | Notification;
     try { message = JSON.parse(raw) as Reply | Notification; } catch { return; }
     if ("id" in message && typeof message.id === "number") {
@@ -327,7 +337,9 @@ export class AcpmuxDirectClient {
     const id = this.nextRequest++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.socket!.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+      const text = JSON.stringify({ jsonrpc: "2.0", id, method, params });
+      this.wire.sent(text, method, id);
+      this.socket!.send(text);
     });
   }
 
@@ -493,6 +505,8 @@ export class AcpmuxDirectClient {
   }
 
   snapshot(): void { this.emit(); }
+  /** The session this pane shows, if any. */
+  get selectedSession(): string | undefined { return this.selectedSessionId; }
   async ensureSession(): Promise<string | undefined> {
     if (!this.selectedSessionId) await this.create();
     return this.selectedSessionId;
@@ -513,7 +527,12 @@ export class AcpmuxDirectClient {
     }
     return sessionId;
   }
-  async cancel(): Promise<void> { if (this.selectedSessionId) this.socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: this.selectedSessionId } })); }
+  async cancel(): Promise<void> {
+    if (!this.selectedSessionId || !this.socket) return;
+    const text = JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: this.selectedSessionId } });
+    this.wire.sent(text, "session/cancel");
+    this.socket.send(text);
+  }
   async permission(permissionId: string, optionId: string): Promise<void> { if (this.selectedSessionId) await this.request("_acpmux/permission_respond", { sessionId: this.selectedSessionId, permissionId, optionId }); }
   async select(sessionId: string): Promise<string | undefined> {
     const previousSessionId = this.selectedSessionId;
