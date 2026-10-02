@@ -177,7 +177,13 @@
       async findReplace(page, find, replacement) {
         await page.keyboard.press("Meta+Shift+H");
         const dialog = page.locator('[role="dialog"]').filter({ hasText: "Replace all" }).first();
-        await dialog.waitFor({ timeout: 15000 });
+        // In Slides the shortcut does nothing while the filmstrip has focus: use Edit > Find and replace.
+        const opened = await dialog.waitFor({ timeout: 3000 }).then(() => true, () => false);
+        if (!opened) {
+          await page.locator("#docs-edit-menu").click();
+          await page.getByRole("menuitem", { name: /^Find and replace/ }).first().click();
+          await dialog.waitFor({ timeout: 15000 });
+        }
         const inputs = dialog.locator('input[type="text"], input:not([type])');
         await inputs.nth(0).fill(find);
         await inputs.nth(1).fill(replacement);

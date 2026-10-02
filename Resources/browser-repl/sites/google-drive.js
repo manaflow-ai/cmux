@@ -97,6 +97,22 @@
               renamed = await t.waitIn(page, (want) => document.title.startsWith(want + " - "), title, { timeout: 3000, what: "the new title" }).then(() => true, () => false);
             }
             if (!renamed) throw new S.SiteError("rename_failed", `googleDrive.create: created ${kind} ${id} but could not name it`);
+            // The tab title changes before the rename is saved: keep the tab
+            // until the file's export carries the new name.
+            const ref = { kind, id, uid: options.uid };
+            let saved = false;
+            for (const wait of [1000, 2000, 3000, 5000, 8000]) {
+              await t.sleep(wait);
+              try {
+                // A Sheets CSV export is named "<title> - <tab>".
+                const got = (await g.exportText(t, "googleDrive.create", ref, kind === "spreadsheets" ? "csv" : "txt")).title || "";
+                if (got === title || (kind === "spreadsheets" && got.startsWith(title + " - "))) {
+                  saved = true;
+                  break;
+                }
+              } catch (e) {}
+            }
+            if (!saved) throw new S.SiteError("rename_failed", `googleDrive.create: created ${kind} ${id} but its new name did not save`);
             created.add(id);
             return { id, url: `https://docs.google.com/${kind}/d/${id}/edit`, title };
           });
