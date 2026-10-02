@@ -13,7 +13,7 @@ import {
   WORKED_SESSION,
   type SeedStep,
 } from "./mockFixture";
-import { mockGitStatus, mockScopeDiff } from "./mockGit";
+import { mockGitDiff, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -356,8 +356,8 @@ export class MockAcpmuxSocket {
           params.query,
           params.limit,
         );
-      case "git.scope.diff":
-        return mockScopeDiff(target, params.scope);
+      case "git.diff":
+        return mockGitDiff(target, params.scope, params.include_patch === true);
       case "git.status":
         return mockGitStatus(target);
       default:

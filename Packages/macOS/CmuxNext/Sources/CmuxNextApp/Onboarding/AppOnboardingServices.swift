@@ -53,12 +53,10 @@ final class AppOnboardingServices: OnboardingServices {
             // Compare with the file, not `snapshot`: the watcher may not
             // have reloaded the previous write yet.
             let current = try? await settings.file.value(at: TerminalThemeSetting.path)?.stringValue
+            // Both through the validated `setSetting`, as the Settings window
+            // and the palette write them.
             if themeName != current {
-                if let themeName {
-                    try? await settings.set(.string(themeName), at: TerminalThemeSetting.path)
-                } else {
-                    try? await settings.file.remove(TerminalThemeSetting.path)
-                }
+                try? await settings.setSetting(at: TerminalThemeSetting.path, to: themeName.map(JSONValue.string))
             }
             // Compact applies when the file has no density (`SettingsApplier`).
             let currentDensity = (try? await settings.file.value(at: ["appearance", "density"]))?
