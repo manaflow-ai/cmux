@@ -81,9 +81,11 @@ public nonisolated enum AppPresenceFilter {
         return state.installed && state.enabled && !state.hidden
     }
 
-    /// The apps the catalog filter drops from every user surface.
-    public static func absentApps(_ states: [String: AppInstallState]) -> Set<String> {
-        Set(states.values.filter { !isPresent($0) }.map(\.appID))
+    /// The apps every user surface may show: an allowlist, so an app with no
+    /// record (never installed) is absent too. Surfaces and the catalog
+    /// builder take this set; nothing filters on its own.
+    public static func presentApps(_ states: [String: AppInstallState]) -> Set<String> {
+        Set(states.values.filter(isPresent).map(\.appID))
     }
 
     /// The contributions `surface` shows.
@@ -101,10 +103,10 @@ public nonisolated enum AppPresenceFilter {
         guard state.enabled else { return .failure(.disabled) }
         guard state.hidden else { return .success(()) }
         let allowed = switch origin {
-        case .user: false
+        case .user, .remote: false
         case .cli: state.hiddenAccess.cli
         case .mcp: state.hiddenAccess.mcp
-        case .automation: state.hiddenAccess.automations
+        case .script: state.hiddenAccess.automations
         }
         return allowed ? .success(()) : .failure(.hidden)
     }

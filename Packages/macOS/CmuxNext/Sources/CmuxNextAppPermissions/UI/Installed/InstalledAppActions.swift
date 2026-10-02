@@ -46,13 +46,17 @@ struct InstalledAppActions: View {
                 }
                 .buttonStyle(PermissionButtonStyle(kind: compact ? .quiet : .secondary))
                 if !compact { Spacer(minLength: 0) }
+                let removable = model.canRemove(listing.id)
                 Button(state.source == .default ? AppInstallStrings.removeEllipsis : AppInstallStrings.remove) {
                     Task { await model.remove(listing.id) }
                 }
                 .buttonStyle(PermissionButtonStyle(kind: .danger))
-                .help(state.source == .team ? AppInstallStrings.adminOnly : "")
+                .disabled(!removable)
+                .opacity(removable ? 1 : 0.4)
+                .help(removable ? "" : AppInstallStrings.adminOnly)
             }
             .font(colors.caption)
+            .disabled(model.sending.contains(listing.id))
         }
     }
 

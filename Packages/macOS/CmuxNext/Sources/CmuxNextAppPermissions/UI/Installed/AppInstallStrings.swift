@@ -39,7 +39,7 @@ nonisolated enum AppInstallStrings {
         switch reject {
         case .adminOnly: adminOnly
         case .notInstalled: t("install.reject.notInstalled", "The app is not installed.")
-        case .originNotAllowed, .sourceNotAllowed, .keyReused: t("install.reject.other", "The change was refused.")
+        case .originNotAllowed, .sourceNotAllowed, .keyReused, .reservedKey: t("install.reject.other", "The change was refused.")
         }
     }
 }

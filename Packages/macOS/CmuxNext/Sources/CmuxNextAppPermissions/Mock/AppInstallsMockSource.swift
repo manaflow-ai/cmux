@@ -11,6 +11,7 @@ public final class AppInstallsMockSource: AppInstallStateSource {
     /// The user is not an admin of the team that installed the team app.
     public var teamAdmin = false
     private var counter = 0
+    private var handler: (@MainActor ([AppStateEvent]) -> Void)?
 
     public static let teamSample = AppPermissionsListing(
         id: "acme/standup", name: "Standup", publisher: "Your team", version: "1.2.0", symbol: "person.3", tier: .verified,
@@ -24,7 +25,7 @@ public final class AppInstallsMockSource: AppInstallStateSource {
         store = AppDefaultInstalls.bootstrap(AppStateStore(), catalog: catalog).0
         seed(.install(.user), AppPermissionsMockSource.verifiedSample.id)
         seed(.install(.user), AppPermissionsMockSource.unverifiedSample.id)
-        seed(.install(.team), Self.teamSample.id, actor: AppStateActor(origin: .user, teamAdmin: true))
+        seed(.install(.team), Self.teamSample.id, actor: AppStateActor(client: "team-admin", origin: .user, teamAdmin: true))
         seed(.hide, "cmux/usage")
         seed(.setHiddenAccess(cli: nil, mcp: false, automations: nil), "cmux/usage")
         seed(.hide, AppPermissionsMockSource.unverifiedSample.id)
@@ -33,17 +34,28 @@ public final class AppInstallsMockSource: AppInstallStateSource {
     }
 
     public func state(for appID: String) -> AppInstallState? { store.apps[appID] }
+    public func isTeamAdmin(for appID: String) -> Bool { teamAdmin }
+    public func observe(_ handler: @escaping @MainActor ([AppStateEvent]) -> Void) { self.handler = handler }
 
     public func send(_ op: AppStateOp) async -> Result<AppStateCommit, AppStateReject> {
-        sendNow(op, actor: AppStateActor(origin: .user, teamAdmin: teamAdmin))
+        sendNow(op, actor: AppStateActor(client: "this-mac", origin: .user, teamAdmin: teamAdmin))
+    }
+
+    /// An op from another channel or device (a CLI hide, another Mac): its
+    /// events reach the observer like the owner's would.
+    @discardableResult
+    public func applyExternal(_ op: AppStateOp, actor: AppStateActor) -> Result<AppStateCommit, AppStateReject> {
+        sendNow(op, actor: actor)
     }
 
     @discardableResult
     func sendNow(_ op: AppStateOp, actor: AppStateActor) -> Result<AppStateCommit, AppStateReject> {
-        AppStateReducer.apply(op, to: store, actor: actor).map { next, commit in
+        let result = AppStateReducer.apply(op, to: store, actor: actor).map { next, commit in
             store = next
             return commit
         }
+        if case .success(let commit) = result, !commit.events.isEmpty { handler?(commit.events) }
+        return result
     }
 
     private func seed(_ kind: AppStateOp.Kind, _ app: String, actor: AppStateActor = .user) {

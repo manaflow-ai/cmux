@@ -14,12 +14,16 @@ public nonisolated struct AppCatalogEntry: Sendable, Hashable {
 
 /// First-launch default installs (critique C7 "Defaults"): every
 /// first-party app that is not a sample, as `install(.default)` ops from
-/// the owner itself. Keys are stable per app, so running it on every
-/// launch is idempotent, and a default the user removed stays removed.
+/// the owner itself. Each app is offered once per user, ever
+/// (`AppStateStore.defaultsOffered`), so running it on every launch is
+/// idempotent and a default the user removed stays removed.
 public nonisolated enum AppDefaultInstalls {
+    /// Reserved idempotency key prefix; client ops using it are refused.
+    public static let keyPrefix = "default-install:"
+
     public static func ops(catalog: [AppCatalogEntry]) -> [AppStateOp] {
         catalog.filter { $0.tier == .firstParty && !$0.isSample }
-            .map { AppStateOp(key: "default-install:\($0.appID)", app: $0.appID, kind: .install(.default)) }
+            .map { AppStateOp(key: "\(keyPrefix)\($0.appID)", app: $0.appID, kind: .install(.default)) }
     }
 
     /// Applies the default installs to `store`.

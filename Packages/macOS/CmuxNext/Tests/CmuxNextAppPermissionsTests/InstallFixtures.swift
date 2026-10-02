@@ -4,7 +4,8 @@ import Foundation
 /// Random ops and actors for the install-state properties.
 enum InstallFixtures {
     static let apps = ["cmux/search", "cmux/inbox", "acme/board", "acme/team-tool", "kestrel/snippets"]
-    static let origins = AppStateOrigin.allCases
+    static let teamApp = "acme/team-tool"
+    static let clients = ["mac", "phone", "cli"]
 
     static func kind(_ rng: inout SeededRandom) -> AppStateOp.Kind {
         switch rng.next() % 10 {
@@ -28,26 +29,31 @@ enum InstallFixtures {
 
     static func actor(_ rng: inout SeededRandom) -> AppStateActor {
         // Mostly the user, so the store reaches interesting states.
-        let origin: AppStateOrigin = rng.next() % 3 == 0 ? (origins.randomElement(using: &rng) ?? .user) : .user
-        return AppStateActor(origin: origin, teamAdmin: rng.next() % 4 == 0)
+        let origin: AppStateOrigin = rng.next() % 3 == 0 ? (AppStateOrigin.allCases.randomElement(using: &rng) ?? .user) : .user
+        return AppStateActor(client: clients.randomElement(using: &rng) ?? "mac", origin: origin, teamAdmin: rng.next() % 4 == 0)
     }
 
     static func op(_ rng: inout SeededRandom, key: String) -> AppStateOp {
         AppStateOp(key: key, app: apps.randomElement(using: &rng) ?? apps[0], kind: kind(&rng))
     }
 
+    static let catalog = [AppCatalogEntry(appID: "cmux/search", tier: .firstParty), AppCatalogEntry(appID: "cmux/inbox", tier: .firstParty)]
+
     /// A store reached through the reducer: default installs, a team
-    /// install, then random ops.
+    /// install, then random ops (with a bootstrap now and then).
     static func store(_ rng: inout SeededRandom, steps: Int = 25) -> AppStateStore {
-        var store = AppDefaultInstalls.bootstrap(AppStateStore(), catalog: [AppCatalogEntry(appID: "cmux/search", tier: .firstParty),
-                                                                         AppCatalogEntry(appID: "cmux/inbox", tier: .firstParty)]).0
-        if case .success(let (next, _)) = AppStateReducer.apply(AppStateOp(key: "team", app: "acme/team-tool", kind: .install(.team)),
-                                                                to: store, actor: AppStateActor(origin: .user, teamAdmin: true)) {
+        var store = AppDefaultInstalls.bootstrap(AppStateStore(), catalog: catalog).0
+        let admin = AppStateActor(client: "admin", origin: .user, teamAdmin: true)
+        if case .success(let (next, _)) = AppStateReducer.apply(AppStateOp(key: "team", app: teamApp, kind: .install(.team)),
+                                                                to: store, actor: admin) {
             store = next
         }
         for step in 0..<steps {
-            let actor = rng.next() % 3 == 0 ? AppStateActor.system : actor(&rng)
-            if case .success(let (next, _)) = AppStateReducer.apply(op(&rng, key: "s\(step)"), to: store, actor: actor) { store = next }
+            if rng.next() % 8 == 0 {
+                store = AppDefaultInstalls.bootstrap(store, catalog: catalog).0
+                continue
+            }
+            if case .success(let (next, _)) = AppStateReducer.apply(op(&rng, key: "s\(step)"), to: store, actor: actor(&rng)) { store = next }
         }
         return store
     }

@@ -1,55 +1,59 @@
-/// One user's app states as the owner holds them, plus the receipts that
-/// make every op idempotent and the default installs the user removed.
+/// One user's app states as the owner holds them, the receipts that make
+/// every op idempotent, and the default installs already offered.
 public nonisolated struct AppStateStore: Sendable, Hashable, Codable {
     public var apps: [String: AppInstallState]
-    /// Idempotency key -> the accepted op and its commit. The owner prunes
-    /// receipts older than its replay window; the model keeps them all.
+    /// `<client>\u{1F}<idempotency key>` -> the accepted op and its commit.
+    /// Keys are scoped by client, so two clients never collide. The owner
+    /// prunes receipts older than its replay window; the model keeps them all.
     public var receipts: [String: AppStateReceipt]
-    /// Default installs the user removed with confirmation: first-launch
-    /// bootstrap never installs them again.
-    public var removedDefaults: Set<String>
+    /// Apps the first-launch bootstrap has offered as default installs.
+    /// Kept forever (never pruned): a default app is offered once, so a
+    /// removal sticks whatever happens to it later.
+    public var defaultsOffered: Set<String>
 
-    public init(apps: [String: AppInstallState] = [:], receipts: [String: AppStateReceipt] = [:], removedDefaults: Set<String> = []) {
+    public init(apps: [String: AppInstallState] = [:], receipts: [String: AppStateReceipt] = [:], defaultsOffered: Set<String> = []) {
         self.apps = apps
         self.receipts = receipts
-        self.removedDefaults = removedDefaults
+        self.defaultsOffered = defaultsOffered
     }
 
     public func state(_ app: String) -> AppInstallState { apps[app] ?? .notInstalled(app) }
+
+    /// The receipt key of `key` sent by `client`.
+    public static func receiptKey(client: String, key: String) -> String { "\(client)\u{1F}\(key)" }
+
+    enum CodingKeys: String, CodingKey {
+        case apps, receipts
+        case defaultsOffered = "defaults_offered"
+    }
 }
 
-/// An accepted op kept for replay.
-public nonisolated struct AppStateReceipt: Sendable, Hashable, Codable {
-    public var op: AppStateOp
-    public var commit: AppStateCommit
-}
-
-/// The pure reducer `(store, op, actor) -> Result<(store', commit), reject>`.
-/// Invariants (AppInstallStatePropertyTests): hidden ⇒ installed;
-/// uninstall clears enabled and hidden and emits storage and grant removal
-/// in one commit; a team install is removed only by an admin; a default
-/// install's unconfirmed Remove hides; hide and unhide emit only `changed`
-/// (never grant, storage or layout); replaying a key has no effect.
+/// The pure reducer `(store, op, actor) -> Result<(store', commit), reject>`,
+/// the reference the owners port 1:1 (app-hide.md section 3 lists the
+/// invariants and the tests that check them).
 public nonisolated enum AppStateReducer {
     public static func apply(_ op: AppStateOp, to store: AppStateStore,
                              actor: AppStateActor) -> Result<(AppStateStore, AppStateCommit), AppStateReject> {
-        if let receipt = store.receipts[op.key] {
+        if op.key.hasPrefix(AppDefaultInstalls.keyPrefix), actor.origin != .system { return .failure(.reservedKey) }
+        let receiptKey = AppStateStore.receiptKey(client: actor.client, key: op.key)
+        if let receipt = store.receipts[receiptKey] {
             guard receipt.op == op else { return .failure(.keyReused) }
             return .success((store, AppStateCommit(outcome: .replayed, events: [])))
         }
         if let reject = originReject(op.kind, actor: actor) { return .failure(reject) }
+        var result = store
         let old = store.state(op.app)
         var next = old
         var outcome = AppStateCommit.Outcome.applied
         var extra: [AppStateEvent] = []
-        var removedDefaults = store.removedDefaults
 
         switch op.kind {
         case .install(let source):
-            if source == .default, actor.origin != .system { return .failure(.sourceNotAllowed(.default)) }
             if source == .team, !actor.teamAdmin { return .failure(.sourceNotAllowed(.team)) }
-            if source == .default, removedDefaults.contains(op.app) { break }
-            if source != .default { removedDefaults.remove(op.app) }
+            if source == .default {
+                // Offered once per user, ever: a later removal sticks.
+                guard result.defaultsOffered.insert(op.app).inserted else { break }
+            }
             guard !old.installed else { break }
             next.source = source
             next.enabled = true
@@ -68,7 +72,6 @@ public nonisolated enum AppStateReducer {
             next.hidden = false
             next.hiddenAccess = .all
             extra = [.storageRemoved(app: op.app), .grantRemoved(app: op.app)]
-            if source == .default { removedDefaults.insert(op.app) }
         case .enable, .disable, .hide, .unhide, .setHiddenAccess:
             guard old.installed else { return .failure(.notInstalled) }
             switch op.kind {
@@ -83,8 +86,6 @@ public nonisolated enum AppStateReducer {
             }
         }
 
-        var result = store
-        result.removedDefaults = removedDefaults
         let changed = next != old
         if changed {
             next.revision = old.revision + 1
@@ -93,13 +94,13 @@ public nonisolated enum AppStateReducer {
             outcome = .noChange
         }
         let commit = AppStateCommit(outcome: outcome, events: changed ? [.changed(next)] + extra : [])
-        result.receipts[op.key] = AppStateReceipt(op: op, commit: commit)
+        result.receipts[receiptKey] = AppStateReceipt(op: op, commit: commit)
         return .success((result, commit))
     }
 
     /// Channel rules: installs and hidden access are user only (default
-    /// installs come from the owner itself); the rest is user or CLI; MCP,
-    /// automations and remote clients never change app state.
+    /// installs come from the owner itself); the rest is user or CLI;
+    /// MCP, scripts (automations) and remote relays never change app state.
     static func originReject(_ kind: AppStateOp.Kind, actor: AppStateActor) -> AppStateReject? {
         let allowed: Set<AppStateOrigin> = switch kind {
         case .install(.default): [.system]

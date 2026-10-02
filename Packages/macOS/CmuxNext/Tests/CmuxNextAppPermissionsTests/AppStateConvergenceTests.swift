@@ -2,11 +2,12 @@
 import Foundation
 import Testing
 
-/// Two clients hide, unhide, enable and remove concurrently through one
-/// owner. The network reorders and duplicates ops and events; clients
-/// retry with the same key. When every queue drains, both clients'
-/// mirrors equal the owner, and the owner equals an independently written
-/// reference model of the same arrival order.
+/// Three clients (a user at a Mac, the CLI, a team admin) change app state
+/// concurrently through one owner. The network reorders and duplicates ops
+/// and events; clients retry with the same key; first-launch bootstrap runs
+/// in between. When every queue drains, every mirror equals the owner, and
+/// the owner equals an independently written reference model of the same
+/// arrival order.
 @Suite struct AppStateConvergenceTests {
     nonisolated static let seeds: [UInt64] = Array(0..<300)
 
@@ -41,37 +42,50 @@ import Testing
     }
 
     @Test(arguments: seeds)
-    func twoClientsConvergeOnTheOwner(seed: UInt64) {
+    func clientsConvergeOnTheOwner(seed: UInt64) {
         var rng = SeededRandom(seed: seed)
         var owner = InstallFixtures.store(&rng, steps: 8)
         var reference = ReferenceModel(owner)
-        var clients = [Client(actor: .user, mirror: owner.apps), Client(actor: .cli, mirror: owner.apps)]
+        var clients = [Client(actor: AppStateActor(client: "mac", origin: .user), mirror: owner.apps),
+                       Client(actor: AppStateActor(client: "cli", origin: .cli), mirror: owner.apps),
+                       Client(actor: AppStateActor(client: "admin", origin: .user, teamAdmin: true), mirror: owner.apps)]
         var wire: [(client: Int, op: AppStateOp)] = []
         var nextKey = 0
+
+        func broadcast(_ events: [AppStateEvent]) {
+            for event in events {
+                guard case .changed(let state) = event else { continue }
+                for c in clients.indices {
+                    clients[c].inbox.append(.event(state))
+                    if rng.next() % 4 == 0 { clients[c].inbox.append(.event(state)) }
+                }
+            }
+        }
 
         func deliverToOwner(_ index: Int) {
             let (sender, op) = wire.remove(at: index)
             let actor = clients[sender].actor
             reference.apply(op, actor: actor)
-            switch AppStateReducer.apply(op, to: owner, actor: actor) {
-            case .success(let (next, commit)):
+            if case .success(let (next, commit)) = AppStateReducer.apply(op, to: owner, actor: actor) {
                 owner = next
-                for event in commit.events {
-                    guard case .changed(let state) = event else { continue }
-                    for c in clients.indices {
-                        clients[c].inbox.append(.event(state))
-                        if rng.next() % 4 == 0 { clients[c].inbox.append(.event(state)) }
-                    }
-                }
-            case .failure:
-                break
+                broadcast(commit.events)
             }
             clients[sender].inbox.append(.settled(key: op.key))
         }
 
-        for _ in 0..<120 {
-            let c = Int(rng.next() % 2)
-            switch rng.next() % 6 {
+        func bootstrap() {
+            for op in AppDefaultInstalls.ops(catalog: InstallFixtures.catalog) {
+                reference.apply(op, actor: .system)
+                if case .success(let (next, commit)) = AppStateReducer.apply(op, to: owner, actor: .system) {
+                    owner = next
+                    broadcast(commit.events)
+                }
+            }
+        }
+
+        for _ in 0..<150 {
+            let c = Int(rng.next() % UInt64(clients.count))
+            switch rng.next() % 7 {
             case 0, 1:
                 // A user action: a new intent with a fresh key.
                 nextKey += 1
@@ -84,6 +98,8 @@ import Testing
                 if let op = clients[c].pending.randomElement(using: &rng) { wire.append((c, op)) }
             case 3, 4:
                 if !wire.isEmpty { deliverToOwner(Int(rng.next() % UInt64(wire.count))) }
+            case 5 where rng.next() % 6 == 0:
+                bootstrap()
             default:
                 if !clients[c].inbox.isEmpty {
                     clients[c].receive(clients[c].inbox.remove(at: Int(rng.next() % UInt64(clients[c].inbox.count))))
@@ -106,7 +122,7 @@ import Testing
     }
 }
 
-/// The C7 rules written directly, without the reducer's structure.
+/// The C7 / V9 rules written directly, without the reducer's structure.
 struct ReferenceModel {
     struct App: Equatable {
         var source: AppInstallSource?
@@ -116,39 +132,37 @@ struct ReferenceModel {
     }
 
     var apps: [String: App] = [:]
+    /// Accepted (client, key) pairs.
     var accepted: Set<String> = []
-    var removedDefaults: Set<String> = []
+    var offered: Set<String> = []
 
     init(_ store: AppStateStore) {
-        for (id, state) in store.apps where state.installed || state != .notInstalled(id) {
-            apps[id] = App(source: state.source, enabled: state.enabled, hidden: state.hidden, access: state.hiddenAccess)
+        for (id, state) in store.apps {
+            let app = App(source: state.source, enabled: state.enabled, hidden: state.hidden, access: state.hiddenAccess)
+            if app != App() { apps[id] = app }
         }
-        apps = apps.filter { $0.value != App() }
         accepted = Set(store.receipts.keys)
-        removedDefaults = store.removedDefaults
+        offered = store.defaultsOffered
     }
 
     mutating func apply(_ op: AppStateOp, actor: AppStateActor) {
-        if accepted.contains(op.key) { return }
+        if op.key.hasPrefix("default-install:"), actor.origin != .system { return }
+        let scoped = "\(actor.client)\u{1F}\(op.key)"
+        if accepted.contains(scoped) { return }
         var app = apps[op.app] ?? App()
         let userOrCLI = actor.origin == .user || actor.origin == .cli
         switch op.kind {
+        case .install(.default):
+            guard actor.origin == .system else { return }
+            if !offered.contains(op.app), app.source == nil { app = App(source: .default, enabled: true) }
+            offered.insert(op.app)
         case .install(let source):
-            guard source == .default ? actor.origin == .system : actor.origin == .user else { return }
-            if source == .team, !actor.teamAdmin { return }
-            if source != .default { removedDefaults.remove(op.app) }
-            if app.source == nil, !(source == .default && removedDefaults.contains(op.app)) {
-                app = App(source: source, enabled: true)
-            }
+            guard actor.origin == .user, source != .team || actor.teamAdmin else { return }
+            if app.source == nil { app = App(source: source, enabled: true) }
         case .remove(let confirmed):
             guard userOrCLI, let source = app.source else { return }
             if source == .team, !actor.teamAdmin { return }
-            if source == .default, !confirmed {
-                app.hidden = true
-            } else {
-                if source == .default { removedDefaults.insert(op.app) }
-                app = App()
-            }
+            if source == .default, !confirmed { app.hidden = true } else { app = App() }
         case .setHiddenAccess(let cli, let mcp, let automations):
             guard actor.origin == .user, app.source != nil else { return }
             app.access = AppHiddenAccess(cli: cli ?? app.access.cli, mcp: mcp ?? app.access.mcp, automations: automations ?? app.access.automations)
@@ -159,7 +173,7 @@ struct ReferenceModel {
             if op.kind == .hide { app.hidden = true }
             if op.kind == .unhide { app.hidden = false }
         }
-        accepted.insert(op.key)
+        accepted.insert(scoped)
         apps[op.app] = app == App() ? nil : app
     }
 }
