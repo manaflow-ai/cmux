@@ -5411,6 +5411,19 @@ struct CMUXCLI {
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
         try prepareStandardInputBeforeSocket(command: command, commandArgs: commandArgs)
+        let isAuthCommand = ["auth", "login", "logout"].contains(command)
+        let authUsage = String(
+            localized: "cli.auth.usage",
+            defaultValue: "Usage: cmux auth <status|login|logout|team>"
+        )
+        var authSubcommand: String?
+        if isAuthCommand {
+            let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
+            authSubcommand = CmuxCLIArgumentParser().parseAuthSubcommand(authArgs)
+            if authSubcommand == nil {
+                throw CLIError(message: authUsage)
+            }
+        }
         var client = SocketClient(path: resolvedSocketPath)
         let defersSocketConnection = Self.commandDefersSocketConnectionUntilRequest(
             command: command,
@@ -5570,8 +5583,9 @@ struct CMUXCLI {
             }
 
         case "auth", "login", "logout":
-            let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
-            let sub = authArgs.first?.lowercased() ?? "status"
+            guard let sub = authSubcommand else {
+                throw CLIError(message: authUsage)
+            }
             switch sub {
             case "status":
                 let response = try client.sendV2(method: "auth.status")
@@ -5653,15 +5667,12 @@ struct CMUXCLI {
                 }
             case "team":
                 try runAuthTeamCommand(
-                    commandArgs: Array(authArgs.dropFirst()),
+                    commandArgs: Array(commandArgs.dropFirst()),
                     client: client,
                     jsonOutput: jsonOutput
                 )
             default:
-                throw CLIError(message: String(
-                    localized: "cli.auth.usage",
-                    defaultValue: "Usage: cmux auth <status|login|logout|team>"
-                ))
+                throw CLIError(message: authUsage)
             }
 
         case "agent":
