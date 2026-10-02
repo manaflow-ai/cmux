@@ -28,42 +28,61 @@ public enum OverlayMaterial: Equatable, Sendable {
     }
 
     /// The material for this Mac now.
-    @MainActor public static var current: OverlayMaterial {
-        select(liquidGlassAvailable: liquidGlassAvailable, reduceTransparency: ReduceTransparency.isEnabled)
+    @MainActor public static var current: OverlayMaterial { current(in: .shared) }
+
+    /// The material for this Mac under `reduceTransparency`.
+    @MainActor public static func current(in reduceTransparency: ReduceTransparency) -> OverlayMaterial {
+        select(liquidGlassAvailable: liquidGlassAvailable, reduceTransparency: reduceTransparency.isEnabled)
     }
 }
 
-/// The Reduce Transparency state every overlay surface reads, and the one
-/// observer that redraws live surfaces when it changes. Surfaces register
-/// themselves; nothing polls.
+/// The Reduce Transparency state overlay surfaces read, and the one
+/// observer that redraws the live surfaces when it changes. Surfaces
+/// register themselves; nothing polls. `shared` follows the system
+/// setting; tests inject the state through `override` or their own source.
 @MainActor
-public enum ReduceTransparency {
-    /// Pins the state (tests, Debug); nil follows the system setting.
-    /// Changing it redraws every live surface at once.
-    public static var override: Bool? {
+public final class ReduceTransparency {
+    /// This Mac's setting and its change notification.
+    public static let shared = ReduceTransparency(
+        system: { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
+        changes: NSWorkspace.shared.notificationCenter
+    )
+
+    /// Pins the state (tests, Debug); nil follows `system`. Changing it
+    /// redraws every live surface at once.
+    public var override: Bool? {
         didSet { if override != oldValue { refreshSurfaces() } }
     }
 
     /// Whether overlays draw opaque now.
-    public static var isEnabled: Bool {
-        override ?? NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+    public var isEnabled: Bool { override ?? system() }
+
+    private let system: @MainActor () -> Bool
+    private let changes: NotificationCenter
+    private let surfaces = NSHashTable<OverlaySurfaceView>.weakObjects()
+    private var observer: (any NSObjectProtocol)?
+
+    /// `system` reads the setting; `changes` posts
+    /// `NSWorkspace.accessibilityDisplayOptionsDidChangeNotification` when
+    /// it may have changed.
+    public init(system: @escaping @MainActor () -> Bool, changes: NotificationCenter) {
+        self.system = system
+        self.changes = changes
     }
 
-    private static let surfaces = NSHashTable<OverlaySurfaceView>.weakObjects()
-    private static var observer: (any NSObjectProtocol)?
-
     /// Makes `surface` follow this state until it is deallocated.
-    static func register(_ surface: OverlaySurfaceView) {
+    func register(_ surface: OverlaySurfaceView) {
         surfaces.add(surface)
         guard observer == nil else { return }
-        observer = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
-        ) { _ in
-            MainActor.assumeIsolated { refreshSurfaces() }
+        observer = changes.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: nil
+        ) { [weak self] _ in
+            // Posted on the main thread (NSWorkspace does); delivered inline.
+            MainActor.assumeIsolated { self?.refreshSurfaces() }
         }
     }
 
-    private static func refreshSurfaces() {
+    private func refreshSurfaces() {
         for surface in surfaces.allObjects { surface.refreshMaterial() }
     }
 }

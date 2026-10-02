@@ -18,6 +18,7 @@ public final class OverlaySurfaceView: NSView {
     public let isInteractive: Bool
     private var materialView: NSView?
     private var tintView: NSView?
+    private let reduceTransparency: ReduceTransparency
     /// Pins one material (tests, `debug.drop_highlight`); nil follows this Mac.
     public var materialOverride: OverlayMaterial? {
         didSet { refreshMaterial() }
@@ -27,19 +28,22 @@ public final class OverlaySurfaceView: NSView {
         didSet { if cornerRadius != oldValue { applyShape() } }
     }
 
-    /// `material` pins one material (tests, previews); nil follows this Mac.
+    /// `material` pins one material (tests, previews); nil follows
+    /// `reduceTransparency` on this Mac.
     public init(material: OverlayMaterial? = nil, interactive: Bool = false,
-                cornerRadius: CGFloat = Metrics.panelCornerRadius) {
+                cornerRadius: CGFloat = Metrics.panelCornerRadius,
+                reduceTransparency: ReduceTransparency = .shared) {
         materialOverride = material
         isInteractive = interactive
         self.cornerRadius = cornerRadius
-        self.material = material ?? OverlayMaterial.current
+        self.reduceTransparency = reduceTransparency
+        self.material = material ?? OverlayMaterial.current(in: reduceTransparency)
         super.init(frame: .zero)
         wantsLayer = true
         contentView.translatesAutoresizingMaskIntoConstraints = true
         contentView.autoresizingMask = [.width, .height]
         rebuild()
-        ReduceTransparency.register(self)
+        reduceTransparency.register(self)
     }
 
     @available(*, unavailable)
@@ -65,7 +69,7 @@ public final class OverlaySurfaceView: NSView {
 
     /// Re-reads the material from this Mac's settings (Reduce Transparency).
     public func refreshMaterial() {
-        let next = materialOverride ?? OverlayMaterial.current
+        let next = materialOverride ?? OverlayMaterial.current(in: reduceTransparency)
         guard next != material else { return }
         material = next
         rebuild()

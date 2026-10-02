@@ -5,7 +5,7 @@ import Testing
 /// Under Reduce Transparency every floating overlay (palette, hover card,
 /// find and prompt bars, drop overlay) is opaque: the window background
 /// moved 14% toward the primary text (design tokens, materials.overlay).
-/// The state is injected through `ReduceTransparency.override`; the system
+/// The state is injected through `ReduceTransparency.shared.override`; the system
 /// setting is never touched.
 @MainActor @Suite struct OverlayReduceTransparencyTests {
     /// mix(window, textPrimary, 0.14), written out so the test does not reuse
@@ -46,8 +46,8 @@ import Testing
     }
 
     @Test func eachThemeDrawsItsFallbackOnTheSurface() throws {
-        ReduceTransparency.override = true
-        defer { ReduceTransparency.override = nil }
+        ReduceTransparency.shared.override = true
+        defer { ReduceTransparency.shared.override = nil }
         for (name, input) in ThemeFixtures.all {
             let room = ThemeScope(level: .room)
             room.setOverride(ThemeSpec("Overlay \(name)")!, input: input, animated: false)
@@ -62,8 +62,8 @@ import Testing
     }
 
     @Test func aThemeChangeRecolorsTheFallbackLive() throws {
-        ReduceTransparency.override = true
-        defer { ReduceTransparency.override = nil }
+        ReduceTransparency.shared.override = true
+        defer { ReduceTransparency.shared.override = nil }
         let room = ThemeScope(level: .room)
         room.setOverride(ThemeSpec("Gruvbox Dark")!, input: ThemeFixtures.gruvboxDark, animated: false)
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
@@ -78,28 +78,45 @@ import Testing
     }
 
     @Test func theSettingSwitchesLiveSurfacesBothWays() {
-        ReduceTransparency.override = false
-        defer { ReduceTransparency.override = nil }
+        ReduceTransparency.shared.override = false
+        defer { ReduceTransparency.shared.override = nil }
         let surface = Glass.makeOverlayPanel()
         let label = NSTextField(labelWithString: "Find")
         surface.contentView.addSubview(label)
         #expect(surface.material == .liquidGlass)
         #expect(surface.materialDrawingView is NSGlassEffectView)
-        ReduceTransparency.override = true
+        ReduceTransparency.shared.override = true
         #expect(surface.material == .opaque)
         #expect(!(surface.materialDrawingView is NSGlassEffectView))
         #expect(label.superview === surface.contentView && surface.contentView.isDescendant(of: surface))
-        ReduceTransparency.override = false
+        ReduceTransparency.shared.override = false
         #expect(surface.material == .liquidGlass)
         #expect(surface.materialDrawingView is NSGlassEffectView)
     }
 
+    /// The system path: the accessibility change notification redraws the
+    /// surfaces of that source, read from its injected setting.
+    @Test func theAccessibilityNotificationSwitchesTheSurfaces() {
+        var system = false
+        let changes = NotificationCenter()
+        let source = ReduceTransparency(system: { system }, changes: changes)
+        let surface = OverlaySurfaceView(interactive: true, reduceTransparency: source)
+        #expect(surface.material == .liquidGlass)
+        system = true
+        #expect(surface.material == .liquidGlass, "nothing changes before the notification")
+        changes.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        #expect(surface.material == .opaque)
+        system = false
+        changes.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        #expect(surface.material == .liquidGlass)
+    }
+
     /// A pinned material (drop highlight debug) ignores the setting.
     @Test func aPinnedMaterialIgnoresTheSetting() {
-        ReduceTransparency.override = false
-        defer { ReduceTransparency.override = nil }
+        ReduceTransparency.shared.override = false
+        defer { ReduceTransparency.shared.override = nil }
         let surface = OverlaySurfaceView(material: .liquidGlass)
-        ReduceTransparency.override = true
+        ReduceTransparency.shared.override = true
         #expect(surface.material == .liquidGlass)
     }
 
@@ -135,13 +152,13 @@ import Testing
     }
 
     @Test func theHoverCardResolvesThroughTheOverlaySurface() {
-        ReduceTransparency.override = true
-        defer { ReduceTransparency.override = nil }
+        ReduceTransparency.shared.override = true
+        defer { ReduceTransparency.shared.override = nil }
         let card = HoverCardPanel()
         #expect(card.contentView === card.glass)
         #expect(card.glass.material == .opaque)
         #expect(!(card.glass.materialDrawingView is NSGlassEffectView))
-        ReduceTransparency.override = false
+        ReduceTransparency.shared.override = false
         #expect(card.glass.material == .liquidGlass)
     }
 }
