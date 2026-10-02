@@ -5,7 +5,7 @@ import Testing
 /// (`resource_router/state.rs`), so a retried request replays by its key.
 @Suite struct ScreenGroupStateOperationTests {
     @Test func operationsUseTheDaemonsWireNamesAndParams() {
-        typealias Op = DaemonConnection.ScreenGroupOperation
+        typealias Op = ScreenGroupStateClient.Operation
         let create = Op.create(screens: ["scr_a", "scr_b"], name: "Agents", color: "green")
         #expect(create.name == "screen_group.create")
         #expect(create.params == ["screens": .array([.string("scr_a"), .string("scr_b")]), "name": .string("Agents"), "color": .string("green")])

@@ -5,10 +5,17 @@ import Foundation
 /// replays the stored result instead of applying twice, and the daemon
 /// commits it on the same path as the raw `screen-groups-v1` commands
 /// (cmux-tui `mux/state_screens.rs`). Screens and groups are named by their
-/// public ids (`ScreenModel.id`, `ScreenGroupID`).
-extension DaemonConnection {
+/// public ids (`ScreenModel.id`, `ScreenGroupID`). Its own type, not a
+/// `DaemonConnection` extension (that type's line budget is frozen).
+public struct ScreenGroupStateClient: Sendable {
+    public let connection: DaemonConnection
+
+    public init(connection: DaemonConnection) {
+        self.connection = connection
+    }
+
     /// A `screen_group.*` mutation the app sends.
-    public enum ScreenGroupOperation: Sendable, Equatable {
+    public enum Operation: Sendable, Equatable {
         case create(screens: [String], name: String?, color: String?)
         case addScreens(group: String, screens: [String])
         case removeScreens([String])
@@ -54,9 +61,9 @@ extension DaemonConnection {
     /// Sends `operation` with `idempotencyKey` (1 to 128 bytes). Returns
     /// whether the daemon replayed an earlier result for the same key.
     @discardableResult
-    public func screenGroupState(_ operation: ScreenGroupOperation, idempotencyKey: String) async throws -> Bool {
+    public func send(_ operation: Operation, idempotencyKey: String) async throws -> Bool {
         let name = operation.name, params = operation.params
-        let result = try await resourceRequest({ id in
+        let result = try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: name, params: params, idempotencyKey: idempotencyKey)
         }, as: ResourceMutationResult<JSONValue>.self)
         return result.replayed ?? false

@@ -24,7 +24,7 @@ enum ScreenGroupCommands {
     static func add(_ screens: [ScreenModel], to group: ScreenGroupID, index: Int? = nil, daemon: DaemonService) {
         let handles = screens.map(\.handle)
         // The v2 operation has no index: a placed add stays on the raw command.
-        let state: DaemonConnection.ScreenGroupOperation? = index == nil ? .addScreens(group: group.rawValue, screens: screens.map(\.id)) : nil
+        let state: ScreenGroupStateClient.Operation? = index == nil ? .addScreens(group: group.rawValue, screens: screens.map(\.id)) : nil
         change("add-screens-to-screen-group", state, daemon: daemon) { _ = try await $0.addScreens(handles, toGroup: group, index: index) }
     }
 
@@ -94,11 +94,11 @@ enum ScreenGroupCommands {
     /// Sends one screen group change: the v2 state operation `state` with a
     /// fresh idempotency key when the daemon serves `state-resources-v1`,
     /// else the raw command `raw`.
-    static func change(_ label: String, _ state: DaemonConnection.ScreenGroupOperation?, daemon: DaemonService,
+    static func change(_ label: String, _ state: ScreenGroupStateClient.Operation?, daemon: DaemonService,
                        raw: @escaping @Sendable (DaemonConnection) async throws -> Void) {
         guard let state, daemon.supports(DaemonCapabilities.shared.stateResources) else { return daemon.send(label, raw) }
         let key = idempotencyKey(label)
-        daemon.send(label) { _ = try await $0.screenGroupState(state, idempotencyKey: key) }
+        daemon.send(label) { _ = try await ScreenGroupStateClient(connection: $0).send(state, idempotencyKey: key) }
     }
 
     /// `cmux-next-<label>-<uuid>`: unique per user intent, under 128 bytes.
