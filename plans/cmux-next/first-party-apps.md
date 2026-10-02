@@ -201,12 +201,30 @@ The inbox is a view; the feed owner (lane 9) owns items, read state, done, snooz
 - Integration work items (review requests, failing checks) are posted by the integration side or an app server, never polled by a view.
 - Scopes: `feed:read`, `feed:write` (mark, snooze), `feed:respond` (restricted, origin user).
 
-## 10. App manifest needs for persistent app servers (N13, lane 10)
+## 10. App servers and native panes (N13; coordinator decision 2026-10-02)
 
-- A `server` block: entry module, runtime target (cloud per-user or per-team Durable Object, team VM, own machine), version locked to the client bundle's version, and the API version it implements.
-- Triggers: schedules, integration events and webhooks, feed events; no polling.
-- Server scopes declared separately from client scopes (the server is its own principal `app:<id>/server` on behalf of the installing user or team), with its own egress `net:` hosts and `integration:` grants; secrets only through connections, never in env.
-- Storage owned by the server (per user or per team) with quota, plus the client's synced KV.
-- A typed RPC between the app's client and its server (`cmux.app.server.call`), and server-originated events to clients.
-- Posting into the feed (`feed:post` scope) as the main way a server reaches the user.
-- Billing and limits per tier (CPU time, requests, storage), visible in Settings > Apps.
+Shape (decided, first example Tasks in plans/cmux-next/tasks.md section 13): `server: {kind: "native", binary, args, catalog, hosts: ["team-vm", "cmux-server", "local"], data: "durable"}`; exactly one host per team runs an app's server (single writer); catalog entries are owned by `app:<id>` and `owner_for` routes them to that host; `contributes.paneKinds[].renderer = "native"` for first-party and Verified apps only. The inbox stays a view on the feed and has no server.
+
+### 10.1 The first-party apps on this shape
+
+| App | Server | Catalog entries (owner) | Native pane | Why |
+| --- | --- | --- | --- | --- |
+| search | none in phase 1 | none of its own: `terminal.search` and `fs.search` (session host), `browser.history.search` (history store), `search.providers.query` (app supervisor) | no (scene pane) | the data lives on each machine and already has owners; a per-machine indexer (`cmux-search serve`) comes only if `terminal.search` is too slow, and needs per-machine instances (10.2) |
+| notes | `{kind: "native", binary: "cmux-notes", args: ["serve"], catalog: "catalog/notes-catalog.json", hosts: ["cmux-server", "team-vm", "local"], data: "durable"}` | `note.list/get/create/update/append/delete/pin/search`, event `note.changed` (owner `app:cmux/notes`); MCP group `note` | yes: the editor (`renderer: "native"`, NSTextView with markdown-lite); list and section stay scene trees | personal documents need one writer, revisions and sync; replaces the generic document store D5 for notes |
+| coderouter | none (the server is the existing CodeRouter control plane) | `coderouter.*` owned by `cloud:coderouter` (status, accounts, keys, usage, route), `coderouter.detect` and the secret handle ops (`ui.secret.reveal`, `clipboard.writeSecret`) owned by the client | no | the control plane already exists and is shared; the app needs a catalog without a server (10.2) |
+| usage | `{kind: "native", binary: "cmux-usage", args: ["serve"], catalog: "catalog/usage-catalog.json", hosts: ["local"], data: "cache"}` | `usage.get`, `usage.refresh`, event `usage.changed` (owner `app:cmux/usage` on each machine) | no | provider credentials stay on the user's Mac; the server reads them, fetches with backoff, stops while no subscriber is visible, and returns numbers only |
+
+### 10.2 Fields the shape lacks
+
+- **Tenancy.** "One host per team" fits team data (Tasks). Notes are per user and usage is per machine. Proposal: `server.instances: "team" | "user" | "machine"` (default `team`); `user` runs one writer per user (on the user's cmux server, else their primary Mac), `machine` runs one per enrolled machine that has the app.
+- **Catalog-only apps.** search and coderouter own no server but declare or depend on catalog entries owned elsewhere. Proposal: top-level `catalog` without `server`, and `requires: ["terminal.search", ...]` so the store hides the app where the owner op is missing.
+- **Data classes.** `data: "durable"` only. usage needs `cache` (lossy, never synced, deleted on uninstall); notes needs `durable` plus sync to the user's devices. Proposal: `data: "durable" | "cache" | "none"`, `sync: "none" | "user" | "team"`.
+- **Server principal and scopes.** The server needs its own principal (`app:<id>/server` on behalf of the user or team) and its own scopes (egress hosts, integrations, local files such as provider credential paths for usage). Proposal: `server.scopes` with reasons, shown in consent next to the client scopes; local file reads of the server are listed paths (`fs:read:~/.codex/auth.json`), which the OS sandbox of the server process enforces.
+- **Lifecycle.** Start on demand vs always on, idle stop, resource limits per tier, logs, health. Proposal: `server.activation: "always" | "onDemand"`, `server.limits` capped by tier.
+- **Platform per binary.** A native binary needs a build per OS and architecture and its own signature; `binary` needs a map `{"macos-arm64": ..., "linux-x86_64": ...}` and an attestation per artifact (spec 9).
+- **Id grammar.** Tasks uses `dev.cmux.tasks`; the manifest id grammar is `<publisher>/<name>` (`cmux/tasks`). One of them must change; this proposal uses `cmux/<name>`.
+- **Who may use `server` and `renderer: native`.** A native binary or a native pane is third-party native code, which spec section 1 excludes. Proposal: first-party only for `server.kind = native` until a WASM or sandboxed-process server kind exists; Verified apps get `paneKinds.renderer = native` only as a reviewed web pane (no native code from Verified publishers).
+
+### 10.3 What native panes change for the gap list
+
+A native pane removes the editor gap (N1) for notes and the keyboard list gap (N5) for search panes, but only for first-party apps; the scene API still needs them for everyone else and for the sidebar sections. The prototypes keep their scene-tree panes so the public API stays proven; a native notes editor is the one exception recommended now.
