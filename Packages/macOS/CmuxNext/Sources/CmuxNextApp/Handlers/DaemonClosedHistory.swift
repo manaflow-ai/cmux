@@ -61,8 +61,7 @@ enum DaemonClosedHistory {
                 return "closed.reopen: \(error)"
             }
             if item.kind == .tab, let tab = reopened.tabIDs.first, let pane, let controller = services.paneController(for: pane) {
-                controller.pendingSelectTab = tab.rawValue
-                controller.apply(controller.snapshot())
+                controller.selectWhenReported(tab: tab.rawValue)
                 return nil
             }
             await daemon.store.applied(through: await connection.eventSequence())
@@ -86,8 +85,7 @@ enum DaemonClosedHistory {
             guard let tab = reopened.tabIDs.first,
                   let pane = workspace.screens.flatMap(\.panes).first(where: { $0.tabs.contains { $0.resourceID == tab } }),
                   let controller = services.paneController(for: pane) else { return }
-            controller.pendingSelectTab = tab.rawValue
-            controller.apply(controller.snapshot())
+            controller.selectWhenReported(tab: tab.rawValue)
         case .workspace:
             break
         }

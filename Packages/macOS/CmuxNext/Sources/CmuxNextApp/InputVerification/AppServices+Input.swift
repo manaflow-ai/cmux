@@ -83,6 +83,9 @@ extension AppServices {
                 journal.append(window: window, .focus(event, after: FocusDigest(next)))
             case .suppressedResponder(let responder):
                 journal.append(window: window, .responder(responder, suppressed: true))
+            case .refusedByRun:
+                // Nothing changed: the run had no view-change permission.
+                break
             }
         }
     }

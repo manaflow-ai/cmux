@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextBridge
@@ -276,8 +277,10 @@ final class WindowManager {
 
     /// Runs `body` once `controller` next shows a workspace, if that is
     /// `workspaceID`.
+    /// `body` keeps the view-change permission of the run that called this.
     func afterNextContent(in controller: WindowController, showing workspaceID: String, _ body: @escaping () -> Void) {
-        contentWaiters[controller.state.id, default: []].append((workspaceID, body))
+        let run = ActionRunScope.current
+        contentWaiters[controller.state.id, default: []].append((workspaceID, { ViewChangePolicy.carrying(run, body) }))
     }
 
     /// The window installed its first workspace content: a window kept off
@@ -306,7 +309,9 @@ final class WindowManager {
 
     /// Brings a window forward (not key and no activation under
     /// `CMUX_NEXT_NO_ACTIVATE=1`).
+    /// An action run without view-change permission brings nothing forward.
     func bringToFront(_ controller: WindowController) {
+        guard ViewChangePolicy.allowed() else { return }
         if awaitingContent[controller.state.id] != nil {
             awaitingContent[controller.state.id] = true
             return

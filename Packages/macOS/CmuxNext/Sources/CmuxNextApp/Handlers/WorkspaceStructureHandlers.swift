@@ -123,7 +123,7 @@ enum WorkspaceStructureHandlers {
         let rest = Array(pane.tabs.dropFirst())
         let services = context.services
         // Read before the await: whether this run may change the view.
-        let allowed = services.viewChangeAllowed
+        let allowed = ViewChangePolicy.allowed()
         services.registry.track(Task {
             guard let key = await TabMoves.toNewWorkspace(first, services: services) else { return "move-tab-to-new-workspace failed (see the app log)" }
             guard let workspace, let state = services.windows.registry.value.owner(of: workspace.id).flatMap({ services.windows.states[$0] })

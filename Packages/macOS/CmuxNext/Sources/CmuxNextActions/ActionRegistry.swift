@@ -298,11 +298,7 @@ public final class ActionRegistry {
             return true
         }
         if needsConfirmation(id, invocation) { return gateDestructive(id, invocation) }
-        if let invocationScope {
-            invocationScope(invocation) { action.run(invocation) }
-        } else {
-            action.run(invocation)
-        }
+        runScoped(action, id, invocation)
         return true
     }
 

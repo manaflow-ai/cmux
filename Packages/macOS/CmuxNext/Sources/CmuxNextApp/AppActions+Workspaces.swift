@@ -39,10 +39,11 @@ extension AppActions {
     }
 
     /// New workspace with one terminal (`WorkspaceSpawn` arguments), shown
-    /// in the active window unless `focus` is false (the CLI's default).
+    /// in the active window when the run may change the view (the user's,
+    /// or `focus: true`) and `focus` is not false.
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         let spawn = WorkspaceSpawn(invocation)
-        let show = invocation["focus"]?.boolValue ?? true
+        let show = (invocation["focus"]?.boolValue ?? true) && ViewChangePolicy.allowed()
         let windows = services.windows!
         // Shown: the active window, or a new one when none is open. Not
         // shown (the CLI default): the most recent window lists it, or a new

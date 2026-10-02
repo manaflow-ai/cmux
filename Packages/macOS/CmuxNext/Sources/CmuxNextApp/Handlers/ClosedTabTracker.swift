@@ -173,8 +173,7 @@ final class ClosedTabTracker {
                 if let terminal = record.terminalResourceID, let path {
                     do {
                         let tab = try await restorer.project(ResourceID(rawValue: terminal), path, record.index)
-                        controller?.pendingSelectTab = tab.rawValue
-                        controller.map { $0.apply($0.snapshot()) }
+                        controller?.selectWhenReported(tab: tab.rawValue)
                         return nil
                     } catch {
                         // Ended (reaped, exited, or closed): start a new shell there.
@@ -183,8 +182,7 @@ final class ClosedTabTracker {
                 }
                 do {
                     let surface = try await restorer.spawn(spawn)
-                    controller?.pendingSelectSurface = surface
-                    controller.map { $0.apply($0.snapshot()) }
+                    controller?.selectWhenReported(surface: surface)
                     controller?.workspace?.expectFocus(on: surface)
                     return nil
                 } catch {

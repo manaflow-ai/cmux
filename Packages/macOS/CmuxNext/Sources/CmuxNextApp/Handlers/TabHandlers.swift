@@ -97,6 +97,9 @@ enum TabHandlers {
     /// focuses its pane. Selection is the window's (state-ownership.md 3);
     /// the change is saved in the window's record at once.
     static func reveal(tabID: String, ctx: AppActionContext) {
+        // tab.focus and Go to Tab focus by purpose (`focuses`); any other
+        // caller only with the run's view-change permission.
+        guard ViewChangePolicy.allowed() else { return }
         guard let (tab, paneModel) = ctx.services.locateTab(tabID) ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
         let owner = ctx.services.machines.allWorkspaces.first { workspace, _ in
             workspace.screens.contains { $0.panes.contains { $0 === paneModel } }
