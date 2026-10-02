@@ -122,6 +122,32 @@ import Testing
         store.apply(.message(backend.makeMessage(seq: 6, sender: "lc"), eventSeq: 10))
         #expect(store.typingParticipantIDs == ["aw"])
     }
+
+    @Test func typingStopFollowedByTheMessageReplacesTheIndicatorInOneChange() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        store.apply(.typing(participantID: "lc", isTyping: true))
+        var changes: [ConversationStoreChange] = []
+        store.addObserver { changes.append($0) }
+        // Services clear typing just before the message itself is delivered.
+        store.apply(.typing(participantID: "lc", isTyping: false))
+        store.apply(.message(backend.makeMessage(seq: 6, sender: "lc"), eventSeq: 10))
+        #expect(store.typingParticipantIDs.isEmpty)
+        #expect(changes.contains(.typing) == false)
+        #expect(changes.count == 1)
+    }
+
+    @Test func typingStopWithoutAMessageStillClears() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30, clock: ImmediateClock())
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        store.apply(.typing(participantID: "lc", isTyping: true))
+        store.apply(.typing(participantID: "lc", isTyping: false))
+        try await waitUntil { store.typingParticipantIDs.isEmpty }
+    }
 }
 
 // MARK: - Test doubles
