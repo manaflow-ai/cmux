@@ -228,7 +228,6 @@ extension CMUXCLI {
         new-window
         focus-window --window <id>
         close-window --window <id>
-        resize-window --window <id> [--width <points>] [--height <points>]
         move-workspace-to-window --workspace <id|ref> --window <id|ref>
         reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
         reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
@@ -357,7 +356,6 @@ extension CMUXCLI {
         \(String(localized: "cli.browser.designMode.help", defaultValue: "browser design-mode enable|disable|toggle|status [--surface <id>]", bundle: .cmuxCLI))
         browser zoom in|out|reset|<factor> [--surface <id>]   (factor sets an absolute zoom, e.g. 0.8 = 80%)
         browser history clear --force   (clears the default profile's history; mirrors the View menu)
-        browser url|get-url
         browser snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
         browser eval <script>
         browser wait [--selector <css>] [--text <text>] [--url-contains <text>] [--load-state <interactive|complete>] [--function <js>] [--timeout-ms <ms>]
