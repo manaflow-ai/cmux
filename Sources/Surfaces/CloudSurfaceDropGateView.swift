@@ -116,7 +116,7 @@ final class CloudSurfaceDropGateView: NSView {
     ) -> Bool {
         guard let window,
               destination.window === window,
-              !destination.isHidden,
+              !destination.isHiddenOrHasHiddenAncestor,
               destination.alphaValue > 0,
               destination.registeredDraggedTypes.contains(where: { registered in
                   sender.draggingPasteboard.types?.contains { dragged in
