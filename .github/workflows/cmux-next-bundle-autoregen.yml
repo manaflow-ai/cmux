@@ -1,0 +1,180 @@
+name: Regenerate cmux-next generated web bundles
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened]
+    paths:
+      - Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html
+      - Resources/markdown-viewer/webviews-app/**
+      - scripts/cmux-next/build-agent-pane-web.sh
+      - scripts/cmux-next/regenerate-web-bundles.sh
+      - scripts/build-webviews-app.sh
+      - webviews/**
+  push:
+    branches: [feat-cmux-next]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  discover:
+    if: >-
+      ${{
+        github.event_name == 'push' ||
+        github.event.pull_request.head.repo.full_name == github.repository
+      }}
+    runs-on: ubuntu-24.04
+    outputs:
+      prs: ${{ steps.prs.outputs.prs }}
+    steps:
+      - name: Find same-repository pane PRs
+        id: prs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          import subprocess
+
+          event = os.environ["EVENT_NAME"]
+          repository = os.environ["REPOSITORY"]
+          if event == "pull_request":
+              if os.environ["PR_HEAD_REPO"] != repository:
+                  prs = []
+              else:
+                  prs = [{
+                      "number": int(os.environ["PR_NUMBER"]),
+                      "head_ref": os.environ["PR_HEAD_REF"],
+                      "merge_base": False,
+                  }]
+          else:
+              raw = subprocess.check_output([
+                  "gh", "api", "--paginate", "--slurp",
+                  f"repos/{repository}/pulls?state=open&base=feat-cmux-next&per_page=100",
+              ], text=True)
+              pages = json.loads(raw)
+              prs = []
+              for page in pages:
+                  for pr in page:
+                      head = pr.get("head") or {}
+                      head_repo = head.get("repo") or {}
+                      # GitHub reports dirty only after recomputing mergeability;
+                      # unknown is deliberately left for the next base push.
+                      if head_repo.get("full_name") != repository or pr.get("mergeable_state") != "dirty":
+                          continue
+                      prs.append({
+                          "number": pr["number"],
+                          "head_ref": head["ref"],
+                          "merge_base": True,
+                      })
+          print("prs=" + json.dumps(prs, separators=(",", ":")))
+          PY
+
+  regenerate:
+    needs: discover
+    if: needs.discover.outputs.prs != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        pr: ${{ fromJSON(needs.discover.outputs.prs) }}
+    concurrency:
+      group: cmux-next-bundle-regenerate-${{ matrix.pr.number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Mint repository write token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: read
+
+      - name: Checkout the pull request head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ github.repository }}
+          ref: refs/pull/${{ matrix.pr.number }}/head
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure generated-bundle merge driver
+        run: git config merge.cmux-generated-v1.driver true
+
+      - name: Merge the updated base for a base push
+        if: matrix.pr.merge_base
+        env:
+          PR_NUMBER: ${{ matrix.pr.number }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin feat-cmux-next
+          if git merge --no-edit --no-ff --no-commit origin/feat-cmux-next; then
+            git commit -m "chore: sync feat-cmux-next before regenerating web bundles"
+            exit 0
+          fi
+
+          mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+          generated_only=true
+          for path in "${conflicts[@]}"; do
+            case "$path" in
+              Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html|Resources/markdown-viewer/webviews-app/*) ;;
+              *) generated_only=false ;;
+            esac
+          done
+          if [ "$generated_only" != true ] || [ "${#conflicts[@]}" -eq 0 ]; then
+            echo "PR #$PR_NUMBER has a non-generated merge conflict; leaving it for its owner."
+            git merge --abort
+            exit 0
+          fi
+          git checkout --ours -- "${conflicts[@]}"
+          git add -- "${conflicts[@]}"
+          git commit -m "chore: sync feat-cmux-next before regenerating web bundles"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: cmux-next-bundles-bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Regenerate committed bundles
+        run: ./scripts/cmux-next/regenerate-web-bundles.sh
+
+      - name: Commit and push regenerated bundles
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_REF: ${{ matrix.pr.head_ref }}
+        run: |
+          set -euo pipefail
+          if git diff --cached --quiet; then
+            echo "Generated bundles are already current."
+            exit 0
+          fi
+          if git diff --cached --name-only | grep -Evq '^(Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index\.html|Resources/markdown-viewer/webviews-app/)'; then
+            echo "regenerate-web-bundles.sh changed a non-generated path" >&2
+            exit 1
+          fi
+          git config user.name "cmux generated bundle bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: regenerate cmux-next web bundles"
+          auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
+            push "https://github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$HEAD_REF"
