@@ -17,6 +17,7 @@ struct RowStrings {
     var retracted: String
     var sending: String
     var notDelivered: String
+    var retryHint = ""
     var read: String
     var delivered: String
     var today: String
@@ -52,6 +53,7 @@ struct RowStrings {
                                  notDelivered: HomeStrings.notDelivered, read: HomeStrings.read,
                                  delivered: HomeStrings.delivered, today: HomeStrings.today,
                                  yesterday: HomeStrings.yesterday)
+        strings.retryHint = HomeStrings.tapToRetry
         let labels = Dictionary(uniqueKeysWithValues: [HomeWorkStatus.running, .done, .failed, .waiting].map {
             ($0, HomeStrings.workStatus($0))
         })

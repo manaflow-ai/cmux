@@ -29,13 +29,17 @@ nonisolated enum TranscriptTiming: Equatable, Sendable {
     // motion-allow: fitted flight edge L, overshoot return
     static let flightLeftB = TranscriptTiming.spring(mass: 1, stiffness: 426.154, damping: 29.539, velocity: 0)
     /// Row insert scrolls (received, typing): the reference fits this Bezier better than a spring.
+    // motion-allow: fitted Bezier (springs.json reply_scroll bezier)
     static let received = TranscriptTiming.curve(duration: 0.257, x1: 0.226, y1: 0, x2: 0.667, y2: 1)
+    // motion-allow: fitted Bezier (springs.json typing_scroll bezier)
     static let grow = TranscriptTiming.curve(duration: 0.26, x1: 0.226, y1: 0, x2: 0.667, y2: 1)
+    // motion-allow: fitted Bezier (springs.json read_collapse_scroll bezier)
     static let receiptChange = TranscriptTiming.curve(duration: 0.248, x1: 0.226, y1: 0, x2: 0.667, y2: 1)
     static func fadeIn(_ seconds: Double) -> TranscriptTiming {
         .curve(duration: seconds, x1: 0.25, y1: 0.1, x2: 0.25, y2: 1)
     }
     /// The fill and text fade of the flying bubble.
+    // motion-allow: measured fade of the flying bubble (MessagesLab Scene flight fill/text)
     static let flightFade = TranscriptTiming.curve(duration: 0.2, x1: 0.42, y1: 0, x2: 0.58, y2: 1)
     /// How long the flying bubble exists; the row shows when it ends.
     static let flightDuration = 0.6

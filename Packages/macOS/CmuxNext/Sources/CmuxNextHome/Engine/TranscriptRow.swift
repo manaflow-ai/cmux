@@ -65,10 +65,3 @@ nonisolated struct TranscriptRow: Hashable, Sendable {
     /// What the drawing depends on (not `x`, not the gap): equal signatures reuse a raster.
     var drawSignature: DrawSignature { DrawSignature(kind: kind, width: width, height: height) }
 }
-
-/// The inputs of a row's drawing.
-nonisolated struct DrawSignature: Hashable, Sendable {
-    var kind: TranscriptRowKind
-    var width: CGFloat
-    var height: CGFloat
-}

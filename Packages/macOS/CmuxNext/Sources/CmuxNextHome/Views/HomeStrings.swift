@@ -19,8 +19,6 @@ enum HomeStrings {
         String(localized: "home.transcript.empty", defaultValue: "No conversation selected", bundle: .module)
     }
     static var retracted: String { String(localized: "home.row.retracted", defaultValue: "Message unsent", bundle: .module) }
-    static var edited: String { String(localized: "home.row.edited", defaultValue: "Edited", bundle: .module) }
-    static var sendButton: String { String(localized: "home.composer.send", defaultValue: "Send", bundle: .module) }
 
     static func workStatus(_ status: HomeWorkStatus) -> String {
         switch status {
@@ -31,10 +29,6 @@ enum HomeStrings {
         }
     }
 
-    /// "Ana is typing" for one name.
-    static func typing(_ name: String) -> String {
-        String(format: String(localized: "home.typing.one", defaultValue: "%@ is typing", bundle: .module), name)
-    }
 }
 
 /// Labels the App passes into the Home types (localized by this module).

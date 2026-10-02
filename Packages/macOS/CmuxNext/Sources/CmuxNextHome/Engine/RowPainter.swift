@@ -2,6 +2,13 @@ import CoreGraphics
 import CoreText
 import Foundation
 
+/// The inputs of a row's drawing.
+nonisolated struct DrawSignature: Hashable, Sendable {
+    var kind: TranscriptRowKind
+    var width: CGFloat
+    var height: CGFloat
+}
+
 /// Everything a row's drawing depends on: equal keys reuse a raster.
 nonisolated struct RasterKey: Hashable, Sendable {
     var row: DrawSignature

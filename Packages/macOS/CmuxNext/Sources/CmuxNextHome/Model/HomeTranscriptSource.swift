@@ -57,14 +57,3 @@ public protocol HomeTranscriptSource: AnyObject {
     /// Calls `handler` for every change until the observation ends.
     func observe(_ handler: @escaping @MainActor (HomeTranscriptChange) -> Void) -> HomeObservation
 }
-
-/// What the Home UI asks the App to do. Every call is an intent; results come
-/// back through the transcript source and the view model.
-@MainActor
-public protocol HomeActions: AnyObject {
-    func send(text: String, replyTo: String?, in conversationID: String)
-    func selectConversation(_ conversationID: String)
-    func createConversation()
-    func markRead(seq: Int, in conversationID: String)
-    func retry(clientMsgID: String, in conversationID: String)
-}

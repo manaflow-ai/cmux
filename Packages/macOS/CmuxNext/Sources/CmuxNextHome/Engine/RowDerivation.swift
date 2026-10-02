@@ -108,7 +108,9 @@ enum RowDerivation {
 
     private static func receipt(for m: HomeMessage, holders: ReceiptHolders, context c: RowContext)
         -> (text: String, detail: String?, tone: LabelTone)? {
-        if case .failed = m.delivery { return (c.strings.notDelivered, nil, .danger) }
+        if case .failed = m.delivery {
+            return (c.strings.notDelivered, c.strings.retryHint.isEmpty ? nil : c.strings.retryHint, .danger)
+        }
         let key = m.rowKey
         if key == holders.read { return (c.strings.read, nil, .secondary) }
         if key == holders.delivered { return (c.strings.delivered, nil, .secondary) }
