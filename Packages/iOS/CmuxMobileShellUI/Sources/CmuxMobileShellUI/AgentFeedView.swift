@@ -23,6 +23,7 @@ struct AgentFeedView: View {
     var searchText: String = ""
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State private var filter: AgentFeedFilter = .all
+    @State private var rowModelCache: AgentFeedRowModelCache
     @State private var preparedRows: [AgentFeedRowModel]
     @State private var now = Date()
     @State private var composeContext: AgentFeedComposeContext?
@@ -48,7 +49,10 @@ struct AgentFeedView: View {
         self.isActive = isActive
         self.actions = actions
         self.searchText = searchText
-        _preparedRows = State(initialValue: items.map(AgentFeedRowModel.init))
+        var rowModelCache = AgentFeedRowModelCache()
+        let preparedRows = rowModelCache.update(items: items)
+        _rowModelCache = State(initialValue: rowModelCache)
+        _preparedRows = State(initialValue: preparedRows)
     }
 
     /// Row actions with the composer hook bound to this view's sheet state.
@@ -154,7 +158,7 @@ struct AgentFeedView: View {
             await actions.refresh()
         }
         .onChange(of: items) { _, newItems in
-            preparedRows = newItems.map(AgentFeedRowModel.init)
+            preparedRows = rowModelCache.update(items: newItems)
         }
     }
 

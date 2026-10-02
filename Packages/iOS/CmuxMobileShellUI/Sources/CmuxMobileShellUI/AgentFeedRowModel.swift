@@ -33,6 +33,40 @@ struct AgentFeedRowModel: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Reuses derived row presentations when a refreshed snapshot keeps the same
+/// item value. Feed snapshots are full retained histories, so rebuilding every
+/// presentation for one new event makes the main actor do work proportional to
+/// the entire history.
+struct AgentFeedRowModelCache: Sendable {
+    private var modelsByID: [MobileAgentFeedItemID: AgentFeedRowModel] = [:]
+    private(set) var lastRebuiltCount = 0
+
+    mutating func update(items: [MobileAgentFeedItem]) -> [AgentFeedRowModel] {
+        var nextModelsByID: [MobileAgentFeedItemID: AgentFeedRowModel] = [:]
+        nextModelsByID.reserveCapacity(items.count)
+
+        var models: [AgentFeedRowModel] = []
+        models.reserveCapacity(items.count)
+        var rebuiltCount = 0
+
+        for item in items {
+            let model: AgentFeedRowModel
+            if let cached = modelsByID[item.id], cached.item == item {
+                model = cached
+            } else {
+                model = AgentFeedRowModel(item: item)
+                rebuiltCount += 1
+            }
+            models.append(model)
+            nextModelsByID[item.id] = model
+        }
+
+        modelsByID = nextModelsByID
+        lastRebuiltCount = rebuiltCount
+        return models
+    }
+}
+
 /// The precomputed strings of one X-style Feed row: author line, headline,
 /// inline output, tool line, and the resolved-decision label.
 struct AgentFeedRowPresentation: Equatable, Sendable {
